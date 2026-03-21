@@ -1,0 +1,204 @@
+// ============================================
+// Aniston HRMS — Shared Enums
+// ============================================
+
+export enum Role {
+  SUPER_ADMIN = 'SUPER_ADMIN',
+  ADMIN = 'ADMIN',
+  HR = 'HR',
+  MANAGER = 'MANAGER',
+  EMPLOYEE = 'EMPLOYEE',
+  GUEST_INTERVIEWER = 'GUEST_INTERVIEWER',
+}
+
+export enum UserStatus {
+  ACTIVE = 'ACTIVE',
+  INACTIVE = 'INACTIVE',
+  SUSPENDED = 'SUSPENDED',
+  PENDING_VERIFICATION = 'PENDING_VERIFICATION',
+}
+
+export enum Gender {
+  MALE = 'MALE',
+  FEMALE = 'FEMALE',
+  OTHER = 'OTHER',
+  PREFER_NOT_TO_SAY = 'PREFER_NOT_TO_SAY',
+}
+
+export enum EmployeeStatus {
+  ACTIVE = 'ACTIVE',
+  PROBATION = 'PROBATION',
+  NOTICE_PERIOD = 'NOTICE_PERIOD',
+  INACTIVE = 'INACTIVE',
+  TERMINATED = 'TERMINATED',
+  ABSCONDED = 'ABSCONDED',
+}
+
+export enum WorkMode {
+  OFFICE = 'OFFICE',
+  HYBRID = 'HYBRID',
+  FIELD_SALES = 'FIELD_SALES',
+  PROJECT_SITE = 'PROJECT_SITE',
+  REMOTE = 'REMOTE',
+}
+
+export enum AttendanceStatus {
+  PRESENT = 'PRESENT',
+  ABSENT = 'ABSENT',
+  HALF_DAY = 'HALF_DAY',
+  HOLIDAY = 'HOLIDAY',
+  WEEKEND = 'WEEKEND',
+  ON_LEAVE = 'ON_LEAVE',
+  WORK_FROM_HOME = 'WORK_FROM_HOME',
+}
+
+export enum AttendanceSource {
+  GEOFENCE_AUTO = 'GEOFENCE_AUTO',
+  MANUAL_APP = 'MANUAL_APP',
+  MANUAL_HR = 'MANUAL_HR',
+  QR_CODE = 'QR_CODE',
+  BIOMETRIC = 'BIOMETRIC',
+}
+
+export enum BreakType {
+  LUNCH = 'LUNCH',
+  SHORT = 'SHORT',
+  PRAYER = 'PRAYER',
+  CUSTOM = 'CUSTOM',
+}
+
+export enum LeaveRequestStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum DocumentType {
+  AADHAAR = 'AADHAAR',
+  PAN = 'PAN',
+  PASSPORT = 'PASSPORT',
+  VOTER_ID = 'VOTER_ID',
+  DRIVING_LICENSE = 'DRIVING_LICENSE',
+  DEGREE_CERTIFICATE = 'DEGREE_CERTIFICATE',
+  TENTH_CERTIFICATE = 'TENTH_CERTIFICATE',
+  TWELFTH_CERTIFICATE = 'TWELFTH_CERTIFICATE',
+  EXPERIENCE_LETTER = 'EXPERIENCE_LETTER',
+  OFFER_LETTER = 'OFFER_LETTER',
+  RELIEVING_LETTER = 'RELIEVING_LETTER',
+  BANK_STATEMENT = 'BANK_STATEMENT',
+  CANCELLED_CHEQUE = 'CANCELLED_CHEQUE',
+  SALARY_SLIP = 'SALARY_SLIP',
+  PHOTO = 'PHOTO',
+  SIGNATURE = 'SIGNATURE',
+  OTHER = 'OTHER',
+}
+
+export enum DocumentStatus {
+  PENDING = 'PENDING',
+  VERIFIED = 'VERIFIED',
+  REJECTED = 'REJECTED',
+  EXPIRED = 'EXPIRED',
+}
+
+export enum JobType {
+  FULL_TIME = 'FULL_TIME',
+  PART_TIME = 'PART_TIME',
+  CONTRACT = 'CONTRACT',
+  INTERNSHIP = 'INTERNSHIP',
+  RESEARCH = 'RESEARCH',
+}
+
+export enum JobStatus {
+  DRAFT = 'DRAFT',
+  OPEN = 'OPEN',
+  ON_HOLD = 'ON_HOLD',
+  CLOSED = 'CLOSED',
+}
+
+export enum ApplicationStatus {
+  APPLIED = 'APPLIED',
+  SCREENING = 'SCREENING',
+  ASSESSMENT = 'ASSESSMENT',
+  INTERVIEW_1 = 'INTERVIEW_1',
+  INTERVIEW_2 = 'INTERVIEW_2',
+  HR_ROUND = 'HR_ROUND',
+  FINAL_ROUND = 'FINAL_ROUND',
+  OFFER = 'OFFER',
+  OFFER_ACCEPTED = 'OFFER_ACCEPTED',
+  JOINED = 'JOINED',
+  REJECTED = 'REJECTED',
+  WITHDRAWN = 'WITHDRAWN',
+}
+
+export enum ApplicationSource {
+  PORTAL = 'PORTAL',
+  NAUKRI = 'NAUKRI',
+  LINKEDIN = 'LINKEDIN',
+  REFERENCE = 'REFERENCE',
+  CAMPUS = 'CAMPUS',
+  WALK_IN = 'WALK_IN',
+}
+
+export enum OfferStatus {
+  DRAFT = 'DRAFT',
+  SENT = 'SENT',
+  ACCEPTED = 'ACCEPTED',
+  REJECTED = 'REJECTED',
+  NEGOTIATING = 'NEGOTIATING',
+  EXPIRED = 'EXPIRED',
+}
+
+export enum PayrollRunStatus {
+  DRAFT = 'DRAFT',
+  PROCESSING = 'PROCESSING',
+  COMPLETED = 'COMPLETED',
+  LOCKED = 'LOCKED',
+}
+
+export enum TaxRegime {
+  OLD_REGIME = 'OLD_REGIME',
+  NEW_REGIME = 'NEW_REGIME',
+}
+
+export enum PoliceVerificationStatus {
+  PENDING = 'PENDING',
+  INITIATED = 'INITIATED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+}
+
+export enum AssetCategory {
+  LAPTOP = 'LAPTOP',
+  MOBILE = 'MOBILE',
+  SIM_CARD = 'SIM_CARD',
+  ACCESS_CARD = 'ACCESS_CARD',
+  VISITING_CARD = 'VISITING_CARD',
+  MONITOR = 'MONITOR',
+  OTHER = 'OTHER',
+}
+
+export enum AssetStatus {
+  AVAILABLE = 'AVAILABLE',
+  ASSIGNED = 'ASSIGNED',
+  MAINTENANCE = 'MAINTENANCE',
+  RETIRED = 'RETIRED',
+}
+
+export enum PolicyCategory {
+  HR_GENERAL = 'HR_GENERAL',
+  LEAVE = 'LEAVE',
+  HYBRID = 'HYBRID',
+  WORK_MANAGEMENT = 'WORK_MANAGEMENT',
+  ESCALATION = 'ESCALATION',
+  IT = 'IT',
+  CODE_OF_CONDUCT = 'CODE_OF_CONDUCT',
+  HEALTH_SAFETY = 'HEALTH_SAFETY',
+}
+
+export enum GeofenceType {
+  OFFICE = 'OFFICE',
+  CLIENT_SITE = 'CLIENT_SITE',
+  RESTRICTED = 'RESTRICTED',
+}

@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
+
+# Prisma
+prisma/migrations/**/migration_lock.toml
+
+# Docker
+docker/data/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+ai-service/.venv/
+
+# Uploads
+uploads/
+temp/

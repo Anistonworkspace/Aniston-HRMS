@@ -1,0 +1,123 @@
+import { useNavigate } from 'react-router-dom';
+import { Bell, Search, LogOut, User, Settings, ChevronDown } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { useState, useRef, useEffect } from 'react';
+import { useAppSelector, useAppDispatch } from '../../app/store';
+import { logout } from '../../features/auth/authSlice';
+import { useLogoutMutation } from '../../features/auth/authApi';
+import { getInitials } from '../../lib/utils';
+import toast from 'react-hot-toast';
+
+export default function Topbar() {
+  const user = useAppSelector((state) => state.auth.user);
+  const dispatch = useAppDispatch();
+  const navigate = useNavigate();
+  const [logoutApi] = useLogoutMutation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await logoutApi().unwrap();
+    } catch {
+      // Logout anyway
+    }
+    dispatch(logout());
+    toast.success('Logged out');
+    navigate('/login');
+  };
+
+  return (
+    <header className="h-16 bg-white border-b border-gray-100 flex items-center justify-between px-4 md:px-6 sticky top-0 z-30">
+      {/* Left: Search */}
+      <div className="flex items-center gap-4 flex-1">
+        <div className="relative max-w-md w-full hidden sm:block">
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search employees, actions..."
+            className="w-full pl-10 pr-4 py-2 bg-surface-2 border-0 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 transition-all placeholder:text-gray-400"
+          />
+          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 bg-white px-1.5 py-0.5 rounded border border-gray-200 hidden md:inline">
+            ⌘K
+          </kbd>
+        </div>
+      </div>
+
+      {/* Right: Notifications + Avatar */}
+      <div className="flex items-center gap-3">
+        {/* Notification bell */}
+        <button className="relative p-2 rounded-lg hover:bg-surface-2 transition-colors">
+          <Bell size={20} className="text-gray-500" />
+          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
+        </button>
+
+        {/* User dropdown */}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-lg hover:bg-surface-2 transition-colors"
+          >
+            <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white text-sm font-semibold">
+              {getInitials(user?.firstName, user?.lastName)}
+            </div>
+            <div className="hidden md:block text-left">
+              <p className="text-sm font-medium text-gray-800 leading-tight">
+                {user?.firstName} {user?.lastName}
+              </p>
+              <p className="text-xs text-gray-400 leading-tight">{user?.role?.replace('_', ' ')}</p>
+            </div>
+            <ChevronDown size={14} className="text-gray-400 hidden md:block" />
+          </button>
+
+          {/* Dropdown menu */}
+          {menuOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -5, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -5 }}
+              transition={{ duration: 0.15 }}
+              className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-layer-lg border border-gray-100 py-1.5 z-50"
+            >
+              <div className="px-4 py-2.5 border-b border-gray-50">
+                <p className="text-sm font-medium text-gray-800">
+                  {user?.firstName} {user?.lastName}
+                </p>
+                <p className="text-xs text-gray-400">{user?.email}</p>
+              </div>
+              <button
+                onClick={() => { setMenuOpen(false); navigate('/profile'); }}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-surface-2 transition-colors"
+              >
+                <User size={16} /> Profile
+              </button>
+              <button
+                onClick={() => { setMenuOpen(false); navigate('/settings'); }}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-surface-2 transition-colors"
+              >
+                <Settings size={16} /> Settings
+              </button>
+              <div className="border-t border-gray-50 my-1" />
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <LogOut size={16} /> Sign Out
+              </button>
+            </motion.div>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}

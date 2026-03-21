@@ -1,0 +1,864 @@
+// ============================================
+// Aniston HRMS — Prisma Schema
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================
+// CORE MODELS
+// =====================
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  logo      String?
+  timezone  String   @default("Asia/Kolkata")
+  fiscalYear String  @default("APRIL_MARCH")
+  currency  String   @default("INR")
+  address   Json?
+  settings  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users        User[]
+  employees    Employee[]
+  departments  Department[]
+  designations Designation[]
+  officeLocations OfficeLocation[]
+  holidays     Holiday[]
+  leaveTypes   LeaveType[]
+  auditLogs    AuditLog[]
+  geofences    Geofence[]
+}
+
+model User {
+  id             String     @id @default(uuid())
+  email          String     @unique
+  passwordHash   String
+  role           Role       @default(EMPLOYEE)
+  status         UserStatus @default(ACTIVE)
+  lastLoginAt    DateTime?
+  mfaEnabled     Boolean    @default(false)
+  organizationId String
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  employee     Employee?
+  auditLogs    AuditLog[]
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  HR
+  MANAGER
+  EMPLOYEE
+  GUEST_INTERVIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+// =====================
+// EMPLOYEE
+// =====================
+
+model Employee {
+  id               String         @id @default(uuid())
+  employeeCode     String         @unique
+  userId           String?        @unique
+  firstName        String
+  lastName         String
+  email            String
+  personalEmail    String?
+  phone            String
+  dateOfBirth      DateTime?
+  gender           Gender
+  bloodGroup       String?
+  maritalStatus    String?
+  avatar           String?
+  address          Json?
+  emergencyContact Json?
+
+  // Employment
+  departmentId     String?
+  designationId    String?
+  managerId        String?
+  workMode         WorkMode       @default(OFFICE)
+  officeLocationId String?
+  joiningDate      DateTime
+  probationEndDate DateTime?
+  ctc              Decimal?       @db.Decimal(12, 2)
+  status           EmployeeStatus @default(ACTIVE)
+  organizationId   String
+
+  // Police Verification
+  policeVerificationStatus PoliceVerificationStatus @default(PENDING)
+  policeVerificationDate   DateTime?
+
+  // Timestamps
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  user           User?            @relation(fields: [userId], references: [id])
+  department     Department?      @relation(fields: [departmentId], references: [id])
+  designation    Designation?     @relation(fields: [designationId], references: [id])
+  manager        Employee?        @relation("ManagerReports", fields: [managerId], references: [id])
+  directReports  Employee[]       @relation("ManagerReports")
+  officeLocation OfficeLocation?  @relation(fields: [officeLocationId], references: [id])
+  documents      Document[]
+  attendanceRecords AttendanceRecord[]
+  gpsTrailPoints    GPSTrailPoint[]
+  projectSiteCheckIns ProjectSiteCheckIn[]
+  leaveBalances     LeaveBalance[]
+  leaveRequests     LeaveRequest[]
+  salaryStructure   SalaryStructure?
+  payrollRecords    PayrollRecord[]
+  assetAssignments  AssetAssignment[]
+  headOfDepartments Department[]     @relation("DepartmentHead")
+
+  @@index([organizationId, status])
+  @@index([departmentId])
+  @@index([managerId])
+  @@index([email])
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  PROBATION
+  NOTICE_PERIOD
+  INACTIVE
+  TERMINATED
+  ABSCONDED
+}
+
+enum WorkMode {
+  OFFICE
+  HYBRID
+  FIELD_SALES
+  PROJECT_SITE
+  REMOTE
+}
+
+enum PoliceVerificationStatus {
+  PENDING
+  INITIATED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+// =====================
+// ORGANIZATION STRUCTURE
+// =====================
+
+model Department {
+  id             String   @id @default(uuid())
+  name           String
+  description    String?
+  headId         String?
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  head         Employee?    @relation(fields: [headId], references: [id], name: "DepartmentHead")
+  employees    Employee[]
+
+  @@unique([name, organizationId])
+}
+
+model Designation {
+  id             String   @id @default(uuid())
+  name           String
+  level          Int?
+  description    String?
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  employees    Employee[]
+
+  @@unique([name, organizationId])
+}
+
+model OfficeLocation {
+  id             String   @id @default(uuid())
+  name           String
+  address        String
+  city           String?
+  state          String?
+  country        String   @default("India")
+  timezone       String   @default("Asia/Kolkata")
+  geofenceId     String?  @unique
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  geofence     Geofence?    @relation(fields: [geofenceId], references: [id])
+  employees    Employee[]
+}
+
+// =====================
+// DOCUMENTS
+// =====================
+
+model Document {
+  id              String         @id @default(uuid())
+  employeeId      String?
+  name            String
+  type            DocumentType
+  fileUrl         String
+  thumbnailUrl    String?
+  status          DocumentStatus @default(PENDING)
+  ocrData         Json?
+  tamperDetected  Boolean        @default(false)
+  tamperDetails   String?
+  expiryDate      DateTime?
+  verifiedBy      String?
+  verifiedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  deletedAt       DateTime?
+
+  employee Employee? @relation(fields: [employeeId], references: [id])
+}
+
+enum DocumentType {
+  AADHAAR
+  PAN
+  PASSPORT
+  VOTER_ID
+  DRIVING_LICENSE
+  DEGREE_CERTIFICATE
+  TENTH_CERTIFICATE
+  TWELFTH_CERTIFICATE
+  EXPERIENCE_LETTER
+  OFFER_LETTER_DOC
+  RELIEVING_LETTER
+  BANK_STATEMENT
+  CANCELLED_CHEQUE
+  SALARY_SLIP_DOC
+  PHOTO
+  SIGNATURE
+  OTHER
+}
+
+enum DocumentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+// =====================
+// ATTENDANCE
+// =====================
+
+model AttendanceRecord {
+  id              String           @id @default(uuid())
+  employeeId      String
+  date            DateTime         @db.Date
+  checkIn         DateTime?
+  checkOut        DateTime?
+  totalHours      Decimal?         @db.Decimal(5, 2)
+  status          AttendanceStatus @default(ABSENT)
+  workMode        WorkMode
+  source          AttendanceSource @default(MANUAL_APP)
+  checkInLocation Json?
+  checkOutLocation Json?
+  ipAddress       String?
+  deviceType      String?
+  notes           String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+  breaks   Break[]
+  regularization AttendanceRegularization?
+
+  @@unique([employeeId, date])
+  @@index([date])
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  HOLIDAY
+  WEEKEND
+  ON_LEAVE
+  WORK_FROM_HOME
+}
+
+enum AttendanceSource {
+  GEOFENCE_AUTO
+  MANUAL_APP
+  MANUAL_HR
+  QR_CODE
+  BIOMETRIC
+}
+
+model Break {
+  id               String    @id @default(uuid())
+  attendanceId     String
+  startTime        DateTime
+  endTime          DateTime?
+  type             BreakType @default(LUNCH)
+  durationMinutes  Int?
+
+  attendance AttendanceRecord @relation(fields: [attendanceId], references: [id])
+}
+
+enum BreakType {
+  LUNCH
+  SHORT
+  PRAYER
+  CUSTOM
+}
+
+model AttendanceRegularization {
+  id           String   @id @default(uuid())
+  attendanceId String   @unique
+  reason       String
+  requestedCheckIn  DateTime?
+  requestedCheckOut DateTime?
+  status       LeaveRequestStatus @default(PENDING)
+  approvedBy   String?
+  approverRemarks String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  attendance AttendanceRecord @relation(fields: [attendanceId], references: [id])
+}
+
+model GPSTrailPoint {
+  id           String   @id @default(uuid())
+  employeeId   String
+  date         DateTime @db.Date
+  lat          Decimal  @db.Decimal(10, 7)
+  lng          Decimal  @db.Decimal(10, 7)
+  accuracy     Decimal? @db.Decimal(6, 2)
+  altitude     Decimal? @db.Decimal(8, 2)
+  speed        Decimal? @db.Decimal(6, 2)
+  heading      Decimal? @db.Decimal(5, 2)
+  batteryLevel Int?
+  timestamp    DateTime
+  visitLabel   String?
+  isVisitStop  Boolean  @default(false)
+  stopDuration Int?
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, date])
+}
+
+model ProjectSiteCheckIn {
+  id           String   @id @default(uuid())
+  employeeId   String
+  date         DateTime @db.Date
+  siteName     String
+  siteAddress  String?
+  checkInPhoto String?
+  checkInLat   Decimal? @db.Decimal(10, 7)
+  checkInLng   Decimal? @db.Decimal(10, 7)
+  notes        String?
+  approvedBy   String?
+  createdAt    DateTime @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, date])
+}
+
+model Geofence {
+  id           String       @id @default(uuid())
+  name         String
+  type         GeofenceType @default(OFFICE)
+  coordinates  Json
+  radiusMeters Int?
+  autoCheckIn  Boolean      @default(false)
+  autoCheckOut Boolean      @default(false)
+  strictMode   Boolean      @default(false)
+  organizationId String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  officeLocation OfficeLocation?
+}
+
+enum GeofenceType {
+  OFFICE
+  CLIENT_SITE
+  RESTRICTED
+}
+
+// =====================
+// LEAVE MANAGEMENT
+// =====================
+
+model LeaveType {
+  id             String   @id @default(uuid())
+  name           String
+  code           String
+  defaultBalance Decimal  @db.Decimal(5, 1)
+  carryForward   Boolean  @default(false)
+  maxCarryForward Decimal? @db.Decimal(5, 1)
+  isPaid         Boolean  @default(true)
+  minDays        Decimal  @default(0.5) @db.Decimal(3, 1)
+  maxDays        Decimal? @db.Decimal(5, 1)
+  noticeDays     Int      @default(0)
+  gender         Gender?
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  leaveBalances LeaveBalance[]
+  leaveRequests LeaveRequest[]
+
+  @@unique([code, organizationId])
+}
+
+model LeaveBalance {
+  id            String  @id @default(uuid())
+  employeeId    String
+  leaveTypeId   String
+  year          Int
+  allocated     Decimal @db.Decimal(5, 1)
+  used          Decimal @default(0) @db.Decimal(5, 1)
+  carriedForward Decimal @default(0) @db.Decimal(5, 1)
+  pending       Decimal @default(0) @db.Decimal(5, 1)
+
+  employee  Employee  @relation(fields: [employeeId], references: [id])
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  @@unique([employeeId, leaveTypeId, year])
+}
+
+model LeaveRequest {
+  id            String             @id @default(uuid())
+  employeeId    String
+  leaveTypeId   String
+  startDate     DateTime           @db.Date
+  endDate       DateTime           @db.Date
+  days          Decimal            @db.Decimal(4, 1)
+  isHalfDay     Boolean            @default(false)
+  halfDaySession String?
+  reason        String
+  status        LeaveRequestStatus @default(PENDING)
+  approvedBy    String?
+  approverRemarks String?
+  attachmentUrl String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  employee  Employee  @relation(fields: [employeeId], references: [id])
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  @@index([employeeId, status])
+  @@index([startDate, endDate])
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model Holiday {
+  id             String   @id @default(uuid())
+  name           String
+  date           DateTime @db.Date
+  type           String   @default("PUBLIC")
+  isOptional     Boolean  @default(false)
+  organizationId String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([date, organizationId])
+}
+
+// =====================
+// PAYROLL
+// =====================
+
+model SalaryStructure {
+  id               String   @id @default(uuid())
+  employeeId       String   @unique
+  ctc              Decimal  @db.Decimal(12, 2)
+  basic            Decimal  @db.Decimal(12, 2)
+  hra              Decimal  @db.Decimal(12, 2)
+  da               Decimal? @db.Decimal(12, 2)
+  ta               Decimal? @db.Decimal(12, 2)
+  medicalAllowance Decimal? @db.Decimal(12, 2)
+  specialAllowance Decimal? @db.Decimal(12, 2)
+  lta              Decimal? @db.Decimal(12, 2)
+  performanceBonus Decimal? @db.Decimal(12, 2)
+  pfEmployee       Decimal? @db.Decimal(12, 2)
+  pfEmployer       Decimal? @db.Decimal(12, 2)
+  esiEmployee      Decimal? @db.Decimal(12, 2)
+  esiEmployer      Decimal? @db.Decimal(12, 2)
+  professionalTax  Decimal? @db.Decimal(12, 2)
+  tds              Decimal? @db.Decimal(12, 2)
+  incomeTaxRegime  TaxRegime @default(NEW_REGIME)
+  effectiveFrom    DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+}
+
+enum TaxRegime {
+  OLD_REGIME
+  NEW_REGIME
+}
+
+model PayrollRun {
+  id          String          @id @default(uuid())
+  month       Int
+  year        Int
+  status      PayrollRunStatus @default(DRAFT)
+  processedBy String?
+  processedAt DateTime?
+  totalGross  Decimal?        @db.Decimal(14, 2)
+  totalNet    Decimal?        @db.Decimal(14, 2)
+  totalDeductions Decimal?    @db.Decimal(14, 2)
+  organizationId String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  records PayrollRecord[]
+
+  @@unique([month, year, organizationId])
+}
+
+enum PayrollRunStatus {
+  DRAFT
+  PROCESSING
+  COMPLETED
+  LOCKED
+}
+
+model PayrollRecord {
+  id             String  @id @default(uuid())
+  payrollRunId   String
+  employeeId     String
+  grossSalary    Decimal @db.Decimal(12, 2)
+  netSalary      Decimal @db.Decimal(12, 2)
+  basic          Decimal @db.Decimal(12, 2)
+  hra            Decimal @db.Decimal(12, 2)
+  otherEarnings  Json?
+  epfEmployee    Decimal? @db.Decimal(12, 2)
+  epfEmployer    Decimal? @db.Decimal(12, 2)
+  esiEmployee    Decimal? @db.Decimal(12, 2)
+  esiEmployer    Decimal? @db.Decimal(12, 2)
+  professionalTax Decimal? @db.Decimal(12, 2)
+  tds            Decimal? @db.Decimal(12, 2)
+  otherDeductions Json?
+  lopDays        Int      @default(0)
+  lopDeduction   Decimal? @db.Decimal(12, 2)
+  workingDays    Int
+  presentDays    Int
+  createdAt      DateTime @default(now())
+
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id])
+  employee   Employee   @relation(fields: [employeeId], references: [id])
+}
+
+// =====================
+// RECRUITMENT
+// =====================
+
+model JobOpening {
+  id              String    @id @default(uuid())
+  title           String
+  department      String
+  location        String
+  type            JobType   @default(FULL_TIME)
+  experience      String?
+  salaryRange     Json?
+  description     String
+  requirements    String[]
+  openings        Int       @default(1)
+  status          JobStatus @default(DRAFT)
+  postedBy        String
+  approvedBy      String?
+  publishToNaukri Boolean   @default(false)
+  publishToWebsite Boolean  @default(true)
+  organizationId  String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  closedAt        DateTime?
+
+  applications Application[]
+}
+
+enum JobType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERNSHIP
+  RESEARCH
+}
+
+enum JobStatus {
+  DRAFT
+  OPEN
+  ON_HOLD
+  CLOSED
+}
+
+model Application {
+  id              String            @id @default(uuid())
+  jobOpeningId    String
+  candidateName   String
+  email           String
+  phone           String
+  resumeUrl       String
+  coverLetter     String?
+  source          ApplicationSource @default(PORTAL)
+  status          ApplicationStatus @default(APPLIED)
+  currentStage    Int               @default(1)
+  aiScore         Decimal?          @db.Decimal(5, 2)
+  aiScoreDetails  Json?
+  isIntern        Boolean           @default(false)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  jobOpening     JobOpening       @relation(fields: [jobOpeningId], references: [id])
+  interviewScores InterviewScore[]
+  offerLetter    OfferLetter?
+}
+
+enum ApplicationSource {
+  PORTAL
+  NAUKRI
+  LINKEDIN
+  REFERENCE
+  CAMPUS
+  WALK_IN
+}
+
+enum ApplicationStatus {
+  APPLIED
+  SCREENING
+  ASSESSMENT
+  INTERVIEW_1
+  INTERVIEW_2
+  HR_ROUND
+  FINAL_ROUND
+  OFFER
+  OFFER_ACCEPTED
+  JOINED
+  REJECTED
+  WITHDRAWN
+}
+
+model InterviewScore {
+  id                 String  @id @default(uuid())
+  applicationId      String
+  round              Int
+  interviewerId      String?
+  communicationScore Decimal? @db.Decimal(3, 1)
+  technicalScore     Decimal? @db.Decimal(3, 1)
+  problemSolving     Decimal? @db.Decimal(3, 1)
+  culturalFit        Decimal? @db.Decimal(3, 1)
+  overallScore       Decimal? @db.Decimal(3, 1)
+  notes              String?
+  teamsRecordingUrl  String?
+  aiAnalysis         Json?
+  createdAt          DateTime @default(now())
+
+  application Application @relation(fields: [applicationId], references: [id])
+}
+
+model OfferLetter {
+  id              String      @id @default(uuid())
+  applicationId   String      @unique
+  candidateEmail  String
+  ctc             Decimal     @db.Decimal(12, 2)
+  basicSalary     Decimal     @db.Decimal(12, 2)
+  joiningDate     DateTime?
+  status          OfferStatus @default(DRAFT)
+  pdfUrl          String?
+  sentAt          DateTime?
+  respondedAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id])
+}
+
+enum OfferStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  NEGOTIATING
+  EXPIRED
+}
+
+// =====================
+// ASSETS
+// =====================
+
+model Asset {
+  id           String        @id @default(uuid())
+  name         String
+  assetCode    String        @unique
+  category     AssetCategory
+  serialNumber String?
+  status       AssetStatus   @default(AVAILABLE)
+  purchaseDate DateTime?
+  purchaseCost Decimal?      @db.Decimal(12, 2)
+  notes        String?
+  organizationId String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  assignments AssetAssignment[]
+}
+
+enum AssetCategory {
+  LAPTOP
+  MOBILE
+  SIM_CARD
+  ACCESS_CARD
+  VISITING_CARD
+  MONITOR
+  OTHER
+}
+
+enum AssetStatus {
+  AVAILABLE
+  ASSIGNED
+  MAINTENANCE
+  RETIRED
+}
+
+model AssetAssignment {
+  id         String    @id @default(uuid())
+  assetId    String
+  employeeId String
+  assignedBy String
+  assignedAt DateTime  @default(now())
+  returnedAt DateTime?
+  condition  String?
+  notes      String?
+
+  asset    Asset    @relation(fields: [assetId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id])
+}
+
+// =====================
+// POLICIES & ANNOUNCEMENTS
+// =====================
+
+model Policy {
+  id             String         @id @default(uuid())
+  title          String
+  category       PolicyCategory
+  content        String
+  version        Int            @default(1)
+  isActive       Boolean        @default(true)
+  targetAudience Json?
+  attachments    String[]
+  organizationId String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  acknowledgments PolicyAcknowledgment[]
+}
+
+enum PolicyCategory {
+  HR_GENERAL
+  LEAVE
+  HYBRID
+  WORK_MANAGEMENT
+  ESCALATION
+  IT
+  CODE_OF_CONDUCT
+  HEALTH_SAFETY
+}
+
+model PolicyAcknowledgment {
+  id         String   @id @default(uuid())
+  policyId   String
+  employeeId String
+  acknowledgedAt DateTime @default(now())
+
+  policy Policy @relation(fields: [policyId], references: [id])
+
+  @@unique([policyId, employeeId])
+}
+
+model Announcement {
+  id             String   @id @default(uuid())
+  title          String
+  content        String
+  priority       String   @default("NORMAL")
+  targetDepartments String[]
+  targetRoles    String[]
+  publishedAt    DateTime?
+  expiresAt      DateTime?
+  createdBy      String
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// =====================
+// AUDIT LOG
+// =====================
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  userId         String
+  entity         String
+  entityId       String
+  action         String
+  oldValue       Json?
+  newValue       Json?
+  ipAddress      String?
+  organizationId String
+  createdAt      DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}

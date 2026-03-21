@@ -1,0 +1,25 @@
+{
+  "project": {
+    "name": "Aniston HRMS",
+    "description": "Enterprise HRMS PWA with 3 attendance modes, AI recruitment, Indian payroll, glassmorphism UI",
+    "type": "fullstack-web-app"
+  },
+  "context": {
+    "primaryLanguage": "TypeScript",
+    "frameworks": ["React 18", "Express.js", "Prisma ORM"],
+    "database": "PostgreSQL 16",
+    "styling": "Tailwind CSS v3 + shadcn/ui",
+    "stateManagement": "Redux Toolkit + RTK Query",
+    "testing": "Vitest + Playwright (planned)"
+  },
+  "conventions": {
+    "codeStyle": "TypeScript strict, ESM modules",
+    "apiPattern": "REST with { success, data, error, meta } envelope",
+    "backendModulePattern": "controller/service/routes/validation per feature",
+    "componentPattern": "Function components with hooks, co-located styles",
+    "namingConvention": "camelCase for variables/functions, PascalCase for components/types",
+    "idFormat": "UUID v4",
+    "dateFormat": "ISO 8601",
+    "currencyFormat": "INR with en-IN locale"
+  }
+}
