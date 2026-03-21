@@ -1,14 +1,40 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText, Shield } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText, Shield, Send, Copy, Check } from 'lucide-react';
 import { useGetEmployeeQuery } from './employeeApi';
+import { useCreateOnboardingInviteMutation } from '../onboarding/onboardingApi';
 import { getInitials, getStatusColor, formatDate, formatCurrency } from '../../lib/utils';
+import toast from 'react-hot-toast';
 
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: response, isLoading } = useGetEmployeeQuery(id!);
   const employee = response?.data;
+  const [createInvite, { isLoading: inviting }] = useCreateOnboardingInviteMutation();
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleSendInvite = async () => {
+    try {
+      const result = await createInvite(id!).unwrap();
+      const link = `${window.location.origin}${result.data.inviteUrl}`;
+      setInviteLink(link);
+      toast.success('Onboarding invite sent!');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to send invite');
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (inviteLink) {
+      navigator.clipboard.writeText(inviteLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast.success('Link copied!');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -94,9 +120,21 @@ export default function EmployeeDetailPage() {
               </span>
             </div>
           </div>
-          <div>
+          <div className="flex gap-2">
+            <button onClick={handleSendInvite} disabled={inviting}
+              className="btn-secondary text-sm flex items-center gap-1.5">
+              <Send size={14} /> {inviting ? 'Sending...' : 'Send Onboarding Invite'}
+            </button>
             <button className="btn-primary text-sm">Edit Profile</button>
           </div>
+          {inviteLink && (
+            <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2 w-full">
+              <p className="text-xs text-emerald-700 truncate flex-1 font-mono" data-mono>{inviteLink}</p>
+              <button onClick={handleCopyLink} className="text-emerald-600 hover:text-emerald-800 flex-shrink-0">
+                {copied ? <Check size={16} /> : <Copy size={16} />}
+              </button>
+            </div>
+          )}
         </div>
       </motion.div>
 

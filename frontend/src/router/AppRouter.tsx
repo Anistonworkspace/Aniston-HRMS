@@ -19,6 +19,7 @@ const PoliciesPage = lazy(() => import('../features/policies/PoliciesPage'));
 const AnnouncementsPage = lazy(() => import('../features/announcements/AnnouncementsPage'));
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage'));
 const SettingsPage = lazy(() => import('../features/settings/SettingsPage'));
+const OrgChartPage = lazy(() => import('../features/orgChart/OrgChartPage'));
 const HelpdeskPage = lazy(() => import('../features/helpdesk/HelpdeskPage'));
 const ProfilePage = lazy(() => import('../features/profile/ProfilePage'));
 
@@ -63,6 +64,7 @@ export default function AppRouter() {
             <Route path="/performance" element={<PerformancePage />} />
             <Route path="/policies" element={<PoliciesPage />} />
             <Route path="/announcements" element={<AnnouncementsPage />} />
+            <Route path="/org-chart" element={<OrgChartPage />} />
             <Route path="/helpdesk" element={<HelpdeskPage />} />
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/settings" element={<SettingsPage />} />

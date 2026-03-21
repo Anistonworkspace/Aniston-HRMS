@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Target, TrendingUp, Star, Plus, ChevronRight, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Target, TrendingUp, Star, Plus, ChevronRight, CheckCircle, Clock, AlertCircle, X, Loader2 } from 'lucide-react';
 import { api } from '../../app/api';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -27,6 +27,7 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
 };
 
 export default function PerformancePage() {
+  const [showCreateGoal, setShowCreateGoal] = useState(false);
   const { data: goalsRes } = useGetGoalsQuery();
   const { data: reviewsRes } = useGetReviewsQuery();
   const { data: cyclesRes } = useGetCyclesQuery();
@@ -56,6 +57,10 @@ export default function PerformancePage() {
           <h1 className="text-2xl font-display font-bold text-gray-900">Performance</h1>
           <p className="text-gray-500 text-sm mt-0.5">Track goals and performance reviews</p>
         </div>
+        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+          onClick={() => setShowCreateGoal(true)} className="btn-primary flex items-center gap-2">
+          <Plus size={18} /> Create Goal
+        </motion.button>
       </div>
 
       {/* Stats */}
@@ -180,6 +185,82 @@ export default function PerformancePage() {
           )}
         </div>
       </div>
+
+      {/* Create Goal Modal */}
+      <AnimatePresence>
+        {showCreateGoal && <CreateGoalModal onClose={() => setShowCreateGoal(false)} />}
+      </AnimatePresence>
     </div>
+  );
+}
+
+function CreateGoalModal({ onClose }: { onClose: () => void }) {
+  const [createGoal, { isLoading }] = useCreateGoalMutation();
+  const [form, setForm] = useState({ title: '', description: '', targetValue: '', unit: '', dueDate: '' });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await createGoal({
+        employeeId: '', // Will use current user's employee ID on backend
+        title: form.title,
+        description: form.description || undefined,
+        targetValue: form.targetValue ? Number(form.targetValue) : undefined,
+        unit: form.unit || undefined,
+        dueDate: form.dueDate || undefined,
+      }).unwrap();
+      toast.success('Goal created!');
+      onClose();
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-display font-semibold text-gray-800">Create Goal</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} className="text-gray-400" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Goal Title *</label>
+            <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+              className="input-glass w-full" required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Description</label>
+            <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+              className="input-glass w-full h-16 resize-none" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Target</label>
+              <input type="number" value={form.targetValue} onChange={(e) => setForm({ ...form, targetValue: e.target.value })}
+                className="input-glass w-full" placeholder="100" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Unit</label>
+              <input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}
+                className="input-glass w-full" placeholder="%" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Due Date</label>
+              <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
+                className="input-glass w-full" />
+            </div>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+            <motion.button type="submit" disabled={isLoading}
+              className="btn-primary flex-1 flex items-center justify-center gap-2">
+              {isLoading && <Loader2 size={16} className="animate-spin" />} Create Goal
+            </motion.button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
   );
 }

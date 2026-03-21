@@ -3,12 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Plus, Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useGetEmployeesQuery } from './employeeApi';
+import CreateEmployeeModal from './CreateEmployeeModal';
 import { getInitials, getStatusColor, formatDate } from '../../lib/utils';
 
 export default function EmployeeListPage() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchDebounce, setSearchDebounce] = useState('');
 
   const { data, isLoading } = useGetEmployeesQuery({
@@ -46,7 +48,7 @@ export default function EmployeeListPage() {
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
-          onClick={() => navigate('/employees/new')}
+          onClick={() => setShowCreateModal(true)}
           className="btn-primary flex items-center gap-2 self-start"
         >
           <Plus size={18} />
@@ -205,6 +207,9 @@ export default function EmployeeListPage() {
           </div>
         )}
       </div>
+
+      {/* Create Employee Modal */}
+      <CreateEmployeeModal open={showCreateModal} onClose={() => setShowCreateModal(false)} />
     </div>
   );
 }

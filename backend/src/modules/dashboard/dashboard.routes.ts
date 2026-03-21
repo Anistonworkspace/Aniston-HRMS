@@ -16,10 +16,20 @@ router.get('/stats', async (req: Request, res: Response, next: NextFunction) => 
       totalEmployees,
       activeEmployees,
       departmentCount,
+      presentToday,
+      pendingLeaves,
+      openPositions,
     ] = await Promise.all([
       prisma.employee.count({ where: { organizationId: orgId, deletedAt: null } }),
       prisma.employee.count({ where: { organizationId: orgId, status: 'ACTIVE', deletedAt: null } }),
       prisma.department.count({ where: { organizationId: orgId, deletedAt: null } }),
+      prisma.attendanceRecord.count({
+        where: { date: today, status: 'PRESENT', employee: { organizationId: orgId } },
+      }),
+      prisma.leaveRequest.count({
+        where: { status: 'PENDING', employee: { organizationId: orgId } },
+      }),
+      prisma.jobOpening.count({ where: { organizationId: orgId, status: 'OPEN' } }),
     ]);
 
     // Upcoming birthdays (next 30 days)
@@ -67,10 +77,10 @@ router.get('/stats', async (req: Request, res: Response, next: NextFunction) => 
         totalEmployees,
         activeEmployees,
         departmentCount,
-        presentToday: 0, // Will be populated when attendance module is built
+        presentToday,
         onLeaveToday: 0,
-        openPositions: 0,
-        pendingLeaves: 0,
+        openPositions,
+        pendingLeaves,
         upcomingBirthdays,
         recentHires,
       },
