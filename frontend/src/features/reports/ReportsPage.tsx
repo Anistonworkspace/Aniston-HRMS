@@ -1,0 +1,185 @@
+import { useState } from 'react';
+import { motion } from 'framer-motion';
+import { BarChart3, Users, Calendar, DollarSign, Briefcase, PieChart } from 'lucide-react';
+import { api } from '../../app/api';
+import { cn, formatCurrency } from '../../lib/utils';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RPieChart, Pie, Cell } from 'recharts';
+
+const reportApi = api.injectEndpoints({
+  endpoints: (builder) => ({
+    getHeadcount: builder.query<any, void>({ query: () => '/reports/headcount' }),
+    getAttendanceSummary: builder.query<any, { startDate?: string; endDate?: string }>({
+      query: (params) => ({ url: '/reports/attendance-summary', params }),
+    }),
+    getLeaveSummary: builder.query<any, void>({ query: () => '/reports/leave-summary' }),
+    getPayrollSummary: builder.query<any, void>({ query: () => '/reports/payroll-summary' }),
+    getRecruitmentFunnel: builder.query<any, void>({ query: () => '/reports/recruitment-funnel' }),
+  }),
+});
+
+const { useGetHeadcountQuery, useGetAttendanceSummaryQuery, useGetLeaveSummaryQuery, useGetPayrollSummaryQuery, useGetRecruitmentFunnelQuery } = reportApi;
+
+const COLORS = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#64748b'];
+
+export default function ReportsPage() {
+  const { data: headcountRes } = useGetHeadcountQuery();
+  const { data: attendanceRes } = useGetAttendanceSummaryQuery({});
+  const { data: payrollRes } = useGetPayrollSummaryQuery();
+  const { data: recruitRes } = useGetRecruitmentFunnelQuery();
+
+  const headcount = headcountRes?.data;
+  const attendance = attendanceRes?.data;
+  const payroll = payrollRes?.data;
+  const recruit = recruitRes?.data;
+
+  return (
+    <div className="page-container">
+      <h1 className="text-2xl font-display font-bold text-gray-900 mb-6">Reports & Analytics</h1>
+
+      {/* Top stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="stat-card">
+          <Users size={20} className="text-brand-500 mb-2" />
+          <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{headcount?.total || 0}</p>
+          <p className="text-sm text-gray-500">Total Headcount</p>
+        </div>
+        <div className="stat-card">
+          <Calendar size={20} className="text-emerald-500 mb-2" />
+          <p className="text-2xl font-bold font-mono text-gray-900" data-mono>
+            {attendance?.statusBreakdown?.find((s: any) => s.status === 'PRESENT')?.count || 0}
+          </p>
+          <p className="text-sm text-gray-500">Present This Month</p>
+        </div>
+        <div className="stat-card">
+          <DollarSign size={20} className="text-blue-500 mb-2" />
+          <p className="text-lg font-bold font-mono text-gray-900" data-mono>
+            {payroll?.monthlyTrend?.length ? formatCurrency(payroll.monthlyTrend[payroll.monthlyTrend.length - 1].net) : '—'}
+          </p>
+          <p className="text-sm text-gray-500">Last Net Payroll</p>
+        </div>
+        <div className="stat-card">
+          <Briefcase size={20} className="text-purple-500 mb-2" />
+          <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{recruit?.openJobs || 0}</p>
+          <p className="text-sm text-gray-500">Open Positions</p>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* Department distribution */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="layer-card p-6">
+          <h2 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <PieChart size={16} className="text-brand-500" /> Department Distribution
+          </h2>
+          {headcount?.byDepartment && headcount.byDepartment.length > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <RPieChart>
+                <Pie
+                  data={headcount.byDepartment}
+                  dataKey="count"
+                  nameKey="department"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={90}
+                  label={({ department, count }) => `${department}: ${count}`}
+                  labelLine={false}
+                >
+                  {headcount.byDepartment.map((_: any, i: number) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </RPieChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-12">No data</p>
+          )}
+        </motion.div>
+
+        {/* Work mode breakdown */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="layer-card p-6">
+          <h2 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <BarChart3 size={16} className="text-teal-500" /> Work Mode Distribution
+          </h2>
+          {headcount?.byWorkMode && headcount.byWorkMode.length > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={headcount.byWorkMode}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="workMode" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-12">No data</p>
+          )}
+        </motion.div>
+
+        {/* Gender breakdown */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="layer-card p-6">
+          <h2 className="text-sm font-semibold text-gray-800 mb-4">Gender Distribution</h2>
+          {headcount?.byGender && headcount.byGender.length > 0 ? (
+            <div className="space-y-3">
+              {headcount.byGender.map((g: any) => {
+                const pct = headcount.total > 0 ? Math.round((g.count / headcount.total) * 100) : 0;
+                return (
+                  <div key={g.gender}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-gray-600">{g.gender}</span>
+                      <span className="font-mono text-gray-800" data-mono>{g.count} ({pct}%)</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-2">
+                      <div className="bg-brand-500 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-12">No data</p>
+          )}
+        </motion.div>
+
+        {/* Payroll trend */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="layer-card p-6">
+          <h2 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <DollarSign size={16} className="text-emerald-500" /> Payroll Trend
+          </h2>
+          {payroll?.monthlyTrend && payroll.monthlyTrend.length > 0 ? (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={payroll.monthlyTrend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${(v / 100000).toFixed(0)}L`} />
+                <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                <Bar dataKey="gross" fill="#93c5fd" name="Gross" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="net" fill="#6366f1" name="Net" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-12">No payroll data yet</p>
+          )}
+        </motion.div>
+
+        {/* Recruitment funnel */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="layer-card p-6 lg:col-span-2">
+          <h2 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <Briefcase size={16} className="text-purple-500" /> Recruitment Pipeline
+          </h2>
+          {recruit?.pipeline && recruit.pipeline.length > 0 ? (
+            <div className="flex flex-wrap gap-3">
+              {recruit.pipeline.map((stage: any, i: number) => (
+                <div key={stage.stage} className="text-center px-4 py-3 bg-surface-2 rounded-lg flex-1 min-w-[120px]">
+                  <p className="text-lg font-bold font-mono text-gray-900" data-mono>{stage.count}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{stage.stage.replace('_', ' ')}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-8">No recruitment data yet</p>
+          )}
+        </motion.div>
+      </div>
+    </div>
+  );
+}
