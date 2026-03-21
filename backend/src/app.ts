@@ -14,6 +14,8 @@ import { designationRouter } from './modules/designation/designation.routes.js';
 import { attendanceRouter } from './modules/attendance/attendance.routes.js';
 import { leaveRouter } from './modules/leave/leave.routes.js';
 import { payrollRouter } from './modules/payroll/payroll.routes.js';
+import { recruitmentRouter } from './modules/recruitment/recruitment.routes.js';
+import { onboardingRouter } from './modules/onboarding/onboarding.routes.js';
 
 const app = express();
 
@@ -61,6 +63,8 @@ app.use('/api/dashboard', dashboardRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/leaves', leaveRouter);
 app.use('/api/payroll', payrollRouter);
+app.use('/api/recruitment', recruitmentRouter);
+app.use('/api/onboarding', onboardingRouter);
 
 // Static file serving for uploads (dev only)
 app.use('/uploads', express.static('uploads'));

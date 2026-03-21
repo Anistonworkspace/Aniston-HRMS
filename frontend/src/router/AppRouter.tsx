@@ -12,6 +12,8 @@ const EmployeeDetailPage = lazy(() => import('../features/employee/EmployeeDetai
 const AttendancePage = lazy(() => import('../features/attendance/AttendancePage'));
 const LeavePage = lazy(() => import('../features/leaves/LeavePage'));
 const PayrollPage = lazy(() => import('../features/payroll/PayrollPage'));
+const RecruitmentPage = lazy(() => import('../features/recruitment/RecruitmentPage'));
+const OnboardingPortal = lazy(() => import('../features/onboarding/OnboardingPortal'));
 
 function PageLoader() {
   return (
@@ -32,6 +34,7 @@ export default function AppRouter() {
           {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/onboarding/:token" element={<OnboardingPortal />} />
 
           {/* Protected routes */}
           <Route
@@ -49,7 +52,7 @@ export default function AppRouter() {
             <Route path="/attendance" element={<AttendancePage />} />
             <Route path="/leaves" element={<LeavePage />} />
             <Route path="/payroll" element={<PayrollPage />} />
-            <Route path="/recruitment" element={<PlaceholderPage title="Recruitment" />} />
+            <Route path="/recruitment" element={<RecruitmentPage />} />
             <Route path="/performance" element={<PlaceholderPage title="Performance" />} />
             <Route path="/policies" element={<PlaceholderPage title="Policies" />} />
             <Route path="/announcements" element={<PlaceholderPage title="Announcements" />} />
