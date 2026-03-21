@@ -20,6 +20,8 @@ import { performanceRouter } from './modules/performance/performance.routes.js';
 import { policyRouter } from './modules/policy/policy.routes.js';
 import { announcementRouter } from './modules/announcement/announcement.routes.js';
 import { reportRouter } from './modules/report/report.routes.js';
+import { settingsRouter } from './modules/settings/settings.routes.js';
+import { helpdeskRouter } from './modules/helpdesk/helpdesk.routes.js';
 
 const app = express();
 
@@ -73,6 +75,8 @@ app.use('/api/performance', performanceRouter);
 app.use('/api/policies', policyRouter);
 app.use('/api/announcements', announcementRouter);
 app.use('/api/reports', reportRouter);
+app.use('/api/settings', settingsRouter);
+app.use('/api/helpdesk', helpdeskRouter);
 
 // Static file serving for uploads (dev only)
 app.use('/uploads', express.static('uploads'));

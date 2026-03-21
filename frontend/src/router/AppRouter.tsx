@@ -18,6 +18,9 @@ const PerformancePage = lazy(() => import('../features/performance/PerformancePa
 const PoliciesPage = lazy(() => import('../features/policies/PoliciesPage'));
 const AnnouncementsPage = lazy(() => import('../features/announcements/AnnouncementsPage'));
 const ReportsPage = lazy(() => import('../features/reports/ReportsPage'));
+const SettingsPage = lazy(() => import('../features/settings/SettingsPage'));
+const HelpdeskPage = lazy(() => import('../features/helpdesk/HelpdeskPage'));
+const ProfilePage = lazy(() => import('../features/profile/ProfilePage'));
 
 function PageLoader() {
   return (
@@ -60,11 +63,11 @@ export default function AppRouter() {
             <Route path="/performance" element={<PerformancePage />} />
             <Route path="/policies" element={<PoliciesPage />} />
             <Route path="/announcements" element={<AnnouncementsPage />} />
-            <Route path="/helpdesk" element={<PlaceholderPage title="Helpdesk" />} />
+            <Route path="/helpdesk" element={<HelpdeskPage />} />
             <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
-            <Route path="/profile" element={<PlaceholderPage title="Profile" />} />
-            <Route path="/more" element={<PlaceholderPage title="More" />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/more" element={<ProfilePage />} />
           </Route>
 
           {/* Default redirect */}
