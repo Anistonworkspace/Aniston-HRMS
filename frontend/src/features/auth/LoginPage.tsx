@@ -50,9 +50,7 @@ export default function LoginPage() {
         <div className="w-full max-w-[420px] mx-auto">
           {/* Logo */}
           <div className="flex items-center gap-3 mb-10">
-            <div className="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center">
-              <span className="text-white font-bold font-display text-lg">A</span>
-            </div>
+            <img src="/logo.png" alt="Aniston" className="w-10 h-10 object-contain" />
             <span className="text-xl font-display font-bold text-gray-900">Aniston HRMS</span>
           </div>
 
@@ -189,9 +187,9 @@ export default function LoginPage() {
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.4, type: 'spring', stiffness: 150 }}
-            className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 mb-8"
+            className="inline-flex items-center justify-center w-24 h-24 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 mb-8 p-3"
           >
-            <span className="text-4xl font-bold text-white font-display">A</span>
+            <img src="/logo.png" alt="Aniston" className="w-full h-full object-contain brightness-0 invert" />
           </motion.div>
 
           <h2 className="text-3xl font-display font-bold text-white mb-4">

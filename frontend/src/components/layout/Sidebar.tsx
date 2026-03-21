@@ -59,9 +59,7 @@ export default function Sidebar() {
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-100">
-        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-brand-600 flex items-center justify-center">
-          <span className="text-white font-bold font-display text-sm">A</span>
-        </div>
+        <img src="/logo.png" alt="Aniston" className="flex-shrink-0 w-9 h-9 object-contain" />
         <AnimatePresence>
           {!collapsed && (
             <motion.span
