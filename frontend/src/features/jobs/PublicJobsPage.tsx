@@ -57,6 +57,9 @@ export default function PublicJobsPage() {
           <p className="text-gray-500 max-w-xl mx-auto text-base sm:text-lg">
             Explore open positions at Aniston Technologies LLP and take the next step in your career.
           </p>
+          <p className="text-gray-400 max-w-lg mx-auto text-sm mt-2">
+            Please select the position you are here to interview for. After clicking "Apply", you will be asked to fill in your details and upload documents.
+          </p>
         </motion.div>
 
         {/* Search */}

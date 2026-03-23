@@ -34,10 +34,11 @@ export default function RecruitmentPage() {
 
   const jobs = jobsRes?.data || [];
 
-  const handlePublish = async (id: string) => {
+  const handleStatusChange = async (id: string, status: string) => {
     try {
-      await updateJob({ id, data: { status: 'OPEN' } }).unwrap();
-      toast.success('Job published!');
+      await updateJob({ id, data: { status } }).unwrap();
+      const labels: Record<string, string> = { OPEN: 'Published', DRAFT: 'Unpublished', ON_HOLD: 'Put on hold', CLOSED: 'Closed' };
+      toast.success(`Job ${labels[status] || status.toLowerCase()}!`);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed');
     }
@@ -160,14 +161,32 @@ export default function RecruitmentPage() {
                   <Users size={14} />
                   <span className="font-mono" data-mono>{job._count?.applications || 0}</span> applicants
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {job.status === 'DRAFT' && (
-                    <button
-                      onClick={() => handlePublish(job.id)}
-                      className="text-xs text-brand-600 hover:text-brand-700 font-medium"
-                    >
-                      Publish
-                    </button>
+                    <button onClick={() => handleStatusChange(job.id, 'OPEN')}
+                      className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">Publish</button>
+                  )}
+                  {job.status === 'OPEN' && (
+                    <>
+                      <button onClick={() => handleStatusChange(job.id, 'DRAFT')}
+                        className="text-xs text-amber-600 hover:text-amber-700 font-medium">Unpublish</button>
+                      <button onClick={() => handleStatusChange(job.id, 'ON_HOLD')}
+                        className="text-xs text-orange-600 hover:text-orange-700 font-medium">Hold</button>
+                      <button onClick={() => handleStatusChange(job.id, 'CLOSED')}
+                        className="text-xs text-red-500 hover:text-red-600 font-medium">Close</button>
+                    </>
+                  )}
+                  {job.status === 'ON_HOLD' && (
+                    <>
+                      <button onClick={() => handleStatusChange(job.id, 'OPEN')}
+                        className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">Reopen</button>
+                      <button onClick={() => handleStatusChange(job.id, 'CLOSED')}
+                        className="text-xs text-red-500 hover:text-red-600 font-medium">Close</button>
+                    </>
+                  )}
+                  {job.status === 'CLOSED' && (
+                    <button onClick={() => handleStatusChange(job.id, 'OPEN')}
+                      className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">Reopen</button>
                   )}
                   <button
                     onClick={() => navigate(`/recruitment/${job.id}`)}

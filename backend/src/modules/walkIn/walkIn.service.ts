@@ -367,12 +367,23 @@ export class WalkInService {
 
   /**
    * Get open job openings for walk-in dropdown (public)
+   * If no orgId, fetches from the first organization
    */
-  async getOpenJobs(organizationId: string) {
+  async getOpenJobs(organizationId?: string) {
+    let orgId = organizationId;
+    if (!orgId) {
+      const firstOrg = await prisma.organization.findFirst();
+      orgId = firstOrg?.id || '';
+    }
+    if (!orgId) return [];
+
     return prisma.jobOpening.findMany({
-      where: { organizationId, status: 'OPEN' },
-      select: { id: true, title: true, department: true, location: true, type: true },
-      orderBy: { title: 'asc' },
+      where: { organizationId: orgId, status: 'OPEN' },
+      select: {
+        id: true, title: true, department: true, location: true, type: true,
+        experience: true, description: true, openings: true, createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 }

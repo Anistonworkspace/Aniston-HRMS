@@ -8,7 +8,7 @@ import { registerWalkInSchema, updateWalkInStatusSchema, walkInQuerySchema } fro
 export class WalkInController {
   async getOpenJobs(req: Request, res: Response, next: NextFunction) {
     try {
-      const orgId = (req.query.orgId as string) || process.env.DEFAULT_ORG_ID || '';
+      const orgId = (req.query.orgId as string) || process.env.DEFAULT_ORG_ID || undefined;
       const jobs = await walkInService.getOpenJobs(orgId);
       res.json({ success: true, data: jobs });
     } catch (err) { next(err); }
@@ -17,7 +17,12 @@ export class WalkInController {
   async register(req: Request, res: Response, next: NextFunction) {
     try {
       const data = registerWalkInSchema.parse(req.body);
-      const orgId = (req.body.organizationId as string) || process.env.DEFAULT_ORG_ID || '';
+      let orgId = (req.body.organizationId as string) || process.env.DEFAULT_ORG_ID || '';
+      if (!orgId) {
+        const { prisma } = await import('../../lib/prisma.js');
+        const firstOrg = await prisma.organization.findFirst();
+        orgId = firstOrg?.id || '';
+      }
       const candidate = await walkInService.register(data, orgId);
       res.status(201).json({
         success: true,
