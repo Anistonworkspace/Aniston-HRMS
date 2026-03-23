@@ -56,6 +56,11 @@ export const api = createApi({
     'Leave',
     'LeaveBalance',
     'Payroll',
+    'WalkIn',
+    'Document',
+    'Recruitment',
+    'Helpdesk',
+    'Holiday',
   ],
   endpoints: () => ({}),
 });

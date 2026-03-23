@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { payrollService } from './payroll.service.js';
 import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
+import { generateSalarySlipPDF } from '../../utils/pdfGenerator.js';
 
 const router = Router();
 router.use(authenticate);
@@ -83,6 +84,23 @@ router.get('/runs/:id/records',
     try {
       const records = await payrollService.getPayrollRecords(req.params.id);
       res.json({ success: true, data: records });
+    } catch (err) { next(err); }
+  }
+);
+
+// PDF salary slip download
+router.get('/records/:id/pdf',
+  authenticate,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const record = await payrollService.getPayrollRecordById(req.params.id);
+      const pdfBuffer = await generateSalarySlipPDF(record);
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const filename = `salary-slip-${record.employee.employeeCode}-${monthNames[record.payrollRun.month - 1]}-${record.payrollRun.year}.pdf`;
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      res.send(pdfBuffer);
     } catch (err) { next(err); }
   }
 );

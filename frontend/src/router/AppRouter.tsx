@@ -22,6 +22,11 @@ const SettingsPage = lazy(() => import('../features/settings/SettingsPage'));
 const OrgChartPage = lazy(() => import('../features/orgChart/OrgChartPage'));
 const HelpdeskPage = lazy(() => import('../features/helpdesk/HelpdeskPage'));
 const ProfilePage = lazy(() => import('../features/profile/ProfilePage'));
+const KioskLayout = lazy(() => import('../features/walkIn/KioskLayout'));
+const WalkInKioskPage = lazy(() => import('../features/walkIn/WalkInKioskPage'));
+const WalkInManagementPage = lazy(() => import('../features/walkIn/WalkInManagementPage'));
+const JobDetailPage = lazy(() => import('../features/recruitment/JobDetailPage'));
+const CandidateDetailPage = lazy(() => import('../features/recruitment/CandidateDetailPage'));
 
 function PageLoader() {
   return (
@@ -44,6 +49,11 @@ export default function AppRouter() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/onboarding/:token" element={<OnboardingPortal />} />
 
+          {/* Walk-In Kiosk (public, no auth) */}
+          <Route path="/walk-in" element={<KioskLayout />}>
+            <Route index element={<WalkInKioskPage />} />
+          </Route>
+
           {/* Protected routes */}
           <Route
             element={
@@ -61,6 +71,8 @@ export default function AppRouter() {
             <Route path="/leaves" element={<LeavePage />} />
             <Route path="/payroll" element={<PayrollPage />} />
             <Route path="/recruitment" element={<RecruitmentPage />} />
+            <Route path="/recruitment/:jobId" element={<JobDetailPage />} />
+            <Route path="/recruitment/candidate/:id" element={<CandidateDetailPage />} />
             <Route path="/performance" element={<PerformancePage />} />
             <Route path="/policies" element={<PoliciesPage />} />
             <Route path="/announcements" element={<AnnouncementsPage />} />
@@ -69,6 +81,7 @@ export default function AppRouter() {
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/walk-in-management" element={<WalkInManagementPage />} />
             <Route path="/more" element={<ProfilePage />} />
           </Route>
 

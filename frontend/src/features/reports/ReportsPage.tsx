@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, Users, Calendar, DollarSign, Briefcase, PieChart } from 'lucide-react';
+import { BarChart3, Users, Calendar, DollarSign, Briefcase, PieChart, FileSpreadsheet } from 'lucide-react';
 import { api } from '../../app/api';
 import { cn, formatCurrency } from '../../lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RPieChart, Pie, Cell } from 'recharts';
@@ -34,7 +34,18 @@ export default function ReportsPage() {
 
   return (
     <div className="page-container">
-      <h1 className="text-2xl font-display font-bold text-gray-900 mb-6">Reports & Analytics</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-display font-bold text-gray-900">Reports & Analytics</h1>
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => window.open('/api/reports/headcount?format=xlsx', '_blank')}
+          className="btn-secondary flex items-center gap-2 text-sm"
+        >
+          <FileSpreadsheet size={16} />
+          Export Excel
+        </motion.button>
+      </div>
 
       {/* Top stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

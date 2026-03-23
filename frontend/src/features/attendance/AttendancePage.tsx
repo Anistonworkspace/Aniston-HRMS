@@ -14,6 +14,8 @@ import {
 } from './attendanceApi';
 import { cn, formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
+import FieldSalesView from './FieldSalesView';
+import ProjectSiteView from './ProjectSiteView';
 
 const STATUS_COLORS: Record<string, string> = {
   PRESENT: 'bg-emerald-500',
@@ -168,10 +170,32 @@ export default function AttendancePage() {
   const calendarDays = buildCalendar();
   const monthName = currentMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
 
+  // Detect work mode from today's status
+  const workMode = today?.workMode || 'OFFICE';
+
   return (
     <div className="page-container">
-      <h1 className="text-2xl font-display font-bold text-gray-900 mb-6">Attendance</h1>
+      <h1 className="text-2xl font-display font-bold text-gray-900 mb-4">Attendance</h1>
 
+      {/* Work Mode Indicator */}
+      {(workMode === 'FIELD_SALES' || workMode === 'PROJECT_SITE') && (
+        <div className="mb-6">
+          <div className="flex gap-2 mb-4">
+            {['OFFICE', 'FIELD_SALES', 'PROJECT_SITE'].map(mode => (
+              <span
+                key={mode}
+                className={`badge text-xs ${mode === workMode ? 'badge-info' : 'badge-neutral'}`}
+              >
+                {mode.replace(/_/g, ' ')}
+              </span>
+            ))}
+          </div>
+          {workMode === 'FIELD_SALES' && <FieldSalesView todayStatus={today} />}
+          {workMode === 'PROJECT_SITE' && <ProjectSiteView />}
+        </div>
+      )}
+
+      {/* Office Mode (default) */}
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Left: Clock-in widget */}
         <div className="lg:col-span-1 space-y-4">

@@ -4,18 +4,18 @@ export const recruitmentApi = api.injectEndpoints({
   endpoints: (builder) => ({
     getJobOpenings: builder.query<any, { page?: number; limit?: number; status?: string; search?: string }>({
       query: (params) => ({ url: '/recruitment/jobs', params }),
-      providesTags: ['Employee'],
+      providesTags: ['Recruitment'],
     }),
     getJobById: builder.query<any, string>({
       query: (id) => `/recruitment/jobs/${id}`,
     }),
     createJob: builder.mutation<any, any>({
       query: (body) => ({ url: '/recruitment/jobs', method: 'POST', body }),
-      invalidatesTags: ['Employee'],
+      invalidatesTags: ['Recruitment'],
     }),
     updateJob: builder.mutation<any, { id: string; data: any }>({
       query: ({ id, data }) => ({ url: `/recruitment/jobs/${id}`, method: 'PATCH', body: data }),
-      invalidatesTags: ['Employee'],
+      invalidatesTags: ['Recruitment'],
     }),
     getApplications: builder.query<any, { jobId: string; status?: string }>({
       query: ({ jobId, status }) => ({ url: `/recruitment/jobs/${jobId}/applications`, params: status ? { status } : {} }),
@@ -25,7 +25,7 @@ export const recruitmentApi = api.injectEndpoints({
     }),
     moveApplicationStage: builder.mutation<any, { id: string; status: string }>({
       query: ({ id, status }) => ({ url: `/recruitment/applications/${id}/stage`, method: 'PATCH', body: { status } }),
-      invalidatesTags: ['Employee'],
+      invalidatesTags: ['Recruitment'],
     }),
     addInterviewScore: builder.mutation<any, any>({
       query: (body) => ({ url: '/recruitment/scores', method: 'POST', body }),

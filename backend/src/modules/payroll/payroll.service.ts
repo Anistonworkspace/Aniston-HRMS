@@ -323,6 +323,30 @@ export class PayrollService {
   }
 
   /**
+   * Get a single payroll record by ID (for PDF generation)
+   */
+  async getPayrollRecordById(recordId: string) {
+    const record = await prisma.payrollRecord.findUnique({
+      where: { id: recordId },
+      include: {
+        employee: {
+          select: {
+            firstName: true,
+            lastName: true,
+            employeeCode: true,
+            email: true,
+            department: { select: { name: true } },
+            designation: { select: { name: true } },
+          },
+        },
+        payrollRun: { select: { month: true, year: true } },
+      },
+    });
+    if (!record) throw new NotFoundError('Payroll record');
+    return record;
+  }
+
+  /**
    * Get employee's payslips
    */
   async getMyPayslips(employeeId: string) {

@@ -248,7 +248,10 @@ function PayrollEmployeeView() {
                     <p className="text-xs text-red-400 mt-1">LOP: {slip.lopDays} days</p>
                   )}
                 </div>
-                <button className="btn-secondary flex items-center gap-1.5 text-sm">
+                <button
+                  onClick={() => window.open(`/api/payroll/records/${slip.id}/pdf`, '_blank')}
+                  className="btn-secondary flex items-center gap-1.5 text-sm"
+                >
                   <Download size={14} />
                   PDF
                 </button>

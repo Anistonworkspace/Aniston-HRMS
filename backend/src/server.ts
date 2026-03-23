@@ -3,6 +3,9 @@ import { app } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { prisma } from './lib/prisma.js';
+import { initSocketServer } from './sockets/index.js';
+import { startEmailWorker } from './jobs/workers/email.worker.js';
+import { startNotificationWorker } from './jobs/workers/notification.worker.js';
 
 const server = createServer(app);
 
@@ -11,6 +14,13 @@ async function main() {
     // Test database connection
     await prisma.$connect();
     logger.info('✅ Database connected');
+
+    // Initialize Socket.io
+    initSocketServer(server);
+
+    // Start BullMQ workers
+    startEmailWorker();
+    startNotificationWorker();
 
     server.listen(env.PORT, () => {
       logger.info(`🚀 Aniston HRMS API running on port ${env.PORT}`);

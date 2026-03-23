@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { Bell, Search, LogOut, User, Settings, ChevronDown } from 'lucide-react';
+import { Search, LogOut, User, Settings, ChevronDown } from 'lucide-react';
+import NotificationBell from '../../features/notifications/NotificationBell';
 import { motion } from 'framer-motion';
 import { useState, useRef, useEffect } from 'react';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -57,10 +58,7 @@ export default function Topbar() {
       {/* Right: Notifications + Avatar */}
       <div className="flex items-center gap-3">
         {/* Notification bell */}
-        <button className="relative p-2 rounded-lg hover:bg-surface-2 transition-colors">
-          <Bell size={20} className="text-gray-500" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
-        </button>
+        <NotificationBell />
 
         {/* User dropdown */}
         <div className="relative" ref={menuRef}>

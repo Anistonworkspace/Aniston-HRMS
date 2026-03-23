@@ -623,6 +623,7 @@ model JobOpening {
   closedAt        DateTime?
 
   applications Application[]
+  walkIns      WalkInCandidate[]
 }
 
 enum JobType {
@@ -1001,4 +1002,70 @@ model TicketComment {
   createdAt DateTime @default(now())
 
   ticket Ticket @relation(fields: [ticketId], references: [id])
+}
+
+// =====================
+// WALK-IN CANDIDATES
+// =====================
+
+model WalkInCandidate {
+  id              String       @id @default(uuid())
+  tokenNumber     String       @unique  // "WALK-IN-2026-0001"
+  jobOpeningId    String?
+  fullName        String
+  email           String
+  phone           String
+  city            String?
+
+  // KYC Documents
+  aadhaarFrontUrl String?
+  aadhaarBackUrl  String?
+  panCardUrl      String?
+  selfieUrl       String?
+  aadhaarNumber   String?      // Masked: XXXX-XXXX-1234
+  panNumber       String?      // Masked: ABCDE1234F
+
+  // OCR Verification
+  ocrVerifiedName    String?
+  ocrVerifiedDob     DateTime?
+  ocrVerifiedAddress String?
+  tamperDetected     Boolean   @default(false)
+  tamperDetails      String?
+
+  // Professional Details
+  qualification    String?
+  fieldOfStudy     String?
+  experienceYears  Int         @default(0)
+  experienceMonths Int         @default(0)
+  isFresher        Boolean     @default(true)
+  currentCompany   String?
+  currentCtc       Decimal?    @db.Decimal(12, 2)
+  expectedCtc      Decimal?    @db.Decimal(12, 2)
+  noticePeriod     String?
+  skills           String[]
+  aboutMe          String?
+  resumeUrl        String?
+
+  // Status
+  registrationDate DateTime    @default(now())
+  status           WalkInStatus @default(WAITING)
+  convertedToApp   Boolean     @default(false)
+  applicationId    String?
+  hrNotes          String?
+  organizationId   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobOpening JobOpening? @relation(fields: [jobOpeningId], references: [id])
+
+  @@index([organizationId, registrationDate])
+  @@index([status])
+}
+
+enum WalkInStatus {
+  WAITING
+  IN_INTERVIEW
+  COMPLETED
+  NO_SHOW
 }

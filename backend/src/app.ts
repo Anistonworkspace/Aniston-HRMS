@@ -22,6 +22,10 @@ import { announcementRouter } from './modules/announcement/announcement.routes.j
 import { reportRouter } from './modules/report/report.routes.js';
 import { settingsRouter } from './modules/settings/settings.routes.js';
 import { helpdeskRouter } from './modules/helpdesk/helpdesk.routes.js';
+import { walkInRouter } from './modules/walkIn/walkIn.routes.js';
+import { documentRouter } from './modules/document/document.routes.js';
+import { holidayRouter } from './modules/holiday/holiday.routes.js';
+import { assetRouter } from './modules/asset/asset.routes.js';
 
 const app = express();
 
@@ -77,6 +81,10 @@ app.use('/api/announcements', announcementRouter);
 app.use('/api/reports', reportRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/helpdesk', helpdeskRouter);
+app.use('/api/walk-in', walkInRouter);
+app.use('/api/documents', documentRouter);
+app.use('/api/holidays', holidayRouter);
+app.use('/api/assets', assetRouter);
 
 // Static file serving for uploads (dev only)
 app.use('/uploads', express.static('uploads'));

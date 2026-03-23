@@ -6,11 +6,18 @@
   },
   "context": {
     "primaryLanguage": "TypeScript",
-    "frameworks": ["React 18", "Express.js", "Prisma ORM"],
+    "frameworks": ["React 18", "Express.js 4", "Prisma ORM 5", "Vite 5", "FastAPI (Python)"],
     "database": "PostgreSQL 16",
+    "caching": "Redis 7",
     "styling": "Tailwind CSS v3 + shadcn/ui",
     "stateManagement": "Redux Toolkit + RTK Query",
-    "testing": "Vitest + Playwright (planned)"
+    "animations": "Framer Motion",
+    "taskQueue": "BullMQ",
+    "realtime": "Socket.io",
+    "ai": "Python FastAPI (pytesseract OCR, DeepSeek scoring, RAGFlow search)",
+    "containerization": "Docker Compose",
+    "testing": "Vitest + Playwright (planned)",
+    "pwa": "Workbox service worker"
   },
   "conventions": {
     "codeStyle": "TypeScript strict, ESM modules",

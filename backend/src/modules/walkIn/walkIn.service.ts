@@ -1,0 +1,263 @@
+import { prisma } from '../../lib/prisma.js';
+import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import type { RegisterWalkInInput, WalkInQuery } from './walkIn.validation.js';
+
+export class WalkInService {
+  /**
+   * Generate a unique token number: WALK-IN-YYYY-NNNN
+   */
+  private async generateToken(organizationId: string): Promise<string> {
+    const year = new Date().getFullYear();
+    const prefix = `WALK-IN-${year}-`;
+
+    const lastCandidate = await prisma.walkInCandidate.findFirst({
+      where: {
+        organizationId,
+        tokenNumber: { startsWith: prefix },
+      },
+      orderBy: { tokenNumber: 'desc' },
+    });
+
+    let nextNum = 1;
+    if (lastCandidate) {
+      const lastNum = parseInt(lastCandidate.tokenNumber.replace(prefix, ''), 10);
+      if (!isNaN(lastNum)) nextNum = lastNum + 1;
+    }
+
+    return `${prefix}${String(nextNum).padStart(4, '0')}`;
+  }
+
+  /**
+   * Register a new walk-in candidate (public — no auth)
+   */
+  async register(data: RegisterWalkInInput, organizationId: string) {
+    // Check duplicate by email + same day
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const existing = await prisma.walkInCandidate.findFirst({
+      where: {
+        email: data.email,
+        organizationId,
+        registrationDate: { gte: today, lt: tomorrow },
+      },
+    });
+    if (existing) {
+      throw new BadRequestError('You have already registered today. Your token is: ' + existing.tokenNumber);
+    }
+
+    const tokenNumber = await this.generateToken(organizationId);
+
+    const candidate = await prisma.walkInCandidate.create({
+      data: {
+        tokenNumber,
+        fullName: data.fullName,
+        email: data.email,
+        phone: data.phone,
+        city: data.city,
+        jobOpeningId: data.jobOpeningId || null,
+        aadhaarFrontUrl: data.aadhaarFrontUrl,
+        aadhaarBackUrl: data.aadhaarBackUrl,
+        panCardUrl: data.panCardUrl,
+        selfieUrl: data.selfieUrl,
+        aadhaarNumber: data.aadhaarNumber,
+        panNumber: data.panNumber,
+        ocrVerifiedName: data.ocrVerifiedName,
+        ocrVerifiedDob: data.ocrVerifiedDob ? new Date(data.ocrVerifiedDob) : null,
+        ocrVerifiedAddress: data.ocrVerifiedAddress,
+        tamperDetected: data.tamperDetected,
+        tamperDetails: data.tamperDetails,
+        qualification: data.qualification,
+        fieldOfStudy: data.fieldOfStudy,
+        experienceYears: data.experienceYears,
+        experienceMonths: data.experienceMonths,
+        isFresher: data.isFresher,
+        currentCompany: data.currentCompany,
+        currentCtc: data.currentCtc,
+        expectedCtc: data.expectedCtc,
+        noticePeriod: data.noticePeriod,
+        skills: data.skills,
+        aboutMe: data.aboutMe,
+        resumeUrl: data.resumeUrl,
+        status: 'WAITING',
+        organizationId,
+      },
+      include: { jobOpening: { select: { title: true, department: true } } },
+    });
+
+    return candidate;
+  }
+
+  /**
+   * Get today's walk-in candidates (HR view)
+   */
+  async getTodayWalkIns(organizationId: string, query: WalkInQuery) {
+    const { page, limit, status, date, search } = query;
+    const skip = (page - 1) * limit;
+
+    // Default to today if no date specified
+    const filterDate = date ? new Date(date) : new Date();
+    filterDate.setHours(0, 0, 0, 0);
+    const nextDate = new Date(filterDate);
+    nextDate.setDate(nextDate.getDate() + 1);
+
+    const where: any = {
+      organizationId,
+      registrationDate: { gte: filterDate, lt: nextDate },
+    };
+    if (status) where.status = status;
+    if (search) {
+      where.OR = [
+        { fullName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search } },
+        { tokenNumber: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [candidates, total] = await Promise.all([
+      prisma.walkInCandidate.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: { jobOpening: { select: { title: true, department: true } } },
+      }),
+      prisma.walkInCandidate.count({ where }),
+    ]);
+
+    return {
+      data: candidates,
+      meta: {
+        page, limit, total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
+      },
+    };
+  }
+
+  /**
+   * Get a single walk-in candidate by ID
+   */
+  async getById(id: string) {
+    const candidate = await prisma.walkInCandidate.findUnique({
+      where: { id },
+      include: { jobOpening: { select: { title: true, department: true, location: true } } },
+    });
+    if (!candidate) throw new NotFoundError('Walk-in candidate');
+    return candidate;
+  }
+
+  /**
+   * Get a walk-in candidate by token number (public)
+   */
+  async getByToken(tokenNumber: string) {
+    const candidate = await prisma.walkInCandidate.findUnique({
+      where: { tokenNumber },
+      include: { jobOpening: { select: { title: true, department: true } } },
+    });
+    if (!candidate) throw new NotFoundError('Walk-in candidate');
+    return candidate;
+  }
+
+  /**
+   * Update walk-in status (HR action)
+   */
+  async updateStatus(id: string, status: string) {
+    const candidate = await prisma.walkInCandidate.findUnique({ where: { id } });
+    if (!candidate) throw new NotFoundError('Walk-in candidate');
+
+    return prisma.walkInCandidate.update({
+      where: { id },
+      data: { status: status as any },
+      include: { jobOpening: { select: { title: true, department: true } } },
+    });
+  }
+
+  /**
+   * Add HR notes
+   */
+  async addHRNotes(id: string, notes: string) {
+    const candidate = await prisma.walkInCandidate.findUnique({ where: { id } });
+    if (!candidate) throw new NotFoundError('Walk-in candidate');
+
+    return prisma.walkInCandidate.update({
+      where: { id },
+      data: { hrNotes: notes },
+    });
+  }
+
+  /**
+   * Convert walk-in candidate to a full recruitment application
+   */
+  async convertToApplication(id: string) {
+    const candidate = await prisma.walkInCandidate.findUnique({
+      where: { id },
+      include: { jobOpening: true },
+    });
+    if (!candidate) throw new NotFoundError('Walk-in candidate');
+    if (candidate.convertedToApp) {
+      throw new BadRequestError('This candidate has already been converted to an application');
+    }
+    if (!candidate.jobOpeningId) {
+      throw new BadRequestError('Cannot convert: No job opening linked to this walk-in');
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Create Application
+      const application = await tx.application.create({
+        data: {
+          jobOpeningId: candidate.jobOpeningId!,
+          candidateName: candidate.fullName,
+          email: candidate.email,
+          phone: candidate.phone,
+          resumeUrl: candidate.resumeUrl || '',
+          source: 'WALK_IN',
+          status: 'SCREENING',
+          currentStage: 2,
+        },
+      });
+
+      // Update walk-in record
+      await tx.walkInCandidate.update({
+        where: { id },
+        data: {
+          convertedToApp: true,
+          applicationId: application.id,
+          status: 'IN_INTERVIEW',
+        },
+      });
+
+      return application;
+    });
+
+    return result;
+  }
+
+  /**
+   * Delete a walk-in record (HR only)
+   */
+  async remove(id: string) {
+    const candidate = await prisma.walkInCandidate.findUnique({ where: { id } });
+    if (!candidate) throw new NotFoundError('Walk-in candidate');
+
+    await prisma.walkInCandidate.delete({ where: { id } });
+    return { message: 'Walk-in record deleted' };
+  }
+
+  /**
+   * Get open job openings for walk-in dropdown (public)
+   */
+  async getOpenJobs(organizationId: string) {
+    return prisma.jobOpening.findMany({
+      where: { organizationId, status: 'OPEN' },
+      select: { id: true, title: true, department: true, location: true, type: true },
+      orderBy: { title: 'asc' },
+    });
+  }
+}
+
+export const walkInService = new WalkInService();

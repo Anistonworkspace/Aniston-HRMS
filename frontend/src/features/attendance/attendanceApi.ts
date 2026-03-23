@@ -71,6 +71,16 @@ export const attendanceApi = api.injectEndpoints({
     storeGPSTrail: builder.mutation<any, { points: any[] }>({
       query: (body) => ({ url: '/attendance/gps-trail', method: 'POST', body }),
     }),
+
+    projectSiteCheckIn: builder.mutation<any, { siteName: string; siteAddress?: string; notes?: string; latitude?: number; longitude?: number; photoUrl?: string }>({
+      query: (body) => ({ url: '/attendance/project-site/check-in', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
+    }),
+
+    getProjectSiteCheckIns: builder.query<any, { date?: string }>({
+      query: (params) => ({ url: '/attendance/project-site/my', params }),
+      providesTags: ['Attendance'],
+    }),
   }),
 });
 
@@ -84,4 +94,6 @@ export const {
   useGetAllAttendanceQuery,
   useSubmitRegularizationMutation,
   useStoreGPSTrailMutation,
+  useProjectSiteCheckInMutation,
+  useGetProjectSiteCheckInsQuery,
 } = attendanceApi;

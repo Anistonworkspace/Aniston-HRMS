@@ -1,0 +1,37 @@
+import { Router } from 'express';
+import { assetController } from './asset.controller.js';
+import { authenticate, requirePermission } from '../../middleware/auth.middleware.js';
+
+const router = Router();
+
+router.use(authenticate);
+
+router.get('/', requirePermission('asset', 'read'), (req, res, next) =>
+  assetController.list(req, res, next)
+);
+
+router.get('/:id', requirePermission('asset', 'read'), (req, res, next) =>
+  assetController.getById(req, res, next)
+);
+
+router.post('/', requirePermission('asset', 'create'), (req, res, next) =>
+  assetController.create(req, res, next)
+);
+
+router.patch('/:id', requirePermission('asset', 'update'), (req, res, next) =>
+  assetController.update(req, res, next)
+);
+
+router.post('/:id/assign', requirePermission('asset', 'manage'), (req, res, next) =>
+  assetController.assign(req, res, next)
+);
+
+router.patch('/assignments/:id/return', requirePermission('asset', 'manage'), (req, res, next) =>
+  assetController.returnAsset(req, res, next)
+);
+
+router.get('/:id/assignments', requirePermission('asset', 'read'), (req, res, next) =>
+  assetController.getAssignments(req, res, next)
+);
+
+export { router as assetRouter };

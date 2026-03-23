@@ -16,6 +16,7 @@ import {
   Network,
   Megaphone,
   HelpCircle,
+  UserPlus,
 } from 'lucide-react';
 import { useAppSelector } from '../../app/store';
 import { cn } from '../../lib/utils';
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
   { name: 'Leave', path: '/leaves', icon: CalendarDays },
   { name: 'Payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
+  { name: 'Walk-In Mgmt', path: '/walk-in-management', icon: UserPlus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Performance', path: '/performance', icon: BarChart3 },
   { name: 'Policies', path: '/policies', icon: FileText },
   { name: 'Announcements', path: '/announcements', icon: Megaphone },

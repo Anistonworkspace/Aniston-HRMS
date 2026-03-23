@@ -22,6 +22,11 @@ const envSchema = z.object({
   STORAGE_ACCESS_KEY: z.string().optional(),
   STORAGE_SECRET_KEY: z.string().optional(),
   STORAGE_BUCKET: z.string().default('aniston-hrms'),
+  SMTP_HOST: z.string().default('smtp.office365.com'),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().default('noreply@aniston.in'),
 });
 
 function loadEnv() {

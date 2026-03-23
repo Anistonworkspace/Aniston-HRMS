@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Briefcase, Search, Users, Eye, Sparkles, X, MapPin, Clock } from 'lucide-react';
-import { useGetJobOpeningsQuery, useCreateJobMutation, useUpdateJobMutation } from './recruitmentApi';
+import { useNavigate } from 'react-router-dom';
+import { useGetJobOpeningsQuery, useCreateJobMutation, useUpdateJobMutation, useGetPipelineStatsQuery } from './recruitmentApi';
 import { cn, formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -28,6 +29,8 @@ export default function RecruitmentPage() {
     page: 1, limit: 50, status: statusFilter || undefined, search: search || undefined,
   });
   const [updateJob] = useUpdateJobMutation();
+  const { data: pipelineData } = useGetPipelineStatsQuery();
+  const navigate = useNavigate();
 
   const jobs = jobsRes?.data || [];
 
@@ -85,6 +88,25 @@ export default function RecruitmentPage() {
           ))}
         </div>
       </div>
+
+      {/* Pipeline Stats */}
+      {pipelineData?.data && (
+        <div className="layer-card p-4 mb-6 flex items-center gap-6 overflow-x-auto">
+          <span className="text-xs font-medium text-gray-400 shrink-0">Pipeline:</span>
+          <div className="flex gap-4">
+            {Object.entries(pipelineData.data.pipeline || {}).map(([status, count]) => (
+              <div key={status} className="text-center min-w-[50px]">
+                <p className="text-lg font-bold text-gray-800" data-mono>{count as number}</p>
+                <p className="text-[10px] text-gray-400">{(status as string).replace(/_/g, ' ')}</p>
+              </div>
+            ))}
+          </div>
+          <div className="ml-auto text-right shrink-0">
+            <p className="text-lg font-bold text-brand-600" data-mono>{pipelineData.data.openJobs}</p>
+            <p className="text-[10px] text-gray-400">Open Jobs</p>
+          </div>
+        </div>
+      )}
 
       {/* Job Cards Grid */}
       {isLoading ? (
@@ -147,7 +169,9 @@ export default function RecruitmentPage() {
                       Publish
                     </button>
                   )}
-                  <button className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+                  <button
+                    onClick={() => navigate(`/recruitment/${job.id}`)}
+                    className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
                     <Eye size={14} /> View
                   </button>
                 </div>
