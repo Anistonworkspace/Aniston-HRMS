@@ -81,6 +81,16 @@ export const attendanceApi = api.injectEndpoints({
       query: (params) => ({ url: '/attendance/project-site/my', params }),
       providesTags: ['Attendance'],
     }),
+
+    getEmployeeAttendance: builder.query<any, { employeeId: string; startDate: string; endDate: string }>({
+      query: ({ employeeId, ...params }) => ({ url: `/attendance/employee/${employeeId}`, params }),
+      providesTags: ['Attendance'],
+    }),
+
+    markAttendance: builder.mutation<any, { employeeId: string; date: string; status: string; workMode?: string }>({
+      query: (body) => ({ url: '/attendance/mark', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
+    }),
   }),
 });
 
@@ -96,4 +106,6 @@ export const {
   useStoreGPSTrailMutation,
   useProjectSiteCheckInMutation,
   useGetProjectSiteCheckInsQuery,
+  useGetEmployeeAttendanceQuery,
+  useMarkAttendanceMutation,
 } = attendanceApi;

@@ -438,6 +438,16 @@ model LeaveType {
   maxDays        Decimal? @db.Decimal(5, 1)
   noticeDays     Int      @default(0)
   gender         Gender?
+
+  // Leave policy configuration
+  applicableTo       String   @default("ALL")    // "ALL", "PROBATION", "CONFIRMED"
+  maxPerMonth        Int?                         // Max leaves per month (null = unlimited)
+  allowWeekendAdjacent Boolean @default(true)     // Can apply adjacent to weekends
+  allowSameDay       Boolean  @default(false)     // Can apply on same day (e.g. sick leave)
+  probationMonths    Int      @default(3)         // Probation duration in months
+  requiresApproval   Boolean  @default(true)      // Needs manager/HR approval
+  isActive           Boolean  @default(true)      // Soft toggle
+
   organizationId String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

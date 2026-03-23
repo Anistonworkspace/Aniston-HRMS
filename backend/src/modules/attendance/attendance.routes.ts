@@ -30,6 +30,20 @@ router.patch(
   (req, res, next) => attendanceController.handleRegularization(req, res, next)
 );
 
+// HR/Admin — get attendance for a specific employee
+router.get(
+  '/employee/:employeeId',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => attendanceController.getEmployeeAttendance(req, res, next)
+);
+
+// HR/Admin — mark attendance for an employee
+router.post(
+  '/mark',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => attendanceController.markAttendance(req, res, next)
+);
+
 // Admin/HR view — all employees
 router.get(
   '/all',

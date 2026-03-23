@@ -7,6 +7,7 @@ import {
   regularizationSchema,
   attendanceQuerySchema,
   startBreakSchema,
+  markAttendanceSchema,
 } from './attendance.validation.js';
 
 export class AttendanceController {
@@ -117,6 +118,29 @@ export class AttendanceController {
         data.requestedCheckOut
       );
       res.status(201).json({ success: true, data: result, message: 'Regularization submitted' });
+    } catch (err) { next(err); }
+  }
+
+  async getEmployeeAttendance(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId } = req.params;
+      const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
+
+      // Default to current month
+      const now = new Date();
+      const start = startDate || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      const end = endDate || new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+
+      const records = await attendanceService.getEmployeeAttendance(employeeId, start, end);
+      res.json({ success: true, data: records });
+    } catch (err) { next(err); }
+  }
+
+  async markAttendance(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = markAttendanceSchema.parse(req.body);
+      const record = await attendanceService.markAttendance(data, req.user!.userId);
+      res.status(201).json({ success: true, data: record, message: 'Attendance marked successfully' });
     } catch (err) { next(err); }
   }
 

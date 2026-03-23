@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { leaveService } from './leave.service.js';
-import { applyLeaveSchema, leaveActionSchema, leaveQuerySchema } from './leave.validation.js';
+import { applyLeaveSchema, leaveActionSchema, leaveQuerySchema, createLeaveTypeSchema, updateLeaveTypeSchema } from './leave.validation.js';
 import { Role } from '@aniston/shared';
 
 export class LeaveController {
@@ -77,6 +77,29 @@ export class LeaveController {
     try {
       const result = await leaveService.cancelLeave(req.params.id, req.user!.employeeId!);
       res.json({ success: true, data: result, message: 'Leave cancelled' });
+    } catch (err) { next(err); }
+  }
+
+  async createLeaveType(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = createLeaveTypeSchema.parse(req.body);
+      const result = await leaveService.createLeaveType(data, req.user!.organizationId);
+      res.status(201).json({ success: true, data: result, message: 'Leave type created' });
+    } catch (err) { next(err); }
+  }
+
+  async updateLeaveType(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = updateLeaveTypeSchema.parse(req.body);
+      const result = await leaveService.updateLeaveType(req.params.id, data);
+      res.json({ success: true, data: result, message: 'Leave type updated' });
+    } catch (err) { next(err); }
+  }
+
+  async deleteLeaveType(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await leaveService.deleteLeaveType(req.params.id);
+      res.json({ success: true, data: result, message: 'Leave type deactivated' });
     } catch (err) { next(err); }
   }
 

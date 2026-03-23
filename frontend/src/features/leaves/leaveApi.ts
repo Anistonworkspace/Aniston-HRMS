@@ -46,6 +46,21 @@ export const leaveApi = api.injectEndpoints({
     getHolidays: builder.query<any, { year?: number }>({
       query: (params) => ({ url: '/leaves/holidays', params }),
     }),
+
+    createLeaveType: builder.mutation<any, any>({
+      query: (body) => ({ url: '/leaves/types', method: 'POST', body }),
+      invalidatesTags: ['Leave'],
+    }),
+
+    updateLeaveType: builder.mutation<any, { id: string; data: any }>({
+      query: ({ id, data }) => ({ url: `/leaves/types/${id}`, method: 'PATCH', body: data }),
+      invalidatesTags: ['Leave'],
+    }),
+
+    deleteLeaveType: builder.mutation<any, string>({
+      query: (id) => ({ url: `/leaves/types/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Leave'],
+    }),
   }),
 });
 
@@ -58,4 +73,7 @@ export const {
   useGetPendingApprovalsQuery,
   useHandleLeaveActionMutation,
   useGetHolidaysQuery,
+  useCreateLeaveTypeMutation,
+  useUpdateLeaveTypeMutation,
+  useDeleteLeaveTypeMutation,
 } = leaveApi;

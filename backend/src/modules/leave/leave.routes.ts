@@ -8,6 +8,21 @@ router.use(authenticate);
 
 // Leave types & holidays
 router.get('/types', (req, res, next) => leaveController.getLeaveTypes(req, res, next));
+router.post(
+  '/types',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => leaveController.createLeaveType(req, res, next)
+);
+router.patch(
+  '/types/:id',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => leaveController.updateLeaveType(req, res, next)
+);
+router.delete(
+  '/types/:id',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => leaveController.deleteLeaveType(req, res, next)
+);
 router.get('/holidays', (req, res, next) => leaveController.getHolidays(req, res, next));
 
 // My leave

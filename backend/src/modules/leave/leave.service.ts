@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
-import type { ApplyLeaveInput, LeaveQuery } from './leave.validation.js';
+import type { ApplyLeaveInput, LeaveQuery, CreateLeaveTypeInput, UpdateLeaveTypeInput } from './leave.validation.js';
 
 export class LeaveService {
   /**
@@ -11,6 +11,44 @@ export class LeaveService {
     return prisma.leaveType.findMany({
       where: { organizationId },
       orderBy: { name: 'asc' },
+    });
+  }
+
+  /**
+   * Create a new leave type
+   */
+  async createLeaveType(data: CreateLeaveTypeInput, organizationId: string) {
+    return prisma.leaveType.create({
+      data: {
+        ...data,
+        organizationId,
+      },
+    });
+  }
+
+  /**
+   * Update an existing leave type
+   */
+  async updateLeaveType(id: string, data: UpdateLeaveTypeInput) {
+    const existing = await prisma.leaveType.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundError('Leave type');
+
+    return prisma.leaveType.update({
+      where: { id },
+      data,
+    });
+  }
+
+  /**
+   * Delete (soft-deactivate) a leave type
+   */
+  async deleteLeaveType(id: string) {
+    const existing = await prisma.leaveType.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundError('Leave type');
+
+    return prisma.leaveType.update({
+      where: { id },
+      data: { isActive: false },
     });
   }
 

@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText, Shield, Send, Copy, Check, Clock, DollarSign, User } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText, Shield, Send, Copy, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { useGetEmployeeQuery } from './employeeApi';
 import { useCreateOnboardingInviteMutation } from '../onboarding/onboardingApi';
-import { useGetMyAttendanceQuery } from '../attendance/attendanceApi';
+import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation } from '../attendance/attendanceApi';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -324,90 +324,403 @@ export default function EmployeeDetailPage() {
   );
 }
 
-function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: string; employeeName: string }) {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const startDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0];
-  const endDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0];
+/* =============================================================================
+   ERPNext-style Attendance Calendar
+   ============================================================================= */
 
-  // Note: This fetches the logged-in user's attendance. In a full implementation,
-  // the API would accept an employeeId param for admin queries.
-  const { data: response, isLoading } = useGetMyAttendanceQuery({ startDate, endDate });
+const STATUS_COLORS: Record<string, string> = {
+  PRESENT: '#22c55e',
+  ABSENT: '#ef4444',
+  HALF_DAY: '#f59e0b',
+  HOLIDAY: '#3b82f6',
+  WEEKEND: '#d1d5db',
+  ON_LEAVE: '#a855f7',
+  WORK_FROM_HOME: '#22c55e',
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  PRESENT: 'Present',
+  ABSENT: 'Absent',
+  HALF_DAY: 'Half Day',
+  HOLIDAY: 'Holiday',
+  WEEKEND: 'Weekend',
+  ON_LEAVE: 'On Leave',
+  WORK_FROM_HOME: 'WFH',
+};
+
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function getWeeksForYear(year: number) {
+  // Build a grid: rows = 7 days (Mon-Sun), columns = weeks
+  const jan1 = new Date(year, 0, 1);
+  const dec31 = new Date(year, 11, 31);
+
+  // Find first Monday on or before Jan 1
+  const startDay = jan1.getDay(); // 0=Sun
+  const mondayOffset = startDay === 0 ? -6 : 1 - startDay;
+  const firstMonday = new Date(year, 0, 1 + mondayOffset);
+
+  const weeks: Date[][] = [];
+  let current = new Date(firstMonday);
+
+  while (current <= dec31 || weeks.length < 53) {
+    const week: Date[] = [];
+    for (let d = 0; d < 7; d++) {
+      week.push(new Date(current));
+      current.setDate(current.getDate() + 1);
+    }
+    weeks.push(week);
+    if (current > dec31 && weeks.length >= 52) break;
+  }
+
+  return weeks;
+}
+
+function getMonthPositions(weeks: Date[][], year: number) {
+  const positions: { label: string; col: number }[] = [];
+  let lastMonth = -1;
+  weeks.forEach((week, i) => {
+    // Use Thursday of the week to determine month (ISO week convention)
+    const thu = week[3];
+    if (thu && thu.getFullYear() === year && thu.getMonth() !== lastMonth) {
+      lastMonth = thu.getMonth();
+      positions.push({ label: MONTH_LABELS[lastMonth], col: i });
+    }
+  });
+  return positions;
+}
+
+function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: string; employeeName: string }) {
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [popupCell, setPopupCell] = useState<{ date: string; x: number; y: number } | null>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  const startDate = `${selectedYear}-01-01`;
+  const endDate = `${selectedYear}-12-31`;
+
+  const { data: response, isLoading } = useGetEmployeeAttendanceQuery({ employeeId, startDate, endDate });
+  const [markAttendance, { isLoading: marking }] = useMarkAttendanceMutation();
+
   const records = response?.data?.records || [];
   const summary = response?.data?.summary;
 
-  const monthName = currentMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+  // Build a date->status map
+  const dateStatusMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    records.forEach((r: any) => {
+      const dateKey = r.date?.split('T')[0];
+      if (dateKey) map[dateKey] = r.status;
+    });
+    return map;
+  }, [records]);
+
+  // Build weeks grid
+  const weeks = useMemo(() => getWeeksForYear(selectedYear), [selectedYear]);
+  const monthPositions = useMemo(() => getMonthPositions(weeks, selectedYear), [weeks, selectedYear]);
+
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  const getDateStatus = useCallback((date: Date): string | null => {
+    const dateStr = date.toISOString().split('T')[0];
+    if (date.getFullYear() !== selectedYear) return null;
+    if (dateStr > todayStr) return null; // future
+    if (dateStatusMap[dateStr]) return dateStatusMap[dateStr];
+    // Check if weekend (Sat=5, Sun=6 in our Mon-indexed grid)
+    const dayOfWeek = date.getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) return 'WEEKEND';
+    return null;
+  }, [dateStatusMap, selectedYear, todayStr]);
+
+  const getCellColor = (date: Date): string => {
+    const status = getDateStatus(date);
+    if (!status) return '#f3f4f6'; // light gray for no data / future
+    return STATUS_COLORS[status] || '#f3f4f6';
+  };
+
+  const handleCellClick = (date: Date, e: React.MouseEvent) => {
+    const dateStr = date.toISOString().split('T')[0];
+    if (date.getFullYear() !== selectedYear) return;
+    if (dateStr > todayStr) return;
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setPopupCell({ date: dateStr, x: rect.left, y: rect.bottom + 4 });
+  };
+
+  const handleMarkStatus = async (status: string) => {
+    if (!popupCell || marking) return;
+    try {
+      await markAttendance({ employeeId, date: popupCell.date, status }).unwrap();
+      toast.success(`Marked as ${STATUS_LABELS[status] || status}`);
+      setPopupCell(null);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to mark attendance');
+    }
+  };
+
+  // Close popup on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        setPopupCell(null);
+      }
+    };
+    if (popupCell) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [popupCell]);
+
+  // Count records by status
+  const attendanceCount = records.length;
+  const leaveCount = records.filter((r: any) => r.status === 'ON_LEAVE').length;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-      {/* Month navigation */}
-      <div className="layer-card p-4 flex items-center justify-between">
-        <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
-          className="p-2 hover:bg-surface-2 rounded-lg"><ArrowLeft size={16} /></button>
-        <h3 className="font-display font-bold text-gray-900">{employeeName} — {monthName}</h3>
-        <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
-          className="p-2 hover:bg-surface-2 rounded-lg"><ArrowLeft size={16} className="rotate-180" /></button>
-      </div>
-
-      {/* Summary */}
-      {summary && (
-        <div className="grid grid-cols-4 gap-3">
-          <div className="stat-card text-center">
-            <p className="text-xl font-bold text-emerald-600" data-mono>{summary.present}</p>
-            <p className="text-xs text-gray-400">Present</p>
-          </div>
-          <div className="stat-card text-center">
-            <p className="text-xl font-bold text-red-500" data-mono>{summary.absent}</p>
-            <p className="text-xs text-gray-400">Absent</p>
-          </div>
-          <div className="stat-card text-center">
-            <p className="text-xl font-bold text-purple-500" data-mono>{summary.onLeave}</p>
-            <p className="text-xs text-gray-400">On Leave</p>
-          </div>
-          <div className="stat-card text-center">
-            <p className="text-xl font-bold text-brand-600" data-mono>{summary.averageHours?.toFixed(1) || '0'}h</p>
-            <p className="text-xs text-gray-400">Avg Hours</p>
+      {/* Year selector & summary */}
+      <div className="layer-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-display font-bold text-gray-900">{employeeName} — Attendance</h3>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSelectedYear((y) => y - 1)}
+              className="p-1.5 hover:bg-surface-2 rounded-lg transition-colors"
+            >
+              <ChevronLeft size={16} className="text-gray-500" />
+            </button>
+            <span className="text-sm font-bold font-mono text-gray-800 min-w-[4ch] text-center" data-mono>
+              {selectedYear}
+            </span>
+            <button
+              onClick={() => setSelectedYear((y) => Math.min(y + 1, currentYear))}
+              disabled={selectedYear >= currentYear}
+              className="p-1.5 hover:bg-surface-2 rounded-lg transition-colors disabled:opacity-30"
+            >
+              <ChevronRight size={16} className="text-gray-500" />
+            </button>
           </div>
         </div>
-      )}
 
-      {/* Records table */}
-      <div className="layer-card overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-gray-100">
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Date</th>
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Check In</th>
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Check Out</th>
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Hours</th>
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <tr><td colSpan={5} className="text-center py-8 text-gray-400">Loading...</td></tr>
-            ) : records.length === 0 ? (
-              <tr><td colSpan={5} className="text-center py-8 text-gray-400">No attendance records</td></tr>
-            ) : (
-              records.map((r: any) => (
-                <tr key={r.id} className="border-b border-gray-50 hover:bg-surface-2">
-                  <td className="px-5 py-3 text-sm text-gray-700">{formatDate(r.date)}</td>
-                  <td className="px-5 py-3 text-sm font-mono text-gray-700" data-mono>
-                    {r.checkIn ? new Date(r.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
-                  </td>
-                  <td className="px-5 py-3 text-sm font-mono text-gray-700" data-mono>
-                    {r.checkOut ? new Date(r.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
-                  </td>
-                  <td className="px-5 py-3 text-sm font-mono text-gray-700" data-mono>
-                    {r.totalHours ? `${Number(r.totalHours).toFixed(1)}h` : '--'}
-                  </td>
-                  <td className="px-5 py-3">
-                    <span className={`badge ${getStatusColor(r.status)} text-xs`}>{r.status?.replace(/_/g, ' ')}</span>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+        {/* Summary stats row */}
+        {summary && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mb-5">
+            <div className="stat-card text-center py-3">
+              <p className="text-xl font-bold font-mono text-emerald-600" data-mono>{summary.present || 0}</p>
+              <p className="text-[11px] text-gray-400">Present</p>
+            </div>
+            <div className="stat-card text-center py-3">
+              <p className="text-xl font-bold font-mono text-red-500" data-mono>{summary.absent || 0}</p>
+              <p className="text-[11px] text-gray-400">Absent</p>
+            </div>
+            <div className="stat-card text-center py-3">
+              <p className="text-xl font-bold font-mono text-amber-500" data-mono>{summary.halfDay || 0}</p>
+              <p className="text-[11px] text-gray-400">Half Day</p>
+            </div>
+            <div className="stat-card text-center py-3">
+              <p className="text-xl font-bold font-mono text-purple-500" data-mono>{summary.onLeave || 0}</p>
+              <p className="text-[11px] text-gray-400">On Leave</p>
+            </div>
+            <div className="stat-card text-center py-3">
+              <p className="text-xl font-bold font-mono text-blue-500" data-mono>{summary.holidays || 0}</p>
+              <p className="text-[11px] text-gray-400">Holidays</p>
+            </div>
+            <div className="stat-card text-center py-3">
+              <p className="text-xl font-bold font-mono text-brand-600" data-mono>{summary.averageHours?.toFixed(1) || '0'}h</p>
+              <p className="text-[11px] text-gray-400">Avg Hours</p>
+            </div>
+          </div>
+        )}
+
+        {/* Contribution calendar */}
+        {isLoading ? (
+          <div className="text-center py-12">
+            <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-sm text-gray-400 mt-2">Loading attendance data...</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto pb-2">
+            <div className="inline-block">
+              {/* Month labels */}
+              <div className="flex ml-8 mb-1">
+                {monthPositions.map((mp, i) => (
+                  <div
+                    key={i}
+                    className="text-[10px] text-gray-400 font-medium uppercase"
+                    style={{
+                      position: 'relative',
+                      left: `${mp.col * 15}px`,
+                      marginRight: i < monthPositions.length - 1
+                        ? `${(monthPositions[i + 1].col - mp.col) * 15 - 28}px`
+                        : 0,
+                    }}
+                  >
+                    {mp.label}
+                  </div>
+                ))}
+              </div>
+
+              {/* Grid: rows = days of week, cols = weeks */}
+              <div className="flex gap-0">
+                {/* Day labels column */}
+                <div className="flex flex-col gap-[3px] mr-1.5 pt-0">
+                  {DAY_LABELS.map((label, i) => (
+                    <div key={label} className="h-[12px] flex items-center">
+                      {i % 2 === 0 ? (
+                        <span className="text-[9px] text-gray-400 w-6 text-right">{label}</span>
+                      ) : (
+                        <span className="w-6" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Week columns */}
+                {weeks.map((week, wi) => (
+                  <div key={wi} className="flex flex-col gap-[3px]">
+                    {week.map((date, di) => {
+                      const dateStr = date.toISOString().split('T')[0];
+                      const isCurrentYear = date.getFullYear() === selectedYear;
+                      const status = getDateStatus(date);
+                      const color = getCellColor(date);
+                      return (
+                        <div
+                          key={di}
+                          onClick={(e) => isCurrentYear && handleCellClick(date, e)}
+                          className="rounded-[2px] transition-all duration-100 hover:ring-1 hover:ring-gray-400"
+                          style={{
+                            width: 12,
+                            height: 12,
+                            backgroundColor: isCurrentYear ? color : 'transparent',
+                            cursor: isCurrentYear && dateStr <= todayStr ? 'pointer' : 'default',
+                            opacity: isCurrentYear ? 1 : 0,
+                          }}
+                          title={isCurrentYear ? `${dateStr}: ${status ? STATUS_LABELS[status] || status : 'No record'}` : ''}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+
+              {/* Legend */}
+              <div className="flex items-center gap-3 mt-3 ml-8">
+                <span className="text-[10px] text-gray-400">Less</span>
+                {[
+                  { color: '#f3f4f6', label: 'No data' },
+                  { color: STATUS_COLORS.PRESENT, label: 'Present' },
+                  { color: STATUS_COLORS.ABSENT, label: 'Absent' },
+                  { color: STATUS_COLORS.HALF_DAY, label: 'Half Day' },
+                  { color: STATUS_COLORS.ON_LEAVE, label: 'Leave' },
+                  { color: STATUS_COLORS.HOLIDAY, label: 'Holiday' },
+                  { color: STATUS_COLORS.WEEKEND, label: 'Weekend' },
+                ].map((item) => (
+                  <div key={item.label} className="flex items-center gap-1">
+                    <div
+                      className="w-[10px] h-[10px] rounded-[2px]"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span className="text-[9px] text-gray-400">{item.label}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-300 mt-2 ml-8 italic">
+                This is based on the attendance of this Employee
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Mark attendance popup */}
+      <AnimatePresence>
+        {popupCell && (
+          <motion.div
+            ref={popupRef}
+            initial={{ opacity: 0, scale: 0.9, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="fixed z-50 bg-white rounded-xl shadow-glass-lg border border-gray-100 p-2 min-w-[160px]"
+            style={{ left: Math.min(popupCell.x, window.innerWidth - 200), top: popupCell.y }}
+          >
+            <p className="text-[10px] text-gray-400 px-2 py-1 font-medium">
+              Mark {popupCell.date}
+            </p>
+            {[
+              { status: 'PRESENT', label: 'Present', color: STATUS_COLORS.PRESENT },
+              { status: 'ABSENT', label: 'Absent', color: STATUS_COLORS.ABSENT },
+              { status: 'HALF_DAY', label: 'Half Day', color: STATUS_COLORS.HALF_DAY },
+              { status: 'ON_LEAVE', label: 'On Leave', color: STATUS_COLORS.ON_LEAVE },
+            ].map((opt) => (
+              <button
+                key={opt.status}
+                onClick={() => handleMarkStatus(opt.status)}
+                disabled={marking}
+                className="flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-sm text-gray-700 hover:bg-surface-2 transition-colors text-left"
+              >
+                <div
+                  className="w-3 h-3 rounded-sm flex-shrink-0"
+                  style={{ backgroundColor: opt.color }}
+                />
+                {opt.label}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Connections section (ERPNext-style) */}
+      <div className="layer-card p-5">
+        <h3 className="text-sm font-semibold text-gray-800 mb-3">Connections</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {/* Attendance */}
+          <div className="bg-surface-2 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                <Clock size={16} className="text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-700">Attendance</p>
+                <p className="text-xs text-gray-400">{attendanceCount} records</p>
+              </div>
+            </div>
+            <span className="text-lg font-bold font-mono text-emerald-600" data-mono>{attendanceCount}</span>
+          </div>
+
+          {/* Leave Application */}
+          <div className="bg-surface-2 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
+                <Calendar size={16} className="text-purple-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-700">Leave Application</p>
+                <p className="text-xs text-gray-400">{leaveCount} records</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-bold font-mono text-purple-600" data-mono>{leaveCount}</span>
+              <button className="w-6 h-6 rounded-md bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors">
+                <Plus size={12} className="text-gray-500" />
+              </button>
+            </div>
+          </div>
+
+          {/* Lifecycle */}
+          <div className="bg-surface-2 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                <Briefcase size={16} className="text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-700">Lifecycle</p>
+                <p className="text-xs text-gray-400">Events</p>
+              </div>
+            </div>
+            <button className="w-6 h-6 rounded-md bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors">
+              <Plus size={12} className="text-gray-500" />
+            </button>
+          </div>
+        </div>
       </div>
     </motion.div>
   );

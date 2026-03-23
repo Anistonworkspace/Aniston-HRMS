@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
-import type { ClockInInput, ClockOutInput, GPSTrailBatchInput, AttendanceQuery } from './attendance.validation.js';
+import type { ClockInInput, ClockOutInput, GPSTrailBatchInput, AttendanceQuery, MarkAttendanceInput } from './attendance.validation.js';
 
 export class AttendanceService {
   /**
@@ -479,6 +479,67 @@ export class AttendanceService {
     });
 
     return updated;
+  }
+
+  /**
+   * Get attendance records for a specific employee in a date range (HR/Admin view)
+   */
+  async getEmployeeAttendance(employeeId: string, startDate: string, endDate: string) {
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    const records = await prisma.attendanceRecord.findMany({
+      where: {
+        employeeId,
+        date: { gte: start, lte: end },
+      },
+      include: { breaks: true },
+      orderBy: { date: 'asc' },
+    });
+
+    return records;
+  }
+
+  /**
+   * Mark attendance for a specific employee on a specific date (HR/Admin)
+   * Creates or updates (upsert) an attendance record.
+   */
+  async markAttendance(data: MarkAttendanceInput, markedBy: string) {
+    const employee = await prisma.employee.findUnique({ where: { id: data.employeeId } });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const date = new Date(data.date);
+    date.setHours(0, 0, 0, 0);
+
+    const record = await prisma.attendanceRecord.upsert({
+      where: {
+        employeeId_date: {
+          employeeId: data.employeeId,
+          date,
+        },
+      },
+      update: {
+        status: data.status,
+        workMode: data.workMode || employee.workMode,
+        source: 'MANUAL_HR',
+        notes: `Marked by HR/Admin (userId: ${markedBy})`,
+      },
+      create: {
+        employeeId: data.employeeId,
+        date,
+        status: data.status,
+        workMode: data.workMode || employee.workMode,
+        source: 'MANUAL_HR',
+        notes: `Marked by HR/Admin (userId: ${markedBy})`,
+      },
+    });
+
+    return record;
   }
 
   /**

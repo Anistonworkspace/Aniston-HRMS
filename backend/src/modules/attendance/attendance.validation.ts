@@ -54,6 +54,14 @@ export const startBreakSchema = z.object({
   type: z.enum(['LUNCH', 'SHORT', 'PRAYER', 'CUSTOM']).default('SHORT'),
 });
 
+export const markAttendanceSchema = z.object({
+  employeeId: z.string().uuid(),
+  date: z.string().min(1, 'Date is required'),
+  status: z.enum(['PRESENT', 'ABSENT', 'HALF_DAY', 'ON_LEAVE', 'WORK_FROM_HOME', 'HOLIDAY', 'WEEKEND']),
+  workMode: z.enum(['OFFICE', 'FIELD_SALES', 'PROJECT_SITE', 'WORK_FROM_HOME']).optional(),
+});
+
+export type MarkAttendanceInput = z.infer<typeof markAttendanceSchema>;
 export type ClockInInput = z.infer<typeof clockInSchema>;
 export type ClockOutInput = z.infer<typeof clockOutSchema>;
 export type GPSTrailBatchInput = z.infer<typeof gpsTrailBatchSchema>;
