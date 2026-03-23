@@ -59,7 +59,7 @@ export class LeaveController {
         res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
         return;
       }
-      const result = await leaveService.getPendingApprovals(req.user!.employeeId, req.user!.organizationId, query);
+      const result = await leaveService.getPendingApprovals(req.user!.employeeId, req.user!.organizationId, query, req.user!.role);
       res.json({ success: true, data: result.data, meta: result.meta });
     } catch (err) { next(err); }
   }

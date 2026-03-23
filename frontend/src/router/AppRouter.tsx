@@ -57,6 +57,9 @@ export default function AppRouter() {
             <Route index element={<WalkInKioskPage />} />
           </Route>
 
+          {/* Employee Detail — standalone (no sidebar) */}
+          <Route path="/employees/:id" element={<ProtectedRoute><EmployeeDetailPage /></ProtectedRoute>} />
+
           {/* Protected routes */}
           <Route
             element={
@@ -67,7 +70,6 @@ export default function AppRouter() {
           >
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/employees" element={<EmployeeListPage />} />
-            <Route path="/employees/:id" element={<EmployeeDetailPage />} />
 
             {/* Placeholder routes */}
             <Route path="/attendance" element={<AttendancePage />} />

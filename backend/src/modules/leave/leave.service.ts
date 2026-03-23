@@ -356,21 +356,34 @@ export class LeaveService {
   /**
    * Get pending approvals for a manager/HR
    */
-  async getPendingApprovals(managerId: string, organizationId: string, query: LeaveQuery) {
+  async getPendingApprovals(managerId: string, organizationId: string, query: LeaveQuery, role?: string) {
     const { page, limit } = query;
     const skip = (page - 1) * limit;
 
-    // Get direct reports of the manager
-    const directReports = await prisma.employee.findMany({
-      where: { managerId, organizationId, deletedAt: null },
-      select: { id: true },
-    });
-    const reporteeIds = directReports.map((r) => r.id);
+    const isOrgAdmin = role && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(role);
 
-    const where: any = {
-      employeeId: { in: reporteeIds },
-      status: 'PENDING',
-    };
+    let where: any;
+    if (isOrgAdmin) {
+      // HR/Admin/SuperAdmin see ALL pending leaves in the organization
+      const orgEmployees = await prisma.employee.findMany({
+        where: { organizationId, deletedAt: null },
+        select: { id: true },
+      });
+      where = {
+        employeeId: { in: orgEmployees.map((e) => e.id) },
+        status: 'PENDING',
+      };
+    } else {
+      // Manager sees only direct reports
+      const directReports = await prisma.employee.findMany({
+        where: { managerId, organizationId, deletedAt: null },
+        select: { id: true },
+      });
+      where = {
+        employeeId: { in: directReports.map((r) => r.id) },
+        status: 'PENDING',
+      };
+    }
 
     const [requests, total] = await Promise.all([
       prisma.leaveRequest.findMany({
