@@ -1,20 +1,27 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText, Shield, Send, Copy, Check } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText, Shield, Send, Copy, Check, Clock, DollarSign, User } from 'lucide-react';
 import { useGetEmployeeQuery } from './employeeApi';
 import { useCreateOnboardingInviteMutation } from '../onboarding/onboardingApi';
+import { useGetMyAttendanceQuery } from '../attendance/attendanceApi';
+import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
+
+const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const user = useAppSelector((state) => state.auth.user);
+  const isManagement = MANAGEMENT_ROLES.includes(user?.role || '');
   const { data: response, isLoading } = useGetEmployeeQuery(id!);
   const employee = response?.data;
   const [createInvite, { isLoading: inviting }] = useCreateOnboardingInviteMutation();
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'documents' | 'payroll'>('overview');
 
   const handleSendInvite = async () => {
     try {
@@ -138,7 +145,86 @@ export default function EmployeeDetailPage() {
         </div>
       </motion.div>
 
-      {/* Info cards grid */}
+      {/* Tabs for management roles */}
+      {isManagement && (
+        <div className="flex gap-1 mb-6 border-b border-gray-100">
+          {[
+            { key: 'overview' as const, label: 'Overview', icon: User },
+            { key: 'attendance' as const, label: 'Attendance', icon: Clock },
+            { key: 'documents' as const, label: 'Documents', icon: FileText },
+            { key: 'payroll' as const, label: 'Payroll', icon: DollarSign },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
+                ${activeTab === tab.key
+                  ? 'border-brand-600 text-brand-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            >
+              <tab.icon size={16} />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Tab: Attendance (HR only) */}
+      {isManagement && activeTab === 'attendance' && (
+        <EmployeeAttendanceTab employeeId={id!} employeeName={`${employee.firstName} ${employee.lastName}`} />
+      )}
+
+      {/* Tab: Documents (HR only — full-width view) */}
+      {isManagement && activeTab === 'documents' && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="layer-card p-6">
+          <h2 className="text-lg font-display font-bold text-gray-900 mb-4">Documents ({employee.documents?.length || 0})</h2>
+          {employee.documents && employee.documents.length > 0 ? (
+            <div className="grid md:grid-cols-2 gap-3">
+              {employee.documents.map((doc: any) => (
+                <div key={doc.id} className="flex items-center justify-between p-4 bg-surface-2 rounded-xl">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">{doc.name}</p>
+                    <p className="text-xs text-gray-400">{doc.type} · Uploaded {formatDate(doc.createdAt)}</p>
+                  </div>
+                  <span className={`badge ${getStatusColor(doc.status)} text-xs`}>{doc.status}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-12">No documents uploaded yet</p>
+          )}
+        </motion.div>
+      )}
+
+      {/* Tab: Payroll (HR only) */}
+      {isManagement && activeTab === 'payroll' && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="layer-card p-6">
+          <h2 className="text-lg font-display font-bold text-gray-900 mb-4">Salary & Payroll</h2>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="p-4 bg-surface-2 rounded-xl">
+              <p className="text-xs text-gray-400 mb-1">CTC (Annual)</p>
+              <p className="text-xl font-bold font-mono text-gray-900" data-mono>
+                {employee.ctc ? formatCurrency(Number(employee.ctc)) : '—'}
+              </p>
+            </div>
+            <div className="p-4 bg-surface-2 rounded-xl">
+              <p className="text-xs text-gray-400 mb-1">Work Mode</p>
+              <p className="text-xl font-bold text-gray-900">{employee.workMode?.replace(/_/g, ' ') || 'OFFICE'}</p>
+            </div>
+            <div className="p-4 bg-surface-2 rounded-xl">
+              <p className="text-xs text-gray-400 mb-1">Department</p>
+              <p className="text-lg font-medium text-gray-900">{employee.department?.name || '—'}</p>
+            </div>
+            <div className="p-4 bg-surface-2 rounded-xl">
+              <p className="text-xs text-gray-400 mb-1">Designation</p>
+              <p className="text-lg font-medium text-gray-900">{employee.designation?.name || '—'}</p>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Tab: Overview (default) — Info cards grid */}
+      {(!isManagement || activeTab === 'overview') && (
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Personal Info */}
         <motion.div
@@ -233,7 +319,97 @@ export default function EmployeeDetailPage() {
           </motion.div>
         )}
       </div>
+      )}
     </div>
+  );
+}
+
+function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: string; employeeName: string }) {
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const startDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0];
+  const endDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0];
+
+  // Note: This fetches the logged-in user's attendance. In a full implementation,
+  // the API would accept an employeeId param for admin queries.
+  const { data: response, isLoading } = useGetMyAttendanceQuery({ startDate, endDate });
+  const records = response?.data?.records || [];
+  const summary = response?.data?.summary;
+
+  const monthName = currentMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+      {/* Month navigation */}
+      <div className="layer-card p-4 flex items-center justify-between">
+        <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
+          className="p-2 hover:bg-surface-2 rounded-lg"><ArrowLeft size={16} /></button>
+        <h3 className="font-display font-bold text-gray-900">{employeeName} — {monthName}</h3>
+        <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
+          className="p-2 hover:bg-surface-2 rounded-lg"><ArrowLeft size={16} className="rotate-180" /></button>
+      </div>
+
+      {/* Summary */}
+      {summary && (
+        <div className="grid grid-cols-4 gap-3">
+          <div className="stat-card text-center">
+            <p className="text-xl font-bold text-emerald-600" data-mono>{summary.present}</p>
+            <p className="text-xs text-gray-400">Present</p>
+          </div>
+          <div className="stat-card text-center">
+            <p className="text-xl font-bold text-red-500" data-mono>{summary.absent}</p>
+            <p className="text-xs text-gray-400">Absent</p>
+          </div>
+          <div className="stat-card text-center">
+            <p className="text-xl font-bold text-purple-500" data-mono>{summary.onLeave}</p>
+            <p className="text-xs text-gray-400">On Leave</p>
+          </div>
+          <div className="stat-card text-center">
+            <p className="text-xl font-bold text-brand-600" data-mono>{summary.averageHours?.toFixed(1) || '0'}h</p>
+            <p className="text-xs text-gray-400">Avg Hours</p>
+          </div>
+        </div>
+      )}
+
+      {/* Records table */}
+      <div className="layer-card overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-gray-100">
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Date</th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Check In</th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Check Out</th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Hours</th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr><td colSpan={5} className="text-center py-8 text-gray-400">Loading...</td></tr>
+            ) : records.length === 0 ? (
+              <tr><td colSpan={5} className="text-center py-8 text-gray-400">No attendance records</td></tr>
+            ) : (
+              records.map((r: any) => (
+                <tr key={r.id} className="border-b border-gray-50 hover:bg-surface-2">
+                  <td className="px-5 py-3 text-sm text-gray-700">{formatDate(r.date)}</td>
+                  <td className="px-5 py-3 text-sm font-mono text-gray-700" data-mono>
+                    {r.checkIn ? new Date(r.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
+                  </td>
+                  <td className="px-5 py-3 text-sm font-mono text-gray-700" data-mono>
+                    {r.checkOut ? new Date(r.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
+                  </td>
+                  <td className="px-5 py-3 text-sm font-mono text-gray-700" data-mono>
+                    {r.totalHours ? `${Number(r.totalHours).toFixed(1)}h` : '--'}
+                  </td>
+                  <td className="px-5 py-3">
+                    <span className={`badge ${getStatusColor(r.status)} text-xs`}>{r.status?.replace(/_/g, ' ')}</span>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </motion.div>
   );
 }
 

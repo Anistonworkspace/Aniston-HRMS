@@ -36,7 +36,9 @@ const app = express();
 // Security
 app.use(helmet());
 app.use(cors({
-  origin: env.FRONTEND_URL,
+  origin: env.NODE_ENV === 'development'
+    ? [env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:5174']
+    : env.FRONTEND_URL,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],

@@ -21,8 +21,11 @@ import {
 import { useAppSelector } from '../../app/store';
 import { cn } from '../../lib/utils';
 
+const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+
 interface NavItem {
   name: string;
+  managementName?: string; // Shown for SUPER_ADMIN, ADMIN, HR instead of name
   path: string;
   icon: React.ElementType;
   roles?: string[];
@@ -30,9 +33,9 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { name: 'Dashboard', path: '/dashboard', icon: Home },
-  { name: 'Employees', path: '/employees', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { name: 'Attendance', path: '/attendance', icon: Clock },
-  { name: 'Leave', path: '/leaves', icon: CalendarDays },
+  { name: 'Employees', managementName: 'Manage Employees', path: '/employees', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
+  { name: 'Attendance', managementName: 'Attendance Management', path: '/attendance', icon: Clock },
+  { name: 'Leave', managementName: 'Leave Management', path: '/leaves', icon: CalendarDays },
   { name: 'Payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Walk-In Mgmt', path: '/walk-in-management', icon: UserPlus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
@@ -49,6 +52,8 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const user = useAppSelector((state) => state.auth.user);
   const location = useLocation();
+
+  const isManagement = user?.role ? MANAGEMENT_ROLES.includes(user.role) : false;
 
   const filteredItems = navItems.filter((item) => {
     if (!item.roles) return true;
@@ -111,7 +116,7 @@ export default function Sidebar() {
                     exit={{ opacity: 0 }}
                     className="text-sm whitespace-nowrap"
                   >
-                    {item.name}
+                    {isManagement && item.managementName ? item.managementName : item.name}
                   </motion.span>
                 )}
               </AnimatePresence>

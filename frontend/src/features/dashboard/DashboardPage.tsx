@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Users, UserCheck, CalendarOff, Briefcase, TrendingUp, Clock } from 'lucide-react';
+import { Users, UserCheck, CalendarOff, Briefcase, TrendingUp, Clock, ClipboardCheck, DollarSign, MessageSquare } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/store';
 import { useGetDashboardStatsQuery } from './dashboardApi';
@@ -86,12 +86,20 @@ export default function DashboardPage() {
             Quick Actions
           </h2>
           <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: 'Check In', icon: '⏰', path: '/attendance' },
-              { label: 'Apply Leave', icon: '🏖️', path: '/leaves' },
-              { label: 'View Payslip', icon: '💰', path: '/payroll' },
-              { label: 'Raise Ticket', icon: '🎫', path: '/helpdesk' },
-            ].map((action) => (
+            {((['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || ''))
+              ? [
+                  { label: 'Manage Attendance', icon: '📊', path: '/attendance' },
+                  { label: 'Approve Leaves', icon: '✅', path: '/leaves' },
+                  { label: 'Run Payroll', icon: '💰', path: '/payroll' },
+                  { label: 'Review Tickets', icon: '🎫', path: '/helpdesk' },
+                ]
+              : [
+                  { label: 'Check In', icon: '⏰', path: '/attendance' },
+                  { label: 'Apply Leave', icon: '🏖️', path: '/leaves' },
+                  { label: 'View Payslip', icon: '💰', path: '/payroll' },
+                  { label: 'Raise Ticket', icon: '🎫', path: '/helpdesk' },
+                ]
+            ).map((action) => (
               <button
                 key={action.label}
                 onClick={() => navigate(action.path)}

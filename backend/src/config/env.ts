@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { config } from 'dotenv';
 import { resolve } from 'path';
 
-// Load .env from project root
+// Load .env from project root (works whether cwd is root or backend/)
 config({ path: resolve(process.cwd(), '.env') });
+config({ path: resolve(process.cwd(), '..', '.env') });
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),

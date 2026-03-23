@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CalendarDays, Plus, X, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import {
+  CalendarDays, Plus, X, Clock, CheckCircle, XCircle, AlertCircle,
+  Users, Search, FileText, ThumbsUp, ThumbsDown,
+} from 'lucide-react';
 import {
   useGetLeaveBalancesQuery,
   useGetLeaveTypesQuery,
@@ -8,8 +11,11 @@ import {
   useApplyLeaveMutation,
   useCancelLeaveMutation,
   useGetHolidaysQuery,
+  useGetPendingApprovalsQuery,
+  useHandleLeaveActionMutation,
 } from './leaveApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
+import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
 
 const LEAVE_ICONS: Record<string, string> = {
@@ -17,6 +23,313 @@ const LEAVE_ICONS: Record<string, string> = {
 };
 
 export default function LeavePage() {
+  const user = useAppSelector((state) => state.auth.user);
+  const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
+
+  return isManagement ? <LeaveManagementView /> : <LeavePersonalView />;
+}
+
+/* =============================================================================
+   MANAGEMENT VIEW
+   ============================================================================= */
+
+function LeaveManagementView() {
+  const [activeTab, setActiveTab] = useState<'approvals' | 'types'>('approvals');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+
+  const { data: approvalsRes, isLoading: approvalsLoading } = useGetPendingApprovalsQuery({ page, limit: 20 });
+  const { data: typesRes } = useGetLeaveTypesQuery();
+  const { data: holidaysRes } = useGetHolidaysQuery({});
+  const [handleAction] = useHandleLeaveActionMutation();
+
+  const approvals = approvalsRes?.data || [];
+  const leaveTypes = typesRes?.data || [];
+  const holidays = holidaysRes?.data || [];
+
+  // Filter approvals by search
+  const filteredApprovals = searchQuery.trim()
+    ? approvals.filter((a: any) => {
+        const name = `${a.employee?.firstName || ''} ${a.employee?.lastName || ''}`.toLowerCase();
+        return name.includes(searchQuery.toLowerCase());
+      })
+    : approvals;
+
+  const handleApprove = async (id: string) => {
+    try {
+      await handleAction({ id, action: 'APPROVE' }).unwrap();
+      toast.success('Leave approved');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to approve');
+    }
+  };
+
+  const handleReject = async (id: string) => {
+    try {
+      await handleAction({ id, action: 'REJECT' }).unwrap();
+      toast.success('Leave rejected');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to reject');
+    }
+  };
+
+  // Summary counts
+  const pendingCount = approvals.length;
+
+  return (
+    <div className="page-container">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-display font-bold text-gray-900">Leave Management</h1>
+          <p className="text-gray-500 text-sm mt-0.5">Review and manage employee leave requests</p>
+        </div>
+      </div>
+
+      {/* Summary Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="stat-card"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+              <Clock size={20} className="text-amber-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold font-mono text-amber-600" data-mono>{pendingCount}</p>
+              <p className="text-xs text-gray-400">Pending Approvals</p>
+            </div>
+          </div>
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="stat-card"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+              <FileText size={20} className="text-blue-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold font-mono text-blue-600" data-mono>{leaveTypes.length}</p>
+              <p className="text-xs text-gray-400">Leave Types</p>
+            </div>
+          </div>
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="stat-card"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
+              <CalendarDays size={20} className="text-purple-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold font-mono text-purple-600" data-mono>{holidays.length}</p>
+              <p className="text-xs text-gray-400">Holidays This Year</p>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-surface-2 rounded-xl p-1 mb-6 w-fit">
+        <button
+          onClick={() => setActiveTab('approvals')}
+          className={cn(
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+            activeTab === 'approvals'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          )}
+        >
+          Pending Approvals
+          {pendingCount > 0 && (
+            <span className="ml-2 bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">
+              {pendingCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('types')}
+          className={cn(
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+            activeTab === 'types'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          )}
+        >
+          Leave Types
+        </button>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'approvals' && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          {/* Search */}
+          <div className="mb-4">
+            <div className="relative max-w-md">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by employee name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="input-glass w-full pl-9 text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Approval cards */}
+          {approvalsLoading ? (
+            <div className="text-center py-12">
+              <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-sm text-gray-400 mt-2">Loading pending approvals...</p>
+            </div>
+          ) : filteredApprovals.length === 0 ? (
+            <div className="layer-card p-12 text-center">
+              <CheckCircle size={40} className="mx-auto text-emerald-200 mb-3" />
+              <p className="text-sm text-gray-400">No pending leave requests</p>
+              <p className="text-xs text-gray-300 mt-1">All caught up!</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredApprovals.map((leave: any, idx: number) => (
+                <motion.div
+                  key={leave.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.03 }}
+                  className="layer-card p-5"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3 flex-1">
+                      <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-sm font-semibold text-brand-700 shrink-0">
+                        {(leave.employee?.firstName?.[0] || '') + (leave.employee?.lastName?.[0] || '')}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-800">
+                          {leave.employee?.firstName} {leave.employee?.lastName}
+                          <span className="text-gray-400 font-normal ml-2 text-xs">
+                            {leave.employee?.employeeCode}
+                          </span>
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <span className="badge badge-info text-xs">
+                            {leave.leaveType?.name || 'Leave'}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {formatDate(leave.startDate)} - {formatDate(leave.endDate)}
+                          </span>
+                          <span className="text-xs font-mono text-gray-500" data-mono>
+                            {Number(leave.days)} {Number(leave.days) === 1 ? 'day' : 'days'}
+                          </span>
+                          {leave.isHalfDay && (
+                            <span className="badge badge-warning text-xs">Half Day</span>
+                          )}
+                        </div>
+                        {leave.reason && (
+                          <p className="text-xs text-gray-400 mt-1.5 line-clamp-2">{leave.reason}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`badge ${getStatusColor(leave.status)} text-xs`}>
+                        {leave.status}
+                      </span>
+                      {leave.status === 'PENDING' && (
+                        <>
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleApprove(leave.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors"
+                          >
+                            <ThumbsUp size={14} />
+                            Approve
+                          </motion.button>
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleReject(leave.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
+                          >
+                            <ThumbsDown size={14} />
+                            Reject
+                          </motion.button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {activeTab === 'types' && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {leaveTypes.map((lt: any, idx: number) => (
+              <motion.div
+                key={lt.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.04 }}
+                className="layer-card p-5"
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-2xl">{LEAVE_ICONS[lt.code] || '📅'}</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{lt.name}</p>
+                    <p className="text-xs text-gray-400">{lt.code}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-center">
+                  <div className="bg-surface-2 rounded-lg py-2 px-3">
+                    <p className="text-lg font-bold font-mono text-brand-600" data-mono>
+                      {lt.defaultDays ?? lt.maxDays ?? '--'}
+                    </p>
+                    <p className="text-xs text-gray-400">Default Days</p>
+                  </div>
+                  <div className="bg-surface-2 rounded-lg py-2 px-3">
+                    <p className="text-lg font-bold font-mono text-gray-600" data-mono>
+                      {lt.maxDays ?? '--'}
+                    </p>
+                    <p className="text-xs text-gray-400">Max Days</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {lt.isPaid && <span className="badge badge-success text-xs">Paid</span>}
+                  {!lt.isPaid && <span className="badge badge-neutral text-xs">Unpaid</span>}
+                  {lt.isCarryForward && <span className="badge badge-info text-xs">Carry Forward</span>}
+                  {lt.requiresApproval !== false && <span className="badge badge-warning text-xs">Needs Approval</span>}
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+/* =============================================================================
+   PERSONAL VIEW (existing)
+   ============================================================================= */
+
+function LeavePersonalView() {
   const [showApplyModal, setShowApplyModal] = useState(false);
   const { data: balancesRes } = useGetLeaveBalancesQuery();
   const { data: typesRes } = useGetLeaveTypesQuery();

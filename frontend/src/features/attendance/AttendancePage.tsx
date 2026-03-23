@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Clock, LogIn, LogOut, Coffee, Play, Square, MapPin,
-  ChevronLeft, ChevronRight, Calendar as CalendarIcon
+  ChevronLeft, ChevronRight, Calendar as CalendarIcon,
+  Users, Search, Filter, UserCheck, UserX, UserMinus,
 } from 'lucide-react';
 import {
   useGetTodayStatusQuery,
@@ -11,8 +12,10 @@ import {
   useStartBreakMutation,
   useEndBreakMutation,
   useGetMyAttendanceQuery,
+  useGetAllAttendanceQuery,
 } from './attendanceApi';
-import { cn, formatDate } from '../../lib/utils';
+import { cn, formatDate, getStatusColor } from '../../lib/utils';
+import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
 import FieldSalesView from './FieldSalesView';
 import ProjectSiteView from './ProjectSiteView';
@@ -28,6 +31,306 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function AttendancePage() {
+  const user = useAppSelector((state) => state.auth.user);
+  const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
+
+  return isManagement ? <AttendanceManagementView /> : <AttendancePersonalView />;
+}
+
+/* =============================================================================
+   MANAGEMENT VIEW
+   ============================================================================= */
+
+function AttendanceManagementView() {
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [page, setPage] = useState(1);
+
+  const { data: response, isLoading } = useGetAllAttendanceQuery({
+    startDate: selectedDate,
+    endDate: selectedDate,
+    status: statusFilter !== 'ALL' ? statusFilter : undefined,
+    page,
+    limit: 25,
+  });
+
+  const records = response?.data?.records || response?.data || [];
+  const meta = response?.meta || {};
+
+  // Compute summary stats from records
+  const summary = useMemo(() => {
+    const all = Array.isArray(records) ? records : [];
+    const present = all.filter((r: any) => r.status === 'PRESENT').length;
+    const absent = all.filter((r: any) => r.status === 'ABSENT').length;
+    const halfDay = all.filter((r: any) => r.status === 'HALF_DAY').length;
+    const onLeave = all.filter((r: any) => r.status === 'ON_LEAVE').length;
+    return { total: all.length, present, absent, halfDay, onLeave };
+  }, [records]);
+
+  // Filter records by search query (employee name)
+  const filteredRecords = useMemo(() => {
+    const all = Array.isArray(records) ? records : [];
+    if (!searchQuery.trim()) return all;
+    const q = searchQuery.toLowerCase();
+    return all.filter((r: any) => {
+      const name = `${r.employee?.firstName || ''} ${r.employee?.lastName || ''}`.toLowerCase();
+      const code = (r.employee?.employeeCode || '').toLowerCase();
+      return name.includes(q) || code.includes(q);
+    });
+  }, [records, searchQuery]);
+
+  const formatTime = (dateStr: string | null) => {
+    if (!dateStr) return '--';
+    return new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <div className="page-container">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-display font-bold text-gray-900">Attendance Management</h1>
+          <p className="text-gray-500 text-sm mt-0.5">Monitor and manage employee attendance</p>
+        </div>
+      </div>
+
+      {/* Summary Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="stat-card"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+              <Users size={20} className="text-blue-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{summary.total}</p>
+              <p className="text-xs text-gray-400">Total Employees</p>
+            </div>
+          </div>
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="stat-card"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
+              <UserCheck size={20} className="text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold font-mono text-emerald-600" data-mono>{summary.present}</p>
+              <p className="text-xs text-gray-400">Present</p>
+            </div>
+          </div>
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="stat-card"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+              <UserX size={20} className="text-red-500" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold font-mono text-red-500" data-mono>{summary.absent}</p>
+              <p className="text-xs text-gray-400">Absent</p>
+            </div>
+          </div>
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="stat-card"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
+              <UserMinus size={20} className="text-purple-500" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold font-mono text-purple-500" data-mono>{summary.onLeave}</p>
+              <p className="text-xs text-gray-400">On Leave</p>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Filters Row */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="layer-card p-4 mb-6"
+      >
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Date picker */}
+          <div className="flex items-center gap-2">
+            <CalendarIcon size={16} className="text-gray-400" />
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => { setSelectedDate(e.target.value); setPage(1); }}
+              className="input-glass text-sm"
+            />
+          </div>
+
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by employee name or code..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="input-glass w-full pl-9 text-sm"
+            />
+          </div>
+
+          {/* Status filter */}
+          <div className="flex items-center gap-2">
+            <Filter size={16} className="text-gray-400" />
+            <select
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+              className="input-glass text-sm"
+            >
+              <option value="ALL">All Status</option>
+              <option value="PRESENT">Present</option>
+              <option value="ABSENT">Absent</option>
+              <option value="HALF_DAY">Half Day</option>
+              <option value="ON_LEAVE">On Leave</option>
+              <option value="WORK_FROM_HOME">WFH</option>
+            </select>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Attendance Table */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
+        className="layer-card overflow-hidden"
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Employee</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Check In</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Check Out</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Total Hours</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Status</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Work Mode</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-12">
+                    <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                    <p className="text-sm text-gray-400 mt-2">Loading attendance data...</p>
+                  </td>
+                </tr>
+              ) : filteredRecords.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-12">
+                    <Users size={40} className="mx-auto text-gray-200 mb-3" />
+                    <p className="text-sm text-gray-400">No attendance records found for this date</p>
+                  </td>
+                </tr>
+              ) : (
+                filteredRecords.map((record: any, idx: number) => (
+                  <tr
+                    key={record.id || idx}
+                    className="border-b border-gray-50 hover:bg-surface-2 transition-colors"
+                  >
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-sm font-semibold text-brand-700">
+                          {(record.employee?.firstName?.[0] || '') + (record.employee?.lastName?.[0] || '')}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">
+                            {record.employee?.firstName} {record.employee?.lastName}
+                          </p>
+                          <p className="text-xs text-gray-400">{record.employee?.employeeCode || record.employee?.email}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className="text-sm font-mono text-gray-700" data-mono>
+                        {formatTime(record.checkIn)}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className="text-sm font-mono text-gray-700" data-mono>
+                        {formatTime(record.checkOut)}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className="text-sm font-mono text-gray-700" data-mono>
+                        {record.totalHours ? `${Number(record.totalHours).toFixed(1)}h` : '--'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className={`badge ${getStatusColor(record.status)} text-xs`}>
+                        {record.status?.replace(/_/g, ' ') || '--'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className="text-xs text-gray-500 flex items-center gap-1">
+                        <MapPin size={12} />
+                        {record.workMode?.replace(/_/g, ' ') || 'OFFICE'}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {meta.totalPages > 1 && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100">
+            <p className="text-xs text-gray-400">
+              Page {meta.page} of {meta.totalPages} ({meta.total} records)
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="p-1.5 rounded-lg hover:bg-surface-2 transition-colors disabled:opacity-40"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                onClick={() => setPage((p) => p + 1)}
+                disabled={page >= (meta.totalPages || 1)}
+                className="p-1.5 rounded-lg hover:bg-surface-2 transition-colors disabled:opacity-40"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
+/* =============================================================================
+   PERSONAL VIEW (existing)
+   ============================================================================= */
+
+function AttendancePersonalView() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [liveTime, setLiveTime] = useState(new Date());
 
