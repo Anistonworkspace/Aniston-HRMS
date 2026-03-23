@@ -349,8 +349,10 @@ export class WalkInService {
 
     // Copy documents from walkin folder to employee folder (best-effort)
     try {
-      const srcDir = path.join(process.cwd(), 'uploads', 'walkin', candidate.tokenNumber);
-      const destDir = path.join(process.cwd(), 'uploads', 'employees', result.employeeCode);
+      let base = process.cwd();
+      if (base.endsWith('backend') || base.endsWith('backend\\') || base.endsWith('backend/')) base = path.resolve(base, '..');
+      const srcDir = path.join(base, 'uploads', 'walkin', candidate.tokenNumber);
+      const destDir = path.join(base, 'uploads', 'employees', result.employeeCode);
       if (fs.existsSync(srcDir)) {
         fs.mkdirSync(destDir, { recursive: true });
         const files = fs.readdirSync(srcDir);

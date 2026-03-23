@@ -3,10 +3,22 @@ import path from 'path';
 import fs from 'fs';
 import { BadRequestError } from './errorHandler.js';
 
-// Storage configuration: uploads/<entity>/<yyyy-mm>/filename
+// Resolve uploads dir relative to project root (handles both root and backend/ cwd)
+function getUploadsDir(...subPaths: string[]): string {
+  let base = process.cwd();
+  // If cwd is the backend dir, go up one level to project root
+  if (base.endsWith('backend') || base.endsWith('backend\\') || base.endsWith('backend/')) {
+    base = path.resolve(base, '..');
+  }
+  const dir = path.join(base, 'uploads', ...subPaths);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+// Storage configuration: uploads/filename
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    cb(null, 'uploads/');
+    cb(null, getUploadsDir());
   },
   filename: (_req, file, cb) => {
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;

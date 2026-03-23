@@ -174,9 +174,9 @@ export default function WalkInKioskPage() {
         }
         return true;
       }
-      case 1: return true; // KYC is optional
-      case 2: return true; // Professional is optional
-      case 3: return true; // Resume is optional
+      case 1: return !!(form.aadhaarFrontUrl && form.aadhaarBackUrl && form.panCardUrl && form.selfieUrl); // All KYC mandatory
+      case 2: return !!(form.qualification); // At least qualification required
+      case 3: return !!(form.resumeUrl); // Resume mandatory
       case 4: return form.consent;
       default: return true;
     }

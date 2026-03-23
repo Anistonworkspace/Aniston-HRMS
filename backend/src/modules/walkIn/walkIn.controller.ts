@@ -88,12 +88,18 @@ export class WalkInController {
     try {
       if (!req.file) return res.status(400).json({ success: false, error: { message: 'No file uploaded' } });
       const folder = req.body.folder || 'temp';
-      const targetDir = path.join(process.cwd(), 'uploads', 'walkin', folder);
+      // Resolve to project root (handles both root and backend/ cwd)
+      let base = process.cwd();
+      if (base.endsWith('backend') || base.endsWith('backend\\') || base.endsWith('backend/')) {
+        base = path.resolve(base, '..');
+      }
+      const targetDir = path.join(base, 'uploads', 'walkin', folder);
       if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-      const targetPath = path.join(targetDir, req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_'));
+      const safeFilename = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const targetPath = path.join(targetDir, safeFilename);
       fs.renameSync(req.file.path, targetPath);
-      const url = `/uploads/walkin/${folder}/${path.basename(targetPath)}`;
-      res.json({ success: true, data: { url, filename: path.basename(targetPath) } });
+      const url = `/uploads/walkin/${folder}/${safeFilename}`;
+      res.json({ success: true, data: { url, filename: safeFilename } });
     } catch (err) { next(err); }
   }
 
