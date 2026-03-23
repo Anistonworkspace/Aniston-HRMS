@@ -355,7 +355,7 @@ function LeaveManagementView() {
                 <div className="grid grid-cols-2 gap-2 text-center">
                   <div className="bg-surface-2 rounded-lg py-2 px-3">
                     <p className="text-lg font-bold font-mono text-brand-600" data-mono>
-                      {lt.defaultDays ?? 0}
+                      {Number(lt.defaultBalance) || 0}
                     </p>
                     <p className="text-xs text-gray-400">Default Days</p>
                   </div>
@@ -369,10 +369,10 @@ function LeaveManagementView() {
                 <div className="flex flex-wrap gap-1.5 mt-3">
                   {lt.isPaid && <span className="badge badge-success text-xs">Paid</span>}
                   {!lt.isPaid && <span className="badge badge-neutral text-xs">Unpaid</span>}
-                  {lt.isCarryForward && <span className="badge badge-info text-xs">Carry Forward</span>}
+                  {lt.carryForward && <span className="badge badge-info text-xs">Carry Forward</span>}
                   {lt.requiresApproval !== false && <span className="badge badge-warning text-xs">Needs Approval</span>}
                   {lt.allowSameDay && <span className="badge badge-neutral text-xs">Same-day OK</span>}
-                  {lt.genderRestriction && <span className="badge badge-neutral text-xs">{lt.genderRestriction} only</span>}
+                  {lt.gender && <span className="badge badge-neutral text-xs">{lt.gender} only</span>}
                 </div>
                 {/* Policy details */}
                 <div className="mt-2.5 pt-2.5 border-t border-gray-100">
@@ -386,7 +386,7 @@ function LeaveManagementView() {
                     {lt.minDays != null && lt.minDays > 0 && (
                       <span>Min: <span className="text-gray-600 font-medium">{lt.minDays}d</span></span>
                     )}
-                    {lt.isCarryForward && lt.maxCarryForward != null && (
+                    {lt.carryForward && lt.maxCarryForward != null && (
                       <span>Carry max: <span className="text-gray-600 font-medium">{lt.maxCarryForward}d</span></span>
                     )}
                     {lt.probationMonths != null && lt.probationMonths > 0 && (
@@ -434,12 +434,12 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
       return {
         name: leaveType.name || '',
         code: leaveType.code || '',
-        defaultDays: leaveType.defaultDays ?? 0,
-        maxDays: leaveType.maxDays ?? 0,
-        minDays: leaveType.minDays ?? 1,
+        defaultDays: Number(leaveType.defaultBalance) || 0,
+        maxDays: Number(leaveType.maxDays) || 0,
+        minDays: Number(leaveType.minDays) || 1,
         isPaid: leaveType.isPaid ?? true,
-        isCarryForward: leaveType.isCarryForward ?? false,
-        maxCarryForward: leaveType.maxCarryForward ?? 0,
+        isCarryForward: leaveType.carryForward ?? false,
+        maxCarryForward: Number(leaveType.maxCarryForward) || 0,
         applicableTo: leaveType.applicableTo || 'ALL',
         noticeDays: leaveType.noticeDays ?? 0,
         maxPerMonth: leaveType.maxPerMonth ?? 0,
@@ -447,7 +447,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
         allowSameDay: leaveType.allowSameDay ?? false,
         allowWeekendAdjacent: leaveType.allowWeekendAdjacent ?? true,
         requiresApproval: leaveType.requiresApproval ?? true,
-        genderRestriction: leaveType.genderRestriction || '',
+        genderRestriction: leaveType.gender || '',
       };
     }
     return { ...LEAVE_TYPE_DEFAULTS };
@@ -461,16 +461,23 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = {
-      ...formData,
-      defaultDays: Number(formData.defaultDays),
-      maxDays: Number(formData.maxDays),
+    const payload: any = {
+      name: formData.name,
+      code: formData.code,
+      defaultBalance: Number(formData.defaultDays),
+      maxDays: Number(formData.maxDays) || undefined,
       minDays: Number(formData.minDays),
-      maxCarryForward: Number(formData.maxCarryForward),
+      isPaid: formData.isPaid,
+      carryForward: formData.isCarryForward,
+      maxCarryForward: Number(formData.maxCarryForward) || undefined,
+      applicableTo: formData.applicableTo,
       noticeDays: Number(formData.noticeDays),
-      maxPerMonth: Number(formData.maxPerMonth),
+      maxPerMonth: Number(formData.maxPerMonth) || undefined,
       probationMonths: Number(formData.probationMonths),
-      genderRestriction: formData.genderRestriction || null,
+      allowSameDay: formData.allowSameDay,
+      allowWeekendAdjacent: formData.allowWeekendAdjacent,
+      requiresApproval: formData.requiresApproval,
+      gender: formData.genderRestriction || undefined,
     };
     try {
       if (isEditing) {

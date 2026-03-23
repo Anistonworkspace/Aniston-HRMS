@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { enqueueEmail } from '../../jobs/queues.js';
 
 const TOKEN_PREFIX = 'onboarding:';
 const TOKEN_TTL = 7 * 86400; // 7 days in seconds
@@ -50,8 +51,16 @@ export class OnboardingService {
       stepData: {},
     });
 
-    // TODO: Send invite email
-    console.log(`[DEV] Onboarding invite for ${employee.email}: /onboarding/${token}`);
+    // Send onboarding invite email
+    await enqueueEmail({
+      to: employee.email,
+      subject: 'Welcome to Aniston Technologies — Complete Your Onboarding',
+      template: 'onboarding-invite',
+      context: {
+        name: employee.firstName,
+        link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/onboarding/${token}`,
+      },
+    });
 
     return {
       token,

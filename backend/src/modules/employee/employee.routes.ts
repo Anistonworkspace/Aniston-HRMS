@@ -18,6 +18,10 @@ router.post('/', requirePermission('employee', 'create'), (req, res, next) =>
   employeeController.create(req, res, next)
 );
 
+router.post('/invite', requirePermission('employee', 'create'), (req, res, next) =>
+  employeeController.invite(req, res, next)
+);
+
 router.patch('/:id', requirePermission('employee', 'update'), (req, res, next) =>
   employeeController.update(req, res, next)
 );

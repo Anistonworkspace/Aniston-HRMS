@@ -1,0 +1,42 @@
+import { z } from 'zod';
+
+export const createShiftSchema = z.object({
+  name: z.string().min(2).max(50),
+  code: z.string().min(1).max(10).toUpperCase(),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:mm format'),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:mm format'),
+  graceMinutes: z.number().int().min(0).default(15),
+  halfDayHours: z.number().min(1).default(4),
+  fullDayHours: z.number().min(1).default(8),
+  isDefault: z.boolean().default(false),
+});
+
+export const updateShiftSchema = createShiftSchema.partial();
+
+export const assignShiftSchema = z.object({
+  employeeId: z.string().uuid(),
+  shiftId: z.string().uuid(),
+  startDate: z.string(),
+  endDate: z.string().optional(),
+});
+
+export const createLocationSchema = z.object({
+  name: z.string().min(2).max(100),
+  address: z.string().min(2).max(200),
+  city: z.string().min(1).max(100),
+  state: z.string().optional(),
+  country: z.string().default('India'),
+  timezone: z.string().default('Asia/Kolkata'),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  radiusMeters: z.number().int().min(50).max(5000).default(200),
+  autoCheckIn: z.boolean().default(false),
+  autoCheckOut: z.boolean().default(false),
+  strictMode: z.boolean().default(false),
+});
+
+export const updateLocationSchema = createLocationSchema.partial();
+
+export type CreateShiftInput = z.infer<typeof createShiftSchema>;
+export type AssignShiftInput = z.infer<typeof assignShiftSchema>;
+export type CreateLocationInput = z.infer<typeof createLocationSchema>;

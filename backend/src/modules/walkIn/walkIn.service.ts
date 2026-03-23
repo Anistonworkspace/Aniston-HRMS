@@ -139,7 +139,10 @@ export class WalkInService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { jobOpening: { select: { title: true, department: true } } },
+        include: {
+          jobOpening: { select: { title: true, department: true } },
+          interviewRounds: { orderBy: { roundNumber: 'asc' } },
+        },
       }),
       prisma.walkInCandidate.count({ where }),
     ]);
@@ -161,7 +164,10 @@ export class WalkInService {
   async getById(id: string) {
     const candidate = await prisma.walkInCandidate.findUnique({
       where: { id },
-      include: { jobOpening: { select: { title: true, department: true, location: true } } },
+      include: {
+        jobOpening: { select: { title: true, department: true, location: true } },
+        interviewRounds: { orderBy: { roundNumber: 'asc' } },
+      },
     });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
     return candidate;
@@ -173,10 +179,53 @@ export class WalkInService {
   async getByToken(tokenNumber: string) {
     const candidate = await prisma.walkInCandidate.findUnique({
       where: { tokenNumber },
-      include: { jobOpening: { select: { title: true, department: true } } },
+      include: {
+        jobOpening: { select: { title: true, department: true } },
+        interviewRounds: {
+          orderBy: { roundNumber: 'asc' },
+          select: {
+            id: true,
+            roundNumber: true,
+            roundName: true,
+            status: true,
+            result: true,
+            scheduledAt: true,
+            completedAt: true,
+          },
+        },
+      },
     });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
-    return candidate;
+
+    // Return only safe public-facing fields
+    return {
+      tokenNumber: candidate.tokenNumber,
+      fullName: candidate.fullName,
+      jobTitle: candidate.jobOpening?.title || 'Not specified',
+      department: candidate.jobOpening?.department || '',
+      status: candidate.status,
+      currentRound: candidate.currentRound,
+      totalRounds: candidate.totalRounds,
+      registrationDate: candidate.registrationDate,
+      interviewRounds: candidate.interviewRounds,
+    };
+  }
+
+  /**
+   * Update walk-in candidate details (HR)
+   */
+  async updateCandidate(id: string, data: any) {
+    const candidate = await prisma.walkInCandidate.findUnique({ where: { id } });
+    if (!candidate) throw new NotFoundError('Walk-in candidate');
+
+    return prisma.walkInCandidate.update({
+      where: { id },
+      data,
+      include: {
+        jobOpening: { select: { title: true, department: true, location: true } },
+        interviewRounds: { orderBy: { roundNumber: 'asc' } },
+      },
+    });
   }
 
   /**
@@ -189,7 +238,10 @@ export class WalkInService {
     return prisma.walkInCandidate.update({
       where: { id },
       data: { status: status as any },
-      include: { jobOpening: { select: { title: true, department: true } } },
+      include: {
+        jobOpening: { select: { title: true, department: true } },
+        interviewRounds: { orderBy: { roundNumber: 'asc' } },
+      },
     });
   }
 
@@ -204,6 +256,135 @@ export class WalkInService {
       where: { id },
       data: { hrNotes: notes },
     });
+  }
+
+  // =====================
+  // INTERVIEW ROUNDS
+  // =====================
+
+  /**
+   * Add an interview round
+   */
+  async addInterviewRound(walkInId: string, data: { roundName: string; interviewerName?: string; scheduledAt?: string }) {
+    const candidate = await prisma.walkInCandidate.findUnique({
+      where: { id: walkInId },
+      include: { interviewRounds: true },
+    });
+    if (!candidate) throw new NotFoundError('Walk-in candidate');
+
+    const nextRound = candidate.interviewRounds.length + 1;
+    const totalRounds = Math.max(candidate.totalRounds, nextRound);
+
+    const [round] = await prisma.$transaction([
+      prisma.walkInInterviewRound.create({
+        data: {
+          walkInId,
+          roundNumber: nextRound,
+          roundName: data.roundName,
+          interviewerName: data.interviewerName || null,
+          scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : null,
+          status: data.scheduledAt ? 'SCHEDULED' : 'PENDING',
+        },
+      }),
+      prisma.walkInCandidate.update({
+        where: { id: walkInId },
+        data: { totalRounds },
+      }),
+    ]);
+
+    return round;
+  }
+
+  /**
+   * Update an interview round (score, status, result, schedule)
+   */
+  async updateInterviewRound(roundId: string, data: any) {
+    const round = await prisma.walkInInterviewRound.findUnique({ where: { id: roundId } });
+    if (!round) throw new NotFoundError('Interview round');
+
+    const updateData: any = {};
+    if (data.interviewerName !== undefined) updateData.interviewerName = data.interviewerName;
+    if (data.scheduledAt !== undefined) updateData.scheduledAt = data.scheduledAt ? new Date(data.scheduledAt) : null;
+    if (data.status) {
+      updateData.status = data.status;
+      if (data.status === 'COMPLETED') updateData.completedAt = new Date();
+      if (data.status === 'SCHEDULED' && !updateData.scheduledAt && !round.scheduledAt) {
+        throw new BadRequestError('Must provide scheduledAt when setting status to SCHEDULED');
+      }
+    }
+    if (data.communication !== undefined) updateData.communication = data.communication;
+    if (data.technical !== undefined) updateData.technical = data.technical;
+    if (data.problemSolving !== undefined) updateData.problemSolving = data.problemSolving;
+    if (data.culturalFit !== undefined) updateData.culturalFit = data.culturalFit;
+    if (data.overallScore !== undefined) updateData.overallScore = data.overallScore;
+    if (data.remarks !== undefined) updateData.remarks = data.remarks;
+    if (data.result !== undefined) updateData.result = data.result;
+
+    // If completing with a result, update candidate's currentRound
+    const updated = await prisma.walkInInterviewRound.update({
+      where: { id: roundId },
+      data: updateData,
+    });
+
+    // Auto-update candidate status based on round result
+    if (data.result || data.status === 'COMPLETED') {
+      const candidate = await prisma.walkInCandidate.findUnique({
+        where: { id: round.walkInId },
+        include: { interviewRounds: { orderBy: { roundNumber: 'asc' } } },
+      });
+      if (candidate) {
+        const completedRounds = candidate.interviewRounds.filter(r => r.status === 'COMPLETED' || r.id === roundId).length;
+        const candidateUpdate: any = { currentRound: completedRounds };
+
+        if (data.result === 'FAILED') {
+          candidateUpdate.status = 'REJECTED';
+        } else if (data.result === 'ON_HOLD') {
+          candidateUpdate.status = 'ON_HOLD';
+        } else if (data.result === 'PASSED' && completedRounds >= candidate.totalRounds) {
+          candidateUpdate.status = 'SELECTED';
+        } else if (data.result === 'PASSED') {
+          candidateUpdate.status = 'IN_INTERVIEW';
+        }
+
+        await prisma.walkInCandidate.update({
+          where: { id: round.walkInId },
+          data: candidateUpdate,
+        });
+      }
+    }
+
+    return updated;
+  }
+
+  /**
+   * Delete an interview round
+   */
+  async deleteInterviewRound(roundId: string) {
+    const round = await prisma.walkInInterviewRound.findUnique({ where: { id: roundId } });
+    if (!round) throw new NotFoundError('Interview round');
+
+    await prisma.walkInInterviewRound.delete({ where: { id: roundId } });
+
+    // Re-number remaining rounds
+    const remaining = await prisma.walkInInterviewRound.findMany({
+      where: { walkInId: round.walkInId },
+      orderBy: { roundNumber: 'asc' },
+    });
+    for (let i = 0; i < remaining.length; i++) {
+      if (remaining[i].roundNumber !== i + 1) {
+        await prisma.walkInInterviewRound.update({
+          where: { id: remaining[i].id },
+          data: { roundNumber: i + 1 },
+        });
+      }
+    }
+
+    await prisma.walkInCandidate.update({
+      where: { id: round.walkInId },
+      data: { totalRounds: remaining.length || 1 },
+    });
+
+    return { message: 'Round deleted' };
   }
 
   /**

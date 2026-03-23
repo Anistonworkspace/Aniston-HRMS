@@ -1,6 +1,9 @@
 import bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 import { prisma } from '../../lib/prisma.js';
+import { redis } from '../../lib/redis.js';
 import { NotFoundError, ConflictError } from '../../middleware/errorHandler.js';
+import { enqueueEmail } from '../../jobs/queues.js';
 import type { CreateEmployeeInput, UpdateEmployeeInput, EmployeeQuery } from './employee.validation.js';
 
 export class EmployeeService {
@@ -156,6 +159,96 @@ export class EmployeeService {
     });
 
     return result;
+  }
+
+  /**
+   * Invite-only employee creation: HR enters just email, employee self-onboards
+   */
+  async inviteEmployee(email: string, organizationId: string, createdBy: string, firstName?: string, lastName?: string) {
+    const normalizedEmail = email.toLowerCase();
+
+    // Check duplicate
+    const existing = await prisma.employee.findFirst({
+      where: { email: normalizedEmail, organizationId, deletedAt: null },
+    });
+    if (existing) throw new ConflictError('An employee with this email already exists');
+
+    const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existingUser) throw new ConflictError('A user account with this email already exists');
+
+    const employeeCode = await this.generateEmployeeCode(organizationId);
+    const tempPassword = this.generateTempPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, 12);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: normalizedEmail,
+          passwordHash,
+          role: 'EMPLOYEE',
+          status: 'PENDING_VERIFICATION',
+          organizationId,
+        },
+      });
+
+      const employee = await tx.employee.create({
+        data: {
+          employeeCode,
+          userId: user.id,
+          firstName: firstName || normalizedEmail.split('@')[0],
+          lastName: lastName || 'Pending',
+          email: normalizedEmail,
+          phone: '0000000000',
+          gender: 'PREFER_NOT_TO_SAY',
+          workMode: 'OFFICE',
+          joiningDate: new Date(),
+          status: 'PROBATION',
+          organizationId,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: createdBy,
+          entity: 'Employee',
+          entityId: employee.id,
+          action: 'CREATE',
+          newValue: { employeeCode, email: normalizedEmail, type: 'INVITE' },
+          organizationId,
+        },
+      });
+
+      return { user, employee };
+    });
+
+    // Generate onboarding token
+    const token = randomBytes(32).toString('hex');
+    await redis.setex(`onboarding:${token}`, 7 * 86400, JSON.stringify({
+      employeeId: result.employee.id,
+      email: normalizedEmail,
+      expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+      currentStep: 1,
+      stepData: {},
+    }));
+
+    const onboardingUrl = `/onboarding/${token}`;
+
+    // Send invitation email
+    await enqueueEmail({
+      to: normalizedEmail,
+      subject: 'Welcome to Aniston Technologies — Complete Your Onboarding',
+      template: 'onboarding-invite',
+      context: {
+        name: firstName || normalizedEmail.split('@')[0],
+        link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}${onboardingUrl}`,
+      },
+    });
+
+    return {
+      employee: result.employee,
+      employeeCode,
+      onboardingUrl,
+    };
   }
 
   async update(id: string, data: UpdateEmployeeInput, organizationId: string, updatedBy: string) {

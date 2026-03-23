@@ -20,9 +20,10 @@ export const walkInApi = api.injectEndpoints({
       invalidatesTags: ['WalkIn'],
     }),
 
-    // Public: Get by token number
+    // Public: Get by token number (status check)
     getWalkInByToken: builder.query<any, string>({
       query: (token) => `/walk-in/token/${token}`,
+      providesTags: ['WalkIn'],
     }),
 
     // HR: Get today's walk-ins
@@ -34,7 +35,17 @@ export const walkInApi = api.injectEndpoints({
     // HR: Get walk-in by ID
     getWalkInById: builder.query<any, string>({
       query: (id) => `/walk-in/${id}`,
-      providesTags: ['WalkIn'],
+      providesTags: (_r, _e, id) => [{ type: 'WalkIn', id }],
+    }),
+
+    // HR: Update candidate details
+    updateWalkInCandidate: builder.mutation<any, { id: string; data: any }>({
+      query: ({ id, data }) => ({
+        url: `/walk-in/${id}`,
+        method: 'PATCH',
+        body: data,
+      }),
+      invalidatesTags: (_r, _e, { id }) => [{ type: 'WalkIn', id }, 'WalkIn'],
     }),
 
     // HR: Update walk-in status
@@ -44,7 +55,7 @@ export const walkInApi = api.injectEndpoints({
         method: 'PATCH',
         body: { status },
       }),
-      invalidatesTags: ['WalkIn'],
+      invalidatesTags: (_r, _e, { id }) => [{ type: 'WalkIn', id }, 'WalkIn'],
     }),
 
     // HR: Add notes
@@ -54,7 +65,36 @@ export const walkInApi = api.injectEndpoints({
         method: 'POST',
         body: { notes },
       }),
-      invalidatesTags: ['WalkIn'],
+      invalidatesTags: (_r, _e, { id }) => [{ type: 'WalkIn', id }, 'WalkIn'],
+    }),
+
+    // HR: Add interview round
+    addInterviewRound: builder.mutation<any, { walkInId: string; roundName: string; interviewerName?: string; scheduledAt?: string }>({
+      query: ({ walkInId, ...body }) => ({
+        url: `/walk-in/${walkInId}/rounds`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_r, _e, { walkInId }) => [{ type: 'WalkIn', id: walkInId }, 'WalkIn'],
+    }),
+
+    // HR: Update interview round
+    updateInterviewRound: builder.mutation<any, { walkInId: string; roundId: string; data: any }>({
+      query: ({ walkInId, roundId, data }) => ({
+        url: `/walk-in/${walkInId}/rounds/${roundId}`,
+        method: 'PATCH',
+        body: data,
+      }),
+      invalidatesTags: (_r, _e, { walkInId }) => [{ type: 'WalkIn', id: walkInId }, 'WalkIn'],
+    }),
+
+    // HR: Delete interview round
+    deleteInterviewRound: builder.mutation<any, { walkInId: string; roundId: string }>({
+      query: ({ walkInId, roundId }) => ({
+        url: `/walk-in/${walkInId}/rounds/${roundId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (_r, _e, { walkInId }) => [{ type: 'WalkIn', id: walkInId }, 'WalkIn'],
     }),
 
     // HR: Convert to application
@@ -91,10 +131,15 @@ export const {
   useGetWalkInJobsQuery,
   useRegisterWalkInMutation,
   useGetWalkInByTokenQuery,
+  useLazyGetWalkInByTokenQuery,
   useGetTodayWalkInsQuery,
   useGetWalkInByIdQuery,
+  useUpdateWalkInCandidateMutation,
   useUpdateWalkInStatusMutation,
   useAddWalkInNotesMutation,
+  useAddInterviewRoundMutation,
+  useUpdateInterviewRoundMutation,
+  useDeleteInterviewRoundMutation,
   useConvertWalkInMutation,
   useDeleteWalkInMutation,
   useHireWalkInMutation,

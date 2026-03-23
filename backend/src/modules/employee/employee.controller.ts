@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { employeeService } from './employee.service.js';
 import { createEmployeeSchema, updateEmployeeSchema, employeeQuerySchema } from './employee.validation.js';
 
@@ -46,6 +47,26 @@ export class EmployeeController {
         req.user!.userId
       );
       res.json({ success: true, data: employee, message: 'Employee updated' });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async invite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { email, firstName, lastName } = z.object({
+        email: z.string().email(),
+        firstName: z.string().min(1).optional(),
+        lastName: z.string().min(1).optional(),
+      }).parse(req.body);
+      const result = await employeeService.inviteEmployee(
+        email, req.user!.organizationId, req.user!.userId, firstName, lastName
+      );
+      res.status(201).json({
+        success: true,
+        data: result,
+        message: `Invitation sent to ${email}`,
+      });
     } catch (err) {
       next(err);
     }

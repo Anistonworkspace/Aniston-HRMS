@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText, Shield, Send, Copy, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
-import { useGetEmployeeQuery } from './employeeApi';
+import { useGetEmployeeQuery, useUpdateEmployeeMutation } from './employeeApi';
 import { useCreateOnboardingInviteMutation } from '../onboarding/onboardingApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation } from '../attendance/attendanceApi';
 import { useAppSelector } from '../../app/store';
@@ -24,6 +24,8 @@ export default function EmployeeDetailPage() {
   const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'documents' | 'payroll'>(
     MANAGEMENT_ROLES.includes(user?.role || '') ? 'attendance' : 'overview'
   );
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [updateEmployee] = useUpdateEmployeeMutation();
 
   const handleSendInvite = async () => {
     try {
@@ -134,7 +136,7 @@ export default function EmployeeDetailPage() {
               className="btn-secondary text-sm flex items-center gap-1.5">
               <Send size={14} /> {inviting ? 'Sending...' : 'Send Onboarding Invite'}
             </button>
-            <button className="btn-primary text-sm">Edit Profile</button>
+            <button onClick={() => setShowEditModal(true)} className="btn-primary text-sm">Edit Profile</button>
           </div>
           {inviteLink && (
             <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2 w-full">
@@ -322,7 +324,151 @@ export default function EmployeeDetailPage() {
         )}
       </div>
       )}
+
+      {/* Edit Employee Modal */}
+      <AnimatePresence>
+        {showEditModal && employee && (
+          <EditEmployeeModal
+            employee={employee}
+            onSave={async (data) => {
+              try {
+                await updateEmployee({ id: employee.id, data }).unwrap();
+                toast.success('Employee updated');
+                setShowEditModal(false);
+              } catch (err: any) {
+                toast.error(err?.data?.error?.message || 'Failed to update');
+              }
+            }}
+            onClose={() => setShowEditModal(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+/* =============================================================================
+   Edit Employee Modal
+   ============================================================================= */
+
+function EditEmployeeModal({ employee, onSave, onClose }: { employee: any; onSave: (data: any) => void; onClose: () => void }) {
+  const [form, setForm] = useState({
+    firstName: employee.firstName || '',
+    lastName: employee.lastName || '',
+    email: employee.email || '',
+    phone: employee.phone || '',
+    personalEmail: employee.personalEmail || '',
+    dateOfBirth: employee.dateOfBirth ? employee.dateOfBirth.split('T')[0] : '',
+    gender: employee.gender || 'MALE',
+    bloodGroup: employee.bloodGroup || '',
+    maritalStatus: employee.maritalStatus || '',
+    workMode: employee.workMode || 'OFFICE',
+    joiningDate: employee.joiningDate ? employee.joiningDate.split('T')[0] : '',
+    status: employee.status || 'ACTIVE',
+    ctc: employee.ctc ? Number(employee.ctc) : '',
+  });
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-display font-semibold text-gray-800">Edit Employee</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-400">✕</button>
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">First Name</label>
+              <input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} className="input-glass w-full text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Last Name</label>
+              <input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} className="input-glass w-full text-sm" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Email</label>
+              <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="input-glass w-full text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Phone</label>
+              <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="input-glass w-full text-sm" />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Gender</label>
+              <select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} className="input-glass w-full text-sm">
+                <option value="MALE">Male</option>
+                <option value="FEMALE">Female</option>
+                <option value="OTHER">Other</option>
+                <option value="PREFER_NOT_TO_SAY">Prefer not to say</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Date of Birth</label>
+              <input type="date" value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} className="input-glass w-full text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Blood Group</label>
+              <input value={form.bloodGroup} onChange={(e) => setForm({ ...form, bloodGroup: e.target.value })} className="input-glass w-full text-sm" placeholder="e.g. O+" />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Work Mode</label>
+              <select value={form.workMode} onChange={(e) => setForm({ ...form, workMode: e.target.value })} className="input-glass w-full text-sm">
+                <option value="OFFICE">Office</option>
+                <option value="HYBRID">Hybrid</option>
+                <option value="REMOTE">Remote</option>
+                <option value="FIELD_SALES">Field Sales</option>
+                <option value="PROJECT_SITE">Project Site</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Joining Date</label>
+              <input type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} className="input-glass w-full text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Status</label>
+              <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="input-glass w-full text-sm">
+                <option value="ACTIVE">Active</option>
+                <option value="PROBATION">Probation</option>
+                <option value="NOTICE_PERIOD">Notice Period</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Personal Email</label>
+              <input value={form.personalEmail} onChange={(e) => setForm({ ...form, personalEmail: e.target.value })} className="input-glass w-full text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">CTC (Annual, INR)</label>
+              <input type="number" value={form.ctc} onChange={(e) => setForm({ ...form, ctc: e.target.value ? Number(e.target.value) : '' })} className="input-glass w-full text-sm" />
+            </div>
+          </div>
+          <div className="flex gap-3 pt-3">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+            <button type="submit" className="btn-primary flex-1">Save Changes</button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
   );
 }
 

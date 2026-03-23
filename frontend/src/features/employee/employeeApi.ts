@@ -61,6 +61,15 @@ export const employeeApi = api.injectEndpoints({
       }),
       invalidatesTags: ['EmployeeList', 'Dashboard'],
     }),
+
+    inviteEmployee: builder.mutation<any, { email: string; firstName?: string; lastName?: string }>({
+      query: (body) => ({
+        url: '/employees/invite',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['EmployeeList', 'Dashboard'],
+    }),
   }),
 });
 
@@ -70,4 +79,5 @@ export const {
   useCreateEmployeeMutation,
   useUpdateEmployeeMutation,
   useDeleteEmployeeMutation,
+  useInviteEmployeeMutation,
 } = employeeApi;

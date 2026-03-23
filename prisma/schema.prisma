@@ -37,6 +37,7 @@ model Organization {
   leaveTypes   LeaveType[]
   auditLogs    AuditLog[]
   geofences    Geofence[]
+  shifts       Shift[]
 }
 
 model User {
@@ -131,6 +132,7 @@ model Employee {
   salaryStructure   SalaryStructure?
   payrollRecords    PayrollRecord[]
   assetAssignments  AssetAssignment[]
+  shiftAssignments  ShiftAssignment[]
   headOfDepartments Department[]     @relation("DepartmentHead")
 
   @@index([organizationId, status])
@@ -1016,6 +1018,46 @@ model TicketComment {
 }
 
 // =====================
+// SHIFTS & ROSTERS
+// =====================
+
+model Shift {
+  id             String   @id @default(uuid())
+  name           String
+  code           String
+  startTime      String   // "09:00" (HH:mm)
+  endTime        String   // "18:00"
+  graceMinutes   Int      @default(15)
+  halfDayHours   Decimal  @db.Decimal(4, 2) @default(4)
+  fullDayHours   Decimal  @db.Decimal(4, 2) @default(8)
+  isDefault      Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  assignments  ShiftAssignment[]
+
+  @@unique([code, organizationId])
+}
+
+model ShiftAssignment {
+  id         String    @id @default(uuid())
+  employeeId String
+  shiftId    String
+  startDate  DateTime  @db.Date
+  endDate    DateTime? @db.Date
+  assignedBy String
+  createdAt  DateTime  @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+  shift    Shift    @relation(fields: [shiftId], references: [id])
+
+  @@index([employeeId, startDate])
+}
+
+// =====================
 // WALK-IN CANDIDATES
 // =====================
 
@@ -1060,6 +1102,8 @@ model WalkInCandidate {
   // Status
   registrationDate DateTime    @default(now())
   status           WalkInStatus @default(WAITING)
+  currentRound     Int          @default(0)
+  totalRounds      Int          @default(1)
   convertedToApp   Boolean     @default(false)
   applicationId    String?
   hrNotes          String?
@@ -1068,15 +1112,61 @@ model WalkInCandidate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  jobOpening JobOpening? @relation(fields: [jobOpeningId], references: [id])
+  jobOpening       JobOpening?        @relation(fields: [jobOpeningId], references: [id])
+  interviewRounds  WalkInInterviewRound[]
 
   @@index([organizationId, registrationDate])
   @@index([status])
 }
 
+model WalkInInterviewRound {
+  id              String   @id @default(uuid())
+  walkInId        String
+  roundNumber     Int
+  roundName       String   // "HR Screening", "Technical Round", "Manager Round", etc.
+  interviewerName String?
+  scheduledAt     DateTime?
+  completedAt     DateTime?
+  status          InterviewRoundStatus @default(PENDING)
+
+  // Scoring (1-10)
+  communication   Int?
+  technical       Int?
+  problemSolving  Int?
+  culturalFit     Int?
+  overallScore    Int?
+  remarks         String?
+  result          InterviewRoundResult?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  walkIn WalkInCandidate @relation(fields: [walkInId], references: [id], onDelete: Cascade)
+
+  @@unique([walkInId, roundNumber])
+  @@index([walkInId])
+}
+
+enum InterviewRoundStatus {
+  PENDING
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum InterviewRoundResult {
+  PASSED
+  FAILED
+  ON_HOLD
+}
+
 enum WalkInStatus {
   WAITING
   IN_INTERVIEW
+  ON_HOLD
+  SELECTED
+  REJECTED
   COMPLETED
   NO_SHOW
 }

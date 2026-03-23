@@ -26,6 +26,7 @@ const PublicJobsPage = lazy(() => import('../features/jobs/PublicJobsPage'));
 const KioskLayout = lazy(() => import('../features/walkIn/KioskLayout'));
 const WalkInKioskPage = lazy(() => import('../features/walkIn/WalkInKioskPage'));
 const WalkInManagementPage = lazy(() => import('../features/walkIn/WalkInManagementPage'));
+const WalkInDetailPage = lazy(() => import('../features/walkIn/WalkInDetailPage'));
 const JobDetailPage = lazy(() => import('../features/recruitment/JobDetailPage'));
 const CandidateDetailPage = lazy(() => import('../features/recruitment/CandidateDetailPage'));
 
@@ -84,6 +85,7 @@ export default function AppRouter() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/walk-in-management" element={<WalkInManagementPage />} />
+            <Route path="/walk-in-management/:id" element={<WalkInDetailPage />} />
             <Route path="/more" element={<ProfilePage />} />
           </Route>
 

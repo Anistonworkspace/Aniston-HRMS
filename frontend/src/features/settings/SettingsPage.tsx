@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2 } from 'lucide-react';
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery } from './settingsApi';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X } from 'lucide-react';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery } from './settingsApi';
+import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
-type Tab = 'organization' | 'locations' | 'audit' | 'system';
+type Tab = 'organization' | 'locations' | 'shifts' | 'audit' | 'system';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('organization');
@@ -13,6 +14,7 @@ export default function SettingsPage() {
   const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
     { key: 'organization', label: 'Organization', icon: Building2 },
     { key: 'locations', label: 'Office Locations', icon: MapPin },
+    { key: 'shifts', label: 'Shifts & Rosters', icon: Clock },
     { key: 'audit', label: 'Audit Logs', icon: Shield },
     { key: 'system', label: 'System', icon: Server },
   ];
@@ -45,6 +47,7 @@ export default function SettingsPage() {
         <div className="flex-1">
           {activeTab === 'organization' && <OrgSettings />}
           {activeTab === 'locations' && <LocationSettings />}
+          {activeTab === 'shifts' && <ShiftSettings />}
           {activeTab === 'audit' && <AuditLogs />}
           {activeTab === 'system' && <SystemInfo />}
         </div>
@@ -133,12 +136,82 @@ function OrgSettings() {
 function LocationSettings() {
   const { data: res } = useGetLocationsQuery();
   const locations = res?.data || [];
+  const [createLocation, { isLoading: creating }] = useCreateLocationMutation();
+  const [deleteLocation] = useDeleteLocationMutation();
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: '', address: '', city: '', state: '', latitude: '', longitude: '', radiusMeters: 200, strictMode: false });
+
+  const handleCreate = async () => {
+    if (!form.name || !form.address || !form.city || !form.latitude || !form.longitude) {
+      toast.error('Fill all required fields'); return;
+    }
+    try {
+      await createLocation({ ...form, latitude: Number(form.latitude), longitude: Number(form.longitude) }).unwrap();
+      toast.success('Location created');
+      setShowForm(false);
+      setForm({ name: '', address: '', city: '', state: '', latitude: '', longitude: '', radiusMeters: 200, strictMode: false });
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Delete "${name}"?`)) return;
+    try { await deleteLocation(id).unwrap(); toast.success('Deleted'); } catch { toast.error('Failed'); }
+  };
 
   return (
     <div className="layer-card p-6">
-      <h2 className="text-lg font-display font-semibold text-gray-800 mb-4">Office Locations</h2>
-      {locations.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-8">No locations configured</p>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-display font-semibold text-gray-800">Office Locations & Geofence</h2>
+        <button onClick={() => setShowForm(!showForm)} className="btn-primary text-sm flex items-center gap-1.5">
+          <Plus size={14} /> Add Location
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="bg-surface-2 rounded-xl p-4 mb-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Name *</label>
+              <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Main Office" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">City *</label>
+              <input value={form.city} onChange={e => setForm({...form, city: e.target.value})} className="input-glass w-full text-sm" placeholder="New Delhi" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Address *</label>
+            <input value={form.address} onChange={e => setForm({...form, address: e.target.value})} className="input-glass w-full text-sm" placeholder="123, Business Park, Sector 62" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Latitude *</label>
+              <input type="number" step="any" value={form.latitude} onChange={e => setForm({...form, latitude: e.target.value})} className="input-glass w-full text-sm" placeholder="28.6139" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Longitude *</label>
+              <input type="number" step="any" value={form.longitude} onChange={e => setForm({...form, longitude: e.target.value})} className="input-glass w-full text-sm" placeholder="77.2090" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Radius (meters)</label>
+              <input type="number" value={form.radiusMeters} onChange={e => setForm({...form, radiusMeters: Number(e.target.value)})} className="input-glass w-full text-sm" />
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input type="checkbox" checked={form.strictMode} onChange={e => setForm({...form, strictMode: e.target.checked})} className="rounded border-gray-300" />
+              Strict mode (block clock-in outside geofence)
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleCreate} disabled={creating} className="btn-primary text-sm">{creating ? 'Creating...' : 'Create Location'}</button>
+            <button onClick={() => setShowForm(false)} className="btn-secondary text-sm">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {locations.length === 0 && !showForm ? (
+        <p className="text-sm text-gray-400 text-center py-8">No locations configured. Add your first office location.</p>
       ) : (
         <div className="space-y-3">
           {locations.map((loc: any) => (
@@ -147,10 +220,125 @@ function LocationSettings() {
                 <MapPin size={18} className="text-brand-500" />
                 <div>
                   <p className="text-sm font-medium text-gray-800">{loc.name}</p>
-                  <p className="text-xs text-gray-400">{loc.address} · {loc.city}, {loc.country}</p>
+                  <p className="text-xs text-gray-400">{loc.address} · {loc.city}</p>
+                  {loc.geofence && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Geofence: {loc.geofence.radiusMeters}m radius
+                      {loc.geofence.strictMode ? ' · Strict' : ''}
+                      {` · ${(loc.geofence.coordinates as any)?.lat?.toFixed(4)}, ${(loc.geofence.coordinates as any)?.lng?.toFixed(4)}`}
+                    </p>
+                  )}
                 </div>
               </div>
-              <span className="text-xs text-gray-400 font-mono" data-mono>{loc._count?.employees || 0} employees</span>
+              <button onClick={() => handleDelete(loc.id, loc.name)} className="text-red-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50">
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShiftSettings() {
+  const { data: res } = useGetShiftsQuery();
+  const shifts = res?.data || [];
+  const [createShift, { isLoading: creating }] = useCreateShiftMutation();
+  const [deleteShift] = useDeleteShiftMutation();
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: '', code: '', startTime: '09:00', endTime: '18:00', graceMinutes: 15, halfDayHours: 4, fullDayHours: 8, isDefault: false });
+
+  const handleCreate = async () => {
+    if (!form.name || !form.code) { toast.error('Name and code are required'); return; }
+    try {
+      await createShift(form).unwrap();
+      toast.success('Shift created');
+      setShowForm(false);
+      setForm({ name: '', code: '', startTime: '09:00', endTime: '18:00', graceMinutes: 15, halfDayHours: 4, fullDayHours: 8, isDefault: false });
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Deactivate shift "${name}"?`)) return;
+    try { await deleteShift(id).unwrap(); toast.success('Shift deactivated'); } catch { toast.error('Failed'); }
+  };
+
+  return (
+    <div className="layer-card p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-display font-semibold text-gray-800">Shifts & Rosters</h2>
+        <button onClick={() => setShowForm(!showForm)} className="btn-primary text-sm flex items-center gap-1.5">
+          <Plus size={14} /> Add Shift
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="bg-surface-2 rounded-xl p-4 mb-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Shift Name *</label>
+              <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Morning Shift" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Code *</label>
+              <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm" placeholder="MORNING" />
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Start Time</label>
+              <input type="time" value={form.startTime} onChange={e => setForm({...form, startTime: e.target.value})} className="input-glass w-full text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">End Time</label>
+              <input type="time" value={form.endTime} onChange={e => setForm({...form, endTime: e.target.value})} className="input-glass w-full text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Grace (min)</label>
+              <input type="number" value={form.graceMinutes} onChange={e => setForm({...form, graceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Full Day (hrs)</label>
+              <input type="number" value={form.fullDayHours} onChange={e => setForm({...form, fullDayHours: Number(e.target.value)})} className="input-glass w-full text-sm" />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            <input type="checkbox" checked={form.isDefault} onChange={e => setForm({...form, isDefault: e.target.checked})} className="rounded border-gray-300" />
+            Set as default shift
+          </label>
+          <div className="flex gap-2">
+            <button onClick={handleCreate} disabled={creating} className="btn-primary text-sm">{creating ? 'Creating...' : 'Create Shift'}</button>
+            <button onClick={() => setShowForm(false)} className="btn-secondary text-sm">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {shifts.length === 0 && !showForm ? (
+        <p className="text-sm text-gray-400 text-center py-8">No shifts configured. Create your first shift.</p>
+      ) : (
+        <div className="space-y-3">
+          {shifts.map((shift: any) => (
+            <div key={shift.id} className="flex items-center justify-between p-4 bg-surface-2 rounded-lg">
+              <div className="flex items-center gap-3">
+                <Clock size={18} className="text-brand-500" />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-gray-800">{shift.name}</p>
+                    <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500" data-mono>{shift.code}</span>
+                    {shift.isDefault && <span className="text-xs bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded">Default</span>}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {shift.startTime} — {shift.endTime} · Grace: {shift.graceMinutes}min · Full day: {Number(shift.fullDayHours)}hrs
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">{shift._count?.assignments || 0} assigned</span>
+                <button onClick={() => handleDelete(shift.id, shift.name)} className="text-red-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50">
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
           ))}
         </div>

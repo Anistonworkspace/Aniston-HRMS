@@ -119,7 +119,7 @@ export class LeaveService {
   async applyLeave(employeeId: string, data: ApplyLeaveInput) {
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { organizationId: true },
+      select: { organizationId: true, gender: true, joiningDate: true, status: true },
     });
     if (!employee) throw new NotFoundError('Employee');
 
@@ -127,20 +127,102 @@ export class LeaveService {
       where: { id: data.leaveTypeId },
     });
     if (!leaveType) throw new NotFoundError('Leave type');
+    if (!leaveType.isActive) throw new BadRequestError('This leave type is currently inactive');
 
     const startDate = new Date(data.startDate);
     const endDate = new Date(data.endDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const startDateOnly = new Date(startDate);
+    startDateOnly.setHours(0, 0, 0, 0);
 
     if (endDate < startDate) {
       throw new BadRequestError('End date must be after start date');
     }
 
     // Calculate business days
-    const days = data.isHalfDay ? 0.5 : this.calculateBusinessDays(startDate, endDate, employee.organizationId);
+    const days = data.isHalfDay ? 0.5 : await this.calculateBusinessDays(startDate, endDate, employee.organizationId);
 
     if (days <= 0) {
       throw new BadRequestError('Selected dates have no working days');
     }
+
+    // ===== POLICY ENFORCEMENT =====
+
+    // 1. Min days check
+    if (leaveType.minDays && days < Number(leaveType.minDays)) {
+      throw new BadRequestError(`Minimum ${Number(leaveType.minDays)} day(s) required for ${leaveType.name}`);
+    }
+
+    // 2. Max days check
+    if (leaveType.maxDays && days > Number(leaveType.maxDays)) {
+      throw new BadRequestError(`Maximum ${Number(leaveType.maxDays)} day(s) allowed for ${leaveType.name}`);
+    }
+
+    // 3. Same-day check
+    if (!leaveType.allowSameDay && startDateOnly.getTime() === today.getTime()) {
+      throw new BadRequestError(`Same-day leave application is not allowed for ${leaveType.name}`);
+    }
+
+    // 4. Notice days check
+    if (leaveType.noticeDays && leaveType.noticeDays > 0) {
+      const diffMs = startDateOnly.getTime() - today.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      if (diffDays < leaveType.noticeDays) {
+        throw new BadRequestError(`${leaveType.name} requires at least ${leaveType.noticeDays} day(s) advance notice`);
+      }
+    }
+
+    // 5. Max per month check
+    if (leaveType.maxPerMonth && leaveType.maxPerMonth > 0) {
+      const monthStart = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+      const monthEnd = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
+      const monthCount = await prisma.leaveRequest.count({
+        where: {
+          employeeId,
+          leaveTypeId: data.leaveTypeId,
+          status: { in: ['PENDING', 'APPROVED'] },
+          startDate: { gte: monthStart, lte: monthEnd },
+        },
+      });
+      if (monthCount >= leaveType.maxPerMonth) {
+        throw new BadRequestError(`Maximum ${leaveType.maxPerMonth} leave(s) per month allowed for ${leaveType.name}`);
+      }
+    }
+
+    // 6. Gender restriction
+    if (leaveType.gender && employee.gender !== leaveType.gender) {
+      throw new BadRequestError(`${leaveType.name} is restricted to ${leaveType.gender} employees`);
+    }
+
+    // 7. Probation / Confirmed check
+    if (leaveType.applicableTo !== 'ALL' && employee.joiningDate) {
+      const probationEnd = new Date(employee.joiningDate);
+      probationEnd.setMonth(probationEnd.getMonth() + (leaveType.probationMonths || 3));
+      const isInProbation = today < probationEnd;
+
+      if (leaveType.applicableTo === 'CONFIRMED' && isInProbation) {
+        throw new BadRequestError(`${leaveType.name} is only available for confirmed employees (after ${leaveType.probationMonths || 3} months probation)`);
+      }
+      if (leaveType.applicableTo === 'PROBATION' && !isInProbation) {
+        throw new BadRequestError(`${leaveType.name} is only available during probation period`);
+      }
+    }
+
+    // 8. Weekend adjacent check
+    if (!leaveType.allowWeekendAdjacent) {
+      const dayBefore = new Date(startDate);
+      dayBefore.setDate(dayBefore.getDate() - 1);
+      const dayAfter = new Date(endDate);
+      dayAfter.setDate(dayAfter.getDate() + 1);
+      const beforeDay = dayBefore.getDay();
+      const afterDay = dayAfter.getDay();
+      if (beforeDay === 0 || beforeDay === 6 || afterDay === 0 || afterDay === 6) {
+        throw new BadRequestError(`${leaveType.name} cannot be taken adjacent to weekends`);
+      }
+    }
+
+    // ===== END POLICY ENFORCEMENT =====
 
     // Check balance
     const year = startDate.getFullYear();

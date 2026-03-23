@@ -9,6 +9,7 @@ export class AttendanceService {
   async clockIn(employeeId: string, data: ClockInInput, organizationId: string) {
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, organizationId, deletedAt: null },
+      include: { officeLocation: { include: { geofence: true } } },
     });
     if (!employee) throw new NotFoundError('Employee');
 
@@ -26,6 +27,25 @@ export class AttendanceService {
 
     if (existing?.checkOut) {
       throw new BadRequestError('Already completed attendance for today.');
+    }
+
+    // Geofence validation
+    const geofence = employee.officeLocation?.geofence;
+    if (geofence && geofence.radiusMeters && data.latitude && data.longitude) {
+      const coords = geofence.coordinates as any;
+      if (coords?.lat && coords?.lng) {
+        const distance = this.haversineDistance(data.latitude, data.longitude, coords.lat, coords.lng);
+        if (distance > geofence.radiusMeters) {
+          if (geofence.strictMode) {
+            throw new BadRequestError(
+              `You are ${Math.round(distance)}m away from ${employee.officeLocation?.name || 'office'}. ` +
+              `Maximum allowed: ${geofence.radiusMeters}m. Please clock in from within the office geofence.`
+            );
+          }
+          // Non-strict: allow but log warning in notes
+          data.notes = `${data.notes || ''} [Geofence warning: ${Math.round(distance)}m from office]`.trim();
+        }
+      }
     }
 
     const now = new Date();
@@ -502,7 +522,52 @@ export class AttendanceService {
       orderBy: { date: 'asc' },
     });
 
-    return records;
+    // Fetch holidays
+    const holidays = await prisma.holiday.findMany({
+      where: {
+        organizationId: employee.organizationId,
+        date: { gte: start, lte: end },
+      },
+    });
+
+    // Build summary (same logic as getMyAttendance)
+    const summary = {
+      totalDays: 0,
+      present: 0,
+      absent: 0,
+      halfDay: 0,
+      onLeave: 0,
+      holidays: holidays.length,
+      weekends: 0,
+      workFromHome: 0,
+      averageHours: 0,
+    };
+
+    let totalWorkedHours = 0;
+    const current = new Date(start);
+    while (current <= end) {
+      summary.totalDays++;
+      const day = current.getDay();
+      if (day === 0 || day === 6) summary.weekends++;
+      current.setDate(current.getDate() + 1);
+    }
+
+    records.forEach((r) => {
+      switch (r.status) {
+        case 'PRESENT': summary.present++; break;
+        case 'ABSENT': summary.absent++; break;
+        case 'HALF_DAY': summary.halfDay++; break;
+        case 'ON_LEAVE': summary.onLeave++; break;
+        case 'WORK_FROM_HOME': summary.workFromHome++; break;
+      }
+      if (r.totalHours) totalWorkedHours += Number(r.totalHours);
+    });
+
+    summary.averageHours = summary.present > 0
+      ? Math.round((totalWorkedHours / summary.present) * 10) / 10
+      : 0;
+
+    return { records, holidays, summary };
   }
 
   /**
@@ -599,6 +664,19 @@ export class AttendanceService {
     }
 
     return visits;
+  }
+
+  /**
+   * Haversine distance between two coordinates in meters
+   */
+  private haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 }
 

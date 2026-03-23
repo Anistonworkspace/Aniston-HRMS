@@ -131,8 +131,8 @@ export class AttendanceController {
       const start = startDate || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
       const end = endDate || new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
 
-      const records = await attendanceService.getEmployeeAttendance(employeeId, start, end);
-      res.json({ success: true, data: records });
+      const result = await attendanceService.getEmployeeAttendance(employeeId, start, end);
+      res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
 
