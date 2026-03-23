@@ -21,7 +21,9 @@ export default function EmployeeDetailPage() {
   const [createInvite, { isLoading: inviting }] = useCreateOnboardingInviteMutation();
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'documents' | 'payroll'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'attendance' | 'documents' | 'payroll'>(
+    MANAGEMENT_ROLES.includes(user?.role || '') ? 'attendance' : 'overview'
+  );
 
   const handleSendInvite = async () => {
     try {
@@ -149,10 +151,10 @@ export default function EmployeeDetailPage() {
       {isManagement && (
         <div className="flex gap-1 mb-6 border-b border-gray-100">
           {[
+            { key: 'attendance' as const, label: 'Attendance & Leaves', icon: Clock },
             { key: 'overview' as const, label: 'Overview', icon: User },
-            { key: 'attendance' as const, label: 'Attendance', icon: Clock },
             { key: 'documents' as const, label: 'Documents', icon: FileText },
-            { key: 'payroll' as const, label: 'Payroll', icon: DollarSign },
+            { key: 'payroll' as const, label: 'Salary', icon: DollarSign },
           ].map((tab) => (
             <button
               key={tab.key}
