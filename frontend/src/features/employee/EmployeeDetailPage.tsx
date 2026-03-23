@@ -81,7 +81,7 @@ export default function EmployeeDetailPage() {
     <div className="min-h-screen bg-surface-1">
       {/* Top breadcrumb bar */}
       <div className="bg-white border-b border-gray-100 px-6 py-3">
-        <div className="max-w-[1400px] mx-auto flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-2 text-sm">
           <button onClick={() => navigate('/employees')} className="text-gray-400 hover:text-brand-600 transition-colors flex items-center gap-1">
             <ArrowLeft size={14} /> Employee
           </button>
@@ -91,7 +91,7 @@ export default function EmployeeDetailPage() {
       </div>
 
       {/* Main content — 2-column layout */}
-      <div className="max-w-[1400px] mx-auto flex gap-0 min-h-[calc(100vh-49px)]">
+      <div className="flex gap-0 min-h-[calc(100vh-49px)]">
         {/* Left sidebar — Profile card */}
         <div className="w-64 shrink-0 border-r border-gray-100 bg-white p-5 overflow-y-auto hidden lg:block">
           <div className="flex flex-col items-center mb-5">
@@ -457,37 +457,43 @@ const STATUS_LABELS: Record<string, string> = {
   PRESENT: 'Present', ABSENT: 'Absent', HALF_DAY: 'Half Day',
   HOLIDAY: 'Holiday', WEEKEND: 'Weekend', ON_LEAVE: 'On Leave', WORK_FROM_HOME: 'WFH',
 };
-const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_LABELS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-function getWeeksForYear(year: number) {
-  const jan1 = new Date(year, 0, 1);
-  const dec31 = new Date(year, 11, 31);
-  const startDay = jan1.getDay();
-  const mondayOffset = startDay === 0 ? -6 : 1 - startDay;
-  const firstMonday = new Date(year, 0, 1 + mondayOffset);
-  const weeks: Date[][] = [];
-  let current = new Date(firstMonday);
-  while (current <= dec31 || weeks.length < 53) {
-    const week: Date[] = [];
-    for (let d = 0; d < 7; d++) { week.push(new Date(current)); current.setDate(current.getDate() + 1); }
-    weeks.push(week);
-    if (current > dec31 && weeks.length >= 52) break;
-  }
-  return weeks;
-}
+// Build month-grouped weeks for ERPNext-style calendar
+function buildMonthGroups(year: number) {
+  const groups: { month: number; label: string; weeks: Date[][] }[] = [];
 
-function getMonthPositions(weeks: Date[][], year: number) {
-  const positions: { label: string; col: number }[] = [];
-  let lastMonth = -1;
-  weeks.forEach((week, i) => {
-    const thu = week[3];
-    if (thu && thu.getFullYear() === year && thu.getMonth() !== lastMonth) {
-      lastMonth = thu.getMonth();
-      positions.push({ label: MONTH_LABELS[lastMonth], col: i });
+  // Start from previous December
+  for (let m = -1; m < 12; m++) {
+    const actualMonth = m === -1 ? 11 : m;
+    const actualYear = m === -1 ? year - 1 : year;
+    const label = m === -1 ? 'DEC' : MONTH_LABELS[m];
+
+    const firstDay = new Date(actualYear, actualMonth, 1);
+    const lastDay = new Date(actualYear, actualMonth + 1, 0);
+
+    // Find Monday on or before the 1st
+    const startDow = firstDay.getDay();
+    const mondayOffset = startDow === 0 ? -6 : 1 - startDow;
+    const weekStart = new Date(actualYear, actualMonth, 1 + mondayOffset);
+
+    const weeks: Date[][] = [];
+    const current = new Date(weekStart);
+
+    while (current <= lastDay) {
+      const week: Date[] = [];
+      for (let d = 0; d < 7; d++) {
+        week.push(new Date(current));
+        current.setDate(current.getDate() + 1);
+      }
+      weeks.push(week);
     }
-  });
-  return positions;
+
+    groups.push({ month: actualMonth, label, weeks });
+  }
+
+  return groups;
 }
 
 function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: string; employeeName: string }) {
@@ -496,7 +502,7 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
   const [popupCell, setPopupCell] = useState<{ date: string; x: number; y: number } | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
 
-  const startDate = `${selectedYear}-01-01`;
+  const startDate = `${selectedYear - 1}-12-01`;
   const endDate = `${selectedYear}-12-31`;
   const { data: response, isLoading } = useGetEmployeeAttendanceQuery({ employeeId, startDate, endDate });
   const [markAttendance, { isLoading: marking }] = useMarkAttendanceMutation();
@@ -510,19 +516,18 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
     return map;
   }, [records]);
 
-  const weeks = useMemo(() => getWeeksForYear(selectedYear), [selectedYear]);
-  const monthPositions = useMemo(() => getMonthPositions(weeks, selectedYear), [weeks, selectedYear]);
+  const monthGroups = useMemo(() => buildMonthGroups(selectedYear), [selectedYear]);
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
 
   const getDateStatus = useCallback((date: Date): string | null => {
     const dateStr = date.toISOString().split('T')[0];
-    if (date.getFullYear() !== selectedYear || dateStr > todayStr) return null;
+    if (dateStr > todayStr) return null;
     if (dateStatusMap[dateStr]) return dateStatusMap[dateStr];
     const dow = date.getDay();
     if (dow === 0 || dow === 6) return 'WEEKEND';
     return null;
-  }, [dateStatusMap, selectedYear, todayStr]);
+  }, [dateStatusMap, todayStr]);
 
   const getCellColor = (date: Date): string => {
     const s = getDateStatus(date);
@@ -531,7 +536,7 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
 
   const handleCellClick = (date: Date, e: React.MouseEvent) => {
     const dateStr = date.toISOString().split('T')[0];
-    if (date.getFullYear() !== selectedYear || dateStr > todayStr) return;
+    if (dateStr > todayStr) return;
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     setPopupCell({ date: dateStr, x: rect.left, y: rect.bottom + 4 });
   };
@@ -551,6 +556,9 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
     return () => document.removeEventListener('mousedown', handler);
   }, [popupCell]);
 
+  const CELL = 11;
+  const GAP = 2;
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
       <div className="layer-card p-5">
@@ -563,6 +571,7 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
           </div>
         </div>
 
+        {/* Summary stats */}
         {summary && (
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mb-5">
             {[
@@ -581,56 +590,89 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
           </div>
         )}
 
+        {/* ERPNext-style contribution calendar */}
         {isLoading ? (
           <div className="text-center py-12">
             <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
           </div>
         ) : (
           <div className="overflow-x-auto pb-2">
-            <div className="inline-block">
-              <div className="flex ml-8 mb-1">
-                {monthPositions.map((mp, i) => (
-                  <div key={i} className="text-[10px] text-gray-400 font-medium uppercase"
-                    style={{ position: 'relative', left: `${mp.col * 15}px`, marginRight: i < monthPositions.length - 1 ? `${(monthPositions[i + 1].col - mp.col) * 15 - 28}px` : 0 }}>
-                    {mp.label}
+            <div className="flex items-start">
+              {/* Day labels column */}
+              <div className="shrink-0 mr-2 pt-5">
+                {DAY_LABELS.map((label, i) => (
+                  <div key={label} style={{ height: CELL + GAP }} className="flex items-center">
+                    {i % 2 === 0 ? (
+                      <span className="text-[10px] text-gray-400 w-7 text-right leading-none">{label}</span>
+                    ) : (
+                      <span className="w-7" />
+                    )}
                   </div>
                 ))}
               </div>
-              <div className="flex gap-0">
-                <div className="flex flex-col gap-[3px] mr-1.5 pt-0">
-                  {DAY_LABELS.map((label, i) => (
-                    <div key={label} className="h-[12px] flex items-center">
-                      {i % 2 === 0 ? <span className="text-[9px] text-gray-400 w-6 text-right">{label}</span> : <span className="w-6" />}
+
+              {/* Month groups */}
+              <div className="flex gap-[6px]">
+                {monthGroups.map((group, gi) => (
+                  <div key={gi} className="flex flex-col">
+                    {/* Month label */}
+                    <div className="text-[10px] text-gray-400 font-semibold uppercase mb-1 text-center tracking-wide" style={{ minWidth: group.weeks.length * (CELL + GAP) }}>
+                      {group.label}
                     </div>
-                  ))}
-                </div>
-                {weeks.map((week, wi) => (
-                  <div key={wi} className="flex flex-col gap-[3px]">
-                    {week.map((date, di) => {
-                      const dateStr = date.toISOString().split('T')[0];
-                      const isCurrentYear = date.getFullYear() === selectedYear;
-                      const status = getDateStatus(date);
-                      return (
-                        <div key={di} onClick={(e) => isCurrentYear && handleCellClick(date, e)}
-                          className="rounded-[2px] transition-all duration-100 hover:ring-1 hover:ring-gray-400"
-                          style={{ width: 12, height: 12, backgroundColor: isCurrentYear ? getCellColor(date) : 'transparent', cursor: isCurrentYear && dateStr <= todayStr ? 'pointer' : 'default', opacity: isCurrentYear ? 1 : 0 }}
-                          title={isCurrentYear ? `${dateStr}: ${status ? STATUS_LABELS[status] || status : 'No record'}` : ''} />
-                      );
-                    })}
+                    {/* Week columns for this month */}
+                    <div className="flex gap-[2px]">
+                      {group.weeks.map((week, wi) => (
+                        <div key={wi} className="flex flex-col gap-[2px]">
+                          {week.map((date, di) => {
+                            const dateStr = date.toISOString().split('T')[0];
+                            const isFuture = dateStr > todayStr;
+                            const status = getDateStatus(date);
+                            const color = getCellColor(date);
+                            // Dim cells from outside the month
+                            const inMonth = date.getMonth() === group.month;
+                            return (
+                              <div
+                                key={di}
+                                onClick={(e) => !isFuture && inMonth && handleCellClick(date, e)}
+                                className="rounded-[2px] transition-all hover:ring-1 hover:ring-gray-400"
+                                style={{
+                                  width: CELL,
+                                  height: CELL,
+                                  backgroundColor: inMonth ? color : 'transparent',
+                                  cursor: !isFuture && inMonth ? 'pointer' : 'default',
+                                  opacity: inMonth ? (isFuture ? 0.3 : 1) : 0,
+                                }}
+                                title={inMonth ? `${dateStr}: ${status ? STATUS_LABELS[status] || status : 'No record'}` : ''}
+                              />
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
-              <div className="flex items-center gap-3 mt-3 ml-8">
-                <span className="text-[10px] text-gray-400">Less</span>
-                {[{ color: '#f3f4f6', label: 'No data' }, { color: STATUS_COLORS.PRESENT, label: 'Present' }, { color: STATUS_COLORS.ABSENT, label: 'Absent' }, { color: STATUS_COLORS.HALF_DAY, label: 'Half Day' }, { color: STATUS_COLORS.ON_LEAVE, label: 'Leave' }, { color: STATUS_COLORS.HOLIDAY, label: 'Holiday' }, { color: STATUS_COLORS.WEEKEND, label: 'Weekend' }].map(item => (
-                  <div key={item.label} className="flex items-center gap-1">
-                    <div className="w-[10px] h-[10px] rounded-[2px]" style={{ backgroundColor: item.color }} />
-                    <span className="text-[9px] text-gray-400">{item.label}</span>
-                  </div>
-                ))}
-              </div>
-              <p className="text-[10px] text-gray-300 mt-2 ml-8 italic">This is based on the attendance of this Employee</p>
             </div>
+
+            {/* Legend */}
+            <div className="flex items-center gap-3 mt-3 ml-9">
+              <span className="text-[10px] text-gray-400">Less</span>
+              {[
+                { color: '#f3f4f6', label: 'No data' },
+                { color: STATUS_COLORS.PRESENT, label: 'Present' },
+                { color: STATUS_COLORS.ABSENT, label: 'Absent' },
+                { color: STATUS_COLORS.HALF_DAY, label: 'Half Day' },
+                { color: STATUS_COLORS.ON_LEAVE, label: 'Leave' },
+                { color: STATUS_COLORS.HOLIDAY, label: 'Holiday' },
+                { color: STATUS_COLORS.WEEKEND, label: 'Weekend' },
+              ].map(item => (
+                <div key={item.label} className="flex items-center gap-1">
+                  <div className="w-[10px] h-[10px] rounded-[2px]" style={{ backgroundColor: item.color }} />
+                  <span className="text-[9px] text-gray-400">{item.label}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-300 mt-2 ml-9 italic">This is based on the attendance of this Employee</p>
           </div>
         )}
       </div>
@@ -642,7 +684,12 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
             className="fixed z-50 bg-white rounded-xl shadow-glass-lg border border-gray-100 p-2 min-w-[160px]"
             style={{ left: Math.min(popupCell.x, window.innerWidth - 200), top: popupCell.y }}>
             <p className="text-[10px] text-gray-400 px-2 py-1 font-medium">Mark {popupCell.date}</p>
-            {[{ status: 'PRESENT', label: 'Present', color: STATUS_COLORS.PRESENT }, { status: 'ABSENT', label: 'Absent', color: STATUS_COLORS.ABSENT }, { status: 'HALF_DAY', label: 'Half Day', color: STATUS_COLORS.HALF_DAY }, { status: 'ON_LEAVE', label: 'On Leave', color: STATUS_COLORS.ON_LEAVE }].map(opt => (
+            {[
+              { status: 'PRESENT', label: 'Present', color: STATUS_COLORS.PRESENT },
+              { status: 'ABSENT', label: 'Absent', color: STATUS_COLORS.ABSENT },
+              { status: 'HALF_DAY', label: 'Half Day', color: STATUS_COLORS.HALF_DAY },
+              { status: 'ON_LEAVE', label: 'On Leave', color: STATUS_COLORS.ON_LEAVE },
+            ].map(opt => (
               <button key={opt.status} onClick={() => handleMarkStatus(opt.status)} disabled={marking}
                 className="flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-sm text-gray-700 hover:bg-surface-2 transition-colors text-left">
                 <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: opt.color }} />
