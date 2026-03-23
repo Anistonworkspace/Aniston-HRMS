@@ -1,5 +1,6 @@
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 import { BadRequestError } from './errorHandler.js';
 
 // Storage configuration: uploads/<entity>/<yyyy-mm>/filename
@@ -75,3 +76,40 @@ export const uploadAny = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
 });
+
+// Dynamic storage for walk-in uploads — creates uploads/walkin/{folder}/
+export function createWalkInUpload(folderName: string) {
+  const dir = path.join(process.cwd(), 'uploads', 'walkin', folderName);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  return multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, dir),
+      filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, `${file.fieldname}${ext}`);
+      },
+    }),
+    fileFilter: documentFilter,
+    limits: { fileSize: 10 * 1024 * 1024 },
+  });
+}
+
+// Dynamic storage for employee documents
+export function createEmployeeUpload(empCode: string) {
+  const dir = path.join(process.cwd(), 'uploads', 'employees', empCode);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  return multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, dir),
+      filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        const uniqueSuffix = `${Date.now()}`;
+        cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+      },
+    }),
+    fileFilter: documentFilter,
+    limits: { fileSize: 10 * 1024 * 1024 },
+  });
+}

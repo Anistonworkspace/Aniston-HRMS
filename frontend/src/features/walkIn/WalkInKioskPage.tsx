@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft, ChevronRight, Check, Upload, Camera, X, User, Briefcase,
   FileText, Loader2, AlertTriangle, CheckCircle2, Plus,
 } from 'lucide-react';
 import { useGetWalkInJobsQuery, useRegisterWalkInMutation } from './walkInApi';
+import { uploadFile, validateFile, formatFileSize } from '../../lib/fileUpload';
 import { QRCodeSVG } from 'qrcode.react';
 import toast from 'react-hot-toast';
 
@@ -68,8 +70,11 @@ const initialFormData: FormData = {
 };
 
 export default function WalkInKioskPage() {
+  const [searchParams] = useSearchParams();
+  const initialJobId = searchParams.get('jobId') || '';
+
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<FormData>(initialFormData);
+  const [form, setForm] = useState<FormData>({ ...initialFormData, jobOpeningId: initialJobId });
   const [skillInput, setSkillInput] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [tokenNumber, setTokenNumber] = useState('');
@@ -77,6 +82,9 @@ export default function WalkInKioskPage() {
   const [countdown, setCountdown] = useState(30);
   const idleTimerRef = useRef<number | null>(null);
   const warningTimerRef = useRef<number | null>(null);
+
+  // Generate a unique temp ID per session for file uploads (before we have a token)
+  const tempId = useMemo(() => `walkin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, []);
 
   const { data: jobsData } = useGetWalkInJobsQuery();
   const [registerWalkIn, { isLoading: isSubmitting }] = useRegisterWalkInMutation();
@@ -297,9 +305,9 @@ export default function WalkInKioskPage() {
           className="bg-white rounded-2xl border border-gray-100 shadow-lg p-6 sm:p-8"
         >
           {step === 0 && <Step1 form={form} updateForm={updateForm} jobs={jobs} />}
-          {step === 1 && <Step2 form={form} updateForm={updateForm} />}
+          {step === 1 && <Step2 form={form} updateForm={updateForm} tempId={tempId} />}
           {step === 2 && <Step3 form={form} updateForm={updateForm} skillInput={skillInput} setSkillInput={setSkillInput} addSkill={addSkill} removeSkill={removeSkill} />}
-          {step === 3 && <Step4 form={form} updateForm={updateForm} />}
+          {step === 3 && <Step4 form={form} updateForm={updateForm} tempId={tempId} />}
           {step === 4 && <Step5 form={form} updateForm={updateForm} jobs={jobs} />}
         </motion.div>
       </AnimatePresence>
@@ -426,12 +434,54 @@ function Step1({ form, updateForm, jobs }: { form: FormData; updateForm: any; jo
 // =========================================
 // STEP 2: KYC Documents
 // =========================================
-function Step2({ form, updateForm }: { form: FormData; updateForm: any }) {
-  const handleFileSimulate = (field: keyof FormData) => {
-    // In production, this would upload to S3 and set URL
-    // For now, simulate with a placeholder
-    updateForm(field, `https://storage.aniston.in/uploads/${field}_${Date.now()}.jpg`);
-    toast.success('Document uploaded (simulated)');
+function Step2({ form, updateForm, tempId }: { form: FormData; updateForm: any; tempId: string }) {
+  const [uploading, setUploading] = useState<Record<string, boolean>>({});
+  const [progress, setProgress] = useState<Record<string, number>>({});
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const handleRealUpload = async (field: keyof FormData, file: File) => {
+    const validationError = validateFile(file, {
+      maxSizeMB: 5,
+      allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'],
+    });
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+
+    setUploading(prev => ({ ...prev, [field]: true }));
+    setProgress(prev => ({ ...prev, [field]: 0 }));
+
+    try {
+      const result = await uploadFile(
+        file,
+        '/walk-in/upload',
+        { folder: tempId },
+        (p) => setProgress(prev => ({ ...prev, [field]: p.percentage })),
+      );
+      if (result.success && result.data?.url) {
+        updateForm(field, result.data.url);
+        toast.success('Document uploaded successfully');
+      } else {
+        toast.error(result.error || 'Upload failed');
+      }
+    } catch {
+      toast.error('Upload failed. Please try again.');
+    } finally {
+      setUploading(prev => ({ ...prev, [field]: false }));
+      setProgress(prev => ({ ...prev, [field]: 0 }));
+    }
+  };
+
+  const triggerFileInput = (field: string) => {
+    fileInputRefs.current[field]?.click();
+  };
+
+  const onFileSelected = (field: keyof FormData, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleRealUpload(field, file);
+    // Reset the input so the same file can be re-selected
+    e.target.value = '';
   };
 
   return (
@@ -439,17 +489,34 @@ function Step2({ form, updateForm }: { form: FormData; updateForm: any }) {
       <h3 className="text-xl font-display font-bold text-gray-900 mb-1">KYC Document Upload</h3>
       <p className="text-sm text-gray-400 mb-4">Upload your identity documents for verification. This step is optional.</p>
 
+      {/* Hidden file inputs */}
+      {(['aadhaarFrontUrl', 'aadhaarBackUrl', 'panCardUrl', 'selfieUrl'] as const).map(field => (
+        <input
+          key={field}
+          type="file"
+          accept="image/*"
+          capture={field === 'selfieUrl' ? 'user' : undefined}
+          className="hidden"
+          ref={el => { fileInputRefs.current[field] = el; }}
+          onChange={e => onFileSelected(field, e)}
+        />
+      ))}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <FileUploadBox
           label="Aadhaar Card (Front)"
           uploaded={!!form.aadhaarFrontUrl}
-          onUpload={() => handleFileSimulate('aadhaarFrontUrl')}
+          uploading={!!uploading.aadhaarFrontUrl}
+          progress={progress.aadhaarFrontUrl || 0}
+          onUpload={() => triggerFileInput('aadhaarFrontUrl')}
           onRemove={() => updateForm('aadhaarFrontUrl', '')}
         />
         <FileUploadBox
           label="Aadhaar Card (Back)"
           uploaded={!!form.aadhaarBackUrl}
-          onUpload={() => handleFileSimulate('aadhaarBackUrl')}
+          uploading={!!uploading.aadhaarBackUrl}
+          progress={progress.aadhaarBackUrl || 0}
+          onUpload={() => triggerFileInput('aadhaarBackUrl')}
           onRemove={() => updateForm('aadhaarBackUrl', '')}
         />
       </div>
@@ -457,7 +524,9 @@ function Step2({ form, updateForm }: { form: FormData; updateForm: any }) {
       <FileUploadBox
         label="PAN Card"
         uploaded={!!form.panCardUrl}
-        onUpload={() => handleFileSimulate('panCardUrl')}
+        uploading={!!uploading.panCardUrl}
+        progress={progress.panCardUrl || 0}
+        onUpload={() => triggerFileInput('panCardUrl')}
         onRemove={() => updateForm('panCardUrl', '')}
       />
 
@@ -465,11 +534,19 @@ function Step2({ form, updateForm }: { form: FormData; updateForm: any }) {
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Take a Selfie</label>
         <div
-          onClick={() => handleFileSimulate('selfieUrl')}
+          onClick={() => !uploading.selfieUrl && triggerFileInput('selfieUrl')}
           className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all
             ${form.selfieUrl ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 hover:border-brand-300 hover:bg-brand-50/30'}`}
         >
-          {form.selfieUrl ? (
+          {uploading.selfieUrl ? (
+            <div className="flex flex-col items-center gap-2">
+              <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+              <p className="text-sm text-gray-500">Uploading... {progress.selfieUrl || 0}%</p>
+              <div className="w-40 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${progress.selfieUrl || 0}%` }} />
+              </div>
+            </div>
+          ) : form.selfieUrl ? (
             <div className="flex items-center justify-center gap-2 text-emerald-600">
               <CheckCircle2 className="w-5 h-5" />
               <span className="font-medium">Selfie captured</span>
@@ -668,10 +745,55 @@ function Step3({ form, updateForm, skillInput, setSkillInput, addSkill, removeSk
 // =========================================
 // STEP 4: Resume Upload
 // =========================================
-function Step4({ form, updateForm }: { form: FormData; updateForm: any }) {
-  const handleResumeUpload = () => {
-    updateForm('resumeUrl', `https://storage.aniston.in/uploads/resume_${Date.now()}.pdf`);
-    toast.success('Resume uploaded (simulated)');
+function Step4({ form, updateForm, tempId }: { form: FormData; updateForm: any; tempId: string }) {
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [fileName, setFileName] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleResumeUpload = async (file: File) => {
+    const validationError = validateFile(file, {
+      maxSizeMB: 5,
+      allowedTypes: [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ],
+    });
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+
+    setUploading(true);
+    setUploadProgress(0);
+    setFileName(file.name);
+
+    try {
+      const result = await uploadFile(
+        file,
+        '/walk-in/upload',
+        { folder: tempId },
+        (p) => setUploadProgress(p.percentage),
+      );
+      if (result.success && result.data?.url) {
+        updateForm('resumeUrl', result.data.url);
+        toast.success('Resume uploaded successfully');
+      } else {
+        toast.error(result.error || 'Upload failed');
+      }
+    } catch {
+      toast.error('Upload failed. Please try again.');
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
+  const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleResumeUpload(file);
+    e.target.value = '';
   };
 
   return (
@@ -679,18 +801,36 @@ function Step4({ form, updateForm }: { form: FormData; updateForm: any }) {
       <h3 className="text-xl font-display font-bold text-gray-900 mb-1">Upload Resume</h3>
       <p className="text-sm text-gray-400 mb-4">Upload your resume so our team can review your profile.</p>
 
+      <input
+        type="file"
+        accept=".pdf,.doc,.docx"
+        className="hidden"
+        ref={fileInputRef}
+        onChange={onFileSelected}
+      />
+
       <div
-        onClick={handleResumeUpload}
+        onClick={() => !uploading && fileInputRef.current?.click()}
         className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all
           ${form.resumeUrl ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 hover:border-brand-300 hover:bg-brand-50/30'}`}
       >
-        {form.resumeUrl ? (
+        {uploading ? (
+          <div>
+            <Loader2 className="w-12 h-12 text-brand-500 mx-auto mb-3 animate-spin" />
+            <p className="text-lg font-medium text-gray-600">Uploading {fileName}...</p>
+            <p className="text-sm text-gray-400 mt-1">{uploadProgress}%</p>
+            <div className="w-48 h-2 bg-gray-200 rounded-full overflow-hidden mx-auto mt-3">
+              <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
+            </div>
+          </div>
+        ) : form.resumeUrl ? (
           <div>
             <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
             <p className="text-lg font-medium text-emerald-700">Resume uploaded</p>
+            {fileName && <p className="text-sm text-gray-500 mt-1">{fileName}</p>}
             <p className="text-sm text-gray-400 mt-1">Click to replace</p>
             <button
-              onClick={e => { e.stopPropagation(); updateForm('resumeUrl', ''); }}
+              onClick={e => { e.stopPropagation(); updateForm('resumeUrl', ''); setFileName(''); }}
               className="mt-3 text-sm text-red-500 hover:underline"
             >
               Remove
@@ -699,7 +839,7 @@ function Step4({ form, updateForm }: { form: FormData; updateForm: any }) {
         ) : (
           <div>
             <Upload className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-lg font-medium text-gray-600">Drop your resume here</p>
+            <p className="text-lg font-medium text-gray-600">Tap to upload your resume</p>
             <p className="text-sm text-gray-400 mt-1">PDF or DOC, max 5MB</p>
           </div>
         )}
@@ -783,18 +923,26 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function FileUploadBox({ label, uploaded, onUpload, onRemove }: {
-  label: string; uploaded: boolean; onUpload: () => void; onRemove: () => void;
+function FileUploadBox({ label, uploaded, uploading, progress, onUpload, onRemove }: {
+  label: string; uploaded: boolean; uploading?: boolean; progress?: number; onUpload: () => void; onRemove: () => void;
 }) {
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
       <div
-        onClick={onUpload}
+        onClick={() => !uploading && onUpload()}
         className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all
           ${uploaded ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 hover:border-brand-300'}`}
       >
-        {uploaded ? (
+        {uploading ? (
+          <div className="flex flex-col items-center gap-1.5">
+            <Loader2 className="w-5 h-5 animate-spin text-brand-600" />
+            <p className="text-xs text-gray-500">{progress || 0}%</p>
+            <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${progress || 0}%` }} />
+            </div>
+          </div>
+        ) : uploaded ? (
           <div className="flex items-center justify-center gap-2 text-emerald-600">
             <CheckCircle2 className="w-4 h-4" />
             <span className="text-sm font-medium">Uploaded</span>

@@ -74,6 +74,16 @@ export const walkInApi = api.injectEndpoints({
       }),
       invalidatesTags: ['WalkIn'],
     }),
+
+    // HR: Hire walk-in candidate and send onboarding invite
+    hireWalkIn: builder.mutation<any, { id: string; teamsEmail: string }>({
+      query: ({ id, teamsEmail }) => ({
+        url: `/walk-in/${id}/hire`,
+        method: 'POST',
+        body: { teamsEmail },
+      }),
+      invalidatesTags: ['WalkIn'],
+    }),
   }),
 });
 
@@ -87,4 +97,5 @@ export const {
   useAddWalkInNotesMutation,
   useConvertWalkInMutation,
   useDeleteWalkInMutation,
+  useHireWalkInMutation,
 } = walkInApi;

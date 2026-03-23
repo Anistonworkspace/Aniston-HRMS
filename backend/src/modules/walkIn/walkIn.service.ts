@@ -1,5 +1,12 @@
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import fs from 'fs';
+import path from 'path';
 import { prisma } from '../../lib/prisma.js';
+import { redis } from '../../lib/redis.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { emitToOrg } from '../../sockets/index.js';
+import { enqueueEmail } from '../../jobs/queues.js';
 import type { RegisterWalkInInput, WalkInQuery } from './walkIn.validation.js';
 
 export class WalkInService {
@@ -85,6 +92,15 @@ export class WalkInService {
         organizationId,
       },
       include: { jobOpening: { select: { title: true, department: true } } },
+    });
+
+    // Emit real-time notification to HR users in the organization
+    emitToOrg(organizationId, 'walk_in:new', {
+      id: candidate.id,
+      tokenNumber: candidate.tokenNumber,
+      fullName: candidate.fullName,
+      jobTitle: candidate.jobOpening?.title || 'Unknown Position',
+      timestamp: new Date().toISOString(),
     });
 
     return candidate;
@@ -246,6 +262,107 @@ export class WalkInService {
 
     await prisma.walkInCandidate.delete({ where: { id } });
     return { message: 'Walk-in record deleted' };
+  }
+
+  /**
+   * Hire a walk-in candidate — creates User + Employee, sends onboarding invite
+   */
+  async hireCandidate(walkInId: string, teamsEmail: string, organizationId: string, hiredBy: string) {
+    const candidate = await prisma.walkInCandidate.findUnique({
+      where: { id: walkInId },
+      include: { jobOpening: { select: { title: true } } },
+    });
+    if (!candidate) throw new NotFoundError('Walk-in candidate');
+
+    // Generate employee code
+    const empCount = await prisma.employee.count({ where: { organizationId } });
+    const employeeCode = `EMP-${String(empCount + 1).padStart(3, '0')}`;
+
+    // Create User + Employee in transaction
+    const result = await prisma.$transaction(async (tx) => {
+      const tempPassword = crypto.randomBytes(16).toString('hex');
+      const passwordHash = await bcrypt.hash(tempPassword, 12);
+
+      const user = await tx.user.create({
+        data: {
+          email: teamsEmail,
+          passwordHash,
+          role: 'EMPLOYEE',
+          status: 'PENDING_VERIFICATION',
+          organizationId,
+        },
+      });
+
+      // Split name into first/last
+      const nameParts = candidate.fullName.split(' ');
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(' ') || nameParts[0];
+
+      const employee = await tx.employee.create({
+        data: {
+          employeeCode,
+          userId: user.id,
+          firstName,
+          lastName,
+          email: teamsEmail,
+          personalEmail: candidate.email,
+          phone: candidate.phone,
+          gender: 'PREFER_NOT_TO_SAY',
+          workMode: 'OFFICE',
+          joiningDate: new Date(),
+          status: 'PROBATION',
+          organizationId,
+        },
+      });
+
+      // Update walk-in status
+      await tx.walkInCandidate.update({
+        where: { id: walkInId },
+        data: { status: 'COMPLETED', convertedToApp: true },
+      });
+
+      return { user, employee, employeeCode };
+    });
+
+    // Generate onboarding token (Redis, 7-day TTL)
+    const token = crypto.randomBytes(32).toString('hex');
+    await redis.setex(`onboarding:${token}`, 7 * 86400, JSON.stringify({
+      employeeId: result.employee.id,
+      email: teamsEmail,
+      expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+      currentStep: 1,
+      stepData: {},
+    }));
+
+    const onboardingUrl = `/onboarding/${token}`;
+
+    // Enqueue welcome email
+    await enqueueEmail({
+      to: teamsEmail,
+      subject: 'Welcome to Aniston Technologies — Complete Your Onboarding',
+      template: 'onboarding-invite',
+      context: {
+        name: candidate.fullName,
+        link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}${onboardingUrl}`,
+      },
+    });
+
+    // Copy documents from walkin folder to employee folder (best-effort)
+    try {
+      const srcDir = path.join(process.cwd(), 'uploads', 'walkin', candidate.tokenNumber);
+      const destDir = path.join(process.cwd(), 'uploads', 'employees', result.employeeCode);
+      if (fs.existsSync(srcDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+        const files = fs.readdirSync(srcDir);
+        files.forEach(file => fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file)));
+      }
+    } catch { /* best-effort, don't fail if files don't exist */ }
+
+    return {
+      employee: result.employee,
+      employeeCode: result.employeeCode,
+      onboardingUrl,
+    };
   }
 
   /**

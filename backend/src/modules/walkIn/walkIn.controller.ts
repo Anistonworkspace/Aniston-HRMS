@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import path from 'path';
+import fs from 'fs';
 import { walkInService } from './walkIn.service.js';
 import { registerWalkInSchema, updateWalkInStatusSchema, walkInQuerySchema } from './walkIn.validation.js';
 
@@ -74,6 +76,27 @@ export class WalkInController {
     try {
       const result = await walkInService.remove(req.params.id);
       res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async uploadFile(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.file) return res.status(400).json({ success: false, error: { message: 'No file uploaded' } });
+      const folder = req.body.folder || 'temp';
+      const targetDir = path.join(process.cwd(), 'uploads', 'walkin', folder);
+      if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+      const targetPath = path.join(targetDir, req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_'));
+      fs.renameSync(req.file.path, targetPath);
+      const url = `/uploads/walkin/${folder}/${path.basename(targetPath)}`;
+      res.json({ success: true, data: { url, filename: path.basename(targetPath) } });
+    } catch (err) { next(err); }
+  }
+
+  async hire(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { teamsEmail } = z.object({ teamsEmail: z.string().email() }).parse(req.body);
+      const result = await walkInService.hireCandidate(req.params.id, teamsEmail, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result, message: `Employee ${result.employeeCode} created and invite sent` });
     } catch (err) { next(err); }
   }
 }

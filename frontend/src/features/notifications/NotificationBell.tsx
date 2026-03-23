@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Bell, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
+import toast from 'react-hot-toast';
 
 interface Notification {
   id: string;
@@ -12,6 +13,22 @@ interface Notification {
   timestamp: string;
   read: boolean;
 }
+
+const playNotificationSound = () => {
+  try {
+    const ctx = new AudioContext();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.frequency.value = 800;
+    oscillator.type = 'sine';
+    gain.gain.value = 0.3;
+    oscillator.start();
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    oscillator.stop(ctx.currentTime + 0.5);
+  } catch {}
+};
 
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -26,6 +43,25 @@ export default function NotificationBell() {
     };
     onSocketEvent('notification:new', handler);
     return () => { offSocketEvent('notification:new', handler); };
+  }, []);
+
+  // Walk-in specific notification listener
+  useEffect(() => {
+    const handler = (data: any) => {
+      playNotificationSound();
+      toast.success(`New walk-in: ${data.fullName} for ${data.jobTitle}`, { duration: 5000 });
+      setNotifications(prev => [{
+        id: `walkin-${Date.now()}`,
+        title: 'New Walk-In Candidate',
+        message: `${data.fullName} registered for ${data.jobTitle}`,
+        type: 'walk_in',
+        link: '/walk-in-management',
+        timestamp: data.timestamp || new Date().toISOString(),
+        read: false,
+      }, ...prev].slice(0, 50));
+    };
+    onSocketEvent('walk_in:new', handler);
+    return () => { offSocketEvent('walk_in:new', handler); };
   }, []);
 
   // Close on click outside

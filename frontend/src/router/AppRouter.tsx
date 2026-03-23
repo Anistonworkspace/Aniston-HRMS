@@ -22,6 +22,7 @@ const SettingsPage = lazy(() => import('../features/settings/SettingsPage'));
 const OrgChartPage = lazy(() => import('../features/orgChart/OrgChartPage'));
 const HelpdeskPage = lazy(() => import('../features/helpdesk/HelpdeskPage'));
 const ProfilePage = lazy(() => import('../features/profile/ProfilePage'));
+const PublicJobsPage = lazy(() => import('../features/jobs/PublicJobsPage'));
 const KioskLayout = lazy(() => import('../features/walkIn/KioskLayout'));
 const WalkInKioskPage = lazy(() => import('../features/walkIn/WalkInKioskPage'));
 const WalkInManagementPage = lazy(() => import('../features/walkIn/WalkInManagementPage'));
@@ -48,6 +49,7 @@ export default function AppRouter() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/onboarding/:token" element={<OnboardingPortal />} />
+          <Route path="/jobs" element={<PublicJobsPage />} />
 
           {/* Walk-In Kiosk (public, no auth) */}
           <Route path="/walk-in" element={<KioskLayout />}>
