@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
 
 /**
  * Indian Statutory Payroll Calculation Functions
@@ -198,6 +199,15 @@ export class PayrollService {
       },
     });
 
+    await createAuditLog({
+      userId: initiatedBy,
+      organizationId,
+      entity: 'PayrollRun',
+      entityId: run.id,
+      action: 'CREATE',
+      newValue: { month, year, status: 'DRAFT' },
+    });
+
     return run;
   }
 
@@ -287,6 +297,16 @@ export class PayrollService {
           totalNet,
           totalDeductions,
         },
+      });
+
+      await createAuditLog({
+        userId: run.processedBy || 'system',
+        organizationId,
+        entity: 'PayrollRun',
+        entityId: runId,
+        action: 'UPDATE',
+        oldValue: { status: 'DRAFT' },
+        newValue: { status: 'COMPLETED', totalGross, totalNet, totalDeductions },
       });
 
       return { processed: employees.filter((e) => e.salaryStructure).length, totalGross, totalNet };

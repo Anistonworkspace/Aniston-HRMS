@@ -3,6 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { env } from './config/env.js';
+import { swaggerSpec } from './config/swagger.js';
+import swaggerUi from 'swagger-ui-express';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestIdMiddleware, requestLogger } from './middleware/requestLogger.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
@@ -26,6 +28,8 @@ import { walkInRouter } from './modules/walkIn/walkIn.routes.js';
 import { documentRouter } from './modules/document/document.routes.js';
 import { holidayRouter } from './modules/holiday/holiday.routes.js';
 import { assetRouter } from './modules/asset/asset.routes.js';
+import { prisma } from './lib/prisma.js';
+import { redis } from './lib/redis.js';
 
 const app = express();
 
@@ -47,19 +51,49 @@ app.use(cookieParser());
 app.use(requestIdMiddleware);
 app.use(requestLogger);
 
-// Rate limiting
+// Rate limiting — stricter limits on public endpoints first
+app.use('/api/walk-in/register', rateLimiter({ windowMs: 60 * 1000, max: 5, keyPrefix: 'rl:walkin-reg' }));
+app.use('/api/recruitment/apply', rateLimiter({ windowMs: 60 * 1000, max: 10, keyPrefix: 'rl:recruit-apply' }));
 app.use('/api/auth', rateLimiter({ windowMs: 15 * 60 * 1000, max: 50, keyPrefix: 'rl:auth' }));
 app.use('/api', rateLimiter({ windowMs: 60 * 1000, max: 100, keyPrefix: 'rl:api' }));
 
+// API Documentation
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customSiteTitle: 'Aniston HRMS API Docs',
+  customCss: '.swagger-ui .topbar { display: none }',
+}));
+app.get('/api/docs.json', (_req, res) => res.json(swaggerSpec));
+
 // Health check
-app.get('/api/health', (_req, res) => {
-  res.json({
-    success: true,
+app.get('/api/health', async (_req, res) => {
+  let dbStatus = 'ok';
+  let redisStatus = 'ok';
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch {
+    dbStatus = 'down';
+  }
+
+  try {
+    await redis.ping();
+  } catch {
+    redisStatus = 'down';
+  }
+
+  const overallStatus = dbStatus === 'ok' && redisStatus === 'ok' ? 'ok' : 'degraded';
+
+  res.status(overallStatus === 'ok' ? 200 : 503).json({
+    success: overallStatus === 'ok',
     data: {
-      status: 'ok',
+      status: overallStatus,
       service: 'Aniston HRMS API',
       version: '1.0.0',
       timestamp: new Date().toISOString(),
+      dependencies: {
+        database: dbStatus,
+        redis: redisStatus,
+      },
     },
   });
 });

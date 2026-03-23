@@ -211,6 +211,10 @@ function ApplyLeaveModal({ leaveTypes, onClose }: { leaveTypes: any[]; onClose: 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (formData.startDate && formData.endDate && formData.endDate < formData.startDate) {
+      toast.error('End date must be on or after the start date');
+      return;
+    }
     try {
       await applyLeave(formData).unwrap();
       toast.success('Leave request submitted!');

@@ -1,28 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2 } from 'lucide-react';
-import { api } from '../../app/api';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery } from './settingsApi';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
-
-const settingsApi = api.injectEndpoints({
-  endpoints: (builder) => ({
-    getOrgSettings: builder.query<any, void>({ query: () => '/settings/organization' }),
-    updateOrg: builder.mutation<any, any>({
-      query: (body) => ({ url: '/settings/organization', method: 'PATCH', body }),
-    }),
-    getLocations: builder.query<any, void>({ query: () => '/settings/locations' }),
-    createLocation: builder.mutation<any, any>({
-      query: (body) => ({ url: '/settings/locations', method: 'POST', body }),
-    }),
-    getAuditLogs: builder.query<any, { page?: number; entity?: string }>({
-      query: (params) => ({ url: '/settings/audit-logs', params }),
-    }),
-    getSystemInfo: builder.query<any, void>({ query: () => '/settings/system' }),
-  }),
-});
-
-const { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery } = settingsApi;
 
 type Tab = 'organization' | 'locations' | 'audit' | 'system';
 
@@ -78,9 +59,9 @@ function OrgSettings() {
   const org = res?.data;
   const [form, setForm] = useState({ name: '', timezone: '', currency: '', fiscalYear: '' });
 
-  useState(() => {
+  useEffect(() => {
     if (org) setForm({ name: org.name, timezone: org.timezone, currency: org.currency, fiscalYear: org.fiscalYear });
-  });
+  }, [org]);
 
   const handleSave = async () => {
     try {

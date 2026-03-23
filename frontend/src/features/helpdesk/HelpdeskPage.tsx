@@ -1,24 +1,9 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HelpCircle, Plus, X, MessageCircle, Clock, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
-import { api } from '../../app/api';
+import { useGetMyTicketsQuery, useCreateTicketMutation } from './helpdeskApi';
 import { cn, formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
-
-const helpdeskApi = api.injectEndpoints({
-  endpoints: (builder) => ({
-    getMyTickets: builder.query<any, void>({ query: () => '/helpdesk/my' }),
-    createTicket: builder.mutation<any, any>({
-      query: (body) => ({ url: '/helpdesk', method: 'POST', body }),
-    }),
-    getTicketDetail: builder.query<any, string>({ query: (id) => `/helpdesk/${id}` }),
-    addComment: builder.mutation<any, { id: string; content: string }>({
-      query: ({ id, content }) => ({ url: `/helpdesk/${id}/comment`, method: 'POST', body: { content } }),
-    }),
-  }),
-});
-
-const { useGetMyTicketsQuery, useCreateTicketMutation, useGetTicketDetailQuery, useAddCommentMutation } = helpdeskApi;
 
 const STATUS_CONFIG: Record<string, { icon: React.ReactNode; class: string }> = {
   OPEN: { icon: <Clock size={14} />, class: 'badge-warning' },

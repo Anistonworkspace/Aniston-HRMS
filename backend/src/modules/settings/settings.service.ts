@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
 import type { UpdateOrganizationInput, CreateLocationInput, UpdateLocationInput, AuditLogQuery } from './settings.validation.js';
 
 export class SettingsService {
@@ -15,11 +16,23 @@ export class SettingsService {
     return org;
   }
 
-  async updateOrganization(organizationId: string, data: UpdateOrganizationInput) {
+  async updateOrganization(organizationId: string, data: UpdateOrganizationInput, userId?: string) {
     const org = await prisma.organization.update({
       where: { id: organizationId },
       data,
     });
+
+    if (userId) {
+      await createAuditLog({
+        userId,
+        organizationId,
+        entity: 'Organization',
+        entityId: organizationId,
+        action: 'UPDATE',
+        newValue: data,
+      });
+    }
+
     return org;
   }
 

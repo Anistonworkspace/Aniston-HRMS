@@ -1,31 +1,10 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Megaphone, Plus, X, Heart, MessageCircle, Send, ThumbsUp, Loader2 } from 'lucide-react';
-import { api } from '../../app/api';
+import { useGetAnnouncementsQuery, useGetSocialPostsQuery, useCreatePostMutation, useLikePostMutation, useCommentPostMutation } from './announcementApi';
 import { cn, formatDate, getInitials } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
-
-const socialApi = api.injectEndpoints({
-  endpoints: (builder) => ({
-    getAnnouncements: builder.query<any, void>({ query: () => '/announcements' }),
-    createAnnouncement: builder.mutation<any, any>({
-      query: (body) => ({ url: '/announcements', method: 'POST', body }),
-    }),
-    getSocialPosts: builder.query<any, void>({ query: () => '/announcements/social' }),
-    createPost: builder.mutation<any, any>({
-      query: (body) => ({ url: '/announcements/social', method: 'POST', body }),
-    }),
-    likePost: builder.mutation<any, string>({
-      query: (id) => ({ url: `/announcements/social/${id}/like`, method: 'POST' }),
-    }),
-    commentPost: builder.mutation<any, { id: string; content: string }>({
-      query: ({ id, content }) => ({ url: `/announcements/social/${id}/comment`, method: 'POST', body: { content } }),
-    }),
-  }),
-});
-
-const { useGetAnnouncementsQuery, useGetSocialPostsQuery, useCreatePostMutation, useLikePostMutation, useCommentPostMutation } = socialApi;
 
 const PRIORITY_COLORS: Record<string, string> = {
   LOW: 'bg-gray-100 text-gray-600',

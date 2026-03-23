@@ -110,7 +110,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           }
         },
         (err) => {
-          console.error('GPS error:', err);
+          if (import.meta.env.DEV) console.error('GPS error:', err);
         },
         { enableHighAccuracy: true, maximumAge: GPS_INTERVAL, timeout: 30000 }
       );

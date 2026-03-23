@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { Users, UserCheck, CalendarOff, Briefcase, TrendingUp, Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/store';
 import { useGetDashboardStatsQuery } from './dashboardApi';
 import { formatDate, getInitials } from '../../lib/utils';
@@ -18,6 +19,7 @@ const item = {
 };
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const user = useAppSelector((state) => state.auth.user);
   const { data: statsResponse, isLoading } = useGetDashboardStatsQuery();
   const stats = statsResponse?.data;
@@ -92,6 +94,7 @@ export default function DashboardPage() {
             ].map((action) => (
               <button
                 key={action.label}
+                onClick={() => navigate(action.path)}
                 className="flex items-center gap-3 p-3 rounded-lg bg-surface-2 hover:bg-surface-3 transition-colors text-left"
               >
                 <span className="text-xl">{action.icon}</span>

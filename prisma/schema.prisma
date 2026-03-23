@@ -487,6 +487,7 @@ model LeaveRequest {
 
   @@index([employeeId, status])
   @@index([startDate, endDate])
+  @@index([status])
 }
 
 enum LeaveRequestStatus {
@@ -702,7 +703,7 @@ model InterviewScore {
   aiAnalysis         Json?
   createdAt          DateTime @default(now())
 
-  application Application @relation(fields: [applicationId], references: [id])
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 }
 
 model OfferLetter {
@@ -719,7 +720,7 @@ model OfferLetter {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  application Application @relation(fields: [applicationId], references: [id])
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 }
 
 enum OfferStatus {
@@ -1001,7 +1002,7 @@ model TicketComment {
   isInternal Boolean @default(false)
   createdAt DateTime @default(now())
 
-  ticket Ticket @relation(fields: [ticketId], references: [id])
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 }
 
 // =====================

@@ -1,23 +1,8 @@
-import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { BarChart3, Users, Calendar, DollarSign, Briefcase, PieChart, FileSpreadsheet } from 'lucide-react';
-import { api } from '../../app/api';
-import { cn, formatCurrency } from '../../lib/utils';
+import { useGetHeadcountQuery, useGetAttendanceSummaryQuery, useGetPayrollSummaryQuery, useGetRecruitmentFunnelQuery } from './reportApi';
+import { formatCurrency } from '../../lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RPieChart, Pie, Cell } from 'recharts';
-
-const reportApi = api.injectEndpoints({
-  endpoints: (builder) => ({
-    getHeadcount: builder.query<any, void>({ query: () => '/reports/headcount' }),
-    getAttendanceSummary: builder.query<any, { startDate?: string; endDate?: string }>({
-      query: (params) => ({ url: '/reports/attendance-summary', params }),
-    }),
-    getLeaveSummary: builder.query<any, void>({ query: () => '/reports/leave-summary' }),
-    getPayrollSummary: builder.query<any, void>({ query: () => '/reports/payroll-summary' }),
-    getRecruitmentFunnel: builder.query<any, void>({ query: () => '/reports/recruitment-funnel' }),
-  }),
-});
-
-const { useGetHeadcountQuery, useGetAttendanceSummaryQuery, useGetLeaveSummaryQuery, useGetPayrollSummaryQuery, useGetRecruitmentFunnelQuery } = reportApi;
 
 const COLORS = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#64748b'];
 

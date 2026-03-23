@@ -1,13 +1,22 @@
 import { motion } from 'framer-motion';
-import { User, Mail, Phone, Building2, MapPin, Calendar, Shield, Edit2, Key } from 'lucide-react';
+import { User, Mail, Phone, Building2, MapPin, Calendar, Shield, Edit2, Key, Loader2 } from 'lucide-react';
 import { useAppSelector } from '../../app/store';
 import { useGetMeQuery } from '../auth/authApi';
 import { getInitials, formatDate } from '../../lib/utils';
+import toast from 'react-hot-toast';
 
 export default function ProfilePage() {
   const user = useAppSelector((s) => s.auth.user);
-  const { data: meRes } = useGetMeQuery();
+  const { data: meRes, isLoading } = useGetMeQuery();
   const me = meRes?.data;
+
+  if (isLoading) {
+    return (
+      <div className="page-container flex items-center justify-center min-h-[60vh]">
+        <Loader2 size={36} className="animate-spin text-brand-500" />
+      </div>
+    );
+  }
 
   return (
     <div className="page-container">
@@ -36,7 +45,7 @@ export default function ProfilePage() {
               </span>
             </div>
           </div>
-          <button className="btn-secondary flex items-center gap-2 text-sm">
+          <button onClick={() => toast('Coming soon', { icon: '🚧' })} className="btn-secondary flex items-center gap-2 text-sm">
             <Edit2 size={14} /> Edit Profile
           </button>
         </div>
@@ -81,21 +90,21 @@ export default function ProfilePage() {
                 <p className="text-sm font-medium text-gray-700">Password</p>
                 <p className="text-xs text-gray-400">Last changed: Unknown</p>
               </div>
-              <button className="text-xs text-brand-600 hover:text-brand-700 font-medium">Change</button>
+              <button onClick={() => toast('Coming soon', { icon: '🚧' })} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Change</button>
             </div>
             <div className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
               <div>
                 <p className="text-sm font-medium text-gray-700">Two-Factor Auth</p>
                 <p className="text-xs text-gray-400">Not enabled</p>
               </div>
-              <button className="text-xs text-brand-600 hover:text-brand-700 font-medium">Enable</button>
+              <button onClick={() => toast('Coming soon', { icon: '🚧' })} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Enable</button>
             </div>
             <div className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
               <div>
                 <p className="text-sm font-medium text-gray-700">Active Sessions</p>
                 <p className="text-xs text-gray-400">1 active session</p>
               </div>
-              <button className="text-xs text-red-500 hover:text-red-600 font-medium">Revoke All</button>
+              <button onClick={() => toast('Coming soon', { icon: '🚧' })} className="text-xs text-red-500 hover:text-red-600 font-medium">Revoke All</button>
             </div>
           </div>
         </motion.div>

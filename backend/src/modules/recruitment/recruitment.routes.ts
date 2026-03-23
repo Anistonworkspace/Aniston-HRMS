@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 import { recruitmentService } from './recruitment.service.js';
 import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
+import { z } from 'zod';
 import {
   createJobSchema, updateJobSchema, createApplicationSchema,
   moveStageSchema, interviewScoreSchema, createOfferSchema, jobQuerySchema,
@@ -118,7 +119,7 @@ router.post('/offers', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Rol
 
 router.patch('/offers/:id/status', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { status } = req.body;
+    const { status } = z.object({ status: z.enum(['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'NEGOTIATING', 'EXPIRED']) }).parse(req.body);
     const offer = await recruitmentService.updateOfferStatus(req.params.id, status);
     res.json({ success: true, data: offer, message: `Offer ${status.toLowerCase()}` });
   } catch (err) { next(err); }

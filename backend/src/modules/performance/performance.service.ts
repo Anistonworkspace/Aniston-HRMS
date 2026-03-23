@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
 import type {
   CreateReviewCycleInput,
   UpdateReviewCycleInput,
@@ -89,7 +90,7 @@ export class PerformanceService {
     return reviews;
   }
 
-  async createReview(data: CreateReviewInput, reviewerId: string) {
+  async createReview(data: CreateReviewInput, reviewerId: string, organizationId?: string) {
     const review = await prisma.performanceReview.create({
       data: {
         ...data,
@@ -99,10 +100,22 @@ export class PerformanceService {
         status: 'PENDING',
       },
     });
+
+    if (organizationId) {
+      await createAuditLog({
+        userId: reviewerId,
+        organizationId,
+        entity: 'PerformanceReview',
+        entityId: review.id,
+        action: 'CREATE',
+        newValue: { employeeId: data.employeeId, status: 'PENDING' },
+      });
+    }
+
     return review;
   }
 
-  async updateReview(id: string, data: UpdateReviewInput) {
+  async updateReview(id: string, data: UpdateReviewInput, userId?: string, organizationId?: string) {
     const updateData: any = {};
     if (data.managerRating) updateData.managerRating = data.managerRating;
     if (data.managerComments) updateData.managerComments = data.managerComments;
@@ -113,6 +126,18 @@ export class PerformanceService {
     if (data.status === 'REVIEWED') updateData.reviewedAt = new Date();
 
     const review = await prisma.performanceReview.update({ where: { id }, data: updateData });
+
+    if (userId && organizationId) {
+      await createAuditLog({
+        userId,
+        organizationId,
+        entity: 'PerformanceReview',
+        entityId: id,
+        action: 'UPDATE',
+        newValue: updateData,
+      });
+    }
+
     return review;
   }
 }

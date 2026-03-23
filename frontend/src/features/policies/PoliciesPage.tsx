@@ -1,25 +1,9 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FileText, Check, Plus, X, Eye, Shield, BookOpen, Users, Laptop, Heart } from 'lucide-react';
-import { api } from '../../app/api';
+import { useGetPoliciesQuery, useAcknowledgePolicyMutation } from './policyApi';
 import { cn, formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
-
-const policyApi = api.injectEndpoints({
-  endpoints: (builder) => ({
-    getPolicies: builder.query<any, { category?: string }>({
-      query: (params) => ({ url: '/policies', params }),
-    }),
-    getPolicy: builder.query<any, string>({
-      query: (id) => `/policies/${id}`,
-    }),
-    acknowledgePolicy: builder.mutation<any, string>({
-      query: (id) => ({ url: `/policies/${id}/acknowledge`, method: 'POST' }),
-    }),
-  }),
-});
-
-const { useGetPoliciesQuery, useGetPolicyQuery, useAcknowledgePolicyMutation } = policyApi;
 
 const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   HR_GENERAL: <Users size={18} className="text-brand-500" />,

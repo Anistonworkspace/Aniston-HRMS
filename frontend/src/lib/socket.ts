@@ -16,15 +16,15 @@ export function connectSocket(token: string) {
   });
 
   socket.on('connect', () => {
-    console.log('[Socket] Connected:', socket?.id);
+    if (import.meta.env.DEV) console.log('[Socket] Connected:', socket?.id);
   });
 
   socket.on('disconnect', (reason) => {
-    console.log('[Socket] Disconnected:', reason);
+    if (import.meta.env.DEV) console.log('[Socket] Disconnected:', reason);
   });
 
   socket.on('connect_error', (err) => {
-    console.warn('[Socket] Connection error:', err.message);
+    if (import.meta.env.DEV) console.warn('[Socket] Connection error:', err.message);
   });
 
   return socket;

@@ -1,23 +1,9 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Target, TrendingUp, Star, Plus, ChevronRight, CheckCircle, Clock, AlertCircle, X, Loader2 } from 'lucide-react';
-import { api } from '../../app/api';
+import { useGetGoalsQuery, useCreateGoalMutation, useUpdateGoalMutation, useGetReviewsQuery, useGetCyclesQuery } from './performanceApi';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
-
-const performanceApi = api.injectEndpoints({
-  endpoints: (builder) => ({
-    getGoals: builder.query<any, void>({ query: () => '/performance/goals' }),
-    createGoal: builder.mutation<any, any>({ query: (body) => ({ url: '/performance/goals', method: 'POST', body }) }),
-    updateGoal: builder.mutation<any, { id: string; data: any }>({
-      query: ({ id, data }) => ({ url: `/performance/goals/${id}`, method: 'PATCH', body: data }),
-    }),
-    getReviews: builder.query<any, void>({ query: () => '/performance/reviews' }),
-    getCycles: builder.query<any, void>({ query: () => '/performance/cycles' }),
-  }),
-});
-
-const { useGetGoalsQuery, useCreateGoalMutation, useUpdateGoalMutation, useGetReviewsQuery, useGetCyclesQuery } = performanceApi;
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
   NOT_STARTED: <Clock size={14} className="text-gray-400" />,

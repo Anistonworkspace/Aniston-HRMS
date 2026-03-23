@@ -1,0 +1,76 @@
+import { Request, Response, NextFunction } from 'express';
+import { payrollService } from './payroll.service.js';
+import { salaryStructureSchema, createPayrollRunSchema } from './payroll.validation.js';
+import { generateSalarySlipPDF } from '../../utils/pdfGenerator.js';
+
+export class PayrollController {
+  async getSalaryStructure(req: Request, res: Response, next: NextFunction) {
+    try {
+      const structure = await payrollService.getSalaryStructure(req.params.employeeId);
+      res.json({ success: true, data: structure });
+    } catch (err) { next(err); }
+  }
+
+  async upsertSalaryStructure(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = salaryStructureSchema.parse(req.body);
+      const structure = await payrollService.upsertSalaryStructure(req.params.employeeId, data);
+      res.json({ success: true, data: structure, message: 'Salary structure saved' });
+    } catch (err) { next(err); }
+  }
+
+  async getPayrollRuns(req: Request, res: Response, next: NextFunction) {
+    try {
+      const runs = await payrollService.getPayrollRuns(req.user!.organizationId);
+      res.json({ success: true, data: runs });
+    } catch (err) { next(err); }
+  }
+
+  async createPayrollRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { month, year } = createPayrollRunSchema.parse(req.body);
+      const run = await payrollService.createPayrollRun(month, year, req.user!.organizationId, req.user!.userId);
+      res.status(201).json({ success: true, data: run, message: 'Payroll run created' });
+    } catch (err) { next(err); }
+  }
+
+  async processPayroll(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await payrollService.processPayroll(req.params.id, req.user!.organizationId);
+      res.json({ success: true, data: result, message: 'Payroll processed' });
+    } catch (err) { next(err); }
+  }
+
+  async getPayrollRecords(req: Request, res: Response, next: NextFunction) {
+    try {
+      const records = await payrollService.getPayrollRecords(req.params.id);
+      res.json({ success: true, data: records });
+    } catch (err) { next(err); }
+  }
+
+  async downloadSalarySlip(req: Request, res: Response, next: NextFunction) {
+    try {
+      const record = await payrollService.getPayrollRecordById(req.params.id);
+      const pdfBuffer = await generateSalarySlipPDF(record);
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const filename = `salary-slip-${record.employee.employeeCode}-${monthNames[record.payrollRun.month - 1]}-${record.payrollRun.year}.pdf`;
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      res.send(pdfBuffer);
+    } catch (err) { next(err); }
+  }
+
+  async getMyPayslips(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user!.employeeId) {
+        res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
+        return;
+      }
+      const payslips = await payrollService.getMyPayslips(req.user!.employeeId);
+      res.json({ success: true, data: payslips });
+    } catch (err) { next(err); }
+  }
+}
+
+export const payrollController = new PayrollController();

@@ -40,7 +40,10 @@ npm run dev
 ## Key URLs
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:4000
+- API Docs (Swagger): http://localhost:4000/api/docs
 - Health check: http://localhost:4000/api/health
+- Walk-In Kiosk: http://localhost:5173/walk-in
+- AI Service: http://localhost:8000/ai/health
 - Prisma Studio: `npm run db:studio`
 
 ## Login Credentials (Dev)
@@ -60,6 +63,10 @@ npm run dev
 9. **Real-time** — Socket.io server at `backend/src/sockets/index.ts`, client at `frontend/src/lib/socket.ts`
 10. **Job queues** — BullMQ queues (email, notification, payroll) at `backend/src/jobs/`, workers auto-start with server
 11. **Email** — Nodemailer with HTML templates via BullMQ email worker, SMTP config in env
+12. **Encryption** — AES-256-GCM at `backend/src/utils/encryption.ts` for sensitive data (Aadhaar/PAN)
+13. **Audit logging** — Centralized at `backend/src/utils/auditLogger.ts`, used in leave, payroll, performance, settings
+14. **API docs** — Swagger UI at `/api/docs`, OpenAPI spec at `/api/docs.json`
+15. **Testing** — Vitest + supertest, tests in `backend/src/**/__tests__/`, run with `npm run test --workspace=backend`
 
 ## Key Files
 | File | Purpose |
@@ -90,7 +97,11 @@ npm run dev
 | `backend/src/jobs/queues.ts` | BullMQ job queues (email, notification, payroll) |
 | `backend/src/utils/pdfGenerator.ts` | Salary slip PDF generation (pdfkit) |
 | `backend/src/utils/excelExporter.ts` | Report Excel export (exceljs) |
-| `.github/workflows/ci.yml` | CI pipeline (lint, typecheck, build) |
+| `backend/src/utils/encryption.ts` | AES-256-GCM encryption + Aadhaar/PAN masking |
+| `backend/src/utils/auditLogger.ts` | Centralized audit logging for all modules |
+| `backend/src/config/swagger.ts` | OpenAPI/Swagger configuration |
+| `backend/Dockerfile` | Multi-stage production Docker build (non-root) |
+| `.github/workflows/ci.yml` | CI pipeline (lint, typecheck, test, build) |
 
 ## Backend Module Pattern
 Each module in `backend/src/modules/<name>/` has:

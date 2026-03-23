@@ -155,7 +155,17 @@ export default function WalkInKioskPage() {
 
   const canProceed = () => {
     switch (step) {
-      case 0: return form.fullName && form.email && form.phone;
+      case 0: {
+        if (!form.fullName || !form.email || !form.phone) return false;
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(form.email)) {
+          return false;
+        }
+        if (!/^\d{10}$/.test(form.phone)) {
+          return false;
+        }
+        return true;
+      }
       case 1: return true; // KYC is optional
       case 2: return true; // Professional is optional
       case 3: return true; // Resume is optional

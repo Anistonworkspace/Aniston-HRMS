@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
 import type { ApplyLeaveInput, LeaveQuery } from './leave.validation.js';
 
 export class LeaveService {
@@ -280,7 +281,7 @@ export class LeaveService {
   /**
    * Approve or reject a leave request
    */
-  async handleLeaveAction(requestId: string, action: 'APPROVED' | 'REJECTED', approvedBy: string, remarks?: string) {
+  async handleLeaveAction(requestId: string, action: 'APPROVED' | 'REJECTED', approvedBy: string, remarks?: string, organizationId?: string) {
     const request = await prisma.leaveRequest.findUnique({
       where: { id: requestId },
     });
@@ -334,6 +335,19 @@ export class LeaveService {
 
       return updatedRequest;
     });
+
+    // Audit log for leave approval/rejection
+    if (organizationId) {
+      await createAuditLog({
+        userId: approvedBy,
+        organizationId,
+        entity: 'LeaveRequest',
+        entityId: requestId,
+        action: action === 'APPROVED' ? 'APPROVE' : 'REJECT',
+        oldValue: { status: 'PENDING' },
+        newValue: { status: action, approverRemarks: remarks || null },
+      });
+    }
 
     return updated;
   }
