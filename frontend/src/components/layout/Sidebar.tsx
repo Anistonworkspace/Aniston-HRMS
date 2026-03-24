@@ -17,8 +17,10 @@ import {
   Megaphone,
   HelpCircle,
   UserPlus,
+  LogOut,
 } from 'lucide-react';
-import { useAppSelector } from '../../app/store';
+import { useNavigate } from 'react-router-dom';
+import { useAppSelector, useAppDispatch } from '../../app/store';
 import { cn } from '../../lib/utils';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
@@ -52,7 +54,16 @@ const navItems: NavItem[] = [
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const user = useAppSelector((state) => state.auth.user);
+  const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const location = useLocation();
+
+  const handleLogout = () => {
+    dispatch({ type: 'auth/logout' });
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('user');
+    navigate('/login');
+  };
 
   const isManagement = user?.role ? MANAGEMENT_ROLES.includes(user.role) : false;
 
@@ -126,8 +137,21 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Collapse toggle */}
-      <div className="px-2 py-3 border-t border-gray-100">
+      {/* Logout + Collapse */}
+      <div className="px-2 py-3 border-t border-gray-100 space-y-1">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-all"
+        >
+          <LogOut size={18} className="flex-shrink-0" />
+          <AnimatePresence>
+            {!collapsed && (
+              <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-xs font-medium">
+                Logout
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </button>
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-all"
@@ -135,12 +159,7 @@ export default function Sidebar() {
           {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
           <AnimatePresence>
             {!collapsed && (
-              <motion.span
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="text-xs"
-              >
+              <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-xs">
                 Collapse
               </motion.span>
             )}

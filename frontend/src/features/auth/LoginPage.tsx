@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Eye, EyeOff, Loader2, Users, BarChart3, Shield, Clock } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Users, BarChart3, Shield, Clock, X, Mail } from 'lucide-react';
 import { useLoginMutation } from './authApi';
 import { setCredentials } from './authSlice';
 import { useAppDispatch, useAppSelector } from '../../app/store';
@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showForgot, setShowForgot] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [login, { isLoading }] = useLoginMutation();
   const dispatch = useAppDispatch();
@@ -100,9 +101,9 @@ export default function LoginPage() {
                 <input type="checkbox" className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
                 Remember me
               </label>
-              <a href="#" className="text-brand-600 hover:text-brand-700 font-medium transition-colors">
+              <button type="button" onClick={() => setShowForgot(true)} className="text-brand-600 hover:text-brand-700 font-medium transition-colors">
                 Forgot password?
-              </a>
+              </button>
             </div>
 
             <motion.button
@@ -152,12 +153,8 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Sign up link */}
-          <p className="text-center text-sm text-gray-500 mt-6">
-            Don't have an account?{' '}
-            <Link to="/register" className="text-brand-600 hover:text-brand-700 font-semibold transition-colors">
-              Sign up now
-            </Link>
+          <p className="text-center text-xs text-gray-400 mt-6">
+            Contact your HR administrator to get an account
           </p>
 
           {/* Demo login — dev only */}
@@ -229,6 +226,65 @@ export default function LoginPage() {
             ))}
           </div>
         </div>
+      </motion.div>
+
+      {/* Forgot Password Modal */}
+      {showForgot && <ForgotPasswordModal onClose={() => setShowForgot(false)} />}
+    </div>
+  );
+}
+
+function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail) return;
+    setSending(true);
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+      await fetch(`${API_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+      setSent(true);
+    } catch {
+      // Even on error, show success to prevent email enumeration
+      setSent(true);
+    }
+    setSending(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={onClose}>
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+        onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-display font-semibold text-gray-800">Reset Password</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+        {sent ? (
+          <div className="text-center py-4">
+            <div className="w-12 h-12 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-3">
+              <Mail size={24} className="text-emerald-500" />
+            </div>
+            <p className="text-sm text-gray-700 font-medium">Check your email</p>
+            <p className="text-xs text-gray-500 mt-1">If an account exists with that email, we've sent a password reset link.</p>
+            <button onClick={onClose} className="btn-primary mt-4 text-sm w-full">Done</button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <p className="text-sm text-gray-500">Enter your email and we'll send you a link to reset your password.</p>
+            <input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
+              placeholder="your@email.com" className="input-glass w-full" required autoFocus />
+            <button type="submit" disabled={sending} className="btn-primary w-full flex items-center justify-center gap-2">
+              {sending && <Loader2 size={16} className="animate-spin" />} Send Reset Link
+            </button>
+          </form>
+        )}
       </motion.div>
     </div>
   );

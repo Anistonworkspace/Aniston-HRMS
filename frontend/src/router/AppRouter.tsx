@@ -51,7 +51,7 @@ export default function AppRouter() {
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+          {/* Register removed — employees are invited by HR via onboarding */}
           <Route path="/onboarding/:token" element={<OnboardingPortal />} />
           <Route path="/jobs" element={<PublicJobsPage />} />
           <Route path="/download" element={<DownloadPage />} />
