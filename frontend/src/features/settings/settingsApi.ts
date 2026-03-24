@@ -14,6 +14,13 @@ export const settingsApi = api.injectEndpoints({
       query: (params) => ({ url: '/settings/audit-logs', params }),
     }),
     getSystemInfo: builder.query<any, void>({ query: () => '/settings/system' }),
+    getEmailConfig: builder.query<any, void>({ query: () => '/settings/email' }),
+    saveEmailConfig: builder.mutation<any, any>({
+      query: (body) => ({ url: '/settings/email', method: 'POST', body }),
+    }),
+    testEmailConnection: builder.mutation<any, void>({
+      query: () => ({ url: '/settings/email/test', method: 'POST' }),
+    }),
   }),
 });
 
@@ -24,4 +31,7 @@ export const {
   useCreateLocationMutation,
   useGetAuditLogsQuery,
   useGetSystemInfoQuery,
+  useGetEmailConfigQuery,
+  useSaveEmailConfigMutation,
+  useTestEmailConnectionMutation,
 } = settingsApi;

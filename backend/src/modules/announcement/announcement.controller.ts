@@ -47,7 +47,7 @@ export class AnnouncementController {
 
   async listSocialPosts(req: Request, res: Response, next: NextFunction) {
     try {
-      const posts = await announcementService.listSocialPosts(req.user!.organizationId);
+      const posts = await announcementService.listSocialPosts(req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: posts });
     } catch (err) {
       next(err);
@@ -78,6 +78,24 @@ export class AnnouncementController {
       const data = createSocialCommentSchema.parse(req.body);
       const comment = await announcementService.createComment(req.params.id, req.user!.userId, data);
       res.status(201).json({ success: true, data: comment });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteSocialPost(req: Request, res: Response, next: NextFunction) {
+    try {
+      await announcementService.deleteSocialPost(req.params.id);
+      res.json({ success: true, data: null, message: 'Post deleted' });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteComment(req: Request, res: Response, next: NextFunction) {
+    try {
+      await announcementService.deleteComment(req.params.commentId as string, req.params.id);
+      res.json({ success: true, data: null, message: 'Comment deleted' });
     } catch (err) {
       next(err);
     }

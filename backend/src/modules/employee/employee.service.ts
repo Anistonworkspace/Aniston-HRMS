@@ -74,6 +74,10 @@ export class EmployeeService {
         user: {
           select: { id: true, email: true, role: true, status: true, lastLoginAt: true },
         },
+        lifecycleEvents: {
+          orderBy: { eventDate: 'desc' },
+          take: 50,
+        },
       },
     });
 
@@ -368,6 +372,35 @@ export class EmployeeService {
       password += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return password;
+  }
+
+  // ==================
+  // LIFECYCLE EVENTS
+  // ==================
+
+  async getLifecycleEvents(employeeId: string) {
+    return prisma.employeeEvent.findMany({
+      where: { employeeId },
+      orderBy: { eventDate: 'desc' },
+    });
+  }
+
+  async addLifecycleEvent(employeeId: string, data: { eventType: string; title: string; description?: string; eventDate: string; metadata?: any }, createdBy: string) {
+    return prisma.employeeEvent.create({
+      data: {
+        employeeId,
+        eventType: data.eventType,
+        title: data.title,
+        description: data.description || null,
+        eventDate: new Date(data.eventDate),
+        metadata: data.metadata || null,
+        createdBy,
+      },
+    });
+  }
+
+  async deleteLifecycleEvent(eventId: string) {
+    await prisma.employeeEvent.delete({ where: { id: eventId } });
   }
 }
 

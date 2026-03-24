@@ -19,7 +19,14 @@ export const authApi = api.injectEndpoints({
     getMe: builder.query<ApiResponse<AuthUser>, void>({
       query: () => '/auth/me',
     }),
+    changePassword: builder.mutation<any, { currentPassword: string; newPassword: string }>({
+      query: (body) => ({
+        url: '/auth/change-password',
+        method: 'POST',
+        body,
+      }),
+    }),
   }),
 });
 
-export const { useLoginMutation, useLogoutMutation, useGetMeQuery } = authApi;
+export const { useLoginMutation, useLogoutMutation, useGetMeQuery, useChangePasswordMutation } = authApi;

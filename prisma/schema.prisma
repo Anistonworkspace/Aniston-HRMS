@@ -133,6 +133,7 @@ model Employee {
   payrollRecords    PayrollRecord[]
   assetAssignments  AssetAssignment[]
   shiftAssignments  ShiftAssignment[]
+  lifecycleEvents   EmployeeEvent[]
   headOfDepartments Department[]     @relation("DepartmentHead")
 
   @@index([organizationId, status])
@@ -163,6 +164,23 @@ enum WorkMode {
   FIELD_SALES
   PROJECT_SITE
   REMOTE
+}
+
+model EmployeeEvent {
+  id          String   @id @default(uuid())
+  employeeId  String
+  eventType   String   // JOINING, PROBATION_END, CONFIRMATION, PROMOTION, TRANSFER, SALARY_REVISION, WARNING, SEPARATION, REHIRE, STATUS_CHANGE
+  title       String
+  description String?
+  eventDate   DateTime
+  metadata    Json?    // e.g. { oldDepartment, newDepartment, oldDesignation, newDesignation, oldSalary, newSalary }
+  createdBy   String?
+  createdAt   DateTime @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([eventDate])
 }
 
 enum PoliceVerificationStatus {

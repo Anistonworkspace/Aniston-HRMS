@@ -2,11 +2,14 @@ import { Provider } from 'react-redux';
 import { Toaster } from 'react-hot-toast';
 import { store } from './app/store';
 import AppRouter from './router/AppRouter';
+import ErrorBoundary from './components/ErrorBoundary';
 
 export default function App() {
   return (
     <Provider store={store}>
-      <AppRouter />
+      <ErrorBoundary>
+        <AppRouter />
+      </ErrorBoundary>
       <Toaster
         position="top-right"
         toastOptions={{

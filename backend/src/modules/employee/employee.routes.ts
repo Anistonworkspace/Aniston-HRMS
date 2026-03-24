@@ -30,4 +30,17 @@ router.delete('/:id', requirePermission('employee', 'delete'), (req, res, next) 
   employeeController.delete(req, res, next)
 );
 
+// Lifecycle Events
+router.get('/:id/events', requirePermission('employee', 'read'), (req, res, next) =>
+  employeeController.getLifecycleEvents(req, res, next)
+);
+
+router.post('/:id/events', requirePermission('employee', 'update'), (req, res, next) =>
+  employeeController.addLifecycleEvent(req, res, next)
+);
+
+router.delete('/:id/events/:eventId', requirePermission('employee', 'update'), (req, res, next) =>
+  employeeController.deleteLifecycleEvent(req, res, next)
+);
+
 export { router as employeeRouter };

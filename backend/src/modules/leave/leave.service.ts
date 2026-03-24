@@ -292,7 +292,7 @@ export class LeaveService {
 
     // Emit real-time event for HR
     emitToOrg(employee.organizationId, 'leave:applied', {
-      employeeId, employeeName: request.employee?.firstName ? `${request.employee.firstName} ${request.employee.lastName}` : 'Employee',
+      employeeId, employeeName: `${employee.firstName} ${employee.lastName}`,
       leaveType: request.leaveType?.name, days: request.days, startDate: request.startDate,
     });
 

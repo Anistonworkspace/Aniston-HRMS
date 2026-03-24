@@ -70,6 +70,28 @@ export const employeeApi = api.injectEndpoints({
       }),
       invalidatesTags: ['EmployeeList', 'Dashboard'],
     }),
+
+    getLifecycleEvents: builder.query<any, string>({
+      query: (id) => `/employees/${id}/events`,
+      providesTags: (result, error, id) => [{ type: 'Employee', id }],
+    }),
+
+    addLifecycleEvent: builder.mutation<any, { employeeId: string; data: any }>({
+      query: ({ employeeId, data }) => ({
+        url: `/employees/${employeeId}/events`,
+        method: 'POST',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { employeeId }) => [{ type: 'Employee', id: employeeId }],
+    }),
+
+    deleteLifecycleEvent: builder.mutation<any, { employeeId: string; eventId: string }>({
+      query: ({ employeeId, eventId }) => ({
+        url: `/employees/${employeeId}/events/${eventId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (result, error, { employeeId }) => [{ type: 'Employee', id: employeeId }],
+    }),
   }),
 });
 
@@ -80,4 +102,7 @@ export const {
   useUpdateEmployeeMutation,
   useDeleteEmployeeMutation,
   useInviteEmployeeMutation,
+  useGetLifecycleEventsQuery,
+  useAddLifecycleEventMutation,
+  useDeleteLifecycleEventMutation,
 } = employeeApi;

@@ -38,6 +38,19 @@ router.get('/audit-logs', (req, res, next) =>
   settingsController.listAuditLogs(req, res, next)
 );
 
+// Email Configuration
+router.get('/email', requirePermission('settings', 'read'), (req, res, next) =>
+  settingsController.getEmailConfig(req, res, next)
+);
+
+router.post('/email', requirePermission('settings', 'update'), (req, res, next) =>
+  settingsController.saveEmailConfig(req, res, next)
+);
+
+router.post('/email/test', requirePermission('settings', 'update'), (req, res, next) =>
+  settingsController.testEmailConnection(req, res, next)
+);
+
 // System Info
 router.get('/system', (req, res, next) =>
   settingsController.getSystemInfo(req, res, next)

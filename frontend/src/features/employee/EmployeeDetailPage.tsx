@@ -6,7 +6,7 @@ import {
   Shield, Send, Copy, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
   Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2,
 } from 'lucide-react';
-import { useGetEmployeeQuery, useUpdateEmployeeMutation } from './employeeApi';
+import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation } from './employeeApi';
 import { useCreateOnboardingInviteMutation } from '../onboarding/onboardingApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation } from '../attendance/attendanceApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation } from '../payroll/payrollApi';
@@ -271,42 +271,7 @@ export default function EmployeeDetailPage() {
             )}
 
             {activeTab === 'connections' && (
-              <div className="layer-card p-5">
-                <h3 className="text-sm font-semibold text-gray-800 mb-4">Connections</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {[
-                    { label: 'Attendance', color: 'bg-emerald-50', textColor: 'text-emerald-600', icon: Clock, count: employee.attendanceRecords?.length || 0, link: '/attendance' },
-                    { label: 'Attendance Request', color: 'bg-blue-50', textColor: 'text-blue-600', icon: FileText, count: 0, link: '/attendance' },
-                    { label: 'Employee Checkin', color: 'bg-amber-50', textColor: 'text-amber-600', icon: MapPin, count: 0, link: '/attendance' },
-                    { label: 'Leave Application', color: 'bg-purple-50', textColor: 'text-purple-600', icon: Calendar, count: employee.leaveRequests?.length || 0, link: '/leaves' },
-                    { label: 'Leave Allocation', color: 'bg-teal-50', textColor: 'text-teal-600', icon: DollarSign, count: employee.leaveBalances?.length || 0, link: '/leaves' },
-                    { label: 'Leave Policy Assignment', color: 'bg-orange-50', textColor: 'text-orange-600', icon: Shield, count: 0, link: '/leaves' },
-                    { label: 'Employee Onboarding', color: 'bg-sky-50', textColor: 'text-sky-600', icon: Briefcase, count: 0, link: '#' },
-                    { label: 'Employee Transfer', color: 'bg-indigo-50', textColor: 'text-indigo-600', icon: ArrowLeft, count: 0, link: '#' },
-                    { label: 'Employee Promotion', color: 'bg-pink-50', textColor: 'text-pink-600', icon: ChevronRight, count: 0, link: '#' },
-                    { label: 'Shift Request', color: 'bg-rose-50', textColor: 'text-rose-600', icon: Clock, count: employee.shiftAssignments?.length || 0, link: '/settings' },
-                    { label: 'Employee Separation', color: 'bg-red-50', textColor: 'text-red-600', icon: User, count: 0, link: '#' },
-                    { label: 'Documents', color: 'bg-green-50', textColor: 'text-green-600', icon: FileText, count: employee.documents?.length || 0, link: '#' },
-                  ].map((card) => (
-                    <div key={card.label} onClick={() => card.link !== '#' && navigate(card.link)}
-                      className="flex items-center justify-between p-3 bg-surface-2 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer">
-                      <div className="flex items-center gap-2.5">
-                        <div className={`w-7 h-7 rounded-lg ${card.color} flex items-center justify-center`}>
-                          <card.icon size={14} className={card.textColor} />
-                        </div>
-                        <p className="text-xs font-medium text-gray-700">{card.label}</p>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        {card.count > 0 && <span className="text-xs font-mono font-bold text-gray-500" data-mono>{card.count}</span>}
-                        <button onClick={(e) => { e.stopPropagation(); if (card.link !== '#') navigate(card.link); }}
-                          className="w-5 h-5 rounded bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-50">
-                          <Plus size={10} className="text-gray-500" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <ConnectionsTab employee={employee} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} navigate={navigate} />
             )}
           </div>
         </div>
@@ -1024,6 +989,176 @@ function InfoRow({ label, value, mono }: { label: string; value: string; mono?: 
     <div className="flex justify-between items-start">
       <dt className="text-xs text-gray-400">{label}</dt>
       <dd className={`text-sm text-gray-700 text-right ${mono ? 'font-mono' : ''}`} data-mono={mono || undefined}>{value}</dd>
+    </div>
+  );
+}
+
+/* =============================================================================
+   Connections Tab — Connections grid + Lifecycle Timeline
+   ============================================================================= */
+
+const EVENT_TYPE_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
+  JOINING: { color: 'text-emerald-600', bg: 'bg-emerald-100', label: 'Joining' },
+  PROBATION_END: { color: 'text-blue-600', bg: 'bg-blue-100', label: 'Probation End' },
+  CONFIRMATION: { color: 'text-green-600', bg: 'bg-green-100', label: 'Confirmation' },
+  PROMOTION: { color: 'text-purple-600', bg: 'bg-purple-100', label: 'Promotion' },
+  TRANSFER: { color: 'text-indigo-600', bg: 'bg-indigo-100', label: 'Transfer' },
+  SALARY_REVISION: { color: 'text-amber-600', bg: 'bg-amber-100', label: 'Salary Revision' },
+  WARNING: { color: 'text-red-600', bg: 'bg-red-100', label: 'Warning' },
+  SEPARATION: { color: 'text-red-700', bg: 'bg-red-100', label: 'Separation' },
+  STATUS_CHANGE: { color: 'text-gray-600', bg: 'bg-gray-100', label: 'Status Change' },
+  REHIRE: { color: 'text-teal-600', bg: 'bg-teal-100', label: 'Rehire' },
+};
+
+function ConnectionsTab({ employee, isManagement, navigate }: { employee: any; isManagement: boolean; navigate: (path: string) => void }) {
+  const [addEvent, { isLoading: adding }] = useAddLifecycleEventMutation();
+  const [deleteEvent] = useDeleteLifecycleEventMutation();
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ eventType: 'JOINING', title: '', description: '', eventDate: new Date().toISOString().split('T')[0] });
+
+  const events = employee.lifecycleEvents || [];
+
+  // Auto-generate joining event if none exists
+  const allEvents = useMemo(() => {
+    const hasJoining = events.some((e: any) => e.eventType === 'JOINING');
+    const base = [...events];
+    if (!hasJoining && employee.joiningDate) {
+      base.push({
+        id: 'auto-joining',
+        eventType: 'JOINING',
+        title: 'Joined the organization',
+        description: `Joined as ${employee.designation?.name || 'Employee'}`,
+        eventDate: employee.joiningDate,
+        createdAt: employee.joiningDate,
+      });
+    }
+    return base.sort((a: any, b: any) => new Date(b.eventDate).getTime() - new Date(a.eventDate).getTime());
+  }, [events, employee]);
+
+  const handleAdd = async () => {
+    if (!form.title) { toast.error('Title required'); return; }
+    try {
+      await addEvent({ employeeId: employee.id, data: form }).unwrap();
+      toast.success('Event added');
+      setShowForm(false);
+      setForm({ eventType: 'JOINING', title: '', description: '', eventDate: new Date().toISOString().split('T')[0] });
+    } catch { toast.error('Failed'); }
+  };
+
+  const handleDelete = async (eventId: string) => {
+    if (eventId === 'auto-joining') return;
+    if (!confirm('Delete this event?')) return;
+    try {
+      await deleteEvent({ employeeId: employee.id, eventId }).unwrap();
+      toast.success('Deleted');
+    } catch { toast.error('Failed'); }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Connection cards */}
+      <div className="layer-card p-5">
+        <h3 className="text-sm font-semibold text-gray-800 mb-4">Connections</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {[
+            { label: 'Attendance', color: 'bg-emerald-50', textColor: 'text-emerald-600', icon: Clock, count: employee.attendanceRecords?.length || 0, link: '/attendance' },
+            { label: 'Leave Application', color: 'bg-purple-50', textColor: 'text-purple-600', icon: Calendar, count: employee.leaveRequests?.length || 0, link: '/leaves' },
+            { label: 'Leave Balance', color: 'bg-teal-50', textColor: 'text-teal-600', icon: DollarSign, count: employee.leaveBalances?.length || 0, link: '/leaves' },
+            { label: 'Shift Assignments', color: 'bg-rose-50', textColor: 'text-rose-600', icon: Clock, count: employee.shiftAssignments?.length || 0, link: '/roster' },
+            { label: 'Documents', color: 'bg-green-50', textColor: 'text-green-600', icon: FileText, count: employee.documents?.length || 0 },
+            { label: 'Lifecycle Events', color: 'bg-blue-50', textColor: 'text-blue-600', icon: Briefcase, count: allEvents.length },
+          ].map((card) => (
+            <div key={card.label} onClick={() => card.link && navigate(card.link)}
+              className="flex items-center justify-between p-3 bg-surface-2 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-7 h-7 rounded-lg ${card.color} flex items-center justify-center`}>
+                  <card.icon size={14} className={card.textColor} />
+                </div>
+                <p className="text-xs font-medium text-gray-700">{card.label}</p>
+              </div>
+              {card.count > 0 && <span className="text-xs font-mono font-bold text-gray-500" data-mono>{card.count}</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Lifecycle Timeline */}
+      <div className="layer-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-800">Employee Lifecycle</h3>
+          {isManagement && (
+            <button onClick={() => setShowForm(!showForm)} className="btn-primary text-xs flex items-center gap-1">
+              <Plus size={12} /> Add Event
+            </button>
+          )}
+        </div>
+
+        {/* Add form */}
+        {showForm && (
+          <div className="bg-surface-2 rounded-xl p-4 mb-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Event Type</label>
+                <select value={form.eventType} onChange={e => setForm({...form, eventType: e.target.value})} className="input-glass w-full text-sm">
+                  {Object.entries(EVENT_TYPE_CONFIG).map(([key, { label }]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Date</label>
+                <input type="date" value={form.eventDate} onChange={e => setForm({...form, eventDate: e.target.value})} className="input-glass w-full text-sm" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Title *</label>
+              <input value={form.title} onChange={e => setForm({...form, title: e.target.value})} className="input-glass w-full text-sm" placeholder="e.g. Promoted to Senior Engineer" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Description</label>
+              <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="input-glass w-full text-sm h-16 resize-none" placeholder="Additional details..." />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleAdd} disabled={adding} className="btn-primary text-xs">{adding ? 'Adding...' : 'Add Event'}</button>
+              <button onClick={() => setShowForm(false)} className="btn-secondary text-xs">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {/* Timeline */}
+        {allEvents.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-6">No lifecycle events recorded</p>
+        ) : (
+          <div className="relative ml-4">
+            <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gray-200" />
+            {allEvents.map((event: any, idx: number) => {
+              const config = EVENT_TYPE_CONFIG[event.eventType] || EVENT_TYPE_CONFIG.STATUS_CHANGE;
+              return (
+                <div key={event.id} className="relative pl-6 pb-6 last:pb-0">
+                  <div className={`absolute left-[-4px] top-1 w-3 h-3 rounded-full ${config.bg} border-2 border-white shadow-sm`} />
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${config.bg} ${config.color}`}>
+                          {config.label}
+                        </span>
+                        <span className="text-[10px] font-mono text-gray-400" data-mono>{formatDate(event.eventDate)}</span>
+                      </div>
+                      <p className="text-sm font-medium text-gray-800">{event.title}</p>
+                      {event.description && <p className="text-xs text-gray-500 mt-0.5">{event.description}</p>}
+                    </div>
+                    {isManagement && event.id !== 'auto-joining' && (
+                      <button onClick={() => handleDelete(event.id)} className="text-gray-300 hover:text-red-500 p-1 ml-2 flex-shrink-0">
+                        <Plus size={12} className="rotate-45" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X } from 'lucide-react';
+import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -12,12 +12,12 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery } from './settingsApi';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation } from './settingsApi';
 import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'audit' | 'system';
+type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'audit' | 'system';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('organization');
@@ -26,6 +26,7 @@ export default function SettingsPage() {
     { key: 'organization', label: 'Organization', icon: Building2 },
     { key: 'locations', label: 'Office Locations', icon: MapPin },
     { key: 'shifts', label: 'Shifts & Rosters', icon: Clock },
+    { key: 'email', label: 'Email Configuration', icon: Mail },
     { key: 'audit', label: 'Audit Logs', icon: Shield },
     { key: 'system', label: 'System', icon: Server },
   ];
@@ -59,6 +60,7 @@ export default function SettingsPage() {
           {activeTab === 'organization' && <OrgSettings />}
           {activeTab === 'locations' && <LocationSettings />}
           {activeTab === 'shifts' && <ShiftSettings />}
+          {activeTab === 'email' && <EmailConfig />}
           {activeTab === 'audit' && <AuditLogs />}
           {activeTab === 'system' && <SystemInfo />}
         </div>
@@ -410,6 +412,132 @@ function ShiftSettings() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function EmailConfig() {
+  const { data: res, refetch } = useGetEmailConfigQuery();
+  const [saveConfig, { isLoading: saving }] = useSaveEmailConfigMutation();
+  const [testConnection, { isLoading: testing }] = useTestEmailConnectionMutation();
+  const config = res?.data;
+  const [form, setForm] = useState({ host: '', port: 587, user: '', pass: '', fromAddress: '', fromName: '' });
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    if (config) {
+      setForm({
+        host: config.host || '',
+        port: config.port || 587,
+        user: config.user || '',
+        pass: '',
+        fromAddress: config.fromAddress || '',
+        fromName: config.fromName || '',
+      });
+    }
+  }, [config]);
+
+  const handleSave = async () => {
+    if (!form.host || !form.user) { toast.error('SMTP host and username required'); return; }
+    try {
+      const payload = { ...form };
+      if (!payload.pass && config?.hasPassword) {
+        delete (payload as any).pass; // Don't overwrite existing password if not changed
+      }
+      await saveConfig(payload).unwrap();
+      toast.success('Email configuration saved');
+      refetch();
+      setTestResult(null);
+    } catch { toast.error('Failed to save'); }
+  };
+
+  const handleTest = async () => {
+    try {
+      const result = await testConnection().unwrap();
+      setTestResult(result.data);
+      if (result.data?.success) toast.success('Connection successful!');
+      else toast.error(result.data?.message || 'Connection failed');
+    } catch { setTestResult({ success: false, message: 'Test failed — check your settings' }); }
+  };
+
+  return (
+    <div className="layer-card p-6">
+      <h2 className="text-lg font-display font-semibold text-gray-800 mb-2">Email Configuration</h2>
+      <p className="text-sm text-gray-400 mb-6">Configure SMTP settings for sending invitation emails, notifications, and password resets.</p>
+
+      {/* Status indicator */}
+      {config && (
+        <div className={cn('flex items-center gap-2 p-3 rounded-lg mb-6 text-sm',
+          config.configured ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+        )}>
+          {config.configured ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+          {config.configured
+            ? 'Email is configured. Invitation emails will be sent via SMTP.'
+            : 'Email not configured. Invitations will be logged to console only.'}
+        </div>
+      )}
+
+      <div className="space-y-4 max-w-lg">
+        <div className="grid grid-cols-3 gap-3">
+          <div className="col-span-2">
+            <label className="block text-sm font-medium text-gray-600 mb-1">SMTP Host *</label>
+            <input value={form.host} onChange={e => setForm({...form, host: e.target.value})}
+              className="input-glass w-full text-sm" placeholder="smtp.office365.com" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Port</label>
+            <input type="number" value={form.port} onChange={e => setForm({...form, port: Number(e.target.value)})}
+              className="input-glass w-full text-sm" />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Username *</label>
+            <input value={form.user} onChange={e => setForm({...form, user: e.target.value})}
+              className="input-glass w-full text-sm" placeholder="noreply@company.com" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">
+              Password {config?.hasPassword && <span className="text-xs text-gray-400">(saved, leave blank to keep)</span>}
+            </label>
+            <input type="password" value={form.pass} onChange={e => setForm({...form, pass: e.target.value})}
+              className="input-glass w-full text-sm" placeholder={config?.hasPassword ? '••••••••' : 'SMTP password'} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">From Address</label>
+            <input value={form.fromAddress} onChange={e => setForm({...form, fromAddress: e.target.value})}
+              className="input-glass w-full text-sm" placeholder="noreply@company.com" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">From Name</label>
+            <input value={form.fromName} onChange={e => setForm({...form, fromName: e.target.value})}
+              className="input-glass w-full text-sm" placeholder="Aniston HRMS" />
+          </div>
+        </div>
+
+        {/* Test result */}
+        {testResult && (
+          <div className={cn('flex items-center gap-2 p-3 rounded-lg text-sm',
+            testResult.success ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+          )}>
+            {testResult.success ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+            {testResult.message}
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-2">
+          <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2 text-sm">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            Save Configuration
+          </button>
+          <button onClick={handleTest} disabled={testing || !config?.configured} className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50">
+            {testing ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            Test Connection
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

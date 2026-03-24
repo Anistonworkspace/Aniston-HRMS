@@ -255,42 +255,54 @@ export class AttendanceService {
   }
 
   /**
-   * Admin view — all employees' attendance
+   * Admin view — all employees' attendance (shows ALL employees, even those without records)
    */
   async getAllAttendance(query: AttendanceQuery, organizationId: string) {
     const { page, limit, startDate, endDate, employeeId, department, status, workMode } = query;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
-
-    if (startDate && endDate) {
-      where.date = {
-        gte: new Date(startDate),
-        lte: new Date(endDate),
-      };
+    // Determine date for the query
+    let queryDate: Date;
+    if (startDate) {
+      queryDate = new Date(startDate);
     } else {
-      // Default to today
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      where.date = today;
+      queryDate = new Date();
     }
+    queryDate.setHours(0, 0, 0, 0);
 
-    if (employeeId) where.employeeId = employeeId;
-    if (status) where.status = status;
-    if (workMode) where.workMode = workMode;
+    const endQueryDate = endDate ? new Date(endDate) : new Date(queryDate);
+    endQueryDate.setHours(23, 59, 59, 999);
 
-    if (department) {
-      where.employee = { departmentId: department, organizationId };
-    } else {
-      where.employee = { organizationId };
-    }
+    // Build employee filter
+    const empWhere: any = { organizationId, deletedAt: null, status: { in: ['ACTIVE', 'PROBATION'] } };
+    if (department) empWhere.departmentId = department;
+    if (employeeId) empWhere.id = employeeId;
+    if (workMode) empWhere.workMode = workMode;
 
-    const [records, total, totalEmployees, presentCount, absentCount, onLeaveCount] = await Promise.all([
+    // Build attendance record filter
+    const recordWhere: any = {
+      date: { gte: queryDate, lte: endQueryDate },
+      employee: { organizationId, deletedAt: null },
+    };
+    if (department) recordWhere.employee.departmentId = department;
+
+    // Fetch all employees + their attendance records for the date range
+    const [allEmployees, records, totalEmployees, presentCount, absentCount, onLeaveCount] = await Promise.all([
+      prisma.employee.findMany({
+        where: empWhere,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          employeeCode: true,
+          department: { select: { name: true } },
+          workMode: true,
+          avatar: true,
+        },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      }),
       prisma.attendanceRecord.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: [{ date: 'desc' }, { checkIn: 'desc' }],
+        where: recordWhere,
         include: {
           employee: {
             select: {
@@ -306,15 +318,52 @@ export class AttendanceService {
           breaks: true,
         },
       }),
-      prisma.attendanceRecord.count({ where }),
       prisma.employee.count({ where: { organizationId, deletedAt: null, status: { in: ['ACTIVE', 'PROBATION'] } } }),
-      prisma.attendanceRecord.count({ where: { ...where, status: 'PRESENT' } }),
-      prisma.attendanceRecord.count({ where: { ...where, status: 'ABSENT' } }),
-      prisma.attendanceRecord.count({ where: { ...where, status: 'ON_LEAVE' } }),
+      prisma.attendanceRecord.count({ where: { ...recordWhere, status: 'PRESENT' } }),
+      prisma.attendanceRecord.count({ where: { ...recordWhere, status: 'ABSENT' } }),
+      prisma.attendanceRecord.count({ where: { ...recordWhere, status: 'ON_LEAVE' } }),
     ]);
 
+    // Build map of employeeId → record
+    const recordMap = new Map<string, any>();
+    records.forEach(r => recordMap.set(r.employeeId, r));
+
+    // Merge: all employees with their attendance record (or NOT_CHECKED_IN placeholder)
+    let mergedData = allEmployees.map(emp => {
+      const record = recordMap.get(emp.id);
+      if (record) {
+        return record;
+      }
+      // No attendance record — show as NOT_CHECKED_IN
+      return {
+        id: `placeholder-${emp.id}`,
+        employeeId: emp.id,
+        date: queryDate,
+        checkIn: null,
+        checkOut: null,
+        totalHours: null,
+        status: 'NOT_CHECKED_IN',
+        workMode: emp.workMode || 'OFFICE',
+        source: null,
+        employee: emp,
+        breaks: [],
+      };
+    });
+
+    // Apply status filter
+    if (status) {
+      mergedData = mergedData.filter(r => r.status === status);
+    }
+
+    // Paginate
+    const total = mergedData.length;
+    const paginatedData = mergedData.slice(skip, skip + limit);
+
+    // Count NOT_CHECKED_IN
+    const notCheckedIn = totalEmployees - presentCount - absentCount - onLeaveCount;
+
     return {
-      data: records,
+      data: paginatedData,
       meta: {
         page,
         limit,
@@ -328,6 +377,7 @@ export class AttendanceService {
         present: presentCount,
         absent: absentCount,
         onLeave: onLeaveCount,
+        notCheckedIn: notCheckedIn > 0 ? notCheckedIn : 0,
       },
     };
   }

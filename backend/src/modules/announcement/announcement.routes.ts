@@ -40,4 +40,12 @@ router.post('/social/:id/comment', requirePermission('social_wall', 'create'), (
   announcementController.createComment(req, res, next)
 );
 
+router.delete('/social/:id', requirePermission('social_wall', 'delete'), (req, res, next) =>
+  announcementController.deleteSocialPost(req, res, next)
+);
+
+router.delete('/social/:id/comment/:commentId', requirePermission('social_wall', 'delete'), (req, res, next) =>
+  announcementController.deleteComment(req, res, next)
+);
+
 export { router as announcementRouter };

@@ -80,6 +80,41 @@ export class EmployeeController {
       next(err);
     }
   }
+
+  // Lifecycle Events
+  async getLifecycleEvents(req: Request, res: Response, next: NextFunction) {
+    try {
+      const events = await employeeService.getLifecycleEvents(req.params.id as string);
+      res.json({ success: true, data: events });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async addLifecycleEvent(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = z.object({
+        eventType: z.string().min(1),
+        title: z.string().min(1),
+        description: z.string().optional(),
+        eventDate: z.string().min(1),
+        metadata: z.any().optional(),
+      }).parse(req.body);
+      const event = await employeeService.addLifecycleEvent(req.params.id as string, data, req.user!.userId);
+      res.status(201).json({ success: true, data: event, message: 'Event added' });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteLifecycleEvent(req: Request, res: Response, next: NextFunction) {
+    try {
+      await employeeService.deleteLifecycleEvent(req.params.eventId as string);
+      res.json({ success: true, data: null, message: 'Event deleted' });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const employeeController = new EmployeeController();

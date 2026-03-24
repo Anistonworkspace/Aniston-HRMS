@@ -1,5 +1,9 @@
 import { prisma } from '../../lib/prisma.js';
+import { emitToOrg } from '../../sockets/index.js';
 import type { CreateAnnouncementInput, UpdateAnnouncementInput, CreateSocialPostInput, CreateSocialCommentInput } from './announcement.validation.js';
+
+// Helper to look up user display info
+const userSelect = { id: true, email: true, employee: { select: { firstName: true, lastName: true, avatar: true } } };
 
 export class AnnouncementService {
   async list(organizationId: string) {
@@ -14,7 +18,16 @@ export class AnnouncementService {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
-    return announcements;
+
+    // Enrich with author info
+    const userIds = [...new Set(announcements.map(a => a.createdBy))];
+    const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: userSelect });
+    const userMap = new Map(users.map(u => [u.id, u]));
+
+    return announcements.map(a => ({
+      ...a,
+      author: userMap.get(a.createdBy) || null,
+    }));
   }
 
   async create(data: CreateAnnouncementInput, organizationId: string, userId: string) {
@@ -27,7 +40,13 @@ export class AnnouncementService {
         organizationId,
       },
     });
-    return announcement;
+
+    // Get author for response
+    const author = await prisma.user.findUnique({ where: { id: userId }, select: userSelect });
+
+    emitToOrg(organizationId, 'announcement:new', { id: announcement.id, title: announcement.title });
+
+    return { ...announcement, author };
   }
 
   async update(id: string, data: UpdateAnnouncementInput) {
@@ -46,17 +65,37 @@ export class AnnouncementService {
   // SOCIAL WALL
   // ==================
 
-  async listSocialPosts(organizationId: string) {
+  async listSocialPosts(organizationId: string, userId: string) {
     const posts = await prisma.socialPost.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
-      take: 30,
+      take: 50,
       include: {
-        comments: { orderBy: { createdAt: 'asc' }, take: 5 },
+        comments: { orderBy: { createdAt: 'asc' }, take: 20 },
+        likes: { where: { userId }, select: { id: true } },
         _count: { select: { comments: true, likes: true } },
       },
     });
-    return posts;
+
+    // Enrich posts and comments with author info
+    const authorIds = new Set<string>();
+    posts.forEach(p => {
+      authorIds.add(p.authorId);
+      p.comments.forEach(c => authorIds.add(c.authorId));
+    });
+    const users = await prisma.user.findMany({ where: { id: { in: [...authorIds] } }, select: userSelect });
+    const userMap = new Map(users.map(u => [u.id, u]));
+
+    return posts.map(p => ({
+      ...p,
+      author: userMap.get(p.authorId) || null,
+      likedByMe: p.likes.length > 0,
+      likes: undefined, // strip raw likes array
+      comments: p.comments.map(c => ({
+        ...c,
+        author: userMap.get(c.authorId) || null,
+      })),
+    }));
   }
 
   async createSocialPost(data: CreateSocialPostInput, organizationId: string, userId: string) {
@@ -69,7 +108,12 @@ export class AnnouncementService {
         organizationId,
       },
     });
-    return post;
+
+    const author = await prisma.user.findUnique({ where: { id: userId }, select: userSelect });
+
+    emitToOrg(organizationId, 'social:new_post', { id: post.id });
+
+    return { ...post, author };
   }
 
   async toggleLike(postId: string, userId: string) {
@@ -92,7 +136,19 @@ export class AnnouncementService {
       data: { postId, authorId: userId, content: data.content },
     });
     await prisma.socialPost.update({ where: { id: postId }, data: { commentsCount: { increment: 1 } } });
-    return comment;
+
+    const author = await prisma.user.findUnique({ where: { id: userId }, select: userSelect });
+
+    return { ...comment, author };
+  }
+
+  async deleteComment(commentId: string, postId: string) {
+    await prisma.socialComment.delete({ where: { id: commentId } });
+    await prisma.socialPost.update({ where: { id: postId }, data: { commentsCount: { decrement: 1 } } });
+  }
+
+  async deleteSocialPost(postId: string) {
+    await prisma.socialPost.delete({ where: { id: postId } });
   }
 }
 

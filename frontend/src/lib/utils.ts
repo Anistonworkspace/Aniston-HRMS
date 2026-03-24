@@ -42,6 +42,7 @@ export function getStatusColor(status: string): string {
     APPROVED: 'badge-success',
     REJECTED: 'badge-danger',
     CANCELLED: 'badge-neutral',
+    NOT_CHECKED_IN: 'badge-neutral',
   };
   return map[status] || 'badge-neutral';
 }

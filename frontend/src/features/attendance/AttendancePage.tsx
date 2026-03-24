@@ -29,6 +29,7 @@ const STATUS_COLORS: Record<string, string> = {
   WEEKEND: 'bg-gray-300',
   ON_LEAVE: 'bg-purple-400',
   WORK_FROM_HOME: 'bg-teal-400',
+  NOT_CHECKED_IN: 'bg-gray-300',
 };
 
 export default function AttendancePage() {
@@ -223,6 +224,7 @@ function AttendanceManagementView() {
               <option value="HALF_DAY">Half Day</option>
               <option value="ON_LEAVE">On Leave</option>
               <option value="WORK_FROM_HOME">WFH</option>
+              <option value="NOT_CHECKED_IN">Not Checked In</option>
             </select>
           </div>
         </div>

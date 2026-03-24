@@ -78,6 +78,34 @@ export class SettingsController {
       next(err);
     }
   }
+
+  async getEmailConfig(req: Request, res: Response, next: NextFunction) {
+    try {
+      const config = await settingsService.getEmailConfig(req.user!.organizationId);
+      res.json({ success: true, data: config });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async saveEmailConfig(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { host, port, user, pass, fromAddress, fromName } = req.body;
+      await settingsService.saveEmailConfig(req.user!.organizationId, { host, port: Number(port), user, pass, fromAddress, fromName }, req.user!.userId);
+      res.json({ success: true, message: 'Email configuration saved' });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async testEmailConnection(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await settingsService.testEmailConnection(req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const settingsController = new SettingsController();
