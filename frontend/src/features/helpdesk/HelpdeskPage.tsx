@@ -1,15 +1,26 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { HelpCircle, Plus, X, MessageCircle, Clock, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
-import { useGetMyTicketsQuery, useCreateTicketMutation } from './helpdeskApi';
-import { cn, formatDate } from '../../lib/utils';
+import {
+  HelpCircle, Plus, X, MessageCircle, Clock, CheckCircle, AlertTriangle,
+  Loader2, Search, Filter, ChevronLeft, ChevronRight, Send, User,
+} from 'lucide-react';
+import {
+  useGetMyTicketsQuery, useGetAllTicketsQuery, useCreateTicketMutation,
+  useGetTicketDetailQuery, useUpdateTicketMutation, useAddCommentMutation,
+} from './helpdeskApi';
+import { useGetEmployeesQuery } from '../employee/employeeApi';
+import { cn, formatDate, getInitials } from '../../lib/utils';
+import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
 
-const STATUS_CONFIG: Record<string, { icon: React.ReactNode; class: string }> = {
-  OPEN: { icon: <Clock size={14} />, class: 'badge-warning' },
-  IN_PROGRESS: { icon: <AlertTriangle size={14} />, class: 'badge-info' },
-  RESOLVED: { icon: <CheckCircle size={14} />, class: 'badge-success' },
-  CLOSED: { icon: <CheckCircle size={14} />, class: 'badge-neutral' },
+const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+
+const STATUS_CONFIG: Record<string, { class: string; label: string }> = {
+  OPEN: { class: 'badge-warning', label: 'Open' },
+  IN_PROGRESS: { class: 'badge-info', label: 'In Progress' },
+  WAITING_ON_USER: { class: 'bg-orange-50 text-orange-600', label: 'Waiting' },
+  RESOLVED: { class: 'badge-success', label: 'Resolved' },
+  CLOSED: { class: 'badge-neutral', label: 'Closed' },
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -17,8 +28,323 @@ const PRIORITY_COLORS: Record<string, string> = {
 };
 
 export default function HelpdeskPage() {
+  const user = useAppSelector(s => s.auth.user);
+  const isManagement = user?.role ? MANAGEMENT_ROLES.includes(user.role) : false;
+  return isManagement ? <HelpdeskManagementView /> : <HelpdeskPersonalView />;
+}
+
+/* ===== MANAGEMENT VIEW ===== */
+function HelpdeskManagementView() {
+  const [statusFilter, setStatusFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const { data: res, refetch } = useGetMyTicketsQuery();
+
+  const { data: res, isLoading } = useGetAllTicketsQuery({
+    page, limit: 20,
+    status: statusFilter || undefined,
+  });
+  const tickets = res?.data?.data || res?.data || [];
+  const meta = res?.data?.meta || res?.meta || {};
+
+  const filteredTickets = searchQuery
+    ? tickets.filter((t: any) => {
+        const q = searchQuery.toLowerCase();
+        return t.ticketCode?.toLowerCase().includes(q) ||
+               t.subject?.toLowerCase().includes(q) ||
+               `${t.employee?.firstName || ''} ${t.employee?.lastName || ''}`.toLowerCase().includes(q);
+      })
+    : tickets;
+
+  // Stats from all tickets
+  const stats = {
+    OPEN: tickets.filter((t: any) => t.status === 'OPEN').length,
+    IN_PROGRESS: tickets.filter((t: any) => t.status === 'IN_PROGRESS').length,
+    RESOLVED: tickets.filter((t: any) => t.status === 'RESOLVED').length,
+    CLOSED: tickets.filter((t: any) => t.status === 'CLOSED').length,
+  };
+
+  return (
+    <div className="page-container">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-display font-bold text-gray-900">Helpdesk Management</h1>
+          <p className="text-gray-500 text-sm mt-0.5">Manage and resolve support tickets</p>
+        </div>
+        <button onClick={() => setShowCreate(true)} className="btn-primary flex items-center gap-2">
+          <Plus size={18} /> Raise Ticket
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        {Object.entries(stats).map(([status, count]) => (
+          <button key={status} onClick={() => { setStatusFilter(statusFilter === status ? '' : status); setPage(1); }}
+            className={cn('stat-card text-center transition-all', statusFilter === status && 'ring-2 ring-brand-500')}>
+            <p className="text-lg font-bold font-mono text-gray-900" data-mono>{count}</p>
+            <p className="text-xs text-gray-500">{status.replace('_', ' ')}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="layer-card p-4 mb-6">
+        <div className="flex gap-3">
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search by ticket code, subject, or employee..."
+              className="input-glass w-full pl-9 text-sm" />
+          </div>
+          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
+            className="input-glass text-sm">
+            <option value="">All Status</option>
+            {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Tickets Table */}
+      <div className="layer-card overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100">
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Ticket</th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Employee</th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Category</th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Priority</th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Status</th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr><td colSpan={6} className="text-center py-12">
+                <Loader2 size={24} className="animate-spin mx-auto text-brand-500" />
+              </td></tr>
+            ) : filteredTickets.length === 0 ? (
+              <tr><td colSpan={6} className="text-center py-12">
+                <HelpCircle size={40} className="mx-auto text-gray-200 mb-3" />
+                <p className="text-sm text-gray-400">No tickets found</p>
+              </td></tr>
+            ) : filteredTickets.map((ticket: any) => (
+              <tr key={ticket.id} onClick={() => setSelectedTicketId(ticket.id)}
+                className="border-b border-gray-50 hover:bg-surface-2 transition-colors cursor-pointer">
+                <td className="px-5 py-3.5">
+                  <p className="text-xs font-mono text-gray-400" data-mono>{ticket.ticketCode}</p>
+                  <p className="text-sm font-medium text-gray-800 line-clamp-1">{ticket.subject}</p>
+                </td>
+                <td className="px-5 py-3.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-brand-50 flex items-center justify-center text-brand-700 font-semibold text-[10px]">
+                      {getInitials(ticket.employee?.firstName, ticket.employee?.lastName)}
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-700">{ticket.employee?.firstName} {ticket.employee?.lastName}</p>
+                      <p className="text-[10px] text-gray-400">{ticket.employee?.employeeCode}</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-5 py-3.5"><span className="text-xs text-gray-500">{ticket.category}</span></td>
+                <td className="px-5 py-3.5">
+                  <span className={cn('text-xs font-medium', PRIORITY_COLORS[ticket.priority])}>{ticket.priority}</span>
+                </td>
+                <td className="px-5 py-3.5">
+                  <span className={cn('badge text-xs', STATUS_CONFIG[ticket.status]?.class || 'badge-neutral')}>
+                    {STATUS_CONFIG[ticket.status]?.label || ticket.status}
+                  </span>
+                </td>
+                <td className="px-5 py-3.5">
+                  <p className="text-xs text-gray-400">{formatDate(ticket.createdAt)}</p>
+                  <p className="text-[10px] text-gray-300 flex items-center gap-1"><MessageCircle size={10} /> {ticket._count?.comments || 0}</p>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {meta.totalPages > 1 && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100">
+            <p className="text-xs text-gray-400">Page {meta.page} of {meta.totalPages}</p>
+            <div className="flex gap-2">
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                className="p-1.5 rounded-lg hover:bg-surface-2 disabled:opacity-40"><ChevronLeft size={16} /></button>
+              <button onClick={() => setPage(p => p + 1)} disabled={page >= (meta.totalPages || 1)}
+                className="p-1.5 rounded-lg hover:bg-surface-2 disabled:opacity-40"><ChevronRight size={16} /></button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Ticket Detail Modal */}
+      <AnimatePresence>
+        {selectedTicketId && (
+          <TicketDetailModal ticketId={selectedTicketId} onClose={() => setSelectedTicketId(null)} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showCreate && <CreateTicketModal onClose={() => setShowCreate(false)} />}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ===== TICKET DETAIL MODAL ===== */
+function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: () => void }) {
+  const { data: res, isLoading } = useGetTicketDetailQuery(ticketId);
+  const [updateTicket, { isLoading: updating }] = useUpdateTicketMutation();
+  const [addComment, { isLoading: commenting }] = useAddCommentMutation();
+  const ticket = res?.data;
+  const user = useAppSelector(s => s.auth.user);
+  const isManagement = user?.role ? MANAGEMENT_ROLES.includes(user.role) : false;
+
+  const [status, setStatus] = useState('');
+  const [resolution, setResolution] = useState('');
+  const [commentText, setCommentText] = useState('');
+
+  // Initialize form when ticket loads
+  if (ticket && !status) {
+    setStatus(ticket.status);
+    setResolution(ticket.resolution || '');
+  }
+
+  const handleUpdate = async () => {
+    try {
+      await updateTicket({ id: ticketId, data: { status, resolution: resolution || undefined } }).unwrap();
+      toast.success('Ticket updated');
+    } catch { toast.error('Failed'); }
+  };
+
+  const handleComment = async () => {
+    if (!commentText.trim()) return;
+    try {
+      await addComment({ id: ticketId, content: commentText }).unwrap();
+      setCommentText('');
+      toast.success('Comment added');
+    } catch { toast.error('Failed'); }
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-start justify-center p-4 pt-12 overflow-y-auto"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
+        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl">
+        {isLoading || !ticket ? (
+          <div className="p-12 text-center"><Loader2 size={24} className="animate-spin mx-auto text-brand-500" /></div>
+        ) : (
+          <>
+            {/* Header */}
+            <div className="flex items-start justify-between p-6 border-b border-gray-100">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-mono text-gray-400" data-mono>{ticket.ticketCode}</span>
+                  <span className={cn('badge text-xs', STATUS_CONFIG[ticket.status]?.class)}>{STATUS_CONFIG[ticket.status]?.label}</span>
+                  <span className={cn('text-xs font-medium', PRIORITY_COLORS[ticket.priority])}>{ticket.priority}</span>
+                </div>
+                <h2 className="text-lg font-display font-semibold text-gray-900">{ticket.subject}</h2>
+                {ticket.employee && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    By {ticket.employee.firstName} {ticket.employee.lastName} ({ticket.employee.employeeCode}) · {formatDate(ticket.createdAt, 'long')}
+                  </p>
+                )}
+              </div>
+              <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} className="text-gray-400" /></button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-5">
+              {/* Description */}
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Description</p>
+                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{ticket.description}</p>
+              </div>
+
+              {/* HR Actions */}
+              {isManagement && (
+                <div className="bg-surface-2 rounded-xl p-4 space-y-3">
+                  <h4 className="text-xs font-semibold text-gray-600">Actions</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Status</label>
+                      <select value={status} onChange={e => setStatus(e.target.value)} className="input-glass w-full text-sm">
+                        {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Category</label>
+                      <p className="text-sm text-gray-700 py-2">{ticket.category}</p>
+                    </div>
+                  </div>
+                  {(status === 'RESOLVED' || status === 'CLOSED') && (
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Resolution</label>
+                      <textarea value={resolution} onChange={e => setResolution(e.target.value)}
+                        className="input-glass w-full text-sm h-16 resize-none" placeholder="Describe how the issue was resolved..." />
+                    </div>
+                  )}
+                  <button onClick={handleUpdate} disabled={updating} className="btn-primary text-sm flex items-center gap-1.5">
+                    {updating ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                    Update Ticket
+                  </button>
+                </div>
+              )}
+
+              {/* Resolution */}
+              {ticket.resolution && (
+                <div className="bg-emerald-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-emerald-700 mb-1">Resolution</p>
+                  <p className="text-sm text-emerald-800">{ticket.resolution}</p>
+                </div>
+              )}
+
+              {/* Comments */}
+              <div>
+                <h4 className="text-xs font-semibold text-gray-600 mb-3">
+                  Comments ({ticket.comments?.length || 0})
+                </h4>
+                <div className="space-y-3 max-h-60 overflow-y-auto">
+                  {(ticket.comments || []).map((c: any) => (
+                    <div key={c.id} className="flex gap-2.5">
+                      <div className="w-7 h-7 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0">
+                        <User size={12} className="text-gray-500" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="bg-surface-2 rounded-lg px-3 py-2">
+                          <p className="text-xs text-gray-600">{c.content}</p>
+                        </div>
+                        <p className="text-[10px] text-gray-300 mt-0.5 ml-1">{formatDate(c.createdAt)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add comment */}
+                <div className="flex gap-2 mt-3">
+                  <input value={commentText} onChange={e => setCommentText(e.target.value)}
+                    placeholder="Add a comment..." className="input-glass flex-1 text-sm"
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleComment(); } }} />
+                  <button onClick={handleComment} disabled={commenting || !commentText.trim()}
+                    className="btn-primary text-sm px-3 disabled:opacity-50">
+                    {commenting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ===== PERSONAL VIEW (Employee) ===== */
+function HelpdeskPersonalView() {
+  const [showCreate, setShowCreate] = useState(false);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const { data: res } = useGetMyTicketsQuery();
   const tickets = res?.data || [];
 
   return (
@@ -28,26 +354,23 @@ export default function HelpdeskPage() {
           <h1 className="text-2xl font-display font-bold text-gray-900">Helpdesk</h1>
           <p className="text-gray-500 text-sm mt-0.5">Raise and track support tickets</p>
         </div>
-        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-          onClick={() => setShowCreate(true)} className="btn-primary flex items-center gap-2">
+        <button onClick={() => setShowCreate(true)} className="btn-primary flex items-center gap-2">
           <Plus size={18} /> Raise Ticket
-        </motion.button>
+        </button>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mb-6">
-        {['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'].map((status) => {
-          const count = tickets.filter((t: any) => t.status === status).length;
-          return (
-            <div key={status} className="stat-card text-center">
-              <p className="text-lg font-bold font-mono text-gray-900" data-mono>{count}</p>
-              <p className="text-xs text-gray-500">{status.replace('_', ' ')}</p>
-            </div>
-          );
-        })}
+        {['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'].map(status => (
+          <div key={status} className="stat-card text-center">
+            <p className="text-lg font-bold font-mono text-gray-900" data-mono>
+              {tickets.filter((t: any) => t.status === status).length}
+            </p>
+            <p className="text-xs text-gray-500">{status.replace('_', ' ')}</p>
+          </div>
+        ))}
       </div>
 
-      {/* Tickets list */}
       {tickets.length === 0 ? (
         <div className="layer-card p-16 text-center">
           <HelpCircle size={48} className="mx-auto text-gray-200 mb-4" />
@@ -58,17 +381,17 @@ export default function HelpdeskPage() {
         <div className="space-y-3">
           {tickets.map((ticket: any, i: number) => (
             <motion.div key={ticket.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }} className="layer-card p-5">
+              transition={{ delay: i * 0.04 }}
+              onClick={() => setSelectedTicketId(ticket.id)}
+              className="layer-card p-5 cursor-pointer hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-xs font-mono text-gray-400" data-mono>{ticket.ticketCode}</span>
                     <span className={cn('badge text-xs', STATUS_CONFIG[ticket.status]?.class || 'badge-neutral')}>
-                      {ticket.status.replace('_', ' ')}
+                      {STATUS_CONFIG[ticket.status]?.label || ticket.status}
                     </span>
-                    <span className={cn('text-xs font-medium', PRIORITY_COLORS[ticket.priority])}>
-                      {ticket.priority}
-                    </span>
+                    <span className={cn('text-xs font-medium', PRIORITY_COLORS[ticket.priority])}>{ticket.priority}</span>
                   </div>
                   <h3 className="text-sm font-semibold text-gray-800">{ticket.subject}</h3>
                   <p className="text-xs text-gray-500 mt-1 line-clamp-1">{ticket.description}</p>
@@ -91,12 +414,14 @@ export default function HelpdeskPage() {
       )}
 
       <AnimatePresence>
-        {showCreate && <CreateTicketModal onClose={() => { setShowCreate(false); refetch(); }} />}
+        {showCreate && <CreateTicketModal onClose={() => setShowCreate(false)} />}
+        {selectedTicketId && <TicketDetailModal ticketId={selectedTicketId} onClose={() => setSelectedTicketId(null)} />}
       </AnimatePresence>
     </div>
   );
 }
 
+/* ===== CREATE TICKET MODAL ===== */
 function CreateTicketModal({ onClose }: { onClose: () => void }) {
   const [createTicket, { isLoading }] = useCreateTicketMutation();
   const [form, setForm] = useState({ category: 'IT', subject: '', description: '', priority: 'MEDIUM' });
@@ -113,7 +438,7 @@ function CreateTicketModal({ onClose }: { onClose: () => void }) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && onClose()}>
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-2xl shadow-glass-lg w-full max-w-md p-6">
         <div className="flex items-center justify-between mb-5">
@@ -124,7 +449,7 @@ function CreateTicketModal({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-600 mb-1">Category</label>
-              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="input-glass w-full">
+              <select value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="input-glass w-full">
                 <option value="IT">IT Support</option><option value="HR">HR</option>
                 <option value="FINANCE">Finance</option><option value="ADMIN">Admin</option>
                 <option value="PAYROLL">Payroll</option><option value="LEAVE">Leave</option>
@@ -133,7 +458,7 @@ function CreateTicketModal({ onClose }: { onClose: () => void }) {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-600 mb-1">Priority</label>
-              <select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} className="input-glass w-full">
+              <select value={form.priority} onChange={e => setForm({...form, priority: e.target.value})} className="input-glass w-full">
                 <option value="LOW">Low</option><option value="MEDIUM">Medium</option>
                 <option value="HIGH">High</option><option value="URGENT">Urgent</option>
               </select>
@@ -141,20 +466,19 @@ function CreateTicketModal({ onClose }: { onClose: () => void }) {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-1">Subject</label>
-            <input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })}
+            <input value={form.subject} onChange={e => setForm({...form, subject: e.target.value})}
               className="input-glass w-full" placeholder="Brief description of the issue" required minLength={3} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-1">Description</label>
-            <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+            <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})}
               className="input-glass w-full h-24 resize-none" placeholder="Detailed explanation..." required minLength={10} />
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-            <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}
-              type="submit" disabled={isLoading} className="btn-primary flex-1 flex items-center justify-center gap-2">
+            <button type="submit" disabled={isLoading} className="btn-primary flex-1 flex items-center justify-center gap-2">
               {isLoading && <Loader2 size={16} className="animate-spin" />} Submit Ticket
-            </motion.button>
+            </button>
           </div>
         </form>
       </motion.div>

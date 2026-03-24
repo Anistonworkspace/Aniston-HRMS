@@ -63,6 +63,7 @@ export const api = createApi({
     'Holiday',
     'Announcements',
     'SocialPosts',
+    'Helpdesk',
   ],
   endpoints: () => ({}),
 });

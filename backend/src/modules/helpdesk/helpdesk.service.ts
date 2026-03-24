@@ -30,7 +30,10 @@ export class HelpdeskService {
       prisma.ticket.findMany({
         where, skip, take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { _count: { select: { comments: true } } },
+        include: {
+          employee: { select: { firstName: true, lastName: true, employeeCode: true, avatar: true, department: { select: { name: true } } } },
+          _count: { select: { comments: true } },
+        },
       }),
       prisma.ticket.count({ where }),
     ]);
@@ -57,7 +60,10 @@ export class HelpdeskService {
   async getById(id: string) {
     const ticket = await prisma.ticket.findUnique({
       where: { id },
-      include: { comments: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        employee: { select: { firstName: true, lastName: true, employeeCode: true, avatar: true } },
+        comments: { orderBy: { createdAt: 'asc' } },
+      },
     });
     if (!ticket) throw new NotFoundError('Ticket');
     return ticket;

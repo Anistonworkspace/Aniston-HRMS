@@ -1,15 +1,26 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Clock, MapPin, Users, Plus, Trash2, Search, ChevronRight } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2 } from 'lucide-react';
 import {
-  useGetShiftsQuery, useCreateShiftMutation, useDeleteShiftMutation,
-  useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation,
+  useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation,
+  useGetLocationsQuery, useCreateLocationMutation, useUpdateLocationMutation, useDeleteLocationMutation,
   useAssignShiftMutation,
 } from '../workforce/workforceApi';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
+import LocationPickerMap from '../../components/map/LocationPickerMap';
+import LocationSearch from '../../components/map/LocationSearch';
 import { MapContainer, TileLayer, Marker, Circle } from 'react-leaflet';
+import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import toast from 'react-hot-toast';
+
+// Fix Leaflet default icon
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+});
 
 type Tab = 'shifts' | 'locations' | 'assignments';
 
@@ -47,13 +58,17 @@ export default function RosterPage() {
   );
 }
 
+/* ===== SHIFTS PANEL ===== */
 function ShiftsPanel() {
   const { data: res } = useGetShiftsQuery();
   const shifts = res?.data || [];
   const [createShift, { isLoading: creating }] = useCreateShiftMutation();
+  const [updateShift] = useUpdateShiftMutation();
   const [deleteShift] = useDeleteShiftMutation();
   const [show, setShow] = useState(false);
-  const [form, setForm] = useState({ name: '', code: '', startTime: '09:00', endTime: '18:00', graceMinutes: 15, fullDayHours: 8, isDefault: false });
+  const [editShift, setEditShift] = useState<any>(null);
+  const emptyForm = { name: '', code: '', startTime: '09:00', endTime: '18:00', graceMinutes: 15, fullDayHours: 8, isDefault: false };
+  const [form, setForm] = useState(emptyForm);
 
   const handleCreate = async () => {
     if (!form.name || !form.code) { toast.error('Name and code required'); return; }
@@ -61,18 +76,46 @@ function ShiftsPanel() {
       await createShift(form).unwrap();
       toast.success('Shift created');
       setShow(false);
-      setForm({ name: '', code: '', startTime: '09:00', endTime: '18:00', graceMinutes: 15, fullDayHours: 8, isDefault: false });
+      setForm(emptyForm);
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
   };
+
+  const handleEdit = (s: any) => {
+    setEditShift(s);
+    setForm({
+      name: s.name, code: s.code, startTime: s.startTime, endTime: s.endTime,
+      graceMinutes: s.graceMinutes, fullDayHours: Number(s.fullDayHours), isDefault: s.isDefault,
+    });
+  };
+
+  const handleUpdate = async () => {
+    if (!editShift) return;
+    try {
+      await updateShift({ id: editShift.id, data: form }).unwrap();
+      toast.success('Shift updated');
+      setEditShift(null);
+      setForm(emptyForm);
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  const isEditing = !!editShift;
+  const showForm = show || isEditing;
 
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <button onClick={() => setShow(!show)} className="btn-primary text-sm flex items-center gap-1.5"><Plus size={14} /> Create Shift</button>
+        {!showForm && (
+          <button onClick={() => { setShow(true); setEditShift(null); setForm(emptyForm); }}
+            className="btn-primary text-sm flex items-center gap-1.5"><Plus size={14} /> Create Shift</button>
+        )}
       </div>
 
-      {show && (
+      {showForm && (
         <div className="layer-card p-5 space-y-3">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-semibold text-gray-700">{isEditing ? 'Edit Shift' : 'Create Shift'}</h3>
+            <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Shift Name *</label>
               <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Morning Shift" /></div>
@@ -94,8 +137,11 @@ function ShiftsPanel() {
             Set as default shift
           </label>
           <div className="flex gap-2">
-            <button onClick={handleCreate} disabled={creating} className="btn-primary text-sm">{creating ? 'Creating...' : 'Create'}</button>
-            <button onClick={() => setShow(false)} className="btn-secondary text-sm">Cancel</button>
+            <button onClick={isEditing ? handleUpdate : handleCreate} disabled={creating}
+              className="btn-primary text-sm flex items-center gap-1.5">
+              {isEditing ? <><Save size={14} /> Update</> : creating ? 'Creating...' : 'Create'}
+            </button>
+            <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); }} className="btn-secondary text-sm">Cancel</button>
           </div>
         </div>
       )}
@@ -112,8 +158,11 @@ function ShiftsPanel() {
                 </div>
                 <p className="text-sm text-gray-500 mt-1">{s.startTime} — {s.endTime}</p>
               </div>
-              <button onClick={async () => { if (confirm('Deactivate?')) { await deleteShift(s.id).unwrap(); toast.success('Done'); } }}
-                className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14} /></button>
+              <div className="flex gap-1">
+                <button onClick={() => handleEdit(s)} className="text-gray-400 hover:text-brand-600 p-1"><Pencil size={14} /></button>
+                <button onClick={async () => { if (confirm('Deactivate?')) { await deleteShift(s.id).unwrap(); toast.success('Done'); } }}
+                  className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14} /></button>
+              </div>
             </div>
             <div className="flex gap-3 text-xs text-gray-400">
               <span>Grace: {s.graceMinutes}min</span>
@@ -128,13 +177,36 @@ function ShiftsPanel() {
   );
 }
 
+/* ===== LOCATIONS PANEL ===== */
 function LocationsPanel() {
   const { data: res } = useGetLocationsQuery();
   const locations = res?.data || [];
   const [createLocation, { isLoading: creating }] = useCreateLocationMutation();
+  const [updateLocation] = useUpdateLocationMutation();
   const [deleteLocation] = useDeleteLocationMutation();
   const [show, setShow] = useState(false);
-  const [form, setForm] = useState({ name: '', address: '', city: '', latitude: '', longitude: '', radiusMeters: 200, strictMode: false });
+  const [editLoc, setEditLoc] = useState<any>(null);
+  const emptyForm = { name: '', address: '', city: '', latitude: '', longitude: '', radiusMeters: 200, strictMode: false };
+  const [form, setForm] = useState(emptyForm);
+
+  const mapCoords = form.latitude && form.longitude
+    ? { lat: Number(form.latitude), lng: Number(form.longitude) }
+    : null;
+
+  const handleMapChange = (coords: { lat: number; lng: number }) => {
+    setForm({ ...form, latitude: coords.lat.toFixed(6), longitude: coords.lng.toFixed(6) });
+  };
+
+  const handleSearchSelect = (result: { name: string; address: string; city: string; state: string; lat: number; lng: number }) => {
+    setForm({
+      ...form,
+      name: form.name || result.name,
+      address: result.address,
+      city: result.city,
+      latitude: result.lat.toFixed(6),
+      longitude: result.lng.toFixed(6),
+    });
+  };
 
   const handleCreate = async () => {
     if (!form.name || !form.city || !form.latitude || !form.longitude) { toast.error('Fill required fields'); return; }
@@ -142,27 +214,81 @@ function LocationsPanel() {
       await createLocation({ ...form, latitude: Number(form.latitude), longitude: Number(form.longitude) }).unwrap();
       toast.success('Location created');
       setShow(false);
+      setForm(emptyForm);
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
   };
+
+  const handleEdit = (l: any) => {
+    const c = l.geofence?.coordinates as any;
+    setEditLoc(l);
+    setForm({
+      name: l.name || '',
+      address: l.address || '',
+      city: l.city || '',
+      latitude: c?.lat ? String(c.lat) : '',
+      longitude: c?.lng ? String(c.lng) : '',
+      radiusMeters: l.geofence?.radiusMeters || 200,
+      strictMode: l.geofence?.strictMode || false,
+    });
+  };
+
+  const handleUpdate = async () => {
+    if (!editLoc) return;
+    try {
+      await updateLocation({ id: editLoc.id, data: { ...form, latitude: Number(form.latitude), longitude: Number(form.longitude) } }).unwrap();
+      toast.success('Location updated');
+      setEditLoc(null);
+      setForm(emptyForm);
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  const isEditing = !!editLoc;
+  const showForm = show || isEditing;
 
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <button onClick={() => setShow(!show)} className="btn-primary text-sm flex items-center gap-1.5"><Plus size={14} /> Add Location</button>
+        {!showForm && (
+          <button onClick={() => { setShow(true); setEditLoc(null); setForm(emptyForm); }}
+            className="btn-primary text-sm flex items-center gap-1.5"><Plus size={14} /> Add Location</button>
+        )}
       </div>
 
-      {show && (
+      {showForm && (
         <div className="layer-card p-5 space-y-3">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-semibold text-gray-700">{isEditing ? 'Edit Location' : 'Add Location'}</h3>
+            <button onClick={() => { setShow(false); setEditLoc(null); setForm(emptyForm); }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+          </div>
+
+          {/* Location Search */}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Search location (auto-fills fields below)</label>
+            <LocationSearch onSelect={handleSearchSelect} />
+          </div>
+
+          {/* Interactive Map */}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Click map or drag marker to set coordinates</label>
+            <LocationPickerMap
+              value={mapCoords}
+              onChange={handleMapChange}
+              radius={form.radiusMeters}
+              height={280}
+            />
+          </div>
+
+          {/* Form fields */}
           <div className="grid grid-cols-3 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Name *</label>
-              <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" /></div>
+              <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Office name" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">City *</label>
-              <input value={form.city} onChange={e => setForm({...form, city: e.target.value})} className="input-glass w-full text-sm" /></div>
+              <input value={form.city} onChange={e => setForm({...form, city: e.target.value})} className="input-glass w-full text-sm" placeholder="New Delhi" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">Radius (m)</label>
               <input type="number" value={form.radiusMeters} onChange={e => setForm({...form, radiusMeters: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
           </div>
           <div><label className="block text-xs text-gray-500 mb-1">Address</label>
-            <input value={form.address} onChange={e => setForm({...form, address: e.target.value})} className="input-glass w-full text-sm" /></div>
+            <input value={form.address} onChange={e => setForm({...form, address: e.target.value})} className="input-glass w-full text-sm" placeholder="Full address" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Latitude *</label>
               <input type="number" step="any" value={form.latitude} onChange={e => setForm({...form, latitude: e.target.value})} className="input-glass w-full text-sm" /></div>
@@ -174,14 +300,17 @@ function LocationsPanel() {
             Strict mode (block check-in outside geofence)
           </label>
           <div className="flex gap-2">
-            <button onClick={handleCreate} disabled={creating} className="btn-primary text-sm">{creating ? 'Creating...' : 'Create'}</button>
-            <button onClick={() => setShow(false)} className="btn-secondary text-sm">Cancel</button>
+            <button onClick={isEditing ? handleUpdate : handleCreate} disabled={creating}
+              className="btn-primary text-sm flex items-center gap-1.5">
+              {isEditing ? <><Save size={14} /> Update</> : creating ? 'Creating...' : 'Create'}
+            </button>
+            <button onClick={() => { setShow(false); setEditLoc(null); setForm(emptyForm); }} className="btn-secondary text-sm">Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Map */}
-      {locations.length > 0 && (
+      {/* All locations map */}
+      {locations.length > 0 && !showForm && (
         <div className="layer-card overflow-hidden" style={{ height: 300 }}>
           <MapContainer center={[(locations[0]?.geofence?.coordinates as any)?.lat || 28.6, (locations[0]?.geofence?.coordinates as any)?.lng || 77.2]} zoom={11} style={{ height: '100%', width: '100%' }}>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
@@ -204,8 +333,11 @@ function LocationsPanel() {
                 <p className="text-xs text-gray-400">{l.address || l.city} · {l.geofence?.radiusMeters || 0}m{l.geofence?.strictMode ? ' · Strict' : ''}</p>
               </div>
             </div>
-            <button onClick={async () => { if (confirm('Delete?')) { await deleteLocation(l.id).unwrap(); toast.success('Deleted'); } }}
-              className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14} /></button>
+            <div className="flex gap-1">
+              <button onClick={() => handleEdit(l)} className="text-gray-400 hover:text-brand-600 p-1"><Pencil size={14} /></button>
+              <button onClick={async () => { if (confirm('Delete?')) { await deleteLocation(l.id).unwrap(); toast.success('Deleted'); } }}
+                className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14} /></button>
+            </div>
           </div>
         ))}
       </div>
@@ -213,27 +345,39 @@ function LocationsPanel() {
   );
 }
 
+/* ===== ASSIGNMENTS PANEL ===== */
 function AssignmentsPanel() {
   const { data: empRes } = useGetEmployeesQuery({ limit: 100 });
   const { data: shiftRes } = useGetShiftsQuery();
+  const { data: locRes } = useGetLocationsQuery();
   const [assignShift, { isLoading }] = useAssignShiftMutation();
   const [search, setSearch] = useState('');
   const employees = empRes?.data || [];
   const shifts = shiftRes?.data || [];
-  const [assignments, setAssignments] = useState<Record<string, string>>({});
+  const locations = locRes?.data || [];
+  const [assignments, setAssignments] = useState<Record<string, { shiftId: string; locationId: string }>>({});
 
   const filtered = employees.filter((e: any) => {
     if (!search) return true;
     return `${e.firstName} ${e.lastName} ${e.employeeCode}`.toLowerCase().includes(search.toLowerCase());
   });
 
+  const getSelectedShift = (empId: string) => {
+    const shiftId = assignments[empId]?.shiftId;
+    return shifts.find((s: any) => s.id === shiftId);
+  };
+
   const handleAssign = async (empId: string) => {
-    const shiftId = assignments[empId];
+    const { shiftId, locationId } = assignments[empId] || {};
     if (!shiftId) return;
     try {
-      await assignShift({ employeeId: empId, shiftId, startDate: new Date().toISOString().split('T')[0] }).unwrap();
+      await assignShift({
+        employeeId: empId, shiftId,
+        locationId: locationId || undefined,
+        startDate: new Date().toISOString().split('T')[0],
+      }).unwrap();
       toast.success('Shift assigned');
-      setAssignments(prev => ({ ...prev, [empId]: '' }));
+      setAssignments(prev => ({ ...prev, [empId]: { shiftId: '', locationId: '' } }));
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
   };
 
@@ -252,32 +396,45 @@ function AssignmentsPanel() {
               <th className="text-left p-3 text-xs text-gray-500 font-medium">Employee</th>
               <th className="text-left p-3 text-xs text-gray-500 font-medium">Work Mode</th>
               <th className="text-left p-3 text-xs text-gray-500 font-medium">Assign Shift</th>
+              <th className="text-left p-3 text-xs text-gray-500 font-medium">Location</th>
               <th className="text-left p-3 text-xs text-gray-500 font-medium">Action</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((emp: any) => (
-              <tr key={emp.id} className="border-b border-gray-50 hover:bg-surface-2">
-                <td className="p-3">
-                  <p className="font-medium text-gray-800">{emp.firstName} {emp.lastName}</p>
-                  <p className="text-xs text-gray-400">{emp.employeeCode}</p>
-                </td>
-                <td className="p-3"><span className="badge badge-info text-xs">{emp.workMode}</span></td>
-                <td className="p-3">
-                  <select value={assignments[emp.id] || ''} onChange={e => setAssignments(prev => ({...prev, [emp.id]: e.target.value}))}
-                    className="input-glass text-xs py-1.5 w-48">
-                    <option value="">Select shift...</option>
-                    {shifts.map((s: any) => <option key={s.id} value={s.id}>{s.name} ({s.startTime}-{s.endTime})</option>)}
-                  </select>
-                </td>
-                <td className="p-3">
-                  {assignments[emp.id] && (
-                    <button onClick={() => handleAssign(emp.id)} disabled={isLoading}
-                      className="btn-primary text-xs py-1 px-3">Assign</button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {filtered.map((emp: any) => {
+              const sel = getSelectedShift(emp.id);
+              return (
+                <tr key={emp.id} className="border-b border-gray-50 hover:bg-surface-2">
+                  <td className="p-3">
+                    <p className="font-medium text-gray-800">{emp.firstName} {emp.lastName}</p>
+                    <p className="text-xs text-gray-400">{emp.employeeCode}</p>
+                  </td>
+                  <td className="p-3"><span className="badge badge-info text-xs">{emp.workMode}</span></td>
+                  <td className="p-3">
+                    <select value={assignments[emp.id]?.shiftId || ''} onChange={e => setAssignments(prev => ({...prev, [emp.id]: { ...prev[emp.id], shiftId: e.target.value, locationId: '' }}))}
+                      className="input-glass text-xs py-1.5 w-44">
+                      <option value="">Select shift...</option>
+                      {shifts.map((s: any) => <option key={s.id} value={s.id}>{s.name} ({s.startTime}-{s.endTime})</option>)}
+                    </select>
+                  </td>
+                  <td className="p-3">
+                    {assignments[emp.id]?.shiftId && locations.length > 0 && (
+                      <select value={assignments[emp.id]?.locationId || ''} onChange={e => setAssignments(prev => ({...prev, [emp.id]: { ...prev[emp.id], locationId: e.target.value }}))}
+                        className="input-glass text-xs py-1.5 w-40">
+                        <option value="">No location</option>
+                        {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                      </select>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    {assignments[emp.id]?.shiftId && (
+                      <button onClick={() => handleAssign(emp.id)} disabled={isLoading}
+                        className="btn-primary text-xs py-1 px-3">Assign</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

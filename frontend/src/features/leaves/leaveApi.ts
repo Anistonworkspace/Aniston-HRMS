@@ -4,6 +4,7 @@ export const leaveApi = api.injectEndpoints({
   endpoints: (builder) => ({
     getLeaveTypes: builder.query<any, void>({
       query: () => '/leaves/types',
+      providesTags: ['Leave'],
     }),
 
     getLeaveBalances: builder.query<any, void>({

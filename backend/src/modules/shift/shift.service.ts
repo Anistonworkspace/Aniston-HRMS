@@ -71,11 +71,16 @@ export class ShiftService {
       data: {
         employeeId: data.employeeId,
         shiftId: data.shiftId,
+        locationId: data.locationId || null,
         startDate: new Date(data.startDate),
         endDate: data.endDate ? new Date(data.endDate) : null,
         assignedBy,
       },
-      include: { shift: true, employee: { select: { firstName: true, lastName: true, employeeCode: true } } },
+      include: {
+        shift: true,
+        location: { include: { geofence: true } },
+        employee: { select: { firstName: true, lastName: true, employeeCode: true } },
+      },
     });
   }
 
@@ -89,7 +94,10 @@ export class ShiftService {
         startDate: { lte: today },
         OR: [{ endDate: null }, { endDate: { gte: today } }],
       },
-      include: { shift: true },
+      include: {
+        shift: true,
+        location: { include: { geofence: true } },
+      },
       orderBy: { startDate: 'desc' },
     });
   }

@@ -91,6 +91,10 @@ export const attendanceApi = api.injectEndpoints({
       query: (body) => ({ url: '/attendance/mark', method: 'POST', body }),
       invalidatesTags: ['Attendance'],
     }),
+
+    getEmployeeGPSTrail: builder.query<any, { employeeId: string; date: string }>({
+      query: ({ employeeId, date }) => `/attendance/gps-trail/${employeeId}/${date}`,
+    }),
   }),
 });
 
@@ -108,4 +112,5 @@ export const {
   useGetProjectSiteCheckInsQuery,
   useGetEmployeeAttendanceQuery,
   useMarkAttendanceMutation,
+  useGetEmployeeGPSTrailQuery,
 } = attendanceApi;

@@ -134,6 +134,7 @@ model Employee {
   assetAssignments  AssetAssignment[]
   shiftAssignments  ShiftAssignment[]
   lifecycleEvents   EmployeeEvent[]
+  tickets           Ticket[]
   headOfDepartments Department[]     @relation("DepartmentHead")
 
   @@index([organizationId, status])
@@ -241,9 +242,10 @@ model OfficeLocation {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  geofence     Geofence?    @relation(fields: [geofenceId], references: [id])
-  employees    Employee[]
+  organization     Organization      @relation(fields: [organizationId], references: [id])
+  geofence         Geofence?         @relation(fields: [geofenceId], references: [id])
+  employees        Employee[]
+  shiftAssignments ShiftAssignment[]
 }
 
 // =====================
@@ -1021,6 +1023,7 @@ model Ticket {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  employee Employee @relation(fields: [employeeId], references: [id])
   comments TicketComment[]
 }
 
@@ -1039,20 +1042,28 @@ model TicketComment {
 // SHIFTS & ROSTERS
 // =====================
 
+enum ShiftType {
+  OFFICE
+  HYBRID
+  FIELD
+}
+
 model Shift {
-  id             String   @id @default(uuid())
-  name           String
-  code           String
-  startTime      String   // "09:00" (HH:mm)
-  endTime        String   // "18:00"
-  graceMinutes   Int      @default(15)
-  halfDayHours   Decimal  @db.Decimal(4, 2) @default(4)
-  fullDayHours   Decimal  @db.Decimal(4, 2) @default(8)
-  isDefault      Boolean  @default(false)
-  isActive       Boolean  @default(true)
-  organizationId String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                      String    @id @default(uuid())
+  name                    String
+  code                    String
+  shiftType               ShiftType @default(OFFICE)
+  startTime               String    // "09:00" (HH:mm)
+  endTime                 String    // "18:00"
+  graceMinutes            Int       @default(15)
+  halfDayHours            Decimal   @db.Decimal(4, 2) @default(4)
+  fullDayHours            Decimal   @db.Decimal(4, 2) @default(8)
+  trackingIntervalMinutes Int?      // FIELD shifts only (15-480 min)
+  isDefault               Boolean   @default(false)
+  isActive                Boolean   @default(true)
+  organizationId          String
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
   organization Organization     @relation(fields: [organizationId], references: [id])
   assignments  ShiftAssignment[]
@@ -1064,13 +1075,15 @@ model ShiftAssignment {
   id         String    @id @default(uuid())
   employeeId String
   shiftId    String
+  locationId String?
   startDate  DateTime  @db.Date
   endDate    DateTime? @db.Date
   assignedBy String
   createdAt  DateTime  @default(now())
 
-  employee Employee @relation(fields: [employeeId], references: [id])
-  shift    Shift    @relation(fields: [shiftId], references: [id])
+  employee Employee        @relation(fields: [employeeId], references: [id])
+  shift    Shift           @relation(fields: [shiftId], references: [id])
+  location OfficeLocation? @relation(fields: [locationId], references: [id])
 
   @@index([employeeId, startDate])
 }

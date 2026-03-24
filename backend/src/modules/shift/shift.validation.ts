@@ -3,11 +3,13 @@ import { z } from 'zod';
 export const createShiftSchema = z.object({
   name: z.string().min(2).max(50),
   code: z.string().min(1).max(10).toUpperCase(),
+  shiftType: z.enum(['OFFICE', 'HYBRID', 'FIELD']).default('OFFICE'),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:mm format'),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:mm format'),
   graceMinutes: z.number().int().min(0).default(15),
   halfDayHours: z.number().min(1).default(4),
   fullDayHours: z.number().min(1).default(8),
+  trackingIntervalMinutes: z.number().int().min(15).max(480).optional(),
   isDefault: z.boolean().default(false),
 });
 
@@ -16,6 +18,7 @@ export const updateShiftSchema = createShiftSchema.partial();
 export const assignShiftSchema = z.object({
   employeeId: z.string().uuid(),
   shiftId: z.string().uuid(),
+  locationId: z.string().uuid().optional(),
   startDate: z.string(),
   endDate: z.string().optional(),
 });

@@ -31,6 +31,7 @@ const JobDetailPage = lazy(() => import('../features/recruitment/JobDetailPage')
 const CandidateDetailPage = lazy(() => import('../features/recruitment/CandidateDetailPage'));
 const DownloadPage = lazy(() => import('../features/pwa/DownloadPage'));
 const RosterPage = lazy(() => import('../features/roster/RosterPage'));
+const EmployeeAttendanceDetailPage = lazy(() => import('../features/attendance/EmployeeAttendanceDetailPage'));
 
 function PageLoader() {
   return (
@@ -76,6 +77,7 @@ export default function AppRouter() {
 
             {/* Placeholder routes */}
             <Route path="/attendance" element={<AttendancePage />} />
+            <Route path="/attendance/employee/:employeeId" element={<EmployeeAttendanceDetailPage />} />
             <Route path="/leaves" element={<LeavePage />} />
             <Route path="/payroll" element={<PayrollPage />} />
             <Route path="/recruitment" element={<RecruitmentPage />} />

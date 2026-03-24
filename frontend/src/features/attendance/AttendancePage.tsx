@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import {
@@ -44,6 +45,7 @@ export default function AttendancePage() {
    ============================================================================= */
 
 function AttendanceManagementView() {
+  const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -268,7 +270,8 @@ function AttendanceManagementView() {
                 filteredRecords.map((record: any, idx: number) => (
                   <tr
                     key={record.id || idx}
-                    className="border-b border-gray-50 hover:bg-surface-2 transition-colors"
+                    onClick={() => record.employeeId && navigate(`/attendance/employee/${record.employeeId}`)}
+                    className="border-b border-gray-50 hover:bg-surface-2 transition-colors cursor-pointer"
                   >
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
