@@ -37,6 +37,7 @@ const navItems: NavItem[] = [
   { name: 'Attendance', managementName: 'Attendance Management', path: '/attendance', icon: Clock },
   { name: 'Leave', managementName: 'Leave Management', path: '/leaves', icon: CalendarDays },
   { name: 'Payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { name: 'Roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Walk-In Mgmt', path: '/walk-in-management', icon: UserPlus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Performance', path: '/performance', icon: BarChart3 },

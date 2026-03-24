@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
+import { emitToOrg, emitToUser } from '../../sockets/index.js';
 import type { ApplyLeaveInput, LeaveQuery, CreateLeaveTypeInput, UpdateLeaveTypeInput } from './leave.validation.js';
 
 export class LeaveService {
@@ -9,7 +10,7 @@ export class LeaveService {
    */
   async getLeaveTypes(organizationId: string) {
     return prisma.leaveType.findMany({
-      where: { organizationId },
+      where: { organizationId, isActive: true },
       orderBy: { name: 'asc' },
     });
   }
@@ -289,6 +290,12 @@ export class LeaveService {
       return leaveRequest;
     });
 
+    // Emit real-time event for HR
+    emitToOrg(employee.organizationId, 'leave:applied', {
+      employeeId, employeeName: request.employee?.firstName ? `${request.employee.firstName} ${request.employee.lastName}` : 'Employee',
+      leaveType: request.leaveType?.name, days: request.days, startDate: request.startDate,
+    });
+
     return request;
   }
 
@@ -457,6 +464,31 @@ export class LeaveService {
               pending: { decrement: Number(request.days) },
             },
           });
+
+          // Create ON_LEAVE attendance records for the approved leave dates
+          const leaveStart = new Date(request.startDate);
+          const leaveEnd = new Date(request.endDate);
+          const current = new Date(leaveStart);
+          while (current <= leaveEnd) {
+            const dow = current.getDay();
+            if (dow !== 0 && dow !== 6) { // Skip weekends
+              const dateOnly = new Date(current);
+              dateOnly.setHours(0, 0, 0, 0);
+              await tx.attendanceRecord.upsert({
+                where: { employeeId_date: { employeeId: request.employeeId, date: dateOnly } },
+                update: { status: 'ON_LEAVE', source: 'MANUAL_HR', notes: `Leave: ${updatedRequest.leaveType?.name}` },
+                create: {
+                  employeeId: request.employeeId,
+                  date: dateOnly,
+                  status: 'ON_LEAVE',
+                  source: 'MANUAL_HR',
+                  notes: `Leave: ${updatedRequest.leaveType?.name}`,
+                  workMode: 'OFFICE',
+                },
+              });
+            }
+            current.setDate(current.getDate() + 1);
+          }
         } else {
           // Rejected — release pending
           await tx.leaveBalance.update({
@@ -479,6 +511,14 @@ export class LeaveService {
         action: action === 'APPROVED' ? 'APPROVE' : 'REJECT',
         oldValue: { status: 'PENDING' },
         newValue: { status: action, approverRemarks: remarks || null },
+      });
+    }
+
+    // Emit real-time event to the employee
+    const emp = await prisma.employee.findUnique({ where: { id: request.employeeId }, select: { userId: true } });
+    if (emp?.userId) {
+      emitToUser(emp.userId, 'leave:actioned', {
+        requestId, action, leaveType: updated.leaveType?.name, remarks,
       });
     }
 

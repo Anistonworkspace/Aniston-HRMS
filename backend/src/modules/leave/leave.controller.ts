@@ -55,11 +55,18 @@ export class LeaveController {
   async getPendingApprovals(req: Request, res: Response, next: NextFunction) {
     try {
       const query = leaveQuerySchema.parse(req.query);
-      if (!req.user!.employeeId) {
+      const isOrgAdmin = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(req.user!.role);
+      // HR/Admin don't need employeeId — they see all org leaves
+      if (!isOrgAdmin && !req.user!.employeeId) {
         res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
         return;
       }
-      const result = await leaveService.getPendingApprovals(req.user!.employeeId, req.user!.organizationId, query, req.user!.role);
+      const result = await leaveService.getPendingApprovals(
+        req.user!.employeeId || '',
+        req.user!.organizationId,
+        query,
+        req.user!.role
+      );
       res.json({ success: true, data: result.data, meta: result.meta });
     } catch (err) { next(err); }
   }

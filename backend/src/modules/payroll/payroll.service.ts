@@ -398,15 +398,51 @@ export class PayrollService {
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0);
 
-    const absentCount = await prisma.attendanceRecord.count({
+    // Get all ABSENT attendance records
+    const absentRecords = await prisma.attendanceRecord.findMany({
       where: {
         employeeId,
         date: { gte: startDate, lte: endDate },
         status: 'ABSENT',
       },
+      select: { date: true },
     });
 
-    return absentCount;
+    if (absentRecords.length === 0) return 0;
+
+    // Get approved leave dates for this employee in this month
+    const approvedLeaves = await prisma.leaveRequest.findMany({
+      where: {
+        employeeId,
+        status: 'APPROVED',
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+      },
+      select: { startDate: true, endDate: true, leaveType: { select: { isPaid: true } } },
+    });
+
+    // Build set of approved paid leave dates
+    const approvedPaidDates = new Set<string>();
+    for (const leave of approvedLeaves) {
+      if (!leave.leaveType?.isPaid) continue; // Unpaid leaves ARE LOP
+      const current = new Date(leave.startDate);
+      const end = new Date(leave.endDate);
+      while (current <= end) {
+        approvedPaidDates.add(current.toISOString().split('T')[0]);
+        current.setDate(current.getDate() + 1);
+      }
+    }
+
+    // Count ABSENT days NOT covered by approved paid leave
+    let lopDays = 0;
+    for (const record of absentRecords) {
+      const dateStr = new Date(record.date).toISOString().split('T')[0];
+      if (!approvedPaidDates.has(dateStr)) {
+        lopDays++;
+      }
+    }
+
+    return lopDays;
   }
 
   /**

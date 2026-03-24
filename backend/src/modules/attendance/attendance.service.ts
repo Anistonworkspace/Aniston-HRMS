@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
+import { emitToOrg } from '../../sockets/index.js';
 import type { ClockInInput, ClockOutInput, GPSTrailBatchInput, AttendanceQuery, MarkAttendanceInput } from './attendance.validation.js';
 
 export class AttendanceService {
@@ -82,6 +83,12 @@ export class AttendanceService {
       });
     }
 
+    // Emit real-time event
+    emitToOrg(organizationId, 'attendance:checkin', {
+      employeeId, employeeName: `${employee.firstName} ${employee.lastName}`,
+      checkIn: now.toISOString(), status: 'PRESENT',
+    });
+
     return record;
   }
 
@@ -127,6 +134,15 @@ export class AttendanceService {
         checkOutLocation: locationData,
       },
     });
+
+    // Emit real-time event
+    const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { firstName: true, lastName: true, organizationId: true } });
+    if (emp) {
+      emitToOrg(emp.organizationId, 'attendance:checkout', {
+        employeeId, employeeName: `${emp.firstName} ${emp.lastName}`,
+        checkOut: now.toISOString(), totalHours: Math.round(totalHours * 100) / 100, status,
+      });
+    }
 
     return updated;
   }

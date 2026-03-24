@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import {
   Clock, LogIn, LogOut, Coffee, Play, Square, MapPin,
   ChevronLeft, ChevronRight, Calendar as CalendarIcon,
@@ -47,13 +48,24 @@ function AttendanceManagementView() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [page, setPage] = useState(1);
 
-  const { data: response, isLoading } = useGetAllAttendanceQuery({
+  const { data: response, isLoading, refetch } = useGetAllAttendanceQuery({
     startDate: selectedDate,
     endDate: selectedDate,
     status: statusFilter !== 'ALL' ? statusFilter : undefined,
     page,
     limit: 25,
   });
+
+  // WebSocket: auto-refresh on attendance events
+  useEffect(() => {
+    const handler = () => refetch();
+    onSocketEvent('attendance:checkin', handler);
+    onSocketEvent('attendance:checkout', handler);
+    return () => {
+      offSocketEvent('attendance:checkin', handler);
+      offSocketEvent('attendance:checkout', handler);
+    };
+  }, [refetch]);
 
   const records = response?.data?.data || response?.data || [];
   const meta = response?.data?.meta || response?.meta || {};

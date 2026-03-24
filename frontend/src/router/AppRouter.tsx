@@ -30,6 +30,7 @@ const WalkInDetailPage = lazy(() => import('../features/walkIn/WalkInDetailPage'
 const JobDetailPage = lazy(() => import('../features/recruitment/JobDetailPage'));
 const CandidateDetailPage = lazy(() => import('../features/recruitment/CandidateDetailPage'));
 const DownloadPage = lazy(() => import('../features/pwa/DownloadPage'));
+const RosterPage = lazy(() => import('../features/roster/RosterPage'));
 
 function PageLoader() {
   return (
@@ -88,6 +89,7 @@ export default function AppRouter() {
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/roster" element={<RosterPage />} />
             <Route path="/walk-in-management" element={<WalkInManagementPage />} />
             <Route path="/walk-in-management/:id" element={<WalkInDetailPage />} />
             <Route path="/more" element={<ProfilePage />} />
