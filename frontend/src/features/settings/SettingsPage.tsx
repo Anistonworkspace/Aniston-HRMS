@@ -1,6 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix Leaflet default icon issue
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+});
 import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery } from './settingsApi';
 import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
 import { cn } from '../../lib/utils';
@@ -133,6 +144,15 @@ function OrgSettings() {
   );
 }
 
+function MapClickHandler({ onLocationSelect }: { onLocationSelect: (lat: number, lng: number) => void }) {
+  useMapEvents({
+    click(e) {
+      onLocationSelect(e.latlng.lat, e.latlng.lng);
+    },
+  });
+  return null;
+}
+
 function LocationSettings() {
   const { data: res } = useGetLocationsQuery();
   const locations = res?.data || [];
@@ -183,6 +203,26 @@ function LocationSettings() {
             <label className="block text-xs text-gray-500 mb-1">Address *</label>
             <input value={form.address} onChange={e => setForm({...form, address: e.target.value})} className="input-glass w-full text-sm" placeholder="123, Business Park, Sector 62" />
           </div>
+          {/* Interactive Map */}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Click map to set location (or enter coordinates below)</label>
+            <div className="rounded-xl overflow-hidden border border-gray-200" style={{ height: 250 }}>
+              <MapContainer
+                center={[form.latitude ? Number(form.latitude) : 28.6139, form.longitude ? Number(form.longitude) : 77.2090]}
+                zoom={13}
+                style={{ height: '100%', width: '100%' }}
+              >
+                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap' />
+                <MapClickHandler onLocationSelect={(lat, lng) => setForm({...form, latitude: String(lat.toFixed(6)), longitude: String(lng.toFixed(6))})} />
+                {form.latitude && form.longitude && (
+                  <>
+                    <Marker position={[Number(form.latitude), Number(form.longitude)]} />
+                    <Circle center={[Number(form.latitude), Number(form.longitude)]} radius={form.radiusMeters} pathOptions={{ color: '#4f46e5', fillColor: '#4f46e5', fillOpacity: 0.15 }} />
+                  </>
+                )}
+              </MapContainer>
+            </div>
+          </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Latitude *</label>
@@ -207,6 +247,33 @@ function LocationSettings() {
             <button onClick={handleCreate} disabled={creating} className="btn-primary text-sm">{creating ? 'Creating...' : 'Create Location'}</button>
             <button onClick={() => setShowForm(false)} className="btn-secondary text-sm">Cancel</button>
           </div>
+        </div>
+      )}
+
+      {/* Map showing all existing geofences */}
+      {locations.length > 0 && (
+        <div className="rounded-xl overflow-hidden border border-gray-200 mb-4" style={{ height: 220 }}>
+          <MapContainer
+            center={[
+              (locations[0]?.geofence?.coordinates as any)?.lat || 28.6139,
+              (locations[0]?.geofence?.coordinates as any)?.lng || 77.2090,
+            ]}
+            zoom={11}
+            style={{ height: '100%', width: '100%' }}
+          >
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap' />
+            {locations.map((loc: any) => {
+              const coords = loc.geofence?.coordinates as any;
+              if (!coords?.lat || !coords?.lng) return null;
+              return (
+                <span key={loc.id}>
+                  <Marker position={[coords.lat, coords.lng]} />
+                  <Circle center={[coords.lat, coords.lng]} radius={loc.geofence?.radiusMeters || 200}
+                    pathOptions={{ color: '#4f46e5', fillColor: '#4f46e5', fillOpacity: 0.15 }} />
+                </span>
+              );
+            })}
+          </MapContainer>
         </div>
       )}
 

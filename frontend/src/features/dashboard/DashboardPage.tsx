@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Users, UserCheck, CalendarOff, Briefcase, TrendingUp, Clock, ClipboardCheck, DollarSign, MessageSquare } from 'lucide-react';
+import { Users, UserCheck, CalendarOff, Briefcase, TrendingUp, Clock, ClipboardCheck, DollarSign, MessageSquare, MapPin, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/store';
 import { useGetDashboardStatsQuery } from './dashboardApi';
+import { useGetTodayStatusQuery, useClockInMutation, useClockOutMutation } from '../attendance/attendanceApi';
 import { formatDate, getInitials } from '../../lib/utils';
+import toast from 'react-hot-toast';
 
 const container = {
   hidden: { opacity: 0 },
@@ -23,6 +26,34 @@ export default function DashboardPage() {
   const user = useAppSelector((state) => state.auth.user);
   const { data: statsResponse, isLoading } = useGetDashboardStatsQuery();
   const stats = statsResponse?.data;
+  const isEmployee = !['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
+  const { data: todayRes } = useGetTodayStatusQuery(undefined, { skip: !isEmployee });
+  const todayStatus = todayRes?.data;
+  const [clockIn, { isLoading: clockingIn }] = useClockInMutation();
+  const [clockOut, { isLoading: clockingOut }] = useClockOutMutation();
+
+  const handleQuickCheckIn = async () => {
+    try {
+      let coords: { latitude?: number; longitude?: number } = {};
+      if (navigator.geolocation) {
+        try {
+          const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+          );
+          coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        } catch { /* proceed without */ }
+      }
+      if (todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut) {
+        await clockOut(coords).unwrap();
+        toast.success('Checked out successfully!');
+      } else {
+        await clockIn({ ...coords, source: 'MANUAL_APP' }).unwrap();
+        toast.success('Checked in successfully!');
+      }
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed');
+    }
+  };
 
   const greeting = () => {
     const hour = new Date().getHours();
@@ -85,8 +116,38 @@ export default function DashboardPage() {
             <Clock size={18} className="text-brand-500" />
             Quick Actions
           </h2>
+          {/* Direct Check In/Out for employees */}
+          {isEmployee && todayStatus && (
+            <div className="mb-4 p-4 bg-surface-2 rounded-xl flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-700">
+                  {todayStatus.isCheckedIn && !todayStatus.isCheckedOut
+                    ? `Checked in at ${new Date(todayStatus.record?.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                    : todayStatus.isCheckedOut
+                    ? `Done for today (${Number(todayStatus.totalHours || 0).toFixed(1)}h)`
+                    : 'Not checked in yet'}
+                </p>
+                <p className="text-xs text-gray-400 flex items-center gap-1"><MapPin size={10} /> GPS-based attendance</p>
+              </div>
+              <button
+                onClick={handleQuickCheckIn}
+                disabled={clockingIn || clockingOut || todayStatus.isCheckedOut}
+                className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors ${
+                  todayStatus.isCheckedIn && !todayStatus.isCheckedOut
+                    ? 'bg-red-500 hover:bg-red-600 text-white'
+                    : todayStatus.isCheckedOut
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                }`}
+              >
+                {(clockingIn || clockingOut) ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
+                {todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'Check Out' : todayStatus.isCheckedOut ? 'Completed' : 'Check In'}
+              </button>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
-            {((['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || ''))
+            {((!isEmployee)
               ? [
                   { label: 'Manage Attendance', icon: '📊', path: '/attendance' },
                   { label: 'Approve Leaves', icon: '✅', path: '/leaves' },
@@ -94,7 +155,7 @@ export default function DashboardPage() {
                   { label: 'Review Tickets', icon: '🎫', path: '/helpdesk' },
                 ]
               : [
-                  { label: 'Check In', icon: '⏰', path: '/attendance' },
+                  { label: 'Attendance', icon: '⏰', path: '/attendance' },
                   { label: 'Apply Leave', icon: '🏖️', path: '/leaves' },
                   { label: 'View Payslip', icon: '💰', path: '/payroll' },
                   { label: 'Raise Ticket', icon: '🎫', path: '/helpdesk' },

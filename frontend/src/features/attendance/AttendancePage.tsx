@@ -338,6 +338,19 @@ function AttendanceManagementView() {
 function AttendancePersonalView() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [liveTime, setLiveTime] = useState(new Date());
+  const [locationStatus, setLocationStatus] = useState<'checking' | 'granted' | 'denied' | 'prompt'>('checking');
+
+  // Check location permission on mount
+  useEffect(() => {
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'geolocation' }).then(result => {
+        setLocationStatus(result.state as any);
+        result.onchange = () => setLocationStatus(result.state as any);
+      }).catch(() => setLocationStatus('prompt'));
+    } else {
+      setLocationStatus('prompt');
+    }
+  }, []);
 
   const { data: todayResponse, isLoading: statusLoading } = useGetTodayStatusQuery();
   const today = todayResponse?.data;
@@ -480,6 +493,30 @@ function AttendancePersonalView() {
 
   // Detect work mode from today's status
   const workMode = today?.workMode || 'OFFICE';
+
+  // Location permission warning
+  if (locationStatus === 'denied') {
+    return (
+      <div className="page-container">
+        <div className="layer-card p-8 text-center max-w-md mx-auto mt-12">
+          <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <MapPin size={32} className="text-red-500" />
+          </div>
+          <h2 className="text-lg font-display font-bold text-gray-900 mb-2">Location Access Required</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Please enable location access in your browser/device settings to use attendance features.
+            This is required for geofence-based check-in/out.
+          </p>
+          <p className="text-xs text-gray-400">
+            Go to your browser settings &gt; Site Settings &gt; Location &gt; Allow for this site
+          </p>
+          <button onClick={() => window.location.reload()} className="btn-primary mt-4 text-sm">
+            I've enabled it — Refresh
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page-container">

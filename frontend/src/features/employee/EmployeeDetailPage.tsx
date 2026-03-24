@@ -11,6 +11,7 @@ import { useCreateOnboardingInviteMutation } from '../onboarding/onboardingApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation } from '../attendance/attendanceApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation } from '../payroll/payrollApi';
 import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documents/documentApi';
+import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -190,7 +191,11 @@ export default function EmployeeDetailPage() {
           {/* Tab content */}
           <div className="p-6">
             {activeTab === 'attendance' && (
-              <EmployeeAttendanceTab employeeId={id!} employeeName={`${employee.firstName} ${employee.lastName}`} />
+              <div className="space-y-4">
+                {/* Shift Assignment */}
+                <ShiftAssignmentCard employeeId={id!} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} />
+                <EmployeeAttendanceTab employeeId={id!} employeeName={`${employee.firstName} ${employee.lastName}`} />
+              </div>
             )}
 
             {activeTab === 'overview' && (
@@ -270,20 +275,21 @@ export default function EmployeeDetailPage() {
                 <h3 className="text-sm font-semibold text-gray-800 mb-4">Connections</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {[
-                    { label: 'Attendance', color: 'bg-emerald-50', textColor: 'text-emerald-600', icon: Clock, count: '99+' },
-                    { label: 'Attendance Request', color: 'bg-blue-50', textColor: 'text-blue-600', icon: FileText, count: 0 },
-                    { label: 'Employee Checkin', color: 'bg-amber-50', textColor: 'text-amber-600', icon: MapPin, count: 0 },
-                    { label: 'Leave Application', color: 'bg-purple-50', textColor: 'text-purple-600', icon: Calendar, count: 3 },
-                    { label: 'Leave Allocation', color: 'bg-teal-50', textColor: 'text-teal-600', icon: DollarSign, count: 2 },
-                    { label: 'Leave Policy Assignment', color: 'bg-orange-50', textColor: 'text-orange-600', icon: Shield, count: 0 },
-                    { label: 'Employee Onboarding', color: 'bg-sky-50', textColor: 'text-sky-600', icon: Briefcase, count: 0 },
-                    { label: 'Employee Transfer', color: 'bg-indigo-50', textColor: 'text-indigo-600', icon: ArrowLeft, count: 0 },
-                    { label: 'Employee Promotion', color: 'bg-pink-50', textColor: 'text-pink-600', icon: ChevronRight, count: 0 },
-                    { label: 'Shift Request', color: 'bg-rose-50', textColor: 'text-rose-600', icon: Clock, count: 0 },
-                    { label: 'Employee Separation', color: 'bg-red-50', textColor: 'text-red-600', icon: User, count: 0 },
-                    { label: 'Expense Claim', color: 'bg-green-50', textColor: 'text-green-600', icon: DollarSign, count: 1 },
+                    { label: 'Attendance', color: 'bg-emerald-50', textColor: 'text-emerald-600', icon: Clock, count: employee.attendanceRecords?.length || 0, link: '/attendance' },
+                    { label: 'Attendance Request', color: 'bg-blue-50', textColor: 'text-blue-600', icon: FileText, count: 0, link: '/attendance' },
+                    { label: 'Employee Checkin', color: 'bg-amber-50', textColor: 'text-amber-600', icon: MapPin, count: 0, link: '/attendance' },
+                    { label: 'Leave Application', color: 'bg-purple-50', textColor: 'text-purple-600', icon: Calendar, count: employee.leaveRequests?.length || 0, link: '/leaves' },
+                    { label: 'Leave Allocation', color: 'bg-teal-50', textColor: 'text-teal-600', icon: DollarSign, count: employee.leaveBalances?.length || 0, link: '/leaves' },
+                    { label: 'Leave Policy Assignment', color: 'bg-orange-50', textColor: 'text-orange-600', icon: Shield, count: 0, link: '/leaves' },
+                    { label: 'Employee Onboarding', color: 'bg-sky-50', textColor: 'text-sky-600', icon: Briefcase, count: 0, link: '#' },
+                    { label: 'Employee Transfer', color: 'bg-indigo-50', textColor: 'text-indigo-600', icon: ArrowLeft, count: 0, link: '#' },
+                    { label: 'Employee Promotion', color: 'bg-pink-50', textColor: 'text-pink-600', icon: ChevronRight, count: 0, link: '#' },
+                    { label: 'Shift Request', color: 'bg-rose-50', textColor: 'text-rose-600', icon: Clock, count: employee.shiftAssignments?.length || 0, link: '/settings' },
+                    { label: 'Employee Separation', color: 'bg-red-50', textColor: 'text-red-600', icon: User, count: 0, link: '#' },
+                    { label: 'Documents', color: 'bg-green-50', textColor: 'text-green-600', icon: FileText, count: employee.documents?.length || 0, link: '#' },
                   ].map((card) => (
-                    <div key={card.label} className="flex items-center justify-between p-3 bg-surface-2 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer">
+                    <div key={card.label} onClick={() => card.link !== '#' && navigate(card.link)}
+                      className="flex items-center justify-between p-3 bg-surface-2 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer">
                       <div className="flex items-center gap-2.5">
                         <div className={`w-7 h-7 rounded-lg ${card.color} flex items-center justify-center`}>
                           <card.icon size={14} className={card.textColor} />
@@ -291,8 +297,9 @@ export default function EmployeeDetailPage() {
                         <p className="text-xs font-medium text-gray-700">{card.label}</p>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        {card.count !== 0 && <span className="text-xs font-mono font-bold text-gray-500" data-mono>{card.count}</span>}
-                        <button className="w-5 h-5 rounded bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-50">
+                        {card.count > 0 && <span className="text-xs font-mono font-bold text-gray-500" data-mono>{card.count}</span>}
+                        <button onClick={(e) => { e.stopPropagation(); if (card.link !== '#') navigate(card.link); }}
+                          className="w-5 h-5 rounded bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-50">
                           <Plus size={10} className="text-gray-500" />
                         </button>
                       </div>
@@ -699,6 +706,60 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
         </div>
       </div>
     </motion.div>
+  );
+}
+
+/* =============================================================================
+   Shift Assignment Card
+   ============================================================================= */
+
+function ShiftAssignmentCard({ employeeId, isManagement }: { employeeId: string; isManagement: boolean }) {
+  const { data: shiftRes } = useGetEmployeeShiftQuery(employeeId);
+  const { data: allShiftsRes } = useGetShiftsQuery(undefined, { skip: !isManagement });
+  const [assignShift, { isLoading: assigning }] = useAssignShiftMutation();
+  const [selectedShift, setSelectedShift] = useState('');
+
+  const currentShift = shiftRes?.data?.shift;
+  const shifts = allShiftsRes?.data || [];
+
+  const handleAssign = async () => {
+    if (!selectedShift) return;
+    try {
+      await assignShift({ employeeId, shiftId: selectedShift, startDate: new Date().toISOString().split('T')[0] }).unwrap();
+      toast.success('Shift assigned');
+      setSelectedShift('');
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  return (
+    <div className="layer-card p-4 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+          <Clock size={18} className="text-blue-600" />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-gray-700">Current Shift</p>
+          {currentShift ? (
+            <p className="text-xs text-gray-500">{currentShift.name} ({currentShift.startTime} - {currentShift.endTime})</p>
+          ) : (
+            <p className="text-xs text-gray-400">No shift assigned</p>
+          )}
+        </div>
+      </div>
+      {isManagement && (
+        <div className="flex items-center gap-2">
+          <select value={selectedShift} onChange={e => setSelectedShift(e.target.value)} className="input-glass text-xs py-1.5">
+            <option value="">Change shift...</option>
+            {shifts.map((s: any) => <option key={s.id} value={s.id}>{s.name} ({s.startTime}-{s.endTime})</option>)}
+          </select>
+          {selectedShift && (
+            <button onClick={handleAssign} disabled={assigning} className="btn-primary text-xs py-1.5 px-3">
+              {assigning ? 'Assigning...' : 'Assign'}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
