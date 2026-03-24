@@ -160,13 +160,15 @@ export default function LoginPage() {
             </Link>
           </p>
 
-          {/* Demo login */}
-          <button
-            onClick={handleDemoLogin}
-            className="w-full text-center text-xs text-gray-400 hover:text-brand-600 mt-4 transition-colors"
-          >
-            Demo — Click to fill admin credentials
-          </button>
+          {/* Demo login — dev only */}
+          {import.meta.env.DEV && (
+            <button
+              onClick={handleDemoLogin}
+              className="w-full text-center text-xs text-gray-400 hover:text-brand-600 mt-4 transition-colors"
+            >
+              Demo — Click to fill admin credentials
+            </button>
+          )}
         </div>
 
         {/* Footer */}

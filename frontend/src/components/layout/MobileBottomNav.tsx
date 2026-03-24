@@ -65,28 +65,30 @@ export default function MobileBottomNav() {
         })}
 
         {/* Center Check In/Out button */}
-        <div className="flex flex-col items-center justify-center flex-1 -mt-5">
+        <div className="flex flex-col items-center justify-center flex-1 -mt-6">
           <button
             onClick={handleCheckInOut}
             disabled={isLoading || isCompleted || isManagement}
             className={cn(
-              'w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all',
+              'w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-95',
               isCheckedIn
-                ? 'bg-red-500 hover:bg-red-600'
+                ? 'bg-red-500 hover:bg-red-600 shadow-red-200'
                 : isCompleted
-                ? 'bg-gray-300'
-                : 'bg-emerald-500 hover:bg-emerald-600',
+                ? 'bg-gray-300 cursor-not-allowed'
+                : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-200',
               (isLoading || isCompleted || isManagement) && 'opacity-60'
             )}
           >
             {isLoading ? (
-              <Loader2 size={22} className="text-white animate-spin" />
+              <Loader2 size={24} className="text-white animate-spin" />
+            ) : isCompleted ? (
+              <span className="text-white text-lg">✓</span>
             ) : (
-              <MapPin size={22} className="text-white" />
+              <MapPin size={24} className="text-white" />
             )}
           </button>
           {isCheckedIn && <div className="w-2 h-2 bg-emerald-400 rounded-full mt-1 animate-pulse" />}
-          <span className="text-[9px] text-gray-400 mt-0.5">
+          <span className="text-[10px] text-gray-500 mt-0.5 font-medium">
             {isManagement ? 'HR' : isCheckedIn ? 'Check Out' : isCompleted ? 'Done' : 'Check In'}
           </span>
         </div>

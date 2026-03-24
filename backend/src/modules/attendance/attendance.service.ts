@@ -30,9 +30,20 @@ export class AttendanceService {
       throw new BadRequestError('Already completed attendance for today.');
     }
 
-    // Geofence validation
-    const geofence = employee.officeLocation?.geofence;
-    if (geofence && geofence.radiusMeters && data.latitude && data.longitude) {
+    // Geofence validation — only for OFFICE shift type
+    // Check employee's current shift assignment type
+    const shiftAssignment = await prisma.shiftAssignment.findFirst({
+      where: { employeeId, startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+      include: { shift: true, location: { include: { geofence: true } } },
+      orderBy: { startDate: 'desc' },
+    });
+    const currentShiftType = shiftAssignment?.shift?.shiftType || 'OFFICE';
+
+    // Use shift assignment's location geofence, or fall back to employee's office location geofence
+    const geofence = shiftAssignment?.location?.geofence || employee.officeLocation?.geofence;
+
+    // Only enforce geofence for OFFICE shifts (FIELD and HYBRID can clock in from anywhere)
+    if (currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude && data.longitude) {
       const coords = geofence.coordinates as any;
       if (coords?.lat && coords?.lng) {
         const distance = this.haversineDistance(data.latitude, data.longitude, coords.lat, coords.lng);
@@ -43,7 +54,6 @@ export class AttendanceService {
               `Maximum allowed: ${geofence.radiusMeters}m. Please clock in from within the office geofence.`
             );
           }
-          // Non-strict: allow but log warning in notes
           data.notes = `${data.notes || ''} [Geofence warning: ${Math.round(distance)}m from office]`.trim();
         }
       }

@@ -46,8 +46,7 @@ export default function AgentDownloadBanner() {
     setDismissed(true);
   };
 
-  // Default download URL — in production this comes from org settings
-  const downloadUrl = '/uploads/agent/AnistonActivityAgent-Setup.exe';
+  const downloadUrl = import.meta.env.VITE_AGENT_DOWNLOAD_URL || '/uploads/agent/AnistonActivityAgent-Setup.exe';
 
   return (
     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mx-6 mt-3 mb-1">

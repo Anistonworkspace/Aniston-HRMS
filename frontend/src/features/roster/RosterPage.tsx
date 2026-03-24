@@ -68,13 +68,20 @@ function ShiftsPanel() {
   const [deleteShift] = useDeleteShiftMutation();
   const [show, setShow] = useState(false);
   const [editShift, setEditShift] = useState<any>(null);
-  const emptyForm = { name: '', code: '', shiftType: 'OFFICE' as string, startTime: '09:00', endTime: '18:00', graceMinutes: 15, fullDayHours: 8, trackingIntervalMinutes: null as number | null, isDefault: false };
+  const emptyForm = { name: '', code: '', shiftType: 'OFFICE' as string, startTime: '09:00', endTime: '18:00', graceMinutes: 15, halfDayHours: 4, fullDayHours: 8, trackingIntervalMinutes: undefined as number | undefined, isDefault: false };
   const [form, setForm] = useState(emptyForm);
+
+  const preparePayload = () => {
+    const payload: any = { ...form };
+    // Strip trackingIntervalMinutes for non-FIELD shifts (Zod rejects null)
+    if (payload.shiftType !== 'FIELD') delete payload.trackingIntervalMinutes;
+    return payload;
+  };
 
   const handleCreate = async () => {
     if (!form.name || !form.code) { toast.error('Name and code required'); return; }
     try {
-      await createShift(form).unwrap();
+      await createShift(preparePayload()).unwrap();
       toast.success('Shift created');
       setShow(false);
       setForm(emptyForm);
@@ -85,15 +92,15 @@ function ShiftsPanel() {
     setEditShift(s);
     setForm({
       name: s.name, code: s.code, shiftType: s.shiftType || 'OFFICE', startTime: s.startTime, endTime: s.endTime,
-      graceMinutes: s.graceMinutes, fullDayHours: Number(s.fullDayHours),
-      trackingIntervalMinutes: s.trackingIntervalMinutes || null, isDefault: s.isDefault,
+      graceMinutes: s.graceMinutes, halfDayHours: Number(s.halfDayHours || 4), fullDayHours: Number(s.fullDayHours),
+      trackingIntervalMinutes: s.trackingIntervalMinutes || undefined, isDefault: s.isDefault,
     });
   };
 
   const handleUpdate = async () => {
     if (!editShift) return;
     try {
-      await updateShift({ id: editShift.id, data: form }).unwrap();
+      await updateShift({ id: editShift.id, data: preparePayload() }).unwrap();
       toast.success('Shift updated');
       setEditShift(null);
       setForm(emptyForm);
@@ -127,7 +134,7 @@ function ShiftsPanel() {
                 { key: 'HYBRID', label: 'Hybrid', color: 'purple' },
                 { key: 'FIELD', label: 'Field', color: 'green' },
               ].map(t => (
-                <button key={t.key} type="button" onClick={() => setForm({...form, shiftType: t.key, trackingIntervalMinutes: t.key === 'FIELD' ? 60 : null})}
+                <button key={t.key} type="button" onClick={() => setForm({...form, shiftType: t.key, trackingIntervalMinutes: t.key === 'FIELD' ? 60 : undefined})}
                   className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all border',
                     form.shiftType === t.key
                       ? `bg-${t.color}-50 text-${t.color}-700 border-${t.color}-200`
@@ -150,13 +157,15 @@ function ShiftsPanel() {
             <div><label className="block text-xs text-gray-500 mb-1">Code *</label>
               <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm" placeholder="MORNING" /></div>
           </div>
-          <div className={cn('grid gap-3', form.shiftType === 'FIELD' ? 'grid-cols-5' : 'grid-cols-4')}>
+          <div className={cn('grid gap-3', form.shiftType === 'FIELD' ? 'grid-cols-6' : 'grid-cols-5')}>
             <div><label className="block text-xs text-gray-500 mb-1">Start Time</label>
               <input type="time" value={form.startTime} onChange={e => setForm({...form, startTime: e.target.value})} className="input-glass w-full text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">End Time</label>
               <input type="time" value={form.endTime} onChange={e => setForm({...form, endTime: e.target.value})} className="input-glass w-full text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">Grace (min)</label>
               <input type="number" value={form.graceMinutes} onChange={e => setForm({...form, graceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">Half Day (hrs)</label>
+              <input type="number" value={form.halfDayHours} onChange={e => setForm({...form, halfDayHours: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">Full Day (hrs)</label>
               <input type="number" value={form.fullDayHours} onChange={e => setForm({...form, fullDayHours: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
             {form.shiftType === 'FIELD' && (

@@ -292,14 +292,14 @@ export default function EmployeeAttendanceDetailPage() {
                 <p className="text-xs text-gray-400">{gpsTrail.length} points recorded</p>
               </div>
               <div style={{ height: 300 }}>
-                <MapContainer center={[gpsTrail[0]?.latitude || 28.6, gpsTrail[0]?.longitude || 77.2]} zoom={13}
+                <MapContainer center={[gpsTrail[0]?.lat || gpsTrail[0]?.latitude || 28.6, gpsTrail[0]?.lng || gpsTrail[0]?.longitude || 77.2]} zoom={13}
                   style={{ height: '100%', width: '100%' }}>
                   <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OSM" />
-                  <Polyline positions={gpsTrail.map((p: any) => [p.latitude, p.longitude])}
+                  <Polyline positions={gpsTrail.map((p: any) => [p.lat || p.latitude, p.lng || p.longitude])}
                     pathOptions={{ color: '#10b981', weight: 3 }} />
-                  <Marker position={[gpsTrail[0]?.latitude, gpsTrail[0]?.longitude]} />
+                  <Marker position={[gpsTrail[0]?.lat || gpsTrail[0]?.latitude, gpsTrail[0]?.lng || gpsTrail[0]?.longitude]} />
                   {gpsTrail.length > 1 && (
-                    <Marker position={[gpsTrail[gpsTrail.length - 1]?.latitude, gpsTrail[gpsTrail.length - 1]?.longitude]} />
+                    <Marker position={[gpsTrail[gpsTrail.length - 1]?.lat || gpsTrail[gpsTrail.length - 1]?.latitude, gpsTrail[gpsTrail.length - 1]?.lng || gpsTrail[gpsTrail.length - 1]?.longitude]} />
                   )}
                 </MapContainer>
               </div>
@@ -414,8 +414,8 @@ export default function EmployeeAttendanceDetailPage() {
                   <th className="text-left text-xs text-gray-500 px-5 py-2">Check Out</th>
                   <th className="text-left text-xs text-gray-500 px-5 py-2">Hours</th>
                   <th className="text-left text-xs text-gray-500 px-5 py-2">Status</th>
-                  <th className="text-left text-xs text-gray-500 px-5 py-2">Active</th>
-                  <th className="text-left text-xs text-gray-500 px-5 py-2">Mode</th>
+                  <th className="text-left text-xs text-gray-500 px-5 py-2 hidden md:table-cell">Active</th>
+                  <th className="text-left text-xs text-gray-500 px-5 py-2 hidden md:table-cell">Mode</th>
                 </tr>
               </thead>
               <tbody>
@@ -434,10 +434,10 @@ export default function EmployeeAttendanceDetailPage() {
                       {r.totalHours ? `${Number(r.totalHours).toFixed(1)}h` : '--'}
                     </td>
                     <td className="px-5 py-2"><span className={cn('badge text-[10px]', getStatusColor(r.status))}>{r.status?.replace(/_/g, ' ')}</span></td>
-                    <td className="px-5 py-2 text-xs font-mono text-gray-500" data-mono>
+                    <td className="px-5 py-2 text-xs font-mono text-gray-500 hidden md:table-cell" data-mono>
                       {r.activeMinutes ? `${Math.floor(r.activeMinutes / 60)}h${r.activeMinutes % 60}m` : '--'}
                     </td>
-                    <td className="px-5 py-2 text-xs text-gray-400">{r.workMode || 'OFFICE'}</td>
+                    <td className="px-5 py-2 text-xs text-gray-400 hidden md:table-cell">{r.workMode || 'OFFICE'}</td>
                   </tr>
                 ))}
               </tbody>
