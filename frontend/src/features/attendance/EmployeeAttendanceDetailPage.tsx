@@ -157,6 +157,14 @@ export default function EmployeeAttendanceDetailPage() {
                     {selectedRecord.totalHours ? `${Number(selectedRecord.totalHours).toFixed(1)}h` : '--'}
                   </span>
                 </div>
+                {(selectedRecord.activeMinutes > 0 || selectedRecord.activityPulses > 0) && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400">Active Time</span>
+                    <span className="text-sm font-mono text-brand-600 font-bold" data-mono>
+                      {Math.floor((selectedRecord.activeMinutes || 0) / 60)}h {(selectedRecord.activeMinutes || 0) % 60}m
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-400">Work Mode</span>
                   <span className="text-xs text-gray-600">{selectedRecord.workMode || 'OFFICE'}</span>
@@ -285,14 +293,31 @@ export default function EmployeeAttendanceDetailPage() {
             </div>
           )}
 
-          {/* Hybrid info banner */}
+          {/* Hybrid tracking stats */}
           {shiftType === 'HYBRID' && (
-            <div className="layer-card p-5 bg-purple-50 border-purple-100">
-              <h3 className="text-sm font-semibold text-purple-700 mb-2">Hybrid Employee — Tracking Capabilities</h3>
-              <div className="text-xs text-purple-600 space-y-1">
-                <p>Office days: Check-in/out with geofence validation, location tracking</p>
-                <p>WFH days: Check-in/out times, session duration</p>
-                <p className="text-purple-400 mt-2">Note: Full desktop activity monitoring (app usage, screenshots) requires a native desktop agent which is not part of this web application.</p>
+            <div className="layer-card p-5">
+              <h3 className="text-sm font-semibold text-purple-700 mb-3">Hybrid Tracking — {monthName}</h3>
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                {(() => {
+                  const officeDays = records.filter((r: any) => r.workMode === 'OFFICE' && r.status === 'PRESENT').length;
+                  const wfhDays = records.filter((r: any) => ['HYBRID', 'REMOTE', 'WORK_FROM_HOME'].includes(r.workMode) && r.status === 'PRESENT').length;
+                  const totalActive = records.reduce((sum: number, r: any) => sum + (r.activeMinutes || 0), 0);
+                  return [
+                    { l: 'Office Days', v: officeDays, c: 'text-blue-600', bg: 'bg-blue-50' },
+                    { l: 'WFH Days', v: wfhDays, c: 'text-teal-600', bg: 'bg-teal-50' },
+                    { l: 'Avg Active/Day', v: `${Math.round(totalActive / Math.max(officeDays + wfhDays, 1))}m`, c: 'text-purple-600', bg: 'bg-purple-50' },
+                  ].map(s => (
+                    <div key={s.l} className={cn('text-center py-3 rounded-lg', s.bg)}>
+                      <p className={cn('text-lg font-bold font-mono', s.c)} data-mono>{s.v}</p>
+                      <p className="text-[10px] text-gray-500">{s.l}</p>
+                    </div>
+                  ));
+                })()}
+              </div>
+              <div className="text-[10px] text-gray-400 space-y-0.5">
+                <p>Office days: Geofence check-in/out + location verified</p>
+                <p>WFH days: Browser activity tracked via Page Visibility API + periodic check-ins</p>
+                <p>Active time measures how long the HRMS tab was active in the browser</p>
               </div>
             </div>
           )}
@@ -310,6 +335,7 @@ export default function EmployeeAttendanceDetailPage() {
                   <th className="text-left text-xs text-gray-500 px-5 py-2">Check Out</th>
                   <th className="text-left text-xs text-gray-500 px-5 py-2">Hours</th>
                   <th className="text-left text-xs text-gray-500 px-5 py-2">Status</th>
+                  <th className="text-left text-xs text-gray-500 px-5 py-2">Active</th>
                   <th className="text-left text-xs text-gray-500 px-5 py-2">Mode</th>
                 </tr>
               </thead>
@@ -329,6 +355,9 @@ export default function EmployeeAttendanceDetailPage() {
                       {r.totalHours ? `${Number(r.totalHours).toFixed(1)}h` : '--'}
                     </td>
                     <td className="px-5 py-2"><span className={cn('badge text-[10px]', getStatusColor(r.status))}>{r.status?.replace(/_/g, ' ')}</span></td>
+                    <td className="px-5 py-2 text-xs font-mono text-gray-500" data-mono>
+                      {r.activeMinutes ? `${Math.floor(r.activeMinutes / 60)}h${r.activeMinutes % 60}m` : '--'}
+                    </td>
                     <td className="px-5 py-2 text-xs text-gray-400">{r.workMode || 'OFFICE'}</td>
                   </tr>
                 ))}

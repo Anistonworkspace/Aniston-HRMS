@@ -76,6 +76,14 @@ export class AttendanceController {
     } catch (err) { next(err); }
   }
 
+  async recordActivityPulse(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { isActive = true, tabVisible = true } = req.body;
+      const result = await attendanceService.recordActivityPulse(req.user!.employeeId!, { isActive, tabVisible });
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
   async startBreak(req: Request, res: Response, next: NextFunction) {
     try {
       const data = startBreakSchema.parse(req.body);

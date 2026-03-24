@@ -3,8 +3,13 @@ import { motion } from 'framer-motion';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import MobileBottomNav from './MobileBottomNav';
+import ActivityCheckInPrompt from '../ActivityCheckInPrompt';
+import useActivityTracker from '../../hooks/useActivityTracker';
 
 export default function AppShell() {
+  // Activity tracking — runs globally for all logged-in users
+  useActivityTracker();
+
   return (
     <div className="flex min-h-screen bg-surface-1">
       {/* Sidebar — desktop only */}
@@ -27,6 +32,9 @@ export default function AppShell() {
 
       {/* Mobile bottom nav */}
       <MobileBottomNav />
+
+      {/* Activity check-in prompts for hybrid employees */}
+      <ActivityCheckInPrompt />
     </div>
   );
 }

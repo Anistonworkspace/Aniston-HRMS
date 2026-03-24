@@ -16,6 +16,9 @@ router.get('/my', (req, res, next) => attendanceController.getMyAttendance(req, 
 router.post('/break/start', (req, res, next) => attendanceController.startBreak(req, res, next));
 router.post('/break/end', (req, res, next) => attendanceController.endBreak(req, res, next));
 
+// Activity pulse (hybrid/WFH session tracking)
+router.post('/activity-pulse', (req, res, next) => attendanceController.recordActivityPulse(req, res, next));
+
 // GPS trail (field sales)
 router.post('/gps-trail', (req, res, next) => attendanceController.storeGPSTrail(req, res, next));
 router.get('/gps-trail/:employeeId/:date', requirePermission('attendance', 'read'), (req, res, next) =>

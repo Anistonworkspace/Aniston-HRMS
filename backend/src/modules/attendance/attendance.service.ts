@@ -383,6 +383,35 @@ export class AttendanceService {
   }
 
   /**
+   * Record activity pulse (for hybrid/WFH session tracking)
+   */
+  async recordActivityPulse(employeeId: string, data: { isActive: boolean; tabVisible: boolean }) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const record = await prisma.attendanceRecord.findUnique({
+      where: { employeeId_date: { employeeId, date: today } },
+    });
+
+    if (!record || !record.checkIn || record.checkOut) {
+      return { recorded: false, reason: 'Not currently checked in' };
+    }
+
+    // Only count active minutes if tab is visible and user is active
+    const incrementMinutes = data.isActive && data.tabVisible ? 5 : 0;
+
+    await prisma.attendanceRecord.update({
+      where: { employeeId_date: { employeeId, date: today } },
+      data: {
+        activeMinutes: { increment: incrementMinutes },
+        activityPulses: { increment: 1 },
+      },
+    });
+
+    return { recorded: true, activeMinutes: (record.activeMinutes || 0) + incrementMinutes };
+  }
+
+  /**
    * Start a break
    */
   async startBreak(employeeId: string, breakType: string) {

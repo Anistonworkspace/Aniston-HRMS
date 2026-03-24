@@ -95,6 +95,10 @@ export const attendanceApi = api.injectEndpoints({
     getEmployeeGPSTrail: builder.query<any, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => `/attendance/gps-trail/${employeeId}/${date}`,
     }),
+
+    sendActivityPulse: builder.mutation<any, { isActive: boolean; tabVisible: boolean }>({
+      query: (body) => ({ url: '/attendance/activity-pulse', method: 'POST', body }),
+    }),
   }),
 });
 
@@ -113,4 +117,5 @@ export const {
   useGetEmployeeAttendanceQuery,
   useMarkAttendanceMutation,
   useGetEmployeeGPSTrailQuery,
+  useSendActivityPulseMutation,
 } = attendanceApi;

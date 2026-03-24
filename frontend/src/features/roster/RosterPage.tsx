@@ -12,6 +12,7 @@ import LocationSearch from '../../components/map/LocationSearch';
 import { MapContainer, TileLayer, Marker, Circle } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 // Fix Leaflet default icon
@@ -67,7 +68,7 @@ function ShiftsPanel() {
   const [deleteShift] = useDeleteShiftMutation();
   const [show, setShow] = useState(false);
   const [editShift, setEditShift] = useState<any>(null);
-  const emptyForm = { name: '', code: '', startTime: '09:00', endTime: '18:00', graceMinutes: 15, fullDayHours: 8, isDefault: false };
+  const emptyForm = { name: '', code: '', shiftType: 'OFFICE' as string, startTime: '09:00', endTime: '18:00', graceMinutes: 15, fullDayHours: 8, trackingIntervalMinutes: null as number | null, isDefault: false };
   const [form, setForm] = useState(emptyForm);
 
   const handleCreate = async () => {
@@ -83,8 +84,9 @@ function ShiftsPanel() {
   const handleEdit = (s: any) => {
     setEditShift(s);
     setForm({
-      name: s.name, code: s.code, startTime: s.startTime, endTime: s.endTime,
-      graceMinutes: s.graceMinutes, fullDayHours: Number(s.fullDayHours), isDefault: s.isDefault,
+      name: s.name, code: s.code, shiftType: s.shiftType || 'OFFICE', startTime: s.startTime, endTime: s.endTime,
+      graceMinutes: s.graceMinutes, fullDayHours: Number(s.fullDayHours),
+      trackingIntervalMinutes: s.trackingIntervalMinutes || null, isDefault: s.isDefault,
     });
   };
 
@@ -116,13 +118,39 @@ function ShiftsPanel() {
             <h3 className="text-sm font-semibold text-gray-700">{isEditing ? 'Edit Shift' : 'Create Shift'}</h3>
             <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
           </div>
+          {/* Shift Type Selector */}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1.5">Shift Type</label>
+            <div className="flex gap-2">
+              {[
+                { key: 'OFFICE', label: 'Office', color: 'blue' },
+                { key: 'HYBRID', label: 'Hybrid', color: 'purple' },
+                { key: 'FIELD', label: 'Field', color: 'green' },
+              ].map(t => (
+                <button key={t.key} type="button" onClick={() => setForm({...form, shiftType: t.key, trackingIntervalMinutes: t.key === 'FIELD' ? 60 : null})}
+                  className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all border',
+                    form.shiftType === t.key
+                      ? `bg-${t.color}-50 text-${t.color}-700 border-${t.color}-200`
+                      : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                  )}
+                  style={form.shiftType === t.key ? {
+                    backgroundColor: t.color === 'blue' ? '#eff6ff' : t.color === 'purple' ? '#faf5ff' : '#f0fdf4',
+                    color: t.color === 'blue' ? '#1d4ed8' : t.color === 'purple' ? '#7e22ce' : '#15803d',
+                    borderColor: t.color === 'blue' ? '#bfdbfe' : t.color === 'purple' ? '#e9d5ff' : '#bbf7d0',
+                  } : {}}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Shift Name *</label>
               <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Morning Shift" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">Code *</label>
               <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm" placeholder="MORNING" /></div>
           </div>
-          <div className="grid grid-cols-4 gap-3">
+          <div className={cn('grid gap-3', form.shiftType === 'FIELD' ? 'grid-cols-5' : 'grid-cols-4')}>
             <div><label className="block text-xs text-gray-500 mb-1">Start Time</label>
               <input type="time" value={form.startTime} onChange={e => setForm({...form, startTime: e.target.value})} className="input-glass w-full text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">End Time</label>
@@ -131,7 +159,36 @@ function ShiftsPanel() {
               <input type="number" value={form.graceMinutes} onChange={e => setForm({...form, graceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">Full Day (hrs)</label>
               <input type="number" value={form.fullDayHours} onChange={e => setForm({...form, fullDayHours: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+            {form.shiftType === 'FIELD' && (
+              <div><label className="block text-xs text-gray-500 mb-1">GPS Interval</label>
+                <select value={form.trackingIntervalMinutes || 60} onChange={e => setForm({...form, trackingIntervalMinutes: Number(e.target.value)})}
+                  className="input-glass w-full text-sm">
+                  <option value={15}>Every 15 min</option>
+                  <option value={30}>Every 30 min</option>
+                  <option value={60}>Every 1 hr</option>
+                  <option value={120}>Every 2 hrs</option>
+                  <option value={240}>Every 4 hrs</option>
+                </select>
+              </div>
+            )}
           </div>
+
+          {/* Hybrid info note */}
+          {form.shiftType === 'HYBRID' && (
+            <div className="bg-purple-50 rounded-lg p-3 text-xs text-purple-700 space-y-1">
+              <p className="font-semibold">Hybrid Shift Tracking</p>
+              <p>Office days: Geofence-based check-in/out + location tracking</p>
+              <p>WFH days: Browser activity tracking (Page Visibility API), periodic "still working?" prompts, session duration</p>
+            </div>
+          )}
+
+          {form.shiftType === 'FIELD' && (
+            <div className="bg-green-50 rounded-lg p-3 text-xs text-green-700">
+              <p className="font-semibold">Field Shift</p>
+              <p>Live GPS tracking at the selected interval. Employee locations are recorded automatically.</p>
+            </div>
+          )}
+
           <label className="flex items-center gap-2 text-sm text-gray-600">
             <input type="checkbox" checked={form.isDefault} onChange={e => setForm({...form, isDefault: e.target.checked})} className="rounded" />
             Set as default shift
@@ -151,9 +208,14 @@ function ShiftsPanel() {
           <div key={s.id} className="layer-card p-5">
             <div className="flex items-start justify-between mb-3">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="font-semibold text-gray-800">{s.name}</h3>
                   <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500" data-mono>{s.code}</span>
+                  {s.shiftType && s.shiftType !== 'OFFICE' && (
+                    <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded',
+                      s.shiftType === 'HYBRID' ? 'bg-purple-50 text-purple-600' : 'bg-green-50 text-green-600'
+                    )}>{s.shiftType}</span>
+                  )}
                   {s.isDefault && <span className="text-xs bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded">Default</span>}
                 </div>
                 <p className="text-sm text-gray-500 mt-1">{s.startTime} — {s.endTime}</p>
@@ -164,9 +226,10 @@ function ShiftsPanel() {
                   className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14} /></button>
               </div>
             </div>
-            <div className="flex gap-3 text-xs text-gray-400">
+            <div className="flex gap-3 text-xs text-gray-400 flex-wrap">
               <span>Grace: {s.graceMinutes}min</span>
               <span>Full day: {Number(s.fullDayHours)}hrs</span>
+              {s.trackingIntervalMinutes && <span>GPS: every {s.trackingIntervalMinutes}min</span>}
               <span>{s._count?.assignments || 0} assigned</span>
             </div>
           </div>
