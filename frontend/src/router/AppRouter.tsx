@@ -29,6 +29,7 @@ const WalkInManagementPage = lazy(() => import('../features/walkIn/WalkInManagem
 const WalkInDetailPage = lazy(() => import('../features/walkIn/WalkInDetailPage'));
 const JobDetailPage = lazy(() => import('../features/recruitment/JobDetailPage'));
 const CandidateDetailPage = lazy(() => import('../features/recruitment/CandidateDetailPage'));
+const DownloadPage = lazy(() => import('../features/pwa/DownloadPage'));
 
 function PageLoader() {
   return (
@@ -51,6 +52,7 @@ export default function AppRouter() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/onboarding/:token" element={<OnboardingPortal />} />
           <Route path="/jobs" element={<PublicJobsPage />} />
+          <Route path="/download" element={<DownloadPage />} />
 
           {/* Walk-In Kiosk (public, no auth) */}
           <Route path="/walk-in" element={<KioskLayout />}>

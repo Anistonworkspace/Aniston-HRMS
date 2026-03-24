@@ -241,11 +241,13 @@ export class PayrollService {
 
         // Count LOP days (absent days without leave)
         const lopDays = await this.getLOPDays(emp.id, run.month, run.year);
+        const sundaysWorked = await this.getSundaysWorked(emp.id, run.month, run.year);
         const presentDays = totalWorkingDays - lopDays;
 
-        // Prorate salary for LOP
+        // Prorate salary for LOP and Sunday bonus
         const dailyRate = Number(sal.ctc) / 12 / totalWorkingDays;
         const lopDeduction = Math.round(dailyRate * lopDays);
+        const sundayBonus = Math.round(dailyRate * sundaysWorked);
 
         const gross = Number(sal.basic) + Number(sal.hra) +
           Number(sal.da || 0) + Number(sal.ta || 0) +
@@ -254,13 +256,14 @@ export class PayrollService {
         const deductions = Number(sal.pfEmployee || 0) + Number(sal.esiEmployee || 0) +
           Number(sal.professionalTax || 0) + Number(sal.tds || 0);
 
-        const netSalary = gross - deductions - lopDeduction;
+        const adjustedGross = gross + sundayBonus;
+        const netSalary = adjustedGross - deductions - lopDeduction;
 
         await prisma.payrollRecord.create({
           data: {
             payrollRunId: runId,
             employeeId: emp.id,
-            grossSalary: gross,
+            grossSalary: adjustedGross,
             netSalary: Math.max(netSalary, 0),
             basic: Number(sal.basic),
             hra: Number(sal.hra),
@@ -269,6 +272,8 @@ export class PayrollService {
               ta: Number(sal.ta || 0),
               medical: Number(sal.medicalAllowance || 0),
               special: Number(sal.specialAllowance || 0),
+              sundayBonus,
+              sundaysWorked,
             },
             epfEmployee: Number(sal.pfEmployee || 0),
             epfEmployer: Number(sal.pfEmployer || 0),
@@ -283,7 +288,7 @@ export class PayrollService {
           },
         });
 
-        totalGross += gross;
+        totalGross += adjustedGross;
         totalNet += Math.max(netSalary, 0);
         totalDeductions += deductions + lopDeduction;
       }
@@ -402,6 +407,35 @@ export class PayrollService {
     });
 
     return absentCount;
+  }
+
+  /**
+   * Count Sundays where employee was present (for extra day pay)
+   */
+  private async getSundaysWorked(employeeId: string, month: number, year: number): Promise<number> {
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0);
+
+    // Find attendance records on Sundays (day=0) with status PRESENT
+    const sundayRecords = await prisma.attendanceRecord.count({
+      where: {
+        employeeId,
+        date: { gte: startDate, lte: endDate },
+        status: 'PRESENT',
+      },
+    });
+
+    // Count which of those are actually Sundays
+    const records = await prisma.attendanceRecord.findMany({
+      where: {
+        employeeId,
+        date: { gte: startDate, lte: endDate },
+        status: 'PRESENT',
+      },
+      select: { date: true },
+    });
+
+    return records.filter(r => new Date(r.date).getDay() === 0).length;
   }
 }
 
