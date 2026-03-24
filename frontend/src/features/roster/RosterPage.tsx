@@ -154,8 +154,8 @@ function ShiftsPanel() {
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Shift Name *</label>
               <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Morning Shift" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Code *</label>
-              <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm" placeholder="MORNING" /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">Code * <span className="text-gray-300 font-normal">(unique ID)</span></label>
+              <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm" placeholder="e.g. MORNING, EVENING" /></div>
           </div>
           <div className={cn('grid gap-3', form.shiftType === 'FIELD' ? 'grid-cols-6' : 'grid-cols-5')}>
             <div><label className="block text-xs text-gray-500 mb-1">Start Time</label>

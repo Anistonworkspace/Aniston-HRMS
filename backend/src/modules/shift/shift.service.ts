@@ -14,10 +14,28 @@ export class ShiftService {
   }
 
   async createShift(data: CreateShiftInput, organizationId: string) {
-    const existing = await prisma.shift.findUnique({
-      where: { code_organizationId: { code: data.code, organizationId } },
+    // Check if an active shift with same code exists
+    const existing = await prisma.shift.findFirst({
+      where: { code: data.code, organizationId },
     });
-    if (existing) throw new ConflictError(`Shift code "${data.code}" already exists`);
+
+    if (existing && existing.isActive) {
+      throw new ConflictError(`Shift code "${data.code}" already exists`);
+    }
+
+    // If a soft-deleted shift with same code exists, reactivate it with new data
+    if (existing && !existing.isActive) {
+      if (data.isDefault) {
+        await prisma.shift.updateMany({
+          where: { organizationId, isDefault: true, id: { not: existing.id } },
+          data: { isDefault: false },
+        });
+      }
+      return prisma.shift.update({
+        where: { id: existing.id },
+        data: { ...data, organizationId, isActive: true },
+      });
+    }
 
     // If this is default, unset other defaults
     if (data.isDefault) {
@@ -50,8 +68,24 @@ export class ShiftService {
     const shift = await prisma.shift.findFirst({ where: { id, organizationId } });
     if (!shift) throw new NotFoundError('Shift');
 
-    await prisma.shift.update({ where: { id }, data: { isActive: false } });
-    return { message: 'Shift deactivated' };
+    // Check if shift has active assignments
+    const activeAssignments = await prisma.shiftAssignment.count({
+      where: { shiftId: id, OR: [{ endDate: null }, { endDate: { gte: new Date() } }] },
+    });
+
+    if (activeAssignments > 0) {
+      // Soft delete — rename code to free up the unique constraint
+      await prisma.shift.update({
+        where: { id },
+        data: { isActive: false, code: `${shift.code}_DEL_${Date.now()}` },
+      });
+      return { message: 'Shift deactivated' };
+    }
+
+    // Hard delete if no active assignments
+    await prisma.shiftAssignment.deleteMany({ where: { shiftId: id } });
+    await prisma.shift.delete({ where: { id } });
+    return { message: 'Shift deleted' };
   }
 
   async assignShift(data: AssignShiftInput, organizationId: string, assignedBy: string) {
