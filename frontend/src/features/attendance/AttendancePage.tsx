@@ -55,18 +55,23 @@ function AttendanceManagementView() {
     limit: 25,
   });
 
-  const records = response?.data?.records || response?.data || [];
-  const meta = response?.meta || {};
+  const records = response?.data?.data || response?.data || [];
+  const meta = response?.data?.meta || response?.meta || {};
+  const apiSummary = response?.data?.summary || (response as any)?.summary;
 
-  // Compute summary stats from records
+  // Use API summary (totalEmployees from DB) or compute from records
   const summary = useMemo(() => {
     const all = Array.isArray(records) ? records : [];
-    const present = all.filter((r: any) => r.status === 'PRESENT').length;
-    const absent = all.filter((r: any) => r.status === 'ABSENT').length;
-    const halfDay = all.filter((r: any) => r.status === 'HALF_DAY').length;
-    const onLeave = all.filter((r: any) => r.status === 'ON_LEAVE').length;
-    return { total: all.length, present, absent, halfDay, onLeave };
-  }, [records]);
+    const present = apiSummary?.present ?? all.filter((r: any) => r.status === 'PRESENT').length;
+    const absent = apiSummary?.absent ?? all.filter((r: any) => r.status === 'ABSENT').length;
+    const onLeave = apiSummary?.onLeave ?? all.filter((r: any) => r.status === 'ON_LEAVE').length;
+    return {
+      totalEmployees: apiSummary?.totalEmployees ?? all.length,
+      present,
+      absent,
+      onLeave,
+    };
+  }, [records, apiSummary]);
 
   // Filter records by search query (employee name)
   const filteredRecords = useMemo(() => {
@@ -106,7 +111,7 @@ function AttendanceManagementView() {
               <Users size={20} className="text-blue-600" />
             </div>
             <div>
-              <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{summary.total}</p>
+              <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{summary.totalEmployees}</p>
               <p className="text-xs text-gray-400">Total Employees</p>
             </div>
           </div>

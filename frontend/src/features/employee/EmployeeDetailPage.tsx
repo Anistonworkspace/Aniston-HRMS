@@ -9,6 +9,8 @@ import {
 import { useGetEmployeeQuery, useUpdateEmployeeMutation } from './employeeApi';
 import { useCreateOnboardingInviteMutation } from '../onboarding/onboardingApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation } from '../attendance/attendanceApi';
+import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation } from '../payroll/payrollApi';
+import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documents/documentApi';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -256,37 +258,11 @@ export default function EmployeeDetailPage() {
             )}
 
             {activeTab === 'salary' && (
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="layer-card p-5 text-center">
-                  <p className="text-xs text-gray-400 mb-1">CTC (Annual)</p>
-                  <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{employee.ctc ? formatCurrency(Number(employee.ctc)) : '—'}</p>
-                </div>
-                <div className="layer-card p-5 text-center">
-                  <p className="text-xs text-gray-400 mb-1">Work Mode</p>
-                  <p className="text-2xl font-bold text-gray-900">{employee.workMode?.replace(/_/g, ' ') || 'OFFICE'}</p>
-                </div>
-              </div>
+              <SalaryTab employeeId={id!} ctc={employee.ctc} workMode={employee.workMode} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} />
             )}
 
             {activeTab === 'documents' && (
-              <div className="layer-card p-5">
-                <h3 className="text-sm font-semibold text-gray-800 mb-4">Documents ({employee.documents?.length || 0})</h3>
-                {employee.documents?.length > 0 ? (
-                  <div className="grid md:grid-cols-2 gap-3">
-                    {employee.documents.map((doc: any) => (
-                      <div key={doc.id} className="flex items-center justify-between p-3 bg-surface-2 rounded-xl">
-                        <div>
-                          <p className="text-sm font-medium text-gray-800">{doc.name}</p>
-                          <p className="text-xs text-gray-400">{doc.type} · {formatDate(doc.createdAt)}</p>
-                        </div>
-                        <span className={`badge ${getStatusColor(doc.status)} text-xs`}>{doc.status}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-400 text-center py-12">No documents uploaded yet</p>
-                )}
-              </div>
+              <DocumentsTab employeeId={id!} documents={employee.documents || []} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} />
             )}
 
             {activeTab === 'connections' && (
@@ -723,6 +699,262 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
         </div>
       </div>
     </motion.div>
+  );
+}
+
+/* =============================================================================
+   Salary Tab — View & Edit Salary Structure
+   ============================================================================= */
+
+function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: string; ctc: any; workMode: string; isManagement: boolean }) {
+  const { data: salRes } = useGetSalaryStructureQuery(employeeId);
+  const [saveSalary, { isLoading: saving }] = useSaveSalaryStructureMutation();
+  const structure = salRes?.data;
+  const [editing, setEditing] = useState(false);
+  const [annualCtc, setAnnualCtc] = useState(ctc ? Number(ctc) : 0);
+
+  // Auto-compute components from CTC
+  const monthly = annualCtc / 12;
+  const basic = monthly * 0.5;
+  const hra = basic * 0.4;
+  const da = monthly * 0.1;
+  const ta = monthly * 0.05;
+  const special = monthly - basic - hra - da - ta;
+
+  // Deductions
+  const epfEmployee = Math.min(basic, 15000) * 0.12;
+  const esiEmployee = monthly <= 21000 ? monthly * 0.0075 : 0;
+  const pt = monthly > 15000 ? 200 : monthly > 10000 ? 150 : 0;
+  const totalDeductions = epfEmployee + esiEmployee + pt;
+  const netMonthly = monthly - totalDeductions;
+
+  const handleSave = async () => {
+    try {
+      await saveSalary({ employeeId, data: { ctc: annualCtc } }).unwrap();
+      toast.success('Salary structure saved');
+      setEditing(false);
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to save'); }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* CTC Overview */}
+      <div className="grid md:grid-cols-3 gap-4">
+        <div className="layer-card p-5 text-center">
+          <p className="text-xs text-gray-400 mb-1">CTC (Annual)</p>
+          {editing ? (
+            <input type="number" value={annualCtc} onChange={e => setAnnualCtc(Number(e.target.value))}
+              className="input-glass w-full text-center text-lg font-bold font-mono" data-mono />
+          ) : (
+            <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{annualCtc ? formatCurrency(annualCtc) : '—'}</p>
+          )}
+        </div>
+        <div className="layer-card p-5 text-center">
+          <p className="text-xs text-gray-400 mb-1">Monthly Gross</p>
+          <p className="text-2xl font-bold font-mono text-brand-600" data-mono>{formatCurrency(Math.round(monthly))}</p>
+        </div>
+        <div className="layer-card p-5 text-center">
+          <p className="text-xs text-gray-400 mb-1">Monthly Net</p>
+          <p className="text-2xl font-bold font-mono text-emerald-600" data-mono>{formatCurrency(Math.round(netMonthly))}</p>
+        </div>
+      </div>
+
+      {/* Salary Breakdown */}
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="layer-card p-5">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">Earnings (Monthly)</h3>
+          <div className="space-y-2.5">
+            <SalaryRow label="Basic Salary (50%)" value={Math.round(basic)} />
+            <SalaryRow label="HRA (40% of Basic)" value={Math.round(hra)} />
+            <SalaryRow label="Dearness Allowance (10%)" value={Math.round(da)} />
+            <SalaryRow label="Transport Allowance (5%)" value={Math.round(ta)} />
+            <SalaryRow label="Special Allowance" value={Math.round(special)} />
+            <div className="border-t border-gray-100 pt-2 mt-2">
+              <SalaryRow label="Gross Monthly" value={Math.round(monthly)} bold />
+            </div>
+          </div>
+        </div>
+        <div className="layer-card p-5">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">Deductions (Monthly)</h3>
+          <div className="space-y-2.5">
+            <SalaryRow label="EPF (Employee 12%)" value={Math.round(epfEmployee)} deduct />
+            {esiEmployee > 0 && <SalaryRow label="ESI (Employee 0.75%)" value={Math.round(esiEmployee)} deduct />}
+            <SalaryRow label="Professional Tax" value={pt} deduct />
+            <div className="border-t border-gray-100 pt-2 mt-2">
+              <SalaryRow label="Total Deductions" value={Math.round(totalDeductions)} deduct bold />
+            </div>
+            <div className="border-t border-gray-200 pt-2 mt-2">
+              <SalaryRow label="Net Take-Home" value={Math.round(netMonthly)} bold />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      {isManagement && (
+        <div className="flex gap-3">
+          {editing ? (
+            <>
+              <button onClick={handleSave} disabled={saving} className="btn-primary text-sm flex items-center gap-1.5">
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save Structure
+              </button>
+              <button onClick={() => { setEditing(false); setAnnualCtc(ctc ? Number(ctc) : 0); }} className="btn-secondary text-sm">Cancel</button>
+            </>
+          ) : (
+            <button onClick={() => setEditing(true)} className="btn-primary text-sm flex items-center gap-1.5">
+              <DollarSign size={14} /> Edit Salary Structure
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Existing structure from DB */}
+      {structure && (
+        <div className="layer-card p-5">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">Saved Structure</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            {Object.entries(structure).filter(([k]) => !['id', 'employeeId', 'createdAt', 'updatedAt', 'organizationId'].includes(k)).map(([key, val]) => (
+              <div key={key}>
+                <p className="text-xs text-gray-400 capitalize">{key.replace(/([A-Z])/g, ' $1')}</p>
+                <p className="font-mono text-gray-700" data-mono>{val != null ? formatCurrency(Number(val)) : '—'}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SalaryRow({ label, value, deduct, bold }: { label: string; value: number; deduct?: boolean; bold?: boolean }) {
+  return (
+    <div className={`flex justify-between items-center ${bold ? 'font-semibold' : ''}`}>
+      <span className="text-xs text-gray-500">{label}</span>
+      <span className={`text-sm font-mono ${deduct ? 'text-red-600' : 'text-gray-800'} ${bold ? 'text-base' : ''}`} data-mono>
+        {deduct ? '-' : ''}{formatCurrency(value)}
+      </span>
+    </div>
+  );
+}
+
+/* =============================================================================
+   Documents Tab — Upload & View
+   ============================================================================= */
+
+const DOC_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID', 'BANK_STATEMENT', 'OFFER_LETTER', 'RELIEVING_LETTER', 'EDUCATION', 'EXPERIENCE', 'OTHER'];
+
+function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: string; documents: any[]; isManagement: boolean }) {
+  const [uploadDoc, { isLoading: uploading }] = useUploadDocumentMutation();
+  const [verifyDoc] = useVerifyDocumentMutation();
+  const [showUpload, setShowUpload] = useState(false);
+  const [docName, setDocName] = useState('');
+  const [docType, setDocType] = useState('OTHER');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleUpload = async () => {
+    const file = fileRef.current?.files?.[0];
+    if (!file) { toast.error('Please select a file'); return; }
+    if (!docName.trim()) { toast.error('Please enter document name'); return; }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', docName.trim());
+    formData.append('type', docType);
+    formData.append('employeeId', employeeId);
+
+    try {
+      await uploadDoc(formData).unwrap();
+      toast.success('Document uploaded');
+      setShowUpload(false);
+      setDocName('');
+      setDocType('OTHER');
+      if (fileRef.current) fileRef.current.value = '';
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Upload failed'); }
+  };
+
+  const handleVerify = async (docId: string, status: string) => {
+    try {
+      await verifyDoc({ id: docId, status }).unwrap();
+      toast.success(`Document ${status.toLowerCase()}`);
+    } catch { toast.error('Failed to verify'); }
+  };
+
+  const API_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:4000';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-800">Documents ({documents.length})</h3>
+        <button onClick={() => setShowUpload(!showUpload)} className="btn-primary text-xs flex items-center gap-1.5">
+          <Plus size={14} /> Upload Document
+        </button>
+      </div>
+
+      {/* Upload form */}
+      {showUpload && (
+        <div className="layer-card p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Document Name *</label>
+              <input value={docName} onChange={e => setDocName(e.target.value)} className="input-glass w-full text-sm" placeholder="e.g. Aadhaar Card" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Type</label>
+              <select value={docType} onChange={e => setDocType(e.target.value)} className="input-glass w-full text-sm">
+                {DOC_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">File (PDF, JPG, PNG) *</label>
+            <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" capture="environment"
+              className="input-glass w-full text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:bg-brand-50 file:text-brand-700" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleUpload} disabled={uploading} className="btn-primary text-sm flex items-center gap-1.5">
+              {uploading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+              {uploading ? 'Uploading...' : 'Upload'}
+            </button>
+            <button onClick={() => setShowUpload(false)} className="btn-secondary text-sm">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Document list */}
+      {documents.length > 0 ? (
+        <div className="grid md:grid-cols-2 gap-3">
+          {documents.map((doc: any) => (
+            <div key={doc.id} className="layer-card p-4">
+              <div className="flex items-start justify-between mb-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{doc.name}</p>
+                  <p className="text-xs text-gray-400">{doc.type?.replace(/_/g, ' ')} · {formatDate(doc.createdAt)}</p>
+                </div>
+                <span className={`badge ${getStatusColor(doc.status)} text-xs`}>{doc.status}</span>
+              </div>
+              {doc.fileUrl && (
+                <a href={`${API_URL}${doc.fileUrl}`} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1 mb-2">
+                  <FileText size={12} /> View Document
+                </a>
+              )}
+              {isManagement && doc.status === 'PENDING' && (
+                <div className="flex gap-2 mt-2 pt-2 border-t border-gray-50">
+                  <button onClick={() => handleVerify(doc.id, 'VERIFIED')} className="text-xs text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg">Verify</button>
+                  <button onClick={() => handleVerify(doc.id, 'REJECTED')} className="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg">Reject</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="layer-card p-12 text-center">
+          <FileText size={32} className="text-gray-200 mx-auto mb-2" />
+          <p className="text-sm text-gray-400">No documents uploaded yet</p>
+          <p className="text-xs text-gray-300 mt-1">Click "Upload Document" to add files</p>
+        </div>
+      )}
+    </div>
   );
 }
 

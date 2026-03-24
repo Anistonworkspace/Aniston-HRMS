@@ -72,7 +72,7 @@ export class AttendanceController {
     try {
       const query = attendanceQuerySchema.parse(req.query);
       const result = await attendanceService.getAllAttendance(query, req.user!.organizationId);
-      res.json({ success: true, data: result.data, meta: result.meta });
+      res.json({ success: true, data: result.data, meta: result.meta, summary: result.summary });
     } catch (err) { next(err); }
   }
 

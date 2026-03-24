@@ -269,7 +269,7 @@ export class AttendanceService {
       where.employee = { organizationId };
     }
 
-    const [records, total] = await Promise.all([
+    const [records, total, totalEmployees, presentCount, absentCount, onLeaveCount] = await Promise.all([
       prisma.attendanceRecord.findMany({
         where,
         skip,
@@ -291,6 +291,10 @@ export class AttendanceService {
         },
       }),
       prisma.attendanceRecord.count({ where }),
+      prisma.employee.count({ where: { organizationId, deletedAt: null, status: { in: ['ACTIVE', 'PROBATION'] } } }),
+      prisma.attendanceRecord.count({ where: { ...where, status: 'PRESENT' } }),
+      prisma.attendanceRecord.count({ where: { ...where, status: 'ABSENT' } }),
+      prisma.attendanceRecord.count({ where: { ...where, status: 'ON_LEAVE' } }),
     ]);
 
     return {
@@ -302,6 +306,12 @@ export class AttendanceService {
         totalPages: Math.ceil(total / limit),
         hasNext: page * limit < total,
         hasPrev: page > 1,
+      },
+      summary: {
+        totalEmployees,
+        present: presentCount,
+        absent: absentCount,
+        onLeave: onLeaveCount,
       },
     };
   }

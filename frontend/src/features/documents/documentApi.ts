@@ -1,0 +1,40 @@
+import { api } from '../../app/api';
+
+export const documentApi = api.injectEndpoints({
+  endpoints: (builder) => ({
+    getDocuments: builder.query<any, { employeeId?: string; page?: number; limit?: number }>({
+      query: (params) => ({ url: '/documents', params }),
+      providesTags: ['Document'],
+    }),
+
+    uploadDocument: builder.mutation<any, FormData>({
+      query: (body) => ({
+        url: '/documents',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Document', 'Employee'],
+    }),
+
+    verifyDocument: builder.mutation<any, { id: string; status: string; remarks?: string }>({
+      query: ({ id, ...body }) => ({
+        url: `/documents/${id}/verify`,
+        method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: ['Document', 'Employee'],
+    }),
+
+    deleteDocument: builder.mutation<any, string>({
+      query: (id) => ({ url: `/documents/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Document', 'Employee'],
+    }),
+  }),
+});
+
+export const {
+  useGetDocumentsQuery,
+  useUploadDocumentMutation,
+  useVerifyDocumentMutation,
+  useDeleteDocumentMutation,
+} = documentApi;
