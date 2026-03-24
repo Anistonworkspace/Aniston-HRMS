@@ -68,40 +68,37 @@ function ShiftsPanel() {
   const [deleteShift] = useDeleteShiftMutation();
   const [show, setShow] = useState(false);
   const [editShift, setEditShift] = useState<any>(null);
-  const emptyForm = { slot: 'MORNING' as string, name: '', code: '', shiftType: 'OFFICE' as string, startTime: '09:00', endTime: '18:00', graceMinutes: 15, halfDayHours: 4, fullDayHours: 8, trackingIntervalMinutes: undefined as number | undefined, isDefault: false };
+  const emptyForm = { name: '', code: '', shiftType: 'OFFICE' as string, startTime: '09:00', endTime: '18:00', graceMinutes: 15, halfDayHours: 4, fullDayHours: 8, trackingIntervalMinutes: undefined as number | undefined, isDefault: false };
   const [form, setForm] = useState(emptyForm);
-  const [customCode, setCustomCode] = useState(false);
 
-  // Auto-generate code and name from slot + type
-  const SLOT_CONFIG: Record<string, { name: string; start: string; end: string }> = {
-    MORNING: { name: 'Morning Shift', start: '09:00', end: '18:00' },
-    EVENING: { name: 'Evening Shift', start: '14:00', end: '23:00' },
-    NIGHT: { name: 'Night Shift', start: '22:00', end: '06:00' },
-    GENERAL: { name: 'General Shift', start: '09:00', end: '18:00' },
-    CUSTOM: { name: '', start: '09:00', end: '18:00' },
+  // Auto-generate code from name + type
+  const autoGenerateCode = (name: string, shiftType: string) => {
+    const base = name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').substring(0, 15);
+    const suffix = shiftType === 'OFFICE' ? 'OFC' : shiftType === 'HYBRID' ? 'HYB' : 'FLD';
+    return base ? `${base}-${suffix}` : '';
   };
 
-  const updateFromSlotAndType = (slot: string, shiftType: string) => {
-    const cfg = SLOT_CONFIG[slot] || SLOT_CONFIG.CUSTOM;
-    const isCustom = slot === 'CUSTOM';
-    setCustomCode(isCustom);
-    const typeLabel = shiftType === 'OFFICE' ? 'Office' : shiftType === 'HYBRID' ? 'Hybrid' : 'Field';
+  const handleShiftTypeChange = (shiftType: string) => {
     setForm(prev => ({
       ...prev,
-      slot,
       shiftType,
-      code: isCustom ? prev.code : `${slot}-${shiftType}`,
-      name: isCustom ? prev.name : `${cfg.name} (${typeLabel})`,
-      startTime: isCustom ? prev.startTime : cfg.start,
-      endTime: isCustom ? prev.endTime : cfg.end,
+      code: autoGenerateCode(prev.name, shiftType),
       trackingIntervalMinutes: shiftType === 'FIELD' ? 60 : undefined,
     }));
   };
 
+  const handleNameChange = (name: string) => {
+    setForm(prev => ({
+      ...prev,
+      name,
+      code: autoGenerateCode(name, prev.shiftType),
+    }));
+  };
+
   const preparePayload = () => {
-    const payload: any = { ...form };
-    // Strip trackingIntervalMinutes for non-FIELD shifts (Zod rejects null)
-    if (payload.shiftType !== 'FIELD') delete payload.trackingIntervalMinutes;
+    const { name, code, shiftType, startTime, endTime, graceMinutes, halfDayHours, fullDayHours, trackingIntervalMinutes, isDefault } = form;
+    const payload: any = { name, code, shiftType, startTime, endTime, graceMinutes, halfDayHours, fullDayHours, isDefault };
+    if (shiftType === 'FIELD' && trackingIntervalMinutes) payload.trackingIntervalMinutes = trackingIntervalMinutes;
     return payload;
   };
 
@@ -117,12 +114,7 @@ function ShiftsPanel() {
 
   const handleEdit = (s: any) => {
     setEditShift(s);
-    // Detect slot from code
-    const codeParts = (s.code || '').split('-');
-    const detectedSlot = ['MORNING', 'EVENING', 'NIGHT', 'GENERAL'].includes(codeParts[0]) ? codeParts[0] : 'CUSTOM';
-    setCustomCode(detectedSlot === 'CUSTOM');
     setForm({
-      slot: detectedSlot,
       name: s.name, code: s.code, shiftType: s.shiftType || 'OFFICE', startTime: s.startTime, endTime: s.endTime,
       graceMinutes: s.graceMinutes, halfDayHours: Number(s.halfDayHours || 4), fullDayHours: Number(s.fullDayHours),
       trackingIntervalMinutes: s.trackingIntervalMinutes || undefined, isDefault: s.isDefault,
@@ -166,7 +158,7 @@ function ShiftsPanel() {
                 { key: 'HYBRID', label: 'Hybrid', color: 'purple' },
                 { key: 'FIELD', label: 'Field', color: 'green' },
               ].map(t => (
-                <button key={t.key} type="button" onClick={() => updateFromSlotAndType(form.slot, t.key)}
+                <button key={t.key} type="button" onClick={() => handleShiftTypeChange(t.key)}
                   className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all border',
                     form.shiftType === t.key
                       ? `bg-${t.color}-50 text-${t.color}-700 border-${t.color}-200`
@@ -183,26 +175,11 @@ function ShiftsPanel() {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Time Slot</label>
-              <select value={form.slot} onChange={e => updateFromSlotAndType(e.target.value, form.shiftType)} className="input-glass w-full text-sm">
-                <option value="MORNING">Morning (09:00-18:00)</option>
-                <option value="EVENING">Evening (14:00-23:00)</option>
-                <option value="NIGHT">Night (22:00-06:00)</option>
-                <option value="GENERAL">General</option>
-                <option value="CUSTOM">Custom</option>
-              </select>
-            </div>
+          <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Shift Name *</label>
-              <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Morning Shift (Office)" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Code <span className="text-gray-300 font-normal">(auto)</span></label>
-              {customCode ? (
-                <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm" placeholder="MY-SHIFT-CODE" />
-              ) : (
-                <input value={form.code} readOnly className="input-glass w-full text-sm bg-gray-50 text-gray-500 cursor-not-allowed" />
-              )}
-            </div>
+              <input value={form.name} onChange={e => handleNameChange(e.target.value)} className="input-glass w-full text-sm" placeholder="Morning Shift" /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">Code <span className="text-gray-300 font-normal">(auto-generated)</span></label>
+              <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm text-gray-500" placeholder="Auto from name + type" /></div>
           </div>
           <div className={cn('grid gap-3', form.shiftType === 'FIELD' ? 'grid-cols-6' : 'grid-cols-5')}>
             <div><label className="block text-xs text-gray-500 mb-1">Start Time</label>
