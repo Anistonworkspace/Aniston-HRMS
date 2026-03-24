@@ -442,6 +442,12 @@ function LocationsPanel() {
 }
 
 /* ===== ASSIGNMENTS PANEL ===== */
+const SHIFT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  OFFICE: { label: 'Office', color: 'text-blue-600' },
+  HYBRID: { label: 'Hybrid', color: 'text-purple-600' },
+  FIELD: { label: 'Field', color: 'text-green-600' },
+};
+
 function AssignmentsPanel() {
   const { data: empRes } = useGetEmployeesQuery({ limit: 100 });
   const { data: shiftRes } = useGetShiftsQuery();
@@ -466,13 +472,21 @@ function AssignmentsPanel() {
   const handleAssign = async (empId: string) => {
     const { shiftId, locationId } = assignments[empId] || {};
     if (!shiftId) return;
+    const selectedShift = shifts.find((s: any) => s.id === shiftId);
+
+    // Validate: OFFICE shifts require a location
+    if (selectedShift?.shiftType === 'OFFICE' && !locationId) {
+      toast.error('Please select an office location for this employee');
+      return;
+    }
+
     try {
       await assignShift({
         employeeId: empId, shiftId,
-        locationId: locationId || undefined,
+        locationId: (selectedShift?.shiftType === 'OFFICE' && locationId) ? locationId : undefined,
         startDate: new Date().toISOString().split('T')[0],
       }).unwrap();
-      toast.success('Shift assigned');
+      toast.success('Shift assigned successfully');
       setAssignments(prev => ({ ...prev, [empId]: { shiftId: '', locationId: '' } }));
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
   };
@@ -492,13 +506,18 @@ function AssignmentsPanel() {
               <th className="text-left p-3 text-xs text-gray-500 font-medium">Employee</th>
               <th className="text-left p-3 text-xs text-gray-500 font-medium">Work Mode</th>
               <th className="text-left p-3 text-xs text-gray-500 font-medium">Assign Shift</th>
-              <th className="text-left p-3 text-xs text-gray-500 font-medium">Location</th>
+              <th className="text-left p-3 text-xs text-gray-500 font-medium">Office Location / Info</th>
               <th className="text-left p-3 text-xs text-gray-500 font-medium">Action</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((emp: any) => {
               const sel = getSelectedShift(emp.id);
+              const selType = sel?.shiftType || '';
+              const needsLocation = selType === 'OFFICE';
+              const hasLocation = !!assignments[emp.id]?.locationId;
+              const canAssign = assignments[emp.id]?.shiftId && (!needsLocation || hasLocation);
+
               return (
                 <tr key={emp.id} className="border-b border-gray-50 hover:bg-surface-2">
                   <td className="p-3">
@@ -507,25 +526,48 @@ function AssignmentsPanel() {
                   </td>
                   <td className="p-3"><span className="badge badge-info text-xs">{emp.workMode}</span></td>
                   <td className="p-3">
-                    <select value={assignments[emp.id]?.shiftId || ''} onChange={e => setAssignments(prev => ({...prev, [emp.id]: { ...prev[emp.id], shiftId: e.target.value, locationId: '' }}))}
-                      className="input-glass text-xs py-1.5 w-44">
+                    <select value={assignments[emp.id]?.shiftId || ''} onChange={e => setAssignments(prev => ({...prev, [emp.id]: { shiftId: e.target.value, locationId: '' }}))}
+                      className="input-glass text-xs py-1.5 w-52">
                       <option value="">Select shift...</option>
-                      {shifts.map((s: any) => <option key={s.id} value={s.id}>{s.name} ({s.startTime}-{s.endTime})</option>)}
+                      {shifts.map((s: any) => {
+                        const tl = SHIFT_TYPE_LABELS[s.shiftType] || SHIFT_TYPE_LABELS.OFFICE;
+                        return <option key={s.id} value={s.id}>[{tl.label}] {s.name} ({s.startTime}-{s.endTime})</option>;
+                      })}
                     </select>
                   </td>
                   <td className="p-3">
-                    {assignments[emp.id]?.shiftId && locations.length > 0 && (
-                      <select value={assignments[emp.id]?.locationId || ''} onChange={e => setAssignments(prev => ({...prev, [emp.id]: { ...prev[emp.id], locationId: e.target.value }}))}
-                        className="input-glass text-xs py-1.5 w-40">
-                        <option value="">No location</option>
-                        {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                      </select>
+                    {/* OFFICE → required location dropdown */}
+                    {selType === 'OFFICE' && (
+                      <div>
+                        <select value={assignments[emp.id]?.locationId || ''} onChange={e => setAssignments(prev => ({...prev, [emp.id]: { ...prev[emp.id], locationId: e.target.value }}))}
+                          className={cn('input-glass text-xs py-1.5 w-44', !hasLocation && 'border-red-300')}>
+                          <option value="">Select office *</option>
+                          {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name} ({l.city})</option>)}
+                        </select>
+                        {!hasLocation && <p className="text-[10px] text-red-400 mt-0.5">Required for office shift</p>}
+                      </div>
+                    )}
+                    {/* HYBRID → info text */}
+                    {selType === 'HYBRID' && (
+                      <span className="text-[10px] text-purple-500 bg-purple-50 px-2 py-1 rounded">WFH + Office · No fixed location</span>
+                    )}
+                    {/* FIELD → info text */}
+                    {selType === 'FIELD' && (
+                      <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS tracking · {sel?.trackingIntervalMinutes || 60}min interval</span>
+                    )}
+                    {/* No shift selected */}
+                    {!selType && assignments[emp.id]?.shiftId === '' && (
+                      <span className="text-[10px] text-gray-300">Select a shift first</span>
                     )}
                   </td>
                   <td className="p-3">
                     {assignments[emp.id]?.shiftId && (
-                      <button onClick={() => handleAssign(emp.id)} disabled={isLoading}
-                        className="btn-primary text-xs py-1 px-3">Assign</button>
+                      <button onClick={() => handleAssign(emp.id)} disabled={isLoading || !canAssign}
+                        className={cn('text-xs py-1.5 px-4 rounded-lg font-medium transition-colors',
+                          canAssign ? 'btn-primary' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        )}>
+                        {isLoading ? 'Assigning...' : 'Assign'}
+                      </button>
                     )}
                   </td>
                 </tr>

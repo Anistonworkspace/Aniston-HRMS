@@ -24,14 +24,14 @@ export default function AgentDownloadBanner() {
   const { data: shiftRes } = useGetEmployeeShiftQuery(user?.employeeId || '', { skip: !user?.employeeId || isManagement });
   const shiftType = shiftRes?.data?.shift?.shiftType;
 
-  // Only check agent status for HYBRID employees
-  const { data: statusRes } = useGetAgentStatusQuery(undefined, { skip: shiftType !== 'HYBRID' || isManagement });
+  // Check agent status for OFFICE and HYBRID employees
+  const needsAgent = shiftType === 'HYBRID' || shiftType === 'OFFICE';
+  const { data: statusRes } = useGetAgentStatusQuery(undefined, { skip: !needsAgent || isManagement });
   const agentActive = statusRes?.data?.isActive;
 
-  // Don't show if: not hybrid, already active, dismissed, or management
-  if (isManagement || shiftType !== 'HYBRID' || agentActive || dismissed) {
-    // Show small connected badge if agent is active
-    if (shiftType === 'HYBRID' && agentActive && !isManagement) {
+  // Don't show if: doesn't need agent, already active, dismissed, or management
+  if (isManagement || !needsAgent || agentActive || dismissed) {
+    if (needsAgent && agentActive && !isManagement) {
       return (
         <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-600 text-xs font-medium rounded-lg mx-6 mt-2 w-fit">
           <CheckCircle2 size={12} /> Desktop Agent Connected
