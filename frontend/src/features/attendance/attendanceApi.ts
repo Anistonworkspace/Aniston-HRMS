@@ -107,6 +107,10 @@ export const attendanceApi = api.injectEndpoints({
     getEmployeeScreenshots: builder.query<any, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => `/agent/screenshots/${employeeId}/${date}`,
     }),
+
+    getAgentStatus: builder.query<any, void>({
+      query: () => '/agent/status',
+    }),
   }),
 });
 
@@ -128,4 +132,5 @@ export const {
   useSendActivityPulseMutation,
   useGetEmployeeActivityLogsQuery,
   useGetEmployeeScreenshotsQuery,
+  useGetAgentStatusQuery,
 } = attendanceApi;

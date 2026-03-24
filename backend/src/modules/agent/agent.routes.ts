@@ -11,6 +11,7 @@ router.use(authenticate);
 router.post('/heartbeat', (req, res, next) => agentController.submitHeartbeat(req, res, next));
 router.post('/screenshot', uploadImage.single('screenshot'), (req, res, next) => agentController.uploadScreenshot(req, res, next));
 router.get('/config', (req, res, next) => agentController.getConfig(req, res, next));
+router.get('/status', (req, res, next) => agentController.getStatus(req, res, next));
 
 // HR/Admin view endpoints
 router.get(

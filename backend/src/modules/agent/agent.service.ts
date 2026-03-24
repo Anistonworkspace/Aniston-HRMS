@@ -135,6 +135,22 @@ export class AgentService {
       orderBy: { timestamp: 'asc' },
     });
   }
+
+  async getAgentStatus(employeeId: string) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const lastLog = await prisma.activityLog.findFirst({
+      where: { employeeId, date: today },
+      orderBy: { timestamp: 'desc' },
+      select: { timestamp: true },
+    });
+
+    return {
+      isActive: !!lastLog,
+      lastHeartbeat: lastLog?.timestamp || null,
+    };
+  }
 }
 
 export const agentService = new AgentService();

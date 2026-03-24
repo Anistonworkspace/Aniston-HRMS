@@ -65,6 +65,13 @@ export class AgentController {
       res.json({ success: true, data: screenshots });
     } catch (err) { next(err); }
   }
+
+  async getStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const status = await agentService.getAgentStatus(req.user!.employeeId!);
+      res.json({ success: true, data: status });
+    } catch (err) { next(err); }
+  }
 }
 
 export const agentController = new AgentController();
