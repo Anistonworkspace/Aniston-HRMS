@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Clock, MapPin, Calendar, ChevronLeft, ChevronRight, User, Activity } from 'lucide-react';
 import { useGetEmployeeQuery } from '../employee/employeeApi';
-import { useGetEmployeeAttendanceQuery, useGetEmployeeGPSTrailQuery } from './attendanceApi';
+import { useGetEmployeeAttendanceQuery, useGetEmployeeGPSTrailQuery, useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery } from './attendanceApi';
 import { useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import { MapContainer, TileLayer, Marker, Circle, Polyline } from 'react-leaflet';
 import L from 'leaflet';
@@ -60,6 +60,19 @@ export default function EmployeeAttendanceDetailPage() {
     { skip: shiftType !== 'FIELD' }
   );
   const gpsTrail = gpsRes?.data || [];
+
+  // Desktop agent data
+  const { data: activityRes } = useGetEmployeeActivityLogsQuery(
+    { employeeId: employeeId || '', date: selectedDate },
+    { skip: !employeeId }
+  );
+  const activityData = activityRes?.data;
+
+  const { data: screenshotRes } = useGetEmployeeScreenshotsQuery(
+    { employeeId: employeeId || '', date: selectedDate },
+    { skip: !employeeId }
+  );
+  const screenshots = screenshotRes?.data || [];
 
   // Find selected date record
   const selectedRecord = useMemo(() => {
@@ -318,6 +331,72 @@ export default function EmployeeAttendanceDetailPage() {
                 <p>Office days: Geofence check-in/out + location verified</p>
                 <p>WFH days: Browser activity tracked via Page Visibility API + periodic check-ins</p>
                 <p>Active time measures how long the HRMS tab was active in the browser</p>
+              </div>
+            </div>
+          )}
+
+          {/* Desktop Agent — App Usage & Screenshots */}
+          {activityData?.summary && activityData.summary.logCount > 0 && (
+            <div className="layer-card p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <Activity size={14} className="text-brand-500" /> Desktop Activity — {formatDate(selectedDate)}
+              </h3>
+              <div className="grid grid-cols-4 gap-3 mb-4">
+                <div className="text-center py-2 bg-emerald-50 rounded-lg">
+                  <p className="text-lg font-bold font-mono text-emerald-600" data-mono>{activityData.summary.totalActiveMinutes}m</p>
+                  <p className="text-[10px] text-gray-500">Active</p>
+                </div>
+                <div className="text-center py-2 bg-gray-50 rounded-lg">
+                  <p className="text-lg font-bold font-mono text-gray-500" data-mono>{activityData.summary.totalIdleMinutes}m</p>
+                  <p className="text-[10px] text-gray-500">Idle</p>
+                </div>
+                <div className="text-center py-2 bg-blue-50 rounded-lg">
+                  <p className="text-lg font-bold font-mono text-blue-600" data-mono>{activityData.summary.totalKeystrokes}</p>
+                  <p className="text-[10px] text-gray-500">Keystrokes</p>
+                </div>
+                <div className="text-center py-2 bg-purple-50 rounded-lg">
+                  <p className="text-lg font-bold font-mono text-purple-600" data-mono>{activityData.summary.totalClicks}</p>
+                  <p className="text-[10px] text-gray-500">Clicks</p>
+                </div>
+              </div>
+
+              {/* Top Apps */}
+              {activityData.summary.topApps?.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs font-semibold text-gray-600 mb-2">Top Applications</p>
+                  <div className="space-y-1.5">
+                    {activityData.summary.topApps.slice(0, 5).map((app: any, i: number) => {
+                      const maxMinutes = activityData.summary.topApps[0].minutes || 1;
+                      return (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="text-xs text-gray-600 w-28 truncate">{app.app}</span>
+                          <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-brand-400 rounded-full" style={{ width: `${Math.max((app.minutes / maxMinutes) * 100, 5)}%` }} />
+                          </div>
+                          <span className="text-[10px] font-mono text-gray-500 w-10 text-right" data-mono>{app.minutes}m</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Screenshots Gallery */}
+          {screenshots.length > 0 && (
+            <div className="layer-card p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Screenshots ({screenshots.length})</h3>
+              <div className="grid grid-cols-3 gap-3">
+                {screenshots.map((s: any) => (
+                  <div key={s.id} className="group relative cursor-pointer" onClick={() => window.open(s.imageUrl, '_blank')}>
+                    <img src={s.imageUrl} alt={s.activeApp || 'Screenshot'} className="w-full h-24 object-cover rounded-lg border border-gray-200 group-hover:border-brand-300 transition-colors" />
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 rounded-b-lg px-2 py-1">
+                      <p className="text-[9px] text-white truncate">{s.activeApp || 'Desktop'}</p>
+                      <p className="text-[8px] text-gray-300">{new Date(s.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}

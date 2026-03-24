@@ -99,6 +99,14 @@ export const attendanceApi = api.injectEndpoints({
     sendActivityPulse: builder.mutation<any, { isActive: boolean; tabVisible: boolean }>({
       query: (body) => ({ url: '/attendance/activity-pulse', method: 'POST', body }),
     }),
+
+    getEmployeeActivityLogs: builder.query<any, { employeeId: string; date: string }>({
+      query: ({ employeeId, date }) => `/agent/activity/${employeeId}/${date}`,
+    }),
+
+    getEmployeeScreenshots: builder.query<any, { employeeId: string; date: string }>({
+      query: ({ employeeId, date }) => `/agent/screenshots/${employeeId}/${date}`,
+    }),
   }),
 });
 
@@ -118,4 +126,6 @@ export const {
   useMarkAttendanceMutation,
   useGetEmployeeGPSTrailQuery,
   useSendActivityPulseMutation,
+  useGetEmployeeActivityLogsQuery,
+  useGetEmployeeScreenshotsQuery,
 } = attendanceApi;

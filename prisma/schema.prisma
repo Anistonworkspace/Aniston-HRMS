@@ -135,6 +135,8 @@ model Employee {
   shiftAssignments  ShiftAssignment[]
   lifecycleEvents   EmployeeEvent[]
   tickets           Ticket[]
+  activityLogs      ActivityLog[]
+  agentScreenshots  AgentScreenshot[]
   headOfDepartments Department[]     @relation("DepartmentHead")
 
   @@index([organizationId, status])
@@ -1202,4 +1204,47 @@ enum WalkInStatus {
   REJECTED
   COMPLETED
   NO_SHOW
+}
+
+// =====================
+// DESKTOP AGENT TRACKING
+// =====================
+
+model ActivityLog {
+  id              String   @id @default(uuid())
+  employeeId      String
+  date            DateTime @db.Date
+  timestamp       DateTime
+  activeApp       String?
+  activeWindow    String?
+  activeUrl       String?
+  category        String?  // PRODUCTIVE, NEUTRAL, UNPRODUCTIVE
+  durationSeconds Int      @default(0)
+  idleSeconds     Int      @default(0)
+  keystrokes      Int      @default(0)
+  mouseClicks     Int      @default(0)
+  mouseDistance    Int      @default(0)
+  organizationId  String
+  createdAt       DateTime @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, date])
+  @@index([organizationId, date])
+}
+
+model AgentScreenshot {
+  id             String   @id @default(uuid())
+  employeeId     String
+  date           DateTime @db.Date
+  timestamp      DateTime
+  imageUrl       String
+  activeApp      String?
+  activeWindow   String?
+  organizationId String
+  createdAt      DateTime @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, date])
 }
