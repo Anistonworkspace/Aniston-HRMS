@@ -457,24 +457,22 @@ function AssignmentsPanel() {
   const employees = empRes?.data || [];
   const shifts = shiftRes?.data || [];
   const locations = locRes?.data || [];
-  const [assignments, setAssignments] = useState<Record<string, { shiftId: string; locationId: string }>>({});
+
+  // Track: pending selections (not yet saved), saved assignments, and editing state
+  const [pending, setPending] = useState<Record<string, { shiftId: string; locationId: string }>>({});
+  const [saved, setSaved] = useState<Record<string, { shiftId: string; locationId: string; shiftName: string; shiftType: string; locationName: string }>>({});
+  const [editing, setEditing] = useState<Record<string, boolean>>({});
 
   const filtered = employees.filter((e: any) => {
     if (!search) return true;
     return `${e.firstName} ${e.lastName} ${e.employeeCode}`.toLowerCase().includes(search.toLowerCase());
   });
 
-  const getSelectedShift = (empId: string) => {
-    const shiftId = assignments[empId]?.shiftId;
-    return shifts.find((s: any) => s.id === shiftId);
-  };
-
   const handleAssign = async (empId: string) => {
-    const { shiftId, locationId } = assignments[empId] || {};
+    const { shiftId, locationId } = pending[empId] || {};
     if (!shiftId) return;
     const selectedShift = shifts.find((s: any) => s.id === shiftId);
 
-    // Validate: OFFICE shifts require a location
     if (selectedShift?.shiftType === 'OFFICE' && !locationId) {
       toast.error('Please select an office location for this employee');
       return;
@@ -487,8 +485,33 @@ function AssignmentsPanel() {
         startDate: new Date().toISOString().split('T')[0],
       }).unwrap();
       toast.success('Shift assigned successfully');
-      setAssignments(prev => ({ ...prev, [empId]: { shiftId: '', locationId: '' } }));
+
+      // Move to saved state
+      const loc = locations.find((l: any) => l.id === locationId);
+      setSaved(prev => ({
+        ...prev,
+        [empId]: {
+          shiftId, locationId: locationId || '',
+          shiftName: selectedShift?.name || '', shiftType: selectedShift?.shiftType || 'OFFICE',
+          locationName: loc?.name || '',
+        },
+      }));
+      setPending(prev => { const n = { ...prev }; delete n[empId]; return n; });
+      setEditing(prev => ({ ...prev, [empId]: false }));
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  const startEdit = (empId: string) => {
+    const s = saved[empId];
+    if (s) {
+      setPending(prev => ({ ...prev, [empId]: { shiftId: s.shiftId, locationId: s.locationId } }));
+    }
+    setEditing(prev => ({ ...prev, [empId]: true }));
+  };
+
+  const cancelEdit = (empId: string) => {
+    setPending(prev => { const n = { ...prev }; delete n[empId]; return n; });
+    setEditing(prev => ({ ...prev, [empId]: false }));
   };
 
   return (
@@ -505,71 +528,110 @@ function AssignmentsPanel() {
             <tr className="border-b border-gray-100">
               <th className="text-left p-3 text-xs text-gray-500 font-medium">Employee</th>
               <th className="text-left p-3 text-xs text-gray-500 font-medium">Work Mode</th>
-              <th className="text-left p-3 text-xs text-gray-500 font-medium">Assign Shift</th>
-              <th className="text-left p-3 text-xs text-gray-500 font-medium">Office Location / Info</th>
+              <th className="text-left p-3 text-xs text-gray-500 font-medium">Shift</th>
+              <th className="text-left p-3 text-xs text-gray-500 font-medium">Location / Info</th>
               <th className="text-left p-3 text-xs text-gray-500 font-medium">Action</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((emp: any) => {
-              const sel = getSelectedShift(emp.id);
+              const isSaved = !!saved[emp.id] && !editing[emp.id];
+              const isEditing = editing[emp.id] || !saved[emp.id];
+              const p = pending[emp.id] || { shiftId: '', locationId: '' };
+              const sel = shifts.find((s: any) => s.id === p.shiftId);
               const selType = sel?.shiftType || '';
               const needsLocation = selType === 'OFFICE';
-              const hasLocation = !!assignments[emp.id]?.locationId;
-              const canAssign = assignments[emp.id]?.shiftId && (!needsLocation || hasLocation);
+              const hasLocation = !!p.locationId;
+              const canAssign = p.shiftId && (!needsLocation || hasLocation);
 
               return (
-                <tr key={emp.id} className="border-b border-gray-50 hover:bg-surface-2">
+                <tr key={emp.id} className={cn('border-b border-gray-50', isSaved ? 'bg-emerald-50/30' : 'hover:bg-surface-2')}>
                   <td className="p-3">
                     <p className="font-medium text-gray-800">{emp.firstName} {emp.lastName}</p>
                     <p className="text-xs text-gray-400">{emp.employeeCode}</p>
                   </td>
                   <td className="p-3"><span className="badge badge-info text-xs">{emp.workMode}</span></td>
-                  <td className="p-3">
-                    <select value={assignments[emp.id]?.shiftId || ''} onChange={e => setAssignments(prev => ({...prev, [emp.id]: { shiftId: e.target.value, locationId: '' }}))}
-                      className="input-glass text-xs py-1.5 w-52">
-                      <option value="">Select shift...</option>
-                      {shifts.map((s: any) => {
-                        const tl = SHIFT_TYPE_LABELS[s.shiftType] || SHIFT_TYPE_LABELS.OFFICE;
-                        return <option key={s.id} value={s.id}>[{tl.label}] {s.name} ({s.startTime}-{s.endTime})</option>;
-                      })}
-                    </select>
-                  </td>
-                  <td className="p-3">
-                    {/* OFFICE → required location dropdown */}
-                    {selType === 'OFFICE' && (
-                      <div>
-                        <select value={assignments[emp.id]?.locationId || ''} onChange={e => setAssignments(prev => ({...prev, [emp.id]: { ...prev[emp.id], locationId: e.target.value }}))}
-                          className={cn('input-glass text-xs py-1.5 w-44', !hasLocation && 'border-red-300')}>
-                          <option value="">Select office *</option>
-                          {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name} ({l.city})</option>)}
+
+                  {/* SAVED STATE — read-only display */}
+                  {isSaved && (
+                    <>
+                      <td className="p-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded',
+                            saved[emp.id].shiftType === 'OFFICE' ? 'bg-blue-50 text-blue-600' :
+                            saved[emp.id].shiftType === 'HYBRID' ? 'bg-purple-50 text-purple-600' : 'bg-green-50 text-green-600'
+                          )}>{saved[emp.id].shiftType}</span>
+                          <span className="text-xs text-gray-700 font-medium">{saved[emp.id].shiftName}</span>
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        {saved[emp.id].locationName ? (
+                          <span className="text-xs text-gray-600">{saved[emp.id].locationName}</span>
+                        ) : saved[emp.id].shiftType === 'HYBRID' ? (
+                          <span className="text-[10px] text-purple-500">WFH + Office</span>
+                        ) : saved[emp.id].shiftType === 'FIELD' ? (
+                          <span className="text-[10px] text-green-600">Live GPS</span>
+                        ) : (
+                          <span className="text-[10px] text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        <button onClick={() => startEdit(emp.id)}
+                          className="text-xs py-1.5 px-4 rounded-lg font-medium bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+                          <Pencil size={12} /> Edit
+                        </button>
+                      </td>
+                    </>
+                  )}
+
+                  {/* EDITING/NEW STATE — dropdowns */}
+                  {isEditing && (
+                    <>
+                      <td className="p-3">
+                        <select value={p.shiftId} onChange={e => setPending(prev => ({...prev, [emp.id]: { shiftId: e.target.value, locationId: '' }}))}
+                          className="input-glass text-xs py-1.5 w-52">
+                          <option value="">Select shift...</option>
+                          {shifts.map((s: any) => {
+                            const tl = SHIFT_TYPE_LABELS[s.shiftType] || SHIFT_TYPE_LABELS.OFFICE;
+                            return <option key={s.id} value={s.id}>[{tl.label}] {s.name} ({s.startTime}-{s.endTime})</option>;
+                          })}
                         </select>
-                        {!hasLocation && <p className="text-[10px] text-red-400 mt-0.5">Required for office shift</p>}
-                      </div>
-                    )}
-                    {/* HYBRID → info text */}
-                    {selType === 'HYBRID' && (
-                      <span className="text-[10px] text-purple-500 bg-purple-50 px-2 py-1 rounded">WFH + Office · No fixed location</span>
-                    )}
-                    {/* FIELD → info text */}
-                    {selType === 'FIELD' && (
-                      <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS tracking · {sel?.trackingIntervalMinutes || 60}min interval</span>
-                    )}
-                    {/* No shift selected */}
-                    {!selType && assignments[emp.id]?.shiftId === '' && (
-                      <span className="text-[10px] text-gray-300">Select a shift first</span>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    {assignments[emp.id]?.shiftId && (
-                      <button onClick={() => handleAssign(emp.id)} disabled={isLoading || !canAssign}
-                        className={cn('text-xs py-1.5 px-4 rounded-lg font-medium transition-colors',
-                          canAssign ? 'btn-primary' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                        )}>
-                        {isLoading ? 'Assigning...' : 'Assign'}
-                      </button>
-                    )}
-                  </td>
+                      </td>
+                      <td className="p-3">
+                        {selType === 'OFFICE' && (
+                          <div>
+                            <select value={p.locationId} onChange={e => setPending(prev => ({...prev, [emp.id]: { ...prev[emp.id], locationId: e.target.value }}))}
+                              className={cn('input-glass text-xs py-1.5 w-44', !hasLocation && 'border-red-300')}>
+                              <option value="">Select office *</option>
+                              {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name} ({l.city})</option>)}
+                            </select>
+                            {!hasLocation && <p className="text-[10px] text-red-400 mt-0.5">Required</p>}
+                          </div>
+                        )}
+                        {selType === 'HYBRID' && <span className="text-[10px] text-purple-500 bg-purple-50 px-2 py-1 rounded">WFH + Office · No fixed location</span>}
+                        {selType === 'FIELD' && <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS · {sel?.trackingIntervalMinutes || 60}min</span>}
+                        {!selType && <span className="text-[10px] text-gray-300">Select a shift first</span>}
+                      </td>
+                      <td className="p-3">
+                        <div className="flex gap-1.5">
+                          {p.shiftId && (
+                            <button onClick={() => handleAssign(emp.id)} disabled={isLoading || !canAssign}
+                              className={cn('text-xs py-1.5 px-3 rounded-lg font-medium transition-colors',
+                                canAssign ? 'btn-primary' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                              )}>
+                              {isLoading ? '...' : saved[emp.id] ? 'Save' : 'Assign'}
+                            </button>
+                          )}
+                          {saved[emp.id] && (
+                            <button onClick={() => cancelEdit(emp.id)}
+                              className="text-xs py-1.5 px-3 rounded-lg font-medium bg-white border border-gray-200 text-gray-500 hover:bg-gray-50">
+                              Cancel
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </>
+                  )}
                 </tr>
               );
             })}
