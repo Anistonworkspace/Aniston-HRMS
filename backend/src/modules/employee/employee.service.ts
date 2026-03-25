@@ -3,8 +3,10 @@ import { randomBytes } from 'crypto';
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { NotFoundError, ConflictError } from '../../middleware/errorHandler.js';
-import { enqueueEmail } from '../../jobs/queues.js';
-import type { CreateEmployeeInput, UpdateEmployeeInput, EmployeeQuery } from './employee.validation.js';
+import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
+import { env } from '../../config/env.js';
+import type { CreateEmployeeInput, UpdateEmployeeInput, EmployeeQuery, SubmitResignationInput, ApproveExitInput, InitiateTerminationInput, ExitQuery } from './employee.validation.js';
 
 export class EmployeeService {
   async list(query: EmployeeQuery, organizationId: string) {
@@ -39,6 +41,7 @@ export class EmployeeService {
         include: {
           department: { select: { id: true, name: true } },
           designation: { select: { id: true, name: true } },
+          user: { select: { id: true, role: true, status: true } },
         },
       }),
       prisma.employee.count({ where }),
@@ -316,6 +319,36 @@ export class EmployeeService {
     return employee;
   }
 
+  async changeRole(employeeId: string, role: string, organizationId: string, changedBy: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      include: { user: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+    if (!employee.userId) throw new BadRequestError('Employee has no linked user account');
+
+    const validRoles = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'];
+    if (!validRoles.includes(role)) throw new BadRequestError(`Invalid role: ${role}`);
+
+    const oldRole = employee.user?.role;
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: employee.userId! }, data: { role: role as any } });
+      await tx.auditLog.create({
+        data: {
+          userId: changedBy,
+          entity: 'User',
+          entityId: employee.userId!,
+          action: 'UPDATE',
+          oldValue: { role: oldRole },
+          newValue: { role },
+          organizationId,
+        },
+      });
+    });
+
+    return { employeeId, userId: employee.userId, oldRole, newRole: role };
+  }
+
   async softDelete(id: string, organizationId: string, deletedBy: string) {
     const existing = await prisma.employee.findFirst({
       where: { id, organizationId, deletedAt: null },
@@ -401,6 +434,217 @@ export class EmployeeService {
 
   async deleteLifecycleEvent(eventId: string) {
     await prisma.employeeEvent.delete({ where: { id: eventId } });
+  }
+
+  // ==================
+  // EXIT / OFFBOARDING
+  // ==================
+
+  async submitResignation(employeeId: string, data: SubmitResignationInput, organizationId: string) {
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId }, include: { department: true, user: true } });
+    if (!employee) throw new NotFoundError('Employee');
+    if (employee.exitStatus && employee.exitStatus !== 'WITHDRAWN') {
+      throw new ConflictError('An exit process is already in progress');
+    }
+
+    const updated = await prisma.employee.update({
+      where: { id: employeeId },
+      data: {
+        resignationDate: new Date(),
+        resignationReason: data.reason,
+        lastWorkingDate: new Date(data.lastWorkingDate),
+        exitType: 'RESIGNATION',
+        exitStatus: 'PENDING',
+        status: 'NOTICE_PERIOD',
+      },
+    });
+
+    await prisma.employeeEvent.create({
+      data: { employeeId, eventType: 'RESIGNATION', title: 'Resignation Submitted', description: data.reason, eventDate: new Date(), createdBy: employee.userId || employeeId },
+    });
+
+    // Email HR users
+    const hrUsers = await prisma.user.findMany({ where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' }, select: { email: true } });
+    const link = `${env.FRONTEND_URL}/exit-management`;
+    for (const hr of hrUsers) {
+      await enqueueEmail({ to: hr.email, subject: `Resignation: ${employee.firstName} ${employee.lastName}`, template: 'resignation-submitted', context: { name: `${employee.firstName} ${employee.lastName}`, employeeCode: employee.employeeCode, department: employee.department?.name, lastWorkingDate: new Date(data.lastWorkingDate).toLocaleDateString('en-IN'), reason: data.reason, link } });
+      const hrUser = await prisma.user.findUnique({ where: { email: hr.email }, select: { id: true } });
+      if (hrUser) {
+        await enqueueNotification({ userId: hrUser.id, organizationId, title: 'New Resignation', message: `${employee.firstName} ${employee.lastName} has submitted their resignation`, type: 'exit', link: '/exit-management' });
+      }
+    }
+
+    return updated;
+  }
+
+  async getExitRequests(organizationId: string, query: ExitQuery) {
+    const { page, limit, status, department } = query;
+    const skip = (page - 1) * limit;
+
+    const where: any = { organizationId, exitStatus: { not: null }, deletedAt: null };
+    if (status) where.exitStatus = status;
+    if (department) where.departmentId = department;
+
+    const [employees, total] = await Promise.all([
+      prisma.employee.findMany({
+        where, skip, take: limit, orderBy: { resignationDate: 'desc' },
+        include: { department: true, designation: true },
+      }),
+      prisma.employee.count({ where }),
+    ]);
+
+    return {
+      data: employees,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit), hasNext: page * limit < total, hasPrev: page > 1 },
+    };
+  }
+
+  async getExitDetails(employeeId: string, organizationId: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId },
+      include: { department: true, designation: true, user: { select: { email: true, status: true } } },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    // Get assigned (unreturned) assets
+    const assetAssignments = await prisma.assetAssignment.findMany({
+      where: { employeeId },
+      include: { asset: true },
+      orderBy: { assignedAt: 'desc' },
+    });
+
+    const pendingAssets = assetAssignments.filter(a => !a.returnedAt);
+    const returnedAssets = assetAssignments.filter(a => !!a.returnedAt);
+
+    // Get lifecycle events
+    const events = await prisma.employeeEvent.findMany({
+      where: { employeeId },
+      orderBy: { eventDate: 'desc' },
+      take: 50,
+    });
+
+    return {
+      employee,
+      assets: { pending: pendingAssets, returned: returnedAssets, totalAssigned: assetAssignments.length, allReturned: pendingAssets.length === 0 },
+      events,
+    };
+  }
+
+  async approveExit(employeeId: string, approvedBy: string, data: ApproveExitInput, organizationId: string) {
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId }, include: { department: true } });
+    if (!employee) throw new NotFoundError('Employee');
+    if (employee.exitStatus !== 'PENDING') throw new ConflictError('Exit request is not in PENDING status');
+
+    // Check pending assets
+    const pendingAssets = await prisma.assetAssignment.count({ where: { employeeId, returnedAt: null } });
+    const exitStatus = pendingAssets > 0 ? 'NO_DUES_PENDING' : 'APPROVED';
+
+    const updated = await prisma.employee.update({
+      where: { id: employeeId },
+      data: {
+        exitStatus,
+        exitApprovedBy: approvedBy,
+        exitApprovedAt: new Date(),
+        exitNotes: data.notes || employee.exitNotes,
+        lastWorkingDate: data.lastWorkingDate ? new Date(data.lastWorkingDate) : employee.lastWorkingDate,
+      },
+    });
+
+    await prisma.employeeEvent.create({
+      data: { employeeId, eventType: 'EXIT_APPROVED', title: `Exit ${exitStatus === 'NO_DUES_PENDING' ? 'Approved (No-Dues Pending)' : 'Approved'}`, description: data.notes || 'Exit approved by HR', eventDate: new Date(), createdBy: approvedBy },
+    });
+
+    // Email employee
+    await enqueueEmail({ to: employee.email, subject: 'Your Resignation Has Been Approved', template: 'exit-approved', context: { name: employee.firstName, lastWorkingDate: (data.lastWorkingDate ? new Date(data.lastWorkingDate) : employee.lastWorkingDate)?.toLocaleDateString('en-IN') || '', notes: data.notes } });
+
+    await createAuditLog({ userId: approvedBy, organizationId, entity: 'Employee', entityId: employeeId, action: 'EXIT_APPROVED', newValue: { exitStatus, lastWorkingDate: updated.lastWorkingDate } });
+
+    return updated;
+  }
+
+  async completeExit(employeeId: string, userId: string, organizationId: string) {
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId } });
+    if (!employee) throw new NotFoundError('Employee');
+    if (!['APPROVED', 'NO_DUES_PENDING'].includes(employee.exitStatus || '')) throw new ConflictError('Exit must be approved before completion');
+
+    // Verify all assets returned
+    const pendingAssets = await prisma.assetAssignment.count({ where: { employeeId, returnedAt: null } });
+    if (pendingAssets > 0) throw new ConflictError(`Cannot complete exit: ${pendingAssets} asset(s) still pending return`);
+
+    // Complete exit
+    const updated = await prisma.employee.update({
+      where: { id: employeeId },
+      data: { exitStatus: 'COMPLETED', status: 'TERMINATED', deletedAt: new Date() },
+    });
+
+    // Deactivate user account
+    if (employee.userId) {
+      await prisma.user.update({ where: { id: employee.userId }, data: { status: 'INACTIVE' } });
+    }
+
+    await prisma.employeeEvent.create({
+      data: { employeeId, eventType: 'EXIT_COMPLETED', title: 'Exit Process Completed', description: 'All no-dues cleared, employee separated', eventDate: new Date(), createdBy: userId },
+    });
+
+    // Email employee
+    await enqueueEmail({ to: employee.email, subject: 'Exit Process Complete — Aniston Technologies', template: 'exit-completed', context: { name: employee.firstName } });
+
+    await createAuditLog({ userId, organizationId, entity: 'Employee', entityId: employeeId, action: 'EXIT_COMPLETED', newValue: { exitStatus: 'COMPLETED', status: 'TERMINATED' } });
+
+    return updated;
+  }
+
+  async withdrawResignation(employeeId: string, userId: string, organizationId: string) {
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId } });
+    if (!employee) throw new NotFoundError('Employee');
+    if (!['PENDING', 'APPROVED', 'NO_DUES_PENDING'].includes(employee.exitStatus || '')) throw new ConflictError('Cannot withdraw — exit is already completed or not in progress');
+
+    const updated = await prisma.employee.update({
+      where: { id: employeeId },
+      data: { exitStatus: 'WITHDRAWN', status: 'ACTIVE', exitNotes: null },
+    });
+
+    await prisma.employeeEvent.create({
+      data: { employeeId, eventType: 'RESIGNATION_WITHDRAWN', title: 'Resignation Withdrawn', description: 'Resignation has been withdrawn', eventDate: new Date(), createdBy: userId },
+    });
+
+    await createAuditLog({ userId, organizationId, entity: 'Employee', entityId: employeeId, action: 'RESIGNATION_WITHDRAWN', newValue: { exitStatus: 'WITHDRAWN' } });
+
+    return updated;
+  }
+
+  async initiateTermination(employeeId: string, data: InitiateTerminationInput, userId: string, organizationId: string) {
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId } });
+    if (!employee) throw new NotFoundError('Employee');
+    if (employee.exitStatus && !['WITHDRAWN'].includes(employee.exitStatus)) {
+      throw new ConflictError('An exit process is already in progress');
+    }
+
+    const pendingAssets = await prisma.assetAssignment.count({ where: { employeeId, returnedAt: null } });
+    const exitStatus = pendingAssets > 0 ? 'NO_DUES_PENDING' : 'APPROVED';
+
+    const updated = await prisma.employee.update({
+      where: { id: employeeId },
+      data: {
+        resignationDate: new Date(),
+        resignationReason: data.reason,
+        lastWorkingDate: new Date(data.lastWorkingDate),
+        exitType: 'TERMINATION',
+        exitStatus,
+        exitApprovedBy: userId,
+        exitApprovedAt: new Date(),
+        exitNotes: data.notes,
+        status: 'NOTICE_PERIOD',
+      },
+    });
+
+    await prisma.employeeEvent.create({
+      data: { employeeId, eventType: 'TERMINATION', title: 'Termination Initiated', description: data.reason, eventDate: new Date(), createdBy: userId },
+    });
+
+    await createAuditLog({ userId, organizationId, entity: 'Employee', entityId: employeeId, action: 'TERMINATION_INITIATED', newValue: { exitType: 'TERMINATION', exitStatus } });
+
+    return updated;
   }
 }
 

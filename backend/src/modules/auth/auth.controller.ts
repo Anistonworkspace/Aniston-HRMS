@@ -1,6 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
+import { randomBytes } from 'crypto';
 import { authService } from './auth.service.js';
 import { loginSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema } from './auth.validation.js';
+import { prisma } from '../../lib/prisma.js';
+import { redis } from '../../lib/redis.js';
+import { decrypt } from '../../utils/encryption.js';
+import { env } from '../../config/env.js';
+import { buildAuthorizationUrl, exchangeCodeForTokens, getUserProfile } from '../../lib/microsoftGraph.js';
+
+const OAUTH_STATE_PREFIX = 'oauth_state:';
 
 export class AuthController {
   async login(req: Request, res: Response, next: NextFunction) {
@@ -113,6 +121,100 @@ export class AuthController {
       res.json({ success: true, data: user });
     } catch (err) {
       next(err);
+    }
+  }
+
+  async ssoStatus(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const status = await authService.getSsoStatus();
+      res.json({ success: true, data: status });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async microsoftLogin(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const org = await prisma.organization.findFirst({ select: { settings: true } });
+      const settings = (org?.settings as any) || {};
+      const teams = settings.microsoftTeams;
+
+      if (!teams?.tenantId || !teams?.clientId || !teams?.ssoEnabled) {
+        res.status(400).json({ success: false, error: { message: 'Microsoft SSO is not configured' } });
+        return;
+      }
+
+      const state = randomBytes(32).toString('hex');
+      await redis.setex(`${OAUTH_STATE_PREFIX}${state}`, 600, 'valid'); // 10 min TTL
+
+      const redirectUri = teams.redirectUri || `${env.API_URL}/api/auth/microsoft/callback`;
+      const authUrl = buildAuthorizationUrl(teams.tenantId, teams.clientId, redirectUri, state);
+      res.redirect(authUrl);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async microsoftCallback(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { code, state, error: oauthError } = req.query as Record<string, string>;
+
+      if (oauthError) {
+        res.redirect(`${env.FRONTEND_URL}/login?error=${encodeURIComponent(oauthError)}`);
+        return;
+      }
+
+      if (!code || !state) {
+        res.redirect(`${env.FRONTEND_URL}/login?error=${encodeURIComponent('Missing authorization code')}`);
+        return;
+      }
+
+      // Validate state (CSRF protection)
+      const storedState = await redis.get(`${OAUTH_STATE_PREFIX}${state}`);
+      if (!storedState) {
+        res.redirect(`${env.FRONTEND_URL}/login?error=${encodeURIComponent('Invalid or expired state')}`);
+        return;
+      }
+      await redis.del(`${OAUTH_STATE_PREFIX}${state}`);
+
+      // Get Teams config
+      const org = await prisma.organization.findFirst({ select: { settings: true } });
+      const settings = (org?.settings as any) || {};
+      const teams = settings.microsoftTeams;
+
+      if (!teams?.clientSecret) {
+        res.redirect(`${env.FRONTEND_URL}/login?error=${encodeURIComponent('Teams configuration incomplete')}`);
+        return;
+      }
+
+      const clientSecret = decrypt(teams.clientSecret);
+      const redirectUri = teams.redirectUri || `${env.API_URL}/api/auth/microsoft/callback`;
+
+      // Exchange code for tokens
+      const tokens = await exchangeCodeForTokens(teams.tenantId, teams.clientId, clientSecret, redirectUri, code);
+
+      // Get user profile from Microsoft
+      const profile = await getUserProfile(tokens.accessToken);
+      const email = profile.mail || profile.userPrincipalName;
+
+      // Login or link Microsoft account
+      const result = await authService.loginWithMicrosoft(profile.id, email);
+
+      // Set refresh token cookie
+      res.cookie('refreshToken', result.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        path: '/api/auth',
+      });
+
+      // Redirect to frontend with access token
+      const userData = encodeURIComponent(JSON.stringify(result.user));
+      res.redirect(`${env.FRONTEND_URL}/auth/callback?accessToken=${result.accessToken}&user=${userData}`);
+    } catch (err: any) {
+      const message = err.message || 'SSO login failed';
+      res.redirect(`${env.FRONTEND_URL}/login?error=${encodeURIComponent(message)}`);
     }
   }
 }

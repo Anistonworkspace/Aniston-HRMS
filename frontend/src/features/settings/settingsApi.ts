@@ -21,6 +21,21 @@ export const settingsApi = api.injectEndpoints({
     testEmailConnection: builder.mutation<any, void>({
       query: () => ({ url: '/settings/email/test', method: 'POST' }),
     }),
+    getTeamsConfig: builder.query<any, void>({
+      query: () => '/settings/teams',
+      providesTags: ['TeamsConfig'],
+    }),
+    saveTeamsConfig: builder.mutation<any, any>({
+      query: (body) => ({ url: '/settings/teams', method: 'POST', body }),
+      invalidatesTags: ['TeamsConfig'],
+    }),
+    testTeamsConnection: builder.mutation<any, void>({
+      query: () => ({ url: '/settings/teams/test', method: 'POST' }),
+    }),
+    syncTeamsEmployees: builder.mutation<any, void>({
+      query: () => ({ url: '/settings/teams/sync', method: 'POST' }),
+      invalidatesTags: ['Employee', 'EmployeeList'],
+    }),
   }),
 });
 
@@ -34,4 +49,8 @@ export const {
   useGetEmailConfigQuery,
   useSaveEmailConfigMutation,
   useTestEmailConnectionMutation,
+  useGetTeamsConfigQuery,
+  useSaveTeamsConfigMutation,
+  useTestTeamsConnectionMutation,
+  useSyncTeamsEmployeesMutation,
 } = settingsApi;

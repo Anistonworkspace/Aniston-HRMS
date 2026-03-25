@@ -18,6 +18,11 @@ import {
   HelpCircle,
   UserPlus,
   LogOut,
+  Award,
+  ClipboardCheck,
+  Monitor,
+  Laptop,
+  UserMinus,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -42,6 +47,11 @@ const navItems: NavItem[] = [
   { name: 'Roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Walk-In Mgmt', path: '/walk-in-management', icon: UserPlus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { name: 'Hiring Passed', path: '/hiring-passed', icon: Award, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { name: 'Employee Exit', path: '/exit-management', icon: UserMinus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { name: 'Interview Tasks', path: '/interview-assignments', icon: ClipboardCheck },
+  { name: 'Assets', managementName: 'Asset Management', path: '/assets', icon: Monitor, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { name: 'My Assets', path: '/my-assets', icon: Laptop },
   { name: 'Performance', path: '/performance', icon: BarChart3 },
   { name: 'Policies', path: '/policies', icon: FileText },
   { name: 'Announcements', path: '/announcements', icon: Megaphone },

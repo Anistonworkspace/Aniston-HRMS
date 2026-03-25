@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { employeeService } from './employee.service.js';
-import { createEmployeeSchema, updateEmployeeSchema, employeeQuerySchema } from './employee.validation.js';
+import { createEmployeeSchema, updateEmployeeSchema, employeeQuerySchema, submitResignationSchema, approveExitSchema, initiateTerminationSchema, exitQuerySchema } from './employee.validation.js';
 
 export class EmployeeController {
   async list(req: Request, res: Response, next: NextFunction) {
@@ -50,6 +50,14 @@ export class EmployeeController {
     } catch (err) {
       next(err);
     }
+  }
+
+  async changeRole(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { role } = z.object({ role: z.string() }).parse(req.body);
+      const result = await employeeService.changeRole(req.params.id, role, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result, message: `Role changed to ${role}` });
+    } catch (err) { next(err); }
   }
 
   async invite(req: Request, res: Response, next: NextFunction) {
@@ -114,6 +122,60 @@ export class EmployeeController {
     } catch (err) {
       next(err);
     }
+  }
+
+  // Exit / Offboarding
+  async submitResignation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = submitResignationSchema.parse(req.body);
+      const result = await employeeService.submitResignation(req.user!.employeeId!, data, req.user!.organizationId);
+      res.json({ success: true, data: result, message: 'Resignation submitted successfully' });
+    } catch (err) { next(err); }
+  }
+
+  async getExitRequests(req: Request, res: Response, next: NextFunction) {
+    try {
+      const query = exitQuerySchema.parse(req.query);
+      const result = await employeeService.getExitRequests(req.user!.organizationId, query);
+      res.json({ success: true, data: result.data, meta: result.meta });
+    } catch (err) { next(err); }
+  }
+
+  async getExitDetails(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await employeeService.getExitDetails(req.params.id, req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async approveExit(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = approveExitSchema.parse(req.body);
+      const result = await employeeService.approveExit(req.params.id, req.user!.userId, data, req.user!.organizationId);
+      res.json({ success: true, data: result, message: 'Exit approved' });
+    } catch (err) { next(err); }
+  }
+
+  async completeExit(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await employeeService.completeExit(req.params.id, req.user!.userId, req.user!.organizationId);
+      res.json({ success: true, data: result, message: 'Exit completed' });
+    } catch (err) { next(err); }
+  }
+
+  async withdrawResignation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await employeeService.withdrawResignation(req.params.id, req.user!.userId, req.user!.organizationId);
+      res.json({ success: true, data: result, message: 'Resignation withdrawn' });
+    } catch (err) { next(err); }
+  }
+
+  async initiateTermination(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = initiateTerminationSchema.parse(req.body);
+      const result = await employeeService.initiateTermination(req.params.id, data, req.user!.userId, req.user!.organizationId);
+      res.json({ success: true, data: result, message: 'Termination initiated' });
+    } catch (err) { next(err); }
   }
 }
 

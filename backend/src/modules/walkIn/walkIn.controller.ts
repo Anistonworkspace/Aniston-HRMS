@@ -112,6 +112,62 @@ export class WalkInController {
     } catch (err) { next(err); }
   }
 
+  async getSelectedCandidates(req: Request, res: Response, next: NextFunction) {
+    try {
+      const query = {
+        page: parseInt(req.query.page as string) || 1,
+        limit: parseInt(req.query.limit as string) || 20,
+        search: req.query.search as string | undefined,
+      };
+      const result = await walkInService.getSelectedCandidates(req.user!.organizationId, query);
+      res.json({ success: true, data: result.data, meta: result.meta });
+    } catch (err) { next(err); }
+  }
+
+  async getInterviewers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const interviewers = await walkInService.getInterviewers(req.user!.organizationId);
+      res.json({ success: true, data: interviewers });
+    } catch (err) { next(err); }
+  }
+
+  async getAllWalkIns(req: Request, res: Response, next: NextFunction) {
+    try {
+      const query = walkInQuerySchema.parse(req.query);
+      const result = await walkInService.getAllWalkIns(req.user!.organizationId, query);
+      res.json({ success: true, data: result.data, meta: result.meta });
+    } catch (err) { next(err); }
+  }
+
+  async getStats(req: Request, res: Response, next: NextFunction) {
+    try {
+      const stats = await walkInService.getWalkInStats(req.user!.organizationId);
+      res.json({ success: true, data: stats });
+    } catch (err) { next(err); }
+  }
+
+  async getMyInterviews(req: Request, res: Response, next: NextFunction) {
+    try {
+      const interviews = await walkInService.getMyInterviews(req.user!.userId);
+      res.json({ success: true, data: interviews });
+    } catch (err) { next(err); }
+  }
+
+  async getMyInterviewDetail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const round = await walkInService.getMyInterviewDetail(req.user!.userId, req.params.roundId);
+      res.json({ success: true, data: round });
+    } catch (err) { next(err); }
+  }
+
+  async submitMyScore(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = updateInterviewRoundSchema.parse(req.body);
+      const result = await walkInService.submitMyInterviewScore(req.user!.userId, req.params.roundId, data);
+      res.json({ success: true, data: result, message: 'Score submitted' });
+    } catch (err) { next(err); }
+  }
+
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await walkInService.remove(req.params.id as string);

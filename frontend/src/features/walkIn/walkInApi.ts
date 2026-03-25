@@ -69,7 +69,7 @@ export const walkInApi = api.injectEndpoints({
     }),
 
     // HR: Add interview round
-    addInterviewRound: builder.mutation<any, { walkInId: string; roundName: string; interviewerName?: string; scheduledAt?: string }>({
+    addInterviewRound: builder.mutation<any, { walkInId: string; roundName: string; interviewerName?: string; interviewerId?: string; scheduledAt?: string }>({
       query: ({ walkInId, ...body }) => ({
         url: `/walk-in/${walkInId}/rounds`,
         method: 'POST',
@@ -122,6 +122,51 @@ export const walkInApi = api.injectEndpoints({
         method: 'POST',
         body: { teamsEmail },
       }),
+      invalidatesTags: ['WalkIn', 'Dashboard'],
+    }),
+
+    // HR: Get selected (hiring passed) candidates
+    getSelectedCandidates: builder.query<any, { page?: number; limit?: number; search?: string }>({
+      query: (params) => ({ url: '/walk-in/selected', params }),
+      providesTags: ['WalkIn'],
+    }),
+
+    // HR: Get available interviewers
+    getInterviewers: builder.query<any, void>({
+      query: () => '/walk-in/interviewers',
+    }),
+
+    // HR: Get ALL walk-ins (not just today)
+    getAllWalkIns: builder.query<any, { page?: number; limit?: number; status?: string; dateFrom?: string; dateTo?: string; search?: string }>({
+      query: (params) => ({ url: '/walk-in/all', params }),
+      providesTags: ['WalkIn'],
+    }),
+
+    // HR: Get walk-in stats (counts per status)
+    getWalkInStats: builder.query<any, void>({
+      query: () => '/walk-in/stats',
+      providesTags: ['WalkIn'],
+    }),
+
+    // Employee: Get my interview assignments
+    getMyInterviews: builder.query<any, void>({
+      query: () => '/walk-in/my-interviews',
+      providesTags: ['WalkIn'],
+    }),
+
+    // Employee: Get interview round detail
+    getMyInterviewDetail: builder.query<any, string>({
+      query: (roundId) => `/walk-in/my-interviews/${roundId}`,
+      providesTags: ['WalkIn'],
+    }),
+
+    // Employee: Submit interview score
+    submitMyScore: builder.mutation<any, { roundId: string; data: any }>({
+      query: ({ roundId, data }) => ({
+        url: `/walk-in/my-interviews/${roundId}/score`,
+        method: 'PATCH',
+        body: data,
+      }),
       invalidatesTags: ['WalkIn'],
     }),
   }),
@@ -143,4 +188,11 @@ export const {
   useConvertWalkInMutation,
   useDeleteWalkInMutation,
   useHireWalkInMutation,
+  useGetSelectedCandidatesQuery,
+  useGetInterviewersQuery,
+  useGetAllWalkInsQuery,
+  useGetWalkInStatsQuery,
+  useGetMyInterviewsQuery,
+  useGetMyInterviewDetailQuery,
+  useSubmitMyScoreMutation,
 } = walkInApi;

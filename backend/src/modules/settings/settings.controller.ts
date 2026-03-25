@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { settingsService } from './settings.service.js';
-import { updateOrganizationSchema, createLocationSchema, updateLocationSchema, auditLogQuerySchema } from './settings.validation.js';
+import { updateOrganizationSchema, createLocationSchema, updateLocationSchema, auditLogQuerySchema, teamsConfigSchema } from './settings.validation.js';
 
 export class SettingsController {
   async getOrganization(req: Request, res: Response, next: NextFunction) {
@@ -102,6 +102,43 @@ export class SettingsController {
     try {
       const result = await settingsService.testEmailConnection(req.user!.organizationId);
       res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getTeamsConfig(req: Request, res: Response, next: NextFunction) {
+    try {
+      const config = await settingsService.getTeamsConfig(req.user!.organizationId);
+      res.json({ success: true, data: config });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async saveTeamsConfig(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = teamsConfigSchema.parse(req.body);
+      await settingsService.saveTeamsConfig(req.user!.organizationId, data, req.user!.userId);
+      res.json({ success: true, message: 'Microsoft Teams configuration saved' });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async testTeamsConnection(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await settingsService.testTeamsConnection(req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async syncTeamsEmployees(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await settingsService.syncEmployeesFromTeams(req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result, message: `Imported ${result.imported} employees, skipped ${result.skipped}` });
     } catch (err) {
       next(err);
     }

@@ -12,4 +12,9 @@ router.post('/reset-password', (req, res, next) => authController.resetPassword(
 router.post('/change-password', authenticate, (req, res, next) => authController.changePassword(req, res, next));
 router.get('/me', authenticate, (req, res, next) => authController.me(req, res, next));
 
+// Microsoft SSO
+router.get('/sso-status', (req, res, next) => authController.ssoStatus(req, res, next));
+router.get('/microsoft', (req, res, next) => authController.microsoftLogin(req, res, next));
+router.get('/microsoft/callback', (req, res, next) => authController.microsoftCallback(req, res, next));
+
 export { router as authRouter };

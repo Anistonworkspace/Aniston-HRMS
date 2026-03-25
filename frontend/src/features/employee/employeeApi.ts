@@ -92,6 +92,15 @@ export const employeeApi = api.injectEndpoints({
       }),
       invalidatesTags: (result, error, { employeeId }) => [{ type: 'Employee', id: employeeId }],
     }),
+
+    changeEmployeeRole: builder.mutation<any, { employeeId: string; role: string }>({
+      query: ({ employeeId, role }) => ({
+        url: `/employees/${employeeId}/role`,
+        method: 'PATCH',
+        body: { role },
+      }),
+      invalidatesTags: (result, error, { employeeId }) => [{ type: 'Employee', id: employeeId }, 'EmployeeList'],
+    }),
   }),
 });
 
@@ -105,4 +114,5 @@ export const {
   useGetLifecycleEventsQuery,
   useAddLifecycleEventMutation,
   useDeleteLifecycleEventMutation,
+  useChangeEmployeeRoleMutation,
 } = employeeApi;

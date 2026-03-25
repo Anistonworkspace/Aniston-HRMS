@@ -64,6 +64,13 @@ export class AssetController {
     }
   }
 
+  async getMyAssets(req: Request, res: Response, next: NextFunction) {
+    try {
+      const assets = await assetService.getMyAssets(req.user!.userId);
+      res.json({ success: true, data: assets });
+    } catch (err) { next(err); }
+  }
+
   async getAssignments(req: Request, res: Response, next: NextFunction) {
     try {
       const assignments = await assetService.getAssignments(req.params.id);

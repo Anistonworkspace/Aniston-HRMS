@@ -61,13 +61,23 @@ export class LeaveService {
 
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { organizationId: true },
+      select: { organizationId: true, gender: true, status: true },
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    // Get all leave types
-    const leaveTypes = await prisma.leaveType.findMany({
-      where: { organizationId: employee.organizationId },
+    // Get only active leave types
+    const allLeaveTypes = await prisma.leaveType.findMany({
+      where: { organizationId: employee.organizationId, isActive: true },
+    });
+
+    // Filter by applicability and gender
+    const leaveTypes = allLeaveTypes.filter((lt) => {
+      // Gender check — skip if leave type is gender-specific and doesn't match
+      if (lt.gender && lt.gender !== employee.gender) return false;
+      // Applicability check
+      if (lt.applicableTo === 'PROBATION' && employee.status !== 'PROBATION') return false;
+      if (lt.applicableTo === 'CONFIRMED' && employee.status === 'PROBATION') return false;
+      return true;
     });
 
     // Get or create balances

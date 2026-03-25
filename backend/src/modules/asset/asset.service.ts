@@ -235,6 +235,22 @@ export class AssetService {
 
     return assignments;
   }
+  async getMyAssets(userId: string) {
+    // Find the employee linked to this user
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { employee: { select: { id: true } } },
+    });
+    if (!user?.employee) return [];
+
+    return prisma.assetAssignment.findMany({
+      where: { employeeId: user.employee.id, returnedAt: null },
+      include: {
+        asset: true,
+      },
+      orderBy: { assignedAt: 'desc' },
+    });
+  }
 }
 
 export const assetService = new AssetService();

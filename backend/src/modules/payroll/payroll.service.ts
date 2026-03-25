@@ -114,6 +114,7 @@ export class PayrollService {
     specialAllowance?: number;
     lta?: number;
     incomeTaxRegime?: string;
+    enabledComponents?: Record<string, boolean>;
   }) {
     const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
     if (!employee) throw new NotFoundError('Employee');
@@ -148,6 +149,7 @@ export class PayrollService {
         professionalTax: pt,
         tds,
         incomeTaxRegime: regime as any,
+        enabledComponents: data.enabledComponents || undefined,
         effectiveFrom: new Date(),
       },
       update: {
@@ -166,6 +168,7 @@ export class PayrollService {
         professionalTax: pt,
         tds,
         incomeTaxRegime: regime as any,
+        enabledComponents: data.enabledComponents || undefined,
         effectiveFrom: new Date(),
       },
     });

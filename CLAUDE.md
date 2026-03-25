@@ -47,9 +47,8 @@ npm run dev
 - Prisma Studio: `npm run db:studio`
 
 ## Login Credentials (Dev)
-- Super Admin: `admin@aniston.in` / `Admin@123456`
-- HR Manager: `hr@aniston.in` / `Hr@123456`
-- Employee: `rahul@aniston.in` / `Employee@123`
+- Super Admin: `superadmin@anistonav.com` / `Superadmin@1234`
+- Other users: Synced from Microsoft Teams (use SSO or assigned credentials)
 
 ## Architecture Decisions
 1. **npm workspaces monorepo** — frontend, backend, shared packages

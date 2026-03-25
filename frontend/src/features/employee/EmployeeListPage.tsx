@@ -1,16 +1,16 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useGetEmployeesQuery } from './employeeApi';
-import CreateEmployeeModal from './CreateEmployeeModal';
+import { Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from './employeeApi';
+import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate } from '../../lib/utils';
+import toast from 'react-hot-toast';
 
 export default function EmployeeListPage() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchDebounce, setSearchDebounce] = useState('');
 
   const { data, isLoading } = useGetEmployeesQuery({
@@ -45,15 +45,6 @@ export default function EmployeeListPage() {
             Manage your team — {meta?.total ?? 0} total
           </p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => setShowCreateModal(true)}
-          className="btn-primary flex items-center gap-2 self-start"
-        >
-          <Plus size={18} />
-          Add Employee
-        </motion.button>
       </div>
 
       {/* Search & Filters */}
@@ -93,6 +84,9 @@ export default function EmployeeListPage() {
               </th>
               <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">
                 Status
+              </th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3 hidden lg:table-cell">
+                Role
               </th>
               <th className="w-12 px-4 py-3" />
             </tr>
@@ -164,6 +158,11 @@ export default function EmployeeListPage() {
                       {emp.status}
                     </span>
                   </td>
+                  <td className="px-4 py-3.5 hidden lg:table-cell">
+                    {(emp as any).user?.role ? (
+                      <RoleBadge role={(emp as any).user.role} employeeId={emp.id} />
+                    ) : <span className="text-xs text-gray-300">—</span>}
+                  </td>
                   <td className="px-4 py-3.5">
                     <button
                       onClick={(e) => e.stopPropagation()}
@@ -208,8 +207,49 @@ export default function EmployeeListPage() {
         )}
       </div>
 
-      {/* Create Employee Modal */}
-      <CreateEmployeeModal open={showCreateModal} onClose={() => setShowCreateModal(false)} />
     </div>
+  );
+}
+
+const ROLE_COLORS: Record<string, string> = {
+  SUPER_ADMIN: 'bg-purple-50 text-purple-700 border-purple-200',
+  ADMIN: 'bg-blue-50 text-blue-700 border-blue-200',
+  HR: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  MANAGER: 'bg-amber-50 text-amber-700 border-amber-200',
+  EMPLOYEE: 'bg-gray-50 text-gray-600 border-gray-200',
+};
+
+function RoleBadge({ role, employeeId }: { role: string; employeeId: string }) {
+  const user = useAppSelector(s => s.auth.user);
+  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const [changeRole] = useChangeEmployeeRoleMutation();
+  const [editing, setEditing] = useState(false);
+
+  const handleChange = async (newRole: string) => {
+    setEditing(false);
+    if (newRole === role) return;
+    try {
+      await changeRole({ employeeId, role: newRole }).unwrap();
+      toast.success(`Role changed to ${newRole}`);
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  if (editing && isAdmin) {
+    return (
+      <select value={role} onChange={e => handleChange(e.target.value)} onBlur={() => setEditing(false)}
+        autoFocus onClick={e => e.stopPropagation()} className="text-xs border rounded-lg px-2 py-1 bg-white">
+        {['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'].map(r => (
+          <option key={r} value={r}>{r.replace('_', ' ')}</option>
+        ))}
+      </select>
+    );
+  }
+
+  return (
+    <span onClick={e => { if (isAdmin) { e.stopPropagation(); setEditing(true); } }}
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${ROLE_COLORS[role] || ROLE_COLORS.EMPLOYEE} ${isAdmin ? 'cursor-pointer hover:ring-1 hover:ring-brand-300' : ''}`}
+      title={isAdmin ? 'Click to change role' : ''}>
+      {role.replace('_', ' ')}
+    </span>
   );
 }

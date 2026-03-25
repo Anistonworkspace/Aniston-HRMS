@@ -65,7 +65,7 @@ export const PERMISSIONS: PermissionsMap = {
   },
 
   [Role.ADMIN]: {
-    employee: ['create', 'read', 'update', 'delete', 'export'],
+    employee: ['create', 'read', 'update', 'delete', 'manage', 'export'],
     attendance: ['create', 'read', 'update', 'delete', 'export'],
     leave: ['create', 'read', 'update', 'delete', 'approve', 'export'],
     payroll: ['create', 'read', 'update', 'delete', 'export'],
@@ -89,7 +89,7 @@ export const PERMISSIONS: PermissionsMap = {
   },
 
   [Role.HR]: {
-    employee: ['create', 'read', 'update', 'export'],
+    employee: ['create', 'read', 'update', 'manage', 'export'],
     attendance: ['read', 'update', 'export'],
     leave: ['read', 'update', 'approve', 'export'],
     payroll: ['create', 'read', 'update', 'export'],

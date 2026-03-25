@@ -193,6 +193,78 @@ export class AuthService {
     };
   }
 
+  async loginWithMicrosoft(microsoftId: string, email: string) {
+    // Try to find user by microsoftId first, then by email
+    let user = await prisma.user.findFirst({
+      where: { microsoftId },
+      include: {
+        employee: {
+          select: { id: true, firstName: true, lastName: true, avatar: true },
+        },
+      },
+    });
+
+    if (!user) {
+      user = await prisma.user.findUnique({
+        where: { email: email.toLowerCase() },
+        include: {
+          employee: {
+            select: { id: true, firstName: true, lastName: true, avatar: true },
+          },
+        },
+      });
+
+      if (user) {
+        // Link Microsoft account to existing user
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { microsoftId, authProvider: 'microsoft' },
+        });
+      }
+    }
+
+    if (!user) {
+      throw new UnauthorizedError('No HRMS account found for this Microsoft account. Contact your administrator.');
+    }
+
+    if (user.status !== 'ACTIVE') {
+      throw new UnauthorizedError('Account is inactive. Contact your administrator.');
+    }
+
+    const accessToken = this.generateAccessToken(user);
+    const refreshToken = await this.generateRefreshToken(user.id);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        employeeId: user.employee?.id,
+        firstName: user.employee?.firstName,
+        lastName: user.employee?.lastName,
+        avatar: user.employee?.avatar,
+        organizationId: user.organizationId,
+      },
+    };
+  }
+
+  async getSsoStatus() {
+    // Single-org system: get the first org's Teams config
+    const org = await prisma.organization.findFirst({ select: { settings: true } });
+    const settings = (org?.settings as any) || {};
+    const teams = settings.microsoftTeams || {};
+    return {
+      microsoftSsoEnabled: !!(teams.ssoEnabled && teams.tenantId && teams.clientId && teams.clientSecret),
+    };
+  }
+
   private generateAccessToken(user: any): string {
     const payload: JwtPayload = {
       userId: user.id,

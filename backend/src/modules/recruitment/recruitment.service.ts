@@ -71,6 +71,19 @@ export class RecruitmentService {
     return prisma.jobOpening.update({ where: { id }, data });
   }
 
+  async deleteJob(id: string) {
+    const job = await prisma.jobOpening.findUnique({
+      where: { id },
+      include: { _count: { select: { applications: true } } },
+    });
+    if (!job) throw new NotFoundError('Job opening');
+    if (job._count.applications > 0) {
+      throw new BadRequestError('Cannot delete job with existing applications. Close it instead.');
+    }
+    await prisma.jobOpening.delete({ where: { id } });
+    return { message: 'Job deleted successfully' };
+  }
+
   // ==================
   // APPLICATIONS
   // ==================

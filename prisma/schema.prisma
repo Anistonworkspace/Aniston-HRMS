@@ -48,6 +48,8 @@ model User {
   status         UserStatus @default(ACTIVE)
   lastLoginAt    DateTime?
   mfaEnabled     Boolean    @default(false)
+  microsoftId    String?    @unique
+  authProvider   String     @default("local")
   organizationId String
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
@@ -55,6 +57,7 @@ model User {
   organization Organization @relation(fields: [organizationId], references: [id])
   employee     Employee?
   auditLogs    AuditLog[]
+  walkInInterviews WalkInInterviewRound[]
 }
 
 enum Role {
@@ -109,6 +112,16 @@ model Employee {
   // Police Verification
   policeVerificationStatus PoliceVerificationStatus @default(PENDING)
   policeVerificationDate   DateTime?
+
+  // Exit / Offboarding
+  resignationDate    DateTime?
+  resignationReason  String?
+  lastWorkingDate    DateTime?
+  exitType           String?
+  exitStatus         String?
+  exitApprovedBy     String?
+  exitApprovedAt     DateTime?
+  exitNotes          String?
 
   // Timestamps
   createdAt DateTime  @default(now())
@@ -569,10 +582,11 @@ model SalaryStructure {
   esiEmployer      Decimal? @db.Decimal(12, 2)
   professionalTax  Decimal? @db.Decimal(12, 2)
   tds              Decimal? @db.Decimal(12, 2)
-  incomeTaxRegime  TaxRegime @default(NEW_REGIME)
-  effectiveFrom    DateTime
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  incomeTaxRegime    TaxRegime @default(NEW_REGIME)
+  enabledComponents  Json?
+  effectiveFrom      DateTime
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   employee Employee @relation(fields: [employeeId], references: [id])
 }
@@ -787,6 +801,7 @@ model Asset {
   updatedAt    DateTime      @updatedAt
 
   assignments AssetAssignment[]
+  tickets     Ticket[]
 }
 
 enum AssetCategory {
@@ -1027,7 +1042,10 @@ model Ticket {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  assetId        String?
+
   employee Employee @relation(fields: [employeeId], references: [id])
+  asset    Asset?   @relation(fields: [assetId], references: [id])
   comments TicketComment[]
 }
 
@@ -1134,6 +1152,10 @@ model WalkInCandidate {
   aboutMe          String?
   resumeUrl        String?
 
+  // AI Scoring
+  aiScore          Decimal?    @db.Decimal(5, 2)
+  aiScoreDetails   Json?
+
   // Status
   registrationDate DateTime    @default(now())
   status           WalkInStatus @default(WAITING)
@@ -1160,6 +1182,7 @@ model WalkInInterviewRound {
   roundNumber     Int
   roundName       String   // "HR Screening", "Technical Round", "Manager Round", etc.
   interviewerName String?
+  interviewerId   String?
   scheduledAt     DateTime?
   completedAt     DateTime?
   status          InterviewRoundStatus @default(PENDING)
@@ -1176,7 +1199,8 @@ model WalkInInterviewRound {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  walkIn WalkInCandidate @relation(fields: [walkInId], references: [id], onDelete: Cascade)
+  walkIn      WalkInCandidate @relation(fields: [walkInId], references: [id], onDelete: Cascade)
+  interviewer User?           @relation(fields: [interviewerId], references: [id])
 
   @@unique([walkInId, roundNumber])
   @@index([walkInId])

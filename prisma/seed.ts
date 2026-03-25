@@ -79,12 +79,12 @@ async function main() {
   console.log(`  ✅ Designations: ${designations.length} created`);
 
   // Create Super Admin
-  const adminPassword = await bcrypt.hash('Admin@123456', 12);
+  const adminPassword = await bcrypt.hash('Superadmin@1234', 12);
   const adminUser = await prisma.user.upsert({
-    where: { email: 'admin@aniston.in' },
+    where: { email: 'superadmin@anistonav.com' },
     update: {},
     create: {
-      email: 'admin@aniston.in',
+      email: 'superadmin@anistonav.com',
       passwordHash: adminPassword,
       role: 'SUPER_ADMIN',
       status: 'ACTIVE',
@@ -105,9 +105,9 @@ async function main() {
     create: {
       employeeCode: 'EMP-001',
       userId: adminUser.id,
-      firstName: 'Aniston',
+      firstName: 'Super',
       lastName: 'Admin',
-      email: 'admin@aniston.in',
+      email: 'superadmin@anistonav.com',
       phone: '+91-9999999999',
       gender: 'MALE',
       departmentId: engDept?.id,
@@ -118,103 +118,7 @@ async function main() {
       organizationId: org.id,
     },
   });
-  console.log('  ✅ Super Admin: admin@aniston.in / Admin@123456');
-
-  // Create HR user
-  const hrPassword = await bcrypt.hash('Hr@123456', 12);
-  const hrUser = await prisma.user.upsert({
-    where: { email: 'hr@aniston.in' },
-    update: {},
-    create: {
-      email: 'hr@aniston.in',
-      passwordHash: hrPassword,
-      role: 'HR',
-      status: 'ACTIVE',
-      organizationId: org.id,
-    },
-  });
-
-  const hrDept = await prisma.department.findFirst({
-    where: { name: 'Human Resources', organizationId: org.id },
-  });
-  const hrDes = await prisma.designation.findFirst({
-    where: { name: 'HR Manager', organizationId: org.id },
-  });
-
-  await prisma.employee.upsert({
-    where: { employeeCode: 'EMP-002' },
-    update: {},
-    create: {
-      employeeCode: 'EMP-002',
-      userId: hrUser.id,
-      firstName: 'Priya',
-      lastName: 'Sharma',
-      email: 'hr@aniston.in',
-      phone: '+91-9888888888',
-      gender: 'FEMALE',
-      departmentId: hrDept?.id,
-      designationId: hrDes?.id,
-      workMode: 'OFFICE',
-      joiningDate: new Date('2024-02-15'),
-      status: 'ACTIVE',
-      organizationId: org.id,
-    },
-  });
-  console.log('  ✅ HR Manager: hr@aniston.in / Hr@123456');
-
-  // Create sample employees
-  const sampleEmployees = [
-    { first: 'Rahul', last: 'Kumar', email: 'rahul@aniston.in', dept: 'Engineering', desig: 'Senior Software Engineer', role: 'EMPLOYEE' as const, workMode: 'OFFICE' as const, gender: 'MALE' as const },
-    { first: 'Sneha', last: 'Patel', email: 'sneha@aniston.in', dept: 'Engineering', desig: 'Software Engineer', role: 'EMPLOYEE' as const, workMode: 'HYBRID' as const, gender: 'FEMALE' as const },
-    { first: 'Amit', last: 'Singh', email: 'amit@aniston.in', dept: 'Sales', desig: 'Sales Manager', role: 'MANAGER' as const, workMode: 'FIELD_SALES' as const, gender: 'MALE' as const },
-    { first: 'Kavya', last: 'Nair', email: 'kavya@aniston.in', dept: 'Design', desig: 'UI/UX Designer', role: 'EMPLOYEE' as const, workMode: 'REMOTE' as const, gender: 'FEMALE' as const },
-    { first: 'Vikram', last: 'Reddy', email: 'vikram@aniston.in', dept: 'Engineering', desig: 'Engineering Manager', role: 'MANAGER' as const, workMode: 'OFFICE' as const, gender: 'MALE' as const },
-    { first: 'Ananya', last: 'Gupta', email: 'ananya@aniston.in', dept: 'Marketing', desig: 'Marketing Executive', role: 'EMPLOYEE' as const, workMode: 'HYBRID' as const, gender: 'FEMALE' as const },
-    { first: 'Rohan', last: 'Joshi', email: 'rohan@aniston.in', dept: 'Quality Assurance', desig: 'QA Engineer', role: 'EMPLOYEE' as const, workMode: 'OFFICE' as const, gender: 'MALE' as const },
-    { first: 'Deepa', last: 'Menon', email: 'deepa@aniston.in', dept: 'Finance', desig: 'Marketing Executive', role: 'EMPLOYEE' as const, workMode: 'OFFICE' as const, gender: 'FEMALE' as const },
-  ];
-
-  let empCode = 3;
-  for (const emp of sampleEmployees) {
-    const password = await bcrypt.hash('Employee@123', 12);
-    const dept = await prisma.department.findFirst({ where: { name: emp.dept, organizationId: org.id } });
-    const desig = await prisma.designation.findFirst({ where: { name: emp.desig, organizationId: org.id } });
-    const code = `EMP-${String(empCode).padStart(3, '0')}`;
-
-    const existingUser = await prisma.user.findUnique({ where: { email: emp.email } });
-    if (!existingUser) {
-      const user = await prisma.user.create({
-        data: {
-          email: emp.email,
-          passwordHash: password,
-          role: emp.role,
-          status: 'ACTIVE',
-          organizationId: org.id,
-        },
-      });
-
-      await prisma.employee.create({
-        data: {
-          employeeCode: code,
-          userId: user.id,
-          firstName: emp.first,
-          lastName: emp.last,
-          email: emp.email,
-          phone: `+91-98${String(Math.floor(Math.random() * 100000000)).padStart(8, '0')}`,
-          gender: emp.gender,
-          dateOfBirth: new Date(1990 + Math.floor(Math.random() * 10), Math.floor(Math.random() * 12), Math.floor(Math.random() * 28) + 1),
-          departmentId: dept?.id,
-          designationId: desig?.id,
-          workMode: emp.workMode,
-          joiningDate: new Date(2024, Math.floor(Math.random() * 12), Math.floor(Math.random() * 28) + 1),
-          status: 'ACTIVE',
-          organizationId: org.id,
-        },
-      });
-    }
-    empCode++;
-  }
-  console.log(`  ✅ Sample employees: ${sampleEmployees.length} created`);
+  console.log('  ✅ Super Admin: superadmin@anistonav.com / Superadmin@1234');
 
   // Create leave types
   const leaveTypes = [
@@ -261,9 +165,7 @@ async function main() {
 
   console.log('\n🎉 Seed completed successfully!');
   console.log('\nLogin credentials:');
-  console.log('  Super Admin: admin@aniston.in / Admin@123456');
-  console.log('  HR Manager:  hr@aniston.in / Hr@123456');
-  console.log('  Employee:    rahul@aniston.in / Employee@123');
+  console.log('  Super Admin: superadmin@anistonav.com / Superadmin@1234');
 }
 
 main()

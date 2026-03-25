@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Users, UserCheck, CalendarOff, Briefcase, TrendingUp, Clock, ClipboardCheck, DollarSign, MessageSquare, MapPin, Loader2 } from 'lucide-react';
+import { Users, UserCheck, CalendarOff, Briefcase, TrendingUp, Clock, ClipboardCheck, DollarSign, MessageSquare, MapPin, Loader2, Award } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/store';
 import { useGetDashboardStatsQuery } from './dashboardApi';
@@ -67,6 +67,7 @@ export default function DashboardPage() {
     { label: 'Present Today', value: stats?.presentToday ?? 0, icon: UserCheck, color: 'bg-emerald-500', change: 'of active' },
     { label: 'On Leave', value: stats?.onLeaveToday ?? 0, icon: CalendarOff, color: 'bg-amber-500', change: 'today' },
     { label: 'Open Positions', value: stats?.openPositions ?? 0, icon: Briefcase, color: 'bg-purple-500', change: 'hiring' },
+    ...(stats?.hiringPassed ? [{ label: 'Hiring Passed', value: stats.hiringPassed, icon: Award, color: 'bg-emerald-500', change: 'ready to onboard' }] : []),
   ];
 
   return (
@@ -173,33 +174,22 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
-        {/* Recent hires */}
-        <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
-          <h2 className="text-lg font-display font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <TrendingUp size={18} className="text-emerald-500" />
-            Recent Hires
+        {/* Pending approvals */}
+        <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6 cursor-pointer hover:ring-2 hover:ring-brand-200 transition-all" onClick={() => navigate('/pending-approvals')}>
+          <h2 className="text-lg font-display font-semibold text-gray-800 mb-4">
+            📋 Pending Approvals
           </h2>
-          {stats?.recentHires && stats.recentHires.length > 0 ? (
-            <div className="space-y-3">
-              {stats.recentHires.map((hire) => (
-                <div key={hire.id} className="flex items-center gap-3 py-2">
-                  <div className="w-9 h-9 rounded-lg bg-brand-100 flex items-center justify-center text-brand-700 font-semibold text-sm">
-                    {getInitials(hire.firstName, hire.lastName)}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">
-                      {hire.firstName} {hire.lastName}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      Joined {formatDate(hire.joiningDate)}
-                    </p>
-                  </div>
-                </div>
-              ))}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between py-2.5 px-3 bg-amber-50 rounded-lg border border-amber-100">
+              <div className="flex items-center gap-2">
+                <CalendarOff size={16} className="text-amber-600" />
+                <span className="text-sm text-amber-800">Leave Requests</span>
+              </div>
+              <span className="badge badge-warning font-mono" data-mono>
+                {stats?.pendingLeaves ?? 0}
+              </span>
             </div>
-          ) : (
-            <p className="text-sm text-gray-400 text-center py-8">No recent hires</p>
-          )}
+          </div>
         </motion.div>
 
         {/* Upcoming birthdays */}
@@ -230,22 +220,33 @@ export default function DashboardPage() {
           )}
         </motion.div>
 
-        {/* Pending approvals */}
+        {/* Recent hires */}
         <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
-          <h2 className="text-lg font-display font-semibold text-gray-800 mb-4">
-            📋 Pending Approvals
+          <h2 className="text-lg font-display font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <TrendingUp size={18} className="text-emerald-500" />
+            Recent Hires
           </h2>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between py-2.5 px-3 bg-amber-50 rounded-lg border border-amber-100">
-              <div className="flex items-center gap-2">
-                <CalendarOff size={16} className="text-amber-600" />
-                <span className="text-sm text-amber-800">Leave Requests</span>
-              </div>
-              <span className="badge badge-warning font-mono" data-mono>
-                {stats?.pendingLeaves ?? 0}
-              </span>
+          {stats?.recentHires && stats.recentHires.length > 0 ? (
+            <div className="space-y-3">
+              {stats.recentHires.map((hire) => (
+                <div key={hire.id} className="flex items-center gap-3 py-2">
+                  <div className="w-9 h-9 rounded-lg bg-brand-100 flex items-center justify-center text-brand-700 font-semibold text-sm">
+                    {getInitials(hire.firstName, hire.lastName)}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">
+                      {hire.firstName} {hire.lastName}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      Joined {formatDate(hire.joiningDate)}
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-8">No recent hires</p>
+          )}
         </motion.div>
       </div>
     </div>

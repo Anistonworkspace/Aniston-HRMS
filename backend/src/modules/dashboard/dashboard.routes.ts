@@ -9,4 +9,8 @@ router.get('/stats', (req, res, next) =>
   dashboardController.getStats(req, res, next)
 );
 
+router.get('/pending-approvals', (req, res, next) =>
+  dashboardController.getPendingApprovals(req, res, next)
+);
+
 export { router as dashboardRouter };

@@ -1,6 +1,10 @@
 import { prisma } from '../../lib/prisma.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
-import type { UpdateOrganizationInput, CreateLocationInput, UpdateLocationInput, AuditLogQuery } from './settings.validation.js';
+import { encrypt, decrypt } from '../../utils/encryption.js';
+import { validateConnection, getClientCredentialsToken, getOrganizationUsers } from '../../lib/microsoftGraph.js';
+import bcrypt from 'bcryptjs';
+import { env } from '../../config/env.js';
+import type { UpdateOrganizationInput, CreateLocationInput, UpdateLocationInput, AuditLogQuery, TeamsConfigInput } from './settings.validation.js';
 
 export class SettingsService {
   async getOrganization(organizationId: string) {
@@ -111,6 +115,7 @@ export class SettingsService {
       hasPassword: !!email.pass,
       fromAddress: email.fromAddress || '',
       fromName: email.fromName || '',
+      emailDomain: email.emailDomain || '',
       configured: !!(email.host && email.user && email.pass),
     };
   }
@@ -127,6 +132,7 @@ export class SettingsService {
       pass: config.pass || existingEmail.pass || '',
       fromAddress: config.fromAddress,
       fromName: config.fromName,
+      emailDomain: (config as any).emailDomain || existingEmail.emailDomain || '',
     };
 
     await prisma.organization.update({
@@ -168,6 +174,198 @@ export class SettingsService {
     } catch (err: any) {
       return { success: false, message: `Connection failed: ${err.message}` };
     }
+  }
+
+  // ==================
+  // TEAMS CONFIG
+  // ==================
+
+  async getTeamsConfig(organizationId: string) {
+    const org = await prisma.organization.findFirst({ where: { id: organizationId }, select: { settings: true } });
+    const settings = (org?.settings as any) || {};
+    const teams = settings.microsoftTeams || {};
+    return {
+      tenantId: teams.tenantId || '',
+      clientId: teams.clientId || '',
+      hasClientSecret: !!teams.clientSecret,
+      redirectUri: teams.redirectUri || `${env.API_URL}/api/auth/microsoft/callback`,
+      ssoEnabled: !!teams.ssoEnabled,
+      configured: !!(teams.tenantId && teams.clientId && teams.clientSecret),
+      connectionVerified: !!teams.connectionVerified,
+      connectionVerifiedAt: teams.connectionVerifiedAt || null,
+    };
+  }
+
+  async saveTeamsConfig(organizationId: string, config: TeamsConfigInput, userId: string) {
+    const org = await prisma.organization.findFirst({ where: { id: organizationId }, select: { settings: true } });
+    const existingSettings = (org?.settings as any) || {};
+    const existingTeams = existingSettings.microsoftTeams || {};
+
+    const teamsConfig: any = {
+      tenantId: config.tenantId,
+      clientId: config.clientId,
+      clientSecret: config.clientSecret ? encrypt(config.clientSecret) : existingTeams.clientSecret || '',
+      redirectUri: config.redirectUri || existingTeams.redirectUri || '',
+      ssoEnabled: config.ssoEnabled,
+      connectionVerified: existingTeams.connectionVerified || false,
+      connectionVerifiedAt: existingTeams.connectionVerifiedAt || null,
+    };
+
+    await prisma.organization.update({
+      where: { id: organizationId },
+      data: { settings: { ...existingSettings, microsoftTeams: teamsConfig } },
+    });
+
+    await createAuditLog({
+      userId,
+      organizationId,
+      entity: 'TeamsConfig',
+      entityId: organizationId,
+      action: 'UPDATE',
+      newValue: { tenantId: config.tenantId, clientId: config.clientId, ssoEnabled: config.ssoEnabled },
+    });
+
+    return { success: true };
+  }
+
+  async testTeamsConnection(organizationId: string) {
+    const org = await prisma.organization.findFirst({ where: { id: organizationId }, select: { settings: true } });
+    const settings = (org?.settings as any) || {};
+    const teams = settings.microsoftTeams;
+
+    if (!teams?.tenantId || !teams?.clientId || !teams?.clientSecret) {
+      return { success: false, message: 'Microsoft Teams not configured. Please save your Azure AD credentials first.' };
+    }
+
+    try {
+      const clientSecret = decrypt(teams.clientSecret);
+      const result = await validateConnection(teams.tenantId, teams.clientId, clientSecret);
+
+      // Persist connection verification status
+      const updatedTeams = {
+        ...teams,
+        connectionVerified: result.success,
+        connectionVerifiedAt: result.success ? new Date().toISOString() : null,
+      };
+      await prisma.organization.update({
+        where: { id: organizationId },
+        data: { settings: { ...settings, microsoftTeams: updatedTeams } },
+      });
+
+      return result;
+    } catch (err: any) {
+      // Mark as not verified on error
+      const updatedTeams = { ...teams, connectionVerified: false, connectionVerifiedAt: null };
+      await prisma.organization.update({
+        where: { id: organizationId },
+        data: { settings: { ...settings, microsoftTeams: updatedTeams } },
+      });
+      return { success: false, message: `Connection failed: ${err.message}` };
+    }
+  }
+
+  async syncEmployeesFromTeams(organizationId: string, userId: string) {
+    const org = await prisma.organization.findFirst({ where: { id: organizationId }, select: { settings: true } });
+    const settings = (org?.settings as any) || {};
+    const teams = settings.microsoftTeams;
+
+    if (!teams?.tenantId || !teams?.clientId || !teams?.clientSecret) {
+      throw new Error('Microsoft Teams not configured. Please save your Azure AD credentials first.');
+    }
+
+    const clientSecret = decrypt(teams.clientSecret);
+    const accessToken = await getClientCredentialsToken(teams.tenantId, teams.clientId, clientSecret);
+    const azureUsers = await getOrganizationUsers(accessToken);
+
+    let imported = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    // Get existing employee count for code generation
+    const existingCount = await prisma.employee.count({ where: { organizationId } });
+    let nextCode = existingCount + 1;
+
+    for (const azUser of azureUsers) {
+      const email = (azUser.mail || azUser.userPrincipalName || '').toLowerCase();
+      if (!email || email.includes('#EXT#')) { skipped++; continue; } // Skip external/guest users
+
+      // Check if user already exists
+      const existingUser = await prisma.user.findFirst({
+        where: { OR: [{ email }, { microsoftId: azUser.id }] },
+      });
+      if (existingUser) { skipped++; continue; }
+
+      try {
+        // Split displayName into first/last
+        const parts = (azUser.displayName || email.split('@')[0]).split(' ');
+        const firstName = parts[0] || 'Unknown';
+        const lastName = parts.slice(1).join(' ') || '';
+
+        // Generate employee code
+        const employeeCode = `EMP-${String(nextCode).padStart(3, '0')}`;
+        nextCode++;
+
+        // Generate temp password
+        const tempPassword = await bcrypt.hash(`Welcome@${new Date().getFullYear()}`, 12);
+
+        // Find matching department if Azure AD has one
+        let departmentId: string | null = null;
+        if (azUser.department) {
+          const dept = await prisma.department.findFirst({
+            where: { name: { equals: azUser.department, mode: 'insensitive' }, organizationId },
+          });
+          departmentId = dept?.id || null;
+        }
+
+        // Create user + employee in transaction
+        await prisma.$transaction(async (tx) => {
+          const user = await tx.user.create({
+            data: {
+              email,
+              passwordHash: tempPassword,
+              role: 'EMPLOYEE',
+              status: 'ACTIVE',
+              microsoftId: azUser.id,
+              authProvider: 'microsoft',
+              organizationId,
+            },
+          });
+
+          await tx.employee.create({
+            data: {
+              employeeCode,
+              userId: user.id,
+              firstName,
+              lastName,
+              email,
+              phone: '',
+              gender: 'PREFER_NOT_TO_SAY',
+              departmentId,
+              workMode: 'OFFICE',
+              joiningDate: new Date(),
+              status: 'ACTIVE',
+              organizationId,
+            },
+          });
+        });
+
+        imported++;
+      } catch (err: any) {
+        errors.push(`${email}: ${err.message}`);
+      }
+    }
+
+    // Audit log
+    await createAuditLog({
+      userId,
+      organizationId,
+      entity: 'TeamsSync',
+      entityId: organizationId,
+      action: 'CREATE',
+      newValue: { imported, skipped, errors: errors.length },
+    });
+
+    return { imported, skipped, total: azureUsers.length, errors };
   }
 
   getSystemInfo() {

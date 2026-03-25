@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { User, Mail, Phone, Building2, MapPin, Calendar, Shield, Edit2, Key, Loader2, Save, X, Camera, Upload } from 'lucide-react';
+import { User, Mail, Phone, Building2, MapPin, Calendar, Shield, Edit2, Key, Loader2, Save, X, Camera, Upload, UserMinus, AlertTriangle, Clock } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { useGetMeQuery, useChangePasswordMutation } from '../auth/authApi';
 import { useUpdateEmployeeMutation, useGetEmployeeQuery } from '../employee/employeeApi';
+import { useSubmitResignationMutation } from '../exit/exitApi';
 import { getInitials, formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -17,8 +18,11 @@ export default function ProfilePage() {
   const employee = empRes?.data;
 
   const [updateEmployee, { isLoading: updating }] = useUpdateEmployeeMutation();
+  const [submitResignation, { isLoading: resigning }] = useSubmitResignationMutation();
   const [showEdit, setShowEdit] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showResignModal, setShowResignModal] = useState(false);
+  const [resignForm, setResignForm] = useState({ reason: '', lastWorkingDate: '' });
 
   const [form, setForm] = useState({
     phone: '',
@@ -102,11 +106,93 @@ export default function ProfilePage() {
               )}
             </div>
           </div>
-          <button onClick={() => setShowEdit(!showEdit)} className="btn-secondary flex items-center gap-2 text-sm">
-            {showEdit ? <><X size={14} /> Cancel</> : <><Edit2 size={14} /> Edit Profile</>}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setShowEdit(!showEdit)} className="btn-secondary flex items-center gap-2 text-sm">
+              {showEdit ? <><X size={14} /> Cancel</> : <><Edit2 size={14} /> Edit Profile</>}
+            </button>
+            {employee && !employee.exitStatus && employee.status !== 'TERMINATED' && (
+              <button onClick={() => setShowResignModal(true)} className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
+                <UserMinus size={14} /> Submit Resignation
+              </button>
+            )}
+          </div>
         </div>
       </motion.div>
+
+      {/* Exit Status Card */}
+      {employee?.exitStatus && employee.exitStatus !== 'WITHDRAWN' && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="layer-card p-4 mb-6 border border-amber-200 bg-amber-50/50">
+          <div className="flex items-center gap-3">
+            {employee.exitStatus === 'COMPLETED' ? <UserMinus size={20} className="text-emerald-600" /> : <Clock size={20} className="text-amber-600" />}
+            <div>
+              <p className="text-sm font-semibold text-gray-800">
+                {employee.exitStatus === 'PENDING' && 'Resignation Pending Approval'}
+                {employee.exitStatus === 'APPROVED' && 'Resignation Approved'}
+                {employee.exitStatus === 'NO_DUES_PENDING' && 'Exit Approved — No Dues Pending'}
+                {employee.exitStatus === 'COMPLETED' && 'Exit Completed'}
+              </p>
+              <p className="text-xs text-gray-500">
+                {employee.lastWorkingDate && `Last working date: ${new Date(employee.lastWorkingDate).toLocaleDateString('en-IN')}`}
+                {employee.exitType && ` · ${employee.exitType.replace(/_/g, ' ')}`}
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Resign Modal */}
+      {showResignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setShowResignModal(false)}>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-display font-semibold text-gray-800">Submit Resignation</h3>
+              <button onClick={() => setShowResignModal(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            </div>
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 text-amber-700 text-xs mb-4">
+              <AlertTriangle size={14} />
+              This will notify HR and begin the exit process.
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Reason *</label>
+                <textarea
+                  value={resignForm.reason}
+                  onChange={e => setResignForm({ ...resignForm, reason: e.target.value })}
+                  className="input-glass w-full text-sm" rows={3}
+                  placeholder="Please provide your reason for resignation..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Proposed Last Working Date *</label>
+                <input
+                  type="date"
+                  value={resignForm.lastWorkingDate}
+                  onChange={e => setResignForm({ ...resignForm, lastWorkingDate: e.target.value })}
+                  className="input-glass w-full text-sm"
+                  min={new Date().toISOString().split('T')[0]}
+                />
+              </div>
+              <button
+                onClick={async () => {
+                  if (!resignForm.reason || !resignForm.lastWorkingDate) { toast.error('Please fill all fields'); return; }
+                  try {
+                    await submitResignation(resignForm).unwrap();
+                    toast.success('Resignation submitted — HR has been notified');
+                    setShowResignModal(false);
+                    setResignForm({ reason: '', lastWorkingDate: '' });
+                  } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to submit'); }
+                }}
+                disabled={resigning}
+                className="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+              >
+                {resigning ? <Loader2 size={16} className="animate-spin" /> : <UserMinus size={16} />}
+                {resigning ? 'Submitting...' : 'Confirm Resignation'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Edit profile form */}
       {showEdit && (

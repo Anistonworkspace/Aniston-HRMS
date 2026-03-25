@@ -57,6 +57,33 @@ export const employeeQuerySchema = z.object({
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
 
+export const submitResignationSchema = z.object({
+  reason: z.string().min(1, 'Reason is required'),
+  lastWorkingDate: z.string().min(1, 'Last working date is required'),
+});
+
+export const approveExitSchema = z.object({
+  lastWorkingDate: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const initiateTerminationSchema = z.object({
+  reason: z.string().min(1, 'Reason is required'),
+  lastWorkingDate: z.string().min(1, 'Last working date is required'),
+  notes: z.string().optional(),
+});
+
+export const exitQuerySchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  limit: z.coerce.number().min(1).max(100).default(20),
+  status: z.string().optional(),
+  department: z.string().optional(),
+});
+
+export type SubmitResignationInput = z.infer<typeof submitResignationSchema>;
+export type ApproveExitInput = z.infer<typeof approveExitSchema>;
+export type InitiateTerminationInput = z.infer<typeof initiateTerminationSchema>;
+export type ExitQuery = z.infer<typeof exitQuerySchema>;
 export type CreateEmployeeInput = z.infer<typeof createEmployeeSchema>;
 export type UpdateEmployeeInput = z.infer<typeof updateEmployeeSchema>;
 export type EmployeeQuery = z.infer<typeof employeeQuerySchema>;

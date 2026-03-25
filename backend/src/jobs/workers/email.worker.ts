@@ -48,6 +48,51 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
       ${ctx.remarks ? `<p style="color: #6B7280;">Remarks: ${ctx.remarks}</p>` : ''}
     </div>
   `,
+  'resignation-submitted': (ctx) => `
+    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #DC2626, #EF4444); padding: 32px; border-radius: 12px 12px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">Resignation Notice</h1>
+      </div>
+      <div style="padding: 32px; background: #fff; border: 1px solid #E5E7EB; border-radius: 0 0 12px 12px;">
+        <p><strong>${ctx.name}</strong> (${ctx.employeeCode}) has submitted their resignation.</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+          <tr><td style="padding: 8px 0; color: #6B7280;">Department</td><td style="padding: 8px 0; font-weight: 600;">${ctx.department || 'N/A'}</td></tr>
+          <tr><td style="padding: 8px 0; color: #6B7280;">Last Working Date</td><td style="padding: 8px 0; font-weight: 600;">${ctx.lastWorkingDate}</td></tr>
+          <tr><td style="padding: 8px 0; color: #6B7280;">Reason</td><td style="padding: 8px 0;">${ctx.reason}</td></tr>
+        </table>
+        <a href="${ctx.link}" style="display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; margin: 16px 0;">
+          Review in HRMS Portal
+        </a>
+      </div>
+    </div>
+  `,
+  'exit-approved': (ctx) => `
+    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px; background: #fff; border: 1px solid #E5E7EB; border-radius: 12px;">
+      <h2 style="color: #111827;">Resignation Approved</h2>
+      <p>Hi ${ctx.name},</p>
+      <p>Your resignation has been approved. Your last working date is <strong>${ctx.lastWorkingDate}</strong>.</p>
+      <p>Please ensure the following before your last day:</p>
+      <ul style="color: #4B5563;">
+        <li>Return all assigned assets (laptop, access card, etc.)</li>
+        <li>Complete knowledge transfer with your team</li>
+        <li>Clear any pending no-dues items</li>
+      </ul>
+      ${ctx.notes ? `<p style="color: #6B7280;">Notes from HR: ${ctx.notes}</p>` : ''}
+    </div>
+  `,
+  'exit-completed': (ctx) => `
+    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #059669, #10B981); padding: 32px; border-radius: 12px 12px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">Exit Process Complete</h1>
+      </div>
+      <div style="padding: 32px; background: #fff; border: 1px solid #E5E7EB; border-radius: 0 0 12px 12px;">
+        <p>Hi ${ctx.name},</p>
+        <p>Your exit process from Aniston Technologies has been completed successfully.</p>
+        <p>All no-dues have been cleared and your account has been deactivated.</p>
+        <p style="color: #6B7280; margin-top: 24px;">We wish you all the very best for your future endeavours. Thank you for your contributions to Aniston Technologies.</p>
+      </div>
+    </div>
+  `,
   'generic': (ctx) => `
     <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px; background: #fff; border: 1px solid #E5E7EB; border-radius: 12px;">
       <h2 style="color: #111827;">${ctx.title || 'Notification'}</h2>

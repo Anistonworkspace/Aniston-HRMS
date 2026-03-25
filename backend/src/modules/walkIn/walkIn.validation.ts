@@ -46,6 +46,8 @@ export const walkInQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(20),
   status: z.string().optional(),
   date: z.string().optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
   search: z.string().optional(),
 });
 
@@ -53,11 +55,13 @@ export const walkInQuerySchema = z.object({
 export const addInterviewRoundSchema = z.object({
   roundName: z.string().min(1).max(100),
   interviewerName: z.string().max(100).optional(),
+  interviewerId: z.string().uuid().optional(),
   scheduledAt: z.string().optional(), // ISO datetime
 });
 
 export const updateInterviewRoundSchema = z.object({
   interviewerName: z.string().max(100).optional(),
+  interviewerId: z.string().uuid().optional(),
   scheduledAt: z.string().optional(),
   status: z.enum(['PENDING', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']).optional(),
   communication: z.number().int().min(1).max(10).optional(),

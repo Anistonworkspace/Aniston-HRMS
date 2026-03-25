@@ -26,7 +26,10 @@ export const authApi = api.injectEndpoints({
         body,
       }),
     }),
+    getSsoStatus: builder.query<ApiResponse<{ microsoftSsoEnabled: boolean }>, void>({
+      query: () => '/auth/sso-status',
+    }),
   }),
 });
 
-export const { useLoginMutation, useLogoutMutation, useGetMeQuery, useChangePasswordMutation } = authApi;
+export const { useLoginMutation, useLogoutMutation, useGetMeQuery, useChangePasswordMutation, useGetSsoStatusQuery } = authApi;

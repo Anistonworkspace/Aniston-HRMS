@@ -18,6 +18,7 @@ import {
   useConvertWalkInMutation,
   useDeleteWalkInMutation,
   useHireWalkInMutation,
+  useGetInterviewersQuery,
 } from './walkInApi';
 import toast from 'react-hot-toast';
 
@@ -328,6 +329,56 @@ function OverviewTab({ candidate, onEdit }: { candidate: any; onEdit: () => void
           <p className="text-sm text-gray-400 italic">No notes yet</p>
         )}
       </div>
+
+      {/* AI Analysis */}
+      {candidate.aiScore && (
+        <div className="layer-card p-5 lg:col-span-2">
+          <h3 className="font-semibold text-gray-800 flex items-center gap-2 mb-4">
+            <Star className="w-4 h-4 text-amber-400" /> AI Resume Analysis
+          </h3>
+          <div className="grid sm:grid-cols-3 gap-4 mb-4">
+            <div className="text-center p-3 bg-gray-50 rounded-xl">
+              <p className="text-3xl font-bold text-brand-600" data-mono>{Number(candidate.aiScore).toFixed(0)}</p>
+              <p className="text-xs text-gray-400 mt-1">Overall Score</p>
+            </div>
+            {candidate.aiScoreDetails?.match_percentage && (
+              <div className="text-center p-3 bg-gray-50 rounded-xl">
+                <p className="text-3xl font-bold text-emerald-600" data-mono>{Number(candidate.aiScoreDetails.match_percentage).toFixed(0)}%</p>
+                <p className="text-xs text-gray-400 mt-1">Job Match</p>
+              </div>
+            )}
+            <div className="text-center p-3 bg-gray-50 rounded-xl">
+              <p className={`text-lg font-bold ${Number(candidate.aiScore) >= 70 ? 'text-emerald-600' : Number(candidate.aiScore) >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                {Number(candidate.aiScore) >= 70 ? 'Strong' : Number(candidate.aiScore) >= 50 ? 'Moderate' : 'Weak'}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">Recommendation</p>
+            </div>
+          </div>
+          {candidate.aiScoreDetails?.strengths?.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs text-gray-500 mb-1.5">Strengths</p>
+              <div className="flex flex-wrap gap-1.5">
+                {candidate.aiScoreDetails.strengths.map((s: string, i: number) => (
+                  <span key={i} className="px-2 py-0.5 text-xs bg-emerald-50 text-emerald-700 rounded-md">{s}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {candidate.aiScoreDetails?.gaps?.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs text-gray-500 mb-1.5">Gaps</p>
+              <div className="flex flex-wrap gap-1.5">
+                {candidate.aiScoreDetails.gaps.map((g: string, i: number) => (
+                  <span key={i} className="px-2 py-0.5 text-xs bg-amber-50 text-amber-700 rounded-md">{g}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {candidate.aiScoreDetails?.reasoning && (
+            <p className="text-xs text-gray-500 italic mt-2">{candidate.aiScoreDetails.reasoning}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -431,15 +482,26 @@ function InterviewsTab({
   candidate, rounds, showAddRound, setShowAddRound, editingRound, setEditingRound,
   addRound, updateRound, deleteRound,
 }: any) {
-  const [newRound, setNewRound] = useState({ roundName: '', interviewerName: '', scheduledAt: '' });
+  const { data: interviewersRes } = useGetInterviewersQuery();
+  const interviewers = interviewersRes?.data || [];
+  const [newRound, setNewRound] = useState({ roundName: '', interviewerName: '', interviewerId: '', scheduledAt: '' });
   const [scoreForm, setScoreForm] = useState<any>({});
 
   const handleAddRound = async () => {
     if (!newRound.roundName) { toast.error('Round name is required'); return; }
     try {
-      await addRound({ walkInId: candidate.id, ...newRound }).unwrap();
+      const payload: any = {
+        walkInId: candidate.id,
+        roundName: newRound.roundName,
+        interviewerName: newRound.interviewerName || undefined,
+        scheduledAt: newRound.scheduledAt || undefined,
+      };
+      if (newRound.interviewerId && newRound.interviewerId !== '__external') {
+        payload.interviewerId = newRound.interviewerId;
+      }
+      await addRound(payload).unwrap();
       toast.success('Round added');
-      setNewRound({ roundName: '', interviewerName: '', scheduledAt: '' });
+      setNewRound({ roundName: '', interviewerName: '', interviewerId: '', scheduledAt: '' });
       setShowAddRound(false);
     } catch { toast.error('Failed to add round'); }
   };
@@ -468,8 +530,107 @@ function InterviewsTab({
     } catch { toast.error('Failed to delete'); }
   };
 
+  // Combined average score
+  const completedWithScore = rounds.filter((r: any) => r.overallScore);
+  const avgScore = completedWithScore.length > 0
+    ? (completedWithScore.reduce((sum: number, r: any) => sum + r.overallScore, 0) / completedWithScore.length).toFixed(1)
+    : null;
+
   return (
     <div className="space-y-4">
+      {/* Score Summary */}
+      {avgScore && (
+        <div className="layer-card p-4 flex items-center gap-6">
+          <div className="text-center">
+            <p className="text-2xl font-bold text-brand-600" data-mono>{avgScore}</p>
+            <p className="text-xs text-gray-400">Avg Score</p>
+          </div>
+          <div className="flex-1 grid grid-cols-4 gap-3 text-center text-xs">
+            {['communication', 'technical', 'problemSolving', 'culturalFit'].map(key => {
+              const vals = completedWithScore.map((r: any) => r[key]).filter(Boolean);
+              const avg = vals.length > 0 ? (vals.reduce((a: number, b: number) => a + b, 0) / vals.length).toFixed(1) : '—';
+              return (
+                <div key={key}>
+                  <p className="text-sm font-semibold text-gray-700" data-mono>{avg}</p>
+                  <p className="text-gray-400 capitalize">{key === 'problemSolving' ? 'Problem Solving' : key === 'culturalFit' ? 'Cultural Fit' : key}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Score Comparison Table */}
+      {completedWithScore.length > 0 && (
+        <div className="layer-card p-4 overflow-x-auto">
+          <h3 className="font-semibold text-gray-800 mb-3">Score Comparison</h3>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th className="text-left py-2 pr-3 text-gray-500 font-medium">Interviewer</th>
+                <th className="text-center py-2 px-2 text-gray-500 font-medium">Round</th>
+                <th className="text-center py-2 px-2 text-gray-500 font-medium">Comm</th>
+                <th className="text-center py-2 px-2 text-gray-500 font-medium">Tech</th>
+                <th className="text-center py-2 px-2 text-gray-500 font-medium">Problem</th>
+                <th className="text-center py-2 px-2 text-gray-500 font-medium">Culture</th>
+                <th className="text-center py-2 px-2 text-gray-500 font-medium">Overall</th>
+                <th className="text-center py-2 px-2 text-gray-500 font-medium">Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {candidate.aiScore && (
+                <tr className="border-b border-gray-50 bg-blue-50/50">
+                  <td className="py-2 pr-3 font-medium text-blue-600">AI Resume Screening</td>
+                  <td className="text-center py-2 px-2 text-gray-400">—</td>
+                  <td className="text-center py-2 px-2" colSpan={4}>
+                    <span className="text-sm font-bold text-blue-600">{Number(candidate.aiScore).toFixed(0)}/100</span>
+                    {candidate.aiScoreDetails?.match_percentage && (
+                      <span className="text-gray-400 ml-1">({Number(candidate.aiScoreDetails.match_percentage).toFixed(0)}% match)</span>
+                    )}
+                  </td>
+                  <td className="text-center py-2 px-2 font-bold text-blue-600">{Number(candidate.aiScore).toFixed(0)}</td>
+                  <td className="text-center py-2 px-2">—</td>
+                </tr>
+              )}
+              {completedWithScore.map((r: any) => {
+                const name = r.interviewer?.employee?.firstName
+                  ? `${r.interviewer.employee.firstName} ${r.interviewer.employee.lastName || ''}`.trim()
+                  : r.interviewerName || 'Unknown';
+                return (
+                  <tr key={r.id} className="border-b border-gray-50">
+                    <td className="py-2 pr-3 font-medium text-gray-700">
+                      {name}
+                      {r.interviewer?.role && <span className="text-[10px] text-gray-400 ml-1">({r.interviewer.role})</span>}
+                    </td>
+                    <td className="text-center py-2 px-2 text-gray-500">R{r.roundNumber}</td>
+                    <td className="text-center py-2 px-2 font-mono" data-mono>{r.communication || '—'}</td>
+                    <td className="text-center py-2 px-2 font-mono" data-mono>{r.technical || '—'}</td>
+                    <td className="text-center py-2 px-2 font-mono" data-mono>{r.problemSolving || '—'}</td>
+                    <td className="text-center py-2 px-2 font-mono" data-mono>{r.culturalFit || '—'}</td>
+                    <td className="text-center py-2 px-2 font-mono font-bold" data-mono>{r.overallScore || '—'}</td>
+                    <td className={`text-center py-2 px-2 font-bold ${
+                      r.result === 'PASSED' ? 'text-emerald-600' : r.result === 'FAILED' ? 'text-red-600' : 'text-orange-600'
+                    }`}>{r.result || '—'}</td>
+                  </tr>
+                );
+              })}
+              {completedWithScore.length > 1 && (
+                <tr className="bg-gray-50 font-bold">
+                  <td className="py-2 pr-3 text-gray-700">Average</td>
+                  <td className="text-center py-2 px-2">—</td>
+                  {['communication', 'technical', 'problemSolving', 'culturalFit', 'overallScore'].map(key => {
+                    const vals = completedWithScore.map((r: any) => r[key]).filter(Boolean);
+                    const avg = vals.length > 0 ? (vals.reduce((a: number, b: number) => a + b, 0) / vals.length).toFixed(1) : '—';
+                    return <td key={key} className="text-center py-2 px-2 font-mono" data-mono>{avg}</td>;
+                  })}
+                  <td className="text-center py-2 px-2">—</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Round Progress Bar */}
       <div className="layer-card p-4">
         <div className="flex items-center justify-between mb-3">
@@ -515,8 +676,15 @@ function InterviewsTab({
                 <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono" data-mono>R{round.roundNumber}</span>
                 <h4 className="font-semibold text-gray-800">{round.roundName}</h4>
               </div>
-              {round.interviewerName && (
-                <p className="text-xs text-gray-400 mt-1">Interviewer: {round.interviewerName}</p>
+              {(round.interviewer || round.interviewerName) && (
+                <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                  Interviewer: {round.interviewer?.employee?.firstName
+                    ? `${round.interviewer.employee.firstName} ${round.interviewer.employee.lastName || ''}`.trim()
+                    : round.interviewerName || 'Unknown'}
+                  {round.interviewer?.role && (
+                    <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{round.interviewer.role}</span>
+                  )}
+                </p>
               )}
             </div>
             <div className="flex items-center gap-2">
@@ -613,13 +781,35 @@ function InterviewsTab({
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Interviewer Name</label>
-              <input
-                value={newRound.interviewerName}
-                onChange={e => setNewRound({ ...newRound, interviewerName: e.target.value })}
-                placeholder="e.g. Priya Sharma"
+              <label className="block text-xs text-gray-500 mb-1">Interviewer</label>
+              <select
+                value={newRound.interviewerId}
+                onChange={e => {
+                  const selected = interviewers.find((i: any) => i.id === e.target.value);
+                  setNewRound({
+                    ...newRound,
+                    interviewerId: e.target.value,
+                    interviewerName: selected ? `${selected.employee?.firstName || ''} ${selected.employee?.lastName || ''}`.trim() || selected.email : '',
+                  });
+                }}
                 className="input-glass w-full text-sm"
-              />
+              >
+                <option value="">Select interviewer...</option>
+                {interviewers.map((i: any) => (
+                  <option key={i.id} value={i.id}>
+                    {i.employee?.firstName ? `${i.employee.firstName} ${i.employee.lastName || ''}`.trim() : i.email}
+                  </option>
+                ))}
+                <option value="__external">External (enter name below)</option>
+              </select>
+              {newRound.interviewerId === '__external' && (
+                <input
+                  value={newRound.interviewerName}
+                  onChange={e => setNewRound({ ...newRound, interviewerName: e.target.value })}
+                  placeholder="External interviewer name"
+                  className="input-glass w-full text-sm mt-2"
+                />
+              )}
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Schedule (optional)</label>

@@ -3,11 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
-  Shield, Send, Copy, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
+  Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
   Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2,
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation } from './employeeApi';
-import { useCreateOnboardingInviteMutation } from '../onboarding/onboardingApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation } from '../attendance/attendanceApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation } from '../payroll/payrollApi';
 import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documents/documentApi';
@@ -25,32 +24,10 @@ export default function EmployeeDetailPage() {
   const user = useAppSelector((state) => state.auth.user);
   const { data: response, isLoading } = useGetEmployeeQuery(id!);
   const employee = response?.data;
-  const [createInvite, { isLoading: inviting }] = useCreateOnboardingInviteMutation();
-  const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('attendance');
   const [showEditModal, setShowEditModal] = useState(false);
   const [updateEmployee] = useUpdateEmployeeMutation();
 
-  const handleSendInvite = async () => {
-    try {
-      const result = await createInvite(id!).unwrap();
-      const link = `${window.location.origin}${result.data.inviteUrl}`;
-      setInviteLink(link);
-      toast.success('Onboarding invite sent!');
-    } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to send invite');
-    }
-  };
-
-  const handleCopyLink = () => {
-    if (inviteLink) {
-      navigator.clipboard.writeText(inviteLink);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      toast.success('Link copied!');
-    }
-  };
 
   if (isLoading) {
     return (
@@ -124,21 +101,7 @@ export default function EmployeeDetailPage() {
             <button onClick={() => setShowEditModal(true)} className="w-full btn-primary text-xs py-2 flex items-center justify-center gap-1.5">
               <Save size={13} /> Edit Profile
             </button>
-            <button onClick={handleSendInvite} disabled={inviting} className="w-full btn-secondary text-xs py-2 flex items-center justify-center gap-1.5">
-              <Send size={13} /> {inviting ? 'Sending...' : 'Send Onboarding Invite'}
-            </button>
           </div>
-
-          {inviteLink && (
-            <div className="mt-3 p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
-              <div className="flex items-center gap-1">
-                <p className="text-[10px] text-emerald-700 truncate flex-1 font-mono" data-mono>{inviteLink}</p>
-                <button onClick={handleCopyLink} className="text-emerald-600 hover:text-emerald-800">
-                  {copied ? <Check size={14} /> : <Copy size={14} />}
-                </button>
-              </div>
-            </div>
-          )}
 
           <div className="mt-6 border-t border-gray-100 pt-4 space-y-2">
             <SidebarMeta icon={Paperclip} label="Attachments" count={employee.documents?.length || 0} />
@@ -732,35 +695,67 @@ function ShiftAssignmentCard({ employeeId, isManagement }: { employeeId: string;
    Salary Tab — View & Edit Salary Structure
    ============================================================================= */
 
+const DEFAULT_ENABLED: Record<string, boolean> = { basic: true, hra: true, da: true, ta: true, special: true, epf: true, esi: true, pt: true };
+
 function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: string; ctc: any; workMode: string; isManagement: boolean }) {
   const { data: salRes } = useGetSalaryStructureQuery(employeeId);
   const [saveSalary, { isLoading: saving }] = useSaveSalaryStructureMutation();
   const structure = salRes?.data;
   const [editing, setEditing] = useState(false);
   const [annualCtc, setAnnualCtc] = useState(ctc ? Number(ctc) : 0);
+  const [enabled, setEnabled] = useState<Record<string, boolean>>(
+    structure?.enabledComponents ? { ...DEFAULT_ENABLED, ...structure.enabledComponents } : { ...DEFAULT_ENABLED }
+  );
+
+  // Sync enabled state when structure loads
+  useEffect(() => {
+    if (structure?.enabledComponents) {
+      setEnabled({ ...DEFAULT_ENABLED, ...structure.enabledComponents });
+    }
+  }, [structure]);
+
+  const toggleComponent = (key: string) => {
+    if (key === 'basic') return; // Basic is always required
+    setEnabled(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   // Auto-compute components from CTC
   const monthly = annualCtc / 12;
-  const basic = monthly * 0.5;
-  const hra = basic * 0.4;
-  const da = monthly * 0.1;
-  const ta = monthly * 0.05;
-  const special = monthly - basic - hra - da - ta;
+  const basic = enabled.basic ? monthly * 0.5 : 0;
+  const hra = enabled.hra ? basic * 0.4 : 0;
+  const da = enabled.da ? monthly * 0.1 : 0;
+  const ta = enabled.ta ? monthly * 0.05 : 0;
+  const special = enabled.special ? monthly - (monthly * 0.5) - (monthly * 0.5 * 0.4) - (monthly * 0.1) - (monthly * 0.05) : 0;
+  const gross = basic + hra + da + ta + (enabled.special ? special : 0);
 
   // Deductions
-  const epfEmployee = Math.min(basic, 15000) * 0.12;
-  const esiEmployee = monthly <= 21000 ? monthly * 0.0075 : 0;
-  const pt = monthly > 15000 ? 200 : monthly > 10000 ? 150 : 0;
+  const epfEmployee = enabled.epf ? Math.min(basic, 15000) * 0.12 : 0;
+  const esiEmployee = enabled.esi ? (monthly <= 21000 ? monthly * 0.0075 : 0) : 0;
+  const pt = enabled.pt ? (monthly > 15000 ? 200 : monthly > 10000 ? 150 : 0) : 0;
   const totalDeductions = epfEmployee + esiEmployee + pt;
-  const netMonthly = monthly - totalDeductions;
+  const netMonthly = gross - totalDeductions;
 
   const handleSave = async () => {
     try {
-      await saveSalary({ employeeId, data: { ctc: annualCtc } }).unwrap();
+      await saveSalary({ employeeId, data: { ctc: annualCtc, enabledComponents: enabled } }).unwrap();
       toast.success('Salary structure saved');
       setEditing(false);
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to save'); }
   };
+
+  const earningRows = [
+    { key: 'basic', label: 'Basic Salary (50%)', value: Math.round(basic) },
+    { key: 'hra', label: 'HRA (40% of Basic)', value: Math.round(hra) },
+    { key: 'da', label: 'Dearness Allowance (10%)', value: Math.round(da) },
+    { key: 'ta', label: 'Transport Allowance (5%)', value: Math.round(ta) },
+    { key: 'special', label: 'Special Allowance', value: Math.round(special) },
+  ];
+
+  const deductionRows = [
+    { key: 'epf', label: 'EPF (Employee 12%)', value: Math.round(epfEmployee) },
+    ...(esiEmployee > 0 || enabled.esi ? [{ key: 'esi', label: 'ESI (Employee 0.75%)', value: Math.round(esiEmployee) }] : []),
+    { key: 'pt', label: 'Professional Tax', value: pt },
+  ];
 
   return (
     <div className="space-y-6">
@@ -777,7 +772,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
         </div>
         <div className="layer-card p-5 text-center">
           <p className="text-xs text-gray-400 mb-1">Monthly Gross</p>
-          <p className="text-2xl font-bold font-mono text-brand-600" data-mono>{formatCurrency(Math.round(monthly))}</p>
+          <p className="text-2xl font-bold font-mono text-brand-600" data-mono>{formatCurrency(Math.round(gross))}</p>
         </div>
         <div className="layer-card p-5 text-center">
           <p className="text-xs text-gray-400 mb-1">Monthly Net</p>
@@ -790,22 +785,45 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
         <div className="layer-card p-5">
           <h3 className="text-sm font-semibold text-gray-800 mb-3">Earnings (Monthly)</h3>
           <div className="space-y-2.5">
-            <SalaryRow label="Basic Salary (50%)" value={Math.round(basic)} />
-            <SalaryRow label="HRA (40% of Basic)" value={Math.round(hra)} />
-            <SalaryRow label="Dearness Allowance (10%)" value={Math.round(da)} />
-            <SalaryRow label="Transport Allowance (5%)" value={Math.round(ta)} />
-            <SalaryRow label="Special Allowance" value={Math.round(special)} />
+            {earningRows.map(row => (
+              <div key={row.key} className={`flex items-center gap-2 ${!enabled[row.key] ? 'opacity-40' : ''}`}>
+                {isManagement && editing && (
+                  <input
+                    type="checkbox"
+                    checked={enabled[row.key]}
+                    onChange={() => toggleComponent(row.key)}
+                    disabled={row.key === 'basic'}
+                    className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                  />
+                )}
+                <div className="flex-1">
+                  <SalaryRow label={row.label} value={enabled[row.key] ? row.value : 0} />
+                </div>
+              </div>
+            ))}
             <div className="border-t border-gray-100 pt-2 mt-2">
-              <SalaryRow label="Gross Monthly" value={Math.round(monthly)} bold />
+              <SalaryRow label="Gross Monthly" value={Math.round(gross)} bold />
             </div>
           </div>
         </div>
         <div className="layer-card p-5">
           <h3 className="text-sm font-semibold text-gray-800 mb-3">Deductions (Monthly)</h3>
           <div className="space-y-2.5">
-            <SalaryRow label="EPF (Employee 12%)" value={Math.round(epfEmployee)} deduct />
-            {esiEmployee > 0 && <SalaryRow label="ESI (Employee 0.75%)" value={Math.round(esiEmployee)} deduct />}
-            <SalaryRow label="Professional Tax" value={pt} deduct />
+            {deductionRows.map(row => (
+              <div key={row.key} className={`flex items-center gap-2 ${!enabled[row.key] ? 'opacity-40' : ''}`}>
+                {isManagement && editing && (
+                  <input
+                    type="checkbox"
+                    checked={enabled[row.key]}
+                    onChange={() => toggleComponent(row.key)}
+                    className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                  />
+                )}
+                <div className="flex-1">
+                  <SalaryRow label={row.label} value={enabled[row.key] ? row.value : 0} deduct />
+                </div>
+              </div>
+            ))}
             <div className="border-t border-gray-100 pt-2 mt-2">
               <SalaryRow label="Total Deductions" value={Math.round(totalDeductions)} deduct bold />
             </div>
@@ -824,28 +842,13 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
               <button onClick={handleSave} disabled={saving} className="btn-primary text-sm flex items-center gap-1.5">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save Structure
               </button>
-              <button onClick={() => { setEditing(false); setAnnualCtc(ctc ? Number(ctc) : 0); }} className="btn-secondary text-sm">Cancel</button>
+              <button onClick={() => { setEditing(false); setAnnualCtc(ctc ? Number(ctc) : 0); if (structure?.enabledComponents) setEnabled({ ...DEFAULT_ENABLED, ...structure.enabledComponents }); else setEnabled({ ...DEFAULT_ENABLED }); }} className="btn-secondary text-sm">Cancel</button>
             </>
           ) : (
             <button onClick={() => setEditing(true)} className="btn-primary text-sm flex items-center gap-1.5">
               <DollarSign size={14} /> Edit Salary Structure
             </button>
           )}
-        </div>
-      )}
-
-      {/* Existing structure from DB */}
-      {structure && (
-        <div className="layer-card p-5">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3">Saved Structure</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-            {Object.entries(structure).filter(([k]) => !['id', 'employeeId', 'createdAt', 'updatedAt', 'organizationId'].includes(k)).map(([key, val]) => (
-              <div key={key}>
-                <p className="text-xs text-gray-400 capitalize">{key.replace(/([A-Z])/g, ' $1')}</p>
-                <p className="font-mono text-gray-700" data-mono>{val != null ? formatCurrency(Number(val)) : '—'}</p>
-              </div>
-            ))}
-          </div>
         </div>
       )}
     </div>
@@ -956,13 +959,26 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
                   <p className="text-sm font-medium text-gray-800">{doc.name}</p>
                   <p className="text-xs text-gray-400">{doc.type?.replace(/_/g, ' ')} · {formatDate(doc.createdAt)}</p>
                 </div>
-                <span className={`badge ${getStatusColor(doc.status)} text-xs`}>{doc.status}</span>
+                {isManagement && (
+                  <span className={`badge ${getStatusColor(doc.status)} text-xs`}>{doc.status}</span>
+                )}
               </div>
-              {doc.fileUrl && (
+              {isManagement && doc.fileUrl && (
                 <a href={`${API_URL}${doc.fileUrl}`} target="_blank" rel="noopener noreferrer"
                   className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1 mb-2">
                   <FileText size={12} /> View Document
                 </a>
+              )}
+              {/* AI Tamper Detection Warning — HR only */}
+              {isManagement && doc.tamperDetected && (
+                <div className="mt-2 p-2.5 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-xs text-red-700 font-medium flex items-center gap-1.5">
+                    <Shield size={12} className="text-red-600" /> Warning: This document may be altered or fake
+                  </p>
+                  {doc.tamperDetails && (
+                    <p className="text-xs text-red-600 mt-1">{doc.tamperDetails}</p>
+                  )}
+                </div>
               )}
               {isManagement && doc.status === 'PENDING' && (
                 <div className="flex gap-2 mt-2 pt-2 border-t border-gray-50">
@@ -1015,8 +1031,40 @@ function ConnectionsTab({ employee, isManagement, navigate }: { employee: any; i
   const [deleteEvent] = useDeleteLifecycleEventMutation();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ eventType: 'JOINING', title: '', description: '', eventDate: new Date().toISOString().split('T')[0] });
+  const [expandedCard, setExpandedCard] = useState<string | null>(null);
+
+  // Fetch attendance only when expanded
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1).toISOString().split('T')[0];
+  const endOfYear = new Date(now.getFullYear(), 11, 31).toISOString().split('T')[0];
+  const { data: attendanceRes } = useGetEmployeeAttendanceQuery(
+    { employeeId: employee.id, startDate: startOfYear, endDate: endOfYear },
+    { skip: expandedCard !== 'Attendance' }
+  );
+  const attendanceRecords = attendanceRes?.data?.records || [];
+
+  // Fetch shifts
+  const { data: shiftRes } = useGetEmployeeShiftQuery(employee.id, { skip: expandedCard !== 'Shift Assignments' });
+  const currentShift = shiftRes?.data;
+  const { data: allShiftsRes } = useGetShiftsQuery(undefined, { skip: expandedCard !== 'Shift Assignments' || !isManagement });
+  const allShifts = allShiftsRes?.data || [];
+  const [assignShift] = useAssignShiftMutation();
+  const [selectedShiftId, setSelectedShiftId] = useState('');
+
+  const handleAssignShift = async () => {
+    if (!selectedShiftId) return;
+    try {
+      await assignShift({ employeeId: employee.id, shiftId: selectedShiftId, startDate: new Date().toISOString().split('T')[0] }).unwrap();
+      toast.success('Shift assigned');
+      setSelectedShiftId('');
+    } catch { toast.error('Failed to assign shift'); }
+  };
 
   const events = employee.lifecycleEvents || [];
+  const documents = employee.documents || [];
+  const leaveRequests = employee.leaveRequests || [];
+  const leaveBalances = employee.leaveBalances || [];
+  const shiftAssignments = employee.shiftAssignments || [];
 
   // Auto-generate joining event if none exists
   const allEvents = useMemo(() => {
@@ -1054,29 +1102,159 @@ function ConnectionsTab({ employee, isManagement, navigate }: { employee: any; i
     } catch { toast.error('Failed'); }
   };
 
+  const toggleCard = (label: string) => {
+    setExpandedCard(expandedCard === label ? null : label);
+  };
+
+  const connectionCards = [
+    { label: 'Attendance', color: 'bg-emerald-50', textColor: 'text-emerald-600', icon: Clock, count: employee.attendanceRecords?.length || attendanceRecords.length || 0 },
+    { label: 'Leave Application', color: 'bg-purple-50', textColor: 'text-purple-600', icon: Calendar, count: leaveRequests.length },
+    { label: 'Leave Balance', color: 'bg-teal-50', textColor: 'text-teal-600', icon: DollarSign, count: leaveBalances.length },
+    { label: 'Shift Assignments', color: 'bg-rose-50', textColor: 'text-rose-600', icon: Clock, count: shiftAssignments.length },
+    { label: 'Documents', color: 'bg-green-50', textColor: 'text-green-600', icon: FileText, count: documents.length },
+    { label: 'Lifecycle Events', color: 'bg-blue-50', textColor: 'text-blue-600', icon: Briefcase, count: allEvents.length },
+  ];
+
+  const renderExpanded = (label: string) => {
+    switch (label) {
+      case 'Attendance':
+        return (
+          <div className="mt-3 space-y-1.5 max-h-64 overflow-y-auto">
+            {attendanceRecords.length === 0 ? (
+              <p className="text-xs text-gray-400 py-3 text-center">No attendance records found</p>
+            ) : attendanceRecords.slice(0, 20).map((rec: any) => (
+              <div key={rec.id} className="flex items-center justify-between py-1.5 px-2 bg-white rounded-lg text-xs">
+                <span className="font-mono text-gray-500" data-mono>{formatDate(rec.date)}</span>
+                <span className={`badge text-[10px] ${rec.status === 'PRESENT' ? 'badge-success' : rec.status === 'ABSENT' ? 'badge-danger' : 'badge-warning'}`}>{rec.status}</span>
+                <span className="font-mono text-gray-400" data-mono>{rec.totalHours ? `${Number(rec.totalHours).toFixed(1)}h` : '—'}</span>
+              </div>
+            ))}
+          </div>
+        );
+      case 'Leave Application':
+        return (
+          <div className="mt-3 space-y-1.5 max-h-64 overflow-y-auto">
+            {leaveRequests.length === 0 ? (
+              <p className="text-xs text-gray-400 py-3 text-center">No leave requests</p>
+            ) : leaveRequests.map((lr: any) => (
+              <div key={lr.id} className="flex items-center justify-between py-1.5 px-2 bg-white rounded-lg text-xs">
+                <span className="text-gray-700 font-medium">{lr.leaveType?.name || 'Leave'}</span>
+                <span className="font-mono text-gray-400" data-mono>{formatDate(lr.startDate)} — {formatDate(lr.endDate)}</span>
+                <span className="font-mono text-gray-500" data-mono>{lr.days}d</span>
+                <span className={`badge text-[10px] ${lr.status === 'APPROVED' ? 'badge-success' : lr.status === 'REJECTED' ? 'badge-danger' : 'badge-warning'}`}>{lr.status}</span>
+              </div>
+            ))}
+          </div>
+        );
+      case 'Leave Balance':
+        return (
+          <div className="mt-3 grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+            {leaveBalances.length === 0 ? (
+              <p className="text-xs text-gray-400 py-3 text-center col-span-2">No leave balances</p>
+            ) : leaveBalances.map((lb: any) => (
+              <div key={lb.id} className="bg-white rounded-lg p-2.5">
+                <p className="text-xs font-medium text-gray-700">{lb.leaveType?.name || 'Leave'}</p>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-sm font-bold font-mono text-brand-600" data-mono>{Number(lb.allocated) + Number(lb.carriedForward || 0) - Number(lb.used) - Number(lb.pending || 0)}</span>
+                  <span className="text-[10px] text-gray-400">of {Number(lb.allocated)} available</span>
+                </div>
+                {Number(lb.used) > 0 && <p className="text-[10px] text-gray-400 mt-0.5">Used: {Number(lb.used)}</p>}
+              </div>
+            ))}
+          </div>
+        );
+      case 'Shift Assignments':
+        return (
+          <div className="mt-3 space-y-2">
+            {currentShift ? (
+              <div className="bg-white rounded-lg p-2.5">
+                <p className="text-xs font-medium text-gray-700">Current: {currentShift.shift?.name || '—'}</p>
+                <p className="text-[10px] text-gray-400">{currentShift.shift?.startTime} — {currentShift.shift?.endTime}</p>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">No shift assigned</p>
+            )}
+            {isManagement && (
+              <div className="flex items-center gap-2">
+                <select value={selectedShiftId} onChange={e => setSelectedShiftId(e.target.value)} className="input-glass text-xs flex-1">
+                  <option value="">Change shift...</option>
+                  {allShifts.map((s: any) => <option key={s.id} value={s.id}>{s.name} ({s.startTime}–{s.endTime})</option>)}
+                </select>
+                <button onClick={handleAssignShift} disabled={!selectedShiftId} className="btn-primary text-xs px-3 py-1.5 disabled:opacity-40">Assign</button>
+              </div>
+            )}
+            {shiftAssignments.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide">History</p>
+                {shiftAssignments.slice(0, 5).map((sa: any) => (
+                  <div key={sa.id} className="flex items-center justify-between py-1 px-2 bg-white rounded text-xs">
+                    <span className="text-gray-600">{sa.shift?.name || 'Shift'}</span>
+                    <span className="font-mono text-gray-400" data-mono>{formatDate(sa.startDate)}{sa.endDate ? ` — ${formatDate(sa.endDate)}` : ''}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      case 'Documents':
+        return (
+          <div className="mt-3 space-y-1.5 max-h-64 overflow-y-auto">
+            {documents.length === 0 ? (
+              <p className="text-xs text-gray-400 py-3 text-center">No documents</p>
+            ) : documents.map((doc: any) => (
+              <div key={doc.id} className="flex items-center justify-between py-1.5 px-2 bg-white rounded-lg text-xs">
+                <div>
+                  <p className="text-gray-700 font-medium">{doc.name}</p>
+                  <p className="text-[10px] text-gray-400">{doc.type?.replace(/_/g, ' ')}</p>
+                </div>
+                <span className={`badge text-[10px] ${getStatusColor(doc.status)}`}>{doc.status}</span>
+              </div>
+            ))}
+          </div>
+        );
+      case 'Lifecycle Events':
+        return null; // Already shown in the timeline below
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Connection cards */}
+      {/* Connection cards — expandable */}
       <div className="layer-card p-5">
         <h3 className="text-sm font-semibold text-gray-800 mb-4">Connections</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {[
-            { label: 'Attendance', color: 'bg-emerald-50', textColor: 'text-emerald-600', icon: Clock, count: employee.attendanceRecords?.length || 0, link: '/attendance' },
-            { label: 'Leave Application', color: 'bg-purple-50', textColor: 'text-purple-600', icon: Calendar, count: employee.leaveRequests?.length || 0, link: '/leaves' },
-            { label: 'Leave Balance', color: 'bg-teal-50', textColor: 'text-teal-600', icon: DollarSign, count: employee.leaveBalances?.length || 0, link: '/leaves' },
-            { label: 'Shift Assignments', color: 'bg-rose-50', textColor: 'text-rose-600', icon: Clock, count: employee.shiftAssignments?.length || 0, link: '/roster' },
-            { label: 'Documents', color: 'bg-green-50', textColor: 'text-green-600', icon: FileText, count: employee.documents?.length || 0 },
-            { label: 'Lifecycle Events', color: 'bg-blue-50', textColor: 'text-blue-600', icon: Briefcase, count: allEvents.length },
-          ].map((card) => (
-            <div key={card.label} onClick={() => card.link && navigate(card.link)}
-              className="flex items-center justify-between p-3 bg-surface-2 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer">
-              <div className="flex items-center gap-2.5">
-                <div className={`w-7 h-7 rounded-lg ${card.color} flex items-center justify-center`}>
-                  <card.icon size={14} className={card.textColor} />
+        <div className="space-y-2">
+          {connectionCards.map((card) => (
+            <div key={card.label}>
+              <div
+                onClick={() => toggleCard(card.label)}
+                className={`flex items-center justify-between p-3 rounded-xl transition-colors cursor-pointer ${expandedCard === card.label ? 'bg-gray-100' : 'bg-surface-2 hover:bg-gray-50'}`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-7 h-7 rounded-lg ${card.color} flex items-center justify-center`}>
+                    <card.icon size={14} className={card.textColor} />
+                  </div>
+                  <p className="text-xs font-medium text-gray-700">{card.label}</p>
                 </div>
-                <p className="text-xs font-medium text-gray-700">{card.label}</p>
+                <div className="flex items-center gap-2">
+                  {card.count > 0 && <span className="text-xs font-mono font-bold text-gray-500" data-mono>{card.count}</span>}
+                  <ChevronRight size={14} className={`text-gray-400 transition-transform ${expandedCard === card.label ? 'rotate-90' : ''}`} />
+                </div>
               </div>
-              {card.count > 0 && <span className="text-xs font-mono font-bold text-gray-500" data-mono>{card.count}</span>}
+              <AnimatePresence>
+                {expandedCard === card.label && card.label !== 'Lifecycle Events' && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden px-2"
+                  >
+                    {renderExpanded(card.label)}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           ))}
         </div>

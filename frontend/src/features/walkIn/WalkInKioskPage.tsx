@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ChevronLeft, ChevronRight, Check, Upload, Camera, X, User, Briefcase,
+  ChevronLeft, ChevronRight, Check, Upload, X, User, Briefcase,
   FileText, Loader2, AlertTriangle, CheckCircle2, Plus,
 } from 'lucide-react';
 import { useGetWalkInJobsQuery, useRegisterWalkInMutation } from './walkInApi';
@@ -174,7 +174,7 @@ export default function WalkInKioskPage() {
         }
         return true;
       }
-      case 1: return !!(form.aadhaarFrontUrl && form.aadhaarBackUrl && form.panCardUrl && form.selfieUrl); // All KYC mandatory
+      case 1: return true; // KYC is optional — candidate can skip
       case 2: return !!(form.qualification); // At least qualification required
       case 3: return !!(form.resumeUrl); // Resume mandatory
       case 4: return form.consent;
@@ -442,7 +442,7 @@ function Step2({ form, updateForm, tempId }: { form: FormData; updateForm: any; 
   const handleRealUpload = async (field: keyof FormData, file: File) => {
     const validationError = validateFile(file, {
       maxSizeMB: 5,
-      allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'],
+      allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/jpg', 'application/pdf'],
     });
     if (validationError) {
       toast.error(validationError);
@@ -480,22 +480,20 @@ function Step2({ form, updateForm, tempId }: { form: FormData; updateForm: any; 
   const onFileSelected = (field: keyof FormData, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleRealUpload(field, file);
-    // Reset the input so the same file can be re-selected
     e.target.value = '';
   };
 
   return (
     <div className="space-y-5">
-      <h3 className="text-xl font-display font-bold text-gray-900 mb-1">KYC Document Upload</h3>
-      <p className="text-sm text-gray-400 mb-4">Upload your identity documents for verification. This step is optional.</p>
+      <h3 className="text-xl font-display font-bold text-gray-900 mb-1">Aadhaar Verification</h3>
+      <p className="text-sm text-gray-400 mb-4">Upload your Aadhaar card for identity verification. You can upload images or PDF files. This step is optional.</p>
 
       {/* Hidden file inputs */}
-      {(['aadhaarFrontUrl', 'aadhaarBackUrl', 'panCardUrl', 'selfieUrl'] as const).map(field => (
+      {(['aadhaarFrontUrl', 'aadhaarBackUrl'] as const).map(field => (
         <input
           key={field}
           type="file"
-          accept="image/*"
-          capture={field === 'selfieUrl' ? 'user' : undefined}
+          accept="image/*,application/pdf"
           className="hidden"
           ref={el => { fileInputRefs.current[field] = el; }}
           onChange={e => onFileSelected(field, e)}
@@ -521,53 +519,30 @@ function Step2({ form, updateForm, tempId }: { form: FormData; updateForm: any; 
         />
       </div>
 
-      <FileUploadBox
-        label="PAN Card"
-        uploaded={!!form.panCardUrl}
-        uploading={!!uploading.panCardUrl}
-        progress={progress.panCardUrl || 0}
-        onUpload={() => triggerFileInput('panCardUrl')}
-        onRemove={() => updateForm('panCardUrl', '')}
-      />
-
-      {/* Selfie Capture */}
+      {/* Aadhaar Number Input */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Take a Selfie</label>
-        <div
-          onClick={() => !uploading.selfieUrl && triggerFileInput('selfieUrl')}
-          className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all
-            ${form.selfieUrl ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 hover:border-brand-300 hover:bg-brand-50/30'}`}
-        >
-          {uploading.selfieUrl ? (
-            <div className="flex flex-col items-center gap-2">
-              <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
-              <p className="text-sm text-gray-500">Uploading... {progress.selfieUrl || 0}%</p>
-              <div className="w-40 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${progress.selfieUrl || 0}%` }} />
-              </div>
-            </div>
-          ) : form.selfieUrl ? (
-            <div className="flex items-center justify-center gap-2 text-emerald-600">
-              <CheckCircle2 className="w-5 h-5" />
-              <span className="font-medium">Selfie captured</span>
-              <button onClick={e => { e.stopPropagation(); updateForm('selfieUrl', ''); }} className="ml-2 text-gray-400 hover:text-red-500">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
-            <>
-              <Camera className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-              <p className="text-sm text-gray-500">Tap to open camera and take a selfie</p>
-            </>
-          )}
-        </div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">Aadhaar Number (optional)</label>
+        <input
+          type="text"
+          value={form.aadhaarNumber}
+          onChange={e => {
+            const val = e.target.value.replace(/\D/g, '').slice(0, 12);
+            updateForm('aadhaarNumber', val);
+          }}
+          placeholder="Enter 12-digit Aadhaar number"
+          className="input-glass w-full"
+          maxLength={12}
+        />
+        {form.aadhaarNumber && form.aadhaarNumber.length > 0 && form.aadhaarNumber.length < 12 && (
+          <p className="text-xs text-amber-500 mt-1">{12 - form.aadhaarNumber.length} more digits needed</p>
+        )}
       </div>
 
       {/* OCR Verified Fields */}
-      {(form.aadhaarFrontUrl || form.panCardUrl) && (
+      {form.aadhaarFrontUrl && (
         <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
           <p className="text-sm font-medium text-blue-700 mb-3 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4" /> Auto-extracted from documents (verify below)
+            <CheckCircle2 className="w-4 h-4" /> Auto-extracted from Aadhaar (verify below)
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -881,10 +856,10 @@ function Step5({ form, updateForm, jobs }: { form: FormData; updateForm: any; jo
 
       {/* Document Verification Status */}
       <div className="flex items-center gap-2 text-sm">
-        {form.aadhaarFrontUrl || form.panCardUrl ? (
-          <><CheckCircle2 className="w-4 h-4 text-emerald-500" /><span className="text-emerald-700">Documents uploaded</span></>
+        {form.aadhaarFrontUrl ? (
+          <><CheckCircle2 className="w-4 h-4 text-emerald-500" /><span className="text-emerald-700">Aadhaar uploaded</span></>
         ) : (
-          <><AlertTriangle className="w-4 h-4 text-amber-500" /><span className="text-amber-700">No documents uploaded (optional)</span></>
+          <><AlertTriangle className="w-4 h-4 text-amber-500" /><span className="text-amber-700">No Aadhaar uploaded (optional)</span></>
         )}
       </div>
       <div className="flex items-center gap-2 text-sm">

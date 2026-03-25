@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send } from 'lucide-react';
+import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -12,12 +12,13 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation } from './settingsApi';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation } from './settingsApi';
 import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
-import { cn } from '../../lib/utils';
+import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
+import { cn, getInitials } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'audit' | 'system';
+type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'teams' | 'roles' | 'audit' | 'system';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('organization');
@@ -27,6 +28,8 @@ export default function SettingsPage() {
     { key: 'locations', label: 'Office Locations', icon: MapPin },
     { key: 'shifts', label: 'Shifts & Rosters', icon: Clock },
     { key: 'email', label: 'Email Configuration', icon: Mail },
+    { key: 'teams', label: 'Microsoft Teams', icon: Cloud },
+    { key: 'roles', label: 'User Roles', icon: Users },
     { key: 'audit', label: 'Audit Logs', icon: Shield },
     { key: 'system', label: 'System', icon: Server },
   ];
@@ -61,6 +64,8 @@ export default function SettingsPage() {
           {activeTab === 'locations' && <LocationSettings />}
           {activeTab === 'shifts' && <ShiftSettings />}
           {activeTab === 'email' && <EmailConfig />}
+          {activeTab === 'teams' && <TeamsConfig />}
+          {activeTab === 'roles' && <UserRolesTab />}
           {activeTab === 'audit' && <AuditLogs />}
           {activeTab === 'system' && <SystemInfo />}
         </div>
@@ -421,7 +426,7 @@ function EmailConfig() {
   const [saveConfig, { isLoading: saving }] = useSaveEmailConfigMutation();
   const [testConnection, { isLoading: testing }] = useTestEmailConnectionMutation();
   const config = res?.data;
-  const [form, setForm] = useState({ host: '', port: 587, user: '', pass: '', fromAddress: '', fromName: '' });
+  const [form, setForm] = useState({ host: '', port: 587, user: '', pass: '', fromAddress: '', fromName: '', emailDomain: '' });
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
@@ -433,6 +438,7 @@ function EmailConfig() {
         pass: '',
         fromAddress: config.fromAddress || '',
         fromName: config.fromName || '',
+        emailDomain: config.emailDomain || '',
       });
     }
   }, [config]);
@@ -516,6 +522,12 @@ function EmailConfig() {
               className="input-glass w-full text-sm" placeholder="Aniston HRMS" />
           </div>
         </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">Email Domain (for Teams/Work emails)</label>
+          <input value={form.emailDomain} onChange={e => setForm({...form, emailDomain: e.target.value})}
+            className="input-glass w-full text-sm max-w-xs" placeholder="@aniston.in" />
+          <p className="text-xs text-gray-400 mt-1">Used to auto-suggest work email when hiring new employees (e.g., firstname.lastname@aniston.in)</p>
+        </div>
 
         {/* Test result */}
         {testResult && (
@@ -536,6 +548,340 @@ function EmailConfig() {
             {testing ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             Test Connection
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamsConfig() {
+  const { data: res, refetch } = useGetTeamsConfigQuery();
+  const [saveConfig, { isLoading: saving }] = useSaveTeamsConfigMutation();
+  const [testConnection, { isLoading: testing }] = useTestTeamsConnectionMutation();
+  const [syncEmployees, { isLoading: syncing }] = useSyncTeamsEmployeesMutation();
+  const [syncResult, setSyncResult] = useState<any>(null);
+  const config = res?.data;
+  const [form, setForm] = useState({ tenantId: '', clientId: '', clientSecret: '', redirectUri: '', ssoEnabled: false });
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [fieldDraft, setFieldDraft] = useState('');
+  const [showSecret, setShowSecret] = useState(false);
+
+  const isViewMode = config?.configured && !isEditing && !editingField;
+
+  useEffect(() => {
+    if (config) {
+      setForm({
+        tenantId: config.tenantId || '',
+        clientId: config.clientId || '',
+        clientSecret: '',
+        redirectUri: config.redirectUri || '',
+        ssoEnabled: config.ssoEnabled || false,
+      });
+    }
+  }, [config]);
+
+  const handleSave = async () => {
+    if (!form.tenantId || !form.clientId) { toast.error('Tenant ID and Client ID are required'); return; }
+    if (!form.clientSecret && !config?.hasClientSecret) { toast.error('Client Secret is required'); return; }
+    try {
+      const payload: any = { tenantId: form.tenantId, clientId: form.clientId, ssoEnabled: form.ssoEnabled, redirectUri: form.redirectUri };
+      if (form.clientSecret) payload.clientSecret = form.clientSecret;
+      await saveConfig(payload).unwrap();
+      toast.success('Microsoft Teams configuration saved');
+      refetch();
+      setIsEditing(false);
+      setForm(f => ({ ...f, clientSecret: '' }));
+    } catch { toast.error('Failed to save'); }
+  };
+
+  const handleFieldSave = async (field: string) => {
+    try {
+      const payload: any = { tenantId: form.tenantId, clientId: form.clientId, ssoEnabled: form.ssoEnabled, redirectUri: form.redirectUri };
+      if (field === 'clientSecret' && fieldDraft) {
+        payload.clientSecret = fieldDraft;
+      } else if (field === 'ssoEnabled') {
+        payload.ssoEnabled = !form.ssoEnabled;
+      } else {
+        (payload as any)[field] = fieldDraft;
+        setForm(f => ({ ...f, [field]: fieldDraft }));
+      }
+      await saveConfig(payload).unwrap();
+      toast.success('Updated successfully');
+      refetch();
+      setEditingField(null);
+      setFieldDraft('');
+    } catch { toast.error('Failed to save'); }
+  };
+
+  const startFieldEdit = (field: string, currentValue: string) => {
+    setEditingField(field);
+    setFieldDraft(currentValue);
+  };
+
+  const cancelFieldEdit = () => {
+    setEditingField(null);
+    setFieldDraft('');
+  };
+
+  const handleTest = async () => {
+    try {
+      const result = await testConnection().unwrap();
+      if (result.data?.success) toast.success('Connection established!');
+      else toast.error(result.data?.message || 'Connection failed');
+      refetch();
+    } catch { toast.error('Test failed — check your Azure AD settings'); }
+  };
+
+  const startEditAll = () => {
+    setIsEditing(true);
+    setEditingField(null);
+    if (config) {
+      setForm({
+        tenantId: config.tenantId || '',
+        clientId: config.clientId || '',
+        clientSecret: '',
+        redirectUri: config.redirectUri || '',
+        ssoEnabled: config.ssoEnabled || false,
+      });
+    }
+  };
+
+  const cancelEditAll = () => {
+    setIsEditing(false);
+    if (config) {
+      setForm({
+        tenantId: config.tenantId || '',
+        clientId: config.clientId || '',
+        clientSecret: '',
+        redirectUri: config.redirectUri || '',
+        ssoEnabled: config.ssoEnabled || false,
+      });
+    }
+  };
+
+  // ---- Status Banner ----
+  const renderStatus = () => {
+    if (!config) return null;
+    if (config.connectionVerified) {
+      const verifiedDate = config.connectionVerifiedAt ? new Date(config.connectionVerifiedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+      return (
+        <div className="flex items-center gap-2 p-3 rounded-lg mb-6 text-sm bg-emerald-50 text-emerald-700">
+          <CheckCircle2 size={16} />
+          <span>Connection Established{verifiedDate ? ` — verified ${verifiedDate}` : ''}</span>
+        </div>
+      );
+    }
+    if (config.configured) {
+      return (
+        <div className="flex items-center gap-2 p-3 rounded-lg mb-6 text-sm bg-amber-50 text-amber-700">
+          <AlertTriangle size={16} />
+          Configuration saved. Click Test Connection to verify.
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-2 p-3 rounded-lg mb-6 text-sm bg-amber-50 text-amber-700">
+        <AlertTriangle size={16} />
+        Microsoft Teams is not configured. Enter your Azure AD credentials below.
+      </div>
+    );
+  };
+
+  // ---- View Mode Field Row ----
+  const renderViewRow = (label: string, field: string, value: string, isMasked?: boolean) => {
+    const isFieldEditing = editingField === field;
+    return (
+      <div key={field} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-gray-400 mb-0.5">{label}</p>
+          {isFieldEditing ? (
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  type={field === 'clientSecret' && !showSecret ? 'password' : 'text'}
+                  value={fieldDraft}
+                  onChange={e => setFieldDraft(e.target.value)}
+                  className="input-glass w-full text-sm pr-8"
+                  placeholder={isMasked && config?.hasClientSecret ? 'Leave blank to keep existing' : `Enter ${label.toLowerCase()}`}
+                  autoFocus
+                />
+                {field === 'clientSecret' && (
+                  <button type="button" onClick={() => setShowSecret(!showSecret)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                )}
+              </div>
+              <button onClick={() => handleFieldSave(field)} disabled={saving}
+                className="text-emerald-600 hover:text-emerald-700 p-1.5 rounded-lg hover:bg-emerald-50">
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+              </button>
+              <button onClick={cancelFieldEdit}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-50">
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm font-medium text-gray-800 font-mono truncate" data-mono>
+              {isMasked ? (value ? '••••••••••••••••' : '—') : (value || '—')}
+            </p>
+          )}
+        </div>
+        {!isFieldEditing && (
+          <button onClick={() => startFieldEdit(field, isMasked ? '' : value)}
+            className="ml-3 text-gray-400 hover:text-brand-600 p-1.5 rounded-lg hover:bg-brand-50 flex-shrink-0">
+            <Pencil size={14} />
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  // ---- VIEW MODE ----
+  if (isViewMode) {
+    return (
+      <div className="layer-card p-6">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-lg font-display font-semibold text-gray-800">Microsoft Teams Integration</h2>
+        </div>
+        <p className="text-sm text-gray-400 mb-6">Connect your Azure AD / Microsoft 365 tenant to enable SSO login and Teams data sync.</p>
+
+        {renderStatus()}
+
+        <div className="max-w-lg">
+          <div className="bg-surface-2 rounded-xl p-4">
+            {renderViewRow('Tenant ID', 'tenantId', config.tenantId)}
+            {renderViewRow('Client ID (Application ID)', 'clientId', config.clientId)}
+            {renderViewRow('Client Secret', 'clientSecret', config.hasClientSecret ? 'configured' : '', true)}
+            {renderViewRow('Redirect URI', 'redirectUri', config.redirectUri)}
+
+            {/* SSO toggle row */}
+            <div className="flex items-center justify-between py-3">
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Microsoft SSO</p>
+                <p className={cn('text-sm font-medium', config.ssoEnabled ? 'text-emerald-600' : 'text-gray-500')}>
+                  {config.ssoEnabled ? 'Enabled' : 'Disabled'}
+                </p>
+              </div>
+              <button onClick={() => handleFieldSave('ssoEnabled')} disabled={saving}
+                className="ml-3 text-gray-400 hover:text-brand-600 p-1.5 rounded-lg hover:bg-brand-50 flex-shrink-0">
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3 pt-4">
+            <button onClick={handleTest} disabled={testing} className="btn-primary flex items-center gap-2 text-sm">
+              {testing ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              Test Connection
+            </button>
+            <button onClick={async () => {
+              try {
+                const res = await syncEmployees().unwrap();
+                setSyncResult(res.data);
+                toast.success(res.message || `Imported ${res.data?.imported || 0} employees`);
+              } catch (err: any) { toast.error(err?.data?.error?.message || 'Sync failed'); }
+            }} disabled={syncing || !config?.connectionVerified}
+              className="flex items-center gap-2 text-sm px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50">
+              {syncing ? <Loader2 size={14} className="animate-spin" /> : <Users size={14} />}
+              Sync Employees from Teams
+            </button>
+            <button onClick={startEditAll} className="btn-secondary flex items-center gap-2 text-sm">
+              <Pencil size={14} />
+              Edit All
+            </button>
+          </div>
+          {syncResult && (
+            <div className="mt-3 p-3 bg-emerald-50 text-emerald-700 rounded-lg text-sm">
+              Sync complete: <strong>{syncResult.imported}</strong> imported, <strong>{syncResult.skipped}</strong> skipped
+              {syncResult.errors?.length > 0 && (
+                <p className="text-xs text-amber-600 mt-1">{syncResult.errors.length} errors occurred</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- EDIT MODE (full form) ----
+  return (
+    <div className="layer-card p-6">
+      <h2 className="text-lg font-display font-semibold text-gray-800 mb-2">Microsoft Teams Integration</h2>
+      <p className="text-sm text-gray-400 mb-6">Connect your Azure AD / Microsoft 365 tenant to enable SSO login and Teams data sync.</p>
+
+      {renderStatus()}
+
+      <div className="space-y-4 max-w-lg">
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">Tenant ID *</label>
+          <input value={form.tenantId} onChange={e => setForm({...form, tenantId: e.target.value})}
+            className="input-glass w-full text-sm" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+          <p className="text-xs text-gray-400 mt-1">Azure AD Directory (tenant) ID from your app registration</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">Client ID (Application ID) *</label>
+          <input value={form.clientId} onChange={e => setForm({...form, clientId: e.target.value})}
+            className="input-glass w-full text-sm" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+          <p className="text-xs text-gray-400 mt-1">Application (client) ID from Azure AD app registration</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">
+            Client Secret {config?.hasClientSecret && <span className="text-xs text-gray-400">(saved securely, leave blank to keep)</span>}
+          </label>
+          <div className="relative">
+            <input
+              type={showSecret ? 'text' : 'password'}
+              value={form.clientSecret}
+              onChange={e => setForm({...form, clientSecret: e.target.value})}
+              className="input-glass w-full text-sm pr-10"
+              placeholder={config?.hasClientSecret ? '••••••••••••••••' : 'Enter client secret from Azure AD'} />
+            <button type="button" onClick={() => setShowSecret(!showSecret)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Client secret value from Certificates & secrets section</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">Redirect URI</label>
+          <input value={form.redirectUri} onChange={e => setForm({...form, redirectUri: e.target.value})}
+            className="input-glass w-full text-sm" placeholder="http://localhost:4000/api/auth/microsoft/callback" />
+          <p className="text-xs text-gray-400 mt-1">Add this URI to your Azure AD app's redirect URIs</p>
+        </div>
+
+        {/* SSO Toggle */}
+        <div className="pt-2 border-t border-gray-100">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <div className="relative">
+              <input
+                type="checkbox"
+                checked={form.ssoEnabled}
+                onChange={e => setForm({...form, ssoEnabled: e.target.checked})}
+                className="sr-only"
+              />
+              <div className={cn('w-10 h-6 rounded-full transition-colors', form.ssoEnabled ? 'bg-brand-500' : 'bg-gray-300')} />
+              <div className={cn('absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform', form.ssoEnabled && 'translate-x-4')} />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-700">Enable Microsoft SSO for Login</p>
+              <p className="text-xs text-gray-400">Allow employees to sign in with their Microsoft account</p>
+            </div>
+          </label>
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2 text-sm">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            Save Configuration
+          </button>
+          {config?.configured && (
+            <button onClick={cancelEditAll} className="btn-secondary flex items-center gap-2 text-sm">
+              <X size={14} />
+              Cancel
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -600,6 +946,138 @@ function InfoBox({ label, value }: { label: string; value: string }) {
     <div className="bg-surface-2 rounded-lg p-3">
       <p className="text-xs text-gray-400">{label}</p>
       <p className="text-sm font-mono font-medium text-gray-800 mt-0.5" data-mono>{value}</p>
+    </div>
+  );
+}
+
+// ==================
+// USER ROLES TAB
+// ==================
+
+const ROLE_OPTIONS = [
+  { value: 'SUPER_ADMIN', label: 'Super Admin', color: 'bg-purple-50 text-purple-700 border-purple-200' },
+  { value: 'ADMIN', label: 'Admin', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+  { value: 'HR', label: 'HR', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  { value: 'MANAGER', label: 'Manager', color: 'bg-amber-50 text-amber-700 border-amber-200' },
+  { value: 'EMPLOYEE', label: 'Employee', color: 'bg-gray-50 text-gray-600 border-gray-200' },
+];
+
+function UserRolesTab() {
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const { data: res, isLoading } = useGetEmployeesQuery({ page, limit: 50, search: search || undefined });
+  const [changeRole] = useChangeEmployeeRoleMutation();
+
+  const employees = res?.data || [];
+  const meta = res?.meta;
+
+  const handleRoleChange = async (employeeId: string, newRole: string, currentRole: string) => {
+    if (newRole === currentRole) return;
+    try {
+      await changeRole({ employeeId, role: newRole }).unwrap();
+      toast.success(`Role changed to ${ROLE_OPTIONS.find(r => r.value === newRole)?.label || newRole}`);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to change role');
+    }
+  };
+
+  return (
+    <div className="layer-card p-6">
+      <h2 className="text-lg font-display font-semibold text-gray-800 mb-2">User Roles Management</h2>
+      <p className="text-sm text-gray-400 mb-6">Assign roles to employees to control their access level in the portal.</p>
+
+      {/* Role Legend */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        {ROLE_OPTIONS.map(r => (
+          <div key={r.value} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border ${r.color}`}>
+            <span className="w-2 h-2 rounded-full bg-current" />
+            {r.label}
+          </div>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div className="relative max-w-sm mb-4">
+        <Settings size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+          placeholder="Search employees..." className="input-glass w-full pl-9 text-sm" />
+      </div>
+
+      {/* Table */}
+      {isLoading ? (
+        <div className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-brand-600 mx-auto" /></div>
+      ) : employees.length === 0 ? (
+        <div className="text-center py-12 text-gray-400 text-sm">
+          No employees found. Sync employees from Microsoft Teams first.
+        </div>
+      ) : (
+        <>
+          <div className="border border-gray-100 rounded-xl overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gray-50/50 border-b border-gray-100">
+                  <th className="text-left py-3 px-4 text-xs font-medium text-gray-500">Employee</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 hidden md:table-cell">Department</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-gray-500">Current Role</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-gray-500">Change Role</th>
+                </tr>
+              </thead>
+              <tbody>
+                {employees.map((emp: any) => {
+                  const role = emp.user?.role || 'EMPLOYEE';
+                  const roleConfig = ROLE_OPTIONS.find(r => r.value === role) || ROLE_OPTIONS[4];
+                  return (
+                    <tr key={emp.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-lg bg-brand-100 flex items-center justify-center text-brand-700 font-semibold text-sm">
+                            {getInitials(emp.firstName, emp.lastName)}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">{emp.firstName} {emp.lastName}</p>
+                            <p className="text-xs text-gray-400">{emp.employeeCode} · {emp.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 hidden md:table-cell">
+                        <span className="text-sm text-gray-600">{emp.department?.name || '—'}</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${roleConfig.color}`}>
+                          {roleConfig.label}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <select
+                          value={role}
+                          onChange={e => handleRoleChange(emp.id, e.target.value, role)}
+                          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white hover:border-brand-300 focus:ring-2 focus:ring-brand-100 focus:border-brand-500 transition-all cursor-pointer"
+                        >
+                          {ROLE_OPTIONS.map(r => (
+                            <option key={r.value} value={r.value}>{r.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {meta && meta.totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4">
+              <p className="text-xs text-gray-400">Page {meta.page} of {meta.totalPages}</p>
+              <div className="flex gap-2">
+                <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
+                  className="px-3 py-1 text-xs border rounded-lg disabled:opacity-30">Prev</button>
+                <button disabled={page >= meta.totalPages} onClick={() => setPage(p => p + 1)}
+                  className="px-3 py-1 text-xs border rounded-lg disabled:opacity-30">Next</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

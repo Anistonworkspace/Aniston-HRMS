@@ -51,6 +51,23 @@ router.post('/email/test', requirePermission('settings', 'update'), (req, res, n
   settingsController.testEmailConnection(req, res, next)
 );
 
+// Microsoft Teams Configuration
+router.get('/teams', requirePermission('settings', 'read'), (req, res, next) =>
+  settingsController.getTeamsConfig(req, res, next)
+);
+
+router.post('/teams', requirePermission('settings', 'update'), (req, res, next) =>
+  settingsController.saveTeamsConfig(req, res, next)
+);
+
+router.post('/teams/test', requirePermission('settings', 'update'), (req, res, next) =>
+  settingsController.testTeamsConnection(req, res, next)
+);
+
+router.post('/teams/sync', requirePermission('settings', 'update'), (req, res, next) =>
+  settingsController.syncTeamsEmployees(req, res, next)
+);
+
 // System Info
 router.get('/system', (req, res, next) =>
   settingsController.getSystemInfo(req, res, next)

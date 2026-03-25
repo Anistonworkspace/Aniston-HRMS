@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Briefcase, Search, Users, Eye, Sparkles, X, MapPin, Clock } from 'lucide-react';
+import { Plus, Briefcase, Search, Users, Eye, Sparkles, X, MapPin, Clock, Pencil, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useGetJobOpeningsQuery, useCreateJobMutation, useUpdateJobMutation, useGetPipelineStatsQuery } from './recruitmentApi';
+import { useGetJobOpeningsQuery, useCreateJobMutation, useUpdateJobMutation, useDeleteJobMutation, useGetPipelineStatsQuery } from './recruitmentApi';
 import { cn, formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -23,12 +23,15 @@ const JOB_TYPE_MAP: Record<string, string> = {
 
 export default function RecruitmentPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingJob, setEditingJob] = useState<any>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const { data: jobsRes, isLoading } = useGetJobOpeningsQuery({
     page: 1, limit: 50, status: statusFilter || undefined, search: search || undefined,
   });
   const [updateJob] = useUpdateJobMutation();
+  const [deleteJob] = useDeleteJobMutation();
   const { data: pipelineData } = useGetPipelineStatsQuery();
   const navigate = useNavigate();
 
@@ -41,6 +44,17 @@ export default function RecruitmentPage() {
       toast.success(`Job ${labels[status] || status.toLowerCase()}!`);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed');
+    }
+  };
+
+  const handleDeleteJob = async (id: string) => {
+    try {
+      await deleteJob(id).unwrap();
+      toast.success('Job deleted!');
+      setDeleteConfirm(null);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Cannot delete job');
+      setDeleteConfirm(null);
     }
   };
 
@@ -188,6 +202,16 @@ export default function RecruitmentPage() {
                     <button onClick={() => handleStatusChange(job.id, 'OPEN')}
                       className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">Reopen</button>
                   )}
+                  <button onClick={() => setEditingJob(job)}
+                    className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1">
+                    <Pencil size={12} /> Edit
+                  </button>
+                  {(job._count?.applications || 0) === 0 && (
+                    <button onClick={() => setDeleteConfirm(job.id)}
+                      className="text-xs text-red-400 hover:text-red-600 flex items-center gap-1">
+                      <Trash2 size={12} />
+                    </button>
+                  )}
                   <button
                     onClick={() => navigate(`/recruitment/${job.id}`)}
                     className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
@@ -204,7 +228,135 @@ export default function RecruitmentPage() {
       <AnimatePresence>
         {showCreateModal && <CreateJobModal onClose={() => setShowCreateModal(false)} />}
       </AnimatePresence>
+
+      {/* Edit Job Modal */}
+      <AnimatePresence>
+        {editingJob && <EditJobModal job={editingJob} onClose={() => setEditingJob(null)} />}
+      </AnimatePresence>
+
+      {/* Delete Confirmation Dialog */}
+      <AnimatePresence>
+        {deleteConfirm && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setDeleteConfirm(null)}>
+            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+              onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 max-w-sm">
+              <h3 className="text-lg font-display font-semibold text-gray-800 mb-2">Delete Job?</h3>
+              <p className="text-sm text-gray-500 mb-5">This action cannot be undone. The job posting will be permanently removed.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setDeleteConfirm(null)} className="btn-secondary flex-1">Cancel</button>
+                <button onClick={() => handleDeleteJob(deleteConfirm)} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors">Delete</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+function EditJobModal({ job, onClose }: { job: any; onClose: () => void }) {
+  const [updateJob, { isLoading }] = useUpdateJobMutation();
+  const [form, setForm] = useState({
+    title: job.title || '',
+    department: job.department || '',
+    location: job.location || '',
+    type: job.type || 'FULL_TIME',
+    experience: job.experience || '',
+    openings: job.openings || 1,
+    description: job.description || '',
+    requirements: (job.requirements || []).join('\n'),
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await updateJob({
+        id: job.id,
+        data: { ...form, requirements: form.requirements.split('\n').filter(Boolean) },
+      }).unwrap();
+      toast.success('Job updated!');
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to update job');
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-display font-semibold text-gray-800">Edit Job</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+            <X size={18} className="text-gray-400" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Job Title *</label>
+            <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+              className="input-glass w-full" placeholder="e.g. Senior Software Engineer" required />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Department *</label>
+              <input value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })}
+                className="input-glass w-full" required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Location *</label>
+              <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
+                className="input-glass w-full" required />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Type</label>
+              <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} className="input-glass w-full">
+                <option value="FULL_TIME">Full-time</option>
+                <option value="PART_TIME">Part-time</option>
+                <option value="CONTRACT">Contract</option>
+                <option value="INTERNSHIP">Internship</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Experience</label>
+              <input value={form.experience} onChange={(e) => setForm({ ...form, experience: e.target.value })} className="input-glass w-full" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Openings</label>
+              <input type="number" value={form.openings} min={1} onChange={(e) => setForm({ ...form, openings: Number(e.target.value) })} className="input-glass w-full" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Job Description *</label>
+            <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+              className="input-glass w-full h-24 resize-none" required minLength={20} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Requirements (one per line)</label>
+            <textarea value={form.requirements} onChange={(e) => setForm({ ...form, requirements: e.target.value })}
+              className="input-glass w-full h-20 resize-none" />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+            <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} type="submit" disabled={isLoading}
+              className="btn-primary flex-1 flex items-center justify-center gap-2">
+              {isLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+              Save Changes
+            </motion.button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
   );
 }
 

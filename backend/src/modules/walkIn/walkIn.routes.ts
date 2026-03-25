@@ -26,9 +26,33 @@ router.get('/token/:tokenNumber', (req, res, next) => walkInController.getByToke
 // HR ROUTES (Auth Required)
 // =====================
 
+// =====================
+// EMPLOYEE INTERVIEW ROUTES (any authenticated user)
+// =====================
+
+router.get('/my-interviews', authenticate, (req, res, next) => walkInController.getMyInterviews(req, res, next));
+router.get('/my-interviews/:roundId', authenticate, (req, res, next) => walkInController.getMyInterviewDetail(req, res, next));
+router.patch('/my-interviews/:roundId/score', authenticate, (req, res, next) => walkInController.submitMyScore(req, res, next));
+
+// =====================
+// HR ROUTES (Auth Required)
+// =====================
+
 const hrAuth = [authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR)];
 
-// Get today's walk-ins (HR dashboard)
+// Get walk-in stats (counts per status)
+router.get('/stats', ...hrAuth, (req, res, next) => walkInController.getStats(req, res, next));
+
+// Get ALL walk-ins (not just today)
+router.get('/all', ...hrAuth, (req, res, next) => walkInController.getAllWalkIns(req, res, next));
+
+// Get selected (hiring passed) candidates
+router.get('/selected', ...hrAuth, (req, res, next) => walkInController.getSelectedCandidates(req, res, next));
+
+// Get interviewers list for dropdown
+router.get('/interviewers', ...hrAuth, (req, res, next) => walkInController.getInterviewers(req, res, next));
+
+// Get today's walk-ins (HR dashboard — legacy)
 router.get('/today', ...hrAuth, (req, res, next) => walkInController.getTodayWalkIns(req, res, next));
 
 // Get a specific walk-in record

@@ -46,6 +46,13 @@ router.patch('/jobs/:id', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, 
   } catch (err) { next(err); }
 });
 
+router.delete('/jobs/:id', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await recruitmentService.deleteJob(req.params.id);
+    res.json({ success: true, data: result, message: 'Job deleted' });
+  } catch (err) { next(err); }
+});
+
 // =====================
 // APPLICATIONS
 // =====================

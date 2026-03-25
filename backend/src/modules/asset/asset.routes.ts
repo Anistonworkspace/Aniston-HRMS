@@ -6,6 +6,9 @@ const router = Router();
 
 router.use(authenticate);
 
+// Employee: Get my assigned assets (no special permission needed)
+router.get('/my', (req, res, next) => assetController.getMyAssets(req, res, next));
+
 router.get('/', requirePermission('asset', 'read'), (req, res, next) =>
   assetController.list(req, res, next)
 );

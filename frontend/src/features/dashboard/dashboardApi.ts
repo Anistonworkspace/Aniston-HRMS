@@ -7,7 +7,11 @@ export const dashboardApi = api.injectEndpoints({
       query: () => '/dashboard/stats',
       providesTags: ['Dashboard'],
     }),
+    getPendingApprovalsAll: builder.query<any, { search?: string; page?: number; limit?: number }>({
+      query: (params) => ({ url: '/dashboard/pending-approvals', params }),
+      providesTags: ['Dashboard'],
+    }),
   }),
 });
 
-export const { useGetDashboardStatsQuery } = dashboardApi;
+export const { useGetDashboardStatsQuery, useGetPendingApprovalsAllQuery } = dashboardApi;

@@ -5,7 +5,6 @@ import ProtectedRoute from './ProtectedRoute';
 
 // Lazy-loaded pages
 const LoginPage = lazy(() => import('../features/auth/LoginPage'));
-const RegisterPage = lazy(() => import('../features/auth/RegisterPage'));
 const DashboardPage = lazy(() => import('../features/dashboard/DashboardPage'));
 const EmployeeListPage = lazy(() => import('../features/employee/EmployeeListPage'));
 const EmployeeDetailPage = lazy(() => import('../features/employee/EmployeeDetailPage'));
@@ -31,7 +30,15 @@ const JobDetailPage = lazy(() => import('../features/recruitment/JobDetailPage')
 const CandidateDetailPage = lazy(() => import('../features/recruitment/CandidateDetailPage'));
 const DownloadPage = lazy(() => import('../features/pwa/DownloadPage'));
 const RosterPage = lazy(() => import('../features/roster/RosterPage'));
+const HiringPassedPage = lazy(() => import('../features/hiring/HiringPassedPage'));
+const InterviewAssignmentsPage = lazy(() => import('../features/interviews/InterviewAssignmentsPage'));
+const AssetManagementPage = lazy(() => import('../features/assets/AssetManagementPage'));
+const MyAssetsPage = lazy(() => import('../features/assets/MyAssetsPage'));
 const EmployeeAttendanceDetailPage = lazy(() => import('../features/attendance/EmployeeAttendanceDetailPage'));
+const AuthCallbackPage = lazy(() => import('../features/auth/AuthCallbackPage'));
+const PendingApprovalsPage = lazy(() => import('../features/dashboard/PendingApprovalsPage'));
+const ExitManagementPage = lazy(() => import('../features/exit/ExitManagementPage'));
+const ExitDetailPage = lazy(() => import('../features/exit/ExitDetailPage'));
 
 function PageLoader() {
   return (
@@ -51,7 +58,7 @@ export default function AppRouter() {
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
-          {/* Register removed — employees are invited by HR via onboarding */}
+          <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route path="/onboarding/:token" element={<OnboardingPortal />} />
           <Route path="/jobs" element={<PublicJobsPage />} />
           <Route path="/download" element={<DownloadPage />} />
@@ -73,6 +80,7 @@ export default function AppRouter() {
             }
           >
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/pending-approvals" element={<PendingApprovalsPage />} />
             <Route path="/employees" element={<EmployeeListPage />} />
 
             {/* Placeholder routes */}
@@ -92,8 +100,14 @@ export default function AppRouter() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/roster" element={<RosterPage />} />
+            <Route path="/hiring-passed" element={<HiringPassedPage />} />
+            <Route path="/interview-assignments" element={<InterviewAssignmentsPage />} />
+            <Route path="/assets" element={<AssetManagementPage />} />
+            <Route path="/my-assets" element={<MyAssetsPage />} />
             <Route path="/walk-in-management" element={<WalkInManagementPage />} />
             <Route path="/walk-in-management/:id" element={<WalkInDetailPage />} />
+            <Route path="/exit-management" element={<ExitManagementPage />} />
+            <Route path="/exit-management/:id" element={<ExitDetailPage />} />
             <Route path="/more" element={<ProfilePage />} />
           </Route>
 

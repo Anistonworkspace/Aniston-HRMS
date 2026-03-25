@@ -17,6 +17,10 @@ export const recruitmentApi = api.injectEndpoints({
       query: ({ id, data }) => ({ url: `/recruitment/jobs/${id}`, method: 'PATCH', body: data }),
       invalidatesTags: ['Recruitment'],
     }),
+    deleteJob: builder.mutation<any, string>({
+      query: (id) => ({ url: `/recruitment/jobs/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Recruitment'],
+    }),
     getApplications: builder.query<any, { jobId: string; status?: string }>({
       query: ({ jobId, status }) => ({ url: `/recruitment/jobs/${jobId}/applications`, params: status ? { status } : {} }),
     }),
@@ -47,6 +51,7 @@ export const {
   useGetJobByIdQuery,
   useCreateJobMutation,
   useUpdateJobMutation,
+  useDeleteJobMutation,
   useGetApplicationsQuery,
   useGetApplicationByIdQuery,
   useMoveApplicationStageMutation,

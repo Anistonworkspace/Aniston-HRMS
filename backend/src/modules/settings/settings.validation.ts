@@ -27,6 +27,15 @@ export const auditLogQuerySchema = z.object({
   entity: z.string().optional(),
 });
 
+export const teamsConfigSchema = z.object({
+  tenantId: z.string().min(1, 'Tenant ID is required'),
+  clientId: z.string().min(1, 'Client ID is required'),
+  clientSecret: z.string().min(1).optional(),
+  redirectUri: z.string().optional(),
+  ssoEnabled: z.boolean().default(false),
+});
+
+export type TeamsConfigInput = z.infer<typeof teamsConfigSchema>;
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 export type CreateLocationInput = z.infer<typeof createLocationSchema>;
 export type UpdateLocationInput = z.infer<typeof updateLocationSchema>;
