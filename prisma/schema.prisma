@@ -150,6 +150,7 @@ model Employee {
   tickets           Ticket[]
   activityLogs      ActivityLog[]
   agentScreenshots  AgentScreenshot[]
+  exitChecklist     ExitChecklist?
   headOfDepartments Department[]     @relation("DepartmentHead")
 
   @@index([organizationId, status])
@@ -787,21 +788,28 @@ enum OfferStatus {
 // =====================
 
 model Asset {
-  id           String        @id @default(uuid())
-  name         String
-  assetCode    String        @unique
-  category     AssetCategory
-  serialNumber String?
-  status       AssetStatus   @default(AVAILABLE)
-  purchaseDate DateTime?
-  purchaseCost Decimal?      @db.Decimal(12, 2)
-  notes        String?
+  id             String         @id @default(uuid())
+  name           String
+  assetCode      String         @unique
+  category       AssetCategory
+  brand          String?
+  modelNumber    String?
+  serialNumber   String?
+  status         AssetStatus    @default(AVAILABLE)
+  condition      AssetCondition @default(GOOD)
+  purchaseDate   DateTime?
+  purchaseCost   Decimal?       @db.Decimal(12, 2)
+  warrantyExpiry DateTime?
+  vendor         String?
+  location       String?
+  notes          String?
   organizationId String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
-  assignments AssetAssignment[]
-  tickets     Ticket[]
+  assignments        AssetAssignment[]
+  tickets            Ticket[]
+  exitChecklistItems ExitChecklistItem[]
 }
 
 enum AssetCategory {
@@ -821,18 +829,58 @@ enum AssetStatus {
   RETIRED
 }
 
+enum AssetCondition {
+  EXCELLENT
+  GOOD
+  FAIR
+  DAMAGED
+  LOST
+}
+
 model AssetAssignment {
-  id         String    @id @default(uuid())
-  assetId    String
-  employeeId String
-  assignedBy String
-  assignedAt DateTime  @default(now())
-  returnedAt DateTime?
-  condition  String?
-  notes      String?
+  id              String          @id @default(uuid())
+  assetId         String
+  employeeId      String
+  assignedBy      String
+  assignedAt      DateTime        @default(now())
+  returnedAt      DateTime?
+  condition       String?
+  returnCondition AssetCondition?
+  returnNotes     String?
+  notes           String?
 
   asset    Asset    @relation(fields: [assetId], references: [id])
   employee Employee @relation(fields: [employeeId], references: [id])
+}
+
+model ExitChecklist {
+  id                        String    @id @default(uuid())
+  employeeId                String    @unique
+  assetsClearedAt           DateTime?
+  assetsApprovedBy          String?
+  knowledgeTransferDone     Boolean   @default(false)
+  accessRevokedAt           DateTime?
+  finalSettlementDone       Boolean   @default(false)
+  salaryProcessingUnblocked Boolean   @default(false)
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  employee Employee            @relation(fields: [employeeId], references: [id])
+  items    ExitChecklistItem[]
+}
+
+model ExitChecklistItem {
+  id          String    @id @default(uuid())
+  checklistId String
+  assetId     String?
+  itemName    String
+  isReturned  Boolean   @default(false)
+  returnedAt  DateTime?
+  approvedBy  String?
+  notes       String?
+
+  checklist ExitChecklist @relation(fields: [checklistId], references: [id])
+  asset     Asset?        @relation(fields: [assetId], references: [id])
 }
 
 // =====================

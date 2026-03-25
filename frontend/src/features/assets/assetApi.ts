@@ -22,9 +22,9 @@ export const assetApi = api.injectEndpoints({
       query: ({ assetId, ...body }) => ({ url: `/assets/${assetId}/assign`, method: 'POST', body }),
       invalidatesTags: ['Asset'],
     }),
-    returnAsset: builder.mutation<any, string>({
-      query: (assignmentId) => ({ url: `/assets/assignments/${assignmentId}/return`, method: 'PATCH' }),
-      invalidatesTags: ['Asset'],
+    returnAsset: builder.mutation<any, { assignmentId: string; returnCondition?: string; returnNotes?: string }>({
+      query: ({ assignmentId, ...body }) => ({ url: `/assets/assignments/${assignmentId}/return`, method: 'PATCH', body }),
+      invalidatesTags: ['Asset', 'Exit'],
     }),
     getAssetAssignments: builder.query<any, string>({
       query: (assetId) => `/assets/${assetId}/assignments`,
@@ -33,6 +33,22 @@ export const assetApi = api.injectEndpoints({
     getMyAssets: builder.query<any, void>({
       query: () => '/assets/my',
       providesTags: ['Asset'],
+    }),
+    getAssetStats: builder.query<any, void>({
+      query: () => '/assets/stats',
+      providesTags: ['Asset'],
+    }),
+    getEmployeeAssets: builder.query<any, string>({
+      query: (employeeId) => `/assets/employee/${employeeId}`,
+      providesTags: ['Asset'],
+    }),
+    getExitChecklist: builder.query<any, string>({
+      query: (employeeId) => `/assets/exit-checklist/${employeeId}`,
+      providesTags: ['Asset', 'Exit'],
+    }),
+    markChecklistItem: builder.mutation<any, { employeeId: string; itemId: string; isReturned: boolean; notes?: string }>({
+      query: ({ employeeId, ...body }) => ({ url: `/assets/exit-checklist/${employeeId}/item`, method: 'PATCH', body }),
+      invalidatesTags: ['Asset', 'Exit'],
     }),
   }),
 });
@@ -46,4 +62,8 @@ export const {
   useReturnAssetMutation,
   useGetAssetAssignmentsQuery,
   useGetMyAssetsQuery,
+  useGetAssetStatsQuery,
+  useGetEmployeeAssetsQuery,
+  useGetExitChecklistQuery,
+  useMarkChecklistItemMutation,
 } = assetApi;

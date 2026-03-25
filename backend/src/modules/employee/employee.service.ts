@@ -559,6 +559,15 @@ export class EmployeeService {
 
     await createAuditLog({ userId: approvedBy, organizationId, entity: 'Employee', entityId: employeeId, action: 'EXIT_APPROVED', newValue: { exitStatus, lastWorkingDate: updated.lastWorkingDate } });
 
+    // Auto-create exit checklist for asset clearance
+    try {
+      const { assetService } = await import('../asset/asset.service.js');
+      await assetService.createExitChecklist(employeeId);
+    } catch (e) {
+      // Non-blocking: checklist creation failure shouldn't block exit approval
+      console.error('Failed to create exit checklist:', e);
+    }
+
     return updated;
   }
 
