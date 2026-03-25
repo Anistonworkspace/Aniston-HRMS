@@ -66,6 +66,7 @@ enum Role {
   HR
   MANAGER
   EMPLOYEE
+  INTERN
   GUEST_INTERVIEWER
 }
 
@@ -151,6 +152,8 @@ model Employee {
   activityLogs      ActivityLog[]
   agentScreenshots  AgentScreenshot[]
   exitChecklist     ExitChecklist?
+  internProfile     InternProfile?
+  internsMentored   InternProfile[]  @relation("InternMentor")
   headOfDepartments Department[]     @relation("DepartmentHead")
 
   @@index([organizationId, status])
@@ -881,6 +884,41 @@ model ExitChecklistItem {
 
   checklist ExitChecklist @relation(fields: [checklistId], references: [id])
   asset     Asset?        @relation(fields: [assetId], references: [id])
+}
+
+// =====================
+// INTERN PROFILES
+// =====================
+
+model InternProfile {
+  id                  String                   @id @default(uuid())
+  employeeId          String                   @unique
+  collegeUniversity   String?
+  course              String?
+  specialization      String?
+  internshipStartDate DateTime
+  internshipEndDate   DateTime
+  stipend             Decimal?                 @db.Decimal(10, 2)
+  mentorId            String?
+  projectTitle        String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  employee            Employee                 @relation(fields: [employeeId], references: [id])
+  mentor              Employee?                @relation("InternMentor", fields: [mentorId], references: [id])
+  achievementLetters  InternAchievementLetter[]
+}
+
+model InternAchievementLetter {
+  id              String        @id @default(uuid())
+  internProfileId String
+  title           String
+  description     String
+  issuedBy        String
+  issuedAt        DateTime      @default(now())
+  pdfUrl          String?
+
+  internProfile   InternProfile @relation(fields: [internProfileId], references: [id])
 }
 
 // =====================

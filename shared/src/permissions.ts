@@ -148,6 +148,19 @@ export const PERMISSIONS: PermissionsMap = {
     org_chart: ['read'],
   },
 
+  [Role.INTERN]: {
+    employee: ['read:own', 'update:own'],
+    attendance: ['create', 'read:own'],
+    leave: ['create', 'read:own'],
+    helpdesk: ['create', 'read:own'],
+    social_wall: ['create', 'read'],
+    document: ['create', 'read:own'],
+    policy: ['read'],
+    announcement: ['read'],
+    holiday: ['read'],
+    org_chart: ['read'],
+  },
+
   [Role.GUEST_INTERVIEWER]: {
     recruitment: ['read', 'update'],
   },
