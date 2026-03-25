@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, AlertTriangle, Package, Undo2, UserX, Loader2, Clock } from 'lucide-react';
 import { useGetExitDetailsQuery, useApproveExitMutation, useCompleteExitMutation, useWithdrawResignationMutation, useReturnAssetForExitMutation } from './exitApi';
+import { useGetExitChecklistQuery, useMarkChecklistItemMutation } from '../assets/assetApi';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -124,52 +125,8 @@ export default function ExitDetailPage() {
             )}
           </div>
 
-          {/* Asset Clearance */}
-          <div className="layer-card p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-display font-semibold text-gray-800">Asset Clearance</h2>
-              <div className={cn('text-xs font-medium px-3 py-1 rounded-full', assets.allReturned ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700')}>
-                {assets.allReturned ? 'All Cleared' : `${assets.pending.length} Pending`}
-              </div>
-            </div>
-
-            {assets.pending.length === 0 && assets.returned.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No assets were assigned to this employee</p>
-            ) : (
-              <div className="space-y-2">
-                {assets.pending.map((a: any) => (
-                  <div key={a.id} className="flex items-center justify-between p-3 bg-orange-50/50 rounded-lg border border-orange-100">
-                    <div className="flex items-center gap-3">
-                      <Package size={18} className="text-orange-500" />
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{a.asset?.name}</p>
-                        <p className="text-xs text-gray-400 font-mono" data-mono>{a.asset?.assetCode} · {a.asset?.category}</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleReturnAsset(a.id)}
-                      disabled={returning}
-                      className="btn-primary text-xs px-3 py-1.5"
-                    >
-                      {returning ? <Loader2 size={12} className="animate-spin" /> : 'Return'}
-                    </button>
-                  </div>
-                ))}
-                {assets.returned.map((a: any) => (
-                  <div key={a.id} className="flex items-center justify-between p-3 bg-emerald-50/50 rounded-lg border border-emerald-100">
-                    <div className="flex items-center gap-3">
-                      <CheckCircle2 size={18} className="text-emerald-500" />
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{a.asset?.name}</p>
-                        <p className="text-xs text-gray-400 font-mono" data-mono>{a.asset?.assetCode} · Returned {new Date(a.returnedAt).toLocaleDateString('en-IN')}</p>
-                      </div>
-                    </div>
-                    <span className="text-xs text-emerald-600 font-medium">Returned</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Asset Clearance — Exit Checklist */}
+          <ExitChecklistSection employeeId={id!} assets={assets} handleReturnAsset={handleReturnAsset} returning={returning} />
 
           {/* Approve Form */}
           {exitStatus === 'PENDING' && showApproveForm && (
@@ -256,6 +213,149 @@ function InfoField({ label, value }: { label: string; value: string }) {
     <div>
       <p className="text-xs text-gray-400 mb-0.5">{label}</p>
       <p className="text-sm font-medium text-gray-800">{value}</p>
+    </div>
+  );
+}
+
+function ExitChecklistSection({ employeeId, assets, handleReturnAsset, returning }: {
+  employeeId: string; assets: any; handleReturnAsset: (id: string) => void; returning: boolean;
+}) {
+  const { data: checklistRes } = useGetExitChecklistQuery(employeeId);
+  const [markItem, { isLoading: marking }] = useMarkChecklistItemMutation();
+  const checklist = checklistRes?.data;
+  const items = checklist?.items || [];
+  const returned = items.filter((i: any) => i.isReturned).length;
+  const total = items.length;
+  const allCleared = checklist?.salaryProcessingUnblocked || (total > 0 && returned === total);
+
+  const handleToggle = async (itemId: string, isReturned: boolean) => {
+    try {
+      await markItem({ employeeId, itemId, isReturned }).unwrap();
+      toast.success(isReturned ? 'Item marked as returned' : 'Item unmarked');
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  // If checklist exists, use it; otherwise fall back to raw asset view
+  if (checklist && items.length > 0) {
+    return (
+      <div className="layer-card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-display font-semibold text-gray-800">Exit Checklist</h2>
+          <div className={cn('text-xs font-medium px-3 py-1 rounded-full',
+            allCleared ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700')}>
+            {allCleared ? 'All Cleared' : `${total - returned} Pending`}
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        {total > 0 && (
+          <div className="mb-4">
+            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+              <span>Asset Clearance</span>
+              <span className="font-mono" data-mono>{returned}/{total} returned</span>
+            </div>
+            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                style={{ width: `${(returned / total) * 100}%` }} />
+            </div>
+          </div>
+        )}
+
+        {/* Salary status banner */}
+        {!allCleared && (
+          <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl mb-4">
+            <AlertTriangle size={16} className="text-amber-600 flex-shrink-0" />
+            <p className="text-xs text-amber-700">Salary processing is blocked until all items are cleared</p>
+          </div>
+        )}
+        {allCleared && (
+          <div className="flex items-center gap-2 px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl mb-4">
+            <CheckCircle2 size={16} className="text-emerald-600 flex-shrink-0" />
+            <p className="text-xs text-emerald-700">All items cleared — salary processing unblocked</p>
+          </div>
+        )}
+
+        {/* Checklist items */}
+        <div className="space-y-2">
+          {items.map((item: any) => (
+            <div key={item.id} className={cn(
+              'flex items-center justify-between p-3 rounded-lg border',
+              item.isReturned ? 'bg-emerald-50/50 border-emerald-100' : 'bg-orange-50/50 border-orange-100'
+            )}>
+              <div className="flex items-center gap-3">
+                {item.isReturned
+                  ? <CheckCircle2 size={18} className="text-emerald-500" />
+                  : <Package size={18} className="text-orange-500" />}
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{item.itemName}</p>
+                  {item.asset && (
+                    <p className="text-xs text-gray-400 font-mono" data-mono>{item.asset.category}</p>
+                  )}
+                  {item.isReturned && item.returnedAt && (
+                    <p className="text-[10px] text-gray-400">Returned {new Date(item.returnedAt).toLocaleDateString('en-IN')}</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => handleToggle(item.id, !item.isReturned)}
+                disabled={marking}
+                className={cn('text-xs px-3 py-1.5 rounded-lg font-medium transition-all',
+                  item.isReturned
+                    ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                    : 'btn-primary'
+                )}>
+                {marking ? <Loader2 size={12} className="animate-spin" />
+                  : item.isReturned ? 'Returned' : 'Mark Returned'}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback: show raw asset data if no checklist
+  return (
+    <div className="layer-card p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-display font-semibold text-gray-800">Asset Clearance</h2>
+        <div className={cn('text-xs font-medium px-3 py-1 rounded-full',
+          assets.allReturned ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700')}>
+          {assets.allReturned ? 'All Cleared' : `${assets.pending.length} Pending`}
+        </div>
+      </div>
+      {assets.pending.length === 0 && assets.returned.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-6">No assets were assigned to this employee</p>
+      ) : (
+        <div className="space-y-2">
+          {assets.pending.map((a: any) => (
+            <div key={a.id} className="flex items-center justify-between p-3 bg-orange-50/50 rounded-lg border border-orange-100">
+              <div className="flex items-center gap-3">
+                <Package size={18} className="text-orange-500" />
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{a.asset?.name}</p>
+                  <p className="text-xs text-gray-400 font-mono" data-mono>{a.asset?.assetCode}</p>
+                </div>
+              </div>
+              <button onClick={() => handleReturnAsset(a.id)} disabled={returning} className="btn-primary text-xs px-3 py-1.5">
+                {returning ? <Loader2 size={12} className="animate-spin" /> : 'Return'}
+              </button>
+            </div>
+          ))}
+          {assets.returned.map((a: any) => (
+            <div key={a.id} className="flex items-center justify-between p-3 bg-emerald-50/50 rounded-lg border border-emerald-100">
+              <div className="flex items-center gap-3">
+                <CheckCircle2 size={18} className="text-emerald-500" />
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{a.asset?.name}</p>
+                  <p className="text-xs text-gray-400 font-mono" data-mono>{a.asset?.assetCode} · Returned</p>
+                </div>
+              </div>
+              <span className="text-xs text-emerald-600 font-medium">Returned</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

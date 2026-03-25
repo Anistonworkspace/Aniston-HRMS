@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import {
   Laptop, Smartphone, CreditCard, Monitor, Package, Calendar, AlertCircle,
-  Loader2, MessageSquare,
+  Loader2, MessageSquare, Shield,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useGetMyAssetsQuery } from './assetApi';
@@ -14,6 +14,14 @@ const CATEGORIES: Record<string, { label: string; icon: any; color: string }> = 
   VISITING_CARD: { label: 'Visiting Card', icon: CreditCard, color: 'bg-pink-50 text-pink-600' },
   MONITOR: { label: 'Monitor', icon: Monitor, color: 'bg-indigo-50 text-indigo-600' },
   OTHER: { label: 'Other', icon: Package, color: 'bg-gray-50 text-gray-600' },
+};
+
+const CONDITIONS: Record<string, { label: string; color: string }> = {
+  EXCELLENT: { label: 'Excellent', color: 'bg-emerald-50 text-emerald-700' },
+  GOOD: { label: 'Good', color: 'bg-blue-50 text-blue-700' },
+  FAIR: { label: 'Fair', color: 'bg-amber-50 text-amber-700' },
+  DAMAGED: { label: 'Damaged', color: 'bg-red-50 text-red-700' },
+  LOST: { label: 'Lost', color: 'bg-gray-100 text-gray-500' },
 };
 
 export default function MyAssetsPage() {
@@ -69,6 +77,9 @@ export default function MyAssetsPage() {
                   </div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-gray-900">{asset?.name}</h3>
+                    {(asset?.brand || asset?.modelNumber) && (
+                      <p className="text-xs text-gray-500">{[asset.brand, asset.modelNumber].filter(Boolean).join(' · ')}</p>
+                    )}
                     <p className="text-xs font-mono text-gray-400" data-mono>{asset?.assetCode}</p>
                   </div>
                   <span className="text-xs bg-brand-50 text-brand-600 px-2 py-0.5 rounded-full font-medium">
@@ -90,10 +101,18 @@ export default function MyAssetsPage() {
                       {new Date(assignment.assignedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                     </span>
                   </div>
-                  {assignment.condition && (
+                  {asset?.condition && (
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-400">Condition</span>
-                      <span className="text-gray-600">{assignment.condition}</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${CONDITIONS[asset.condition]?.color || ''}`}>
+                        {CONDITIONS[asset.condition]?.label || asset.condition}
+                      </span>
+                    </div>
+                  )}
+                  {asset?.warrantyExpiry && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400 flex items-center gap-1"><Shield size={12} /> Warranty</span>
+                      <span className="text-gray-600">{new Date(asset.warrantyExpiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                     </div>
                   )}
                 </div>
