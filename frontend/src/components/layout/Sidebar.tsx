@@ -48,8 +48,8 @@ const navItems: NavItem[] = [
   { name: 'Payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { name: 'Walk-In Mgmt', path: '/walk-in-management', icon: UserPlus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { name: 'Hiring Passed', path: '/hiring-passed', icon: Award, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { name: 'Walk-In Mgmt', path: '/recruitment?tab=walkin', icon: UserPlus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { name: 'Hiring Passed', path: '/recruitment?tab=hiring-passed', icon: Award, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Employee Exit', path: '/exit-management', icon: UserMinus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Interview Tasks', path: '/interview-assignments', icon: ClipboardCheck },
   { name: 'Assets', managementName: 'Asset Management', path: '/assets', icon: Monitor, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
@@ -112,7 +112,12 @@ export default function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto custom-scrollbar py-4 px-2 space-y-1">
         {filteredItems.map((item) => {
-          const isActive = location.pathname.startsWith(item.path);
+          const itemPath = item.path.split('?')[0];
+          const itemTab = item.path.includes('?tab=') ? item.path.split('?tab=')[1] : null;
+          const currentTab = new URLSearchParams(location.search).get('tab');
+          const isActive = itemTab
+            ? location.pathname.startsWith(itemPath) && currentTab === itemTab
+            : location.pathname.startsWith(item.path) && !currentTab;
           return (
             <NavLink
               key={item.path}
