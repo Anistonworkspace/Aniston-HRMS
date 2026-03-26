@@ -839,6 +839,54 @@ model BulkResumeItem {
 }
 
 // =====================
+// WHATSAPP INTEGRATION
+// =====================
+
+enum WaTemplateType {
+  JOB_LINK
+  ONBOARDING_INVITE
+  OFFER_LETTER
+  LEAVE_APPROVED
+  GENERAL
+}
+
+enum WaMessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model WhatsAppSession {
+  id             String    @id @default(uuid())
+  sessionName    String    @unique
+  qrCode         String?
+  isConnected    Boolean   @default(false)
+  phoneNumber    String?
+  lastPing       DateTime?
+  organizationId String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model WhatsAppMessage {
+  id             String          @id @default(uuid())
+  sessionId      String
+  to             String
+  message        String
+  templateType   WaTemplateType?
+  referenceId    String?
+  referenceType  String?
+  status         WaMessageStatus @default(PENDING)
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  error          String?
+  organizationId String
+  createdAt      DateTime        @default(now())
+}
+
+// =====================
 // ASSETS
 // =====================
 
