@@ -14,9 +14,15 @@ export class WhatsAppService {
     if (isReady) return { isConnected: true, message: 'Already connected' };
 
     try {
-      // Dynamic import to avoid issues when whatsapp-web.js not installed
-      const { Client, LocalAuth } = await import('whatsapp-web.js');
+      // Dynamic import — whatsapp-web.js uses default export in some versions
+      const wwebjs = await import('whatsapp-web.js');
+      const Client = wwebjs.Client || (wwebjs as any).default?.Client;
+      const LocalAuth = wwebjs.LocalAuth || (wwebjs as any).default?.LocalAuth;
       const qrcode = await import('qrcode');
+
+      if (!Client || !LocalAuth) {
+        throw new Error('whatsapp-web.js Client or LocalAuth not found. Run: npm install whatsapp-web.js@latest');
+      }
 
       currentOrgId = organizationId;
 
@@ -30,7 +36,8 @@ export class WhatsAppService {
 
       waClient.on('qr', async (qr: string) => {
         try {
-          currentQrCode = await qrcode.toDataURL(qr);
+          const toDataURL = qrcode.toDataURL || (qrcode as any).default?.toDataURL;
+          currentQrCode = toDataURL ? await toDataURL(qr) : null;
           await prisma.whatsAppSession.upsert({
             where: { sessionName: `main-${organizationId}` },
             update: { qrCode: currentQrCode, isConnected: false },

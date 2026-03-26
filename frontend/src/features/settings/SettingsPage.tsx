@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign } from 'lucide-react';
+import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -15,10 +15,11 @@ L.Icon.Default.mergeOptions({
 import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation } from './settingsApi';
 import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
+import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation } from '../whatsapp/whatsappApi';
 import { cn, getInitials } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'teams' | 'roles' | 'salary-privacy' | 'audit' | 'system';
+type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'teams' | 'whatsapp' | 'roles' | 'salary-privacy' | 'audit' | 'system';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('organization');
@@ -29,6 +30,7 @@ export default function SettingsPage() {
     { key: 'shifts', label: 'Shifts & Rosters', icon: Clock },
     { key: 'email', label: 'Email Configuration', icon: Mail },
     { key: 'teams', label: 'Microsoft Teams', icon: Cloud },
+    { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
     { key: 'roles', label: 'User Roles', icon: Users },
     { key: 'salary-privacy', label: 'Salary Privacy', icon: Lock },
     { key: 'audit', label: 'Audit Logs', icon: Shield },
@@ -66,6 +68,7 @@ export default function SettingsPage() {
           {activeTab === 'shifts' && <ShiftSettings />}
           {activeTab === 'email' && <EmailConfig />}
           {activeTab === 'teams' && <TeamsConfig />}
+          {activeTab === 'whatsapp' && <WhatsAppConfig />}
           {activeTab === 'roles' && <UserRolesTab />}
           {activeTab === 'salary-privacy' && <SalaryPrivacyTab />}
           {activeTab === 'audit' && <AuditLogs />}
@@ -1159,6 +1162,147 @@ function SalaryPrivacyTab() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =================== WhatsApp Configuration ===================
+function WhatsAppConfig() {
+  const { data: statusRes, refetch: refetchStatus } = useGetWhatsAppStatusQuery();
+  const { data: qrRes, refetch: refetchQr } = useGetWhatsAppQrQuery();
+  const [initializeWA, { isLoading: initializing }] = useInitializeWhatsAppMutation();
+  const [logoutWA, { isLoading: disconnecting }] = useLogoutWhatsAppMutation();
+  const [sendMessage] = useSendWhatsAppMessageMutation();
+  const [testPhone, setTestPhone] = useState('');
+  const [testMsg, setTestMsg] = useState('Hello from Aniston HRMS!');
+
+  const status = statusRes?.data;
+  const isConnected = status?.isConnected || false;
+  const qrCode = qrRes?.data?.qrCode;
+
+  const handleInitialize = async () => {
+    try {
+      await initializeWA().unwrap();
+      toast.success('WhatsApp initializing... scan QR code');
+      setTimeout(() => { refetchQr(); refetchStatus(); }, 3000);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to initialize WhatsApp');
+    }
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      await logoutWA().unwrap();
+      toast.success('WhatsApp disconnected');
+      refetchStatus();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to disconnect');
+    }
+  };
+
+  const handleTestMessage = async () => {
+    if (!testPhone || !testMsg) return toast.error('Enter phone number and message');
+    try {
+      await sendMessage({ to: testPhone, message: testMsg }).unwrap();
+      toast.success('Test message sent!');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to send message');
+    }
+  };
+
+  return (
+    <div className="layer-card p-6">
+      <div className="flex items-center gap-3 mb-2">
+        <MessageCircle size={20} className="text-emerald-500" />
+        <h2 className="text-lg font-display font-semibold text-gray-800">WhatsApp Integration</h2>
+      </div>
+      <p className="text-sm text-gray-500 mb-6">Connect WhatsApp Web to send messages to candidates and employees</p>
+
+      <div className={cn('rounded-xl px-4 py-3 mb-6 flex items-center gap-3',
+        isConnected ? 'bg-emerald-50 border border-emerald-200' : 'bg-gray-50 border border-gray-200')}>
+        {isConnected ? (
+          <>
+            <Wifi size={18} className="text-emerald-600" />
+            <div>
+              <p className="text-sm font-medium text-emerald-700">Connected</p>
+              {status?.phoneNumber && <p className="text-xs text-emerald-500">Phone: +{status.phoneNumber}</p>}
+            </div>
+          </>
+        ) : (
+          <>
+            <WifiOff size={18} className="text-gray-400" />
+            <p className="text-sm font-medium text-gray-500">Not Connected</p>
+          </>
+        )}
+      </div>
+
+      {!isConnected ? (
+        <div className="space-y-6">
+          {qrCode ? (
+            <div className="text-center">
+              <p className="text-sm text-gray-600 mb-4">Scan this QR code with WhatsApp on your phone</p>
+              <div className="inline-block p-4 bg-white rounded-2xl shadow-lg border border-gray-100">
+                <img src={qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
+              </div>
+              <p className="text-xs text-gray-400 mt-3">Open WhatsApp → Settings → Linked Devices → Link a Device</p>
+              <button onClick={() => { refetchQr(); refetchStatus(); }} className="btn-secondary text-xs mt-4">Refresh QR</button>
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <MessageCircle size={48} className="mx-auto text-gray-200 mb-4" />
+              <p className="text-sm text-gray-500 mb-4">Click below to generate a QR code for WhatsApp Web connection</p>
+              <button onClick={handleInitialize} disabled={initializing}
+                className="btn-primary flex items-center gap-2 mx-auto">
+                {initializing && <Loader2 size={16} className="animate-spin" />}
+                <MessageCircle size={16} /> Connect WhatsApp
+              </button>
+            </div>
+          )}
+
+          <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+            <h4 className="text-sm font-medium text-blue-700 mb-2">How it works</h4>
+            <ol className="text-xs text-blue-600 space-y-1 list-decimal list-inside">
+              <li>Click "Connect WhatsApp" to generate a QR code</li>
+              <li>Open WhatsApp on your phone → Settings → Linked Devices</li>
+              <li>Scan the QR code displayed here</li>
+              <li>Once connected, you can send messages to candidates and employees</li>
+            </ol>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <div className="layer-card p-4">
+            <h4 className="text-sm font-semibold text-gray-700 mb-3">Send Test Message</h4>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Phone Number (with country code)</label>
+                <input value={testPhone} onChange={e => setTestPhone(e.target.value)}
+                  placeholder="919876543210" className="input-glass w-full text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Message</label>
+                <textarea value={testMsg} onChange={e => setTestMsg(e.target.value)}
+                  className="input-glass w-full text-sm h-20 resize-none" />
+              </div>
+              <button onClick={handleTestMessage} className="btn-primary text-xs flex items-center gap-2">
+                <Send size={14} /> Send Test
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between p-4 bg-red-50 rounded-xl border border-red-200">
+            <div>
+              <p className="text-sm font-medium text-red-700">Disconnect WhatsApp</p>
+              <p className="text-xs text-red-500">This will end the current WhatsApp Web session</p>
+            </div>
+            <button onClick={handleDisconnect} disabled={disconnecting}
+              className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2">
+              {disconnecting && <Loader2 size={14} className="animate-spin" />}
+              Disconnect
+            </button>
+          </div>
         </div>
       )}
     </div>
