@@ -36,6 +36,19 @@ export const settingsApi = api.injectEndpoints({
       query: () => ({ url: '/settings/teams/sync', method: 'POST' }),
       invalidatesTags: ['Employee', 'EmployeeList'],
     }),
+    // Salary visibility rules
+    getSalaryVisibilityRules: builder.query<any, void>({
+      query: () => '/payroll/visibility-rules',
+      providesTags: ['Payroll'],
+    }),
+    setSalaryVisibilityRule: builder.mutation<any, { employeeId: string; visibleToHR: boolean; visibleToManager: boolean; hiddenReason?: string }>({
+      query: (body) => ({ url: '/payroll/visibility-rules', method: 'POST', body }),
+      invalidatesTags: ['Payroll'],
+    }),
+    updateSalaryVisibilityRule: builder.mutation<any, { employeeId: string; visibleToHR: boolean; visibleToManager: boolean; hiddenReason?: string }>({
+      query: ({ employeeId, ...body }) => ({ url: `/payroll/visibility-rules/${employeeId}`, method: 'PATCH', body }),
+      invalidatesTags: ['Payroll'],
+    }),
   }),
 });
 
@@ -53,4 +66,7 @@ export const {
   useSaveTeamsConfigMutation,
   useTestTeamsConnectionMutation,
   useSyncTeamsEmployeesMutation,
+  useGetSalaryVisibilityRulesQuery,
+  useSetSalaryVisibilityRuleMutation,
+  useUpdateSalaryVisibilityRuleMutation,
 } = settingsApi;

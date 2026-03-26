@@ -153,8 +153,9 @@ model Employee {
   agentScreenshots  AgentScreenshot[]
   exitChecklist     ExitChecklist?
   internProfile     InternProfile?
-  internsMentored   InternProfile[]  @relation("InternMentor")
-  headOfDepartments Department[]     @relation("DepartmentHead")
+  internsMentored        InternProfile[]       @relation("InternMentor")
+  salaryVisibilityRule   SalaryVisibilityRule?
+  headOfDepartments      Department[]          @relation("DepartmentHead")
 
   @@index([organizationId, status])
   @@index([departmentId])
@@ -1019,6 +1020,22 @@ model InternAchievementLetter {
   pdfUrl          String?
 
   internProfile   InternProfile @relation(fields: [internProfileId], references: [id])
+}
+
+// =====================
+// SALARY VISIBILITY
+// =====================
+
+model SalaryVisibilityRule {
+  id               String   @id @default(uuid())
+  employeeId       String   @unique
+  visibleToHR      Boolean  @default(true)
+  visibleToManager Boolean  @default(false)
+  hiddenReason     String?
+  setBy            String
+  updatedAt        DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id])
 }
 
 // =====================

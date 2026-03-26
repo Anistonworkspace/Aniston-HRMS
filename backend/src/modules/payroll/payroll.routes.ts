@@ -49,4 +49,20 @@ router.get('/my-payslips',
   (req, res, next) => payrollController.getMyPayslips(req, res, next)
 );
 
+// Salary visibility rules (SuperAdmin only)
+router.get('/visibility-rules',
+  authorize(Role.SUPER_ADMIN),
+  (req, res, next) => payrollController.getVisibilityRules(req, res, next)
+);
+
+router.post('/visibility-rules',
+  authorize(Role.SUPER_ADMIN),
+  (req, res, next) => payrollController.setVisibilityRule(req, res, next)
+);
+
+router.patch('/visibility-rules/:employeeId',
+  authorize(Role.SUPER_ADMIN),
+  (req, res, next) => payrollController.updateVisibilityRule(req, res, next)
+);
+
 export { router as payrollRouter };

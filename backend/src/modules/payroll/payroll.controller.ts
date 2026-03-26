@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { payrollService } from './payroll.service.js';
+import { salaryVisibilityService } from './salary-visibility.service.js';
 import { salaryStructureSchema, createPayrollRunSchema } from './payroll.validation.js';
 import { generateSalarySlipPDF } from '../../utils/pdfGenerator.js';
 
@@ -69,6 +70,32 @@ export class PayrollController {
       }
       const payslips = await payrollService.getMyPayslips(req.user!.employeeId);
       res.json({ success: true, data: payslips });
+    } catch (err) { next(err); }
+  }
+  async getVisibilityRules(req: Request, res: Response, next: NextFunction) {
+    try {
+      const rules = await salaryVisibilityService.getVisibilityRules(req.user!.organizationId);
+      res.json({ success: true, data: rules });
+    } catch (err) { next(err); }
+  }
+
+  async setVisibilityRule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId, visibleToHR, visibleToManager, hiddenReason } = req.body;
+      const rule = await salaryVisibilityService.setVisibilityRule(
+        employeeId, { visibleToHR, visibleToManager, hiddenReason }, req.user!.userId
+      );
+      res.json({ success: true, data: rule, message: 'Visibility rule updated' });
+    } catch (err) { next(err); }
+  }
+
+  async updateVisibilityRule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { visibleToHR, visibleToManager, hiddenReason } = req.body;
+      const rule = await salaryVisibilityService.setVisibilityRule(
+        req.params.employeeId, { visibleToHR, visibleToManager, hiddenReason }, req.user!.userId
+      );
+      res.json({ success: true, data: rule, message: 'Visibility rule updated' });
     } catch (err) { next(err); }
   }
 }
