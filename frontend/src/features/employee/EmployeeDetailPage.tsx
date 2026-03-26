@@ -10,13 +10,14 @@ import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMut
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation } from '../attendance/attendanceApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation } from '../payroll/payrollApi';
 import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documents/documentApi';
+import { useGetInternProfileQuery, useGetAchievementLettersQuery, useIssueAchievementLetterMutation } from '../intern/internApi';
 import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
-type TabKey = 'overview' | 'attendance' | 'personal' | 'salary' | 'documents' | 'connections';
+type TabKey = 'overview' | 'attendance' | 'personal' | 'salary' | 'documents' | 'connections' | 'intern';
 
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -48,12 +49,14 @@ export default function EmployeeDetailPage() {
     );
   }
 
+  const isIntern = employee?.user?.role === 'INTERN';
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'overview', label: 'Overview' },
     { key: 'attendance', label: 'Attendance & Leaves' },
     { key: 'salary', label: 'Salary' },
     { key: 'personal', label: 'Personal' },
     { key: 'documents', label: 'Documents' },
+    ...(isIntern ? [{ key: 'intern' as TabKey, label: 'Intern Profile' }] : []),
     { key: 'connections', label: 'Connections' },
   ];
 
@@ -231,6 +234,10 @@ export default function EmployeeDetailPage() {
 
             {activeTab === 'documents' && (
               <DocumentsTab employeeId={id!} documents={employee.documents || []} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} />
+            )}
+
+            {activeTab === 'intern' && isIntern && (
+              <InternProfileTab employeeId={id!} employee={employee} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} />
             )}
 
             {activeTab === 'connections' && (
@@ -1337,6 +1344,147 @@ function ConnectionsTab({ employee, isManagement, navigate }: { employee: any; i
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// =================== Intern Profile Tab ===================
+function InternProfileTab({ employeeId, employee, isManagement }: { employeeId: string; employee: any; isManagement: boolean }) {
+  const { data: profileRes, isLoading: profileLoading } = useGetInternProfileQuery(employeeId);
+  const { data: lettersRes, isLoading: lettersLoading } = useGetAchievementLettersQuery(employeeId);
+  const [issueLetter, { isLoading: issuing }] = useIssueAchievementLetterMutation();
+  const [showLetterModal, setShowLetterModal] = useState(false);
+  const [letterForm, setLetterForm] = useState({ title: '', description: '', issuedBy: '' });
+
+  const profile = profileRes?.data;
+  const letters = lettersRes?.data || [];
+
+  const handleIssueLetter = async () => {
+    if (!letterForm.title) { toast.error('Title is required'); return; }
+    try {
+      await issueLetter({ employeeId, data: letterForm }).unwrap();
+      toast.success('Achievement letter issued');
+      setShowLetterModal(false);
+      setLetterForm({ title: '', description: '', issuedBy: '' });
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to issue letter'); }
+  };
+
+  if (profileLoading) return <div className="py-8 text-center"><Loader2 className="w-6 h-6 animate-spin text-brand-600 mx-auto" /></div>;
+
+  return (
+    <div className="space-y-6">
+      {/* Intern Details Card */}
+      <div className="layer-card p-5">
+        <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          <Briefcase size={15} className="text-purple-500" /> Internship Details
+        </h3>
+        {profile ? (
+          <div className="grid md:grid-cols-2 gap-x-8 gap-y-3">
+            <InfoRow label="College / University" value={profile.collegeUniversity || '—'} />
+            <InfoRow label="Course" value={profile.course || '—'} />
+            <InfoRow label="Specialization" value={profile.specialization || '—'} />
+            <InfoRow label="Project Title" value={profile.projectTitle || '—'} />
+            <InfoRow label="Internship Start" value={formatDate(profile.internshipStartDate, 'long')} />
+            <InfoRow label="Internship End" value={formatDate(profile.internshipEndDate, 'long')} />
+            <InfoRow label="Monthly Stipend" value={profile.stipend ? formatCurrency(Number(profile.stipend)) : '—'} mono />
+            <InfoRow label="Mentor" value={profile.mentor ? `${profile.mentor.firstName} ${profile.mentor.lastName}` : '—'} />
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 text-center py-4">No intern profile created yet</p>
+        )}
+      </div>
+
+      {/* Achievement Letters */}
+      <div className="layer-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+            <FileText size={15} className="text-emerald-500" /> Achievement Letters
+          </h3>
+          {isManagement && (
+            <button onClick={() => setShowLetterModal(true)} className="btn-primary text-xs flex items-center gap-1">
+              <Plus size={12} /> Issue Letter
+            </button>
+          )}
+        </div>
+
+        {lettersLoading ? (
+          <div className="py-4 text-center"><Loader2 className="w-5 h-5 animate-spin text-brand-600 mx-auto" /></div>
+        ) : letters.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-6">No achievement letters issued yet</p>
+        ) : (
+          <div className="border border-gray-100 rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="text-left py-2.5 px-4 font-medium text-gray-500">Title</th>
+                  <th className="text-left py-2.5 px-4 font-medium text-gray-500 hidden md:table-cell">Issued By</th>
+                  <th className="text-left py-2.5 px-4 font-medium text-gray-500">Date</th>
+                  <th className="text-right py-2.5 px-4 font-medium text-gray-500">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {letters.map((letter: any) => (
+                  <tr key={letter.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                    <td className="py-2.5 px-4">
+                      <p className="font-medium text-gray-800">{letter.title}</p>
+                      {letter.description && <p className="text-xs text-gray-400 truncate max-w-xs">{letter.description}</p>}
+                    </td>
+                    <td className="py-2.5 px-4 text-gray-500 hidden md:table-cell">{letter.issuedBy}</td>
+                    <td className="py-2.5 px-4 text-gray-500 font-mono text-xs" data-mono>{formatDate(letter.issuedAt)}</td>
+                    <td className="py-2.5 px-4 text-right">
+                      {letter.pdfUrl ? (
+                        <a href={letter.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:text-brand-700 text-xs font-medium">
+                          Download PDF
+                        </a>
+                      ) : (
+                        <span className="text-xs text-gray-300">No PDF</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Issue Letter Modal */}
+      <AnimatePresence>
+        {showLetterModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setShowLetterModal(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4"
+            >
+              <h3 className="text-lg font-display font-semibold text-gray-800 mb-4">Issue Achievement Letter</h3>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Title *</label>
+                  <input value={letterForm.title} onChange={e => setLetterForm(f => ({ ...f, title: e.target.value }))}
+                    className="input-glass w-full text-sm" placeholder="e.g. Outstanding Performance in Q1 Project" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Description</label>
+                  <textarea value={letterForm.description} onChange={e => setLetterForm(f => ({ ...f, description: e.target.value }))}
+                    className="input-glass w-full text-sm h-20 resize-none" placeholder="Details about the achievement..." />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Issued By</label>
+                  <input value={letterForm.issuedBy} onChange={e => setLetterForm(f => ({ ...f, issuedBy: e.target.value }))}
+                    className="input-glass w-full text-sm" placeholder="e.g. HR Manager" />
+                </div>
+              </div>
+              <div className="flex gap-2 mt-5">
+                <button onClick={handleIssueLetter} disabled={issuing} className="btn-primary text-sm flex-1 flex items-center justify-center gap-2">
+                  {issuing && <Loader2 size={14} className="animate-spin" />} Issue Letter
+                </button>
+                <button onClick={() => setShowLetterModal(false)} className="btn-secondary text-sm">Cancel</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
