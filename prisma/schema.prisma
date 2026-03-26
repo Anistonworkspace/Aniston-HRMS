@@ -155,6 +155,7 @@ model Employee {
   internProfile     InternProfile?
   internsMentored        InternProfile[]       @relation("InternMentor")
   salaryVisibilityRule   SalaryVisibilityRule?
+  documentGate           OnboardingDocumentGate?
   headOfDepartments      Department[]          @relation("DepartmentHead")
 
   @@index([organizationId, status])
@@ -748,21 +749,40 @@ enum ApplicationStatus {
 }
 
 model InterviewScore {
-  id                 String  @id @default(uuid())
+  id                 String                   @id @default(uuid())
   applicationId      String
   round              Int
   interviewerId      String?
-  communicationScore Decimal? @db.Decimal(3, 1)
-  technicalScore     Decimal? @db.Decimal(3, 1)
-  problemSolving     Decimal? @db.Decimal(3, 1)
-  culturalFit        Decimal? @db.Decimal(3, 1)
-  overallScore       Decimal? @db.Decimal(3, 1)
+  interviewerType    InterviewerType          @default(INTERNAL)
+  interviewerName    String?
+  designation        String?
+  communicationScore Decimal?                 @db.Decimal(3, 1)
+  technicalScore     Decimal?                 @db.Decimal(3, 1)
+  problemSolving     Decimal?                 @db.Decimal(3, 1)
+  culturalFit        Decimal?                 @db.Decimal(3, 1)
+  overallScore       Decimal?                 @db.Decimal(3, 1)
   notes              String?
+  recommendation     InterviewRecommendation?
   teamsRecordingUrl  String?
   aiAnalysis         Json?
-  createdAt          DateTime @default(now())
+  createdAt          DateTime                 @default(now())
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+}
+
+enum InterviewerType {
+  INTERNAL
+  EXTERNAL
+  HR
+  DEPARTMENT_HEAD
+}
+
+enum InterviewRecommendation {
+  STRONG_YES
+  YES
+  MAYBE
+  NO
+  STRONG_NO
 }
 
 model OfferLetter {
@@ -840,6 +860,25 @@ model BulkResumeItem {
   createdAt      DateTime         @default(now())
 
   bulkUpload BulkResumeUpload @relation(fields: [bulkUploadId], references: [id])
+}
+
+// =====================
+// ONBOARDING DOCUMENT GATE
+// =====================
+
+model OnboardingDocumentGate {
+  id                  String         @id @default(uuid())
+  employeeId          String         @unique
+  requiredDocs        DocumentType[]
+  submittedDocs       DocumentType[] @default([])
+  allSubmitted        Boolean        @default(false)
+  offerLetterUnlocked Boolean        @default(false)
+  unlockedAt          DateTime?
+  unlockedBy          String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id])
 }
 
 // =====================

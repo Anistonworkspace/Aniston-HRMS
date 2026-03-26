@@ -24,4 +24,25 @@ router.patch('/step/:token/:step', (req, res, next) => onboardingController.save
 // PUBLIC: Complete onboarding
 router.post('/complete/:token', (req, res, next) => onboardingController.complete(req, res, next));
 
+// Document gate (HR+)
+router.get('/document-gate/:employeeId', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { documentGateService } = await import('./document-gate.service.js');
+      const gate = await documentGateService.getGate(req.params.employeeId);
+      res.json({ success: true, data: gate });
+    } catch (err) { next(err); }
+  }
+);
+
+router.patch('/document-gate/:employeeId/unlock', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { documentGateService } = await import('./document-gate.service.js');
+      const gate = await documentGateService.unlockOfferLetter(req.params.employeeId, req.user!.userId);
+      res.json({ success: true, data: gate, message: 'Offer letter unlocked' });
+    } catch (err) { next(err); }
+  }
+);
+
 export { router as onboardingRouter };

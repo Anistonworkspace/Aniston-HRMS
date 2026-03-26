@@ -558,7 +558,68 @@ export class AttendanceService {
       },
     });
 
+    // Auto-approve if check-in is within shift grace period
+    if (requestedCheckIn) {
+      const autoResult = await this.tryAutoApproveRegularization(reg.id, employeeId, new Date(requestedCheckIn));
+      if (autoResult?.autoApproved) {
+        return { ...reg, status: 'APPROVED', autoApproved: true, autoReason: autoResult.reason };
+      }
+    }
+
     return reg;
+  }
+
+  /**
+   * Try to auto-approve a regularization based on shift grace period
+   */
+  private async tryAutoApproveRegularization(regId: string, employeeId: string, requestedCheckIn: Date) {
+    try {
+      // Get employee's active shift
+      const assignment = await prisma.shiftAssignment.findFirst({
+        where: { employeeId, endDate: null },
+        include: { shift: true },
+        orderBy: { startDate: 'desc' },
+      });
+
+      if (!assignment?.shift) return null;
+
+      const shift = assignment.shift;
+      const [shiftHour, shiftMin] = shift.startTime.split(':').map(Number);
+      const graceMinutes = shift.graceMinutes || 15;
+
+      // Calculate grace end time
+      const checkInDate = new Date(requestedCheckIn);
+      const graceEnd = new Date(checkInDate);
+      graceEnd.setHours(shiftHour, shiftMin + graceMinutes, 0, 0);
+
+      if (checkInDate <= graceEnd) {
+        // Within grace — auto-approve
+        await this.handleRegularization(regId, 'APPROVED', 'SYSTEM', 'Auto-approved: check-in within grace period');
+        return { autoApproved: true, reason: 'Within shift grace period' };
+      }
+
+      // Check if employee has good attendance record (no leaves this month)
+      const monthStart = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), 1);
+      const leavesThisMonth = await prisma.leaveRequest.count({
+        where: {
+          employeeId,
+          status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
+          startDate: { gte: monthStart },
+        },
+      });
+
+      const extendedGrace = new Date(graceEnd);
+      extendedGrace.setMinutes(extendedGrace.getMinutes() + 60);
+
+      if (leavesThisMonth === 0 && checkInDate <= extendedGrace) {
+        await this.handleRegularization(regId, 'APPROVED', 'SYSTEM', 'Auto-approved: good attendance record this month');
+        return { autoApproved: true, reason: 'Good attendance record' };
+      }
+
+      return null;
+    } catch {
+      return null; // Fail silently — leave as PENDING for manual review
+    }
   }
 
   /**
