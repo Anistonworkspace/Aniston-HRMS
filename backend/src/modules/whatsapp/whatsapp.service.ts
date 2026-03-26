@@ -26,11 +26,26 @@ export class WhatsAppService {
 
       currentOrgId = organizationId;
 
+      // Find Chrome/Chromium executable
+      const chromePaths = [
+        process.env.CHROME_PATH,
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+      ];
+      const executablePath = chromePaths.find(p => {
+        if (!p) return false;
+        try { require('fs').accessSync(p); return true; } catch { return false; }
+      });
+
       waClient = new Client({
         authStrategy: new LocalAuth({ clientId: `aniston-${organizationId}` }),
         puppeteer: {
-          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
           headless: true,
+          ...(executablePath ? { executablePath } : {}),
         },
       });
 

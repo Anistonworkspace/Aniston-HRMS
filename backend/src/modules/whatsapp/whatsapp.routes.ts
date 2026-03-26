@@ -10,7 +10,7 @@ router.use(authenticate);
 router.post('/initialize', authorize('SUPER_ADMIN', 'ADMIN'), (req, res, next) =>
   whatsAppController.initialize(req, res, next)
 );
-router.get('/qr', authorize('SUPER_ADMIN', 'ADMIN'), (req, res, next) =>
+router.get('/qr', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
   whatsAppController.getQrCode(req, res, next)
 );
 router.post('/logout', authorize('SUPER_ADMIN', 'ADMIN'), (req, res, next) =>
