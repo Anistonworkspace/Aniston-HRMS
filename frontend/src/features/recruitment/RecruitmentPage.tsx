@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Briefcase, Search, Users, Eye, Sparkles, X, MapPin, Clock, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Briefcase, Search, Users, Eye, Sparkles, X, MapPin, Clock, Pencil, Trash2, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useGetJobOpeningsQuery, useCreateJobMutation, useUpdateJobMutation, useDeleteJobMutation, useGetPipelineStatsQuery } from './recruitmentApi';
 import { cn, formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
+import BulkResumeModal from './BulkResumeModal';
 
 const JOB_STATUS_MAP: Record<string, { label: string; class: string }> = {
   DRAFT: { label: 'Draft', class: 'badge-neutral' },
@@ -23,6 +24,7 @@ const JOB_TYPE_MAP: Record<string, string> = {
 
 export default function RecruitmentPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [editingJob, setEditingJob] = useState<any>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -65,15 +67,18 @@ export default function RecruitmentPage() {
           <h1 className="text-2xl font-display font-bold text-gray-900">Recruitment</h1>
           <p className="text-gray-500 text-sm mt-0.5">Manage job openings and candidates</p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => setShowCreateModal(true)}
-          className="btn-primary flex items-center gap-2 self-start"
-        >
-          <Plus size={18} />
-          Post Job
-        </motion.button>
+        <div className="flex items-center gap-2 self-start">
+          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+            onClick={() => setShowBulkUpload(true)}
+            className="btn-secondary flex items-center gap-2">
+            <Upload size={16} /> Bulk Upload
+          </motion.button>
+          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+            onClick={() => setShowCreateModal(true)}
+            className="btn-primary flex items-center gap-2">
+            <Plus size={18} /> Post Job
+          </motion.button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -227,6 +232,11 @@ export default function RecruitmentPage() {
       {/* Create Job Modal */}
       <AnimatePresence>
         {showCreateModal && <CreateJobModal onClose={() => setShowCreateModal(false)} />}
+      </AnimatePresence>
+
+      {/* Bulk Resume Upload Modal */}
+      <AnimatePresence>
+        {showBulkUpload && <BulkResumeModal onClose={() => setShowBulkUpload(false)} />}
       </AnimatePresence>
 
       {/* Edit Job Modal */}

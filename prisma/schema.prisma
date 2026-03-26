@@ -677,8 +677,9 @@ model JobOpening {
   updatedAt       DateTime  @updatedAt
   closedAt        DateTime?
 
-  applications Application[]
-  walkIns      WalkInCandidate[]
+  applications      Application[]
+  walkIns            WalkInCandidate[]
+  bulkResumeUploads  BulkResumeUpload[]
 }
 
 enum JobType {
@@ -784,6 +785,57 @@ enum OfferStatus {
   REJECTED
   NEGOTIATING
   EXPIRED
+}
+
+// =====================
+// BULK RESUME UPLOADS
+// =====================
+
+enum BulkUploadStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ResumeItemStatus {
+  PENDING
+  PROCESSING
+  SCORED
+  FAILED
+}
+
+model BulkResumeUpload {
+  id             String           @id @default(uuid())
+  jobOpeningId   String
+  uploadedBy     String
+  totalFiles     Int              @default(0)
+  processedFiles Int              @default(0)
+  status         BulkUploadStatus @default(PENDING)
+  organizationId String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  jobOpening JobOpening       @relation(fields: [jobOpeningId], references: [id])
+  items      BulkResumeItem[]
+}
+
+model BulkResumeItem {
+  id             String           @id @default(uuid())
+  bulkUploadId   String
+  fileName       String
+  fileUrl        String
+  candidateName  String?
+  email          String?
+  phone          String?
+  aiScore        Decimal?         @db.Decimal(5, 2)
+  aiScoreDetails Json?
+  applicationId  String?
+  status         ResumeItemStatus @default(PENDING)
+  errorMessage   String?
+  createdAt      DateTime         @default(now())
+
+  bulkUpload BulkResumeUpload @relation(fields: [bulkUploadId], references: [id])
 }
 
 // =====================

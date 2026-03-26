@@ -7,6 +7,7 @@ const connection = { connection: redis };
 export const emailQueue = new Queue('email', connection);
 export const notificationQueue = new Queue('notification', connection);
 export const payrollQueue = new Queue('payroll-processing', connection);
+export const bulkResumeQueue = new Queue('bulk-resume', connection);
 
 logger.info('✅ BullMQ queues initialized');
 
@@ -35,5 +36,12 @@ export async function enqueueNotification(data: {
   return notificationQueue.add('push-notification', data, {
     attempts: 2,
     backoff: { type: 'fixed', delay: 1000 },
+  });
+}
+
+// Helper to enqueue bulk resume processing
+export async function enqueueBulkResume(uploadId: string, organizationId: string, uploadedBy: string) {
+  return bulkResumeQueue.add('process-bulk-resume', { uploadId, organizationId, uploadedBy }, {
+    attempts: 1,
   });
 }

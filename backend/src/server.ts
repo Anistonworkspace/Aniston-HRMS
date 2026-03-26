@@ -21,6 +21,9 @@ async function main() {
     // Start BullMQ workers
     startEmailWorker();
     startNotificationWorker();
+    // Resume worker auto-starts on import
+    await import('./jobs/workers/resume.worker.js');
+    logger.info('✅ Resume worker started');
 
     server.listen(env.PORT, () => {
       logger.info(`🚀 Aniston HRMS API running on port ${env.PORT}`);

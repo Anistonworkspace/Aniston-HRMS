@@ -31,6 +31,7 @@ import { documentRouter } from './modules/document/document.routes.js';
 import { holidayRouter } from './modules/holiday/holiday.routes.js';
 import { assetRouter } from './modules/asset/asset.routes.js';
 import { internRouter } from './modules/intern/intern.routes.js';
+import { bulkResumeRouter } from './modules/recruitment/bulk-resume.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 
@@ -127,6 +128,7 @@ app.use('/api/documents', documentRouter);
 app.use('/api/holidays', holidayRouter);
 app.use('/api/assets', assetRouter);
 app.use('/api/interns', internRouter);
+app.use('/api/recruitment/bulk-resume', bulkResumeRouter);
 
 // Static file serving for uploads (dev only)
 app.use('/uploads', express.static('uploads'));
