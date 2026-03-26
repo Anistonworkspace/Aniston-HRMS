@@ -1,8 +1,12 @@
 name: Deploy to EC2
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm deployment'
+        required: true
+        default: ''
 
 jobs:
   build:
@@ -59,6 +63,7 @@ jobs:
   deploy:
     name: Deploy to EC2
     needs: build
+    if: github.event.inputs.confirm == 'deploy'
     runs-on: ubuntu-latest
 
     steps:
