@@ -529,10 +529,12 @@ model LeaveRequest {
   isHalfDay     Boolean            @default(false)
   halfDaySession String?
   reason        String
-  status        LeaveRequestStatus @default(PENDING)
-  approvedBy    String?
-  approverRemarks String?
-  attachmentUrl String?
+  status             LeaveRequestStatus @default(PENDING)
+  approvedBy         String?
+  approverRemarks    String?
+  managerApprovedAt  DateTime?
+  managerRemarks     String?
+  attachmentUrl      String?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
@@ -546,6 +548,7 @@ model LeaveRequest {
 
 enum LeaveRequestStatus {
   PENDING
+  MANAGER_APPROVED
   APPROVED
   REJECTED
   CANCELLED
@@ -837,6 +840,27 @@ model BulkResumeItem {
   createdAt      DateTime         @default(now())
 
   bulkUpload BulkResumeUpload @relation(fields: [bulkUploadId], references: [id])
+}
+
+// =====================
+// CANDIDATE PROFILES
+// =====================
+
+model CandidateProfile {
+  id             String   @id @default(uuid())
+  candidateCode  String   @unique
+  applicationId  String?  @unique
+  walkInId       String?  @unique
+  fullName       String
+  email          String
+  phone          String?
+  resumeUrl      String?
+  manualCvUpload Boolean  @default(false)
+  uploadedBy     String?
+  notes          String?
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 // =====================

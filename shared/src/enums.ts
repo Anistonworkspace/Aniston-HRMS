@@ -70,6 +70,7 @@ export enum BreakType {
 
 export enum LeaveRequestStatus {
   PENDING = 'PENDING',
+  MANAGER_APPROVED = 'MANAGER_APPROVED',
   APPROVED = 'APPROVED',
   REJECTED = 'REJECTED',
   CANCELLED = 'CANCELLED',

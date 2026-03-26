@@ -192,7 +192,7 @@ export class LeaveService {
         where: {
           employeeId,
           leaveTypeId: data.leaveTypeId,
-          status: { in: ['PENDING', 'APPROVED'] },
+          status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED'] },
           startDate: { gte: monthStart, lte: monthEnd },
         },
       });
@@ -258,7 +258,7 @@ export class LeaveService {
     const overlapping = await prisma.leaveRequest.findFirst({
       where: {
         employeeId,
-        status: { in: ['PENDING', 'APPROVED'] },
+        status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED'] },
         OR: [
           { startDate: { lte: endDate }, endDate: { gte: startDate } },
         ],
@@ -431,23 +431,54 @@ export class LeaveService {
   /**
    * Approve or reject a leave request
    */
-  async handleLeaveAction(requestId: string, action: 'APPROVED' | 'REJECTED', approvedBy: string, remarks?: string, organizationId?: string) {
+  async handleLeaveAction(requestId: string, action: 'APPROVED' | 'REJECTED' | 'MANAGER_APPROVED', approvedBy: string, remarks?: string, organizationId?: string) {
     const request = await prisma.leaveRequest.findUnique({
       where: { id: requestId },
+      include: { employee: { select: { managerId: true } } },
     });
     if (!request) throw new NotFoundError('Leave request');
-    if (request.status !== 'PENDING') {
-      throw new BadRequestError(`Cannot ${action.toLowerCase()} a ${request.status} request`);
+
+    // Allow action from PENDING or MANAGER_APPROVED states
+    const validFromStates = action === 'MANAGER_APPROVED'
+      ? ['PENDING']
+      : ['PENDING', 'MANAGER_APPROVED'];
+    if (!validFromStates.includes(request.status)) {
+      throw new BadRequestError(`Cannot ${action.toLowerCase().replace('_', ' ')} a ${request.status} request`);
+    }
+
+    // Determine the actual status to set
+    let finalStatus = action;
+
+    // If a Manager approves a PENDING request → set MANAGER_APPROVED (not final APPROVED)
+    // HR can approve directly from any state
+    if (action === 'APPROVED' && request.status === 'PENDING' && request.employee?.managerId) {
+      // Check if the approver is the manager — if so, set MANAGER_APPROVED
+      const approverEmployee = await prisma.employee.findFirst({
+        where: { userId: approvedBy },
+      });
+      const approverUser = await prisma.user.findUnique({ where: { id: approvedBy } });
+
+      if (approverUser?.role === 'MANAGER' && approverEmployee?.id === request.employee.managerId) {
+        finalStatus = 'MANAGER_APPROVED';
+      }
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      const updateData: any = {
+        status: finalStatus,
+        approverRemarks: remarks || null,
+      };
+
+      if (finalStatus === 'MANAGER_APPROVED') {
+        updateData.managerApprovedAt = new Date();
+        updateData.managerRemarks = remarks || null;
+      } else {
+        updateData.approvedBy = approvedBy;
+      }
+
       const updatedRequest = await tx.leaveRequest.update({
         where: { id: requestId },
-        data: {
-          status: action,
-          approvedBy,
-          approverRemarks: remarks || null,
-        },
+        data: updateData,
         include: {
           leaveType: { select: { name: true, code: true } },
           employee: { select: { firstName: true, lastName: true } },
@@ -466,7 +497,7 @@ export class LeaveService {
       });
 
       if (balance) {
-        if (action === 'APPROVED') {
+        if (finalStatus === 'APPROVED') {
           await tx.leaveBalance.update({
             where: { id: balance.id },
             data: {
