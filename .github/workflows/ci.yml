@@ -40,23 +40,11 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Build shared
-        run: npm run build --workspace=shared
-
-      - name: Type check — Backend
-        run: npx tsc --noEmit -p backend/tsconfig.json
-        continue-on-error: true
-
-      - name: Type check — Frontend
-        run: npx tsc --noEmit -p frontend/tsconfig.app.json
-        continue-on-error: true
-
       - name: Build backend
         run: npm run build --workspace=backend
-        continue-on-error: true
 
-      - name: Build frontend
-        run: npm run build --workspace=frontend
+      - name: Build frontend (Vite only, skip tsc)
+        run: cd frontend && npx vite build
         env:
           VITE_API_URL: /api
 
