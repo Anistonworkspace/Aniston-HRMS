@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 import { BadRequestError } from '../../middleware/errorHandler.js';
@@ -26,26 +27,30 @@ export class WhatsAppService {
 
       currentOrgId = organizationId;
 
-      // Find Chrome/Chromium executable
+      // Find Chrome/Chromium executable — MUST set for Puppeteer v24+
       const chromePaths = [
+        process.env.PUPPETEER_EXECUTABLE_PATH,
         process.env.CHROME_PATH,
         'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
         'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        '/usr/bin/google-chrome-stable',
         '/usr/bin/google-chrome',
         '/usr/bin/chromium-browser',
         '/usr/bin/chromium',
       ];
-      const executablePath = chromePaths.find(p => {
-        if (!p) return false;
-        try { require('fs').accessSync(p); return true; } catch { return false; }
-      });
+      let executablePath: string | undefined;
+      for (const p of chromePaths) {
+        if (!p) continue;
+        try { fs.accessSync(p, fs.constants.X_OK); executablePath = p; break; } catch { /* skip */ }
+      }
+      logger.info(`WhatsApp: using Chrome at ${executablePath || 'puppeteer default'}`);
 
       waClient = new Client({
         authStrategy: new LocalAuth({ clientId: `aniston-${organizationId}` }),
         puppeteer: {
+          executablePath: executablePath || undefined,
           args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
           headless: true,
-          ...(executablePath ? { executablePath } : {}),
         },
       });
 
