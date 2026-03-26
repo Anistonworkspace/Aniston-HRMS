@@ -49,3 +49,10 @@ ai-service/.venv/
 # Uploads
 uploads/
 temp/
+
+# WhatsApp Web session data
+backend/.wwebjs_auth/
+.wwebjs_auth/
+
+# Uploads
+uploads/

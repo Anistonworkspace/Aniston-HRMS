@@ -172,6 +172,41 @@ export class BulkResumeService {
 
     return application;
   }
+
+  async deleteUpload(uploadId: string) {
+    const upload = await prisma.bulkResumeUpload.findUnique({
+      where: { id: uploadId },
+      include: { items: true },
+    });
+    if (!upload) throw new NotFoundError('Bulk upload');
+
+    // Delete files from disk
+    for (const item of upload.items) {
+      if (item.fileUrl) {
+        const filePath = path.join(process.cwd(), item.fileUrl.replace(/^\//, ''));
+        try { fs.unlinkSync(filePath); } catch { /* file may not exist */ }
+      }
+    }
+
+    // Delete items then upload from DB
+    await prisma.bulkResumeItem.deleteMany({ where: { bulkUploadId: uploadId } });
+    await prisma.bulkResumeUpload.delete({ where: { id: uploadId } });
+    return { deleted: true };
+  }
+
+  async deleteItem(itemId: string) {
+    const item = await prisma.bulkResumeItem.findUnique({ where: { id: itemId } });
+    if (!item) throw new NotFoundError('Resume item');
+
+    // Delete file from disk
+    if (item.fileUrl) {
+      const filePath = path.join(process.cwd(), item.fileUrl.replace(/^\//, ''));
+      try { fs.unlinkSync(filePath); } catch { /* file may not exist */ }
+    }
+
+    await prisma.bulkResumeItem.delete({ where: { id: itemId } });
+    return { deleted: true };
+  }
 }
 
 export const bulkResumeService = new BulkResumeService();

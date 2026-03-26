@@ -183,7 +183,7 @@ function SendJobLinkForm() {
   const [phone, setPhone] = useState('');
   const [candidateName, setCandidateName] = useState('');
   const [selectedJobId, setSelectedJobId] = useState('');
-  const { data: jobsRes } = useGetJobOpeningsQuery({ status: 'OPEN' });
+  const { data: jobsRes } = useGetJobOpeningsQuery({ page: 1, limit: 50 });
   const [sendJobLink, { isLoading }] = useSendWhatsAppJobLinkMutation();
 
   const jobs = jobsRes?.data || [];
@@ -192,7 +192,8 @@ function SendJobLinkForm() {
   const handleSend = async () => {
     if (!phone || !selectedJob) return;
     try {
-      await sendJobLink({ phone, candidateName: candidateName || undefined, jobTitle: selectedJob.title }).unwrap();
+      const jobUrl = `${window.location.origin}/jobs?apply=${selectedJob.id}`;
+      await sendJobLink({ phone, candidateName: candidateName || undefined, jobTitle: selectedJob.title, jobUrl }).unwrap();
       toast.success('Job link sent!');
       setPhone('');
       setCandidateName('');
@@ -205,7 +206,7 @@ function SendJobLinkForm() {
         <label className="block text-xs font-medium text-gray-500 mb-1">Select Job</label>
         <select value={selectedJobId} onChange={e => setSelectedJobId(e.target.value)} className="input-glass w-full text-sm">
           <option value="">Choose job...</option>
-          {jobs.map((j: any) => <option key={j.id} value={j.id}>{j.title} — {j.department}</option>)}
+          {jobs.map((j: any) => <option key={j.id} value={j.id}>{j.title} — {j.department} [{j.status}]</option>)}
         </select>
       </div>
       <div>

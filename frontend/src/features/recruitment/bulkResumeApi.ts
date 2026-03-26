@@ -26,6 +26,14 @@ export const bulkResumeApi = api.injectEndpoints({
       }),
       invalidatesTags: ['Recruitment'],
     }),
+    deleteBulkUpload: builder.mutation<any, string>({
+      query: (uploadId) => ({ url: `/recruitment/bulk-resume/${uploadId}`, method: 'DELETE' }),
+      invalidatesTags: ['Recruitment'],
+    }),
+    deleteBulkResumeItem: builder.mutation<any, string>({
+      query: (itemId) => ({ url: `/recruitment/bulk-resume/items/${itemId}`, method: 'DELETE' }),
+      invalidatesTags: ['Recruitment'],
+    }),
   }),
 });
 
@@ -34,4 +42,6 @@ export const {
   useGetBulkUploadsQuery,
   useGetBulkUploadQuery,
   useCreateApplicationFromItemMutation,
+  useDeleteBulkUploadMutation,
+  useDeleteBulkResumeItemMutation,
 } = bulkResumeApi;

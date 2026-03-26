@@ -40,6 +40,19 @@ export class BulkResumeController {
       res.status(201).json({ success: true, data: application, message: 'Application created' });
     } catch (err) { next(err); }
   }
+  async deleteUpload(req: Request, res: Response, next: NextFunction) {
+    try {
+      await bulkResumeService.deleteUpload(req.params.uploadId);
+      res.json({ success: true, message: 'Upload and all items deleted' });
+    } catch (err) { next(err); }
+  }
+
+  async deleteItem(req: Request, res: Response, next: NextFunction) {
+    try {
+      await bulkResumeService.deleteItem(req.params.itemId);
+      res.json({ success: true, message: 'Resume item deleted' });
+    } catch (err) { next(err); }
+  }
 }
 
 export const bulkResumeController = new BulkResumeController();

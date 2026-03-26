@@ -20,7 +20,7 @@ export default function BulkResumeModal({ onClose }: Props) {
   const [files, setFiles] = useState<File[]>([]);
   const [uploadId, setUploadId] = useState<string | null>(null);
 
-  const { data: jobsRes } = useGetJobOpeningsQuery({ status: 'OPEN' });
+  const { data: jobsRes } = useGetJobOpeningsQuery({ page: 1, limit: 50 });
   const [uploadResumes, { isLoading: uploading }] = useUploadBulkResumesMutation();
   const { data: uploadRes, refetch } = useGetBulkUploadQuery(uploadId!, { skip: !uploadId, pollingInterval: step === 'processing' ? 3000 : 0 });
   const [createApp] = useCreateApplicationFromItemMutation();
@@ -120,7 +120,7 @@ export default function BulkResumeModal({ onClose }: Props) {
               <select value={selectedJobId} onChange={e => setSelectedJobId(e.target.value)} className="input-glass w-full">
                 <option value="">Choose a job...</option>
                 {jobs.map((job: any) => (
-                  <option key={job.id} value={job.id}>{job.title} — {job.department}</option>
+                  <option key={job.id} value={job.id}>{job.title} — {job.department} [{job.status}]</option>
                 ))}
               </select>
             </div>

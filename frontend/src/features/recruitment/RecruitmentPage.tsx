@@ -13,11 +13,16 @@ import {
   useGetWalkInByIdQuery, useAddWalkInNotesMutation, useAddInterviewRoundMutation,
   useUpdateInterviewRoundMutation, useDeleteInterviewRoundMutation, useGetInterviewersQuery,
 } from '../walkIn/walkInApi';
+import {
+  useGetBulkUploadsQuery, useGetBulkUploadQuery, useCreateApplicationFromItemMutation,
+  useDeleteBulkUploadMutation, useDeleteBulkResumeItemMutation,
+} from './bulkResumeApi';
+import { useSendWhatsAppJobLinkMutation } from '../whatsapp/whatsappApi';
 import { cn, formatDate, getInitials } from '../../lib/utils';
 import toast from 'react-hot-toast';
 import BulkResumeModal from './BulkResumeModal';
 
-type RecruitmentTab = 'jobs' | 'walkin' | 'hiring-passed';
+type RecruitmentTab = 'jobs' | 'walkin' | 'ai-screened' | 'hiring-passed';
 
 // =================== Main Tabbed Page ===================
 export default function RecruitmentPage() {
@@ -26,7 +31,7 @@ export default function RecruitmentPage() {
   const [activeTab, setActiveTab] = useState<RecruitmentTab>(tabParam || 'jobs');
 
   useEffect(() => {
-    if (tabParam && ['jobs', 'walkin', 'hiring-passed'].includes(tabParam)) {
+    if (tabParam && ['jobs', 'walkin', 'ai-screened', 'hiring-passed'].includes(tabParam)) {
       setActiveTab(tabParam);
     }
   }, [tabParam]);
@@ -39,6 +44,7 @@ export default function RecruitmentPage() {
   const TABS: { key: RecruitmentTab; label: string; icon: React.ElementType }[] = [
     { key: 'jobs', label: 'Job Openings', icon: Briefcase },
     { key: 'walkin', label: 'Walk-In Candidates', icon: Users },
+    { key: 'ai-screened', label: 'AI Screened', icon: Sparkles },
     { key: 'hiring-passed', label: 'Hiring Passed', icon: Award },
   ];
 
@@ -75,6 +81,7 @@ export default function RecruitmentPage() {
       {/* Tab Content */}
       {activeTab === 'jobs' && <JobOpeningsTab />}
       {activeTab === 'walkin' && <WalkInTab />}
+      {activeTab === 'ai-screened' && <AIScreenedTab />}
       {activeTab === 'hiring-passed' && <HiringPassedTab />}
     </div>
   );
@@ -920,6 +927,180 @@ function InterviewRoundCard({ round, onScore, onDelete }: { round: any; onScore:
         </div>
       )}
     </div>
+  );
+}
+
+// =================== Tab: AI Screened ===================
+function AIScreenedTab() {
+  const { data: uploadsRes, isLoading } = useGetBulkUploadsQuery();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [deleteUpload] = useDeleteBulkUploadMutation();
+  const [deleteItem] = useDeleteBulkResumeItemMutation();
+  const [createApp] = useCreateApplicationFromItemMutation();
+  const [sendJobLink] = useSendWhatsAppJobLinkMutation();
+
+  const uploads = uploadsRes?.data || [];
+
+  const handleDeleteUpload = async (id: string) => {
+    if (!confirm('Delete this entire upload batch and all resumes?')) return;
+    try { await deleteUpload(id).unwrap(); toast.success('Upload deleted'); } catch { toast.error('Failed'); }
+  };
+
+  const handleDeleteItem = async (id: string) => {
+    if (!confirm('Delete this resume?')) return;
+    try { await deleteItem(id).unwrap(); toast.success('Resume deleted'); } catch { toast.error('Failed'); }
+  };
+
+  const handleCreateApp = async (itemId: string, jobId: string) => {
+    try { await createApp({ itemId, jobOpeningId: jobId }).unwrap(); toast.success('Application created'); } catch (e: any) { toast.error(e?.data?.error?.message || 'Failed'); }
+  };
+
+  const handleSendInvite = async (phone: string, name: string, jobTitle: string, jobId: string) => {
+    const jobUrl = `${window.location.origin}/jobs?apply=${jobId}`;
+    try { await sendJobLink({ phone, candidateName: name, jobTitle, jobUrl }).unwrap(); toast.success('WhatsApp invite sent!'); } catch { toast.error('Failed to send'); }
+  };
+
+  const scoreColor = (s: number) => s >= 70 ? 'text-emerald-600 bg-emerald-50' : s >= 50 ? 'text-amber-600 bg-amber-50' : 'text-red-500 bg-red-50';
+
+  return (
+    <>
+      <div className="flex items-center gap-3 mb-6">
+        <Sparkles className="text-brand-500" size={24} />
+        <div>
+          <p className="text-sm font-medium text-gray-600">AI-scored resumes from bulk uploads</p>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="layer-card p-16 text-center"><Loader2 className="w-8 h-8 animate-spin text-brand-600 mx-auto" /></div>
+      ) : uploads.length === 0 ? (
+        <div className="layer-card p-16 text-center">
+          <Sparkles size={48} className="mx-auto text-gray-200 mb-4" />
+          <h3 className="text-lg font-display font-semibold text-gray-600 mb-1">No bulk uploads yet</h3>
+          <p className="text-sm text-gray-400">Use "Bulk Upload" on the Job Openings tab to upload resumes for AI scoring</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {uploads.map((upload: any) => {
+            const isExpanded = expandedId === upload.id;
+            return (
+              <div key={upload.id} className="layer-card overflow-hidden">
+                {/* Upload Header */}
+                <button onClick={() => setExpandedId(isExpanded ? null : upload.id)}
+                  className="w-full flex items-center justify-between p-4 hover:bg-gray-50/50 transition-colors text-left">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
+                      <Sparkles size={18} className="text-brand-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-800 text-sm">{upload.jobOpening?.title || 'Unknown Job'}</h4>
+                      <p className="text-xs text-gray-400">
+                        {upload.totalFiles} resumes · {upload.processedFiles} scored · {formatDate(upload.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs px-2 py-1 rounded-lg font-medium ${
+                      upload.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-600' :
+                      upload.status === 'PROCESSING' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
+                      {upload.status}
+                    </span>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteUpload(upload.id); }}
+                      className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>
+                    <ChevronRight size={16} className={cn('text-gray-400 transition-transform', isExpanded && 'rotate-90')} />
+                  </div>
+                </button>
+
+                {/* Expanded Items */}
+                <AnimatePresence>
+                  {isExpanded && (
+                    <ExpandedUpload uploadId={upload.id} jobId={upload.jobOpeningId}
+                      jobTitle={upload.jobOpening?.title || ''}
+                      onDeleteItem={handleDeleteItem} onCreateApp={handleCreateApp}
+                      onSendInvite={handleSendInvite} scoreColor={scoreColor} />
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+function ExpandedUpload({ uploadId, jobId, jobTitle, onDeleteItem, onCreateApp, onSendInvite, scoreColor }: any) {
+  const { data: res, isLoading } = useGetBulkUploadQuery(uploadId);
+  const items = res?.data?.items || [];
+
+  if (isLoading) return <div className="p-4 text-center"><Loader2 className="w-5 h-5 animate-spin text-brand-600 mx-auto" /></div>;
+
+  return (
+    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+      <div className="border-t border-gray-100">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50/50 border-b border-gray-100">
+              <th className="text-left py-2.5 px-4 text-xs font-medium text-gray-500">#</th>
+              <th className="text-left py-2.5 px-4 text-xs font-medium text-gray-500">Candidate</th>
+              <th className="text-left py-2.5 px-4 text-xs font-medium text-gray-500 hidden md:table-cell">Contact</th>
+              <th className="text-center py-2.5 px-4 text-xs font-medium text-gray-500">Score</th>
+              <th className="text-right py-2.5 px-4 text-xs font-medium text-gray-500">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item: any, idx: number) => (
+              <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/30">
+                <td className="py-2.5 px-4 text-xs text-gray-400">{idx + 1}</td>
+                <td className="py-2.5 px-4">
+                  <p className="font-medium text-gray-800">{item.candidateName || item.fileName}</p>
+                  <p className="text-xs text-gray-400">{item.fileName}</p>
+                </td>
+                <td className="py-2.5 px-4 hidden md:table-cell">
+                  {item.email && <p className="text-xs text-gray-500">{item.email}</p>}
+                  {item.phone && <p className="text-xs text-gray-500">{item.phone}</p>}
+                  {!item.email && !item.phone && <span className="text-xs text-gray-300">—</span>}
+                </td>
+                <td className="py-2.5 px-4 text-center">
+                  {item.aiScore ? (
+                    <span className={`text-xs font-bold px-2 py-1 rounded-lg ${scoreColor(Number(item.aiScore))}`}>
+                      {Number(item.aiScore).toFixed(0)}/100
+                    </span>
+                  ) : <span className="text-xs text-gray-300">{item.status}</span>}
+                </td>
+                <td className="py-2.5 px-4 text-right">
+                  <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                    {item.fileUrl && (
+                      <a href={item.fileUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1">
+                        <Eye size={12} /> Resume
+                      </a>
+                    )}
+                    {item.phone && (
+                      <button onClick={() => onSendInvite(item.phone, item.candidateName || 'Candidate', jobTitle, jobId)}
+                        className="text-xs text-emerald-600 hover:text-emerald-700 flex items-center gap-1">
+                        <Mail size={12} /> Invite
+                      </button>
+                    )}
+                    {item.applicationId ? (
+                      <span className="text-xs text-emerald-500 font-medium">Applied</span>
+                    ) : item.status === 'SCORED' && (
+                      <button onClick={() => onCreateApp(item.id, jobId)}
+                        className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">
+                        <UserPlus size={12} /> Create App
+                      </button>
+                    )}
+                    <button onClick={() => onDeleteItem(item.id)}
+                      className="text-xs text-gray-300 hover:text-red-500"><Trash2 size={12} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </motion.div>
   );
 }
 

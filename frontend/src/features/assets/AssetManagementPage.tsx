@@ -12,6 +12,7 @@ import {
   useGetAssetStatsQuery, useGetExitChecklistQuery, useMarkChecklistItemMutation,
 } from './assetApi';
 import { useGetExitRequestsQuery } from '../exit/exitApi';
+import { useGetEmployeesQuery } from '../employee/employeeApi';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -668,20 +669,13 @@ function EditAssetModal({ asset, onClose }: { asset: any; onClose: () => void })
 // =================== Assign Asset Modal ===================
 function AssignAssetModal({ asset, onClose }: { asset: any; onClose: () => void }) {
   const [assignAsset, { isLoading }] = useAssignAssetMutation();
+  const { data: employeesRes } = useGetEmployeesQuery({ limit: 200 });
   const [employeeId, setEmployeeId] = useState('');
   const [condition, setCondition] = useState('Good');
   const [notes, setNotes] = useState('');
-  const [employees, setEmployees] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
-    const token = document.cookie.match(/accessToken=([^;]+)/)?.[1] || '';
-    fetch(`${API_URL}/employees?limit=200`, {
-      headers: { Authorization: `Bearer ${token}` },
-      credentials: 'include',
-    }).then(r => r.json()).then(d => setEmployees(d.data || [])).catch(() => {});
-  }, []);
+  const employees = employeesRes?.data || [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

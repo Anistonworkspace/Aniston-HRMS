@@ -49,8 +49,20 @@ export class WhatsAppService {
         authStrategy: new LocalAuth({ clientId: `aniston-${organizationId}` }),
         puppeteer: {
           executablePath: executablePath || undefined,
-          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-extensions',
+            '--disable-default-apps',
+            '--no-first-run',
+          ],
+          headless: 'new' as any,
+          timeout: 60000,
+        },
+        webVersionCache: {
+          type: 'none',
         },
       });
 

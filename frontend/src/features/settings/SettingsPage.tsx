@@ -1170,8 +1170,8 @@ function SalaryPrivacyTab() {
 
 // =================== WhatsApp Configuration ===================
 function WhatsAppConfig() {
-  const { data: statusRes, refetch: refetchStatus } = useGetWhatsAppStatusQuery();
-  const { data: qrRes, refetch: refetchQr } = useGetWhatsAppQrQuery();
+  const { data: statusRes, refetch: refetchStatus } = useGetWhatsAppStatusQuery(undefined, { pollingInterval: 5000 });
+  const { data: qrRes, refetch: refetchQr } = useGetWhatsAppQrQuery(undefined, { pollingInterval: 5000 });
   const [initializeWA, { isLoading: initializing }] = useInitializeWhatsAppMutation();
   const [logoutWA, { isLoading: disconnecting }] = useLogoutWhatsAppMutation();
   const [sendMessage] = useSendWhatsAppMessageMutation();
