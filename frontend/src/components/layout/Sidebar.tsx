@@ -12,7 +12,6 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   FileText,
   Network,
   Megaphone,
@@ -39,7 +38,6 @@ interface NavItem {
   path: string;
   icon: React.ElementType;
   roles?: string[];
-  children?: { name: string; path: string; icon: React.ElementType; roles?: string[] }[];
 }
 
 const navItems: NavItem[] = [
@@ -49,13 +47,7 @@ const navItems: NavItem[] = [
   { name: 'Leave', managementName: 'Leave Management', path: '/leaves', icon: CalendarDays },
   { name: 'Payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  {
-    name: 'Recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'],
-    children: [
-      { name: 'Walk-In Mgmt', path: '/recruitment?tab=walkin', icon: UserPlus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-      { name: 'Hiring Passed', path: '/recruitment?tab=hiring-passed', icon: Award, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-    ],
-  },
+  { name: 'Recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Employee Exit', path: '/exit-management', icon: UserMinus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Interview Tasks', path: '/interview-assignments', icon: ClipboardCheck },
   { name: 'Assets', managementName: 'Asset Management', path: '/assets', icon: Monitor, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
@@ -72,7 +64,6 @@ const navItems: NavItem[] = [
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [showWhatsApp, setShowWhatsApp] = useState(false);
-  const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const user = useAppSelector((state) => state.auth.user);
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -119,95 +110,41 @@ export default function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto custom-scrollbar py-4 px-2 space-y-1">
         {filteredItems.map((item) => {
-          const hasChildren = item.children && item.children.length > 0;
-          const isParentActive = location.pathname.startsWith(item.path.split('?')[0]);
-          const currentTab = new URLSearchParams(location.search).get('tab');
-          const isActive = hasChildren
-            ? isParentActive && !currentTab
-            : location.pathname.startsWith(item.path);
-          const isExpanded = expandedItem === item.name || (hasChildren && isParentActive);
-
+          const isActive = location.pathname.startsWith(item.path);
           return (
-            <div key={item.path}>
-              {/* Nav Item */}
-              <NavLink
-                to={item.path}
-                onClick={(e) => {
-                  if (hasChildren && !collapsed) {
-                    setExpandedItem(expandedItem === item.name ? null : item.name);
-                  }
-                }}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group relative',
-                  isActive || (hasChildren && isParentActive)
-                    ? 'bg-brand-50 text-brand-700 font-medium'
-                    : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
-                )}
-              >
-                {(isActive || (hasChildren && isParentActive && !currentTab)) && (
-                  <motion.div
-                    layoutId="sidebar-active"
-                    className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-brand-600 rounded-r-full"
-                  />
-                )}
-                <item.icon
-                  size={20}
-                  className={cn('flex-shrink-0', isActive || (hasChildren && isParentActive) ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-600')}
-                />
-                <AnimatePresence>
-                  {!collapsed && (
-                    <motion.span
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="text-sm whitespace-nowrap flex-1"
-                    >
-                      {isManagement && item.managementName ? item.managementName : item.name}
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-                {hasChildren && !collapsed && (
-                  <ChevronDown size={14} className={cn('text-gray-400 transition-transform', isExpanded && 'rotate-180')} />
-                )}
-              </NavLink>
-
-              {/* Children (accordion) */}
-              {hasChildren && !collapsed && (
-                <AnimatePresence>
-                  {isExpanded && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="overflow-hidden"
-                    >
-                      {item.children!
-                        .filter(child => !child.roles || (user?.role && child.roles.includes(user.role)))
-                        .map(child => {
-                          const childTab = child.path.includes('?tab=') ? child.path.split('?tab=')[1] : null;
-                          const isChildActive = childTab && isParentActive && currentTab === childTab;
-                          return (
-                            <NavLink
-                              key={child.path}
-                              to={child.path}
-                              className={cn(
-                                'flex items-center gap-3 pl-10 pr-3 py-2 rounded-lg transition-all duration-200 text-sm',
-                                isChildActive
-                                  ? 'text-brand-600 bg-brand-50/50 font-medium'
-                                  : 'text-gray-400 hover:text-gray-700 hover:bg-gray-50'
-                              )}
-                            >
-                              <child.icon size={16} className={cn('flex-shrink-0', isChildActive ? 'text-brand-500' : 'text-gray-300')} />
-                              <span className="whitespace-nowrap">{child.name}</span>
-                            </NavLink>
-                          );
-                        })}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className={cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group relative',
+                isActive
+                  ? 'bg-brand-50 text-brand-700 font-medium'
+                  : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
               )}
-            </div>
+            >
+              {isActive && (
+                <motion.div
+                  layoutId="sidebar-active"
+                  className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-brand-600 rounded-r-full"
+                />
+              )}
+              <item.icon
+                size={20}
+                className={cn('flex-shrink-0', isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-600')}
+              />
+              <AnimatePresence>
+                {!collapsed && (
+                  <motion.span
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="text-sm whitespace-nowrap"
+                  >
+                    {isManagement && item.managementName ? item.managementName : item.name}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </NavLink>
           );
         })}
       </nav>
