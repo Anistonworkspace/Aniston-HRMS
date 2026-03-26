@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users } from 'lucide-react';
+import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -12,13 +12,13 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation } from './settingsApi';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation } from './settingsApi';
 import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
 import { cn, getInitials } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'teams' | 'roles' | 'audit' | 'system';
+type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'teams' | 'roles' | 'salary-privacy' | 'audit' | 'system';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('organization');
@@ -30,6 +30,7 @@ export default function SettingsPage() {
     { key: 'email', label: 'Email Configuration', icon: Mail },
     { key: 'teams', label: 'Microsoft Teams', icon: Cloud },
     { key: 'roles', label: 'User Roles', icon: Users },
+    { key: 'salary-privacy', label: 'Salary Privacy', icon: Lock },
     { key: 'audit', label: 'Audit Logs', icon: Shield },
     { key: 'system', label: 'System', icon: Server },
   ];
@@ -66,6 +67,7 @@ export default function SettingsPage() {
           {activeTab === 'email' && <EmailConfig />}
           {activeTab === 'teams' && <TeamsConfig />}
           {activeTab === 'roles' && <UserRolesTab />}
+          {activeTab === 'salary-privacy' && <SalaryPrivacyTab />}
           {activeTab === 'audit' && <AuditLogs />}
           {activeTab === 'system' && <SystemInfo />}
         </div>
@@ -1077,6 +1079,87 @@ function UserRolesTab() {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// =================== Salary Privacy Tab ===================
+function SalaryPrivacyTab() {
+  const { data: res, isLoading } = useGetSalaryVisibilityRulesQuery();
+  const [updateRule] = useUpdateSalaryVisibilityRuleMutation();
+  const rules = res?.data || [];
+
+  const handleToggle = async (employeeId: string, field: 'visibleToHR' | 'visibleToManager', current: boolean) => {
+    try {
+      const rule = rules.find((r: any) => r.employee.id === employeeId);
+      await updateRule({
+        employeeId,
+        visibleToHR: field === 'visibleToHR' ? !current : (rule?.visibleToHR ?? true),
+        visibleToManager: field === 'visibleToManager' ? !current : (rule?.visibleToManager ?? false),
+      }).unwrap();
+      toast.success('Visibility updated');
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  return (
+    <div className="layer-card p-6">
+      <div className="flex items-center gap-3 mb-2">
+        <Lock size={20} className="text-brand-600" />
+        <h2 className="text-lg font-display font-semibold text-gray-800">Salary Privacy</h2>
+      </div>
+      <p className="text-sm text-gray-500 mb-4">Control which employees' salaries are visible to HR and Managers</p>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6">
+        <p className="text-xs text-amber-700">Only Super Admin can modify salary visibility. HR will see masked values for hidden employees.</p>
+      </div>
+
+      {isLoading ? (
+        <div className="py-8 text-center"><Loader2 className="w-6 h-6 animate-spin text-brand-600 mx-auto" /></div>
+      ) : rules.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-8">No employees found</p>
+      ) : (
+        <div className="border border-gray-100 rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100">
+                <th className="text-left py-3 px-4 font-medium text-gray-500">Employee</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-500 hidden md:table-cell">Department</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-500">Visible to HR</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-500">Visible to Manager</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rules.map((rule: any) => (
+                <tr key={rule.employee.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                  <td className="py-3 px-4">
+                    <p className="font-medium text-gray-800">{rule.employee.firstName} {rule.employee.lastName}</p>
+                    <p className="text-xs font-mono text-gray-400" data-mono>{rule.employee.employeeCode}</p>
+                  </td>
+                  <td className="py-3 px-4 hidden md:table-cell text-gray-500">{rule.employee.department?.name || '—'}</td>
+                  <td className="py-3 px-4 text-center">
+                    <button
+                      onClick={() => handleToggle(rule.employee.id, 'visibleToHR', rule.visibleToHR)}
+                      className={cn('w-10 h-5 rounded-full transition-colors relative',
+                        rule.visibleToHR ? 'bg-emerald-500' : 'bg-gray-300')}>
+                      <div className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform',
+                        rule.visibleToHR ? 'translate-x-5' : 'translate-x-0.5')} />
+                    </button>
+                  </td>
+                  <td className="py-3 px-4 text-center">
+                    <button
+                      onClick={() => handleToggle(rule.employee.id, 'visibleToManager', rule.visibleToManager)}
+                      className={cn('w-10 h-5 rounded-full transition-colors relative',
+                        rule.visibleToManager ? 'bg-emerald-500' : 'bg-gray-300')}>
+                      <div className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform',
+                        rule.visibleToManager ? 'translate-x-5' : 'translate-x-0.5')} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

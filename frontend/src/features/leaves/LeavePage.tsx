@@ -893,17 +893,19 @@ function LeaveRequestCard({ leave }: { leave: any }) {
     }
   };
 
-  const statusIcon = {
+  const statusIcon: Record<string, React.ReactNode> = {
     PENDING: <Clock size={16} className="text-amber-500" />,
+    MANAGER_APPROVED: <CheckCircle size={16} className="text-blue-500" />,
     APPROVED: <CheckCircle size={16} className="text-emerald-500" />,
     REJECTED: <XCircle size={16} className="text-red-500" />,
     CANCELLED: <AlertCircle size={16} className="text-gray-400" />,
-  }[leave.status] || null;
+  };
+  const currentStatusIcon = statusIcon[leave.status] || null;
 
   return (
     <div className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
       <div className="flex items-center gap-3">
-        {statusIcon}
+        {currentStatusIcon}
         <div>
           <p className="text-sm font-medium text-gray-800">
             {leave.leaveType?.name || 'Leave'}
@@ -920,7 +922,9 @@ function LeaveRequestCard({ leave }: { leave: any }) {
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <span className={`badge ${getStatusColor(leave.status)} text-xs`}>{leave.status}</span>
+        <span className={`badge ${getStatusColor(leave.status)} text-xs`}>
+          {leave.status === 'MANAGER_APPROVED' ? 'Manager Approved' : leave.status}
+        </span>
         {leave.status === 'PENDING' && (
           <button
             onClick={handleCancel}
