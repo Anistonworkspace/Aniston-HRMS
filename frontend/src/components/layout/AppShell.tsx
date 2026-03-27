@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
@@ -6,10 +6,20 @@ import MobileBottomNav from './MobileBottomNav';
 import ActivityCheckInPrompt from '../ActivityCheckInPrompt';
 import AgentDownloadBanner from '../AgentDownloadBanner';
 import useActivityTracker from '../../hooks/useActivityTracker';
+import { useAppSelector } from '../../app/store';
+import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
 
 export default function AppShell() {
   // Activity tracking — runs globally for all logged-in users
   useActivityTracker();
+  const user = useAppSelector(s => s.auth.user);
+  const location = useLocation();
+  const isAdminOrHR = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
+  const aiContext = location.pathname.startsWith('/recruitment') ? 'hr-recruitment' as const
+    : location.pathname.startsWith('/settings') ? 'admin' as const
+    : 'hr-general' as const;
+  const aiLabel = aiContext === 'hr-recruitment' ? 'HR Recruitment Assistant'
+    : aiContext === 'admin' ? 'Admin Assistant' : 'HR Assistant';
 
   return (
     <div className="flex min-h-screen bg-surface-1">
@@ -37,6 +47,9 @@ export default function AppShell() {
 
       {/* Activity check-in prompts for hybrid employees */}
       <ActivityCheckInPrompt />
+
+      {/* AI Assistant FAB — visible to Admin/HR */}
+      {isAdminOrHR && <AiAssistantFab context={aiContext} label={aiLabel} />}
     </div>
   );
 }

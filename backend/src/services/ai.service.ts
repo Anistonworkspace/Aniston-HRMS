@@ -1,0 +1,204 @@
+import { aiConfigService } from '../modules/ai-config/ai-config.service.js';
+
+export interface AiChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface AiResponse {
+  success: boolean;
+  data?: string;
+  error?: string;
+}
+
+/**
+ * Centralized AI Service — all AI calls throughout the application
+ * go through this service. It reads the active provider config from
+ * `AiApiConfig` (Redis-cached for 60 s) and routes to the correct API.
+ *
+ * Supported providers: OPENAI, DEEPSEEK, ANTHROPIC, GEMINI, CUSTOM.
+ *
+ * Never instantiate this class directly — use the exported singleton `aiService`.
+ *
+ * @example
+ * const result = await aiService.prompt(orgId, 'You are HR.', 'Summarize this resume...');
+ * if (result.success) console.log(result.data);
+ */
+export class AiService {
+  /**
+   * Send a chat completion request using the org's configured AI provider.
+   *
+   * @param organizationId - The org whose `AiApiConfig` should be used.
+   * @param messages - Array of chat messages in `{ role, content }` format.
+   * @param maxTokens - Maximum tokens for the response (default 1024).
+   * @returns `{ success: true, data: string }` or `{ success: false, error: string }`.
+   */
+  async chat(organizationId: string, messages: AiChatMessage[], maxTokens = 1024): Promise<AiResponse> {
+    const config = await aiConfigService.getActiveConfigRaw(organizationId);
+
+    if (!config) {
+      return { success: false, error: 'No AI provider configured. Go to Settings → API Integrations.' };
+    }
+
+    try {
+      const text = await this.callProvider(config.provider, config.apiKey, config.modelName, config.baseUrl, messages, maxTokens);
+      return { success: true, data: text };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Single-turn prompt convenience method. Wraps `chat()` with a system + user message pair.
+   *
+   * @param organizationId - The org whose `AiApiConfig` should be used.
+   * @param systemPrompt - Instruction context placed in the `system` role.
+   * @param userPrompt - The actual user question or content.
+   * @param maxTokens - Maximum tokens for the response (default 1024).
+   * @returns `{ success: true, data: string }` or `{ success: false, error: string }`.
+   */
+  async prompt(organizationId: string, systemPrompt: string, userPrompt: string, maxTokens = 1024): Promise<AiResponse> {
+    return this.chat(organizationId, [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ], maxTokens);
+  }
+
+  /**
+   * Score a resume against a job description using the org's AI provider.
+   *
+   * The AI is instructed to return a structured JSON object:
+   * ```json
+   * {
+   *   "score": 0-100,
+   *   "skills": string[],
+   *   "experience": string,
+   *   "strengths": string[],
+   *   "weaknesses": string[],
+   *   "recommendation": "STRONG_FIT | GOOD_FIT | PARTIAL_FIT | POOR_FIT"
+   * }
+   * ```
+   * Callers should `JSON.parse(result.data)` after checking `result.success`.
+   *
+   * @param organizationId - The org whose `AiApiConfig` should be used.
+   * @param resumeText - Raw extracted text from the candidate's resume.
+   * @param jobDescription - Full job description text.
+   * @returns `{ success: true, data: jsonString }` or `{ success: false, error: string }`.
+   */
+  async scoreResume(organizationId: string, resumeText: string, jobDescription: string): Promise<AiResponse> {
+    const systemPrompt = `You are an expert HR recruiter AI. Score the candidate's resume against the job description.
+Return ONLY a JSON object with these fields:
+{
+  "score": <number 0-100>,
+  "skills": [<extracted skills array>],
+  "experience": "<brief experience summary>",
+  "strengths": [<top 3 strengths>],
+  "weaknesses": [<top 3 gaps>],
+  "recommendation": "<STRONG_FIT | GOOD_FIT | PARTIAL_FIT | POOR_FIT>"
+}`;
+
+    const userPrompt = `JOB DESCRIPTION:\n${jobDescription}\n\nRESUME:\n${resumeText}`;
+    return this.prompt(organizationId, systemPrompt, userPrompt, 800);
+  }
+
+  private async callProvider(
+    provider: string,
+    apiKey: string,
+    modelName: string,
+    baseUrl: string | null,
+    messages: AiChatMessage[],
+    maxTokens: number
+  ): Promise<string> {
+    switch (provider) {
+      case 'OPENAI':
+      case 'DEEPSEEK':
+      case 'CUSTOM': {
+        const url = provider === 'OPENAI'
+          ? 'https://api.openai.com/v1/chat/completions'
+          : provider === 'DEEPSEEK'
+          ? 'https://api.deepseek.com/v1/chat/completions'
+          : `${baseUrl}/v1/chat/completions`;
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: modelName, messages, max_tokens: maxTokens }),
+        });
+
+        if (!res.ok) {
+          const errBody = await res.text();
+          throw new Error(`${provider} API error ${res.status}: ${errBody.slice(0, 300)}`);
+        }
+
+        const data = await res.json();
+        return data.choices?.[0]?.message?.content || '';
+      }
+
+      case 'ANTHROPIC': {
+        // Anthropic requires system message separate from messages
+        const systemMsg = messages.find(m => m.role === 'system')?.content || '';
+        const chatMsgs = messages.filter(m => m.role !== 'system');
+
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: modelName,
+            max_tokens: maxTokens,
+            system: systemMsg,
+            messages: chatMsgs,
+          }),
+        });
+
+        if (!res.ok) {
+          const errBody = await res.text();
+          throw new Error(`Anthropic API error ${res.status}: ${errBody.slice(0, 300)}`);
+        }
+
+        const data = await res.json();
+        return data.content?.[0]?.text || '';
+      }
+
+      case 'GEMINI': {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+        // Convert chat messages to Gemini format
+        const contents = messages
+          .filter(m => m.role !== 'system')
+          .map(m => ({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.content }],
+          }));
+
+        // Prepend system instruction to first user message
+        const systemMsg = messages.find(m => m.role === 'system')?.content;
+        if (systemMsg && contents.length > 0) {
+          contents[0].parts[0].text = `${systemMsg}\n\n${contents[0].parts[0].text}`;
+        }
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents }),
+        });
+
+        if (!res.ok) {
+          const errBody = await res.text();
+          throw new Error(`Gemini API error ${res.status}: ${errBody.slice(0, 300)}`);
+        }
+
+        const data = await res.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      }
+
+      default:
+        throw new Error(`Unsupported AI provider: ${provider}`);
+    }
+  }
+}
+
+export const aiService = new AiService();

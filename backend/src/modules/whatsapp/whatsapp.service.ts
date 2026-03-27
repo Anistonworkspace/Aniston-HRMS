@@ -181,6 +181,101 @@ export class WhatsAppService {
     return this.sendMessage({ to: data.phone, message }, organizationId);
   }
 
+  /**
+   * Get all chats from connected WhatsApp.
+   */
+  async getChats(organizationId: string) {
+    if (!isReady || !waClient) throw new BadRequestError('WhatsApp not connected');
+
+    try {
+      const chats = await waClient.getChats();
+      return chats.slice(0, 50).map((chat: any) => ({
+        id: chat.id._serialized,
+        name: chat.name || chat.id.user,
+        isGroup: chat.isGroup,
+        lastMessage: chat.lastMessage?.body?.slice(0, 100) || '',
+        timestamp: chat.lastMessage?.timestamp ? new Date(chat.lastMessage.timestamp * 1000).toISOString() : null,
+        unreadCount: chat.unreadCount || 0,
+      }));
+    } catch (err: any) {
+      throw new BadRequestError(`Failed to get chats: ${err.message}`);
+    }
+  }
+
+  /**
+   * Get messages for a specific chat.
+   */
+  async getChatMessages(chatId: string, limit = 50) {
+    if (!isReady || !waClient) throw new BadRequestError('WhatsApp not connected');
+
+    try {
+      const chat = await waClient.getChatById(chatId);
+      const messages = await chat.fetchMessages({ limit });
+      return messages.map((msg: any) => ({
+        id: msg.id._serialized,
+        body: msg.body,
+        fromMe: msg.fromMe,
+        timestamp: msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : null,
+        type: msg.type,
+        hasMedia: msg.hasMedia,
+        ack: msg.ack, // 0=pending, 1=sent, 2=delivered, 3=read
+      }));
+    } catch (err: any) {
+      throw new BadRequestError(`Failed to get messages: ${err.message}`);
+    }
+  }
+
+  /**
+   * Send message to a new number (creates chat if needed).
+   */
+  async sendToNumber(phone: string, message: string, organizationId: string) {
+    if (!isReady || !waClient) throw new BadRequestError('WhatsApp not connected');
+    const cleanPhone = phone.replace(/\D/g, '');
+    const chatId = cleanPhone.includes('@') ? cleanPhone : `${cleanPhone}@c.us`;
+
+    try {
+      await waClient.sendMessage(chatId, message);
+
+      const session = await prisma.whatsAppSession.findFirst({ where: { organizationId } });
+      await prisma.whatsAppMessage.create({
+        data: {
+          sessionId: session?.id || '',
+          to: phone,
+          message,
+          templateType: 'GENERAL',
+          status: 'SENT',
+          sentAt: new Date(),
+          organizationId,
+        },
+      });
+
+      return { success: true, chatId };
+    } catch (err: any) {
+      throw new BadRequestError(`Failed to send: ${err.message}`);
+    }
+  }
+
+  /**
+   * Get contacts from connected WhatsApp.
+   */
+  async getContacts() {
+    if (!isReady || !waClient) throw new BadRequestError('WhatsApp not connected');
+    try {
+      const contacts = await waClient.getContacts();
+      return contacts
+        .filter((c: any) => c.isWAContact && !c.isGroup)
+        .slice(0, 100)
+        .map((c: any) => ({
+          id: c.id._serialized,
+          name: c.name || c.pushname || c.id.user,
+          number: c.number,
+          isMyContact: c.isMyContact,
+        }));
+    } catch (err: any) {
+      throw new BadRequestError(`Failed to get contacts: ${err.message}`);
+    }
+  }
+
   async getMessages(organizationId: string, page = 1, limit = 20) {
     const skip = (page - 1) * limit;
     const [messages, total] = await Promise.all([

@@ -33,6 +33,10 @@ import { assetRouter } from './modules/asset/asset.routes.js';
 import { internRouter } from './modules/intern/intern.routes.js';
 import { bulkResumeRouter } from './modules/recruitment/bulk-resume.routes.js';
 import { whatsAppRouter } from './modules/whatsapp/whatsapp.routes.js';
+import { aiConfigRouter } from './modules/ai-config/ai-config.routes.js';
+import { invitationRouter } from './modules/invitation/invitation.routes.js';
+import { aiAssistantRouter } from './modules/ai-assistant/ai-assistant.routes.js';
+import { publicApplyRouter } from './modules/public-apply/public-apply.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 
@@ -61,6 +65,8 @@ app.use(requestLogger);
 // Rate limiting — stricter limits on public endpoints first
 app.use('/api/walk-in/register', rateLimiter({ windowMs: 60 * 1000, max: 5, keyPrefix: 'rl:walkin-reg' }));
 app.use('/api/recruitment/apply', rateLimiter({ windowMs: 60 * 1000, max: 10, keyPrefix: 'rl:recruit-apply' }));
+app.use('/api/jobs/form', rateLimiter({ windowMs: 60 * 1000, max: 10, keyPrefix: 'rl:public-apply' }));
+app.use('/api/invitations/complete', rateLimiter({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'rl:invite-complete' }));
 app.use('/api/auth', rateLimiter({ windowMs: 15 * 60 * 1000, max: 50, keyPrefix: 'rl:auth' }));
 app.use('/api', rateLimiter({ windowMs: 60 * 1000, max: 100, keyPrefix: 'rl:api' }));
 
@@ -131,9 +137,15 @@ app.use('/api/assets', assetRouter);
 app.use('/api/interns', internRouter);
 app.use('/api/recruitment/bulk-resume', bulkResumeRouter);
 app.use('/api/whatsapp', whatsAppRouter);
+app.use('/api/settings/ai-config', aiConfigRouter);
+app.use('/api/invitations', invitationRouter);
+app.use('/api/ai-assistant', aiAssistantRouter);
+app.use('/api/jobs', publicApplyRouter);
 
-// Static file serving for uploads (dev only)
-app.use('/uploads', express.static('uploads'));
+// Static file serving for uploads (dev only — disable in production)
+if (env.NODE_ENV === 'development') {
+  app.use('/uploads', express.static('uploads'));
+}
 
 // 404 handler
 app.use((_req, res) => {

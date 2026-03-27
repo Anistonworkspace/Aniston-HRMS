@@ -45,6 +45,10 @@ npm run dev
 - Walk-In Kiosk: http://localhost:5173/walk-in
 - AI Service: http://localhost:8000/ai/health
 - Prisma Studio: `npm run db:studio`
+- Public Job Application: http://localhost:5173/apply/:token
+- Application Tracker: http://localhost:5173/track/:uid
+- WhatsApp UI: http://localhost:5173/whatsapp
+- Invite Onboarding: http://localhost:5173/onboarding/invite/:token
 
 ## Login Credentials (Dev)
 - Super Admin: `superadmin@anistonav.com` / `Superadmin@1234`
@@ -52,7 +56,7 @@ npm run dev
 
 ## Architecture Decisions
 1. **npm workspaces monorepo** — frontend, backend, shared packages
-2. **Module pattern** on backend — all 18 modules follow full MVC: controller/service/routes/validation in `backend/src/modules/<feature>/`
+2. **Module pattern** on backend — all 22 modules follow full MVC: controller/service/routes/validation in `backend/src/modules/<feature>/`
 3. **RTK Query** for frontend API calls with auto-caching and tag-based invalidation
 4. **Single Prisma schema** at `prisma/schema.prisma` — all models in one file
 5. **RBAC** — 6 roles (SUPER_ADMIN, ADMIN, HR, MANAGER, EMPLOYEE, GUEST_INTERVIEWER) with permission map in `shared/src/permissions.ts`
@@ -67,10 +71,40 @@ npm run dev
 14. **API docs** — Swagger UI at `/api/docs`, OpenAPI spec at `/api/docs.json`
 15. **Testing** — Vitest + supertest, tests in `backend/src/**/__tests__/`, run with `npm run test --workspace=backend`
 
+## New Backend Routes (Phase 6–8)
+| Route prefix | Module | Notes |
+|---|---|---|
+| `POST /api/settings/ai-config` | ai-config | Upsert AI provider config (SUPER_ADMIN) |
+| `GET /api/settings/ai-config` | ai-config | Get masked config |
+| `POST /api/settings/ai-config/test` | ai-config | Test provider connection |
+| `POST /api/invitations` | invitation | Create + email invite |
+| `GET /api/invitations` | invitation | List org invitations |
+| `GET /api/invitations/validate/:token` | invitation | Public token validation |
+| `POST /api/invitations/accept/:token` | invitation | Accept invite, create employee |
+| `POST /api/invitations/:id/resend` | invitation | Resend with new token |
+| `POST /api/ai-assistant/chat` | ai-assistant | Chat with AI assistant |
+| `GET /api/ai-assistant/history` | ai-assistant | Get conversation history |
+| `DELETE /api/ai-assistant/history` | ai-assistant | Clear conversation |
+| `GET /api/jobs/:token` | public-apply | Get public job details |
+| `POST /api/jobs/:token/apply` | public-apply | Submit public application |
+| `GET /api/jobs/track/:uid` | public-apply | Track application status |
+| `POST /api/jobs/:id/interview-rounds` | public-apply | Create interview round |
+| `POST /api/jobs/:id/schedule-interview` | public-apply | Schedule + AI message |
+| `POST /api/jobs/:id/finalize` | public-apply | Finalize with weighted score |
+
+## New Prisma Models (Phase 6–8)
+| Model | Purpose |
+|---|---|
+| `AiApiConfig` | Stores per-org AI provider config with AES-256-GCM encrypted API key |
+| `EmployeeInvitation` | Token-based employee invite (72-hour TTL, tracks status: PENDING/ACCEPTED/EXPIRED) |
+| `JobApplicationQuestion` | AI-generated MCQ questions linked to a job opening |
+| `PublicApplication` | Candidate submission via public apply form, with per-question responses |
+| `InterviewRound` | Interview round definition with AI-generated questions, scores, and scheduling |
+
 ## Key Files
 | File | Purpose |
 |------|---------|
-| `prisma/schema.prisma` | All database models (30+ models) |
+| `prisma/schema.prisma` | All database models (35+ models) |
 | `shared/src/permissions.ts` | RBAC permissions map — consumed by both frontend & backend |
 | `shared/src/enums.ts` | All enums shared across the app |
 | `shared/src/types.ts` | API request/response TypeScript types |
@@ -101,6 +135,15 @@ npm run dev
 | `backend/src/config/swagger.ts` | OpenAPI/Swagger configuration |
 | `backend/Dockerfile` | Multi-stage production Docker build (non-root) |
 | `.github/workflows/ci.yml` | CI pipeline (lint, typecheck, test, build) |
+| `backend/src/services/ai.service.ts` | Centralized AI service — routes chat/prompt/scoreResume to configured provider |
+| `backend/src/modules/ai-config/` | AI API Configuration MVC — provider selector, encrypted key storage, test connection |
+| `backend/src/modules/invitation/` | Employee invitation MVC — token creation, email delivery, invite-accept flow |
+| `backend/src/modules/ai-assistant/` | AI Assistant MVC — context-aware FAB chat with Redis conversation history |
+| `backend/src/modules/public-apply/` | Public job application MVC — AI MCQ generation, public form, tracking, interview rounds |
+| `frontend/src/features/invitation/InviteAcceptPage.tsx` | Invite accept page — validates token, collects name/password, starts onboarding |
+| `frontend/src/features/whatsapp/WhatsAppPage.tsx` | WhatsApp Web UI — chat list, message view, new chat |
+| `frontend/src/features/public-apply/PublicApplyPage.tsx` | Public AI-enhanced job application form (public, no auth) |
+| `frontend/src/features/public-apply/TrackApplicationPage.tsx` | Application status tracking by UID (public, no auth) |
 
 ## Backend Module Pattern
 Each module in `backend/src/modules/<name>/` has:
@@ -151,6 +194,16 @@ npm run db:studio      # Open Prisma Studio GUI
 - Holiday CRUD management
 - Asset management (CRUD + assign/return workflow)
 - CI/CD with GitHub Actions (lint, typecheck, build)
+
+### Phase 6–8 (Complete) — AI Platform & Communication
+- **AI API Configuration** (`/api/settings/ai-config`) — multi-provider support (OpenAI, DeepSeek, Anthropic, Gemini, Custom); AES-256-GCM encrypted key storage; Redis-cached active config; test-connection endpoint; Settings UI tab
+- **Employee Invitation System** (`/api/invitations`) — token-based invite flow, 72-hour expiry, email delivery via BullMQ, invite-accept creates User + Employee + triggers onboarding, resend with new token
+- **WhatsApp Web UI** (`/whatsapp`) — chat list, message view, new chat composer backed by existing WhatsApp module
+- **AI Assistant** (`/api/ai-assistant`) — context-aware FAB panel, conversation history in Redis (per user/page), prompts routed through centralized AiService
+- **AI Job Application Form** (`/apply/:token`) — AI-generated MCQ questions per job opening, public form (no auth), application tracking at `/track/:uid`; new Prisma models: `PublicApplication`, `JobApplicationQuestion`, `InterviewRound`
+- **AI Interview Scheduling** — schedule interview endpoint with AI-generated message preview, integrated into public-apply module
+- **AI Interview Execution & Scoring** — per-round question generation, scoring per answer, weighted final score calculation, candidate finalization
+- **Admin Email Configuration** — `adminNotificationEmail` field on Organization, exposed in Settings UI
 
 ## Indian Payroll Compliance
 - EPF: 12% of basic (employee + employer), basic capped at 15,000

@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { whatsAppService } from './whatsapp.service.js';
 import { sendMessageSchema, sendJobLinkSchema } from './whatsapp.validation.js';
 
@@ -46,6 +47,39 @@ export class WhatsAppController {
       const limit = Number(req.query.limit) || 20;
       const result = await whatsAppService.getMessages(req.user!.organizationId, page, limit);
       res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  }
+
+  async getChats(req: Request, res: Response, next: NextFunction) {
+    try {
+      const chats = await whatsAppService.getChats(req.user!.organizationId);
+      res.json({ success: true, data: chats });
+    } catch (err) { next(err); }
+  }
+
+  async getChatMessages(req: Request, res: Response, next: NextFunction) {
+    try {
+      const limit = Number(req.query.limit) || 50;
+      const messages = await whatsAppService.getChatMessages(req.params.chatId, limit);
+      res.json({ success: true, data: messages });
+    } catch (err) { next(err); }
+  }
+
+  async sendToNumber(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { phone, message } = z.object({
+        phone: z.string().min(10).max(20),
+        message: z.string().min(1).max(4096),
+      }).parse(req.body);
+      const result = await whatsAppService.sendToNumber(phone, message, req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async getContacts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const contacts = await whatsAppService.getContacts();
+      res.json({ success: true, data: contacts });
     } catch (err) { next(err); }
   }
 

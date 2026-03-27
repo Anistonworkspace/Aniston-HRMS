@@ -49,6 +49,18 @@ export const settingsApi = api.injectEndpoints({
       query: ({ employeeId, ...body }) => ({ url: `/payroll/visibility-rules/${employeeId}`, method: 'PATCH', body }),
       invalidatesTags: ['Payroll'],
     }),
+    // AI Config
+    getAiConfig: builder.query<any, void>({
+      query: () => '/settings/ai-config',
+      providesTags: ['AiConfig'],
+    }),
+    saveAiConfig: builder.mutation<any, { provider: string; apiKey?: string; baseUrl?: string | null; modelName: string }>({
+      query: (body) => ({ url: '/settings/ai-config', method: 'PUT', body }),
+      invalidatesTags: ['AiConfig'],
+    }),
+    testAiConnection: builder.mutation<any, void>({
+      query: () => ({ url: '/settings/ai-config/test', method: 'POST' }),
+    }),
   }),
 });
 
@@ -69,4 +81,7 @@ export const {
   useGetSalaryVisibilityRulesQuery,
   useSetSalaryVisibilityRuleMutation,
   useUpdateSalaryVisibilityRuleMutation,
+  useGetAiConfigQuery,
+  useSaveAiConfigMutation,
+  useTestAiConnectionMutation,
 } = settingsApi;

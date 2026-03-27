@@ -204,3 +204,84 @@ export enum GeofenceType {
   CLIENT_SITE = 'CLIENT_SITE',
   RESTRICTED = 'RESTRICTED',
 }
+
+export enum InvitationStatus {
+  PENDING = 'PENDING',
+  ACCEPTED = 'ACCEPTED',
+  EXPIRED = 'EXPIRED',
+}
+
+export enum AiProvider {
+  DEEPSEEK = 'DEEPSEEK',
+  OPENAI = 'OPENAI',
+  ANTHROPIC = 'ANTHROPIC',
+  GEMINI = 'GEMINI',
+  CUSTOM = 'CUSTOM',
+}
+
+export enum McqCategory {
+  INTELLIGENCE = 'INTELLIGENCE',
+  INTEGRITY = 'INTEGRITY',
+  ENERGY = 'ENERGY',
+}
+
+export enum PublicAppStatus {
+  SUBMITTED = 'SUBMITTED',
+  SHORTLISTED = 'SHORTLISTED',
+  INTERVIEW_SCHEDULED = 'INTERVIEW_SCHEDULED',
+  SELECTED = 'SELECTED',
+  REJECTED = 'REJECTED',
+  ON_HOLD = 'ON_HOLD',
+}
+
+export enum InterviewRoundType {
+  HR = 'HR',
+  MANAGER = 'MANAGER',
+  SUPERADMIN = 'SUPERADMIN',
+}
+
+export enum RoundStatus {
+  PENDING_ROUND = 'PENDING_ROUND',
+  IN_PROGRESS_ROUND = 'IN_PROGRESS_ROUND',
+  COMPLETED_ROUND = 'COMPLETED_ROUND',
+}
+
+export enum WalkInStatus {
+  WAITING = 'WAITING',
+  IN_INTERVIEW = 'IN_INTERVIEW',
+  ON_HOLD = 'ON_HOLD',
+  SELECTED = 'SELECTED',
+  REJECTED = 'REJECTED',
+  COMPLETED = 'COMPLETED',
+  NO_SHOW = 'NO_SHOW',
+}
+
+export enum ShiftType {
+  OFFICE = 'OFFICE',
+  HYBRID = 'HYBRID',
+  FIELD = 'FIELD',
+}
+
+export enum AssetCondition {
+  EXCELLENT = 'EXCELLENT',
+  GOOD = 'GOOD',
+  FAIR = 'FAIR',
+  DAMAGED = 'DAMAGED',
+  LOST = 'LOST',
+}
+
+export enum WaTemplateType {
+  JOB_LINK = 'JOB_LINK',
+  ONBOARDING_INVITE = 'ONBOARDING_INVITE',
+  OFFER_LETTER = 'OFFER_LETTER',
+  LEAVE_APPROVED = 'LEAVE_APPROVED',
+  GENERAL = 'GENERAL',
+}
+
+export enum WaMessageStatus {
+  PENDING = 'PENDING',
+  SENT = 'SENT',
+  DELIVERED = 'DELIVERED',
+  READ = 'READ',
+  FAILED = 'FAILED',
+}

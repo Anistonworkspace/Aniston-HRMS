@@ -31,4 +31,18 @@ router.get('/messages', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next
   whatsAppController.getMessages(req, res, next)
 );
 
+// Chat endpoints for WhatsApp Web UI
+router.get('/chats', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
+  whatsAppController.getChats(req, res, next)
+);
+router.get('/chats/:chatId/messages', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
+  whatsAppController.getChatMessages(req, res, next)
+);
+router.post('/send-to-number', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
+  whatsAppController.sendToNumber(req, res, next)
+);
+router.get('/contacts', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
+  whatsAppController.getContacts(req, res, next)
+);
+
 export { router as whatsAppRouter };

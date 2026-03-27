@@ -8,6 +8,7 @@ export const updateOrganizationSchema = z.object({
   currency: z.string().optional(),
   address: z.any().optional(),
   settings: z.any().optional(),
+  adminNotificationEmail: z.string().email().optional().nullable(),
 });
 
 export const createLocationSchema = z.object({

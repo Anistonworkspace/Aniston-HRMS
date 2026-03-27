@@ -39,6 +39,10 @@ const AuthCallbackPage = lazy(() => import('../features/auth/AuthCallbackPage'))
 const PendingApprovalsPage = lazy(() => import('../features/dashboard/PendingApprovalsPage'));
 const ExitManagementPage = lazy(() => import('../features/exit/ExitManagementPage'));
 const ExitDetailPage = lazy(() => import('../features/exit/ExitDetailPage'));
+const InviteAcceptPage = lazy(() => import('../features/invitation/InviteAcceptPage'));
+const WhatsAppPage = lazy(() => import('../features/whatsapp/WhatsAppPage'));
+const PublicApplyPage = lazy(() => import('../features/public-apply/PublicApplyPage'));
+const TrackApplicationPage = lazy(() => import('../features/public-apply/TrackApplicationPage'));
 
 function PageLoader() {
   return (
@@ -60,7 +64,11 @@ export default function AppRouter() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route path="/onboarding/:token" element={<OnboardingPortal />} />
+          <Route path="/onboarding/invite/:token" element={<InviteAcceptPage />} />
           <Route path="/jobs" element={<PublicJobsPage />} />
+          <Route path="/apply/:token" element={<PublicApplyPage />} />
+          <Route path="/track/:uid" element={<TrackApplicationPage />} />
+          <Route path="/track" element={<TrackApplicationPage />} />
           <Route path="/download" element={<DownloadPage />} />
 
           {/* Walk-In Kiosk (public, no auth) */}
@@ -106,6 +114,7 @@ export default function AppRouter() {
             <Route path="/my-assets" element={<MyAssetsPage />} />
             <Route path="/walk-in-management" element={<WalkInManagementPage />} />
             <Route path="/walk-in-management/:id" element={<WalkInDetailPage />} />
+            <Route path="/whatsapp" element={<WhatsAppPage />} />
             <Route path="/exit-management" element={<ExitManagementPage />} />
             <Route path="/exit-management/:id" element={<ExitDetailPage />} />
             <Route path="/more" element={<ProfilePage />} />

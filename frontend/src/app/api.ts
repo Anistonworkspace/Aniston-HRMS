@@ -66,6 +66,9 @@ export const api = createApi({
     'TeamsConfig',
     'Asset',
     'Exit',
+    'AiConfig',
+    'Invitation',
+    'WhatsApp',
   ],
   endpoints: () => ({}),
 });

@@ -6,7 +6,13 @@
   },
   "context": {
     "primaryLanguage": "TypeScript",
-    "frameworks": ["React 18", "Express.js 4", "Prisma ORM 5", "Vite 5", "FastAPI (Python)"],
+    "frameworks": [
+      "React 18",
+      "Express.js 4",
+      "Prisma ORM 5",
+      "Vite 5",
+      "FastAPI (Python)"
+    ],
     "database": "PostgreSQL 16",
     "caching": "Redis 7",
     "styling": "Tailwind CSS v3 + shadcn/ui",
@@ -14,7 +20,7 @@
     "animations": "Framer Motion",
     "taskQueue": "BullMQ",
     "realtime": "Socket.io",
-    "ai": "Python FastAPI (pytesseract OCR, DeepSeek scoring, RAGFlow search)",
+    "ai": "Python FastAPI (pytesseract OCR, DeepSeek scoring)",
     "containerization": "Docker Compose",
     "testing": "Vitest + Playwright (planned)",
     "pwa": "Workbox service worker"
@@ -28,5 +34,88 @@
     "idFormat": "UUID v4",
     "dateFormat": "ISO 8601",
     "currencyFormat": "INR with en-IN locale"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git status)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git branch *)",
+      "Bash(git pull *)",
+      "Bash(cd * && *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(touch *)",
+      "Bash(echo *)",
+      "Bash(chmod *)",
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(rm *)",
+      "Bash(python *)",
+      "Bash(pip *)",
+      "Bash(uvicorn *)",
+      "Bash(docker *)",
+      "Bash(docker compose *)",
+      "Bash(docker-compose *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(pm2 *)",
+      "Bash(ssh *)",
+      "Bash(scp *)",
+      "Bash(kill *)",
+      "Bash(lsof *)",
+      "Bash(ps *)",
+      "Read(**)",
+      "Write(**)",
+      "Edit(**)",
+      "MultiEdit(**)",
+      "Glob(**)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(git push *)",
+      "Bash(git push origin *)",
+      "Bash(curl * | bash)",
+      "Bash(wget * | bash)",
+      "Read(.env.production)"
+    ]
+  },
+  "model": "claude-sonnet-4-6",
+  "autoMemoryEnabled": true,
+  "includeGitInstructions": true,
+  "respectGitignore": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/pre-command.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/lint-on-save.sh"
+          }
+        ]
+      }
+    ]
   }
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff } from 'lucide-react';
+import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -12,14 +12,14 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation } from './settingsApi';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation } from './settingsApi';
 import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
 import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation } from '../whatsapp/whatsappApi';
 import { cn, getInitials } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'teams' | 'whatsapp' | 'roles' | 'salary-privacy' | 'audit' | 'system';
+type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'teams' | 'whatsapp' | 'roles' | 'salary-privacy' | 'ai-config' | 'audit' | 'system';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('organization');
@@ -33,6 +33,7 @@ export default function SettingsPage() {
     { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
     { key: 'roles', label: 'User Roles', icon: Users },
     { key: 'salary-privacy', label: 'Salary Privacy', icon: Lock },
+    { key: 'ai-config', label: 'API Integrations', icon: Cpu },
     { key: 'audit', label: 'Audit Logs', icon: Shield },
     { key: 'system', label: 'System', icon: Server },
   ];
@@ -71,6 +72,7 @@ export default function SettingsPage() {
           {activeTab === 'whatsapp' && <WhatsAppConfig />}
           {activeTab === 'roles' && <UserRolesTab />}
           {activeTab === 'salary-privacy' && <SalaryPrivacyTab />}
+          {activeTab === 'ai-config' && <ApiIntegrationsTab />}
           {activeTab === 'audit' && <AuditLogs />}
           {activeTab === 'system' && <SystemInfo />}
         </div>
@@ -83,10 +85,10 @@ function OrgSettings() {
   const { data: res } = useGetOrgSettingsQuery();
   const [updateOrg, { isLoading }] = useUpdateOrgMutation();
   const org = res?.data;
-  const [form, setForm] = useState({ name: '', timezone: '', currency: '', fiscalYear: '' });
+  const [form, setForm] = useState({ name: '', timezone: '', currency: '', fiscalYear: '', adminNotificationEmail: '' });
 
   useEffect(() => {
-    if (org) setForm({ name: org.name, timezone: org.timezone, currency: org.currency, fiscalYear: org.fiscalYear });
+    if (org) setForm({ name: org.name, timezone: org.timezone, currency: org.currency, fiscalYear: org.fiscalYear, adminNotificationEmail: org.adminNotificationEmail || '' });
   }, [org]);
 
   const handleSave = async () => {
@@ -134,6 +136,12 @@ function OrgSettings() {
             <option value="APRIL_MARCH">April - March</option>
             <option value="JANUARY_DECEMBER">January - December</option>
           </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">Admin Notification Email</label>
+          <input value={form.adminNotificationEmail} onChange={(e) => setForm({ ...form, adminNotificationEmail: e.target.value })}
+            type="email" placeholder="admin@company.com" className="input-glass w-full" />
+          <p className="text-xs text-gray-400 mt-1">System alerts, candidate selection notices, and error reports will be sent here.</p>
         </div>
 
         {org && (
@@ -1305,6 +1313,225 @@ function WhatsAppConfig() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const PROVIDER_DEFAULTS: Record<string, { modelName: string; placeholder: string }> = {
+  DEEPSEEK: { modelName: 'deepseek-chat', placeholder: 'sk-...' },
+  OPENAI: { modelName: 'gpt-4o', placeholder: 'sk-...' },
+  ANTHROPIC: { modelName: 'claude-sonnet-4-20250514', placeholder: 'sk-ant-...' },
+  GEMINI: { modelName: 'gemini-2.0-flash', placeholder: 'AIza...' },
+  CUSTOM: { modelName: '', placeholder: 'API key' },
+};
+
+function ApiIntegrationsTab() {
+  const { data: res, isLoading } = useGetAiConfigQuery();
+  const [saveConfig, { isLoading: saving }] = useSaveAiConfigMutation();
+  const [testConnection, { isLoading: testing }] = useTestAiConnectionMutation();
+
+  const config = res?.data;
+
+  const [provider, setProvider] = useState('DEEPSEEK');
+  const [apiKey, setApiKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [modelName, setModelName] = useState('deepseek-chat');
+  const [testResult, setTestResult] = useState<any>(null);
+
+  useEffect(() => {
+    if (config) {
+      setProvider(config.provider || 'DEEPSEEK');
+      setModelName(config.modelName || 'deepseek-chat');
+      setBaseUrl(config.baseUrl || '');
+      setApiKey('');
+    }
+  }, [config]);
+
+  const handleProviderChange = (p: string) => {
+    setProvider(p);
+    const defaults = PROVIDER_DEFAULTS[p];
+    if (defaults) setModelName(defaults.modelName);
+    setBaseUrl('');
+    setApiKey('');
+    setTestResult(null);
+  };
+
+  const handleSave = async () => {
+    try {
+      const body: any = { provider, modelName };
+      if (apiKey) body.apiKey = apiKey;
+      if (provider === 'CUSTOM' && baseUrl) body.baseUrl = baseUrl;
+      await saveConfig(body).unwrap();
+      toast.success('AI configuration saved');
+      setTestResult(null);
+    } catch {
+      toast.error('Failed to save AI configuration');
+    }
+  };
+
+  const handleTest = async () => {
+    try {
+      const result = await testConnection().unwrap();
+      setTestResult(result.data);
+      if (result.data?.success) {
+        toast.success(`Connection successful! (${result.data.latencyMs}ms)`);
+      } else {
+        toast.error(result.data?.message || 'Connection test failed');
+      }
+    } catch {
+      toast.error('Connection test failed');
+    }
+  };
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-brand-600" size={32} /></div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Warning banner if no config */}
+      {!config && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <AlertTriangle size={20} className="text-amber-500 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-amber-700">AI features are limited</p>
+            <p className="text-xs text-amber-600">Configure your AI provider below to enable resume scoring, interview questions, and AI assistant.</p>
+          </div>
+        </div>
+      )}
+
+      {/* AI Provider Configuration */}
+      <div className="layer-card p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
+          <Cpu size={20} className="text-brand-600" /> AI Provider
+        </h3>
+        <p className="text-sm text-gray-500 mb-5">Configure which AI model powers resume scoring, interview questions, and the AI assistant.</p>
+
+        <div className="space-y-4">
+          {/* Provider Selector */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Provider</label>
+            <div className="grid grid-cols-5 gap-2">
+              {Object.keys(PROVIDER_DEFAULTS).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => handleProviderChange(p)}
+                  className={cn(
+                    'px-3 py-2.5 rounded-lg text-xs font-medium border transition-all',
+                    provider === p
+                      ? 'bg-brand-50 border-brand-300 text-brand-700 ring-2 ring-brand-200'
+                      : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                  )}
+                >
+                  {p === 'DEEPSEEK' ? 'DeepSeek' : p === 'OPENAI' ? 'OpenAI' : p === 'ANTHROPIC' ? 'Anthropic' : p === 'GEMINI' ? 'Gemini' : 'Custom'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* API Key */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+            <div className="relative">
+              <input
+                type="password"
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                placeholder={config?.apiKeyMasked || PROVIDER_DEFAULTS[provider]?.placeholder || 'Enter API key'}
+                className="input-glass w-full text-sm pr-10"
+              />
+              <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Your key is encrypted with AES-256-GCM before storage. Leave blank to keep existing key.</p>
+          </div>
+
+          {/* Base URL (only for CUSTOM) */}
+          {provider === 'CUSTOM' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Base URL</label>
+              <input
+                value={baseUrl}
+                onChange={e => setBaseUrl(e.target.value)}
+                placeholder="https://your-api-endpoint.com"
+                className="input-glass w-full text-sm"
+              />
+              <p className="text-xs text-gray-400 mt-1">Must be OpenAI-compatible. The endpoint /v1/chat/completions will be called.</p>
+            </div>
+          )}
+
+          {/* Model Name */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Model Name</label>
+            <input
+              value={modelName}
+              onChange={e => setModelName(e.target.value)}
+              placeholder="Model identifier"
+              className="input-glass w-full text-sm"
+            />
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-3 pt-2">
+            <button onClick={handleSave} disabled={saving || !modelName}
+              className="btn-primary flex items-center gap-2 text-sm">
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+              Save Configuration
+            </button>
+            <button onClick={handleTest} disabled={testing || !config}
+              className="btn-secondary flex items-center gap-2 text-sm">
+              {testing ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+              Test Connection
+            </button>
+          </div>
+
+          {/* Test Result */}
+          {testResult && (
+            <div className={cn(
+              'rounded-xl px-4 py-3 border',
+              testResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+            )}>
+              <div className="flex items-center gap-2 mb-1">
+                {testResult.success ? <CheckCircle2 size={16} className="text-green-600" /> : <AlertTriangle size={16} className="text-red-600" />}
+                <span className={cn('text-sm font-medium', testResult.success ? 'text-green-700' : 'text-red-700')}>
+                  {testResult.success ? 'Connection Successful' : 'Connection Failed'}
+                </span>
+              </div>
+              {testResult.success ? (
+                <div className="text-xs text-green-600 space-y-0.5">
+                  <p>Provider: {testResult.provider} | Model: {testResult.model}</p>
+                  <p>Latency: {testResult.latencyMs}ms</p>
+                  <p className="text-gray-500 italic mt-1">"{testResult.response}"</p>
+                </div>
+              ) : (
+                <p className="text-xs text-red-600">{testResult.message}</p>
+              )}
+            </div>
+          )}
+
+          {/* Last updated info */}
+          {config && (
+            <p className="text-xs text-gray-400">
+              Last updated: {new Date(config.updatedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Email Integration (link) */}
+      <div className="layer-card p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
+          <Mail size={20} className="text-brand-600" /> Email (Microsoft 365 / SMTP)
+        </h3>
+        <p className="text-sm text-gray-500">Email configuration is managed in the Email Configuration tab.</p>
+      </div>
+
+      {/* WhatsApp Integration (link) */}
+      <div className="layer-card p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
+          <MessageCircle size={20} className="text-green-600" /> WhatsApp
+        </h3>
+        <p className="text-sm text-gray-500">WhatsApp session management is in the WhatsApp tab.</p>
+      </div>
     </div>
   );
 }

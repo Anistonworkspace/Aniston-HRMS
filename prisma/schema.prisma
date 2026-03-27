@@ -25,6 +25,7 @@ model Organization {
   currency  String   @default("INR")
   address   Json?
   settings  Json?
+  adminNotificationEmail String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -677,6 +678,8 @@ model JobOpening {
   approvedBy      String?
   publishToNaukri Boolean   @default(false)
   publishToWebsite Boolean  @default(true)
+  publicFormToken  String?  @unique @default(uuid())
+  publicFormEnabled Boolean @default(true)
   organizationId  String
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -685,6 +688,8 @@ model JobOpening {
   applications      Application[]
   walkIns            WalkInCandidate[]
   bulkResumeUploads  BulkResumeUpload[]
+  questions          JobApplicationQuestion[]
+  publicApplications PublicApplication[]
 }
 
 enum JobType {
@@ -1537,4 +1542,167 @@ model AgentScreenshot {
   employee Employee @relation(fields: [employeeId], references: [id])
 
   @@index([employeeId, date])
+}
+
+// =====================
+// AI API CONFIGURATION
+// =====================
+
+enum AiProvider {
+  DEEPSEEK
+  OPENAI
+  ANTHROPIC
+  GEMINI
+  CUSTOM
+}
+
+model AiApiConfig {
+  id              String     @id @default(uuid())
+  organizationId  String
+  provider        AiProvider
+  apiKeyEncrypted String     // AES-256-GCM encrypted
+  baseUrl         String?    // For CUSTOM/self-hosted endpoints
+  modelName       String
+  isActive        Boolean    @default(true)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  updatedBy       String     // userId FK
+
+  @@unique([organizationId, provider])
+  @@index([organizationId])
+}
+
+// =====================
+// EMPLOYEE INVITATIONS
+// =====================
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+}
+
+model EmployeeInvitation {
+  id              String           @id @default(uuid())
+  organizationId  String
+  email           String?
+  mobileNumber    String?
+  inviteToken     String           @unique @default(uuid())
+  status          InvitationStatus @default(PENDING)
+  invitedBy       String           // userId FK
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  employeeId      String?          // Set when onboarding is completed
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([organizationId])
+  @@index([inviteToken])
+}
+
+// =====================
+// PUBLIC JOB APPLICATIONS
+// =====================
+
+enum McqCategory {
+  INTELLIGENCE
+  INTEGRITY
+  ENERGY
+}
+
+enum PublicAppStatus {
+  SUBMITTED
+  SHORTLISTED
+  INTERVIEW_SCHEDULED
+  SELECTED
+  REJECTED
+  ON_HOLD
+}
+
+model JobApplicationQuestion {
+  id            String      @id @default(uuid())
+  jobOpeningId  String
+  questionText  String
+  optionA       String
+  optionB       String
+  optionC       String
+  optionD       String
+  correctOption String      // A, B, C, or D
+  category      McqCategory
+  aiGenerated   Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+
+  jobOpening JobOpening @relation(fields: [jobOpeningId], references: [id])
+
+  @@index([jobOpeningId])
+}
+
+model PublicApplication {
+  id                String          @id @default(uuid())
+  uid               String          @unique // 8-char alphanumeric
+  jobOpeningId      String
+  candidateName     String
+  email             String?
+  mobileNumber      String?
+  resumeUrl         String?
+  resumeScoreData   Json?
+  mcqAnswers        Json?           // [{questionId, selectedOption}]
+  mcqScore          Float?
+  intelligenceScore Float?
+  integrityScore    Float?
+  energyScore       Float?
+  totalAiScore      Float?
+  status            PublicAppStatus  @default(SUBMITTED)
+  candidateUid      String           @unique // for tracking
+  organizationId    String
+  finalScore        Float?
+  finalStatus       String?
+  finalizedAt       DateTime?
+  finalizedBy       String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  jobOpening JobOpening @relation(fields: [jobOpeningId], references: [id])
+  interviewRounds InterviewRound[]
+
+  @@index([jobOpeningId])
+  @@index([organizationId])
+  @@index([candidateUid])
+}
+
+// =====================
+// INTERVIEW ROUNDS (Phase 7)
+// =====================
+
+enum InterviewRoundType {
+  HR
+  MANAGER
+  SUPERADMIN
+}
+
+enum RoundStatus {
+  PENDING_ROUND
+  IN_PROGRESS_ROUND
+  COMPLETED_ROUND
+}
+
+model InterviewRound {
+  id                   String            @id @default(uuid())
+  applicationId        String
+  roundType            InterviewRoundType
+  conductedBy          String            // userId FK
+  scheduledAt          DateTime?
+  completedAt          DateTime?
+  score                Float?
+  feedback             String?
+  aiQuestionsGenerated Json?             // [{question, suggestedAnswer}]
+  status               RoundStatus       @default(PENDING_ROUND)
+  organizationId       String
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  application PublicApplication @relation(fields: [applicationId], references: [id])
+
+  @@index([applicationId])
+  @@index([organizationId])
 }

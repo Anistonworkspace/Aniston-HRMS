@@ -56,6 +56,7 @@ const navItems: NavItem[] = [
   { name: 'Policies', path: '/policies', icon: FileText },
   { name: 'Announcements', path: '/announcements', icon: Megaphone },
   { name: 'Helpdesk', path: '/helpdesk', icon: HelpCircle },
+  { name: 'WhatsApp', path: '/whatsapp', icon: MessageCircle, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Org Chart', path: '/org-chart', icon: Network },
   { name: 'Reports', path: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Settings', path: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'ADMIN'] },
