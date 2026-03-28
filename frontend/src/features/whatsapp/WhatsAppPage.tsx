@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Send, Phone, Video, MessageCircle, Loader2, WifiOff, Plus, User, Check, CheckCheck, ArrowLeft, X, ExternalLink, FileText, Play, Image as ImageIcon, PhoneOff, Mic, MicOff, Volume2 } from 'lucide-react';
 import {
@@ -7,6 +7,8 @@ import {
   useGetWhatsAppChatMessagesQuery,
   useSendWhatsAppMessageMutation,
   useSendWhatsAppToNumberMutation,
+  useGetWhatsAppMessagesQuery,
+  useGetWhatsAppContactsQuery,
 } from './whatsappApi';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -49,9 +51,36 @@ function WhatsAppChat() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewChat, setShowNewChat] = useState(hasPrefill);
   const [showContactInfo, setShowContactInfo] = useState(false);
+  const [leftTab, setLeftTab] = useState<'chats' | 'contacts' | 'hrms'>('chats');
 
   const { data: chatsRes, isLoading: loadingChats, refetch: refetchChats } = useGetWhatsAppChatsQuery(undefined, { pollingInterval: 15000 });
+  const { data: contactsRes, isLoading: loadingContacts } = useGetWhatsAppContactsQuery();
+  const { data: hrmsMessagesRes, isLoading: loadingHrms } = useGetWhatsAppMessagesQuery({ page: 1, limit: 100 });
+  const phoneContacts = contactsRes?.data || [];
   const chats = chatsRes?.data || [];
+
+  // Build HRMS contacts from DB messages (grouped by phone)
+  const hrmsContacts = useMemo(() => {
+    const msgs = hrmsMessagesRes?.data || hrmsMessagesRes?.data?.data || [];
+    if (!Array.isArray(msgs)) return [];
+    const grouped = new Map<string, { phone: string; lastMessage: string; lastDate: string; count: number; status: string }>();
+    for (const m of msgs) {
+      const phone = m.to || '';
+      if (!phone) continue;
+      const existing = grouped.get(phone);
+      if (!existing) {
+        grouped.set(phone, { phone, lastMessage: m.message?.slice(0, 80) || '', lastDate: m.sentAt || m.createdAt, count: 1, status: m.status });
+      } else {
+        existing.count++;
+        if (new Date(m.sentAt || m.createdAt) > new Date(existing.lastDate)) {
+          existing.lastMessage = m.message?.slice(0, 80) || '';
+          existing.lastDate = m.sentAt || m.createdAt;
+          existing.status = m.status;
+        }
+      }
+    }
+    return Array.from(grouped.values()).sort((a, b) => new Date(b.lastDate).getTime() - new Date(a.lastDate).getTime());
+  }, [hrmsMessagesRes]);
 
   const filteredChats = chats.filter((c: any) =>
     c.name?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -71,60 +100,161 @@ function WhatsAppChat() {
         'w-full lg:w-80 border-r border-gray-200 flex flex-col flex-shrink-0',
         (selectedChat || showNewChat) && 'hidden lg:flex'
       )}>
-        {/* Header */}
+        {/* Header with tabs */}
         <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-base font-semibold text-gray-800">Chats</h2>
-            <button onClick={() => setShowNewChat(true)}
-              className="p-1.5 rounded-lg hover:bg-gray-200 transition-colors" title="New Chat">
-              <Plus size={18} className="text-gray-600" />
+          <div className="flex items-center gap-2 mb-2">
+            <div className="flex bg-gray-100 rounded-lg p-0.5 flex-1">
+              <button onClick={() => setLeftTab('chats')}
+                className={cn('flex-1 text-xs font-medium py-1.5 rounded-md transition-all',
+                  leftTab === 'chats' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
+                Chats
+              </button>
+              <button onClick={() => setLeftTab('contacts')}
+                className={cn('flex-1 text-xs font-medium py-1.5 rounded-md transition-all',
+                  leftTab === 'contacts' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
+                Contacts
+              </button>
+              <button onClick={() => setLeftTab('hrms')}
+                className={cn('flex-1 text-xs font-medium py-1.5 rounded-md transition-all',
+                  leftTab === 'hrms' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
+                HRMS{hrmsContacts.length > 0 && ` (${hrmsContacts.length})`}
+              </button>
+            </div>
+            <button onClick={() => { setShowNewChat(true); setSelectedChat(null); }}
+              className="w-8 h-8 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors flex items-center justify-center flex-shrink-0" title="New Chat">
+              <Plus size={16} className="text-white" />
             </button>
           </div>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search chats..." className="w-full text-xs bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-300" />
+              placeholder={leftTab === 'chats' ? 'Search chats...' : leftTab === 'contacts' ? 'Search contacts...' : 'Search HRMS messages...'}
+              className="w-full text-xs bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-300" />
           </div>
         </div>
 
-        {/* Chat list */}
+        {/* Chat/Contact list */}
         <div className="flex-1 overflow-y-auto">
-          {loadingChats ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="animate-spin text-brand-600" size={24} />
-            </div>
-          ) : filteredChats.length === 0 ? (
-            <div className="text-center py-12 text-gray-400 text-sm">
-              {searchQuery ? 'No matching chats' : 'No chats yet'}
-            </div>
-          ) : (
-            filteredChats.map((chat: any) => (
-              <button key={chat.id} onClick={() => { setSelectedChat(chat.id); setShowNewChat(false); }}
-                className={cn(
-                  'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50',
-                  selectedChat === chat.id && 'bg-brand-50 hover:bg-brand-50'
-                )}>
-                <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-                  <User size={18} className="text-green-700" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-gray-800 truncate">{chat.name}</p>
-                    {chat.timestamp && (
-                      <span className="text-[10px] text-gray-400 flex-shrink-0">
-                        {new Date(chat.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    )}
+          {leftTab === 'chats' ? (
+            /* Phone Chats */
+            loadingChats ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="animate-spin text-brand-600" size={24} />
+              </div>
+            ) : filteredChats.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 text-sm">
+                {searchQuery ? 'No matching chats' : 'No chats yet'}
+              </div>
+            ) : (
+              filteredChats.map((chat: any) => (
+                <button key={chat.id} onClick={() => { setSelectedChat(chat.id); setShowNewChat(false); setLeftTab('chats'); }}
+                  className={cn(
+                    'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50',
+                    selectedChat === chat.id && 'bg-brand-50 hover:bg-brand-50'
+                  )}>
+                  <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                    <User size={18} className="text-green-700" />
                   </div>
-                  <p className="text-xs text-gray-500 truncate">{chat.lastMessage || 'No messages'}</p>
-                </div>
-                {chat.unreadCount > 0 && (
-                  <span className="w-5 h-5 rounded-full bg-green-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">
-                    {chat.unreadCount}
-                  </span>
-                )}
-              </button>
-            ))
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-gray-800 truncate">{chat.name}</p>
+                      {chat.timestamp && (
+                        <span className="text-[10px] text-gray-400 flex-shrink-0">
+                          {new Date(chat.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 truncate">{chat.lastMessage || 'No messages'}</p>
+                  </div>
+                  {chat.unreadCount > 0 && (
+                    <span className="w-5 h-5 rounded-full bg-green-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">
+                      {chat.unreadCount}
+                    </span>
+                  )}
+                </button>
+              ))
+            )
+          ) : leftTab === 'contacts' ? (
+            /* Phone Contacts */
+            loadingContacts ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="animate-spin text-brand-600" size={24} />
+              </div>
+            ) : phoneContacts.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 text-sm">No contacts found</div>
+            ) : (
+              phoneContacts
+                .filter((c: any) => !searchQuery || c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.number?.includes(searchQuery))
+                .map((contact: any) => (
+                  <button key={contact.id}
+                    onClick={() => {
+                      const phone = contact.number || contact.id?.replace('@c.us', '');
+                      if (phone) {
+                        sessionStorage.setItem('whatsapp_prefill_phone', phone);
+                        setShowNewChat(true);
+                        setSelectedChat(null);
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                      <User size={18} className="text-blue-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{contact.name}</p>
+                      <p className="text-xs text-gray-400">{contact.number ? `+${contact.number}` : ''}</p>
+                    </div>
+                    {contact.isMyContact && (
+                      <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">Saved</span>
+                    )}
+                  </button>
+                ))
+            )
+          ) : (
+            /* HRMS Contacts (from DB messages) */
+            loadingHrms ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="animate-spin text-brand-600" size={24} />
+              </div>
+            ) : hrmsContacts.length === 0 ? (
+              <div className="text-center py-12 px-4">
+                <MessageCircle size={32} className="mx-auto text-gray-200 mb-2" />
+                <p className="text-gray-400 text-sm">No HRMS messages yet</p>
+                <p className="text-gray-300 text-xs mt-1">Messages sent to candidates will appear here</p>
+              </div>
+            ) : (
+              hrmsContacts
+                .filter(c => !searchQuery || c.phone.includes(searchQuery))
+                .map((contact) => (
+                  <button key={contact.phone}
+                    onClick={() => {
+                      // Pre-fill new chat with this phone number
+                      sessionStorage.setItem('whatsapp_prefill_phone', contact.phone);
+                      setShowNewChat(true);
+                      setSelectedChat(null);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50">
+                    <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0">
+                      <MessageCircle size={16} className="text-brand-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-gray-800">+{contact.phone}</p>
+                        <span className="text-[10px] text-gray-400 flex-shrink-0">
+                          {new Date(contact.lastDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 truncate">{contact.lastMessage}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      <span className="text-[10px] font-mono text-gray-400" data-mono>{contact.count} msg</span>
+                      <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full font-medium',
+                        contact.status === 'SENT' ? 'bg-emerald-50 text-emerald-600' :
+                        contact.status === 'FAILED' ? 'bg-red-50 text-red-500' : 'bg-gray-100 text-gray-500'
+                      )}>{contact.status}</span>
+                    </div>
+                  </button>
+                ))
+            )
           )}
         </div>
       </div>

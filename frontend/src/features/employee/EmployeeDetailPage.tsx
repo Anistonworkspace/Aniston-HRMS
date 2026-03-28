@@ -6,7 +6,7 @@ import {
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
   Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send,
 } from 'lucide-react';
-import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation } from './employeeApi';
+import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery } from './employeeApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation } from '../attendance/attendanceApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation } from '../payroll/payrollApi';
 import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documents/documentApi';
@@ -644,27 +644,7 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
       </AnimatePresence>
 
       {/* Connections */}
-      <div className="layer-card p-5">
-        <h3 className="text-sm font-semibold text-gray-800 mb-3">Connections</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {[
-            { l: 'Attendance', c: 'bg-emerald-50', t: 'text-emerald-600', i: Clock, n: records.length || '99+' },
-            { l: 'Leave Application', c: 'bg-purple-50', t: 'text-purple-600', i: Calendar, n: records.filter((r: any) => r.status === 'ON_LEAVE').length },
-            { l: 'Lifecycle', c: 'bg-blue-50', t: 'text-blue-600', i: Briefcase, n: 0 },
-          ].map(card => (
-            <div key={card.l} className="bg-surface-2 rounded-xl p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`w-8 h-8 rounded-lg ${card.c} flex items-center justify-center`}><card.i size={16} className={card.t} /></div>
-                <div><p className="text-sm font-medium text-gray-700">{card.l}</p><p className="text-xs text-gray-400">{card.n} records</p></div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-bold font-mono text-gray-500" data-mono>{card.n}</span>
-                <button className="w-6 h-6 rounded-md bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-50"><Plus size={12} className="text-gray-500" /></button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <ConnectionsCards employeeId={employee.id} records={records} />
     </motion.div>
   );
 }
@@ -1510,6 +1490,76 @@ function InternProfileTab({ employeeId, employee, isManagement }: { employeeId: 
           </div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ---------- Connections Cards with real data + popup ----------
+function ConnectionsCards({ employeeId, records }: { employeeId: string; records: any[] }) {
+  const { data: lifecycleRes } = useGetLifecycleEventsQuery(employeeId);
+  const [expandedCard, setExpandedCard] = useState<string | null>(null);
+
+  const lifecycleEvents = lifecycleRes?.data || [];
+  const attendanceCount = records.length;
+  const leaveCount = records.filter((r: any) => r.status === 'ON_LEAVE').length;
+  const lifecycleCount = lifecycleEvents.length;
+
+  const cards = [
+    { key: 'attendance', l: 'Attendance', c: 'bg-emerald-50', t: 'text-emerald-600', bc: 'border-emerald-200', i: Clock, n: attendanceCount },
+    { key: 'leave', l: 'Leave Application', c: 'bg-purple-50', t: 'text-purple-600', bc: 'border-purple-200', i: Calendar, n: leaveCount },
+    { key: 'lifecycle', l: 'Lifecycle', c: 'bg-blue-50', t: 'text-blue-600', bc: 'border-blue-200', i: Briefcase, n: lifecycleCount },
+  ];
+
+  return (
+    <div className="layer-card p-5">
+      <h3 className="text-sm font-semibold text-gray-800 mb-3">Connections</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {cards.map(card => (
+          <div key={card.key}>
+            <div className="bg-surface-2 rounded-xl p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg ${card.c} flex items-center justify-center`}><card.i size={16} className={card.t} /></div>
+                <div><p className="text-sm font-medium text-gray-700">{card.l}</p><p className="text-xs text-gray-400">{card.n} records</p></div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-bold font-mono text-gray-500" data-mono>{card.n}</span>
+                <button onClick={() => setExpandedCard(expandedCard === card.key ? null : card.key)}
+                  className="w-6 h-6 rounded-md bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors">
+                  <Plus size={12} className={`text-gray-500 transition-transform ${expandedCard === card.key ? 'rotate-45' : ''}`} />
+                </button>
+              </div>
+            </div>
+            <AnimatePresence>
+              {expandedCard === card.key && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                  <div className={`mt-1 border ${card.bc} rounded-xl p-3 bg-white max-h-48 overflow-y-auto`}>
+                    {card.key === 'attendance' && (records.length > 0 ? records.slice(0, 15).map((r: any, i: number) => (
+                      <div key={i} className="flex justify-between text-xs py-1.5 border-b border-gray-50 last:border-0">
+                        <span className="text-gray-600">{new Date(r.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                        <span className={`font-medium ${r.status === 'PRESENT' ? 'text-emerald-600' : r.status === 'ABSENT' ? 'text-red-500' : r.status === 'ON_LEAVE' ? 'text-purple-500' : 'text-gray-500'}`}>{r.status?.replace('_', ' ')}</span>
+                        <span className="text-gray-400 font-mono" data-mono>{r.totalHours ? `${Number(r.totalHours).toFixed(1)}h` : '—'}</span>
+                      </div>
+                    )) : <p className="text-xs text-gray-400 text-center py-2">No attendance records</p>)}
+                    {card.key === 'leave' && (records.filter((r: any) => r.status === 'ON_LEAVE').length > 0
+                      ? records.filter((r: any) => r.status === 'ON_LEAVE').slice(0, 10).map((r: any, i: number) => (
+                        <div key={i} className="flex justify-between text-xs py-1.5 border-b border-gray-50 last:border-0">
+                          <span className="text-gray-600">{new Date(r.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                          <span className="text-purple-600 font-medium">On Leave</span>
+                        </div>
+                      )) : <p className="text-xs text-gray-400 text-center py-2">No leave records</p>)}
+                    {card.key === 'lifecycle' && (lifecycleEvents.length > 0 ? lifecycleEvents.map((ev: any) => (
+                      <div key={ev.id} className="flex justify-between text-xs py-1.5 border-b border-gray-50 last:border-0">
+                        <span className="text-gray-600">{ev.type?.replace('_', ' ')}</span>
+                        <span className="text-gray-500">{new Date(ev.eventDate || ev.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                      </div>
+                    )) : <p className="text-xs text-gray-400 text-center py-2">No lifecycle events</p>)}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

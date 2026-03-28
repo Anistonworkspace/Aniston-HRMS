@@ -521,11 +521,26 @@ export class WalkInService {
   }
 
   /**
-   * Delete a walk-in record (HR only)
+   * Delete a walk-in record + clean up WhatsApp messages (HR only)
    */
   async remove(id: string) {
     const candidate = await prisma.walkInCandidate.findUnique({ where: { id } });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
+
+    // Delete related interview rounds first
+    await prisma.interviewRound.deleteMany({ where: { walkInCandidateId: id } });
+
+    // Delete WhatsApp messages sent to this candidate's phone (best-effort)
+    if (candidate.mobileNumber && candidate.organizationId) {
+      try {
+        const phone = candidate.mobileNumber.replace(/\D/g, '');
+        await prisma.whatsAppMessage.deleteMany({
+          where: { to: { contains: phone }, organizationId: candidate.organizationId },
+        });
+      } catch {
+        // Silently continue if WhatsApp cleanup fails
+      }
+    }
 
     await prisma.walkInCandidate.delete({ where: { id } });
     return { message: 'Walk-in record deleted' };

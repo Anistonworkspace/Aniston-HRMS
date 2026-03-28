@@ -262,15 +262,6 @@ function JobOpeningsTab() {
                   )}
                   <button onClick={() => navigate(`/recruitment/${job.id}`)} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"><Eye size={14} /> View</button>
                   <button
-                    onClick={() => handleGenerateQuestions(job)}
-                    disabled={generatingJobId === job.id}
-                    className="text-xs text-purple-600 hover:text-purple-700 flex items-center gap-1 disabled:opacity-50"
-                    title="Generate AI screening questions"
-                  >
-                    {generatingJobId === job.id ? <Loader2 size={12} className="animate-spin" /> : <Brain size={12} />}
-                    AI Questions
-                  </button>
-                  <button
                     onClick={() => setShareJob(job)}
                     className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1 font-medium"
                     title="Share job opening link"
@@ -931,6 +922,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
   const { data: res, isLoading } = useGetWalkInByIdQuery(candidateId);
   const [updateStatus] = useUpdateWalkInStatusMutation();
   const [addNotes] = useAddWalkInNotesMutation();
+  const [deleteWalkIn] = useDeleteWalkInMutation();
   const [addRound] = useAddInterviewRoundMutation();
   const [updateRound] = useUpdateInterviewRoundMutation();
   const [deleteRound] = useDeleteInterviewRoundMutation();
@@ -1288,6 +1280,28 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                       <UserPlus size={18} /> Hire Candidate
                     </button>
                   )}
+
+                  {/* Delete Candidate */}
+                  <div className="layer-card p-4 border border-red-200 bg-red-50/50">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-red-700">Delete Candidate</p>
+                        <p className="text-xs text-red-500">Permanently remove this candidate and their WhatsApp messages</p>
+                      </div>
+                      <button onClick={async () => {
+                        if (!confirm(`Delete ${candidate.name || candidate.firstName || 'this candidate'} permanently? This cannot be undone.`)) return;
+                        try {
+                          await deleteWalkIn(candidateId).unwrap();
+                          toast.success('Candidate deleted');
+                          onClose();
+                          onStatusChange();
+                        } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to delete'); }
+                      }}
+                        className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors flex items-center gap-1.5">
+                        <Trash2 size={14} /> Delete
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </>
