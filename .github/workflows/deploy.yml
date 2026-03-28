@@ -84,7 +84,7 @@ jobs:
             echo "=== Generating Prisma client ==="
             npx prisma generate
             echo "=== Pushing schema to DB ==="
-            npx prisma db push
+            npx prisma db push --accept-data-loss
             echo "=== Building frontend ==="
             cd frontend && npx vite build && cd ..
             echo "=== Restarting PM2 ==="
