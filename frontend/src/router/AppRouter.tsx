@@ -28,6 +28,7 @@ const WalkInManagementPage = lazy(() => import('../features/walkIn/WalkInManagem
 const WalkInDetailPage = lazy(() => import('../features/walkIn/WalkInDetailPage'));
 const JobDetailPage = lazy(() => import('../features/recruitment/JobDetailPage'));
 const CandidateDetailPage = lazy(() => import('../features/recruitment/CandidateDetailPage'));
+const PublicApplicationDetailPage = lazy(() => import('../features/recruitment/PublicApplicationDetailPage'));
 const DownloadPage = lazy(() => import('../features/pwa/DownloadPage'));
 const RosterPage = lazy(() => import('../features/roster/RosterPage'));
 const HiringPassedPage = lazy(() => import('../features/hiring/HiringPassedPage'));
@@ -43,6 +44,7 @@ const InviteAcceptPage = lazy(() => import('../features/invitation/InviteAcceptP
 const WhatsAppPage = lazy(() => import('../features/whatsapp/WhatsAppPage'));
 const PublicApplyPage = lazy(() => import('../features/public-apply/PublicApplyPage'));
 const TrackApplicationPage = lazy(() => import('../features/public-apply/TrackApplicationPage'));
+const ActivateAccountPage = lazy(() => import('../features/auth/ActivateAccountPage'));
 
 function PageLoader() {
   return (
@@ -69,6 +71,7 @@ export default function AppRouter() {
           <Route path="/apply/:token" element={<PublicApplyPage />} />
           <Route path="/track/:uid" element={<TrackApplicationPage />} />
           <Route path="/track" element={<TrackApplicationPage />} />
+          <Route path="/activate/:token" element={<ActivateAccountPage />} />
           <Route path="/download" element={<DownloadPage />} />
 
           {/* Walk-In Kiosk (public, no auth) */}
@@ -99,6 +102,7 @@ export default function AppRouter() {
             <Route path="/recruitment" element={<RecruitmentPage />} />
             <Route path="/recruitment/:jobId" element={<JobDetailPage />} />
             <Route path="/recruitment/candidate/:id" element={<CandidateDetailPage />} />
+            <Route path="/recruitment/public-applications/:id" element={<PublicApplicationDetailPage />} />
             <Route path="/performance" element={<PerformancePage />} />
             <Route path="/policies" element={<PoliciesPage />} />
             <Route path="/announcements" element={<AnnouncementsPage />} />

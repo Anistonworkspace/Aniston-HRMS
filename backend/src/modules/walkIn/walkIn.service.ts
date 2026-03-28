@@ -627,6 +627,22 @@ export class WalkInService {
       }
     } catch { /* best-effort, don't fail if files don't exist */ }
 
+    // Send HR notification email to adminNotificationEmail
+    try {
+      const org = await prisma.organization.findUnique({ where: { id: organizationId } });
+      if (org?.adminNotificationEmail) {
+        await enqueueEmail({
+          to: org.adminNotificationEmail,
+          subject: `New hire onboarding started — ${candidate.fullName}`,
+          template: 'generic',
+          context: {
+            title: 'New Hire Onboarding Started',
+            message: `Candidate ${candidate.fullName} (${candidate.tokenNumber}) has been hired for ${candidate.jobOpening?.title || 'Open Position'}.\n\nEmployee Code: ${result.employeeCode}\nEmail: ${teamsEmail}\nOnboarding link sent.\n\nPlease complete the remaining HR setup.`,
+          },
+        });
+      }
+    } catch { /* best-effort */ }
+
     return {
       employee: result.employee,
       employeeCode: result.employeeCode,

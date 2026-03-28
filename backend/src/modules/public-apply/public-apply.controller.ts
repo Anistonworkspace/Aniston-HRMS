@@ -11,16 +11,27 @@ export class PublicApplyController {
     } catch (err) { next(err); }
   }
 
-  // Public: Submit application
+  // Public: Submit application (multipart form data with optional resume)
   async submitApplication(req: Request, res: Response, next: NextFunction) {
     try {
+      // mcqAnswers comes as JSON string from FormData
+      const rawAnswers = req.body.mcqAnswers;
+      const mcqAnswers = typeof rawAnswers === 'string' ? JSON.parse(rawAnswers) : rawAnswers;
+
       const body = z.object({
         candidateName: z.string().min(1),
         email: z.string().email().optional(),
         mobileNumber: z.string().optional(),
         mcqAnswers: z.array(z.object({ questionId: z.string(), selectedOption: z.string() })),
         resumeUrl: z.string().optional(),
-      }).parse(req.body);
+      }).parse({ ...req.body, mcqAnswers });
+
+      // If a resume file was uploaded, set resumeUrl to its path
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (file) {
+        body.resumeUrl = `/uploads/${file.filename}`;
+      }
+
       const result = await publicApplyService.submitApplication(req.params.token, body);
       res.status(201).json({ success: true, data: result });
     } catch (err) { next(err); }
@@ -46,13 +57,16 @@ export class PublicApplyController {
   async scheduleInterview(req: Request, res: Response, next: NextFunction) {
     try {
       const data = z.object({
-        interviewerId: z.string(),
+        interviewerId: z.string().optional(),
+        interviewerName: z.string().optional(),
         scheduledAt: z.string(),
         location: z.string(),
-        roundType: z.enum(['HR', 'MANAGER', 'SUPERADMIN']),
+        notes: z.string().optional(),
+        messageType: z.enum(['whatsapp', 'email', 'both']).optional(),
+        roundType: z.enum(['HR', 'MANAGER', 'SUPERADMIN']).optional(),
       }).parse(req.body);
-      const result = await publicApplyService.scheduleInterview(req.params.id, data, req.user!.organizationId);
-      res.json({ success: true, data: result, message: 'Interview scheduled' });
+      const result = await publicApplyService.scheduleInterview(req.params.id, data, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result, message: 'Interview scheduled & notifications sent' });
     } catch (err) { next(err); }
   }
 
@@ -89,12 +103,33 @@ export class PublicApplyController {
     } catch (err) { next(err); }
   }
 
+  // HR: Create interview round
+  async createRound(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = z.object({
+        roundType: z.enum(['HR', 'MANAGER', 'SUPERADMIN']),
+        conductedBy: z.string().uuid(),
+        scheduledAt: z.string().optional(),
+      }).parse(req.body);
+      const result = await publicApplyService.createRound(req.params.id, data, req.user!.organizationId);
+      res.status(201).json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
   // HR: Finalize candidate
   async finalizeCandidate(req: Request, res: Response, next: NextFunction) {
     try {
       const { finalStatus } = z.object({ finalStatus: z.enum(['SELECTED', 'REJECTED', 'ON_HOLD']) }).parse(req.body);
       const result = await publicApplyService.finalizeCandidate(req.params.id, finalStatus, req.user!.userId, req.user!.organizationId);
       res.json({ success: true, data: result, message: `Candidate marked as ${finalStatus}` });
+    } catch (err) { next(err); }
+  }
+
+  // Authenticated: Get interview tasks for current user
+  async getInterviewTasks(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await publicApplyService.getInterviewTasks(req.user!.userId, req.user!.role, req.user!.organizationId);
+      res.json({ success: true, data });
     } catch (err) { next(err); }
   }
 

@@ -51,6 +51,10 @@ router.post('/email/test', requirePermission('settings', 'update'), (req, res, n
   settingsController.testEmailConnection(req, res, next)
 );
 
+router.post('/organization/test-admin-email', requirePermission('settings', 'update'), (req, res, next) =>
+  settingsController.testAdminNotificationEmail(req, res, next)
+);
+
 // Microsoft Teams Configuration
 router.get('/teams', requirePermission('settings', 'read'), (req, res, next) =>
   settingsController.getTeamsConfig(req, res, next)

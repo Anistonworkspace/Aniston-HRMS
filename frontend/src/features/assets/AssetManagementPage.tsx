@@ -675,7 +675,8 @@ function AssignAssetModal({ asset, onClose }: { asset: any; onClose: () => void 
   const [notes, setNotes] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const employees = employeesRes?.data || [];
+  const employees = employeesRes?.data?.data || employeesRes?.data || [];
+  const employeeList = Array.isArray(employees) ? employees : [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -687,48 +688,130 @@ function AssignAssetModal({ asset, onClose }: { asset: any; onClose: () => void 
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
   };
 
-  const filteredEmployees = employees.filter((e: any) =>
+  const filteredEmployees = employeeList.filter((e: any) =>
     !searchTerm || `${e.firstName} ${e.lastName} ${e.employeeCode}`.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const selectedEmployee = employeeList.find((e: any) => e.id === employeeId);
+
+  const cat = CATEGORIES[asset.category] || CATEGORIES.OTHER;
+  const cond = CONDITIONS[asset.condition] || CONDITIONS.GOOD;
+  const CatIcon = cat.icon;
+
   return (
-    <ModalWrapper onClose={onClose} title={`Assign ${asset.name}`}>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-gray-50 rounded-xl p-3 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center">
-            <Monitor size={20} className="text-brand-600" />
+    <ModalWrapper onClose={onClose} title={`Assign ${asset.name}`} wide>
+      <form onSubmit={handleSubmit}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          {/* LEFT: Asset Details */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Asset Details</h3>
+            <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-brand-50 flex items-center justify-center">
+                  <CatIcon size={24} className="text-brand-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">{asset.name}</p>
+                  <p className="text-xs font-mono text-gray-400" data-mono>{asset.assetCode}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-200/60">
+                <div>
+                  <p className="text-[10px] text-gray-400">Category</p>
+                  <p className="text-xs font-medium text-gray-700">{cat.label}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400">Serial Number</p>
+                  <p className="text-xs font-mono text-gray-700" data-mono>{asset.serialNumber || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400">Condition</p>
+                  <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${cond.color}`}>{cond.label}</span>
+                </div>
+                {asset.brand && (
+                  <div>
+                    <p className="text-[10px] text-gray-400">Brand</p>
+                    <p className="text-xs font-medium text-gray-700">{asset.brand}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Assign Condition</label>
+              <select value={condition} onChange={e => setCondition(e.target.value)} className="input-glass w-full text-sm">
+                <option value="New">New</option><option value="Good">Good</option>
+                <option value="Fair">Fair</option><option value="Poor">Poor</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Notes</label>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)}
+                className="input-glass w-full h-16 resize-none text-sm" placeholder="Optional notes..." />
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-medium text-gray-800">{asset.name}</p>
-            <p className="text-xs text-gray-400">{asset.assetCode} · {CATEGORIES[asset.category]?.label}</p>
+
+          {/* RIGHT: Employee Selection + Preview */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Assign To</h3>
+            <div>
+              <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Search employees..." className="input-glass w-full text-sm mb-2" />
+              <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} className="input-glass w-full text-sm" required>
+                <option value="">Select employee...</option>
+                {filteredEmployees.map((emp: any) => (
+                  <option key={emp.id} value={emp.id}>{emp.firstName} {emp.lastName} ({emp.employeeCode})</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Selected Employee Preview */}
+            {selectedEmployee ? (
+              <div className="bg-brand-50/50 border border-brand-100 rounded-xl p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-sm">
+                    {selectedEmployee.firstName?.[0]}{selectedEmployee.lastName?.[0]}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">
+                      {selectedEmployee.firstName} {selectedEmployee.lastName}
+                    </p>
+                    <p className="text-xs font-mono text-gray-500" data-mono>{selectedEmployee.employeeCode}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-brand-100/60">
+                  {selectedEmployee.designation && (
+                    <div>
+                      <p className="text-[10px] text-gray-400">Designation</p>
+                      <p className="text-xs font-medium text-gray-700">{selectedEmployee.designation}</p>
+                    </div>
+                  )}
+                  {selectedEmployee.department?.name && (
+                    <div>
+                      <p className="text-[10px] text-gray-400">Department</p>
+                      <p className="text-xs font-medium text-gray-700">{selectedEmployee.department.name}</p>
+                    </div>
+                  )}
+                  {selectedEmployee.location?.name && (
+                    <div>
+                      <p className="text-[10px] text-gray-400">Location</p>
+                      <p className="text-xs font-medium text-gray-700">{selectedEmployee.location.name}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-6 text-center">
+                <UserPlus size={24} className="mx-auto text-gray-300 mb-2" />
+                <p className="text-xs text-gray-400">Select an employee to preview</p>
+              </div>
+            )}
           </div>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1">Assign to Employee *</label>
-          <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
-            placeholder="Search employees..." className="input-glass w-full text-sm mb-2" />
-          <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} className="input-glass w-full" required>
-            <option value="">Select employee...</option>
-            {filteredEmployees.map((emp: any) => (
-              <option key={emp.id} value={emp.id}>{emp.firstName} {emp.lastName} ({emp.employeeCode})</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1">Condition</label>
-          <select value={condition} onChange={e => setCondition(e.target.value)} className="input-glass w-full">
-            <option value="New">New</option><option value="Good">Good</option>
-            <option value="Fair">Fair</option><option value="Poor">Poor</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1">Notes</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)}
-            className="input-glass w-full h-16 resize-none" placeholder="Optional notes..." />
-        </div>
-        <div className="flex gap-3 pt-2">
+
+        <div className="flex gap-3 pt-5 mt-5 border-t border-gray-100">
           <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-          <button type="submit" disabled={isLoading} className="btn-primary flex-1 flex items-center justify-center gap-2">
+          <button type="submit" disabled={isLoading || !employeeId} className="btn-primary flex-1 flex items-center justify-center gap-2">
             {isLoading && <Loader2 size={16} className="animate-spin" />} Assign Asset
           </button>
         </div>

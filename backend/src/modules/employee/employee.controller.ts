@@ -124,6 +124,20 @@ export class EmployeeController {
     }
   }
 
+  // Activation Invite
+  async sendActivationInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await employeeService.sendActivationInvite(
+        req.params.id,
+        req.user!.organizationId,
+        req.user!.userId
+      );
+      res.json({ success: true, data: result, message: result.message });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   // Exit / Offboarding
   async submitResignation(req: Request, res: Response, next: NextFunction) {
     try {

@@ -6,6 +6,7 @@ import { prisma } from './lib/prisma.js';
 import { initSocketServer } from './sockets/index.js';
 import { startEmailWorker } from './jobs/workers/email.worker.js';
 import { startNotificationWorker } from './jobs/workers/notification.worker.js';
+import { whatsAppService } from './modules/whatsapp/whatsapp.service.js';
 
 const server = createServer(app);
 
@@ -30,6 +31,9 @@ async function main() {
       logger.info(`   Environment: ${env.NODE_ENV}`);
       logger.info(`   Frontend URL: ${env.FRONTEND_URL}`);
       logger.info(`   Health check: ${env.API_URL}/api/health`);
+
+      // Auto-reconnect WhatsApp in background (non-blocking)
+      whatsAppService.autoReconnect().catch(() => {});
     });
   } catch (error) {
     logger.error('❌ Failed to start server:', error);

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Target, TrendingUp, Star, Plus, ChevronRight, CheckCircle, Clock, AlertCircle, X, Loader2 } from 'lucide-react';
 import { useGetGoalsQuery, useCreateGoalMutation, useUpdateGoalMutation, useGetReviewsQuery, useGetCyclesQuery } from './performanceApi';
+import { useGetEmployeesQuery } from '../employee/employeeApi';
+import { useAppSelector } from '../../app/store';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -12,13 +14,27 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
   ON_HOLD: <Clock size={14} className="text-amber-500" />,
 };
 
+const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+
 export default function PerformancePage() {
   const [showCreateGoal, setShowCreateGoal] = useState(false);
-  const { data: goalsRes } = useGetGoalsQuery();
-  const { data: reviewsRes } = useGetReviewsQuery();
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
+  const user = useAppSelector((s) => s.auth.user);
+  const isAdmin = user && ADMIN_ROLES.includes(user.role);
+
+  const queryParams = selectedEmployeeId ? { employeeId: selectedEmployeeId } : undefined;
+  const { data: goalsRes } = useGetGoalsQuery(queryParams);
+  const { data: reviewsRes } = useGetReviewsQuery(queryParams);
   const { data: cyclesRes } = useGetCyclesQuery();
   const [updateGoal] = useUpdateGoalMutation();
 
+  // Only fetch employees if user is admin/HR
+  const { data: employeesRes } = useGetEmployeesQuery(
+    { limit: 100 },
+    { skip: !isAdmin }
+  );
+
+  const employees = employeesRes?.data || [];
   const goals = goalsRes?.data || [];
   const reviews = reviewsRes?.data || [];
   const cycles = cyclesRes?.data || [];
@@ -36,6 +52,12 @@ export default function PerformancePage() {
     } catch { toast.error('Failed to update'); }
   };
 
+  // Find selected employee name for display
+  const selectedEmployee = employees.find((e: any) => e.id === selectedEmployeeId);
+  const viewingLabel = selectedEmployee
+    ? `${selectedEmployee.firstName} ${selectedEmployee.lastName}`
+    : 'Yourself';
+
   return (
     <div className="page-container">
       <div className="flex items-center justify-between mb-6">
@@ -48,6 +70,35 @@ export default function PerformancePage() {
           <Plus size={18} /> Create Goal
         </motion.button>
       </div>
+
+      {/* Employee filter for HR/Admin */}
+      {isAdmin && (
+        <div className="layer-card p-4 mb-6 flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-600 whitespace-nowrap">
+            Viewing performance for:
+          </label>
+          <select
+            value={selectedEmployeeId}
+            onChange={(e) => setSelectedEmployeeId(e.target.value)}
+            className="input-glass flex-1 max-w-sm"
+          >
+            <option value="">Myself (default)</option>
+            {employees.map((emp: any) => (
+              <option key={emp.id} value={emp.id}>
+                {emp.firstName} {emp.lastName} {emp.employeeCode ? `(${emp.employeeCode})` : ''}
+              </option>
+            ))}
+          </select>
+          {selectedEmployeeId && (
+            <button
+              onClick={() => setSelectedEmployeeId('')}
+              className="text-xs text-brand-600 hover:text-brand-700 font-medium"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 mb-8">
@@ -72,7 +123,7 @@ export default function PerformancePage() {
         {/* Goals */}
         <div className="layer-card p-6">
           <h2 className="text-lg font-display font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <Target size={18} className="text-brand-500" /> My Goals
+            <Target size={18} className="text-brand-500" /> {selectedEmployeeId ? `${viewingLabel}'s Goals` : 'My Goals'}
           </h2>
           {goals.length === 0 ? (
             <div className="text-center py-8">

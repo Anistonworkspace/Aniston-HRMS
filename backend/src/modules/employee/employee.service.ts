@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
-import { NotFoundError, ConflictError } from '../../middleware/errorHandler.js';
+import { NotFoundError, ConflictError, BadRequestError } from '../../middleware/errorHandler.js';
 import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { env } from '../../config/env.js';
@@ -42,6 +42,7 @@ export class EmployeeService {
           department: { select: { id: true, name: true } },
           designation: { select: { id: true, name: true } },
           user: { select: { id: true, role: true, status: true } },
+          manager: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
         },
       }),
       prisma.employee.count({ where }),
@@ -75,7 +76,7 @@ export class EmployeeService {
           orderBy: { createdAt: 'desc' },
         },
         user: {
-          select: { id: true, email: true, role: true, status: true, lastLoginAt: true },
+          select: { id: true, email: true, role: true, status: true, lastLoginAt: true, microsoftId: true },
         },
         lifecycleEvents: {
           orderBy: { eventDate: 'desc' },
@@ -620,6 +621,146 @@ export class EmployeeService {
     await createAuditLog({ userId, organizationId, entity: 'Employee', entityId: employeeId, action: 'RESIGNATION_WITHDRAWN', newValue: { exitStatus: 'WITHDRAWN' } });
 
     return updated;
+  }
+
+  // ==================
+  // ACTIVATION INVITE
+  // ==================
+
+  async sendActivationInvite(employeeId: string, organizationId: string, sentBy: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      include: {
+        user: { select: { id: true, microsoftId: true, status: true, lastLoginAt: true } },
+        organization: { select: { name: true } },
+      },
+    });
+
+    if (!employee) throw new NotFoundError('Employee');
+    if (!employee.user) throw new BadRequestError('Employee has no linked user account');
+    if (!employee.user.microsoftId) throw new BadRequestError('Employee is not Teams-synced (no Microsoft account linked)');
+    if (employee.user.lastLoginAt) throw new BadRequestError('Employee has already logged in');
+    if (employee.user.status === 'ACTIVE' && employee.user.lastLoginAt) throw new BadRequestError('Employee account is already active');
+
+    // Invalidate any existing pending activations
+    await prisma.employeeActivation.updateMany({
+      where: { employeeId, status: 'PENDING' },
+      data: { status: 'EXPIRED' },
+    });
+
+    // Generate activation token
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72 hours
+
+    await prisma.employeeActivation.create({
+      data: {
+        employeeId,
+        token,
+        status: 'PENDING',
+        expiresAt,
+        organizationId,
+      },
+    });
+
+    // Enqueue activation email
+    const activationUrl = `${env.FRONTEND_URL}/activate/${token}`;
+    await enqueueEmail({
+      to: employee.email,
+      subject: 'Activate your Aniston HRMS account',
+      template: 'activation-invite',
+      context: {
+        name: employee.firstName,
+        organizationName: employee.organization.name,
+        link: activationUrl,
+        expiresIn: '72 hours',
+      },
+    });
+
+    // Audit log
+    await createAuditLog({
+      userId: sentBy,
+      organizationId,
+      entity: 'EmployeeActivation',
+      entityId: employeeId,
+      action: 'CREATE',
+      newValue: { employeeId, email: employee.email, expiresAt },
+    });
+
+    return { message: `Activation invite sent to ${employee.email}`, token };
+  }
+
+  async validateActivationToken(token: string) {
+    const activation = await prisma.employeeActivation.findUnique({
+      where: { token },
+    });
+
+    if (!activation) {
+      return { valid: false, reason: 'invalid' };
+    }
+
+    // Check expiry
+    if (activation.expiresAt < new Date()) {
+      await prisma.employeeActivation.update({
+        where: { id: activation.id },
+        data: { status: 'EXPIRED' },
+      });
+      return { valid: false, reason: 'expired' };
+    }
+
+    if (activation.status !== 'PENDING') {
+      return { valid: false, reason: activation.status === 'ACTIVATED' ? 'already_activated' : 'expired' };
+    }
+
+    // Get employee + org info
+    const employee = await prisma.employee.findUnique({
+      where: { id: activation.employeeId },
+      include: { organization: { select: { name: true } } },
+    });
+
+    return {
+      valid: true,
+      employeeId: activation.employeeId,
+      organizationName: employee?.organization?.name || 'Aniston Technologies',
+    };
+  }
+
+  async completeActivation(token: string) {
+    const activation = await prisma.employeeActivation.findUnique({
+      where: { token },
+    });
+
+    if (!activation) throw new NotFoundError('Activation token');
+    if (activation.status !== 'PENDING') throw new BadRequestError('Activation token is no longer valid');
+    if (activation.expiresAt < new Date()) {
+      await prisma.employeeActivation.update({
+        where: { id: activation.id },
+        data: { status: 'EXPIRED' },
+      });
+      throw new BadRequestError('Activation token has expired');
+    }
+
+    // Find the employee and their user
+    const employee = await prisma.employee.findUnique({
+      where: { id: activation.employeeId },
+      include: { user: true },
+    });
+
+    if (!employee || !employee.userId) throw new NotFoundError('Employee');
+
+    // Transaction: mark activation complete + update user
+    await prisma.$transaction(async (tx) => {
+      await tx.employeeActivation.update({
+        where: { id: activation.id },
+        data: { status: 'ACTIVATED', activatedAt: new Date() },
+      });
+
+      await tx.user.update({
+        where: { id: employee.userId! },
+        data: { status: 'ACTIVE', lastLoginAt: new Date() },
+      });
+    });
+
+    return { message: 'Account activated successfully', employeeId: activation.employeeId };
   }
 
   async initiateTermination(employeeId: string, data: InitiateTerminationInput, userId: string, organizationId: string) {

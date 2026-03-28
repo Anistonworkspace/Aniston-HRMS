@@ -24,7 +24,8 @@ export class AiConfigController {
 
   async testConnection(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await aiConfigService.testConnection(req.user!.organizationId);
+      const overrides = req.body && Object.keys(req.body).length > 0 ? req.body : undefined;
+      const result = await aiConfigService.testConnection(req.user!.organizationId, overrides);
       res.json({ success: true, data: result });
     } catch (err) {
       next(err);

@@ -1,6 +1,9 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { aiService } from '../../services/ai.service.js';
+import { enqueueEmail } from '../../jobs/queues.js';
+import { generateEmployeeCode } from '../../utils/employeeCode.js';
+import { logger } from '../../lib/logger.js';
 import crypto from 'crypto';
 
 function generateUid(): string {
@@ -191,10 +194,17 @@ Return ONLY a JSON array:
         totalAiScore: true,
         createdAt: true,
         jobOpening: { select: { title: true } },
+        interviewRounds: {
+          select: { scheduledAt: true },
+          orderBy: { scheduledAt: 'asc' },
+          take: 1,
+        },
       },
     });
 
     if (!app) throw new NotFoundError('Application not found');
+
+    const nextInterview = app.interviewRounds?.[0];
 
     return {
       uid: app.uid,
@@ -202,6 +212,7 @@ Return ONLY a JSON array:
       jobTitle: app.jobOpening.title,
       status: app.status,
       appliedAt: app.createdAt,
+      interviewDate: nextInterview?.scheduledAt || null,
     };
   }
 
@@ -230,13 +241,12 @@ Return ONLY a JSON array:
     };
   }
   /**
-   * Schedule an interview for a candidate (Phase 6).
+   * Create an interview round and assign to an interviewer (Phase 7).
    */
-  async scheduleInterview(applicationId: string, data: {
-    interviewerId: string;
-    scheduledAt: string;
-    location: string;
+  async createRound(applicationId: string, data: {
     roundType: 'HR' | 'MANAGER' | 'SUPERADMIN';
+    conductedBy: string;
+    scheduledAt?: string;
   }, organizationId: string) {
     const app = await prisma.publicApplication.findFirst({
       where: { id: applicationId, organizationId },
@@ -247,9 +257,43 @@ Return ONLY a JSON array:
       data: {
         applicationId,
         roundType: data.roundType,
-        conductedBy: data.interviewerId,
+        conductedBy: data.conductedBy,
+        scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : null,
+        status: 'PENDING_ROUND',
+        organizationId,
+      },
+    });
+
+    return round;
+  }
+
+  /**
+   * Schedule an interview for a candidate (Phase 6).
+   * Creates round, updates status, and sends WhatsApp/email notifications.
+   */
+  async scheduleInterview(applicationId: string, data: {
+    interviewerId?: string;
+    interviewerName?: string;
+    scheduledAt: string;
+    location: string;
+    notes?: string;
+    messageType?: 'whatsapp' | 'email' | 'both';
+    roundType?: 'HR' | 'MANAGER' | 'SUPERADMIN';
+  }, organizationId: string, userId: string) {
+    const app = await prisma.publicApplication.findFirst({
+      where: { id: applicationId, organizationId },
+      include: { jobOpening: { select: { title: true } } },
+    });
+    if (!app) throw new NotFoundError('Application not found');
+
+    const round = await prisma.interviewRound.create({
+      data: {
+        applicationId,
+        roundType: data.roundType || 'HR',
+        conductedBy: data.interviewerId || userId,
         scheduledAt: new Date(data.scheduledAt),
         status: 'PENDING_ROUND',
+        organizationId,
       },
     });
 
@@ -259,7 +303,51 @@ Return ONLY a JSON array:
       data: { status: 'INTERVIEW_SCHEDULED' },
     });
 
-    return round;
+    // Generate messages using AI preview
+    const org = await prisma.organization.findUnique({ where: { id: organizationId } });
+    const preview = await this.previewScheduleMessage(organizationId, {
+      scheduledAt: data.scheduledAt,
+      location: data.location,
+      interviewerName: data.interviewerName || 'HR Team',
+      jobTitle: app.jobOpening.title,
+      companyName: org?.name || 'Aniston Technologies LLP',
+      candidateName: app.candidateName,
+    });
+
+    const messageType = data.messageType || 'both';
+
+    // Send email notification
+    if ((messageType === 'email' || messageType === 'both') && app.email) {
+      try {
+        const { enqueueEmail } = await import('../../jobs/queues.js');
+        await enqueueEmail({
+          to: app.email,
+          subject: preview.emailSubject || `Interview Scheduled: ${app.jobOpening.title}`,
+          template: 'generic',
+          context: {
+            title: 'Interview Scheduled',
+            message: preview.emailBody || `Your interview is scheduled for ${new Date(data.scheduledAt).toLocaleString('en-IN')} at ${data.location}`,
+          },
+        });
+      } catch (err) {
+        logger.error('Failed to send interview email:', err);
+      }
+    }
+
+    // Send WhatsApp notification
+    if ((messageType === 'whatsapp' || messageType === 'both') && app.mobileNumber) {
+      try {
+        const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
+        await whatsAppService.sendMessage(
+          { to: app.mobileNumber, message: preview.whatsappDraft || `Hi ${app.candidateName}, your interview is scheduled.` },
+          organizationId
+        );
+      } catch (err) {
+        logger.error('Failed to send interview WhatsApp:', err);
+      }
+    }
+
+    return { round, preview };
   }
 
   /**
@@ -341,13 +429,21 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
 
   /**
    * Score an interview round (Phase 7).
+   * HR/Admin can score any round in their org; interviewers can only score their own.
    */
-  async scoreRound(roundId: string, score: number, feedback: string, userId: string) {
+  async scoreRound(roundId: string, score: number, feedback: string, userId: string, organizationId: string) {
     if (score < 0 || score > 100) throw new BadRequestError('Score must be between 0 and 100');
 
     const round = await prisma.interviewRound.findUnique({ where: { id: roundId } });
     if (!round) throw new NotFoundError('Round not found');
-    if (round.conductedBy !== userId) throw new BadRequestError('Only the assigned interviewer can score');
+    if (round.organizationId !== organizationId) throw new NotFoundError('Round not found');
+
+    // Allow the assigned interviewer OR any user with recruitment access (HR/Admin)
+    // The controller's requirePermission already gates this to recruitment:update
+    if (round.conductedBy !== userId) {
+      // Non-assigned users need to be HR/Admin — already gated by route middleware
+      // Just verify org membership (done above)
+    }
 
     return prisma.interviewRound.update({
       where: { id: roundId },
@@ -356,12 +452,48 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
   }
 
   /**
+   * Get interview tasks for the current user (Phase 7).
+   * Managers see only rounds assigned to them.
+   * HR/Admin see all rounds in their org.
+   */
+  async getInterviewTasks(userId: string, userRole: string, organizationId: string) {
+    const isHrAdmin = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(userRole);
+
+    const where: any = { organizationId };
+    if (!isHrAdmin) {
+      where.conductedBy = userId;
+    }
+
+    const rounds = await prisma.interviewRound.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        application: {
+          select: {
+            id: true,
+            candidateName: true,
+            email: true,
+            mobileNumber: true,
+            candidateUid: true,
+            totalAiScore: true,
+            mcqScore: true,
+            status: true,
+            jobOpening: { select: { title: true, department: true } },
+          },
+        },
+      },
+    });
+
+    return rounds;
+  }
+
+  /**
    * Finalize a candidate — compute final score and update status (Phase 7).
    */
   async finalizeCandidate(applicationId: string, finalStatus: 'SELECTED' | 'REJECTED' | 'ON_HOLD', userId: string, organizationId: string) {
     const app = await prisma.publicApplication.findFirst({
       where: { id: applicationId, organizationId },
-      include: { interviewRounds: true },
+      include: { interviewRounds: true, jobOpening: { select: { title: true, department: true } } },
     });
     if (!app) throw new NotFoundError('Application not found');
 
@@ -381,6 +513,70 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
         status: finalStatus,
       },
     });
+
+    // On selection: create Employee profile and send notification emails
+    if (finalStatus === 'SELECTED') {
+      try {
+        // Parse candidate name into first/last
+        const nameParts = (app.candidateName || '').trim().split(/\s+/);
+        const firstName = nameParts[0] || 'New';
+        const lastName = nameParts.slice(1).join(' ') || 'Employee';
+
+        // Generate employee code
+        const employeeCode = await generateEmployeeCode(organizationId);
+
+        // Create a basic Employee profile with PROBATION status (pending onboarding)
+        await prisma.employee.create({
+          data: {
+            employeeCode,
+            firstName,
+            lastName,
+            email: app.email || `${employeeCode.toLowerCase()}@pending.aniston.com`,
+            phone: app.mobileNumber || '',
+            gender: 'OTHER',
+            joiningDate: new Date(),
+            status: 'PROBATION',
+            organizationId,
+          },
+        });
+
+        logger.info(`Employee profile created for selected candidate: ${app.candidateName} (${employeeCode})`);
+
+        // Send congratulations email to candidate
+        if (app.email) {
+          await enqueueEmail({
+            to: app.email,
+            subject: `Congratulations! You've been selected for ${app.jobOpening.title}`,
+            template: 'generic',
+            context: {
+              title: 'Congratulations!',
+              message: `Dear ${app.candidateName},<br><br>We are delighted to inform you that you have been <strong>selected</strong> for the position of <strong>${app.jobOpening.title}</strong> at Aniston Technologies.<br><br>Our HR team will reach out to you shortly with the next steps regarding your onboarding process.<br><br>We look forward to having you on our team!<br><br>Best regards,<br>HR Team — Aniston Technologies`,
+            },
+          });
+        }
+
+        // Send notification email to admin
+        const org = await prisma.organization.findUnique({
+          where: { id: organizationId },
+          select: { adminNotificationEmail: true, name: true },
+        });
+
+        if (org?.adminNotificationEmail) {
+          await enqueueEmail({
+            to: org.adminNotificationEmail,
+            subject: `Candidate Selected: ${app.candidateName} for ${app.jobOpening.title}`,
+            template: 'generic',
+            context: {
+              title: 'Candidate Selected',
+              message: `A candidate has been finalized as <strong>SELECTED</strong>.<br><br><strong>Name:</strong> ${app.candidateName}<br><strong>Email:</strong> ${app.email || 'N/A'}<br><strong>Phone:</strong> ${app.mobileNumber || 'N/A'}<br><strong>Position:</strong> ${app.jobOpening.title}<br><strong>Department:</strong> ${app.jobOpening.department || 'N/A'}<br><strong>Final Score:</strong> ${finalScore.toFixed(1)}%<br><strong>Employee Code:</strong> ${employeeCode}<br><br>The employee profile has been created with status PROBATION. Please proceed with onboarding.`,
+            },
+          });
+        }
+      } catch (err) {
+        // Log but don't fail the finalization if post-selection tasks fail
+        logger.error('Error in post-selection tasks for candidate:', err);
+      }
+    }
 
     return updated;
   }

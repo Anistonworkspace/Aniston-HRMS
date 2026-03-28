@@ -37,14 +37,32 @@ export class AiService {
     const config = await aiConfigService.getActiveConfigRaw(organizationId);
 
     if (!config) {
-      return { success: false, error: 'No AI provider configured. Go to Settings → API Integrations.' };
+      return {
+        success: false,
+        error: 'No AI provider configured. Please go to Settings → AI API Config and add your API key to enable AI features.',
+      };
+    }
+
+    if (!config.apiKey) {
+      return {
+        success: false,
+        error: 'AI provider is selected but no API key is configured. Please go to Settings → AI API Config to enter your API key.',
+      };
     }
 
     try {
       const text = await this.callProvider(config.provider, config.apiKey, config.modelName, config.baseUrl, messages, maxTokens);
       return { success: true, data: text };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      const message = err.message || 'Unknown AI provider error';
+      // Provide actionable guidance for common errors
+      if (message.includes('401') || message.includes('Unauthorized') || message.includes('invalid_api_key')) {
+        return { success: false, error: `Invalid API key for ${config.provider}. Please update your key in Settings → AI API Config.` };
+      }
+      if (message.includes('429') || message.includes('rate limit')) {
+        return { success: false, error: `AI provider rate limit exceeded. Please wait a moment and try again.` };
+      }
+      return { success: false, error: `AI request failed: ${message}` };
     }
   }
 
@@ -58,10 +76,11 @@ export class AiService {
    * @returns `{ success: true, data: string }` or `{ success: false, error: string }`.
    */
   async prompt(organizationId: string, systemPrompt: string, userPrompt: string, maxTokens = 1024): Promise<AiResponse> {
-    return this.chat(organizationId, [
+    const result = await this.chat(organizationId, [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ], maxTokens);
+    return result;
   }
 
   /**
@@ -117,7 +136,9 @@ Return ONLY a JSON object with these fields:
           ? 'https://api.openai.com/v1/chat/completions'
           : provider === 'DEEPSEEK'
           ? 'https://api.deepseek.com/v1/chat/completions'
-          : `${baseUrl}/v1/chat/completions`;
+          : baseUrl?.endsWith('/v1') || baseUrl?.endsWith('/v1/')
+            ? `${baseUrl.replace(/\/+$/, '')}/chat/completions`
+            : `${baseUrl}/v1/chat/completions`;
 
         const res = await fetch(url, {
           method: 'POST',

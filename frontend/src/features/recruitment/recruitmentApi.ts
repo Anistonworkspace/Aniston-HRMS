@@ -43,6 +43,9 @@ export const recruitmentApi = api.injectEndpoints({
     getPipelineStats: builder.query<any, void>({
       query: () => '/recruitment/pipeline/stats',
     }),
+    shareJobEmail: builder.mutation<any, { jobId: string; email: string; message?: string }>({
+      query: ({ jobId, ...body }) => ({ url: `/recruitment/jobs/${jobId}/share-email`, method: 'POST', body }),
+    }),
   }),
 });
 
@@ -59,4 +62,5 @@ export const {
   useTriggerAIScoringMutation,
   useCreateOfferMutation,
   useGetPipelineStatsQuery,
+  useShareJobEmailMutation,
 } = recruitmentApi;

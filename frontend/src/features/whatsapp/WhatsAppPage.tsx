@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { Search, Send, Phone, MessageCircle, Loader2, WifiOff, Plus, User, Check, CheckCheck } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Search, Send, Phone, Video, MessageCircle, Loader2, WifiOff, Plus, User, Check, CheckCheck, ArrowLeft, X, ExternalLink, FileText, Play, Image as ImageIcon, PhoneOff, Mic, MicOff, Volume2 } from 'lucide-react';
 import {
   useGetWhatsAppStatusQuery,
   useGetWhatsAppChatsQuery,
@@ -12,17 +12,28 @@ import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 export default function WhatsAppPage() {
-  const { data: statusRes } = useGetWhatsAppStatusQuery(undefined, { pollingInterval: 10000 });
+  const { data: statusRes } = useGetWhatsAppStatusQuery(undefined, { pollingInterval: 5000 });
   const isConnected = statusRes?.data?.isConnected;
+  const isInitializing = statusRes?.data?.isInitializing;
 
   if (!isConnected) {
     return (
       <div className="page-container">
         <div className="flex flex-col items-center justify-center py-20">
-          <WifiOff size={48} className="text-gray-300 mb-4" />
-          <h2 className="text-lg font-semibold text-gray-700 mb-2">WhatsApp Not Connected</h2>
-          <p className="text-sm text-gray-500 mb-4">Go to Settings &rarr; WhatsApp to connect your WhatsApp account.</p>
-          <a href="/settings" className="btn-primary text-sm">Open Settings</a>
+          {isInitializing ? (
+            <>
+              <Loader2 size={48} className="text-indigo-400 animate-spin mb-4" />
+              <h2 className="text-lg font-semibold text-gray-700 mb-2">Connecting WhatsApp...</h2>
+              <p className="text-sm text-gray-500 mb-4">Establishing connection. This may take a few seconds.</p>
+            </>
+          ) : (
+            <>
+              <WifiOff size={48} className="text-gray-300 mb-4" />
+              <h2 className="text-lg font-semibold text-gray-700 mb-2">WhatsApp Not Connected</h2>
+              <p className="text-sm text-gray-500 mb-4">Go to Settings &rarr; WhatsApp to connect your WhatsApp account.</p>
+              <a href="/settings" className="btn-primary text-sm">Open Settings</a>
+            </>
+          )}
         </div>
       </div>
     );
@@ -32,9 +43,12 @@ export default function WhatsAppPage() {
 }
 
 function WhatsAppChat() {
+  // Auto-open New Chat if there's a prefill message from Share Job
+  const hasPrefill = !!sessionStorage.getItem('whatsapp_prefill_message');
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showNewChat, setShowNewChat] = useState(false);
+  const [showNewChat, setShowNewChat] = useState(hasPrefill);
+  const [showContactInfo, setShowContactInfo] = useState(false);
 
   const { data: chatsRes, isLoading: loadingChats, refetch: refetchChats } = useGetWhatsAppChatsQuery(undefined, { pollingInterval: 15000 });
   const chats = chatsRes?.data || [];
@@ -43,10 +57,20 @@ function WhatsAppChat() {
     c.name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const selectedChatData = chats.find((c: any) => c.id === selectedChat);
+
+  // Close contact info when chat changes
+  useEffect(() => {
+    setShowContactInfo(false);
+  }, [selectedChat]);
+
   return (
-    <div className="h-[calc(100vh-80px)] flex rounded-2xl overflow-hidden border border-gray-200 bg-white shadow-sm">
+    <div className="h-[calc(100vh-80px)] flex rounded-2xl overflow-hidden border border-gray-200 bg-white shadow-sm relative">
       {/* Left: Chat List */}
-      <div className="w-80 border-r border-gray-200 flex flex-col flex-shrink-0">
+      <div className={cn(
+        'w-full lg:w-80 border-r border-gray-200 flex flex-col flex-shrink-0',
+        (selectedChat || showNewChat) && 'hidden lg:flex'
+      )}>
         {/* Header */}
         <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50">
           <div className="flex items-center justify-between mb-3">
@@ -105,12 +129,20 @@ function WhatsAppChat() {
         </div>
       </div>
 
-      {/* Right: Chat View */}
-      <div className="flex-1 flex flex-col">
+      {/* Center: Chat View */}
+      <div className={cn(
+        'flex-1 flex flex-col min-w-0',
+        !selectedChat && !showNewChat && 'hidden lg:flex'
+      )}>
         {showNewChat ? (
           <NewChatView onSent={(chatId) => { setSelectedChat(chatId); setShowNewChat(false); refetchChats(); }} />
         ) : selectedChat ? (
-          <ChatView chatId={selectedChat} chatName={chats.find((c: any) => c.id === selectedChat)?.name || 'Chat'} />
+          <ChatView
+            chatId={selectedChat}
+            chatName={selectedChatData?.name || 'Chat'}
+            onBack={() => setSelectedChat(null)}
+            onToggleContactInfo={() => setShowContactInfo(prev => !prev)}
+          />
         ) : (
           <div className="flex-1 flex items-center justify-center bg-gray-50/30">
             <div className="text-center">
@@ -121,11 +153,102 @@ function WhatsAppChat() {
           </div>
         )}
       </div>
+
+      {/* Right: Contact Info Panel */}
+      <AnimatePresence>
+        {showContactInfo && selectedChat && (
+          <>
+            {/* Mobile overlay backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="lg:hidden fixed inset-0 bg-black/30 z-40"
+              onClick={() => setShowContactInfo(false)}
+            />
+            {/* Panel */}
+            <motion.div
+              initial={{ x: 300, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: 300, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className={cn(
+                'w-[300px] border-l border-gray-200 flex flex-col bg-white flex-shrink-0',
+                'lg:relative',
+                'max-lg:fixed max-lg:right-0 max-lg:top-0 max-lg:h-full max-lg:z-50 max-lg:shadow-xl'
+              )}
+            >
+              <ContactInfoPanel
+                chatId={selectedChat}
+                chatName={selectedChatData?.name || 'Contact'}
+                onClose={() => setShowContactInfo(false)}
+              />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-function ChatView({ chatId, chatName }: { chatId: string; chatName: string }) {
+function ContactInfoPanel({ chatId, chatName, onClose }: { chatId: string; chatName: string; onClose: () => void }) {
+  const phoneNumber = chatId.replace('@c.us', '').replace('@g.us', '');
+  const initials = chatName
+    .split(' ')
+    .map(w => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || '?';
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between bg-gray-50/50">
+        <h3 className="text-sm font-semibold text-gray-800">Contact Info</h3>
+        <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-200 transition-colors">
+          <X size={18} className="text-gray-500" />
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Avatar */}
+        <div className="flex flex-col items-center py-8 border-b border-gray-100">
+          <div className="w-24 h-24 rounded-full bg-green-100 flex items-center justify-center mb-4">
+            <span className="text-2xl font-bold text-green-700">{initials}</span>
+          </div>
+          <h4 className="text-base font-semibold text-gray-800">{chatName}</h4>
+        </div>
+
+        {/* Phone */}
+        <div className="px-4 py-4 border-b border-gray-100">
+          <p className="text-xs text-gray-400 mb-1">Phone number</p>
+          <div className="flex items-center gap-2">
+            <Phone size={14} className="text-gray-400" />
+            <span className="text-sm text-gray-700 font-mono">+{phoneNumber}</span>
+          </div>
+        </div>
+
+        {/* View Employee Profile link */}
+        <div className="px-4 py-4">
+          <a
+            href={`/employees?search=${encodeURIComponent(phoneNumber)}`}
+            className="flex items-center gap-2 px-4 py-2.5 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 transition-colors text-sm font-medium w-full justify-center"
+          >
+            <ExternalLink size={14} />
+            View Employee Profile
+          </a>
+          <p className="text-[10px] text-gray-400 mt-2 text-center">
+            Searches employees matching this phone number
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChatView({ chatId, chatName, onBack, onToggleContactInfo }: { chatId: string; chatName: string; onBack?: () => void; onToggleContactInfo?: () => void }) {
   const { data: messagesRes, isLoading, refetch } = useGetWhatsAppChatMessagesQuery(
     { chatId, limit: 50 },
     { pollingInterval: 5000 }
@@ -133,6 +256,8 @@ function ChatView({ chatId, chatName }: { chatId: string; chatName: string }) {
   const [sendMessage] = useSendWhatsAppMessageMutation();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [callState, setCallState] = useState<null | { type: 'voice' | 'video'; status: 'ringing' | 'active' | 'ended' }>(null);
+  const [muted, setMuted] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const messages = messagesRes?.data || [];
@@ -163,21 +288,147 @@ function ChatView({ chatId, chatName }: { chatId: string; chatName: string }) {
     return null;
   };
 
+  const renderMediaContent = (msg: any) => {
+    if (!msg.hasMedia) return null;
+
+    if (msg.type === 'image' || msg.type === 'sticker') {
+      if (msg.mediaUrl) {
+        return (
+          <div className="mb-1 rounded-lg overflow-hidden">
+            <img src={msg.mediaUrl} alt="Image" className="max-w-full max-h-64 rounded-lg object-cover" loading="lazy" />
+          </div>
+        );
+      }
+      return (
+        <div className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2">
+          <ImageIcon size={14} />
+          <span>Image</span>
+        </div>
+      );
+    }
+
+    if (msg.type === 'document') {
+      return (
+        <div className="mb-1">
+          {msg.mediaUrl ? (
+            <a href={msg.mediaUrl} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-2 text-xs bg-gray-100 rounded-lg px-3 py-2 hover:bg-gray-200 transition-colors">
+              <FileText size={14} className="text-brand-600 flex-shrink-0" />
+              <span className="truncate text-gray-700">{msg.mediaFilename || 'Document'}</span>
+            </a>
+          ) : (
+            <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2">
+              <FileText size={14} />
+              <span>{msg.mediaFilename || 'Document'}</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (msg.type === 'audio' || msg.type === 'ptt') {
+      if (msg.mediaUrl) {
+        return (
+          <div className="mb-1">
+            <audio controls preload="none" className="max-w-full h-10">
+              <source src={msg.mediaUrl} />
+              Your browser does not support audio.
+            </audio>
+          </div>
+        );
+      }
+      return (
+        <div className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2">
+          <Play size={14} />
+          <span>Voice message</span>
+        </div>
+      );
+    }
+
+    if (msg.type === 'video') {
+      return (
+        <div className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2">
+          <Play size={14} />
+          <span>Video</span>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
   return (
     <>
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-3 bg-gray-50/50">
-        <div className="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center">
-          <User size={16} className="text-green-700" />
-        </div>
-        <div className="flex-1">
-          <p className="text-sm font-semibold text-gray-800">{chatName}</p>
-          <p className="text-xs text-gray-400">{chatId.replace('@c.us', '').replace('@g.us', '')}</p>
+        {onBack && (
+          <button onClick={onBack} className="lg:hidden p-1 rounded-lg hover:bg-gray-200 transition-colors">
+            <ArrowLeft size={18} className="text-gray-600" />
+          </button>
+        )}
+        <button
+          onClick={onToggleContactInfo}
+          className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity cursor-pointer"
+        >
+          <div className="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+            <User size={16} className="text-green-700" />
+          </div>
+          <div className="flex-1 min-w-0 text-left">
+            <p className="text-sm font-semibold text-gray-800 truncate">{chatName}</p>
+            <p className="text-xs text-gray-400 truncate">{chatId.replace('@c.us', '').replace('@g.us', '')}</p>
+          </div>
+        </button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button onClick={() => setCallState({ type: 'video', status: 'ringing' })}
+            className="p-2 rounded-lg hover:bg-gray-200 transition-colors" title="Video call">
+            <Video size={18} className="text-gray-500" />
+          </button>
+          <button onClick={() => setCallState({ type: 'voice', status: 'ringing' })}
+            className="p-2 rounded-lg hover:bg-gray-200 transition-colors" title="Voice call">
+            <Phone size={18} className="text-gray-500" />
+          </button>
         </div>
       </div>
 
+      {/* Call Overlay */}
+      <AnimatePresence>
+        {callState && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-gradient-to-b from-gray-900 to-gray-800 flex flex-col items-center justify-center text-white"
+          >
+            <div className="w-24 h-24 rounded-full bg-green-500/20 flex items-center justify-center mb-6">
+              <User size={40} className="text-green-400" />
+            </div>
+            <h3 className="text-xl font-semibold mb-1">{chatName}</h3>
+            <p className="text-sm text-gray-400 mb-2">{chatId.replace('@c.us', '').replace('@g.us', '')}</p>
+            <p className="text-sm text-gray-300 mb-8">
+              {callState.status === 'ringing' ? (callState.type === 'voice' ? 'Voice calling...' : 'Video calling...') : 'Call in progress'}
+            </p>
+            <p className="text-xs text-amber-400 bg-amber-400/10 rounded-lg px-4 py-2 mb-8">
+              Calls require WhatsApp on phone — use your phone to accept/make calls
+            </p>
+            <div className="flex items-center gap-8">
+              <button onClick={() => setMuted(!muted)}
+                className={cn('w-14 h-14 rounded-full flex items-center justify-center transition-colors', muted ? 'bg-red-500' : 'bg-gray-600 hover:bg-gray-500')}>
+                {muted ? <MicOff size={22} /> : <Mic size={22} />}
+              </button>
+              <button onClick={() => setCallState(null)}
+                className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors">
+                <PhoneOff size={24} />
+              </button>
+              <button className="w-14 h-14 rounded-full bg-gray-600 hover:bg-gray-500 flex items-center justify-center transition-colors">
+                <Volume2 size={22} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2 bg-[#efeae2]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'200\' height=\'200\' viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M100 0l100 200H0z\' fill=\'%23d4cfc4\' fill-opacity=\'0.05\'/%3E%3C/svg%3E")' }}>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-2 bg-[#efeae2]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'200\' height=\'200\' viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M100 0l100 200H0z\' fill=\'%23d4cfc4\' fill-opacity=\'0.05\'/%3E%3C/svg%3E")' }}>
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="animate-spin text-gray-400" size={24} />
@@ -188,14 +439,17 @@ function ChatView({ chatId, chatName }: { chatId: string; chatName: string }) {
           messages.map((msg: any) => (
             <div key={msg.id} className={cn('flex', msg.fromMe ? 'justify-end' : 'justify-start')}>
               <div className={cn(
-                'max-w-[65%] px-3 py-2 rounded-xl text-sm shadow-sm',
+                'max-w-[85%] sm:max-w-[75%] md:max-w-[65%] px-3 py-2 rounded-xl text-sm shadow-sm overflow-hidden',
                 msg.fromMe
                   ? 'bg-[#dcf8c6] text-gray-800 rounded-tr-none'
                   : 'bg-white text-gray-800 rounded-tl-none'
               )}>
-                <p className="whitespace-pre-wrap break-words">{msg.body}</p>
+                {renderMediaContent(msg)}
+                {msg.body && (
+                  <p className="whitespace-pre-wrap break-words overflow-wrap-anywhere" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{msg.body}</p>
+                )}
                 <div className="flex items-center justify-end gap-1 mt-1">
-                  <span className="text-[10px] text-gray-400">
+                  <span className="text-[10px] text-gray-400 whitespace-nowrap">
                     {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
                   </span>
                   {msg.fromMe && renderTick(msg.ack)}
@@ -226,8 +480,17 @@ function ChatView({ chatId, chatName }: { chatId: string; chatName: string }) {
 }
 
 function NewChatView({ onSent }: { onSent: (chatId: string) => void }) {
-  const [phone, setPhone] = useState('');
-  const [message, setMessage] = useState('');
+  // Check for pre-filled message from Share Job flow
+  const prefillMsg = sessionStorage.getItem('whatsapp_prefill_message') || '';
+  const prefillPhone = sessionStorage.getItem('whatsapp_prefill_phone') || '';
+  const [phone, setPhone] = useState(prefillPhone);
+  const [message, setMessage] = useState(prefillMsg);
+
+  // Clear prefill after reading
+  useEffect(() => {
+    sessionStorage.removeItem('whatsapp_prefill_message');
+    sessionStorage.removeItem('whatsapp_prefill_phone');
+  }, []);
   const [sendToNumber, { isLoading }] = useSendWhatsAppToNumberMutation();
 
   const handleSend = async () => {

@@ -3,6 +3,9 @@ node_modules/
 
 # Claude logs
 .claude/logs/
+
+# Playwright MCP screenshots
+.playwright-mcp/
 .pnp
 .pnp.js
 
@@ -59,3 +62,9 @@ backend/.wwebjs_auth/
 
 # Uploads
 uploads/
+
+#crome screenshots
+.playwright-mcp
+
+#DataBase Backup
+backup_phase_1774555771.sql

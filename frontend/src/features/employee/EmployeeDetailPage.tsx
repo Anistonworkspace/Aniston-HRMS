@@ -4,9 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
-  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2,
+  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send,
 } from 'lucide-react';
-import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation } from './employeeApi';
+import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation } from './employeeApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation } from '../attendance/attendanceApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation } from '../payroll/payrollApi';
 import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documents/documentApi';
@@ -28,7 +28,22 @@ export default function EmployeeDetailPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('attendance');
   const [showEditModal, setShowEditModal] = useState(false);
   const [updateEmployee] = useUpdateEmployeeMutation();
+  const [sendActivationInvite, { isLoading: sendingInvite }] = useSendActivationInviteMutation();
 
+  const isManagement = MANAGEMENT_ROLES.includes(user?.role || '');
+  const isTeamsSynced = !!(employee?.user as any)?.microsoftId;
+  const hasNotLoggedIn = !employee?.user?.lastLoginAt;
+  const showActivationButton = isManagement && isTeamsSynced && hasNotLoggedIn;
+
+  const handleSendActivationInvite = async () => {
+    if (!id) return;
+    try {
+      const result = await sendActivationInvite(id).unwrap();
+      toast.success(result.message || 'Activation invite sent');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to send activation invite');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -104,6 +119,16 @@ export default function EmployeeDetailPage() {
             <button onClick={() => setShowEditModal(true)} className="w-full btn-primary text-xs py-2 flex items-center justify-center gap-1.5">
               <Save size={13} /> Edit Profile
             </button>
+            {showActivationButton && (
+              <button
+                onClick={handleSendActivationInvite}
+                disabled={sendingInvite}
+                className="w-full flex items-center justify-center gap-1.5 text-xs py-2 rounded-lg border border-brand-200 text-brand-700 hover:bg-brand-50 transition-colors disabled:opacity-50"
+              >
+                {sendingInvite ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                {sendingInvite ? 'Sending...' : 'Send Activation Invite'}
+              </button>
+            )}
           </div>
 
           <div className="mt-6 border-t border-gray-100 pt-4 space-y-2">

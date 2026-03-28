@@ -3,15 +3,19 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, User, Mail, Phone, FileText, Star, Calendar, Briefcase,
-  Loader2, Download, Plus,
+  Loader2, Download, Plus, CheckCircle2, XCircle, PauseCircle,
 } from 'lucide-react';
 import {
   useGetApplicationByIdQuery,
   useAddInterviewScoreMutation,
   useTriggerAIScoringMutation,
   useCreateOfferMutation,
+  useMoveApplicationStageMutation,
 } from './recruitmentApi';
+import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
+
+const HR_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
 const TABS = ['Profile', 'Interview Scores', 'Offer'];
 
@@ -20,10 +24,14 @@ export default function CandidateDetailPage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(0);
 
-  const { data, isLoading } = useGetApplicationByIdQuery(id!);
+  const user = useAppSelector(s => s.auth.user);
+  const isHR = user?.role ? HR_ROLES.includes(user.role) : false;
+
+  const { data, isLoading, refetch } = useGetApplicationByIdQuery(id!);
   const [addScore, { isLoading: isScoring }] = useAddInterviewScoreMutation();
   const [triggerAI, { isLoading: isAIScoring }] = useTriggerAIScoringMutation();
   const [createOffer, { isLoading: isCreatingOffer }] = useCreateOfferMutation();
+  const [moveStage, { isLoading: isMovingStage }] = useMoveApplicationStageMutation();
 
   const app = data?.data;
 
@@ -280,6 +288,42 @@ export default function CandidateDetailPage() {
           </div>
         )}
       </motion.div>
+
+      {/* HR Controls: Quick Status Update */}
+      {isHR && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="layer-card p-5 mt-6">
+          <h3 className="font-display font-bold text-gray-900 mb-4">HR Actions</h3>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm text-gray-500">Update Status:</span>
+            {['SELECTED', 'REJECTED', 'ON_HOLD'].map((status) => {
+              const config: Record<string, { icon: any; class: string; label: string }> = {
+                SELECTED: { icon: CheckCircle2, class: 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100', label: 'Select' },
+                REJECTED: { icon: XCircle, class: 'bg-red-50 text-red-500 hover:bg-red-100', label: 'Reject' },
+                ON_HOLD: { icon: PauseCircle, class: 'bg-amber-50 text-amber-600 hover:bg-amber-100', label: 'On Hold' },
+              };
+              const c = config[status];
+              const Icon = c.icon;
+              return (
+                <button
+                  key={status}
+                  onClick={async () => {
+                    if (!confirm(`Mark this candidate as ${c.label}?`)) return;
+                    try {
+                      await moveStage({ id: id!, status }).unwrap();
+                      toast.success(`Candidate marked as ${c.label}`);
+                      refetch();
+                    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to update status'); }
+                  }}
+                  disabled={isMovingStage || app.status === status}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${c.class}`}
+                >
+                  {isMovingStage ? <Loader2 size={16} className="animate-spin" /> : <Icon size={16} />} {c.label}
+                </button>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 }

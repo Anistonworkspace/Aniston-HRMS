@@ -69,6 +69,10 @@ export const api = createApi({
     'AiConfig',
     'Invitation',
     'WhatsApp',
+    'KnowledgeBase',
+    'Activation',
+    'Policy',
+    'Performance',
   ],
   endpoints: () => ({}),
 });

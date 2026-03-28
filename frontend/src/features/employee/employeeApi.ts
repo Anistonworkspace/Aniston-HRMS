@@ -101,6 +101,23 @@ export const employeeApi = api.injectEndpoints({
       }),
       invalidatesTags: (result, error, { employeeId }) => [{ type: 'Employee', id: employeeId }, 'EmployeeList'],
     }),
+
+    sendActivationInvite: builder.mutation<any, string>({
+      query: (employeeId) => ({
+        url: `/employees/${employeeId}/send-activation-invite`,
+        method: 'POST',
+      }),
+      invalidatesTags: (result, error, employeeId) => [{ type: 'Employee', id: employeeId }],
+    }),
+
+    updateEmployeeManager: builder.mutation<any, { id: string; managerId: string | null }>({
+      query: ({ id, managerId }) => ({
+        url: `/employees/${id}`,
+        method: 'PATCH',
+        body: { managerId },
+      }),
+      invalidatesTags: ['EmployeeList'],
+    }),
   }),
 });
 
@@ -115,4 +132,6 @@ export const {
   useAddLifecycleEventMutation,
   useDeleteLifecycleEventMutation,
   useChangeEmployeeRoleMutation,
+  useSendActivationInviteMutation,
+  useUpdateEmployeeManagerMutation,
 } = employeeApi;

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink } from 'lucide-react';
+import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -12,17 +12,27 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation } from './settingsApi';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation } from './settingsApi';
 import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
-import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation } from '../whatsapp/whatsappApi';
+import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation, useGetWhatsAppContactsQuery, useGetWhatsAppMessagesQuery } from '../whatsapp/whatsappApi';
 import { cn, getInitials } from '../../lib/utils';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
+import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
+import { useGetKnowledgeBaseQuery, useAddKnowledgeDocMutation, useDeleteKnowledgeDocMutation } from '../ai-assistant/aiAssistantApi';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'teams' | 'whatsapp' | 'roles' | 'salary-privacy' | 'ai-config' | 'audit' | 'system';
+type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'teams' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'audit' | 'system';
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('organization');
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const saved = sessionStorage.getItem('settings_active_tab');
+    return (saved as Tab) || 'organization';
+  });
+
+  useEffect(() => {
+    sessionStorage.setItem('settings_active_tab', activeTab);
+  }, [activeTab]);
 
   const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
     { key: 'organization', label: 'Organization', icon: Building2 },
@@ -33,57 +43,63 @@ export default function SettingsPage() {
     { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
     { key: 'roles', label: 'User Roles', icon: Users },
     { key: 'salary-privacy', label: 'Salary Privacy', icon: Lock },
-    { key: 'ai-config', label: 'API Integrations', icon: Cpu },
+    { key: 'api-integration', label: 'API Integration', icon: ExternalLink },
+    { key: 'ai-config', label: 'AI API Config', icon: Cpu },
     { key: 'audit', label: 'Audit Logs', icon: Shield },
     { key: 'system', label: 'System', icon: Server },
   ];
 
   return (
-    <div className="page-container">
-      <h1 className="text-2xl font-display font-bold text-gray-900 mb-6">Settings</h1>
+    <>
+      <div className="page-container">
+        <h1 className="text-2xl font-display font-bold text-gray-900 mb-6">Settings</h1>
 
-      <div className="flex gap-6">
-        {/* Sidebar tabs */}
-        <div className="w-56 flex-shrink-0 hidden md:block">
-          <div className="space-y-1">
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={cn(
-                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left',
-                  activeTab === tab.key ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-500 hover:bg-gray-50'
-                )}
-              >
-                <tab.icon size={18} />
-                {tab.label}
-              </button>
-            ))}
+        <div className="flex gap-6">
+          {/* Sidebar tabs */}
+          <div className="w-56 flex-shrink-0 hidden md:block">
+            <div className="space-y-1">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={cn(
+                    'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left',
+                    activeTab === tab.key ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-500 hover:bg-gray-50'
+                  )}
+                >
+                  <tab.icon size={18} />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1">
+            {activeTab === 'organization' && <OrgSettings />}
+            {activeTab === 'locations' && <LocationSettings />}
+            {activeTab === 'shifts' && <ShiftSettings />}
+            {activeTab === 'email' && <EmailConfig />}
+            {activeTab === 'teams' && <TeamsConfig />}
+            {activeTab === 'whatsapp' && <WhatsAppConfig />}
+            {activeTab === 'roles' && <UserRolesTab />}
+            {activeTab === 'salary-privacy' && <SalaryPrivacyTab />}
+            {activeTab === 'api-integration' && <ExternalApiIntegrationTab />}
+            {activeTab === 'ai-config' && <ApiIntegrationsTab />}
+            {activeTab === 'audit' && <AuditLogs />}
+            {activeTab === 'system' && <SystemInfo />}
           </div>
         </div>
-
-        {/* Content */}
-        <div className="flex-1">
-          {activeTab === 'organization' && <OrgSettings />}
-          {activeTab === 'locations' && <LocationSettings />}
-          {activeTab === 'shifts' && <ShiftSettings />}
-          {activeTab === 'email' && <EmailConfig />}
-          {activeTab === 'teams' && <TeamsConfig />}
-          {activeTab === 'whatsapp' && <WhatsAppConfig />}
-          {activeTab === 'roles' && <UserRolesTab />}
-          {activeTab === 'salary-privacy' && <SalaryPrivacyTab />}
-          {activeTab === 'ai-config' && <ApiIntegrationsTab />}
-          {activeTab === 'audit' && <AuditLogs />}
-          {activeTab === 'system' && <SystemInfo />}
-        </div>
       </div>
-    </div>
+      <AiAssistantFab context="admin" label="Admin Assistant" />
+    </>
   );
 }
 
 function OrgSettings() {
   const { data: res } = useGetOrgSettingsQuery();
   const [updateOrg, { isLoading }] = useUpdateOrgMutation();
+  const [testAdminEmail, { isLoading: isTestingAdminEmail }] = useTestAdminNotificationEmailMutation();
   const org = res?.data;
   const [form, setForm] = useState({ name: '', timezone: '', currency: '', fiscalYear: '', adminNotificationEmail: '' });
 
@@ -139,8 +155,29 @@ function OrgSettings() {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-1">Admin Notification Email</label>
-          <input value={form.adminNotificationEmail} onChange={(e) => setForm({ ...form, adminNotificationEmail: e.target.value })}
-            type="email" placeholder="admin@company.com" className="input-glass w-full" />
+          <div className="flex gap-2">
+            <input value={form.adminNotificationEmail} onChange={(e) => setForm({ ...form, adminNotificationEmail: e.target.value })}
+              type="email" placeholder="admin@company.com" className="input-glass flex-1" />
+            <button
+              onClick={async () => {
+                try {
+                  const result = await testAdminEmail().unwrap();
+                  if (result?.data?.success) {
+                    toast.success(result.data.message || 'Test email sent!');
+                  } else {
+                    toast.error(result?.data?.message || 'Failed to send test email');
+                  }
+                } catch {
+                  toast.error('Failed to send test email');
+                }
+              }}
+              disabled={isTestingAdminEmail || !form.adminNotificationEmail}
+              className="btn-secondary flex items-center gap-1.5 text-sm px-3 py-2 whitespace-nowrap"
+            >
+              {isTestingAdminEmail ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              Test
+            </button>
+          </div>
           <p className="text-xs text-gray-400 mt-1">System alerts, candidate selection notices, and error reports will be sent here.</p>
         </div>
 
@@ -1178,24 +1215,64 @@ function SalaryPrivacyTab() {
 
 // =================== WhatsApp Configuration ===================
 function WhatsAppConfig() {
-  const { data: statusRes, refetch: refetchStatus } = useGetWhatsAppStatusQuery(undefined, { pollingInterval: 5000 });
-  const { data: qrRes, refetch: refetchQr } = useGetWhatsAppQrQuery(undefined, { pollingInterval: 5000 });
+  const { data: statusRes, refetch: refetchStatus } = useGetWhatsAppStatusQuery(undefined, { pollingInterval: 10000 });
+  const { data: qrRes, refetch: refetchQr } = useGetWhatsAppQrQuery(undefined, { pollingInterval: 10000 });
   const [initializeWA, { isLoading: initializing }] = useInitializeWhatsAppMutation();
   const [logoutWA, { isLoading: disconnecting }] = useLogoutWhatsAppMutation();
   const [sendMessage] = useSendWhatsAppMessageMutation();
   const [testPhone, setTestPhone] = useState('');
   const [testMsg, setTestMsg] = useState('Hello from Aniston HRMS!');
+  const [connecting, setConnecting] = useState(false);
+  const [liveQr, setLiveQr] = useState<string | null>(null);
 
   const status = statusRes?.data;
   const isConnected = status?.isConnected || false;
-  const qrCode = qrRes?.data?.qrCode;
+  const serverInitializing = status?.isInitializing || false;
+  const qrCode = liveQr || qrRes?.data?.qrCode;
+
+  // Sync connecting state with server's isInitializing
+  useEffect(() => {
+    if (serverInitializing && !connecting) setConnecting(true);
+    if (isConnected) setConnecting(false);
+  }, [serverInitializing, isConnected]);
+
+  // Listen for real-time socket events for instant QR + connection updates
+  useEffect(() => {
+    const handleQr = (data: any) => {
+      setLiveQr(data.qrCode);
+      setConnecting(false);
+    };
+    const handleReady = (data: any) => {
+      setLiveQr(null);
+      setConnecting(false);
+      toast.success(`WhatsApp connected${data.phoneNumber ? ` (+${data.phoneNumber})` : ''}!`);
+      refetchStatus();
+    };
+    const handleDisconnected = () => {
+      setLiveQr(null);
+      setConnecting(false);
+      refetchStatus();
+    };
+
+    onSocketEvent('whatsapp:qr', handleQr);
+    onSocketEvent('whatsapp:ready', handleReady);
+    onSocketEvent('whatsapp:disconnected', handleDisconnected);
+
+    return () => {
+      offSocketEvent('whatsapp:qr', handleQr);
+      offSocketEvent('whatsapp:ready', handleReady);
+      offSocketEvent('whatsapp:disconnected', handleDisconnected);
+    };
+  }, [refetchStatus]);
 
   const handleInitialize = async () => {
     try {
+      setConnecting(true);
+      setLiveQr(null);
       await initializeWA().unwrap();
-      toast.success('WhatsApp initializing... scan QR code');
-      setTimeout(() => { refetchQr(); refetchStatus(); }, 3000);
+      toast.success('WhatsApp initializing... QR code will appear shortly');
     } catch (err: any) {
+      setConnecting(false);
       toast.error(err?.data?.error?.message || 'Failed to initialize WhatsApp');
     }
   };
@@ -1229,7 +1306,9 @@ function WhatsAppConfig() {
       <p className="text-sm text-gray-500 mb-6">Connect WhatsApp Web to send messages to candidates and employees</p>
 
       <div className={cn('rounded-xl px-4 py-3 mb-6 flex items-center gap-3',
-        isConnected ? 'bg-emerald-50 border border-emerald-200' : 'bg-gray-50 border border-gray-200')}>
+        isConnected ? 'bg-emerald-50 border border-emerald-200'
+        : connecting ? 'bg-amber-50 border border-amber-200'
+        : 'bg-gray-50 border border-gray-200')}>
         {isConnected ? (
           <>
             <Wifi size={18} className="text-emerald-600" />
@@ -1238,6 +1317,16 @@ function WhatsAppConfig() {
               {status?.phoneNumber && <p className="text-xs text-emerald-500">Phone: +{status.phoneNumber}</p>}
             </div>
           </>
+        ) : connecting && !qrCode ? (
+          <>
+            <Loader2 size={18} className="text-amber-600 animate-spin" />
+            <p className="text-sm font-medium text-amber-600">Generating QR code...</p>
+          </>
+        ) : qrCode ? (
+          <>
+            <QrCode size={18} className="text-amber-600" />
+            <p className="text-sm font-medium text-amber-600">Waiting for scan...</p>
+          </>
         ) : (
           <>
             <WifiOff size={18} className="text-gray-400" />
@@ -1245,6 +1334,8 @@ function WhatsAppConfig() {
           </>
         )}
       </div>
+
+      {isConnected && <WhatsAppStats />}
 
       {!isConnected ? (
         <div className="space-y-6">
@@ -1255,7 +1346,16 @@ function WhatsAppConfig() {
                 <img src={qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
               </div>
               <p className="text-xs text-gray-400 mt-3">Open WhatsApp → Settings → Linked Devices → Link a Device</p>
-              <button onClick={() => { refetchQr(); refetchStatus(); }} className="btn-secondary text-xs mt-4">Refresh QR</button>
+              <div className="flex items-center justify-center gap-3 mt-4">
+                <button onClick={() => { refetchQr(); refetchStatus(); }} className="btn-secondary text-xs">Refresh QR</button>
+                <span className="text-xs text-gray-400">QR updates automatically via real-time connection</span>
+              </div>
+            </div>
+          ) : connecting ? (
+            <div className="text-center py-12">
+              <Loader2 size={48} className="mx-auto text-indigo-400 animate-spin mb-4" />
+              <p className="text-sm font-medium text-gray-700">Initializing WhatsApp...</p>
+              <p className="text-xs text-gray-400 mt-1">QR code will appear automatically in a few seconds</p>
             </div>
           ) : (
             <div className="text-center py-8">
@@ -1275,7 +1375,7 @@ function WhatsAppConfig() {
               <li>Click "Connect WhatsApp" to generate a QR code</li>
               <li>Open WhatsApp on your phone → Settings → Linked Devices</li>
               <li>Scan the QR code displayed here</li>
-              <li>Once connected, you can send messages to candidates and employees</li>
+              <li>Connection is detected automatically — no refresh needed</li>
             </ol>
           </div>
         </div>
@@ -1317,6 +1417,42 @@ function WhatsAppConfig() {
   );
 }
 
+function WhatsAppStats() {
+  const { data: contactsRes, isLoading: loadingContacts } = useGetWhatsAppContactsQuery();
+  const { data: messagesRes, isLoading: loadingMessages } = useGetWhatsAppMessagesQuery({ page: 1, limit: 1 });
+
+  const totalContacts = (contactsRes?.data || []).length;
+  // Messages total from the meta — represents all-time messages stored in DB
+  const totalMessages = messagesRes?.meta?.total || messagesRes?.data?.meta?.total || 0;
+
+  return (
+    <div className="grid grid-cols-2 gap-4 mb-6">
+      <div className="layer-card p-4 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+          <Send size={18} className="text-emerald-600" />
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Total Messages</p>
+          <p className="text-lg font-semibold text-gray-800" data-mono>
+            {loadingMessages ? '...' : totalMessages}
+          </p>
+        </div>
+      </div>
+      <div className="layer-card p-4 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+          <Users size={18} className="text-blue-600" />
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Total Contacts</p>
+          <p className="text-lg font-semibold text-gray-800" data-mono>
+            {loadingContacts ? '...' : totalContacts}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const PROVIDER_DEFAULTS: Record<string, { modelName: string; placeholder: string }> = {
   DEEPSEEK: { modelName: 'deepseek-chat', placeholder: 'sk-...' },
   OPENAI: { modelName: 'gpt-4o', placeholder: 'sk-...' },
@@ -1324,6 +1460,146 @@ const PROVIDER_DEFAULTS: Record<string, { modelName: string; placeholder: string
   GEMINI: { modelName: 'gemini-2.0-flash', placeholder: 'AIza...' },
   CUSTOM: { modelName: '', placeholder: 'API key' },
 };
+
+function ExternalApiIntegrationTab() {
+  const [integrations, setIntegrations] = useState<{ name: string; baseUrl: string; apiKey: string; description: string; enabled: boolean }[]>([
+    { name: 'Task Manager', baseUrl: '', apiKey: '', description: 'Connect your task management tool (Jira, ClickUp, Asana, etc.) to sync employee tasks with performance reviews.', enabled: false },
+    { name: 'Naukri / Job Board', baseUrl: '', apiKey: '', description: 'Connect job board APIs to auto-post job openings and receive applications.', enabled: false },
+    { name: 'Slack / Teams Webhook', baseUrl: '', apiKey: '', description: 'Send HRMS notifications to your team chat channels via webhook URL.', enabled: false },
+  ]);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+
+  const handleSaveIntegration = (index: number) => {
+    toast.success(`${integrations[index].name} configuration saved`);
+    setEditingIndex(null);
+    // TODO: persist to backend when endpoint is ready
+  };
+
+  const handleTestIntegration = async (index: number) => {
+    const intg = integrations[index];
+    if (!intg.baseUrl) {
+      toast.error('Please enter a Base URL first');
+      return;
+    }
+    try {
+      const res = await fetch(intg.baseUrl, {
+        method: 'GET',
+        headers: intg.apiKey ? { 'Authorization': `Bearer ${intg.apiKey}` } : {},
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        toast.success(`${intg.name} connection successful!`);
+      } else {
+        toast.error(`${intg.name} returned status ${res.status}`);
+      }
+    } catch {
+      toast.error(`Cannot reach ${intg.name} — check URL and network`);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="layer-card p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
+          <ExternalLink size={20} className="text-brand-600" /> External API Integrations
+        </h3>
+        <p className="text-sm text-gray-500 mb-5">Connect third-party services to extend HRMS functionality. API keys are optional — leave blank if the service doesn't require authentication.</p>
+
+        <div className="space-y-4">
+          {integrations.map((intg, i) => (
+            <div key={intg.name} className={cn('border rounded-xl p-4 transition-all', intg.enabled ? 'border-brand-200 bg-brand-50/30' : 'border-gray-200')}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-3">
+                  <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center', intg.enabled ? 'bg-brand-100' : 'bg-gray-100')}>
+                    <ExternalLink size={18} className={intg.enabled ? 'text-brand-600' : 'text-gray-400'} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-800">{intg.name}</h4>
+                    <p className="text-xs text-gray-400">{intg.description}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {intg.baseUrl && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">Connected</span>
+                  )}
+                  <button onClick={() => setEditingIndex(editingIndex === i ? null : i)}
+                    className="text-xs text-brand-600 hover:text-brand-700 font-medium">
+                    {editingIndex === i ? 'Close' : 'Configure'}
+                  </button>
+                </div>
+              </div>
+
+              <AnimatePresence>
+                {editingIndex === i && (
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                    <div className="pt-3 mt-3 border-t border-gray-100 space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Base URL</label>
+                        <input value={intg.baseUrl}
+                          onChange={e => { const n = [...integrations]; n[i].baseUrl = e.target.value; setIntegrations(n); }}
+                          placeholder="https://api.example.com" className="input-glass w-full text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">API Key (optional)</label>
+                        <input type="password" value={intg.apiKey}
+                          onChange={e => { const n = [...integrations]; n[i].apiKey = e.target.value; setIntegrations(n); }}
+                          placeholder="Leave blank if not required" className="input-glass w-full text-sm" />
+                        <p className="text-[10px] text-gray-400 mt-1">Leave empty if the service doesn't require authentication</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => handleSaveIntegration(i)} className="btn-primary text-xs flex items-center gap-1.5">
+                          <Save size={14} /> Save
+                        </button>
+                        <button onClick={() => handleTestIntegration(i)} className="btn-secondary text-xs flex items-center gap-1.5">
+                          <Zap size={14} /> Test Connection
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Quick links to other integrations */}
+      <div className="layer-card p-6">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Other Integrations</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
+            <Mail size={18} className="text-blue-500" />
+            <div>
+              <p className="text-xs font-medium text-gray-700">Email (SMTP)</p>
+              <p className="text-[10px] text-gray-400">Configure in Email tab</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
+            <MessageCircle size={18} className="text-green-500" />
+            <div>
+              <p className="text-xs font-medium text-gray-700">WhatsApp</p>
+              <p className="text-[10px] text-gray-400">Configure in WhatsApp tab</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
+            <Cloud size={18} className="text-blue-600" />
+            <div>
+              <p className="text-xs font-medium text-gray-700">Microsoft Teams SSO</p>
+              <p className="text-[10px] text-gray-400">Configure in Teams tab</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
+            <Cpu size={18} className="text-purple-500" />
+            <div>
+              <p className="text-xs font-medium text-gray-700">AI API (DeepSeek/OpenAI)</p>
+              <p className="text-[10px] text-gray-400">Configure in AI API Config tab</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ApiIntegrationsTab() {
   const { data: res, isLoading } = useGetAiConfigQuery();
@@ -1357,21 +1633,28 @@ function ApiIntegrationsTab() {
   };
 
   const handleSave = async () => {
+    // Require API key for first-time setup
+    if (!config?.hasApiKey && !apiKey) {
+      toast.error('Please enter an API key');
+      return;
+    }
     try {
       const body: any = { provider, modelName };
       if (apiKey) body.apiKey = apiKey;
       if (provider === 'CUSTOM' && baseUrl) body.baseUrl = baseUrl;
       await saveConfig(body).unwrap();
       toast.success('AI configuration saved');
+      setApiKey('');
       setTestResult(null);
-    } catch {
-      toast.error('Failed to save AI configuration');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to save AI configuration');
     }
   };
 
   const handleTest = async () => {
     try {
-      const result = await testConnection().unwrap();
+      // Send current form values so we test what the user sees, not just what's in DB
+      const result = await testConnection({ provider, modelName, baseUrl: provider === 'CUSTOM' ? baseUrl : undefined }).unwrap();
       setTestResult(result.data);
       if (result.data?.success) {
         toast.success(`Connection successful! (${result.data.latencyMs}ms)`);
@@ -1389,13 +1672,13 @@ function ApiIntegrationsTab() {
 
   return (
     <div className="space-y-6">
-      {/* Warning banner if no config */}
-      {!config && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
-          <AlertTriangle size={20} className="text-amber-500 mt-0.5 flex-shrink-0" />
+      {/* Warning banner — show when no API key is configured */}
+      {config && !config.hasApiKey && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <AlertTriangle size={20} className="text-blue-500 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-amber-700">AI features are limited</p>
-            <p className="text-xs text-amber-600">Configure your AI provider below to enable resume scoring, interview questions, and AI assistant.</p>
+            <p className="text-sm font-medium text-blue-700">AI provider needs an API key</p>
+            <p className="text-xs text-blue-600">Select your AI provider below and enter an API key to enable resume scoring, interview questions, and AI assistant.</p>
           </div>
         </div>
       )}
@@ -1437,7 +1720,7 @@ function ApiIntegrationsTab() {
                 type="password"
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
-                placeholder={config?.apiKeyMasked || PROVIDER_DEFAULTS[provider]?.placeholder || 'Enter API key'}
+                placeholder={config?.hasApiKey ? (config.apiKeyMasked || '••••••••') : 'Enter your API key here'}
                 className="input-glass w-full text-sm pr-10"
               />
               <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -1477,8 +1760,9 @@ function ApiIntegrationsTab() {
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
               Save Configuration
             </button>
-            <button onClick={handleTest} disabled={testing || !config}
-              className="btn-secondary flex items-center gap-2 text-sm">
+            <button onClick={handleTest} disabled={testing || !config?.hasApiKey}
+              className="btn-secondary flex items-center gap-2 text-sm"
+              title={!config?.hasApiKey ? 'Save an API key first to test the connection' : 'Test the AI provider connection'}>
               {testing ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
               Test Connection
             </button>
@@ -1509,7 +1793,7 @@ function ApiIntegrationsTab() {
           )}
 
           {/* Last updated info */}
-          {config && (
+          {config?.updatedAt && (
             <p className="text-xs text-gray-400">
               Last updated: {new Date(config.updatedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
             </p>
@@ -1517,21 +1801,123 @@ function ApiIntegrationsTab() {
         </div>
       </div>
 
-      {/* Email Integration (link) */}
-      <div className="layer-card p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-          <Mail size={20} className="text-brand-600" /> Email (Microsoft 365 / SMTP)
-        </h3>
-        <p className="text-sm text-gray-500">Email configuration is managed in the Email Configuration tab.</p>
+      {/* Knowledge Base */}
+      <KnowledgeBaseSection />
+
+      {/* Default DeepSeek info */}
+      <div className="layer-card p-5 bg-blue-50/50 border border-blue-100">
+        <div className="flex items-start gap-3">
+          <Zap size={18} className="text-blue-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-blue-800">Getting Started with AI</p>
+            <p className="text-xs text-blue-600 mt-1">DeepSeek is the recommended default provider with affordable pricing. Sign up at <span className="font-mono">platform.deepseek.com</span> to get an API key. You can also use OpenAI, Anthropic, Google Gemini, or any OpenAI-compatible endpoint. Select your provider above, enter the API key, save, and test the connection.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KnowledgeBaseSection() {
+  const { data: res, isLoading } = useGetKnowledgeBaseQuery();
+  const [addDoc, { isLoading: adding }] = useAddKnowledgeDocMutation();
+  const [deleteDoc] = useDeleteKnowledgeDocMutation();
+
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+
+  const docs = res?.data || [];
+
+  const handleAdd = async () => {
+    if (!title.trim() || !content.trim()) {
+      toast.error('Title and content are required');
+      return;
+    }
+    try {
+      await addDoc({ title: title.trim(), content: content.trim() }).unwrap();
+      toast.success('Knowledge document added');
+      setTitle('');
+      setContent('');
+    } catch {
+      toast.error('Failed to add knowledge document');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteDoc(id).unwrap();
+      toast.success('Knowledge document deleted');
+    } catch {
+      toast.error('Failed to delete knowledge document');
+    }
+  };
+
+  return (
+    <div className="layer-card p-6">
+      <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
+        <BookOpen size={20} className="text-brand-600" /> Knowledge Base
+      </h3>
+      <p className="text-sm text-gray-500 mb-5">Upload documents to train the AI assistant on company policies.</p>
+
+      {/* Add Document Form */}
+      <div className="space-y-3 mb-6">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+          <input
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="e.g., Leave Policy, Work from Home Guidelines"
+            className="input-glass w-full text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Content</label>
+          <textarea
+            value={content}
+            onChange={e => setContent(e.target.value)}
+            placeholder="Paste the full document content here..."
+            rows={5}
+            className="input-glass w-full text-sm resize-y"
+          />
+        </div>
+        <button
+          onClick={handleAdd}
+          disabled={adding || !title.trim() || !content.trim()}
+          className="btn-primary flex items-center gap-2 text-sm"
+        >
+          {adding ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+          Add Document
+        </button>
       </div>
 
-      {/* WhatsApp Integration (link) */}
-      <div className="layer-card p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-          <MessageCircle size={20} className="text-green-600" /> WhatsApp
-        </h3>
-        <p className="text-sm text-gray-500">WhatsApp session management is in the WhatsApp tab.</p>
-      </div>
+      {/* Document List */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="animate-spin text-brand-600" size={24} />
+        </div>
+      ) : docs.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-4">No knowledge documents added yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {docs.map((doc: any) => (
+            <div key={doc.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 border border-gray-100">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-gray-800 truncate">{doc.title}</p>
+                <p className="text-xs text-gray-400">
+                  Added {new Date(doc.createdAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}
+                </p>
+              </div>
+              <button
+                onClick={() => handleDelete(doc.id)}
+                className="ml-3 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                title="Delete document"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

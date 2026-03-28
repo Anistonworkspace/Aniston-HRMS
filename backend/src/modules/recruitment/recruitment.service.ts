@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { enqueueEmail } from '../../jobs/queues.js';
 import type { CreateJobInput, CreateApplicationInput, InterviewScoreInput, CreateOfferInput, JobQuery } from './recruitment.validation.js';
 
 export class RecruitmentService {
@@ -335,6 +336,39 @@ export class RecruitmentService {
     });
 
     return { pipeline: stats, openJobs };
+  }
+
+  // ==================
+  // SHARE JOB VIA EMAIL
+  // ==================
+
+  async shareJobViaEmail(jobId: string, email: string, customMessage?: string) {
+    const job = await prisma.jobOpening.findUnique({
+      where: { id: jobId },
+      include: { organization: { select: { name: true } } },
+    });
+    if (!job) throw new NotFoundError('Job opening');
+    if (!job.publicFormToken) throw new BadRequestError('This job does not have a public application form');
+
+    const applyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/apply/${job.publicFormToken}`;
+    const orgName = job.organization?.name || 'Aniston Technologies';
+
+    await enqueueEmail({
+      to: email,
+      subject: `Job Opening: ${job.title} at ${orgName}`,
+      template: 'job-share',
+      context: {
+        jobTitle: job.title,
+        department: job.department || '',
+        location: job.location || '',
+        type: job.type || '',
+        applyUrl,
+        orgName,
+        customMessage: customMessage || '',
+      },
+    });
+
+    return { sent: true, email };
   }
 }
 

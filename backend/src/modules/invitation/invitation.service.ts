@@ -6,6 +6,8 @@ import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js
 import { enqueueEmail } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { generateEmployeeCode } from '../../utils/employeeCode.js';
+import { whatsAppService } from '../whatsapp/whatsapp.service.js';
+import { logger } from '../../lib/logger.js';
 import type { CreateInvitationInput } from './invitation.validation.js';
 
 const ONBOARDING_PREFIX = 'onboarding:';
@@ -92,6 +94,19 @@ export class InvitationService {
           expiresAt: expiresAt.toISOString(),
         },
       });
+    }
+
+    // Send WhatsApp invitation (best-effort)
+    if (invitation.mobileNumber) {
+      try {
+        await whatsAppService.sendMessage({
+          to: invitation.mobileNumber,
+          message: `Hi! You're invited to join ${org?.name || 'Aniston HRMS'} on Aniston HRMS.\n\nClick here to accept: ${inviteUrl}\n\nThis link expires in 72 hours.`,
+        }, organizationId);
+      } catch (err) {
+        // WhatsApp send is best-effort, don't fail the invitation
+        logger.error('Failed to send WhatsApp invite:', err);
+      }
     }
 
     // Audit log
@@ -360,6 +375,19 @@ export class InvitationService {
           expiresAt: newExpiresAt.toISOString(),
         },
       });
+    }
+
+    // Resend WhatsApp invitation (best-effort)
+    if (invitation.mobileNumber) {
+      try {
+        await whatsAppService.sendMessage({
+          to: invitation.mobileNumber,
+          message: `Hi! Reminder: You're invited to join ${org?.name || 'Aniston HRMS'} on Aniston HRMS.\n\nClick here to accept: ${inviteUrl}\n\nThis link expires in 72 hours.`,
+        }, organizationId);
+      } catch (err) {
+        // WhatsApp send is best-effort, don't fail the resend
+        logger.error('Failed to send WhatsApp invite on resend:', err);
+      }
     }
 
     return { success: true, inviteUrl, expiresAt: newExpiresAt };

@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Briefcase, Search, Users, Eye, Sparkles, X, MapPin, Clock, Pencil, Trash2, Upload,
   Award, Mail, UserPlus, Star, Loader2, MoreHorizontal, XCircle, PauseCircle, RotateCcw,
-  AlertCircle, CheckCircle2, UserCheck, UserX, ChevronRight, ChevronLeft, RefreshCw,
+  AlertCircle, CheckCircle2, UserCheck, UserX, ChevronRight, ChevronLeft, RefreshCw, Link, Brain,
+  Share2, MessageCircle, ExternalLink, Copy, Send, Target, ClipboardCheck,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGetJobOpeningsQuery, useCreateJobMutation, useUpdateJobMutation, useDeleteJobMutation, useGetPipelineStatsQuery } from './recruitmentApi';
@@ -13,14 +14,15 @@ import {
   useGetWalkInByIdQuery, useAddWalkInNotesMutation, useAddInterviewRoundMutation,
   useUpdateInterviewRoundMutation, useDeleteInterviewRoundMutation, useGetInterviewersQuery,
 } from '../walkIn/walkInApi';
-import {
-  useGetBulkUploadsQuery, useGetBulkUploadQuery, useCreateApplicationFromItemMutation,
-  useDeleteBulkUploadMutation, useDeleteBulkResumeItemMutation,
-} from './bulkResumeApi';
-import { useSendWhatsAppJobLinkMutation } from '../whatsapp/whatsappApi';
+import { useGetPublicApplicationsQuery, useGenerateJobQuestionsMutation } from '../public-apply/publicApplyApi';
+import { useAiChatMutation } from '../ai-assistant/aiAssistantApi';
+import { useAppSelector } from '../../app/store';
+import { useSendWhatsAppToNumberMutation, useGetWhatsAppStatusQuery } from '../whatsapp/whatsappApi';
+import { useShareJobEmailMutation } from './recruitmentApi';
 import { cn, formatDate, getInitials } from '../../lib/utils';
 import toast from 'react-hot-toast';
 import BulkResumeModal from './BulkResumeModal';
+import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
 
 type RecruitmentTab = 'jobs' | 'walkin' | 'ai-screened' | 'hiring-passed';
 
@@ -49,41 +51,44 @@ export default function RecruitmentPage() {
   ];
 
   return (
-    <div className="page-container">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">Recruitment</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Manage jobs, walk-in candidates, and hiring</p>
+    <>
+      <div className="page-container">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl font-display font-bold text-gray-900">Recruitment</h1>
+            <p className="text-gray-500 text-sm mt-0.5">Manage jobs, walk-in candidates, and hiring</p>
+          </div>
         </div>
-      </div>
 
-      {/* Tab Bar */}
-      <div className="border-b border-gray-200 mb-6">
-        <div className="flex gap-1 -mb-px">
-          {TABS.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => handleTabChange(tab.key)}
-              className={cn(
-                'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors',
-                activeTab === tab.key
-                  ? 'border-brand-600 text-brand-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              )}
-            >
-              <tab.icon size={16} />
-              {tab.label}
-            </button>
-          ))}
+        {/* Tab Bar */}
+        <div className="border-b border-gray-200 mb-6">
+          <div className="flex gap-1 -mb-px">
+            {TABS.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => handleTabChange(tab.key)}
+                className={cn(
+                  'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors',
+                  activeTab === tab.key
+                    ? 'border-brand-600 text-brand-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                )}
+              >
+                <tab.icon size={16} />
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* Tab Content */}
-      {activeTab === 'jobs' && <JobOpeningsTab />}
-      {activeTab === 'walkin' && <WalkInTab />}
-      {activeTab === 'ai-screened' && <AIScreenedTab />}
-      {activeTab === 'hiring-passed' && <HiringPassedTab />}
-    </div>
+        {/* Tab Content */}
+        {activeTab === 'jobs' && <JobOpeningsTab />}
+        {activeTab === 'walkin' && <WalkInTab />}
+        {activeTab === 'ai-screened' && <AIScreenedTab />}
+        {activeTab === 'hiring-passed' && <HiringPassedTab />}
+      </div>
+      <AiAssistantFab context="hr-recruitment" label="HR Recruitment Assistant" />
+    </>
   );
 }
 
@@ -105,14 +110,32 @@ function JobOpeningsTab() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [questionsPreview, setQuestionsPreview] = useState<{ jobTitle: string; questions: any[] } | null>(null);
+  const [generatingJobId, setGeneratingJobId] = useState<string | null>(null);
+  const [shareJob, setShareJob] = useState<any>(null);
   const { data: jobsRes, isLoading } = useGetJobOpeningsQuery({
     page: 1, limit: 50, status: statusFilter || undefined, search: search || undefined,
   });
   const [updateJob] = useUpdateJobMutation();
   const [deleteJob] = useDeleteJobMutation();
+  const [generateQuestions] = useGenerateJobQuestionsMutation();
   const { data: pipelineData } = useGetPipelineStatsQuery();
   const navigate = useNavigate();
   const jobs = jobsRes?.data || [];
+
+  const handleGenerateQuestions = async (job: any) => {
+    setGeneratingJobId(job.id);
+    try {
+      const result = await generateQuestions(job.id).unwrap();
+      const questions = result?.data || result || [];
+      toast.success(`${Array.isArray(questions) ? questions.length : 6} screening questions generated!`);
+      setQuestionsPreview({ jobTitle: job.title, questions: Array.isArray(questions) ? questions : [] });
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to generate questions. Is AI configured?');
+    } finally {
+      setGeneratingJobId(null);
+    }
+  };
 
   const handleStatusChange = async (id: string, status: string) => {
     try {
@@ -238,6 +261,22 @@ function JobOpeningsTab() {
                     <button onClick={() => setDeleteConfirm(job.id)} className="text-xs text-red-400 hover:text-red-600 flex items-center gap-1"><Trash2 size={12} /></button>
                   )}
                   <button onClick={() => navigate(`/recruitment/${job.id}`)} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"><Eye size={14} /> View</button>
+                  <button
+                    onClick={() => handleGenerateQuestions(job)}
+                    disabled={generatingJobId === job.id}
+                    className="text-xs text-purple-600 hover:text-purple-700 flex items-center gap-1 disabled:opacity-50"
+                    title="Generate AI screening questions"
+                  >
+                    {generatingJobId === job.id ? <Loader2 size={12} className="animate-spin" /> : <Brain size={12} />}
+                    AI Questions
+                  </button>
+                  <button
+                    onClick={() => setShareJob(job)}
+                    className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1 font-medium"
+                    title="Share job opening link"
+                  >
+                    <Share2 size={12} /> Share
+                  </button>
                 </div>
               </div>
             </motion.div>
@@ -265,7 +304,285 @@ function JobOpeningsTab() {
           </motion.div>
         )}
       </AnimatePresence>
+      <AnimatePresence>
+        {questionsPreview && (
+          <QuestionsPreviewModal
+            jobTitle={questionsPreview.jobTitle}
+            questions={questionsPreview.questions}
+            onClose={() => setQuestionsPreview(null)}
+            onRegenerate={() => {
+              const job = jobs.find((j: any) => j.title === questionsPreview.jobTitle);
+              if (job) handleGenerateQuestions(job);
+            }}
+            isRegenerating={!!generatingJobId}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {shareJob && (
+          <ShareJobModal
+            isOpen={!!shareJob}
+            onClose={() => setShareJob(null)}
+            job={shareJob}
+            allJobs={jobs}
+          />
+        )}
+      </AnimatePresence>
     </>
+  );
+}
+
+// =================== Questions Preview Modal ===================
+const CATEGORY_BADGE: Record<string, { bg: string; text: string }> = {
+  INTELLIGENCE: { bg: 'bg-blue-50', text: 'text-blue-700' },
+  INTEGRITY: { bg: 'bg-emerald-50', text: 'text-emerald-700' },
+  ENERGY: { bg: 'bg-amber-50', text: 'text-amber-700' },
+};
+
+function QuestionsPreviewModal({ jobTitle, questions, onClose, onRegenerate, isRegenerating }: {
+  jobTitle: string;
+  questions: any[];
+  onClose: () => void;
+  onRegenerate: () => void;
+  isRegenerating: boolean;
+}) {
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={onClose}>
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+        onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="text-lg font-display font-semibold text-gray-800 flex items-center gap-2">
+              <Brain size={20} className="text-purple-600" /> AI Screening Questions
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">{jobTitle} -- {questions.length} questions generated</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={onRegenerate} disabled={isRegenerating}
+              className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50">
+              {isRegenerating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              Regenerate
+            </button>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+              <X size={18} className="text-gray-400" />
+            </button>
+          </div>
+        </div>
+
+        {/* Questions List */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {questions.length === 0 ? (
+            <div className="text-center py-12">
+              <Brain size={40} className="mx-auto text-gray-200 mb-3" />
+              <p className="text-sm text-gray-400">No questions to display</p>
+            </div>
+          ) : (
+            questions.map((q: any, i: number) => {
+              const cat = CATEGORY_BADGE[q.category] || { bg: 'bg-gray-50', text: 'text-gray-600' };
+              return (
+                <div key={q.id || i} className="layer-card p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <p className="text-sm font-medium text-gray-800 flex-1">
+                      <span className="text-gray-400 mr-1.5 font-mono" data-mono>Q{i + 1}.</span>
+                      {q.questionText}
+                    </p>
+                    <span className={`shrink-0 ml-3 text-[10px] font-semibold px-2 py-0.5 rounded-full ${cat.bg} ${cat.text}`}>
+                      {q.category}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-3">
+                    {['A', 'B', 'C', 'D'].map(opt => {
+                      const isCorrect = q.correctOption === opt;
+                      return (
+                        <div key={opt} className={cn(
+                          'text-xs px-3 py-2 rounded-lg border transition-colors',
+                          isCorrect
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-medium'
+                            : 'bg-gray-50 border-gray-100 text-gray-600'
+                        )}>
+                          <span className="font-semibold mr-1.5">{opt}.</span>
+                          {q[`option${opt}`]}
+                          {isCorrect && <CheckCircle2 size={12} className="inline ml-1.5 text-emerald-500" />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
+          <button onClick={onClose} className="btn-primary text-sm">Done</button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// =================== Share Job Modal ===================
+function ShareJobModal({ isOpen, onClose, job, allJobs }: {
+  isOpen: boolean;
+  onClose: () => void;
+  job: { id: string; title: string; publicFormToken?: string | null; department?: string };
+  allJobs?: any[];
+}) {
+  const [selectedJobId, setSelectedJobId] = useState(job.id);
+  const selectedJob = allJobs?.find((j: any) => j.id === selectedJobId) || job;
+  const jobUrl = selectedJob.publicFormToken ? `${window.location.origin}/apply/${selectedJob.publicFormToken}` : '';
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [sendWhatsApp, { isLoading: sendingWA }] = useSendWhatsAppToNumberMutation();
+  const { data: waStatus } = useGetWhatsAppStatusQuery();
+  const [shareEmail, { isLoading: sendingEmail }] = useShareJobEmailMutation();
+  const isWhatsAppConnected = waStatus?.data?.isConnected === true;
+
+  const whatsappMsg = `Hi! We have an exciting job opening for *${selectedJob.title}* at Aniston Technologies LLP.\n\nApply here: ${jobUrl}\n\nFeel free to reach out for more details!\n— HR Team, Aniston Technologies`;
+
+  const handleCopyLink = () => {
+    if (!jobUrl) { toast.error('Please save the job first to generate a link'); return; }
+    navigator.clipboard.writeText(jobUrl).then(() => toast.success('Link copied!')).catch(() => toast.error('Failed to copy'));
+  };
+
+  const handleWhatsAppSend = async () => {
+    if (!phone.trim()) { toast.error('Enter a phone number'); return; }
+    if (!jobUrl) { toast.error('No application link for this job'); return; }
+    try {
+      await sendWhatsApp({ phone: phone.trim(), message: whatsappMsg }).unwrap();
+      toast.success('WhatsApp message sent!');
+      setPhone('');
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to send'); }
+  };
+
+  const handleWhatsAppOpen = () => {
+    if (!jobUrl) { toast.error('Please save the job first to generate a link'); return; }
+    // Store the message in sessionStorage so the WhatsApp page can pick it up
+    sessionStorage.setItem('whatsapp_prefill_message', whatsappMsg);
+    if (phone.trim()) sessionStorage.setItem('whatsapp_prefill_phone', phone.trim());
+    // Navigate to the internal WhatsApp page
+    window.location.href = '/whatsapp';
+  };
+
+  const handleSendEmail = async () => {
+    if (!email.trim()) { toast.error('Enter an email address'); return; }
+    try {
+      await shareEmail({ jobId: selectedJob.id, email: email.trim() }).unwrap();
+      toast.success('Job link sent via email!');
+      setEmail('');
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to send email'); }
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <motion.div initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 30, opacity: 0 }}
+        onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="text-lg font-display font-semibold text-gray-800 flex items-center gap-2">
+              <Share2 size={20} className="text-teal-600" /> Share Job Opening
+            </h3>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={18} className="text-gray-400" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+          {/* Job Selector */}
+          {allJobs && allJobs.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Select Job to Share</label>
+              <div className="space-y-1.5 max-h-32 overflow-y-auto border border-gray-200 rounded-xl p-2">
+                {allJobs.map((j: any) => (
+                  <button key={j.id} onClick={() => setSelectedJobId(j.id)}
+                    className={cn(
+                      'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between',
+                      selectedJobId === j.id ? 'bg-brand-50 text-brand-700 font-medium ring-1 ring-brand-200' : 'hover:bg-gray-50 text-gray-600'
+                    )}>
+                    <span>{j.title} — {j.department || 'General'}</span>
+                    <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full', j.status === 'OPEN' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500')}>{j.status}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Copy Link */}
+          <div>
+            <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-2">
+              <Link size={14} className="text-indigo-500" /> Application Link
+            </h4>
+            {jobUrl ? (
+              <div className="flex items-center gap-2">
+                <input type="text" readOnly value={jobUrl} className="input-glass flex-1 text-xs text-gray-600 bg-gray-50" />
+                <button onClick={handleCopyLink} className="btn-primary text-xs px-3 py-2 shrink-0">Copy</button>
+              </div>
+            ) : (
+              <p className="text-xs text-amber-600">This job doesn't have a public form token yet.</p>
+            )}
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-[10px] text-gray-400">Share on:</span>
+              {['LinkedIn', 'Naukri', 'Indeed'].map(site => (
+                <a key={site} href={site === 'LinkedIn' ? `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(jobUrl)}` : site === 'Naukri' ? 'https://www.naukri.com' : 'https://www.indeed.com'}
+                  target="_blank" rel="noopener noreferrer"
+                  className="text-[10px] text-brand-600 hover:underline">{site}</a>
+              ))}
+            </div>
+          </div>
+
+          <div className="border-t border-gray-100" />
+
+          {/* WhatsApp */}
+          <div>
+            <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-2">
+              <MessageCircle size={14} className="text-emerald-500" /> Send via WhatsApp
+            </h4>
+            <input type="text" value={phone} onChange={e => setPhone(e.target.value)}
+              placeholder="Enter number (e.g. 919876543210) or leave blank to choose contact"
+              className="input-glass w-full text-sm mb-2" />
+            <div className="flex items-center gap-2">
+              <button onClick={handleWhatsAppOpen}
+                className="flex-1 bg-emerald-600 text-white text-xs font-medium px-3 py-2.5 rounded-lg hover:bg-emerald-700 flex items-center justify-center gap-1.5">
+                <ExternalLink size={13} /> Open WhatsApp & Send
+              </button>
+              {isWhatsAppConnected && phone.trim() && (
+                <button onClick={handleWhatsAppSend} disabled={sendingWA}
+                  className="bg-emerald-100 text-emerald-700 text-xs font-medium px-3 py-2.5 rounded-lg hover:bg-emerald-200 flex items-center gap-1.5 disabled:opacity-50">
+                  {sendingWA ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Quick Send
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">"Open WhatsApp" opens wa.me — choose contact there. "Quick Send" sends via connected session.</p>
+          </div>
+
+          <div className="border-t border-gray-100" />
+
+          {/* Email */}
+          <div>
+            <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-2">
+              <Mail size={14} className="text-rose-500" /> Send via Email
+            </h4>
+            <div className="flex items-center gap-2">
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="candidate@example.com" className="input-glass flex-1 text-sm" />
+              <button onClick={handleSendEmail} disabled={sendingEmail}
+                className="btn-primary text-xs px-3 py-2 flex items-center gap-1.5 shrink-0 disabled:opacity-50">
+                {sendingEmail ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />} Send
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
+          <button onClick={onClose} className="btn-secondary text-sm">Close</button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -621,8 +938,15 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
   const [tab, setTab] = useState<'overview' | 'interviews' | 'actions'>('overview');
   const [notes, setNotes] = useState('');
   const [newRound, setNewRound] = useState({ roundName: '', interviewerId: '' });
+  const [resumePreview, setResumePreview] = useState<string | null>(null);
   const [showAddRound, setShowAddRound] = useState(false);
   const [hireModal, setHireModal] = useState(false);
+  const [showInterviewPanel, setShowInterviewPanel] = useState(false);
+  const [showAssignManager, setShowAssignManager] = useState(false);
+  const [assignManagerId, setAssignManagerId] = useState('');
+
+  const user = useAppSelector(s => s.auth.user);
+  const isHR = user?.role ? ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user.role) : false;
 
   const candidate = res?.data;
   const interviewers = interviewersRes?.data || [];
@@ -673,6 +997,13 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
   };
 
   const sc = candidate ? (WI_STATUS[candidate.status] || WI_STATUS.WAITING) : WI_STATUS.WAITING;
+
+  // Compute final score summary from walk-in rounds
+  const completedRounds = (candidate?.interviewRounds || []).filter((r: any) => r.status === 'COMPLETED' && r.overallScore);
+  const avgRoundScore = completedRounds.length > 0
+    ? completedRounds.reduce((sum: number, r: any) => sum + Number(r.overallScore), 0) / completedRounds.length
+    : null;
+  const aiScore = candidate?.aiScore ? Number(candidate.aiScore) : null;
 
   return (
     <>
@@ -730,7 +1061,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                 <div className="space-y-6">
                   <div className="layer-card p-4">
                     <h4 className="text-sm font-semibold text-gray-700 mb-3">Position</h4>
-                    <p className="text-sm text-gray-800">{candidate.jobOpening?.title || '—'}</p>
+                    <p className="text-sm text-gray-800">{candidate.jobOpening?.title || '\u2014'}</p>
                     <p className="text-xs text-gray-400">{candidate.jobOpening?.department} · {candidate.jobOpening?.location}</p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -744,7 +1075,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                       <h4 className="text-sm font-semibold text-gray-700 mb-3">Experience</h4>
                       <p className="text-sm text-gray-600">{candidate.isFresher ? 'Fresher' : `${candidate.experienceYears || 0}y ${candidate.experienceMonths || 0}m`}</p>
                       {candidate.currentCompany && <p className="text-xs text-gray-400">at {candidate.currentCompany}</p>}
-                      {candidate.qualification && <p className="text-xs text-gray-400 mt-1">{candidate.qualification} — {candidate.fieldOfStudy}</p>}
+                      {candidate.qualification && <p className="text-xs text-gray-400 mt-1">{candidate.qualification} \u2014 {candidate.fieldOfStudy}</p>}
                     </div>
                   </div>
                   {candidate.skills?.length > 0 && (
@@ -769,10 +1100,15 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                     </div>
                   )}
                   {candidate.resumeUrl && (
-                    <a href={candidate.resumeUrl} target="_blank" rel="noopener noreferrer"
+                    <button onClick={() => {
+                      const url = candidate.resumeUrl.startsWith('http') ? candidate.resumeUrl
+                        : candidate.resumeUrl.startsWith('/') ? candidate.resumeUrl
+                        : `/uploads/${candidate.resumeUrl}`;
+                      setResumePreview(url);
+                    }}
                       className="btn-secondary text-sm flex items-center gap-2 w-fit">
                       <Eye size={14} /> View Resume
-                    </a>
+                    </button>
                   )}
                 </div>
               )}
@@ -781,7 +1117,15 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h4 className="text-sm font-semibold text-gray-700">Interview Rounds ({candidate.interviewRounds?.length || 0})</h4>
-                    <button onClick={() => setShowAddRound(true)} className="btn-primary text-xs flex items-center gap-1"><Plus size={12} /> Add Round</button>
+                    <div className="flex items-center gap-2">
+                      {isHR && !showInterviewPanel && (
+                        <button onClick={() => setShowInterviewPanel(true)}
+                          className="bg-brand-600 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 hover:bg-brand-700 transition-colors">
+                          <ClipboardCheck size={12} /> Take Interview
+                        </button>
+                      )}
+                      <button onClick={() => setShowAddRound(true)} className="btn-primary text-xs flex items-center gap-1"><Plus size={12} /> Add Round</button>
+                    </div>
                   </div>
 
                   {showAddRound && (
@@ -799,14 +1143,119 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                     </div>
                   )}
 
+                  {/* Interview Execution Panel */}
+                  <AnimatePresence>
+                    {showInterviewPanel && candidate && (
+                      <InterviewExecutionPanel
+                        candidate={candidate}
+                        interviewers={interviewers}
+                        onClose={() => setShowInterviewPanel(false)}
+                        onStatusChange={onStatusChange}
+                      />
+                    )}
+                  </AnimatePresence>
+
+                  {/* Assign to Manager */}
+                  {isHR && (
+                    <div className="layer-card p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h5 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                          <UserPlus size={14} className="text-brand-600" /> Assign to Manager
+                        </h5>
+                        <button onClick={() => setShowAssignManager(!showAssignManager)}
+                          className="text-xs text-brand-600 hover:text-brand-700">
+                          {showAssignManager ? 'Cancel' : 'Assign'}
+                        </button>
+                      </div>
+                      {showAssignManager && (
+                        <AssignManagerPanel
+                          candidateId={candidateId}
+                          interviewers={interviewers}
+                          onAssigned={() => { setShowAssignManager(false); onStatusChange(); }}
+                        />
+                      )}
+                    </div>
+                  )}
+
                   {(candidate.interviewRounds || []).map((round: any) => (
                     <InterviewRoundCard key={round.id} round={round}
                       onScore={(data) => handleScoreRound(round.id, data)}
                       onDelete={() => handleDeleteRound(round.id)} />
                   ))}
 
-                  {(!candidate.interviewRounds || candidate.interviewRounds.length === 0) && (
+                  {(!candidate.interviewRounds || candidate.interviewRounds.length === 0) && !showInterviewPanel && (
                     <p className="text-center text-gray-400 text-sm py-8">No interview rounds yet</p>
+                  )}
+
+                  {/* Final Score Display */}
+                  {(completedRounds.length > 0 || aiScore != null) && (
+                    <div className="layer-card p-4 mt-4 border-l-4 border-brand-500">
+                      <h5 className="text-sm font-display font-bold text-gray-900 mb-3 flex items-center gap-2">
+                        <Target size={16} className="text-brand-600" /> Score Summary
+                      </h5>
+                      <div className="space-y-2 text-sm">
+                        {candidate.integrityScore != null && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Registration Integrity</span>
+                            <span className="font-medium text-gray-800" data-mono>{Number(candidate.integrityScore).toFixed(0)}%</span>
+                          </div>
+                        )}
+                        {candidate.energyScore != null && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Registration Energy</span>
+                            <span className="font-medium text-gray-800" data-mono>{Number(candidate.energyScore).toFixed(0)}%</span>
+                          </div>
+                        )}
+                        {candidate.intelligenceScore != null && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Registration Potential</span>
+                            <span className="font-medium text-gray-800" data-mono>{Number(candidate.intelligenceScore).toFixed(0)}%</span>
+                          </div>
+                        )}
+                        {aiScore != null && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">AI Resume Score</span>
+                            <span className="font-medium text-gray-800" data-mono>{aiScore.toFixed(0)}/100</span>
+                          </div>
+                        )}
+                        {completedRounds.map((r: any, i: number) => (
+                          <div key={r.id} className="flex justify-between">
+                            <span className="text-gray-500">Round {r.roundNumber}: {r.roundName}</span>
+                            <span className="font-medium text-gray-800" data-mono>{r.overallScore}/10</span>
+                          </div>
+                        ))}
+                        <div className="border-t border-gray-200 pt-2 mt-2 flex justify-between">
+                          <span className="font-display font-bold text-gray-900">FINAL SCORE</span>
+                          <span className="font-display font-bold text-brand-600 text-lg" data-mono>
+                            {avgRoundScore != null ? avgRoundScore.toFixed(1) : '\u2014'}/10
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* HR Final Actions */}
+                  {isHR && (
+                    <div className="layer-card p-4 mt-4">
+                      <h5 className="text-sm font-display font-bold text-gray-900 mb-3">Final Decision</h5>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleStatusChange('SELECTED')}
+                          disabled={candidate.status === 'SELECTED'}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors disabled:opacity-40">
+                          <CheckCircle2 size={14} /> Selected
+                        </button>
+                        <button onClick={() => handleStatusChange('REJECTED')}
+                          disabled={candidate.status === 'REJECTED'}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-colors disabled:opacity-40">
+                          <XCircle size={14} /> Rejected
+                        </button>
+                        <button onClick={() => handleStatusChange('ON_HOLD')}
+                          disabled={candidate.status === 'ON_HOLD'}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-40">
+                          <PauseCircle size={14} /> On Hold
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
@@ -849,7 +1298,270 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
       {hireModal && candidate && (
         <HireModal candidate={candidate} onClose={() => setHireModal(false)} onSuccess={() => { onStatusChange(); onClose(); }} />
       )}
+
+      {/* Resume Preview Modal */}
+      <AnimatePresence>
+        {resumePreview && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+            onClick={() => setResumePreview(null)}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl h-[85vh] flex flex-col">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+                <h3 className="text-sm font-semibold text-gray-800">Resume Preview</h3>
+                <div className="flex items-center gap-2">
+                  <a href={resumePreview} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1">
+                    <ExternalLink size={12} /> Open in new tab
+                  </a>
+                  <button onClick={() => setResumePreview(null)}
+                    className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} className="text-gray-400" /></button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <iframe src={resumePreview} className="w-full h-full border-0" title="Resume" />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
+  );
+}
+
+// =================== Interview Execution Panel ===================
+function InterviewExecutionPanel({ candidate, interviewers, onClose, onStatusChange }: {
+  candidate: any; interviewers: any[]; onClose: () => void; onStatusChange: () => void;
+}) {
+  const [aiChat, { isLoading: isChatting }] = useAiChatMutation();
+  const [aiResponse, setAiResponse] = useState('');
+  const [score, setScore] = useState(50);
+  const [feedback, setFeedback] = useState('');
+  const [scoreSubmitted, setScoreSubmitted] = useState(false);
+  const [addRound] = useAddInterviewRoundMutation();
+  const [updateRound] = useUpdateInterviewRoundMutation();
+
+  const jobTitle = candidate.jobOpening?.title || 'this position';
+
+  const handleGenerateQuestions = async () => {
+    const prompt = `Generate 8 interview questions with expected answers for a candidate applying for ${jobTitle}. Include 3 behavioral, 3 technical, and 2 situational questions. Format as numbered list with expected answer after each question.`;
+    try {
+      const res = await aiChat({ message: prompt, context: 'hr-recruitment' }).unwrap();
+      const text = res?.data?.response || res?.data?.message || JSON.stringify(res?.data);
+      setAiResponse(text);
+    } catch {
+      toast.error('AI assistant unavailable. Please configure AI in settings.');
+    }
+  };
+
+  const handleCopyAll = () => {
+    if (aiResponse) {
+      navigator.clipboard.writeText(aiResponse);
+      toast.success('Copied to clipboard');
+    }
+  };
+
+  const handleSubmitScore = async () => {
+    // Create an HR round and immediately score it
+    try {
+      const roundRes = await addRound({
+        walkInId: candidate.id,
+        roundName: 'HR Interview',
+        interviewerId: '',
+      }).unwrap();
+      const newRoundId = roundRes?.data?.id;
+      if (newRoundId) {
+        await updateRound({
+          walkInId: candidate.id,
+          roundId: newRoundId,
+          data: {
+            overallScore: Math.round(score / 10), // Convert 0-100 to 0-10 scale
+            remarks: feedback,
+            result: score >= 50 ? 'PASSED' : 'FAILED',
+            status: 'COMPLETED',
+          },
+        }).unwrap();
+      }
+      setScoreSubmitted(true);
+      toast.success('Interview score submitted');
+      onStatusChange();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to submit score');
+    }
+  };
+
+  const SCORE_LABELS: Record<number, { label: string; color: string }> = {
+    0: { label: 'Poor', color: 'text-red-600' },
+    25: { label: 'Below Average', color: 'text-orange-600' },
+    50: { label: 'Average', color: 'text-amber-600' },
+    75: { label: 'Good', color: 'text-emerald-600' },
+    100: { label: 'Excellent', color: 'text-emerald-700' },
+  };
+
+  const getScoreLabel = (val: number) => {
+    if (val <= 12) return SCORE_LABELS[0];
+    if (val <= 37) return SCORE_LABELS[25];
+    if (val <= 62) return SCORE_LABELS[50];
+    if (val <= 87) return SCORE_LABELS[75];
+    return SCORE_LABELS[100];
+  };
+
+  const currentLabel = getScoreLabel(score);
+
+  return (
+    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+      className="layer-card border-2 border-brand-200 overflow-hidden">
+      {/* Panel Header */}
+      <div className="flex items-center justify-between px-5 py-3 bg-brand-50 border-b border-brand-100">
+        <h5 className="text-sm font-display font-bold text-brand-800 flex items-center gap-2">
+          <ClipboardCheck size={16} /> Interview Execution Panel
+        </h5>
+        <button onClick={onClose} className="text-brand-400 hover:text-brand-600"><X size={16} /></button>
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Top: Candidate Info + AI Questions side by side */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* LEFT: Candidate Info */}
+          <div className="space-y-3">
+            <h6 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Candidate Info</h6>
+            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-brand-50 flex items-center justify-center">
+                  <span className="text-xs font-bold text-brand-600">{getInitials(candidate.fullName)}</span>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">{candidate.fullName}</p>
+                  <p className="text-xs text-gray-400">{candidate.email} {candidate.phone ? `| ${candidate.phone}` : ''}</p>
+                </div>
+              </div>
+              {candidate.aiScore && (
+                <div className="flex items-center gap-2 text-xs">
+                  <Star size={12} className="text-amber-400 fill-amber-400" />
+                  <span className="text-gray-500">AI Resume Score:</span>
+                  <span className="font-bold text-gray-800" data-mono>{Number(candidate.aiScore).toFixed(0)}/100</span>
+                </div>
+              )}
+              <p className="text-xs text-gray-500">
+                {candidate.jobOpening?.title} {candidate.jobOpening?.department ? `| ${candidate.jobOpening.department}` : ''}
+              </p>
+            </div>
+          </div>
+
+          {/* RIGHT: AI Question Generator */}
+          <div className="space-y-3">
+            <h6 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Question Generator</h6>
+            <div className="flex gap-2">
+              <button onClick={handleGenerateQuestions} disabled={isChatting}
+                className="btn-primary text-xs flex items-center gap-1.5 flex-1 justify-center disabled:opacity-50">
+                {isChatting ? <Loader2 size={12} className="animate-spin" /> : <Brain size={12} />}
+                {aiResponse ? 'Regenerate' : 'Generate Interview Questions'}
+              </button>
+              {aiResponse && (
+                <button onClick={handleCopyAll} className="btn-secondary text-xs flex items-center gap-1.5">
+                  <Copy size={12} /> Copy All
+                </button>
+              )}
+            </div>
+            {(isChatting || aiResponse) && (
+              <div className="bg-gray-50 rounded-xl p-3 max-h-48 overflow-y-auto border border-gray-100">
+                {isChatting && !aiResponse ? (
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <Loader2 size={12} className="animate-spin" /> Generating questions...
+                  </div>
+                ) : (
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{aiResponse}</pre>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* BOTTOM: Score Submission */}
+        {!scoreSubmitted ? (
+          <div className="border-t border-gray-100 pt-4 space-y-4">
+            <h6 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Score Submission</h6>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-600">Interview Score</span>
+                <span className={cn('text-sm font-bold', currentLabel.color)} data-mono>
+                  {score}/100 - {currentLabel.label}
+                </span>
+              </div>
+              <input type="range" min={0} max={100} step={1} value={score}
+                onChange={e => setScore(Number(e.target.value))}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand-600" />
+              <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+                <span>0 Poor</span><span>25 Below Avg</span><span>50 Average</span><span>75 Good</span><span>100 Excellent</span>
+              </div>
+            </div>
+            <textarea value={feedback} onChange={e => setFeedback(e.target.value)}
+              className="input-glass w-full h-20 resize-none text-sm" placeholder="Interview feedback and observations..." />
+            <button onClick={handleSubmitScore}
+              className="btn-primary text-sm flex items-center gap-2 w-full justify-center">
+              <Send size={14} /> Submit Score
+            </button>
+          </div>
+        ) : (
+          <div className="border-t border-gray-100 pt-4">
+            <div className="bg-emerald-50 rounded-xl p-4 text-center">
+              <CheckCircle2 size={28} className="text-emerald-500 mx-auto mb-2" />
+              <p className="text-sm font-semibold text-emerald-800">Score submitted ({score}/100)</p>
+              <p className="text-xs text-emerald-600 mt-1">{feedback && `"${feedback.slice(0, 80)}${feedback.length > 80 ? '...' : ''}"`}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+// =================== Assign Manager Panel ===================
+function AssignManagerPanel({ candidateId, interviewers, onAssigned }: {
+  candidateId: string; interviewers: any[]; onAssigned: () => void;
+}) {
+  const [selectedManager, setSelectedManager] = useState('');
+  const [addRound, { isLoading }] = useAddInterviewRoundMutation();
+
+  const managers = interviewers.filter((i: any) =>
+    i.role === 'MANAGER' || i.role === 'SUPER_ADMIN' || i.role === 'ADMIN'
+  );
+
+  const handleAssign = async () => {
+    if (!selectedManager) { toast.error('Please select a manager'); return; }
+    try {
+      await addRound({
+        walkInId: candidateId,
+        roundName: 'Manager Interview',
+        interviewerId: selectedManager,
+      }).unwrap();
+      const managerName = managers.find((m: any) => m.id === selectedManager)?.email || 'Manager';
+      toast.success(`Interview assigned to ${managerName}`);
+      onAssigned();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to assign');
+    }
+  };
+
+  return (
+    <div className="space-y-3 mt-2">
+      <select value={selectedManager} onChange={e => setSelectedManager(e.target.value)}
+        className="input-glass w-full text-sm">
+        <option value="">Select a manager...</option>
+        {managers.map((m: any) => (
+          <option key={m.id} value={m.id}>{m.email} {m.role ? `(${m.role})` : ''}</option>
+        ))}
+        {managers.length === 0 && interviewers.map((i: any) => (
+          <option key={i.id} value={i.id}>{i.email}</option>
+        ))}
+      </select>
+      <button onClick={handleAssign} disabled={isLoading || !selectedManager}
+        className="btn-primary text-xs flex items-center gap-1.5 disabled:opacity-50">
+        {isLoading ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} />}
+        Assign Interview
+      </button>
+    </div>
   );
 }
 
@@ -880,7 +1592,7 @@ function InterviewRoundCard({ round, onScore, onDelete }: { round: any; onScore:
           <h5 className="text-sm font-semibold text-gray-800">Round {round.roundNumber}: {round.roundName}</h5>
           <p className="text-xs text-gray-400">
             {round.interviewerName || round.interviewer?.email || 'No interviewer assigned'}
-            {round.scheduledAt && ` · ${formatDate(round.scheduledAt)}`}
+            {round.scheduledAt && ` \u00B7 ${formatDate(round.scheduledAt)}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -930,177 +1642,164 @@ function InterviewRoundCard({ round, onScore, onDelete }: { round: any; onScore:
   );
 }
 
-// =================== Tab: AI Screened ===================
+// =================== Tab: AI Screened (Public Applications) ===================
 function AIScreenedTab() {
-  const { data: uploadsRes, isLoading } = useGetBulkUploadsQuery();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [deleteUpload] = useDeleteBulkUploadMutation();
-  const [deleteItem] = useDeleteBulkResumeItemMutation();
-  const [createApp] = useCreateApplicationFromItemMutation();
-  const [sendJobLink] = useSendWhatsAppJobLinkMutation();
+  const navigate = useNavigate();
+  const [page, setPage] = useState(1);
+  const { data: res, isLoading } = useGetPublicApplicationsQuery({ page, limit: 20 });
+  const applications = res?.data || [];
+  const meta = res?.meta;
 
-  const uploads = uploadsRes?.data || [];
-
-  const handleDeleteUpload = async (id: string) => {
-    if (!confirm('Delete this entire upload batch and all resumes?')) return;
-    try { await deleteUpload(id).unwrap(); toast.success('Upload deleted'); } catch { toast.error('Failed'); }
+  const scoreColor = (s: number | null | undefined) => {
+    if (s == null) return 'text-gray-400 bg-gray-50';
+    if (s >= 70) return 'text-emerald-600 bg-emerald-50';
+    if (s >= 50) return 'text-amber-600 bg-amber-50';
+    return 'text-red-500 bg-red-50';
   };
 
-  const handleDeleteItem = async (id: string) => {
-    if (!confirm('Delete this resume?')) return;
-    try { await deleteItem(id).unwrap(); toast.success('Resume deleted'); } catch { toast.error('Failed'); }
+  const STATUS_BADGE: Record<string, { label: string; class: string }> = {
+    SUBMITTED: { label: 'Submitted', class: 'bg-blue-50 text-blue-600' },
+    SHORTLISTED: { label: 'Shortlisted', class: 'bg-indigo-50 text-indigo-600' },
+    INTERVIEW_SCHEDULED: { label: 'Interview Scheduled', class: 'bg-purple-50 text-purple-600' },
+    SELECTED: { label: 'Selected', class: 'bg-emerald-50 text-emerald-600' },
+    REJECTED: { label: 'Rejected', class: 'bg-red-50 text-red-500' },
+    ON_HOLD: { label: 'On Hold', class: 'bg-amber-50 text-amber-600' },
   };
-
-  const handleCreateApp = async (itemId: string, jobId: string) => {
-    try { await createApp({ itemId, jobOpeningId: jobId }).unwrap(); toast.success('Application created'); } catch (e: any) { toast.error(e?.data?.error?.message || 'Failed'); }
-  };
-
-  const handleSendInvite = async (phone: string, name: string, jobTitle: string, jobId: string) => {
-    const jobUrl = `${window.location.origin}/jobs?apply=${jobId}`;
-    try { await sendJobLink({ phone, candidateName: name, jobTitle, jobUrl }).unwrap(); toast.success('WhatsApp invite sent!'); } catch { toast.error('Failed to send'); }
-  };
-
-  const scoreColor = (s: number) => s >= 70 ? 'text-emerald-600 bg-emerald-50' : s >= 50 ? 'text-amber-600 bg-amber-50' : 'text-red-500 bg-red-50';
 
   return (
     <>
       <div className="flex items-center gap-3 mb-6">
         <Sparkles className="text-brand-500" size={24} />
         <div>
-          <p className="text-sm font-medium text-gray-600">AI-scored resumes from bulk uploads</p>
+          <p className="text-sm font-medium text-gray-600">Public applications submitted via AI-powered job forms</p>
         </div>
       </div>
 
       {isLoading ? (
         <div className="layer-card p-16 text-center"><Loader2 className="w-8 h-8 animate-spin text-brand-600 mx-auto" /></div>
-      ) : uploads.length === 0 ? (
+      ) : applications.length === 0 ? (
         <div className="layer-card p-16 text-center">
           <Sparkles size={48} className="mx-auto text-gray-200 mb-4" />
-          <h3 className="text-lg font-display font-semibold text-gray-600 mb-1">No bulk uploads yet</h3>
-          <p className="text-sm text-gray-400">Use "Bulk Upload" on the Job Openings tab to upload resumes for AI scoring</p>
+          <h3 className="text-lg font-display font-semibold text-gray-600 mb-1">No public applications yet</h3>
+          <p className="text-sm text-gray-400">Candidates can apply via the public job application link with AI-generated MCQ questions</p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {uploads.map((upload: any) => {
-            const isExpanded = expandedId === upload.id;
-            return (
-              <div key={upload.id} className="layer-card overflow-hidden">
-                {/* Upload Header */}
-                <button onClick={() => setExpandedId(isExpanded ? null : upload.id)}
-                  className="w-full flex items-center justify-between p-4 hover:bg-gray-50/50 transition-colors text-left">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
-                      <Sparkles size={18} className="text-brand-600" />
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-gray-800 text-sm">{upload.jobOpening?.title || 'Unknown Job'}</h4>
-                      <p className="text-xs text-gray-400">
-                        {upload.totalFiles} resumes · {upload.processedFiles} scored · {formatDate(upload.createdAt)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-xs px-2 py-1 rounded-lg font-medium ${
-                      upload.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-600' :
-                      upload.status === 'PROCESSING' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
-                      {upload.status}
-                    </span>
-                    <button onClick={(e) => { e.stopPropagation(); handleDeleteUpload(upload.id); }}
-                      className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>
-                    <ChevronRight size={16} className={cn('text-gray-400 transition-transform', isExpanded && 'rotate-90')} />
-                  </div>
-                </button>
+        <div className="layer-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50/50 border-b border-gray-100">
+                  <th className="text-left py-3 px-4 text-xs font-medium text-gray-500">Candidate UID</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-gray-500">Name</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 hidden lg:table-cell">Job</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 hidden md:table-cell">Applied At</th>
+                  <th className="text-center py-3 px-4 text-xs font-medium text-gray-500">Resume</th>
+                  <th className="text-center py-3 px-4 text-xs font-medium text-gray-500">MCQ</th>
+                  <th className="text-center py-3 px-4 text-xs font-medium text-gray-500 hidden lg:table-cell">Intelligence</th>
+                  <th className="text-center py-3 px-4 text-xs font-medium text-gray-500 hidden lg:table-cell">Integrity</th>
+                  <th className="text-center py-3 px-4 text-xs font-medium text-gray-500 hidden lg:table-cell">Energy</th>
+                  <th className="text-center py-3 px-4 text-xs font-medium text-gray-500">Total AI</th>
+                  <th className="text-center py-3 px-4 text-xs font-medium text-gray-500">Status</th>
+                  <th className="text-right py-3 px-4 text-xs font-medium text-gray-500">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {applications.map((app: any) => {
+                  const resumeScore = typeof app.resumeScoreData === 'object' && app.resumeScoreData?.score != null
+                    ? Number(app.resumeScoreData.score) : null;
+                  const badge = STATUS_BADGE[app.status] || { label: app.status, class: 'bg-gray-100 text-gray-500' };
+                  return (
+                    <tr key={app.id} className="border-b border-gray-50 hover:bg-gray-50/30 cursor-pointer"
+                      onClick={() => navigate(`/recruitment/public-applications/${app.id}`)}>
+                      <td className="py-3 px-4">
+                        <span className="text-xs font-mono text-brand-600 bg-brand-50 px-2 py-0.5 rounded" data-mono>{app.candidateUid}</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <p className="font-medium text-gray-800">{app.candidateName}</p>
+                        {app.email && <p className="text-xs text-gray-400">{app.email}</p>}
+                      </td>
+                      <td className="py-3 px-4 hidden lg:table-cell">
+                        <span className="text-xs text-gray-500">{app.jobOpening?.title || '—'}</span>
+                      </td>
+                      <td className="py-3 px-4 hidden md:table-cell">
+                        <span className="text-xs text-gray-500">{formatDate(app.createdAt)}</span>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        {resumeScore != null ? (
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${scoreColor(resumeScore)}`} data-mono>
+                            {resumeScore.toFixed(0)}
+                          </span>
+                        ) : <span className="text-xs text-gray-300">—</span>}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        {app.mcqScore != null ? (
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${scoreColor(Number(app.mcqScore))}`} data-mono>
+                            {Number(app.mcqScore).toFixed(0)}
+                          </span>
+                        ) : <span className="text-xs text-gray-300">—</span>}
+                      </td>
+                      <td className="py-3 px-4 text-center hidden lg:table-cell">
+                        {app.intelligenceScore != null ? (
+                          <span className="text-xs font-medium text-gray-700" data-mono>{Number(app.intelligenceScore).toFixed(1)}</span>
+                        ) : <span className="text-xs text-gray-300">—</span>}
+                      </td>
+                      <td className="py-3 px-4 text-center hidden lg:table-cell">
+                        {app.integrityScore != null ? (
+                          <span className="text-xs font-medium text-gray-700" data-mono>{Number(app.integrityScore).toFixed(1)}</span>
+                        ) : <span className="text-xs text-gray-300">—</span>}
+                      </td>
+                      <td className="py-3 px-4 text-center hidden lg:table-cell">
+                        {app.energyScore != null ? (
+                          <span className="text-xs font-medium text-gray-700" data-mono>{Number(app.energyScore).toFixed(1)}</span>
+                        ) : <span className="text-xs text-gray-300">—</span>}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        {app.totalAiScore != null ? (
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${scoreColor(Number(app.totalAiScore))}`} data-mono>
+                            {Number(app.totalAiScore).toFixed(1)}
+                          </span>
+                        ) : <span className="text-xs text-gray-300">—</span>}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className={`text-xs px-2 py-1 rounded-lg font-medium ${badge.class}`}>
+                          {badge.label}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button onClick={(e) => { e.stopPropagation(); navigate(`/recruitment/public-applications/${app.id}`); }}
+                          className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1 ml-auto">
+                          <Eye size={12} /> View
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-                {/* Expanded Items */}
-                <AnimatePresence>
-                  {isExpanded && (
-                    <ExpandedUpload uploadId={upload.id} jobId={upload.jobOpeningId}
-                      jobTitle={upload.jobOpening?.title || ''}
-                      onDeleteItem={handleDeleteItem} onCreateApp={handleCreateApp}
-                      onSendInvite={handleSendInvite} scoreColor={scoreColor} />
-                  )}
-                </AnimatePresence>
+          {/* Pagination */}
+          {meta && meta.totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+              <p className="text-xs text-gray-400">
+                Showing {((meta.page - 1) * meta.limit) + 1}–{Math.min(meta.page * meta.limit, meta.total)} of {meta.total}
+              </p>
+              <div className="flex gap-1">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={!meta.hasPrev}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="px-3 py-1.5 text-xs text-gray-600 font-medium" data-mono>{meta.page} / {meta.totalPages}</span>
+                <button onClick={() => setPage(p => p + 1)} disabled={!meta.hasNext}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
+                  <ChevronRight size={16} />
+                </button>
               </div>
-            );
-          })}
+            </div>
+          )}
         </div>
       )}
     </>
-  );
-}
-
-function ExpandedUpload({ uploadId, jobId, jobTitle, onDeleteItem, onCreateApp, onSendInvite, scoreColor }: any) {
-  const { data: res, isLoading } = useGetBulkUploadQuery(uploadId);
-  const items = res?.data?.items || [];
-
-  if (isLoading) return <div className="p-4 text-center"><Loader2 className="w-5 h-5 animate-spin text-brand-600 mx-auto" /></div>;
-
-  return (
-    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-      exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-      <div className="border-t border-gray-100">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50/50 border-b border-gray-100">
-              <th className="text-left py-2.5 px-4 text-xs font-medium text-gray-500">#</th>
-              <th className="text-left py-2.5 px-4 text-xs font-medium text-gray-500">Candidate</th>
-              <th className="text-left py-2.5 px-4 text-xs font-medium text-gray-500 hidden md:table-cell">Contact</th>
-              <th className="text-center py-2.5 px-4 text-xs font-medium text-gray-500">Score</th>
-              <th className="text-right py-2.5 px-4 text-xs font-medium text-gray-500">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item: any, idx: number) => (
-              <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/30">
-                <td className="py-2.5 px-4 text-xs text-gray-400">{idx + 1}</td>
-                <td className="py-2.5 px-4">
-                  <p className="font-medium text-gray-800">{item.candidateName || item.fileName}</p>
-                  <p className="text-xs text-gray-400">{item.fileName}</p>
-                </td>
-                <td className="py-2.5 px-4 hidden md:table-cell">
-                  {item.email && <p className="text-xs text-gray-500">{item.email}</p>}
-                  {item.phone && <p className="text-xs text-gray-500">{item.phone}</p>}
-                  {!item.email && !item.phone && <span className="text-xs text-gray-300">—</span>}
-                </td>
-                <td className="py-2.5 px-4 text-center">
-                  {item.aiScore ? (
-                    <span className={`text-xs font-bold px-2 py-1 rounded-lg ${scoreColor(Number(item.aiScore))}`}>
-                      {Number(item.aiScore).toFixed(0)}/100
-                    </span>
-                  ) : <span className="text-xs text-gray-300">{item.status}</span>}
-                </td>
-                <td className="py-2.5 px-4 text-right">
-                  <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                    {item.fileUrl && (
-                      <a href={item.fileUrl} target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1">
-                        <Eye size={12} /> Resume
-                      </a>
-                    )}
-                    {item.phone && (
-                      <button onClick={() => onSendInvite(item.phone, item.candidateName || 'Candidate', jobTitle, jobId)}
-                        className="text-xs text-emerald-600 hover:text-emerald-700 flex items-center gap-1">
-                        <Mail size={12} /> Invite
-                      </button>
-                    )}
-                    {item.applicationId ? (
-                      <span className="text-xs text-emerald-500 font-medium">Applied</span>
-                    ) : item.status === 'SCORED' && (
-                      <button onClick={() => onCreateApp(item.id, jobId)}
-                        className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">
-                        <UserPlus size={12} /> Create App
-                      </button>
-                    )}
-                    <button onClick={() => onDeleteItem(item.id)}
-                      className="text-xs text-gray-300 hover:text-red-500"><Trash2 size={12} /></button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </motion.div>
   );
 }
 

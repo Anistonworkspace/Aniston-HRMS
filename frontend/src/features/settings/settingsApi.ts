@@ -58,8 +58,11 @@ export const settingsApi = api.injectEndpoints({
       query: (body) => ({ url: '/settings/ai-config', method: 'PUT', body }),
       invalidatesTags: ['AiConfig'],
     }),
-    testAiConnection: builder.mutation<any, void>({
-      query: () => ({ url: '/settings/ai-config/test', method: 'POST' }),
+    testAiConnection: builder.mutation<any, { modelName?: string; baseUrl?: string; provider?: string } | void>({
+      query: (body) => ({ url: '/settings/ai-config/test', method: 'POST', body: body || {} }),
+    }),
+    testAdminNotificationEmail: builder.mutation<any, void>({
+      query: () => ({ url: '/settings/organization/test-admin-email', method: 'POST' }),
     }),
   }),
 });
@@ -84,4 +87,5 @@ export const {
   useGetAiConfigQuery,
   useSaveAiConfigMutation,
   useTestAiConnectionMutation,
+  useTestAdminNotificationEmailMutation,
 } = settingsApi;

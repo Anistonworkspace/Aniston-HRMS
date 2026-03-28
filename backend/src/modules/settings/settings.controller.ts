@@ -107,6 +107,15 @@ export class SettingsController {
     }
   }
 
+  async testAdminNotificationEmail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await settingsService.testAdminNotificationEmail(req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getTeamsConfig(req: Request, res: Response, next: NextFunction) {
     try {
       const config = await settingsService.getTeamsConfig(req.user!.organizationId);

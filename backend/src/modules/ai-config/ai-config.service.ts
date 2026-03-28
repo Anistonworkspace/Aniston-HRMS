@@ -34,14 +34,31 @@ export class AiConfigService {
       orderBy: { updatedAt: 'desc' },
     });
 
-    if (!config) return null;
+    if (!config) {
+      // Return a default shape so the frontend knows "no config yet" vs "config exists"
+      return {
+        id: null,
+        provider: 'DEEPSEEK',
+        apiKeyMasked: '',
+        hasApiKey: false,
+        baseUrl: null,
+        modelName: 'deepseek-chat',
+        isActive: false,
+        updatedAt: null,
+        updatedBy: null,
+      };
+    }
 
     // Mask the API key — show only last 4 characters
     let maskedKey = '••••••••';
+    let hasApiKey = false;
     try {
       const raw = decrypt(config.apiKeyEncrypted);
-      if (raw.length > 4) {
-        maskedKey = '••••••••' + raw.slice(-4);
+      if (raw && raw.length > 0) {
+        hasApiKey = true;
+        if (raw.length > 4) {
+          maskedKey = '••••••••' + raw.slice(-4);
+        }
       }
     } catch {
       // If decryption fails, keep default mask
@@ -51,6 +68,7 @@ export class AiConfigService {
       id: config.id,
       provider: config.provider,
       apiKeyMasked: maskedKey,
+      hasApiKey,
       baseUrl: config.baseUrl,
       modelName: config.modelName,
       isActive: config.isActive,
@@ -144,7 +162,7 @@ export class AiConfigService {
    * @returns `{ success, latencyMs, model, provider, response }` on success,
    *          or `{ success: false, message, provider, model }` on failure.
    */
-  async testConnection(organizationId: string) {
+  async testConnection(organizationId: string, overrides?: { modelName?: string; baseUrl?: string; provider?: string }) {
     const config = await prisma.aiApiConfig.findFirst({
       where: { organizationId, isActive: true },
     });
@@ -153,25 +171,54 @@ export class AiConfigService {
       return { success: false, message: 'No AI provider configured. Please save a configuration first.' };
     }
 
-    const apiKey = decrypt(config.apiKeyEncrypted);
+    let apiKey: string;
+    try {
+      apiKey = decrypt(config.apiKeyEncrypted);
+    } catch {
+      return { success: false, message: 'Failed to decrypt API key. Please re-save your configuration with a new API key.', provider: config.provider, model: config.modelName };
+    }
+
+    if (!apiKey) {
+      return { success: false, message: 'API key is empty. Please save a valid API key first.', provider: config.provider, model: config.modelName };
+    }
+
+    // Use overrides from request body if provided (test what user typed, not just what's saved)
+    const testProvider = overrides?.provider || config.provider;
+    const testModel = overrides?.modelName || config.modelName;
+    const testBaseUrl = overrides?.baseUrl !== undefined ? overrides.baseUrl : config.baseUrl;
+
     const startTime = Date.now();
 
     try {
-      const result = await this.callProvider(config.provider, apiKey, config.modelName, config.baseUrl, 'Say "Hello from Aniston HRMS" in one sentence.');
+      const result = await this.callProvider(testProvider as any, apiKey, testModel, testBaseUrl, 'Say OK in one word.');
       const latencyMs = Date.now() - startTime;
       return {
         success: true,
         latencyMs,
-        model: config.modelName,
-        provider: config.provider,
+        model: testModel,
+        provider: testProvider,
         response: result.slice(0, 200),
       };
     } catch (err: any) {
+      const message = err.message || 'Unknown error';
+      // Parse common API error patterns for user-friendly messages
+      if (message.includes('401') || message.includes('Unauthorized') || message.includes('invalid_api_key')) {
+        return { success: false, message: `Authentication failed: Your ${testProvider} API key is invalid. Please check and re-enter it.`, provider: testProvider, model: testModel };
+      }
+      if (message.includes('404') || message.includes('model_not_found')) {
+        return { success: false, message: `Model "${testModel}" not found for ${testProvider}. Please check the model name.`, provider: testProvider, model: testModel };
+      }
+      if (message.includes('429') || message.includes('rate_limit')) {
+        return { success: false, message: `Rate limit hit for ${testProvider}. Please wait and try again.`, provider: testProvider, model: testModel };
+      }
+      if (message.includes('ENOTFOUND') || message.includes('ECONNREFUSED') || message.includes('fetch failed')) {
+        return { success: false, message: `Cannot reach ${testProvider} API. Check your network connection or base URL.`, provider: testProvider, model: testModel };
+      }
       return {
         success: false,
-        message: `Connection failed: ${err.message}`,
-        provider: config.provider,
-        model: config.modelName,
+        message: `Connection failed: ${message.slice(0, 300)}`,
+        provider: testProvider,
+        model: testModel,
       };
     }
   }
@@ -230,7 +277,9 @@ export class AiConfigService {
           ? 'https://api.openai.com/v1/chat/completions'
           : provider === 'DEEPSEEK'
           ? 'https://api.deepseek.com/v1/chat/completions'
-          : `${baseUrl}/v1/chat/completions`;
+          : baseUrl?.endsWith('/v1') || baseUrl?.endsWith('/v1/')
+            ? `${baseUrl.replace(/\/+$/, '')}/chat/completions`
+            : `${baseUrl}/v1/chat/completions`;
 
         const res = await fetch(url, {
           method: 'POST',

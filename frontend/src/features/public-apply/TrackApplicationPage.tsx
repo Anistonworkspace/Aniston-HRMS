@@ -75,6 +75,12 @@ export default function TrackApplicationPage() {
                 <p className="text-sm font-medium text-red-700">Application Not Selected</p>
                 <p className="text-xs text-red-500 mt-1">Thank you for applying. We encourage you to apply for future openings.</p>
               </div>
+            ) : app.status === 'ON_HOLD' ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
+                <Clock size={24} className="mx-auto text-amber-500 mb-2" />
+                <p className="text-sm font-medium text-amber-700">Application On Hold</p>
+                <p className="text-xs text-amber-600 mt-1">Your application is being reviewed. We'll update you soon.</p>
+              </div>
             ) : app.status === 'SELECTED' ? (
               <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
                 <CheckCircle2 size={24} className="mx-auto text-green-500 mb-2" />
@@ -95,6 +101,11 @@ export default function TrackApplicationPage() {
                       <p className={cn('text-sm font-medium', i <= currentStepIndex ? 'text-gray-800' : 'text-gray-400')}>
                         {STEP_LABELS[s]}
                       </p>
+                      {s === 'INTERVIEW_SCHEDULED' && app.status === 'INTERVIEW_SCHEDULED' && app.interviewDate && (
+                        <p className="text-xs text-brand-600 flex items-center gap-1 mt-0.5">
+                          <Clock size={11} /> {new Date(app.interviewDate).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} at {new Date(app.interviewDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
                     </div>
                   </div>
                 ))}

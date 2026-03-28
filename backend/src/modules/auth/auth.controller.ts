@@ -7,6 +7,7 @@ import { redis } from '../../lib/redis.js';
 import { decrypt } from '../../utils/encryption.js';
 import { env } from '../../config/env.js';
 import { buildAuthorizationUrl, exchangeCodeForTokens, getUserProfile } from '../../lib/microsoftGraph.js';
+import { employeeService } from '../employee/employee.service.js';
 
 const OAUTH_STATE_PREFIX = 'oauth_state:';
 
@@ -215,6 +216,24 @@ export class AuthController {
     } catch (err: any) {
       const message = err.message || 'SSO login failed';
       res.redirect(`${env.FRONTEND_URL}/login?error=${encodeURIComponent(message)}`);
+    }
+  }
+  // Employee Activation
+  async validateActivation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await employeeService.validateActivationToken(req.params.token);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async completeActivation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await employeeService.completeActivation(req.params.token);
+      res.json({ success: true, data: result, message: result.message });
+    } catch (err) {
+      next(err);
     }
   }
 }

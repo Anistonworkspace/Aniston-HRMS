@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, Check, Plus, X, Eye, Shield, BookOpen, Users, Laptop, Heart } from 'lucide-react';
-import { useGetPoliciesQuery, useAcknowledgePolicyMutation } from './policyApi';
+import { FileText, Check, Plus, X, Eye, Shield, BookOpen, Users, Laptop, Heart, Loader2 } from 'lucide-react';
+import { useGetPoliciesQuery, useGetPolicyQuery, useAcknowledgePolicyMutation, useCreatePolicyMutation } from './policyApi';
+import { useAppSelector } from '../../app/store';
 import { cn, formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -27,14 +28,19 @@ const CATEGORY_LABELS: Record<string, string> = {
   HEALTH_SAFETY: 'Health & Safety',
 };
 
+const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+
 export default function PoliciesPage() {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [viewingPolicy, setViewingPolicy] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const { data: policiesRes } = useGetPoliciesQuery({ category: selectedCategory || undefined });
   const [acknowledgePolicy] = useAcknowledgePolicyMutation();
+  const user = useAppSelector((s) => s.auth.user);
 
   const policies = policiesRes?.data || [];
   const categories = Object.keys(CATEGORY_LABELS);
+  const canCreate = user && ADMIN_ROLES.includes(user.role);
 
   const handleAcknowledge = async (id: string) => {
     try {
@@ -52,6 +58,16 @@ export default function PoliciesPage() {
           <h1 className="text-2xl font-display font-bold text-gray-900">Policies</h1>
           <p className="text-gray-500 text-sm mt-0.5">Company policies and guidelines</p>
         </div>
+        {canCreate && (
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setShowCreateModal(true)}
+            className="btn-primary flex items-center gap-2"
+          >
+            <Plus size={18} /> Create Policy
+          </motion.button>
+        )}
       </div>
 
       {/* Category filter chips */}
@@ -133,6 +149,176 @@ export default function PoliciesPage() {
           ))}
         </div>
       )}
+
+      {/* Create Policy Modal */}
+      <AnimatePresence>
+        {showCreateModal && <CreatePolicyModal onClose={() => setShowCreateModal(false)} />}
+      </AnimatePresence>
+
+      {/* Policy Detail Modal */}
+      <AnimatePresence>
+        {viewingPolicy && <PolicyDetailModal policyId={viewingPolicy} onClose={() => setViewingPolicy(null)} />}
+      </AnimatePresence>
     </div>
+  );
+}
+
+function CreatePolicyModal({ onClose }: { onClose: () => void }) {
+  const [createPolicy, { isLoading }] = useCreatePolicyMutation();
+  const [form, setForm] = useState({ title: '', category: 'HR_GENERAL', content: '', version: '1.0' });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await createPolicy({
+        title: form.title,
+        category: form.category,
+        content: form.content,
+        version: form.version,
+      }).unwrap();
+      toast.success('Policy created!');
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to create policy');
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-lg p-6"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-display font-semibold text-gray-800">Create Policy</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
+            <X size={18} className="text-gray-400" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Title *</label>
+            <input
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              className="input-glass w-full"
+              placeholder="e.g. Remote Work Policy"
+              required
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Category *</label>
+              <select
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value })}
+                className="input-glass w-full"
+              >
+                {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Version</label>
+              <input
+                value={form.version}
+                onChange={(e) => setForm({ ...form, version: e.target.value })}
+                className="input-glass w-full"
+                placeholder="1.0"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Content *</label>
+            <textarea
+              value={form.content}
+              onChange={(e) => setForm({ ...form, content: e.target.value })}
+              className="input-glass w-full min-h-48 resize-y"
+              placeholder="Write the full policy content here..."
+              required
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+            <motion.button
+              type="submit"
+              disabled={isLoading}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="btn-primary flex-1 flex items-center justify-center gap-2"
+            >
+              {isLoading && <Loader2 size={16} className="animate-spin" />} Create
+            </motion.button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function PolicyDetailModal({ policyId, onClose }: { policyId: string; onClose: () => void }) {
+  const { data: policyRes, isLoading } = useGetPolicyQuery(policyId);
+  const policy = policyRes?.data;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl p-6 max-h-[80vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-display font-semibold text-gray-800">
+            {isLoading ? 'Loading...' : policy?.title || 'Policy'}
+          </h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
+            <X size={18} className="text-gray-400" />
+          </button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 size={24} className="animate-spin text-brand-500" />
+          </div>
+        ) : policy ? (
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <span className={cn(
+                'px-2.5 py-1 rounded-lg text-xs font-medium bg-brand-50 text-brand-700'
+              )}>
+                {CATEGORY_LABELS[policy.category] || policy.category}
+              </span>
+              <span className="text-xs text-gray-400 font-mono" data-mono>v{policy.version}</span>
+              <span className="text-xs text-gray-400">
+                {policy._count?.acknowledgments || 0} acknowledged
+              </span>
+            </div>
+            <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap leading-relaxed">
+              {policy.content}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 text-center py-8">Policy not found</p>
+        )}
+
+        <div className="flex justify-end pt-4 mt-4 border-t border-gray-100">
+          <button onClick={onClose} className="btn-secondary">Close</button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }

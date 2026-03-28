@@ -27,6 +27,24 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
       </div>
     </div>
   `,
+  'employee-invite': (ctx) => `
+    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 32px; border-radius: 12px 12px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">You're Invited to Join ${ctx.orgName}!</h1>
+      </div>
+      <div style="padding: 32px; background: #fff; border: 1px solid #E5E7EB; border-radius: 0 0 12px 12px;">
+        <p>Hello,</p>
+        <p>You've been invited to join <strong>${ctx.orgName}</strong> on Aniston HRMS. Click the button below to accept your invitation and begin the onboarding process:</p>
+        <a href="${ctx.inviteUrl}" style="display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; margin: 16px 0;">
+          Accept Invitation
+        </a>
+        <p style="color: #6B7280; font-size: 14px;">This invitation expires on <strong>${new Date(ctx.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</strong> (72 hours from now).</p>
+        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
+        <p style="color: #6B7280; font-size: 13px;">If the button above doesn't work, copy and paste this link into your browser:</p>
+        <p style="color: #4F46E5; font-size: 13px; word-break: break-all;">${ctx.inviteUrl}</p>
+      </div>
+    </div>
+  `,
   'password-reset': (ctx) => `
     <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="padding: 32px; background: #fff; border: 1px solid #E5E7EB; border-radius: 12px;">
@@ -90,6 +108,29 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
         <p>Your exit process from Aniston Technologies has been completed successfully.</p>
         <p>All no-dues have been cleared and your account has been deactivated.</p>
         <p style="color: #6B7280; margin-top: 24px;">We wish you all the very best for your future endeavours. Thank you for your contributions to Aniston Technologies.</p>
+      </div>
+    </div>
+  `,
+  'job-share': (ctx) => `
+    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #4F46E5, #0D9488); padding: 32px; border-radius: 12px 12px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">Job Opening at ${ctx.orgName}</h1>
+      </div>
+      <div style="padding: 32px; background: #fff; border: 1px solid #E5E7EB; border-radius: 0 0 12px 12px;">
+        <h2 style="color: #111827; margin-top: 0;">${ctx.jobTitle}</h2>
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+          ${ctx.department ? `<tr><td style="padding: 8px 0; color: #6B7280; width: 120px;">Department</td><td style="padding: 8px 0; font-weight: 600;">${ctx.department}</td></tr>` : ''}
+          ${ctx.location ? `<tr><td style="padding: 8px 0; color: #6B7280; width: 120px;">Location</td><td style="padding: 8px 0; font-weight: 600;">${ctx.location}</td></tr>` : ''}
+          ${ctx.type ? `<tr><td style="padding: 8px 0; color: #6B7280; width: 120px;">Type</td><td style="padding: 8px 0; font-weight: 600;">${ctx.type.replace(/_/g, ' ')}</td></tr>` : ''}
+        </table>
+        ${ctx.customMessage ? `<p style="color: #4B5563; margin: 16px 0; padding: 12px; background: #F9FAFB; border-radius: 8px; border-left: 3px solid #4F46E5;">${ctx.customMessage}</p>` : ''}
+        <p>We have an exciting opportunity that might interest you. Click the button below to learn more and apply:</p>
+        <a href="${ctx.applyUrl}" style="display: inline-block; background: #4F46E5; color: white; padding: 14px 28px; border-radius: 8px; text-decoration: none; margin: 16px 0; font-weight: 600;">
+          Apply Now
+        </a>
+        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
+        <p style="color: #6B7280; font-size: 13px;">If the button above doesn't work, copy and paste this link into your browser:</p>
+        <p style="color: #4F46E5; font-size: 13px; word-break: break-all;">${ctx.applyUrl}</p>
       </div>
     </div>
   `,

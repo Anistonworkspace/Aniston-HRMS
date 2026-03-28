@@ -1706,3 +1706,38 @@ model InterviewRound {
   @@index([applicationId])
   @@index([organizationId])
 }
+
+// =====================
+// AI KNOWLEDGE BASE
+// =====================
+
+model AiKnowledgeBase {
+  id              String   @id @default(uuid())
+  organizationId  String
+  title           String
+  content         String   @db.Text
+  addedBy         String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+// =====================
+// EMPLOYEE ACTIVATION
+// =====================
+
+model EmployeeActivation {
+  id             String    @id @default(uuid())
+  employeeId     String
+  token          String    @unique
+  status         String    @default("PENDING") // PENDING, ACTIVATED, EXPIRED
+  expiresAt      DateTime
+  activatedAt    DateTime?
+  organizationId String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([organizationId])
+  @@index([token])
+}

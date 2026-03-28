@@ -28,7 +28,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { cn } from '../../lib/utils';
-import WhatsAppPanel from '../../features/whatsapp/WhatsAppPanel';
+import { useGetWhatsAppStatusQuery, useGetWhatsAppChatsQuery } from '../../features/whatsapp/whatsappApi';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
@@ -64,11 +64,26 @@ const navItems: NavItem[] = [
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
-  const [showWhatsApp, setShowWhatsApp] = useState(false);
   const user = useAppSelector((state) => state.auth.user);
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // WhatsApp unread count — only query when WhatsApp is connected
+  const canSeeWhatsApp = user?.role && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user.role);
+  const { data: whatsAppStatusRes } = useGetWhatsAppStatusQuery(undefined, {
+    skip: !canSeeWhatsApp,
+    pollingInterval: 60000,
+  });
+  const isWhatsAppConnected = whatsAppStatusRes?.data?.isConnected;
+  const { data: whatsAppChatsRes } = useGetWhatsAppChatsQuery(undefined, {
+    skip: !canSeeWhatsApp || !isWhatsAppConnected,
+    pollingInterval: 30000,
+  });
+  const whatsAppUnreadCount = (whatsAppChatsRes?.data || []).reduce(
+    (sum: number, chat: any) => sum + (chat.unreadCount || 0),
+    0
+  );
 
   const handleLogout = () => {
     dispatch({ type: 'auth/logout' });
@@ -139,34 +154,24 @@ export default function Sidebar() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="text-sm whitespace-nowrap"
+                    className="text-sm whitespace-nowrap flex-1"
                   >
                     {isManagement && item.managementName ? item.managementName : item.name}
                   </motion.span>
                 )}
               </AnimatePresence>
+              {item.path === '/whatsapp' && whatsAppUnreadCount > 0 && (
+                <span className="w-5 h-5 rounded-full bg-green-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">
+                  {whatsAppUnreadCount > 99 ? '99+' : whatsAppUnreadCount}
+                </span>
+              )}
             </NavLink>
           );
         })}
       </nav>
 
-      {/* WhatsApp + Logout + Collapse */}
+      {/* Logout + Collapse */}
       <div className="px-2 py-3 border-t border-gray-100 space-y-1">
-        {isManagement && (
-          <button
-            onClick={() => setShowWhatsApp(true)}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 transition-all"
-          >
-            <MessageCircle size={18} className="flex-shrink-0" />
-            <AnimatePresence>
-              {!collapsed && (
-                <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-xs font-medium">
-                  WhatsApp
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </button>
-        )}
         <button
           onClick={handleLogout}
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-all"
@@ -196,8 +201,6 @@ export default function Sidebar() {
       </div>
     </motion.aside>
 
-    {/* WhatsApp Panel */}
-    <WhatsAppPanel isOpen={showWhatsApp} onClose={() => setShowWhatsApp(false)} />
     </>
   );
 }

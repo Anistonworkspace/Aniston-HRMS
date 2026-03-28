@@ -7,6 +7,11 @@ const chatSchema = z.object({
   context: z.enum(['admin', 'hr-recruitment', 'hr-general']).default('admin'),
 });
 
+const trainSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(200, 'Title too long'),
+  content: z.string().min(1, 'Content is required').max(50000, 'Content too long'),
+});
+
 export class AiAssistantController {
   async chat(req: Request, res: Response, next: NextFunction) {
     try {
@@ -28,6 +33,49 @@ export class AiAssistantController {
       const { context } = z.object({ context: z.string().default('admin') }).parse(req.body);
       await aiAssistantService.clearHistory(req.user!.userId, context);
       res.json({ success: true, message: 'Conversation cleared' });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const context = (req.query.context as string) || 'admin';
+      const history = await aiAssistantService.getHistory(req.user!.userId, context);
+      res.json({ success: true, data: history });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async train(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { title, content } = trainSchema.parse(req.body);
+      const doc = await aiAssistantService.addKnowledgeDoc(
+        req.user!.organizationId,
+        req.user!.userId,
+        title,
+        content
+      );
+      res.status(201).json({ success: true, data: doc });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getKnowledge(req: Request, res: Response, next: NextFunction) {
+    try {
+      const docs = await aiAssistantService.getKnowledgeDocs(req.user!.organizationId);
+      res.json({ success: true, data: docs });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteKnowledge(req: Request, res: Response, next: NextFunction) {
+    try {
+      await aiAssistantService.deleteKnowledgeDoc(req.user!.organizationId, req.params.id);
+      res.json({ success: true, message: 'Knowledge document deleted' });
     } catch (err) {
       next(err);
     }

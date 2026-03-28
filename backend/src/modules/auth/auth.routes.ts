@@ -17,4 +17,8 @@ router.get('/sso-status', (req, res, next) => authController.ssoStatus(req, res,
 router.get('/microsoft', (req, res, next) => authController.microsoftLogin(req, res, next));
 router.get('/microsoft/callback', (req, res, next) => authController.microsoftCallback(req, res, next));
 
+// Employee Activation (public, no auth)
+router.get('/activate/:token', (req, res, next) => authController.validateActivation(req, res, next));
+router.patch('/activate/:token/complete', (req, res, next) => authController.completeActivation(req, res, next));
+
 export { router as authRouter };

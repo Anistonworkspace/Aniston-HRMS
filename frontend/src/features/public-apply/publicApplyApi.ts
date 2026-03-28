@@ -5,8 +5,12 @@ export const publicApplyApi = api.injectEndpoints({
     getJobForm: builder.query<any, string>({
       query: (token) => `/jobs/form/${token}`,
     }),
-    submitPublicApplication: builder.mutation<any, { token: string; data: any }>({
-      query: ({ token, data }) => ({ url: `/jobs/form/${token}/apply`, method: 'POST', body: data }),
+    submitPublicApplication: builder.mutation<any, { token: string; formData: FormData }>({
+      query: ({ token, formData }) => ({
+        url: `/jobs/form/${token}/apply`,
+        method: 'POST',
+        body: formData,
+      }),
     }),
     trackApplication: builder.query<any, string>({
       query: (uid) => `/jobs/track/${uid}`,
@@ -38,9 +42,17 @@ export const publicApplyApi = api.injectEndpoints({
       query: ({ roundId, ...body }) => ({ url: `/jobs/rounds/${roundId}/score`, method: 'PATCH', body }),
       invalidatesTags: ['Recruitment'],
     }),
+    createInterviewRound: builder.mutation<any, { applicationId: string; roundType: string; conductedBy: string; scheduledAt?: string }>({
+      query: ({ applicationId, ...body }) => ({ url: `/jobs/applications/${applicationId}/rounds`, method: 'POST', body }),
+      invalidatesTags: ['Recruitment'],
+    }),
     finalizeCandidate: builder.mutation<any, { applicationId: string; finalStatus: string }>({
       query: ({ applicationId, finalStatus }) => ({ url: `/jobs/applications/${applicationId}/finalize`, method: 'POST', body: { finalStatus } }),
       invalidatesTags: ['Recruitment'],
+    }),
+    getInterviewTasks: builder.query<any, void>({
+      query: () => '/jobs/interview-tasks',
+      providesTags: ['Recruitment'],
     }),
   }),
 });
@@ -56,5 +68,7 @@ export const {
   usePreviewScheduleMessageMutation,
   useGenerateRoundQuestionsMutation,
   useScoreRoundMutation,
+  useCreateInterviewRoundMutation,
   useFinalizeCandidateMutation,
+  useGetInterviewTasksQuery,
 } = publicApplyApi;

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { publicApplyController } from './public-apply.controller.js';
 import { authenticate, requirePermission } from '../../middleware/auth.middleware.js';
+import { uploadResume } from '../../middleware/upload.middleware.js';
 
 const router = Router();
 
@@ -8,15 +9,21 @@ const router = Router();
 router.get('/form/:token', (req, res, next) =>
   publicApplyController.getJobForm(req, res, next)
 );
-router.post('/form/:token/apply', (req, res, next) =>
+router.post('/form/:token/apply', uploadResume.single('resume'), (req, res, next) =>
   publicApplyController.submitApplication(req, res, next)
 );
 router.get('/track/:uid', (req, res, next) =>
   publicApplyController.trackApplication(req, res, next)
 );
 
-// Protected endpoints (HR/Admin)
+// Protected endpoints (Auth Required)
 router.use(authenticate);
+
+// Interview tasks for current user (any authenticated user)
+router.get('/interview-tasks', (req, res, next) =>
+  publicApplyController.getInterviewTasks(req, res, next)
+);
+
 router.post('/:jobId/generate-questions', requirePermission('recruitment', 'update'), (req, res, next) =>
   publicApplyController.generateQuestions(req, res, next)
 );
@@ -36,6 +43,9 @@ router.post('/applications/:id/schedule-preview', requirePermission('recruitment
 );
 
 // Interview rounds (Phase 7)
+router.post('/applications/:id/rounds', requirePermission('recruitment', 'update'), (req, res, next) =>
+  publicApplyController.createRound(req, res, next)
+);
 router.post('/rounds/:roundId/generate-questions', requirePermission('recruitment', 'update'), (req, res, next) =>
   publicApplyController.generateInterviewQuestions(req, res, next)
 );

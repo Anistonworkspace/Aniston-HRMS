@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Mail, Phone, Building2, MapPin, Calendar, Shield, Edit2, Key, Loader2, Save, X, Camera, Upload, UserMinus, AlertTriangle, Clock } from 'lucide-react';
+import { User, Mail, Phone, Building2, MapPin, Calendar, Shield, Edit2, Key, Loader2, Save, X, Camera, Upload, UserMinus, AlertTriangle, Clock, CheckCircle2 } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { useGetMeQuery, useChangePasswordMutation } from '../auth/authApi';
 import { useUpdateEmployeeMutation, useGetEmployeeQuery } from '../employee/employeeApi';
@@ -10,6 +11,8 @@ import toast from 'react-hot-toast';
 
 export default function ProfilePage() {
   const user = useAppSelector((s) => s.auth.user);
+  const [searchParams] = useSearchParams();
+  const isOnboarding = searchParams.get('onboarding') === 'true';
   const { data: meRes, isLoading } = useGetMeQuery();
   const me = meRes?.data;
 
@@ -63,9 +66,71 @@ export default function ProfilePage() {
     );
   }
 
+  // Profile completion calculation
+  const completionItems = useMemo(() => {
+    if (!employee) return [];
+    const items = [
+      { label: 'Personal details', done: !!(employee.phone && employee.phone !== '0000000000' && employee.dateOfBirth) },
+      { label: 'Emergency contact', done: !!(employee.emergencyContact && (employee.emergencyContact as any)?.name) },
+      { label: 'Address', done: !!(employee.address && (employee.address as any)?.city) },
+      { label: 'Personal email', done: !!employee.personalEmail },
+      { label: 'Blood group', done: !!employee.bloodGroup },
+    ];
+    return items;
+  }, [employee]);
+
+  const completionPct = completionItems.length > 0
+    ? Math.round((completionItems.filter(i => i.done).length / completionItems.length) * 100)
+    : 0;
+
   return (
     <div className="page-container">
       <h1 className="text-2xl font-display font-bold text-gray-900 mb-6">My Profile</h1>
+
+      {/* Onboarding banner */}
+      {isOnboarding && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="layer-card p-4 mb-6 border border-brand-200 bg-brand-50/50"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center shrink-0">
+              <CheckCircle2 size={20} className="text-brand-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-gray-900">Welcome! Please complete your profile to get started.</h3>
+              <p className="text-xs text-gray-500 mt-1">Fill in your personal details, emergency contact, and address to finish onboarding.</p>
+              <div className="mt-3">
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="text-gray-500">Profile completion</span>
+                  <span className="font-mono font-semibold text-brand-600" data-mono>{completionPct}%</span>
+                </div>
+                <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-brand-600 rounded-full transition-all duration-500"
+                    style={{ width: `${completionPct}%` }}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {completionItems.map((item) => (
+                    <span
+                      key={item.label}
+                      className={`text-xs px-2 py-0.5 rounded-full ${
+                        item.done
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-amber-100 text-amber-700'
+                      }`}
+                    >
+                      {item.done ? 'Done' : 'Incomplete'}: {item.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Profile header */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}

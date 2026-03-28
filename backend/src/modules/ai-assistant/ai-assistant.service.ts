@@ -39,7 +39,15 @@ export class AiAssistantService {
     const result = await aiService.chat(organizationId, messages, 1024);
 
     if (!result.success) {
-      return { reply: result.error || 'AI service is not configured. Go to Settings → API Integrations.', suggestions: [] };
+      const errorMsg = result.error || 'AI service encountered an error.';
+      // Return the error as a friendly assistant message (not a crash)
+      return {
+        reply: errorMsg,
+        suggestions: [
+          'Go to Settings → AI API Config',
+          'How do I configure the AI provider?',
+        ],
+      };
     }
 
     // Update history (keep last 20 messages)
@@ -60,6 +68,56 @@ export class AiAssistantService {
   async clearHistory(userId: string, context: string) {
     await redis.del(`${CONVERSATION_PREFIX}${userId}:${context}`);
     return { cleared: true };
+  }
+
+  /**
+   * Get conversation history from Redis.
+   */
+  async getHistory(userId: string, context: string) {
+    const historyKey = `${CONVERSATION_PREFIX}${userId}:${context}`;
+    const rawHistory = await redis.get(historyKey);
+    const history: ChatMessage[] = rawHistory ? JSON.parse(rawHistory) : [];
+    return history;
+  }
+
+  /**
+   * Add a knowledge base document.
+   */
+  async addKnowledgeDoc(organizationId: string, userId: string, title: string, content: string) {
+    const doc = await prisma.aiKnowledgeBase.create({
+      data: {
+        organizationId,
+        title,
+        content,
+        addedBy: userId,
+      },
+    });
+    return doc;
+  }
+
+  /**
+   * List all knowledge base documents for an organization.
+   */
+  async getKnowledgeDocs(organizationId: string) {
+    const docs = await prisma.aiKnowledgeBase.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return docs;
+  }
+
+  /**
+   * Delete a knowledge base document.
+   */
+  async deleteKnowledgeDoc(organizationId: string, id: string) {
+    const doc = await prisma.aiKnowledgeBase.findFirst({
+      where: { id, organizationId },
+    });
+    if (!doc) {
+      throw new Error('Knowledge document not found');
+    }
+    await prisma.aiKnowledgeBase.delete({ where: { id } });
+    return { deleted: true };
   }
 
   private async buildSystemPrompt(organizationId: string, context: string): Promise<string> {
@@ -120,9 +178,10 @@ You can answer questions about leave balances, attendance, employee information,
 
     // Inject knowledge base content if any
     try {
-      const knowledgeItems = await prisma.$queryRaw<any[]>`
-        SELECT title, content FROM "AiKnowledgeBase" WHERE "organizationId" = ${organizationId} LIMIT 5
-      `;
+      const knowledgeItems = await prisma.aiKnowledgeBase.findMany({
+        where: { organizationId },
+        take: 5,
+      });
       if (knowledgeItems?.length > 0) {
         basePrompt += '\n\nOrganization knowledge base:\n';
         for (const item of knowledgeItems) {

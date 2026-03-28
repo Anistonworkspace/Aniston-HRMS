@@ -10,25 +10,25 @@ router.get('/', requirePermission('employee', 'read'), (req, res, next) =>
   employeeController.list(req, res, next)
 );
 
-router.get('/:id', requirePermission('employee', 'read'), (req, res, next) =>
-  employeeController.getById(req, res, next)
-);
-
-router.post('/', requirePermission('employee', 'create'), (req, res, next) =>
-  employeeController.create(req, res, next)
+// Exit / Offboarding (must be before /:id to avoid param capture)
+router.get('/exit-requests', requirePermission('employee', 'manage'), (req, res, next) =>
+  employeeController.getExitRequests(req, res, next)
 );
 
 router.post('/invite', requirePermission('employee', 'create'), (req, res, next) =>
   employeeController.invite(req, res, next)
 );
 
-// Exit / Offboarding
 router.post('/me/resign', (req, res, next) =>
   employeeController.submitResignation(req, res, next)
 );
 
-router.get('/exit-requests', requirePermission('employee', 'manage'), (req, res, next) =>
-  employeeController.getExitRequests(req, res, next)
+router.post('/', requirePermission('employee', 'create'), (req, res, next) =>
+  employeeController.create(req, res, next)
+);
+
+router.get('/:id', requirePermission('employee', 'read'), (req, res, next) =>
+  employeeController.getById(req, res, next)
 );
 
 router.patch('/:id', requirePermission('employee', 'update'), (req, res, next) =>
@@ -62,6 +62,11 @@ router.post('/:id/withdraw-resignation', requirePermission('employee', 'update')
 
 router.post('/:id/terminate', requirePermission('employee', 'manage'), (req, res, next) =>
   employeeController.initiateTermination(req, res, next)
+);
+
+// Activation Invite
+router.post('/:id/send-activation-invite', requirePermission('employee', 'manage'), (req, res, next) =>
+  employeeController.sendActivationInvite(req, res, next)
 );
 
 // Lifecycle Events

@@ -57,6 +57,8 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    // Preserve symlinks for npm workspace hoisting
+    preserveSymlinks: true,
   },
   server: {
     port: 5173,

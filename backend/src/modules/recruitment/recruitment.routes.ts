@@ -133,6 +133,21 @@ router.patch('/offers/:id/status', authenticate, authorize(Role.SUPER_ADMIN, Rol
 });
 
 // =====================
+// SHARE JOB VIA EMAIL
+// =====================
+
+router.post('/jobs/:jobId/share-email', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { email, message } = z.object({
+      email: z.string().email(),
+      message: z.string().optional(),
+    }).parse(req.body);
+    const result = await recruitmentService.shareJobViaEmail(req.params.jobId, email, message);
+    res.json({ success: true, data: result, message: 'Job link sent via email' });
+  } catch (err) { next(err); }
+});
+
+// =====================
 // PIPELINE STATS
 // =====================
 

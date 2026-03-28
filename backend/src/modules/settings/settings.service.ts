@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { encrypt, decrypt } from '../../utils/encryption.js';
 import { validateConnection, getClientCredentialsToken, getOrganizationUsers } from '../../lib/microsoftGraph.js';
+import { enqueueEmail } from '../../jobs/queues.js';
 import bcrypt from 'bcryptjs';
 import { env } from '../../config/env.js';
 import type { UpdateOrganizationInput, CreateLocationInput, UpdateLocationInput, AuditLogQuery, TeamsConfigInput } from './settings.validation.js';
@@ -173,6 +174,32 @@ export class SettingsService {
       return { success: true, message: 'Connection successful! SMTP server is reachable.' };
     } catch (err: any) {
       return { success: false, message: `Connection failed: ${err.message}` };
+    }
+  }
+
+  async testAdminNotificationEmail(organizationId: string) {
+    const org = await prisma.organization.findFirst({
+      where: { id: organizationId },
+      select: { adminNotificationEmail: true, name: true },
+    });
+
+    if (!org?.adminNotificationEmail) {
+      return { success: false, message: 'Admin notification email is not configured. Please set it in Organization settings first.' };
+    }
+
+    try {
+      await enqueueEmail({
+        to: org.adminNotificationEmail,
+        subject: `[Test] Admin Notification Email - ${org.name || 'Aniston HRMS'}`,
+        template: 'generic',
+        context: {
+          title: 'Test Notification',
+          message: `This is a test email to verify that the admin notification email (<strong>${org.adminNotificationEmail}</strong>) is correctly configured for <strong>${org.name || 'your organization'}</strong>.<br><br>If you received this email, the admin notification system is working properly.<br><br>— Aniston HRMS`,
+        },
+      });
+      return { success: true, message: `Test email queued for delivery to ${org.adminNotificationEmail}` };
+    } catch (err: any) {
+      return { success: false, message: `Failed to queue test email: ${err.message}` };
     }
   }
 
