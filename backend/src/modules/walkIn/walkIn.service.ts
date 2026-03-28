@@ -328,15 +328,20 @@ export class WalkInService {
   }
 
   /**
-   * Add HR notes
+   * Add HR notes — appends with author name and timestamp
    */
-  async addHRNotes(id: string, notes: string) {
+  async addHRNotes(id: string, notes: string, authorName?: string) {
     const candidate = await prisma.walkInCandidate.findUnique({ where: { id } });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
 
+    const timestamp = new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const author = authorName || 'HR';
+    const entry = `[${timestamp} — ${author}] ${notes}`;
+    const existing = candidate.hrNotes ? candidate.hrNotes + '\n---\n' : '';
+
     return prisma.walkInCandidate.update({
       where: { id },
-      data: { hrNotes: notes },
+      data: { hrNotes: existing + entry },
     });
   }
 
@@ -522,13 +527,11 @@ export class WalkInService {
 
   /**
    * Delete a walk-in record + clean up WhatsApp messages (HR only)
+   * Note: WalkInInterviewRound has onDelete: Cascade, so rounds auto-delete
    */
   async remove(id: string) {
     const candidate = await prisma.walkInCandidate.findUnique({ where: { id } });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
-
-    // Delete related interview rounds first
-    await prisma.interviewRound.deleteMany({ where: { walkInCandidateId: id } });
 
     // Delete WhatsApp messages sent to this candidate's phone (best-effort)
     if (candidate.mobileNumber && candidate.organizationId) {

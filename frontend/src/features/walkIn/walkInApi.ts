@@ -106,13 +106,13 @@ export const walkInApi = api.injectEndpoints({
       invalidatesTags: ['WalkIn'],
     }),
 
-    // HR: Delete walk-in
+    // HR: Delete walk-in (also clears WhatsApp messages)
     deleteWalkIn: builder.mutation<any, string>({
       query: (id) => ({
         url: `/walk-in/${id}`,
         method: 'DELETE',
       }),
-      invalidatesTags: ['WalkIn'],
+      invalidatesTags: ['WalkIn', 'WhatsApp'],
     }),
 
     // HR: Hire walk-in candidate and send onboarding invite

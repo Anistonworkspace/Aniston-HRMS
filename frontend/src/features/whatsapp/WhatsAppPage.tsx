@@ -52,6 +52,7 @@ function WhatsAppChat() {
   const [showNewChat, setShowNewChat] = useState(hasPrefill);
   const [showContactInfo, setShowContactInfo] = useState(false);
   const [leftTab, setLeftTab] = useState<'chats' | 'contacts' | 'hrms'>('chats');
+  const [hrmsPhone, setHrmsPhone] = useState<string | null>(null);
 
   const { data: chatsRes, isLoading: loadingChats, refetch: refetchChats } = useGetWhatsAppChatsQuery(undefined, { pollingInterval: 15000 });
   const { data: contactsRes, isLoading: loadingContacts } = useGetWhatsAppContactsQuery();
@@ -227,10 +228,9 @@ function WhatsAppChat() {
                 .map((contact) => (
                   <button key={contact.phone}
                     onClick={() => {
-                      // Pre-fill new chat with this phone number
-                      sessionStorage.setItem('whatsapp_prefill_phone', contact.phone);
-                      setShowNewChat(true);
+                      setHrmsPhone(contact.phone);
                       setSelectedChat(null);
+                      setShowNewChat(false);
                     }}
                     className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50">
                     <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0">
@@ -262,10 +262,12 @@ function WhatsAppChat() {
       {/* Center: Chat View */}
       <div className={cn(
         'flex-1 flex flex-col min-w-0',
-        !selectedChat && !showNewChat && 'hidden lg:flex'
+        !selectedChat && !showNewChat && !hrmsPhone && 'hidden lg:flex'
       )}>
         {showNewChat ? (
           <NewChatView onSent={(chatId) => { setSelectedChat(chatId); setShowNewChat(false); refetchChats(); }} />
+        ) : hrmsPhone ? (
+          <HrmsMessageView phone={hrmsPhone} messages={hrmsMessagesRes} onBack={() => setHrmsPhone(null)} />
         ) : selectedChat ? (
           <ChatView
             chatId={selectedChat}
@@ -664,6 +666,50 @@ function NewChatView({ onSent }: { onSent: (chatId: string) => void }) {
             Send Message
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- HRMS Message View ----------
+function HrmsMessageView({ phone, messages, onBack }: { phone: string; messages: any; onBack: () => void }) {
+  const allMsgs = messages?.data || [];
+  const filtered = (Array.isArray(allMsgs) ? allMsgs : [])
+    .filter((m: any) => m.to?.includes(phone.replace(/\D/g, '')))
+    .sort((a: any, b: any) => new Date(a.sentAt || a.createdAt).getTime() - new Date(b.sentAt || b.createdAt).getTime());
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50 flex items-center gap-3">
+        <button onClick={onBack} className="p-1 rounded hover:bg-gray-200">
+          <ArrowLeft size={18} className="text-gray-600" />
+        </button>
+        <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center">
+          <MessageCircle size={18} className="text-brand-600" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-gray-800">+{phone}</p>
+          <p className="text-xs text-gray-400">HRMS Messages · {filtered.length} messages</p>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-[#f0f2f5]">
+        {filtered.length === 0 ? (
+          <div className="text-center py-12 text-gray-400 text-sm">No messages found</div>
+        ) : (
+          filtered.map((msg: any, i: number) => (
+            <div key={msg.id || i} className="flex justify-end">
+              <div className="max-w-[75%] bg-[#d9fdd3] rounded-xl rounded-tr-sm px-3 py-2 shadow-sm">
+                <p className="text-sm text-gray-800 whitespace-pre-wrap break-words">{msg.message}</p>
+                <div className="flex items-center justify-end gap-1.5 mt-1">
+                  <span className="text-[10px] text-gray-500">
+                    {new Date(msg.sentAt || msg.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  {msg.status === 'SENT' ? <CheckCheck size={12} className="text-blue-500" /> : msg.status === 'FAILED' ? <X size={12} className="text-red-500" /> : <Check size={12} className="text-gray-400" />}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

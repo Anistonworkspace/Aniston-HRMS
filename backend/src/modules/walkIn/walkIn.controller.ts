@@ -76,7 +76,8 @@ export class WalkInController {
   async addNotes(req: Request, res: Response, next: NextFunction) {
     try {
       const { notes } = z.object({ notes: z.string().min(1).max(2000) }).parse(req.body);
-      const candidate = await walkInService.addHRNotes(req.params.id as string, notes);
+      const authorName = req.user?.email?.split('@')[0] || 'HR';
+      const candidate = await walkInService.addHRNotes(req.params.id as string, notes, authorName);
       res.json({ success: true, data: candidate, message: 'Notes added' });
     } catch (err) { next(err); }
   }

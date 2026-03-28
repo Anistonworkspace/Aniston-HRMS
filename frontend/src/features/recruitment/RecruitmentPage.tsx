@@ -943,9 +943,10 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
   const candidate = res?.data;
   const interviewers = interviewersRes?.data || [];
 
+  // Notes input starts empty for new entries (saved notes shown below)
   useEffect(() => {
-    if (candidate?.hrNotes) setNotes(candidate.hrNotes);
-  }, [candidate?.hrNotes]);
+    setNotes('');
+  }, [candidateId]);
 
   const handleStatusChange = async (status: string) => {
     try {
@@ -1268,10 +1269,39 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                   </div>
 
                   <div className="layer-card p-4">
-                    <h4 className="text-sm font-semibold text-gray-700 mb-3">HR Notes</h4>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3">Add Note</h4>
                     <textarea value={notes} onChange={e => setNotes(e.target.value)}
-                      className="input-glass w-full h-24 resize-none text-sm mb-2" placeholder="Add notes about this candidate..." />
-                    <button onClick={handleSaveNotes} className="btn-primary text-xs">Save Notes</button>
+                      className="input-glass w-full h-20 resize-none text-sm mb-2" placeholder="Write a note about this candidate..." />
+                    <button onClick={async () => {
+                      if (!notes.trim()) return;
+                      await handleSaveNotes();
+                      setNotes('');
+                    }} className="btn-primary text-xs">Save Note</button>
+
+                    {/* Saved notes list */}
+                    {candidate.hrNotes && (
+                      <div className="mt-4 space-y-2">
+                        <h5 className="text-xs font-medium text-gray-500 uppercase tracking-wide">Previous Notes</h5>
+                        {candidate.hrNotes.split('\n---\n').map((entry: string, i: number) => {
+                          const match = entry.match(/^\[(.+?) — (.+?)\] (.+)$/s);
+                          return (
+                            <div key={i} className="bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                              {match ? (
+                                <>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-xs font-medium text-brand-600">{match[2]}</span>
+                                    <span className="text-[10px] text-gray-400">{match[1]}</span>
+                                  </div>
+                                  <p className="text-xs text-gray-700">{match[3]}</p>
+                                </>
+                              ) : (
+                                <p className="text-xs text-gray-700">{entry}</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   {candidate.status === 'SELECTED' && (
