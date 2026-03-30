@@ -39,15 +39,16 @@ interface NavItem {
   path: string;
   icon: React.ElementType;
   roles?: string[];
+  exitAccessKey?: string; // Key in ExitAccessInfo to check for exiting employees
 }
 
 const navItems: NavItem[] = [
-  { name: 'Dashboard', path: '/dashboard', icon: Home },
+  { name: 'Dashboard', path: '/dashboard', icon: Home, exitAccessKey: 'canViewDashboard' },
   { name: 'Employees', managementName: 'Manage Employees', path: '/employees', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { name: 'Attendance', managementName: 'Attendance Management', path: '/attendance', icon: Clock },
+  { name: 'Attendance', managementName: 'Attendance Management', path: '/attendance', icon: Clock, exitAccessKey: 'canViewAttendance' },
   { name: 'Activity Tracking', path: '/activity-tracking', icon: Activity, roles: ['SUPER_ADMIN', 'ADMIN'] },
-  { name: 'Leave', managementName: 'Leave Management', path: '/leaves', icon: CalendarDays },
-  { name: 'Payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { name: 'Leave', managementName: 'Leave Management', path: '/leaves', icon: CalendarDays, exitAccessKey: 'canViewLeaveBalance' },
+  { name: 'Payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'], exitAccessKey: 'canViewPayslips' },
   { name: 'Roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Employee Exit', path: '/exit-management', icon: UserMinus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
@@ -56,12 +57,13 @@ const navItems: NavItem[] = [
   { name: 'My Assets', path: '/my-assets', icon: Laptop, roles: ['HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
   { name: 'Performance', path: '/performance', icon: BarChart3 },
   { name: 'Policies', path: '/policies', icon: FileText },
-  { name: 'Announcements', path: '/announcements', icon: Megaphone },
-  { name: 'Helpdesk', path: '/helpdesk', icon: HelpCircle },
+  { name: 'Announcements', path: '/announcements', icon: Megaphone, exitAccessKey: 'canViewAnnouncements' },
+  { name: 'Helpdesk', path: '/helpdesk', icon: HelpCircle, exitAccessKey: 'canViewHelpdesk' },
   { name: 'WhatsApp', path: '/whatsapp', icon: MessageCircle, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Org Chart', path: '/org-chart', icon: Network },
   { name: 'Reports', path: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Settings', path: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'ADMIN'] },
+  { name: 'Profile', path: '/profile', icon: Users, exitAccessKey: 'canViewProfile' },
 ];
 
 export default function Sidebar() {
@@ -96,7 +98,15 @@ export default function Sidebar() {
 
   const isManagement = user?.role ? MANAGEMENT_ROLES.includes(user.role) : false;
 
+  const exitAccess = user?.exitAccess;
+
   const filteredItems = navItems.filter((item) => {
+    // If user has exit access restrictions, only show allowed items
+    if (exitAccess) {
+      if (!item.exitAccessKey) return false; // Hide items without exit access mapping
+      return (exitAccess as any)[item.exitAccessKey] === true;
+    }
+    // Normal role-based filtering
     if (!item.roles) return true;
     return user?.role && item.roles.includes(user.role);
   });

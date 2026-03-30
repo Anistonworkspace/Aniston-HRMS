@@ -22,7 +22,7 @@ import toast from 'react-hot-toast';
 import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
 import { useGetKnowledgeBaseQuery, useAddKnowledgeDocMutation, useDeleteKnowledgeDocMutation } from '../ai-assistant/aiAssistantApi';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'teams' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'audit' | 'system';
+type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'audit' | 'system';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>(() => {
@@ -39,7 +39,6 @@ export default function SettingsPage() {
     { key: 'locations', label: 'Office Locations', icon: MapPin },
     { key: 'shifts', label: 'Shifts & Rosters', icon: Clock },
     { key: 'email', label: 'Email Configuration', icon: Mail },
-    { key: 'teams', label: 'Microsoft Teams', icon: Cloud },
     { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
     { key: 'roles', label: 'User Roles', icon: Users },
     { key: 'salary-privacy', label: 'Salary Privacy', icon: Lock },
@@ -80,7 +79,6 @@ export default function SettingsPage() {
             {activeTab === 'locations' && <LocationSettings />}
             {activeTab === 'shifts' && <ShiftSettings />}
             {activeTab === 'email' && <EmailConfig />}
-            {activeTab === 'teams' && <TeamsConfig />}
             {activeTab === 'whatsapp' && <WhatsAppConfig />}
             {activeTab === 'roles' && <UserRolesTab />}
             {activeTab === 'salary-privacy' && <SalaryPrivacyTab />}
@@ -476,11 +474,16 @@ function EmailConfig() {
   const [saveConfig, { isLoading: saving }] = useSaveEmailConfigMutation();
   const [testConnection, { isLoading: testing }] = useTestEmailConnectionMutation();
   const config = res?.data;
-  const [form, setForm] = useState({ host: '', port: 587, user: '', pass: '', fromAddress: '', fromName: '', emailDomain: '' });
+  const [authMethod, setAuthMethod] = useState<'smtp' | 'oauth2'>('smtp');
+  const [form, setForm] = useState({
+    host: '', port: 587, user: '', pass: '', fromAddress: '', fromName: '', emailDomain: '',
+    tenantId: '', clientId: '', clientSecret: '', senderEmail: '',
+  });
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
     if (config) {
+      setAuthMethod(config.authMethod || 'smtp');
       setForm({
         host: config.host || '',
         port: config.port || 587,
@@ -489,16 +492,25 @@ function EmailConfig() {
         fromAddress: config.fromAddress || '',
         fromName: config.fromName || '',
         emailDomain: config.emailDomain || '',
+        tenantId: config.tenantId || '',
+        clientId: config.clientId || '',
+        clientSecret: '',
+        senderEmail: config.senderEmail || '',
       });
     }
   }, [config]);
 
   const handleSave = async () => {
-    if (!form.host || !form.user) { toast.error('SMTP host and username required'); return; }
+    if (authMethod === 'smtp' && (!form.host || !form.user)) { toast.error('SMTP host and username required'); return; }
+    if (authMethod === 'oauth2' && (!form.tenantId || !form.clientId || !form.senderEmail)) { toast.error('Tenant ID, Client ID, and Sender Email required'); return; }
+    if (authMethod === 'oauth2' && !form.clientSecret && !config?.hasClientSecret) { toast.error('Client Secret is required'); return; }
     try {
-      const payload = { ...form };
-      if (!payload.pass && config?.hasPassword) {
-        delete (payload as any).pass; // Don't overwrite existing password if not changed
+      const payload: any = { ...form, authMethod };
+      if (authMethod === 'smtp' && !payload.pass && config?.hasPassword) {
+        delete payload.pass;
+      }
+      if (authMethod === 'oauth2' && !payload.clientSecret && config?.hasClientSecret) {
+        delete payload.clientSecret;
       }
       await saveConfig(payload).unwrap();
       toast.success('Email configuration saved');
@@ -519,7 +531,7 @@ function EmailConfig() {
   return (
     <div className="layer-card p-6">
       <h2 className="text-lg font-display font-semibold text-gray-800 mb-2">Email Configuration</h2>
-      <p className="text-sm text-gray-400 mb-6">Configure SMTP settings for sending invitation emails, notifications, and password resets.</p>
+      <p className="text-sm text-gray-400 mb-6">Configure email for sending invitation links, notifications, and password resets.</p>
 
       {/* Status indicator */}
       {config && (
@@ -528,55 +540,118 @@ function EmailConfig() {
         )}>
           {config.configured ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
           {config.configured
-            ? 'Email is configured. Invitation emails will be sent via SMTP.'
+            ? `Email configured via ${config.authMethod === 'oauth2' ? 'Microsoft 365 (OAuth2)' : 'SMTP'}. Emails will be sent.`
             : 'Email not configured. Invitations will be logged to console only.'}
         </div>
       )}
 
       <div className="space-y-4 max-w-lg">
-        <div className="grid grid-cols-3 gap-3">
-          <div className="col-span-2">
-            <label className="block text-sm font-medium text-gray-600 mb-1">SMTP Host *</label>
-            <input value={form.host} onChange={e => setForm({...form, host: e.target.value})}
-              className="input-glass w-full text-sm" placeholder="smtp.office365.com" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">Port</label>
-            <input type="number" value={form.port} onChange={e => setForm({...form, port: Number(e.target.value)})}
-              className="input-glass w-full text-sm" />
+        {/* Auth Method Selector */}
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-2">Authentication Method</label>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setAuthMethod('smtp')}
+              className={cn('p-3 rounded-lg border-2 text-left transition-all',
+                authMethod === 'smtp' ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'
+              )}
+            >
+              <p className="text-sm font-semibold text-gray-800">SMTP</p>
+              <p className="text-xs text-gray-400 mt-0.5">Traditional email server</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuthMethod('oauth2')}
+              className={cn('p-3 rounded-lg border-2 text-left transition-all',
+                authMethod === 'oauth2' ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'
+              )}
+            >
+              <p className="text-sm font-semibold text-gray-800">Microsoft 365</p>
+              <p className="text-xs text-gray-400 mt-0.5">OAuth2 via Graph API</p>
+            </button>
           </div>
         </div>
+
+        {authMethod === 'smtp' ? (
+          <>
+            {/* SMTP Fields */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-600 mb-1">SMTP Host *</label>
+                <input value={form.host} onChange={e => setForm({...form, host: e.target.value})}
+                  className="input-glass w-full text-sm" placeholder="smtp.office365.com" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Port</label>
+                <input type="number" value={form.port} onChange={e => setForm({...form, port: Number(e.target.value)})}
+                  className="input-glass w-full text-sm" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Username *</label>
+                <input value={form.user} onChange={e => setForm({...form, user: e.target.value})}
+                  className="input-glass w-full text-sm" placeholder="noreply@company.com" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  Password {config?.hasPassword && <span className="text-xs text-gray-400">(saved)</span>}
+                </label>
+                <input type="password" value={form.pass} onChange={e => setForm({...form, pass: e.target.value})}
+                  className="input-glass w-full text-sm" placeholder={config?.hasPassword ? '••••••••' : 'SMTP password or App Password'} />
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* OAuth2 / Microsoft 365 Fields */}
+            <div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-700 space-y-1">
+              <p className="font-semibold">Setup: Azure App Registration</p>
+              <p>1. Go to Azure Portal → App registrations → New registration</p>
+              <p>2. Add API Permission: <strong>Microsoft Graph → Mail.Send</strong> (Application type)</p>
+              <p>3. Grant admin consent for the permission</p>
+              <p>4. Create a Client Secret under Certificates & secrets</p>
+              <p>5. Copy Tenant ID, Client ID, and Secret below</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Tenant ID *</label>
+              <input value={form.tenantId} onChange={e => setForm({...form, tenantId: e.target.value})}
+                className="input-glass w-full text-sm" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Client ID (Application ID) *</label>
+              <input value={form.clientId} onChange={e => setForm({...form, clientId: e.target.value})}
+                className="input-glass w-full text-sm" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">
+                Client Secret {config?.hasClientSecret && <span className="text-xs text-gray-400">(saved)</span>}
+              </label>
+              <input type="password" value={form.clientSecret} onChange={e => setForm({...form, clientSecret: e.target.value})}
+                className="input-glass w-full text-sm" placeholder={config?.hasClientSecret ? '••••••••' : 'Azure App Client Secret'} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Sender Email Address *</label>
+              <input value={form.senderEmail} onChange={e => setForm({...form, senderEmail: e.target.value})}
+                className="input-glass w-full text-sm" placeholder="hr@aniston.in" />
+              <p className="text-xs text-gray-400 mt-1">The Microsoft 365 mailbox that will send emails. Must be a licensed user or shared mailbox.</p>
+            </div>
+          </>
+        )}
+
+        {/* Common fields */}
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">Username *</label>
-            <input value={form.user} onChange={e => setForm({...form, user: e.target.value})}
-              className="input-glass w-full text-sm" placeholder="noreply@company.com" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">
-              Password {config?.hasPassword && <span className="text-xs text-gray-400">(saved, leave blank to keep)</span>}
-            </label>
-            <input type="password" value={form.pass} onChange={e => setForm({...form, pass: e.target.value})}
-              className="input-glass w-full text-sm" placeholder={config?.hasPassword ? '••••••••' : 'SMTP password'} />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">From Address</label>
-            <input value={form.fromAddress} onChange={e => setForm({...form, fromAddress: e.target.value})}
-              className="input-glass w-full text-sm" placeholder="noreply@company.com" />
-          </div>
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-1">From Name</label>
             <input value={form.fromName} onChange={e => setForm({...form, fromName: e.target.value})}
               className="input-glass w-full text-sm" placeholder="Aniston HRMS" />
           </div>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1">Email Domain (for Teams/Work emails)</label>
-          <input value={form.emailDomain} onChange={e => setForm({...form, emailDomain: e.target.value})}
-            className="input-glass w-full text-sm max-w-xs" placeholder="@aniston.in" />
-          <p className="text-xs text-gray-400 mt-1">Used to auto-suggest work email when hiring new employees (e.g., firstname.lastname@aniston.in)</p>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Email Domain</label>
+            <input value={form.emailDomain} onChange={e => setForm({...form, emailDomain: e.target.value})}
+              className="input-glass w-full text-sm" placeholder="@aniston.in" />
+          </div>
         </div>
 
         {/* Test result */}

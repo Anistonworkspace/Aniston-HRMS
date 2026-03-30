@@ -21,12 +21,29 @@ export class DocumentController {
   async upload(req: Request, res: Response, next: NextFunction) {
     try {
       const data = createDocumentSchema.parse(req.body);
-      const fileUrl = req.file ? `/uploads/${req.file.filename}` : '';
+      // Use structured path if available (employee-specific folder), else default
+      const fileUrl = (req as any)._structuredFileUrl || (req.file ? `/uploads/${req.file.filename}` : '');
       if (!fileUrl) {
         res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'No file uploaded' } });
         return;
       }
+
+      // Auto-set employeeId from authenticated user if not provided
+      if (!data.employeeId && req.user?.employeeId) {
+        data.employeeId = req.user.employeeId;
+      }
+
       const doc = await documentService.create(data, fileUrl, req.user!.userId);
+
+      // Auto-update KYC document gate if this is a KYC document
+      const kycTypes = ['AADHAAR', 'PAN'];
+      if (data.employeeId && kycTypes.includes(data.type)) {
+        try {
+          const { documentGateService } = await import('../onboarding/document-gate.service.js');
+          await documentGateService.checkDocumentSubmission(data.employeeId, data.type);
+        } catch { /* non-blocking */ }
+      }
+
       res.status(201).json({ success: true, data: doc, message: 'Document uploaded' });
     } catch (err) { next(err); }
   }

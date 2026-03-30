@@ -587,9 +587,16 @@ export class EmployeeService {
       data: { exitStatus: 'COMPLETED', status: 'TERMINATED', deletedAt: new Date() },
     });
 
-    // Deactivate user account
+    // Check if exit access config exists — if so, keep user active for limited access
+    const exitAccessConfig = await prisma.exitAccessConfig.findUnique({ where: { employeeId } });
     if (employee.userId) {
-      await prisma.user.update({ where: { id: employee.userId }, data: { status: 'INACTIVE' } });
+      if (exitAccessConfig?.isActive) {
+        // Keep user active — they have limited access configured by HR
+        console.log(`[Exit] Employee ${employeeId} has exit access config — keeping user active with limited access`);
+      } else {
+        // No exit access config — fully deactivate
+        await prisma.user.update({ where: { id: employee.userId }, data: { status: 'INACTIVE' } });
+      }
     }
 
     await prisma.employeeEvent.create({

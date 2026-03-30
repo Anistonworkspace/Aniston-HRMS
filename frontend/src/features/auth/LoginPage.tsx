@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, Loader2, Users, BarChart3, Shield, Clock, X, Mail } from 'lucide-react';
-import { useLoginMutation, useGetSsoStatusQuery } from './authApi';
+import { useLoginMutation } from './authApi';
 import { setCredentials } from './authSlice';
 import { useAppDispatch, useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
@@ -13,19 +13,9 @@ export default function LoginPage() {
   const [showForgot, setShowForgot] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [login, { isLoading }] = useLoginMutation();
-  const { data: ssoRes } = useGetSsoStatusQuery();
-  const ssoEnabled = ssoRes?.data?.microsoftSsoEnabled || false;
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const isAuthenticated = useAppSelector((state: any) => state.auth.isAuthenticated);
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
-
-  // Show SSO error from redirect
-  useEffect(() => {
-    const error = searchParams.get('error');
-    if (error) toast.error(decodeURIComponent(error));
-  }, [searchParams]);
 
   // Redirect if already logged in
   useEffect(() => {
@@ -130,35 +120,8 @@ export default function LoginPage() {
             </motion.button>
           </form>
 
-          {/* Microsoft SSO */}
-          {ssoEnabled && (
-            <div className="mt-6">
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-200" />
-                </div>
-                <div className="relative flex justify-center text-xs">
-                  <span className="bg-white px-3 text-gray-400">or</span>
-                </div>
-              </div>
-
-              <a
-                href={`${API_URL}/auth/microsoft`}
-                className="mt-4 w-full border border-gray-300 rounded-lg py-3 flex items-center justify-center gap-3 hover:bg-gray-50 transition-colors"
-              >
-                <svg viewBox="0 0 21 21" className="w-5 h-5" fill="none">
-                  <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
-                  <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
-                  <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
-                  <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
-                </svg>
-                <span className="text-sm font-medium text-gray-700">Sign in with Microsoft</span>
-              </a>
-            </div>
-          )}
-
           <p className="text-center text-xs text-gray-400 mt-6">
-            Contact your HR administrator to get an account
+            Contact your HR administrator to get an invitation link
           </p>
 
           {/* Demo login — dev only */}

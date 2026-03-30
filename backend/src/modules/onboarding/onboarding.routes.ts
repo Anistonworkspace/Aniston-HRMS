@@ -45,4 +45,88 @@ router.patch('/document-gate/:employeeId/unlock', authenticate, authorize(Role.S
   }
 );
 
+// ==================
+// KYC ENDPOINTS
+// ==================
+
+// Employee: Get own KYC status
+router.get('/kyc/me', authenticate,
+  async (req, res, next) => {
+    try {
+      const { documentGateService } = await import('./document-gate.service.js');
+      const gate = await documentGateService.getGate(req.user!.employeeId!);
+      res.json({ success: true, data: gate });
+    } catch (err) { next(err); }
+  }
+);
+
+// Employee: Upload KYC photo via camera capture
+router.post('/kyc/:employeeId/photo', authenticate,
+  async (req, res, next) => {
+    try {
+      const employeeId = req.params.employeeId as string;
+      // Save photo in employee's KYC folder: uploads/employees/{employeeId}/kyc/
+      const { createEmployeeKycUpload } = await import('../../middleware/upload.middleware.js');
+      const kycUpload = createEmployeeKycUpload(employeeId);
+      kycUpload.photo.single('photo')(req, res, async (err: any) => {
+        if (err) return next(err);
+        if (!req.file) {
+          res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'No photo provided' } });
+          return;
+        }
+        const { documentGateService } = await import('./document-gate.service.js');
+        const photoUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
+        const gate = await documentGateService.saveKycPhoto(employeeId, photoUrl);
+        res.json({ success: true, data: gate, message: 'Photo uploaded' });
+      });
+    } catch (err) { next(err); }
+  }
+);
+
+// Employee: Submit KYC for review
+router.post('/kyc/:employeeId/submit', authenticate,
+  async (req, res, next) => {
+    try {
+      const { documentGateService } = await import('./document-gate.service.js');
+      const gate = await documentGateService.submitKyc(req.params.employeeId);
+      res.json({ success: true, data: gate, message: 'KYC submitted for review' });
+    } catch (err) { next(err); }
+  }
+);
+
+// HR: List pending KYC submissions
+router.get('/kyc/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { documentGateService } = await import('./document-gate.service.js');
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
+      const result = await documentGateService.getPendingKyc(req.user!.organizationId, page, limit);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  }
+);
+
+// HR: Verify KYC
+router.post('/kyc/:employeeId/verify', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { documentGateService } = await import('./document-gate.service.js');
+      const gate = await documentGateService.verifyKyc(req.params.employeeId, req.user!.userId);
+      res.json({ success: true, data: gate, message: 'KYC verified' });
+    } catch (err) { next(err); }
+  }
+);
+
+// HR: Reject KYC
+router.post('/kyc/:employeeId/reject', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { documentGateService } = await import('./document-gate.service.js');
+      const gate = await documentGateService.rejectKyc(req.params.employeeId, req.body.reason, req.user!.userId);
+      res.json({ success: true, data: gate, message: 'KYC rejected' });
+    } catch (err) { next(err); }
+  }
+);
+
 export { router as onboardingRouter };

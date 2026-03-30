@@ -21,6 +21,10 @@ export class AuthService {
             firstName: true,
             lastName: true,
             avatar: true,
+            status: true,
+            exitStatus: true,
+            documentGate: { select: { kycStatus: true } },
+            exitAccessConfig: true,
           },
         },
       },
@@ -30,8 +34,16 @@ export class AuthService {
       throw new UnauthorizedError('Invalid email or password');
     }
 
+    // Allow login for exiting employees with exit access config
     if (user.status !== 'ACTIVE') {
-      throw new UnauthorizedError('Account is inactive. Contact your administrator.');
+      const exitAccess = user.employee?.exitAccessConfig;
+      if (!exitAccess || !exitAccess.isActive) {
+        throw new UnauthorizedError('Account is inactive. Contact your administrator.');
+      }
+      // Check if exit access has expired
+      if (exitAccess.accessExpiresAt && new Date(exitAccess.accessExpiresAt) < new Date()) {
+        throw new UnauthorizedError('Your limited access has expired. Contact your administrator.');
+      }
     }
 
     const isValidPassword = await bcrypt.compare(password, user.passwordHash);
@@ -49,6 +61,9 @@ export class AuthService {
       data: { lastLoginAt: new Date() },
     });
 
+    const kycCompleted = user.employee?.documentGate?.kycStatus === 'VERIFIED';
+    const exitAccess = user.employee?.exitAccessConfig;
+
     return {
       accessToken,
       refreshToken,
@@ -62,6 +77,23 @@ export class AuthService {
         avatar: user.employee?.avatar,
         organizationId: user.organizationId,
         workMode: user.employee?.workMode,
+        kycCompleted,
+        exitAccess: exitAccess?.isActive ? {
+          canViewDashboard: exitAccess.canViewDashboard,
+          canViewPayslips: exitAccess.canViewPayslips,
+          canDownloadPayslips: exitAccess.canDownloadPayslips,
+          canViewAttendance: exitAccess.canViewAttendance,
+          canMarkAttendance: exitAccess.canMarkAttendance,
+          canApplyLeave: exitAccess.canApplyLeave,
+          canViewLeaveBalance: exitAccess.canViewLeaveBalance,
+          canViewDocuments: exitAccess.canViewDocuments,
+          canDownloadDocuments: exitAccess.canDownloadDocuments,
+          canViewHelpdesk: exitAccess.canViewHelpdesk,
+          canCreateTicket: exitAccess.canCreateTicket,
+          canViewAnnouncements: exitAccess.canViewAnnouncements,
+          canViewProfile: exitAccess.canViewProfile,
+          accessExpiresAt: exitAccess.accessExpiresAt?.toISOString(),
+        } : null,
       },
     };
   }
@@ -171,6 +203,8 @@ export class AuthService {
           include: {
             department: true,
             designation: true,
+            documentGate: { select: { kycStatus: true } },
+            exitAccessConfig: true,
           },
         },
       },
@@ -179,6 +213,9 @@ export class AuthService {
     if (!user) {
       throw new NotFoundError('User');
     }
+
+    const kycCompleted = user.employee?.documentGate?.kycStatus === 'VERIFIED';
+    const exitAccess = user.employee?.exitAccessConfig;
 
     return {
       id: user.id,
@@ -192,79 +229,23 @@ export class AuthService {
       department: user.employee?.department?.name,
       designation: user.employee?.designation?.name,
       workMode: user.employee?.workMode,
-    };
-  }
-
-  async loginWithMicrosoft(microsoftId: string, email: string) {
-    // Try to find user by microsoftId first, then by email
-    let user = await prisma.user.findFirst({
-      where: { microsoftId },
-      include: {
-        employee: {
-          select: { id: true, firstName: true, lastName: true, avatar: true },
-        },
-      },
-    });
-
-    if (!user) {
-      user = await prisma.user.findUnique({
-        where: { email: email.toLowerCase() },
-        include: {
-          employee: {
-            select: { id: true, firstName: true, lastName: true, avatar: true },
-          },
-        },
-      });
-
-      if (user) {
-        // Link Microsoft account to existing user
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { microsoftId, authProvider: 'microsoft' },
-        });
-      }
-    }
-
-    if (!user) {
-      throw new UnauthorizedError('No HRMS account found for this Microsoft account. Contact your administrator.');
-    }
-
-    if (user.status !== 'ACTIVE') {
-      throw new UnauthorizedError('Account is inactive. Contact your administrator.');
-    }
-
-    const accessToken = this.generateAccessToken(user);
-    const refreshToken = await this.generateRefreshToken(user.id);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
-
-    return {
-      accessToken,
-      refreshToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        employeeId: user.employee?.id,
-        firstName: user.employee?.firstName,
-        lastName: user.employee?.lastName,
-        avatar: user.employee?.avatar,
-        organizationId: user.organizationId,
-        workMode: user.employee?.workMode,
-      },
-    };
-  }
-
-  async getSsoStatus() {
-    // Single-org system: get the first org's Teams config
-    const org = await prisma.organization.findFirst({ select: { settings: true } });
-    const settings = (org?.settings as any) || {};
-    const teams = settings.microsoftTeams || {};
-    return {
-      microsoftSsoEnabled: !!(teams.ssoEnabled && teams.tenantId && teams.clientId && teams.clientSecret),
+      kycCompleted,
+      exitAccess: exitAccess?.isActive ? {
+        canViewDashboard: exitAccess.canViewDashboard,
+        canViewPayslips: exitAccess.canViewPayslips,
+        canDownloadPayslips: exitAccess.canDownloadPayslips,
+        canViewAttendance: exitAccess.canViewAttendance,
+        canMarkAttendance: exitAccess.canMarkAttendance,
+        canApplyLeave: exitAccess.canApplyLeave,
+        canViewLeaveBalance: exitAccess.canViewLeaveBalance,
+        canViewDocuments: exitAccess.canViewDocuments,
+        canDownloadDocuments: exitAccess.canDownloadDocuments,
+        canViewHelpdesk: exitAccess.canViewHelpdesk,
+        canCreateTicket: exitAccess.canCreateTicket,
+        canViewAnnouncements: exitAccess.canViewAnnouncements,
+        canViewProfile: exitAccess.canViewProfile,
+        accessExpiresAt: exitAccess.accessExpiresAt?.toISOString(),
+      } : null,
     };
   }
 

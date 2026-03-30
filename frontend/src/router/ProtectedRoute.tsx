@@ -9,6 +9,9 @@ interface ProtectedRouteProps {
   allowedRoles?: string[];
 }
 
+// Roles that bypass KYC gate (they are admins, not regular employees)
+const KYC_EXEMPT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+
 export default function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
   const { isAuthenticated, user, accessToken } = useAppSelector((state) => state.auth);
   const location = useLocation();
@@ -51,6 +54,19 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
     return <Navigate to="/dashboard" replace />;
+  }
+
+  // KYC Gate: redirect employees with incomplete KYC to the KYC page
+  // Don't gate the /kyc-pending route itself, profile, or logout
+  const isKycExemptRoute = location.pathname === '/kyc-pending' || location.pathname === '/profile';
+  if (
+    user &&
+    !KYC_EXEMPT_ROLES.includes(user.role) &&
+    user.kycCompleted === false &&
+    !user.exitAccess && // Exiting employees skip KYC gate
+    !isKycExemptRoute
+  ) {
+    return <Navigate to="/kyc-pending" replace />;
   }
 
   return <>{children}</>;

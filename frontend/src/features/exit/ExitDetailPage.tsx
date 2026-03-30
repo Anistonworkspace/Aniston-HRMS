@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, AlertTriangle, Package, Undo2, UserX, Loader2, Clock } from 'lucide-react';
 import { useGetExitDetailsQuery, useApproveExitMutation, useCompleteExitMutation, useWithdrawResignationMutation, useReturnAssetForExitMutation } from './exitApi';
 import { useGetExitChecklistQuery, useMarkChecklistItemMutation } from '../assets/assetApi';
+import ExitAccessConfig from './ExitAccessConfig';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -176,8 +177,11 @@ export default function ExitDetailPage() {
           )}
         </div>
 
-        {/* Right Column — Timeline */}
-        <div>
+        {/* Right Column — Access Config + Timeline */}
+        <div className="space-y-6">
+          {/* Exit Access Configuration */}
+          <ExitAccessConfig employeeId={id!} exitStatus={exitStatus} />
+
           <div className="layer-card p-6">
             <h2 className="text-lg font-display font-semibold text-gray-800 mb-4">Timeline</h2>
             {events.length === 0 ? (

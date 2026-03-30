@@ -38,6 +38,7 @@ import { aiConfigRouter } from './modules/ai-config/ai-config.routes.js';
 import { invitationRouter } from './modules/invitation/invitation.routes.js';
 import { aiAssistantRouter } from './modules/ai-assistant/ai-assistant.routes.js';
 import { publicApplyRouter } from './modules/public-apply/public-apply.routes.js';
+import { exitAccessRouter } from './modules/exit-access/exit-access.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 
@@ -113,8 +114,16 @@ app.get('/api/health', async (_req, res) => {
   });
 });
 
+// Exit access check middleware (applied globally, self-activating for exiting employees)
+import { checkExitAccess } from './middleware/auth.middleware.js';
+
 // Routes
 app.use('/api/auth', authRouter);
+
+// Apply exit access check globally for all subsequent routes
+// Auth routes are exempt (above), exit-access routes handle their own auth
+app.use('/api', checkExitAccess);
+
 app.use('/api/employees', employeeRouter);
 app.use('/api/departments', departmentRouter);
 app.use('/api/designations', designationRouter);
@@ -143,6 +152,7 @@ app.use('/api/settings/ai-config', aiConfigRouter);
 app.use('/api/invitations', invitationRouter);
 app.use('/api/ai-assistant', aiAssistantRouter);
 app.use('/api/jobs', publicApplyRouter);
+app.use('/api/exit-access', exitAccessRouter);
 
 // Static file serving for uploads (agent downloads, resumes, documents)
 // Serve from both root/uploads and backend/uploads (handles monorepo + standalone)

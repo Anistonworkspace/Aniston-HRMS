@@ -3,6 +3,8 @@ import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { UnauthorizedError, ForbiddenError } from './errorHandler.js';
 import { Role, hasPermission, type Resource, type Action } from '@aniston/shared';
+import { prisma } from '../lib/prisma.js';
+import { redis } from '../lib/redis.js';
 
 export interface JwtPayload {
   userId: string;
@@ -79,4 +81,103 @@ export function requirePermission(resource: Resource, action: Action) {
     }
     next();
   };
+}
+
+/**
+ * Route-to-feature mapping for exit access control
+ */
+const EXIT_ACCESS_ROUTE_MAP: Record<string, string> = {
+  '/api/dashboard': 'canViewDashboard',
+  '/api/payroll': 'canViewPayslips',
+  '/api/attendance': 'canViewAttendance',
+  '/api/leaves': 'canViewLeaveBalance',
+  '/api/documents': 'canViewDocuments',
+  '/api/helpdesk': 'canViewHelpdesk',
+  '/api/announcements': 'canViewAnnouncements',
+  '/api/employees/me': 'canViewProfile',
+};
+
+/**
+ * Middleware to check exit access for exiting/terminated employees.
+ * Applied globally after authenticate — only activates for employees with exit access config.
+ */
+export function checkExitAccess(req: Request, _res: Response, next: NextFunction) {
+  if (!req.user?.employeeId) return next();
+
+  // Skip for admin roles — they don't have exit restrictions
+  const adminRoles: Role[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR];
+  if (adminRoles.includes(req.user.role)) return next();
+
+  // Check cache first, then DB
+  const cacheKey = `exit_access:${req.user.employeeId}`;
+
+  redis.get(cacheKey).then(async (cached) => {
+    let config: any = null;
+
+    if (cached) {
+      config = JSON.parse(cached);
+    } else {
+      config = await prisma.exitAccessConfig.findUnique({
+        where: { employeeId: req.user!.employeeId! },
+      });
+
+      if (config) {
+        // Cache for 5 minutes
+        await redis.setex(cacheKey, 300, JSON.stringify(config));
+      }
+    }
+
+    // If no exit access config, proceed normally (employee is not in exit mode)
+    if (!config || !config.isActive) return next();
+
+    // Check expiry
+    if (config.accessExpiresAt && new Date(config.accessExpiresAt) < new Date()) {
+      return next(new ForbiddenError('Your limited access has expired. Contact HR.'));
+    }
+
+    // Find which feature the current route maps to
+    const path = req.originalUrl.split('?')[0]; // Remove query params
+    let featureKey: string | undefined;
+
+    for (const [routePrefix, key] of Object.entries(EXIT_ACCESS_ROUTE_MAP)) {
+      if (path.startsWith(routePrefix)) {
+        featureKey = key;
+        break;
+      }
+    }
+
+    // If no mapping found, allow (routes like /api/auth are always accessible)
+    if (!featureKey) return next();
+
+    // Special check: attendance POST (clock in/out) requires canMarkAttendance
+    if (path.startsWith('/api/attendance') && ['POST', 'PATCH'].includes(req.method)) {
+      if (!config.canMarkAttendance) {
+        return next(new ForbiddenError('Attendance marking is not available in limited access mode'));
+      }
+      return next();
+    }
+
+    // Special check: leave POST requires canApplyLeave
+    if (path.startsWith('/api/leaves') && req.method === 'POST') {
+      if (!config.canApplyLeave) {
+        return next(new ForbiddenError('Leave application is not available in limited access mode'));
+      }
+      return next();
+    }
+
+    // Special check: helpdesk POST requires canCreateTicket
+    if (path.startsWith('/api/helpdesk') && req.method === 'POST') {
+      if (!config.canCreateTicket) {
+        return next(new ForbiddenError('Ticket creation is not available in limited access mode'));
+      }
+      return next();
+    }
+
+    // Check the mapped feature
+    if (!(config as any)[featureKey]) {
+      return next(new ForbiddenError('This feature is not available in limited access mode'));
+    }
+
+    next();
+  }).catch(() => next()); // On error, allow through (fail-open for exit check)
 }

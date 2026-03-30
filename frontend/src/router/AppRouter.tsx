@@ -37,7 +37,6 @@ const AssetManagementPage = lazy(() => import('../features/assets/AssetManagemen
 const MyAssetsPage = lazy(() => import('../features/assets/MyAssetsPage'));
 const EmployeeAttendanceDetailPage = lazy(() => import('../features/attendance/EmployeeAttendanceDetailPage'));
 const ActivityTrackingPage = lazy(() => import('../features/activity/ActivityTrackingPage'));
-const AuthCallbackPage = lazy(() => import('../features/auth/AuthCallbackPage'));
 const PendingApprovalsPage = lazy(() => import('../features/dashboard/PendingApprovalsPage'));
 const ExitManagementPage = lazy(() => import('../features/exit/ExitManagementPage'));
 const ExitDetailPage = lazy(() => import('../features/exit/ExitDetailPage'));
@@ -46,6 +45,7 @@ const WhatsAppPage = lazy(() => import('../features/whatsapp/WhatsAppPage'));
 const PublicApplyPage = lazy(() => import('../features/public-apply/PublicApplyPage'));
 const TrackApplicationPage = lazy(() => import('../features/public-apply/TrackApplicationPage'));
 const ActivateAccountPage = lazy(() => import('../features/auth/ActivateAccountPage'));
+const KycGatePage = lazy(() => import('../features/kyc/KycGatePage'));
 
 function PageLoader() {
   return (
@@ -65,7 +65,6 @@ export default function AppRouter() {
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route path="/onboarding/:token" element={<OnboardingPortal />} />
           <Route path="/onboarding/invite/:token" element={<InviteAcceptPage />} />
           <Route path="/jobs" element={<PublicJobsPage />} />
@@ -79,6 +78,9 @@ export default function AppRouter() {
           <Route path="/walk-in" element={<KioskLayout />}>
             <Route index element={<WalkInKioskPage />} />
           </Route>
+
+          {/* KYC Gate — no sidebar, just the KYC form */}
+          <Route path="/kyc-pending" element={<ProtectedRoute><KycGatePage /></ProtectedRoute>} />
 
           {/* Employee Detail — standalone (no sidebar) */}
           <Route path="/employees/:id" element={<ProtectedRoute><EmployeeDetailPage /></ProtectedRoute>} />

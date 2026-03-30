@@ -35,7 +35,8 @@ export type Resource =
   | 'holiday'
   | 'department'
   | 'designation'
-  | 'walk_in';
+  | 'walk_in'
+  | 'exit_access';
 
 export type PermissionsMap = Record<Role, Partial<Record<Resource, Action[]>>>;
 
@@ -62,6 +63,7 @@ export const PERMISSIONS: PermissionsMap = {
     department: ['create', 'read', 'update', 'delete'],
     designation: ['create', 'read', 'update', 'delete'],
     walk_in: ['create', 'read', 'update', 'delete'],
+    exit_access: ['create', 'read', 'update', 'delete', 'manage'],
   },
 
   [Role.ADMIN]: {
@@ -86,6 +88,7 @@ export const PERMISSIONS: PermissionsMap = {
     department: ['create', 'read', 'update', 'delete'],
     designation: ['create', 'read', 'update', 'delete'],
     walk_in: ['create', 'read', 'update', 'delete'],
+    exit_access: ['create', 'read', 'update', 'delete'],
   },
 
   [Role.HR]: {
@@ -110,6 +113,7 @@ export const PERMISSIONS: PermissionsMap = {
     department: ['read'],
     designation: ['read'],
     walk_in: ['create', 'read', 'update', 'delete'],
+    exit_access: ['create', 'read', 'update'],
   },
 
   [Role.MANAGER]: {

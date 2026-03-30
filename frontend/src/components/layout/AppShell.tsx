@@ -32,6 +32,8 @@ export default function AppShell() {
   const aiLabel = aiContext === 'hr-recruitment' ? 'HR Recruitment Assistant'
     : aiContext === 'admin' ? 'Admin Assistant' : 'HR Assistant';
 
+  const exitAccess = user?.exitAccess;
+
   return (
     <div className="flex min-h-screen bg-surface-1">
       {/* Sidebar — desktop only */}
@@ -41,6 +43,13 @@ export default function AppShell() {
       <div className="flex-1 flex flex-col min-h-screen">
         <Topbar />
         <main className="flex-1 pb-20 md:pb-0">
+          {/* Limited access banner for exiting employees */}
+          {exitAccess && (
+            <div className="mx-4 mt-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-600 flex-shrink-0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              <p className="text-xs text-amber-700">You are in <strong>limited access mode</strong>. Only specific features are available. Contact HR for details.</p>
+            </div>
+          )}
           <AgentDownloadBanner />
           <motion.div
             key={location.pathname}

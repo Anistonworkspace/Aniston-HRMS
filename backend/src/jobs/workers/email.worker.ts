@@ -142,25 +142,171 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
   `,
 };
 
-async function sendEmail(to: string, subject: string, html: string) {
-  // Use nodemailer if SMTP is configured, otherwise log
+/**
+ * Get email config from database settings (falls back to env vars)
+ */
+async function getEmailConfig(): Promise<{
+  authMethod: 'smtp' | 'oauth2';
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  fromAddress: string;
+  fromName: string;
+  // OAuth2 (Microsoft 365 Graph API)
+  tenantId?: string;
+  clientId?: string;
+  clientSecret?: string;
+  senderEmail?: string;
+} | null> {
+  try {
+    const { prisma } = await import('../../lib/prisma.js');
+    const org = await prisma.organization.findFirst({ select: { settings: true } });
+    const settings = (org?.settings as any) || {};
+    const email = settings.email;
+
+    if (email?.authMethod === 'oauth2' && email?.tenantId && email?.clientId && email?.clientSecret) {
+      return {
+        authMethod: 'oauth2',
+        host: '', port: 0, user: '', pass: '',
+        fromAddress: email.senderEmail || email.fromAddress || '',
+        fromName: email.fromName || 'Aniston HRMS',
+        tenantId: email.tenantId,
+        clientId: email.clientId,
+        clientSecret: email.clientSecret,
+        senderEmail: email.senderEmail || email.fromAddress,
+      };
+    }
+
+    if (email?.host && email?.user && email?.pass) {
+      return {
+        authMethod: 'smtp',
+        host: email.host,
+        port: email.port || 587,
+        user: email.user,
+        pass: email.pass,
+        fromAddress: email.fromAddress || email.user,
+        fromName: email.fromName || 'Aniston HRMS',
+      };
+    }
+  } catch (err) {
+    logger.warn('Could not read email config from DB, falling back to env vars');
+  }
+
+  // Fallback to env vars
   if (env.SMTP_USER && env.SMTP_PASS) {
-    try {
+    return {
+      authMethod: 'smtp',
+      host: env.SMTP_HOST,
+      port: env.SMTP_PORT,
+      user: env.SMTP_USER,
+      pass: env.SMTP_PASS,
+      fromAddress: env.SMTP_FROM,
+      fromName: 'Aniston HRMS',
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Send email via Microsoft 365 Graph API (OAuth2 Client Credentials)
+ */
+async function sendViaGraphApi(
+  config: { tenantId: string; clientId: string; clientSecret: string; senderEmail: string; fromName: string },
+  to: string,
+  subject: string,
+  html: string
+) {
+  // Get access token using Client Credentials flow
+  const tokenUrl = `https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`;
+  const tokenBody = new URLSearchParams({
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    scope: 'https://graph.microsoft.com/.default',
+    grant_type: 'client_credentials',
+  });
+
+  const tokenRes = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: tokenBody.toString(),
+  });
+
+  if (!tokenRes.ok) {
+    const err = await tokenRes.text();
+    throw new Error(`OAuth2 token request failed: ${err}`);
+  }
+
+  const { access_token } = await tokenRes.json();
+
+  // Send email via Graph API
+  const sendUrl = `https://graph.microsoft.com/v1.0/users/${config.senderEmail}/sendMail`;
+  const emailPayload = {
+    message: {
+      subject,
+      body: { contentType: 'HTML', content: html },
+      toRecipients: [{ emailAddress: { address: to } }],
+      from: { emailAddress: { address: config.senderEmail, name: config.fromName } },
+    },
+    saveToSentItems: false,
+  };
+
+  const sendRes = await fetch(sendUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(emailPayload),
+  });
+
+  if (!sendRes.ok) {
+    const err = await sendRes.text();
+    throw new Error(`Graph API sendMail failed: ${err}`);
+  }
+}
+
+async function sendEmail(to: string, subject: string, html: string) {
+  const config = await getEmailConfig();
+
+  if (!config) {
+    logger.info(`[EMAIL MOCK] To: ${to}, Subject: ${subject}`);
+    return;
+  }
+
+  try {
+    if (config.authMethod === 'oauth2') {
+      // Microsoft 365 Graph API
+      await sendViaGraphApi(
+        {
+          tenantId: config.tenantId!,
+          clientId: config.clientId!,
+          clientSecret: config.clientSecret!,
+          senderEmail: config.senderEmail || config.fromAddress,
+          fromName: config.fromName,
+        },
+        to, subject, html
+      );
+      logger.info(`Email sent via Graph API to ${to}: ${subject}`);
+    } else {
+      // Traditional SMTP
       const nodemailer = await import('nodemailer');
       const transporter = nodemailer.default.createTransport({
-        host: env.SMTP_HOST,
-        port: env.SMTP_PORT,
-        secure: env.SMTP_PORT === 465,
-        auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+        host: config.host,
+        port: config.port,
+        secure: config.port === 465,
+        auth: { user: config.user, pass: config.pass },
       });
-      await transporter.sendMail({ from: `"Aniston HRMS" <${env.SMTP_FROM}>`, to, subject, html });
-      logger.info(`Email sent to ${to}: ${subject}`);
-    } catch (err) {
-      logger.error(`Failed to send email to ${to}:`, err);
-      throw err;
+      await transporter.sendMail({
+        from: `"${config.fromName}" <${config.fromAddress}>`,
+        to, subject, html,
+      });
+      logger.info(`Email sent via SMTP to ${to}: ${subject}`);
     }
-  } else {
-    logger.info(`[EMAIL MOCK] To: ${to}, Subject: ${subject}`);
+  } catch (err) {
+    logger.error(`Failed to send email to ${to}:`, err);
+    throw err;
   }
 }
 

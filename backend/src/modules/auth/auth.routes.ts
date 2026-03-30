@@ -12,11 +12,6 @@ router.post('/reset-password', (req, res, next) => authController.resetPassword(
 router.post('/change-password', authenticate, (req, res, next) => authController.changePassword(req, res, next));
 router.get('/me', authenticate, (req, res, next) => authController.me(req, res, next));
 
-// Microsoft SSO
-router.get('/sso-status', (req, res, next) => authController.ssoStatus(req, res, next));
-router.get('/microsoft', (req, res, next) => authController.microsoftLogin(req, res, next));
-router.get('/microsoft/callback', (req, res, next) => authController.microsoftCallback(req, res, next));
-
 // Employee Activation (public, no auth)
 router.get('/activate/:token', (req, res, next) => authController.validateActivation(req, res, next));
 router.patch('/activate/:token/complete', (req, res, next) => authController.completeActivation(req, res, next));

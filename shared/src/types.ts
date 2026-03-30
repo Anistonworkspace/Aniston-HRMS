@@ -58,6 +58,25 @@ export interface AuthUser {
   lastName?: string;
   avatar?: string;
   organizationId: string;
+  kycCompleted?: boolean;
+  exitAccess?: ExitAccessInfo | null;
+}
+
+export interface ExitAccessInfo {
+  canViewDashboard: boolean;
+  canViewPayslips: boolean;
+  canDownloadPayslips: boolean;
+  canViewAttendance: boolean;
+  canMarkAttendance: boolean;
+  canApplyLeave: boolean;
+  canViewLeaveBalance: boolean;
+  canViewDocuments: boolean;
+  canDownloadDocuments: boolean;
+  canViewHelpdesk: boolean;
+  canCreateTicket: boolean;
+  canViewAnnouncements: boolean;
+  canViewProfile: boolean;
+  accessExpiresAt?: string;
 }
 
 export interface RefreshResponse {

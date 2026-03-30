@@ -37,6 +37,29 @@ export const exitApi = api.injectEndpoints({
   }),
 });
 
+    // Exit Access Config
+    getExitAccessConfig: builder.query<any, string>({
+      query: (employeeId) => `/exit-access/${employeeId}`,
+      providesTags: ['ExitAccess'],
+    }),
+    saveExitAccessConfig: builder.mutation<any, { employeeId: string; body: Record<string, any> }>({
+      query: ({ employeeId, body }) => ({
+        url: `/exit-access/${employeeId}`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['ExitAccess', 'Exit'],
+    }),
+    revokeExitAccess: builder.mutation<any, string>({
+      query: (employeeId) => ({
+        url: `/exit-access/${employeeId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['ExitAccess', 'Exit'],
+    }),
+  }),
+});
+
 export const {
   useGetExitRequestsQuery,
   useGetExitDetailsQuery,
@@ -46,4 +69,7 @@ export const {
   useWithdrawResignationMutation,
   useInitiateTerminationMutation,
   useReturnAssetForExitMutation,
+  useGetExitAccessConfigQuery,
+  useSaveExitAccessConfigMutation,
+  useRevokeExitAccessMutation,
 } = exitApi;

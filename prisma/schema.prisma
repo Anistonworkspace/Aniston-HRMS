@@ -157,6 +157,7 @@ model Employee {
   internsMentored        InternProfile[]       @relation("InternMentor")
   salaryVisibilityRule   SalaryVisibilityRule?
   documentGate           OnboardingDocumentGate?
+  exitAccessConfig       ExitAccessConfig?
   headOfDepartments      Department[]          @relation("DepartmentHead")
 
   @@index([organizationId, status])
@@ -880,10 +881,25 @@ model OnboardingDocumentGate {
   offerLetterUnlocked Boolean        @default(false)
   unlockedAt          DateTime?
   unlockedBy          String?
+
+  // KYC verification
+  kycStatus           KycStatus      @default(PENDING)
+  photoUrl            String?
+  verifiedAt          DateTime?
+  verifiedBy          String?
+  rejectionReason     String?
+
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
 
   employee Employee @relation(fields: [employeeId], references: [id])
+}
+
+enum KycStatus {
+  PENDING
+  SUBMITTED
+  VERIFIED
+  REJECTED
 }
 
 // =====================
@@ -1740,4 +1756,42 @@ model EmployeeActivation {
 
   @@index([organizationId])
   @@index([token])
+}
+
+// =====================
+// EXIT ACCESS CONFIG
+// =====================
+
+model ExitAccessConfig {
+  id              String   @id @default(uuid())
+  employeeId      String   @unique
+  organizationId  String
+
+  // Feature-level toggles (default: deny all except common needs)
+  canViewDashboard       Boolean @default(false)
+  canViewPayslips        Boolean @default(true)
+  canDownloadPayslips    Boolean @default(true)
+  canViewAttendance      Boolean @default(false)
+  canMarkAttendance      Boolean @default(false)
+  canApplyLeave          Boolean @default(false)
+  canViewLeaveBalance    Boolean @default(false)
+  canViewDocuments       Boolean @default(true)
+  canDownloadDocuments   Boolean @default(true)
+  canViewHelpdesk        Boolean @default(false)
+  canCreateTicket        Boolean @default(false)
+  canViewAnnouncements   Boolean @default(false)
+  canViewProfile         Boolean @default(true)
+
+  // Access window
+  accessExpiresAt DateTime?
+  isActive        Boolean  @default(true)
+
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  employee     Employee     @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@index([organizationId])
 }

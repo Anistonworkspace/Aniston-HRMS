@@ -285,3 +285,26 @@ export enum WaMessageStatus {
   READ = 'READ',
   FAILED = 'FAILED',
 }
+
+export enum KycStatus {
+  PENDING = 'PENDING',
+  SUBMITTED = 'SUBMITTED',
+  VERIFIED = 'VERIFIED',
+  REJECTED = 'REJECTED',
+}
+
+export enum ExitAccessFeature {
+  VIEW_DASHBOARD = 'canViewDashboard',
+  VIEW_PAYSLIPS = 'canViewPayslips',
+  DOWNLOAD_PAYSLIPS = 'canDownloadPayslips',
+  VIEW_ATTENDANCE = 'canViewAttendance',
+  MARK_ATTENDANCE = 'canMarkAttendance',
+  APPLY_LEAVE = 'canApplyLeave',
+  VIEW_LEAVE_BALANCE = 'canViewLeaveBalance',
+  VIEW_DOCUMENTS = 'canViewDocuments',
+  DOWNLOAD_DOCUMENTS = 'canDownloadDocuments',
+  VIEW_HELPDESK = 'canViewHelpdesk',
+  CREATE_TICKET = 'canCreateTicket',
+  VIEW_ANNOUNCEMENTS = 'canViewAnnouncements',
+  VIEW_PROFILE = 'canViewProfile',
+}

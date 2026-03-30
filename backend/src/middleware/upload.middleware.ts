@@ -125,3 +125,44 @@ export function createEmployeeUpload(empCode: string) {
     limits: { fileSize: 10 * 1024 * 1024 },
   });
 }
+
+/**
+ * Create employee KYC upload — saves to uploads/employees/{employeeId}/kyc/
+ * Structured folder: each employee gets their own folder with sub-categories
+ */
+export function createEmployeeKycUpload(employeeId: string) {
+  const dir = getUploadsDir('employees', employeeId, 'kyc');
+
+  return {
+    document: multer({
+      storage: multer.diskStorage({
+        destination: (_req, _file, cb) => cb(null, dir),
+        filename: (_req, file, cb) => {
+          const ext = path.extname(file.originalname);
+          const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+          cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+        },
+      }),
+      fileFilter: documentFilter,
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+    photo: multer({
+      storage: multer.diskStorage({
+        destination: (_req, _file, cb) => cb(null, dir),
+        filename: (_req, file, cb) => {
+          const ext = path.extname(file.originalname);
+          cb(null, `photo-${Date.now()}${ext}`);
+        },
+      }),
+      fileFilter: imageFilter,
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  };
+}
+
+/**
+ * Get the relative URL path for an employee's KYC file
+ */
+export function getEmployeeKycPath(employeeId: string, filename: string): string {
+  return `/uploads/employees/${employeeId}/kyc/${filename}`;
+}

@@ -108,8 +108,10 @@ export class SettingsService {
     const org = await prisma.organization.findFirst({ where: { id: organizationId }, select: { settings: true } });
     const settings = (org?.settings as any) || {};
     const email = settings.email || {};
-    // Never expose password to frontend
+    // Never expose secrets to frontend
     return {
+      authMethod: email.authMethod || 'smtp',
+      // SMTP fields
       host: email.host || '',
       port: email.port || 587,
       user: email.user || '',
@@ -117,23 +119,38 @@ export class SettingsService {
       fromAddress: email.fromAddress || '',
       fromName: email.fromName || '',
       emailDomain: email.emailDomain || '',
-      configured: !!(email.host && email.user && email.pass),
+      // OAuth2 fields
+      tenantId: email.tenantId || '',
+      clientId: email.clientId || '',
+      hasClientSecret: !!email.clientSecret,
+      senderEmail: email.senderEmail || '',
+      // Status
+      configured: email.authMethod === 'oauth2'
+        ? !!(email.tenantId && email.clientId && email.clientSecret && email.senderEmail)
+        : !!(email.host && email.user && email.pass),
     };
   }
 
-  async saveEmailConfig(organizationId: string, config: { host: string; port: number; user: string; pass?: string; fromAddress: string; fromName: string }, userId: string) {
+  async saveEmailConfig(organizationId: string, config: any, userId: string) {
     const org = await prisma.organization.findFirst({ where: { id: organizationId }, select: { settings: true } });
     const existingSettings = (org?.settings as any) || {};
     const existingEmail = existingSettings.email || {};
 
     const emailConfig: any = {
-      host: config.host,
-      port: config.port,
-      user: config.user,
+      authMethod: config.authMethod || 'smtp',
+      // SMTP fields
+      host: config.host || existingEmail.host || '',
+      port: config.port || existingEmail.port || 587,
+      user: config.user || existingEmail.user || '',
       pass: config.pass || existingEmail.pass || '',
-      fromAddress: config.fromAddress,
-      fromName: config.fromName,
-      emailDomain: (config as any).emailDomain || existingEmail.emailDomain || '',
+      fromAddress: config.fromAddress || existingEmail.fromAddress || '',
+      fromName: config.fromName || existingEmail.fromName || '',
+      emailDomain: config.emailDomain || existingEmail.emailDomain || '',
+      // OAuth2 fields
+      tenantId: config.tenantId || existingEmail.tenantId || '',
+      clientId: config.clientId || existingEmail.clientId || '',
+      clientSecret: config.clientSecret || existingEmail.clientSecret || '',
+      senderEmail: config.senderEmail || existingEmail.senderEmail || '',
     };
 
     await prisma.organization.update({
@@ -147,7 +164,7 @@ export class SettingsService {
       entity: 'EmailConfig',
       entityId: organizationId,
       action: 'UPDATE',
-      newValue: { host: config.host, port: config.port, user: config.user, fromAddress: config.fromAddress },
+      newValue: { authMethod: emailConfig.authMethod, host: config.host, user: config.user, fromAddress: config.fromAddress, senderEmail: config.senderEmail },
     });
 
     return { success: true };
@@ -158,8 +175,45 @@ export class SettingsService {
     const settings = (org?.settings as any) || {};
     const email = settings.email;
 
-    if (!email?.host || !email?.user || !email?.pass) {
-      return { success: false, message: 'Email not configured. Please save SMTP settings first.' };
+    if (!email) {
+      return { success: false, message: 'Email not configured. Please save settings first.' };
+    }
+
+    if (email.authMethod === 'oauth2') {
+      // Test Microsoft 365 OAuth2 connection
+      if (!email.tenantId || !email.clientId || !email.clientSecret) {
+        return { success: false, message: 'OAuth2 config incomplete. Provide Tenant ID, Client ID, and Client Secret.' };
+      }
+
+      try {
+        const tokenUrl = `https://login.microsoftonline.com/${email.tenantId}/oauth2/v2.0/token`;
+        const body = new URLSearchParams({
+          client_id: email.clientId,
+          client_secret: email.clientSecret,
+          scope: 'https://graph.microsoft.com/.default',
+          grant_type: 'client_credentials',
+        });
+
+        const res = await fetch(tokenUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body.toString(),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error_description: 'Unknown error' }));
+          return { success: false, message: `OAuth2 failed: ${err.error_description || err.error || 'Invalid credentials'}` };
+        }
+
+        return { success: true, message: `OAuth2 connection successful! Emails will be sent from ${email.senderEmail || email.fromAddress} via Microsoft 365.` };
+      } catch (err: any) {
+        return { success: false, message: `Connection failed: ${err.message}` };
+      }
+    }
+
+    // Test SMTP connection
+    if (!email.host || !email.user || !email.pass) {
+      return { success: false, message: 'SMTP not configured. Please save settings first.' };
     }
 
     try {
@@ -171,7 +225,7 @@ export class SettingsService {
         auth: { user: email.user, pass: email.pass },
       });
       await transporter.verify();
-      return { success: true, message: 'Connection successful! SMTP server is reachable.' };
+      return { success: true, message: 'SMTP connection successful! Server is reachable.' };
     } catch (err: any) {
       return { success: false, message: `Connection failed: ${err.message}` };
     }
