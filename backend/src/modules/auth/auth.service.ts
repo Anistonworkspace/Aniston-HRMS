@@ -61,6 +61,7 @@ export class AuthService {
         lastName: user.employee?.lastName,
         avatar: user.employee?.avatar,
         organizationId: user.organizationId,
+        workMode: user.employee?.workMode,
       },
     };
   }
@@ -252,6 +253,7 @@ export class AuthService {
         lastName: user.employee?.lastName,
         avatar: user.employee?.avatar,
         organizationId: user.organizationId,
+        workMode: user.employee?.workMode,
       },
     };
   }
