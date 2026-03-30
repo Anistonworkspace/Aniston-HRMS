@@ -37,14 +37,12 @@
       "output": "build"
     },
     "win": {
-      "target": "nsis",
-      "icon": "assets/icon.ico"
+      "target": "nsis"
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
-      "installerIcon": "assets/icon.ico",
       "artifactName": "aniston-agent-setup.${ext}"
     }
   }
