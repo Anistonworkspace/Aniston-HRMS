@@ -67,4 +67,6 @@ uploads/
 .playwright-mcp
 
 #DataBase Backup
-backup_phase_1774555771.sql
+backup_phase_1774555771.sqlagent-desktop/node_modules/
+agent-desktop/dist/
+agent-desktop/build/

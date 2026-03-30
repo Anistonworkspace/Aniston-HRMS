@@ -1,0 +1,51 @@
+{
+  "name": "aniston-agent",
+  "version": "1.0.0",
+  "description": "Aniston HRMS Desktop Activity Agent",
+  "main": "dist/main.js",
+  "author": "Aniston Technologies LLP",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && electron .",
+    "dev": "tsc && electron .",
+    "dist": "npm run build && electron-builder --win",
+    "dist:dir": "npm run build && electron-builder --win --dir"
+  },
+  "dependencies": {
+    "active-win": "^8.1.0",
+    "auto-launch": "^5.0.6",
+    "electron-store": "^8.2.0",
+    "node-fetch": "^2.7.0",
+    "screenshot-desktop": "^1.15.0",
+    "sharp": "^0.33.2",
+    "form-data": "^4.0.0"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.0",
+    "typescript": "^5.3.0",
+    "@types/auto-launch": "^5.0.5",
+    "@types/node": "^20.10.0",
+    "@types/node-fetch": "^2.6.9"
+  },
+  "build": {
+    "appId": "com.aniston.agent",
+    "productName": "Aniston Agent",
+    "directories": {
+      "output": "build"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "installerIcon": "assets/icon.ico",
+      "artifactName": "aniston-agent-setup.${ext}"
+    }
+  }
+}
