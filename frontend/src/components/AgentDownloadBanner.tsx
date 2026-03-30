@@ -25,7 +25,9 @@ export default function AgentDownloadBanner() {
   const shiftType = shiftRes?.data?.shift?.shiftType;
 
   // Check agent status for OFFICE and HYBRID employees
-  const needsAgent = shiftType === 'HYBRID' || shiftType === 'OFFICE';
+  // Also check employee.workMode as fallback when no shift is assigned yet
+  const workMode = (user as any)?.workMode;
+  const needsAgent = shiftType === 'HYBRID' || shiftType === 'OFFICE' || workMode === 'HYBRID' || workMode === 'OFFICE';
   const { data: statusRes } = useGetAgentStatusQuery(undefined, { skip: !needsAgent || isManagement });
   const agentActive = statusRes?.data?.isActive;
 

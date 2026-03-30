@@ -190,6 +190,7 @@ export class AuthService {
       avatar: user.employee?.avatar,
       department: user.employee?.department?.name,
       designation: user.employee?.designation?.name,
+      workMode: user.employee?.workMode,
     };
   }
 

@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── env stubs ─────────────────────────────────────────────────────────────
-process.env.JWT_SECRET = 'test-secret-key-that-is-at-least-32-characters-long';
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-key-that-is-at-least-32-characters-long';
 process.env.JWT_REFRESH_SECRET = 'test-refresh-secret-that-is-at-least-32-chars';
 process.env.ENCRYPTION_KEY = 'test-encryption-key-at-least-32-chars-long!!';
 process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';

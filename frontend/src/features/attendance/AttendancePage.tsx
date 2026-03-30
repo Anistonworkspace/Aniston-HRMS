@@ -5,7 +5,7 @@ import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import {
   Clock, LogIn, LogOut, Coffee, Play, Square, MapPin,
   ChevronLeft, ChevronRight, Calendar as CalendarIcon,
-  Users, Search, Filter, UserCheck, UserX, UserMinus,
+  Users, Search, Filter, UserCheck, UserX, UserMinus, Eye, Monitor,
 } from 'lucide-react';
 import {
   useGetTodayStatusQuery,
@@ -249,19 +249,20 @@ function AttendanceManagementView() {
                 <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Total Hours</th>
                 <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Status</th>
                 <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Work Mode</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Activity</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12">
+                  <td colSpan={7} className="text-center py-12">
                     <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
                     <p className="text-sm text-gray-400 mt-2">Loading attendance data...</p>
                   </td>
                 </tr>
               ) : filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12">
+                  <td colSpan={7} className="text-center py-12">
                     <Users size={40} className="mx-auto text-gray-200 mb-3" />
                     <p className="text-sm text-gray-400">No attendance records found for this date</p>
                   </td>
@@ -311,6 +312,15 @@ function AttendanceManagementView() {
                         <MapPin size={12} />
                         {record.workMode?.replace(/_/g, ' ') || 'OFFICE'}
                       </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); record.employeeId && navigate(`/attendance/employee/${record.employeeId}`); }}
+                        className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg transition-colors font-medium"
+                        title="View activity details, screenshots & GPS trail"
+                      >
+                        <Monitor size={12} /> Activity
+                      </button>
                     </td>
                   </tr>
                 ))
