@@ -644,7 +644,7 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
       </AnimatePresence>
 
       {/* Connections */}
-      <ConnectionsCards employeeId={employee.id} records={records} />
+      <ConnectionsCards employeeId={employeeId} records={records} />
     </motion.div>
   );
 }
