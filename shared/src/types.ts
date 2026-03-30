@@ -168,10 +168,13 @@ export interface CreateEmployeeRequest {
  */
 export interface DashboardStats {
   totalEmployees: number;
+  activeEmployees: number;
+  departmentCount: number;
   presentToday: number;
   onLeaveToday: number;
   openPositions: number;
   pendingLeaves: number;
+  hiringPassed: number;
   upcomingBirthdays: { id: string; firstName: string; lastName: string; dateOfBirth: string }[];
   recentHires: { id: string; firstName: string; lastName: string; joiningDate: string }[];
 }

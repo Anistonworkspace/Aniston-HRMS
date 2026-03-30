@@ -1729,7 +1729,7 @@ function ApiIntegrationsTab() {
   const handleTest = async () => {
     try {
       // Send current form values so we test what the user sees, not just what's in DB
-      const result = await testConnection({ provider, modelName, baseUrl: provider === 'CUSTOM' ? baseUrl : undefined }).unwrap();
+      const result = await testConnection({ provider, modelName, baseUrl: provider === 'CUSTOM' ? baseUrl : undefined, apiKey: apiKey || undefined }).unwrap();
       setTestResult(result.data);
       if (result.data?.success) {
         toast.success(`Connection successful! (${result.data.latencyMs}ms)`);

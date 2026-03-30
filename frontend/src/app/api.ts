@@ -73,6 +73,7 @@ export const api = createApi({
     'Activation',
     'Policy',
     'Performance',
+    'Kyc',
   ],
   endpoints: () => ({}),
 });

@@ -162,30 +162,31 @@ export class AiConfigService {
    * @returns `{ success, latencyMs, model, provider, response }` on success,
    *          or `{ success: false, message, provider, model }` on failure.
    */
-  async testConnection(organizationId: string, overrides?: { modelName?: string; baseUrl?: string; provider?: string }) {
+  async testConnection(organizationId: string, overrides?: { modelName?: string; baseUrl?: string; provider?: string; apiKey?: string }) {
     const config = await prisma.aiApiConfig.findFirst({
       where: { organizationId, isActive: true },
     });
 
-    if (!config) {
-      return { success: false, message: 'No AI provider configured. Please save a configuration first.' };
-    }
-
-    let apiKey: string;
-    try {
-      apiKey = decrypt(config.apiKeyEncrypted);
-    } catch {
-      return { success: false, message: 'Failed to decrypt API key. Please re-save your configuration with a new API key.', provider: config.provider, model: config.modelName };
+    // If user provided an apiKey override, use that directly; otherwise decrypt from DB
+    let apiKey: string | undefined;
+    if (overrides?.apiKey) {
+      apiKey = overrides.apiKey;
+    } else if (config) {
+      try {
+        apiKey = decrypt(config.apiKeyEncrypted);
+      } catch {
+        return { success: false, message: 'Failed to decrypt API key. Please re-save your configuration with a new API key.', provider: config?.provider, model: config?.modelName };
+      }
     }
 
     if (!apiKey) {
-      return { success: false, message: 'API key is empty. Please save a valid API key first.', provider: config.provider, model: config.modelName };
+      return { success: false, message: 'No API key available. Please enter an API key and try again.', provider: config?.provider || overrides?.provider, model: config?.modelName || overrides?.modelName };
     }
 
     // Use overrides from request body if provided (test what user typed, not just what's saved)
-    const testProvider = overrides?.provider || config.provider;
-    const testModel = overrides?.modelName || config.modelName;
-    const testBaseUrl = overrides?.baseUrl !== undefined ? overrides.baseUrl : config.baseUrl;
+    const testProvider = overrides?.provider || config?.provider || 'DEEPSEEK';
+    const testModel = overrides?.modelName || config?.modelName || 'deepseek-chat';
+    const testBaseUrl = overrides?.baseUrl !== undefined ? overrides.baseUrl : config?.baseUrl;
 
     const startTime = Date.now();
 

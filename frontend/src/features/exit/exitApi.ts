@@ -34,13 +34,10 @@ export const exitApi = api.injectEndpoints({
       query: (assignmentId) => ({ url: `/assets/assignments/${assignmentId}/return`, method: 'PATCH' }),
       invalidatesTags: ['Exit', 'Asset'],
     }),
-  }),
-});
-
     // Exit Access Config
     getExitAccessConfig: builder.query<any, string>({
       query: (employeeId) => `/exit-access/${employeeId}`,
-      providesTags: ['ExitAccess'],
+      providesTags: ['Exit'],
     }),
     saveExitAccessConfig: builder.mutation<any, { employeeId: string; body: Record<string, any> }>({
       query: ({ employeeId, body }) => ({
@@ -48,14 +45,14 @@ export const exitApi = api.injectEndpoints({
         method: 'POST',
         body,
       }),
-      invalidatesTags: ['ExitAccess', 'Exit'],
+      invalidatesTags: ['Exit'],
     }),
     revokeExitAccess: builder.mutation<any, string>({
       query: (employeeId) => ({
         url: `/exit-access/${employeeId}`,
         method: 'DELETE',
       }),
-      invalidatesTags: ['ExitAccess', 'Exit'],
+      invalidatesTags: ['Exit'],
     }),
   }),
 });

@@ -23,6 +23,7 @@ export class AuthService {
             avatar: true,
             status: true,
             exitStatus: true,
+            workMode: true,
             documentGate: { select: { kycStatus: true } },
             exitAccessConfig: true,
           },
@@ -108,14 +109,31 @@ export class AuthService {
       where: { id: userId },
       include: {
         employee: {
-          select: { id: true, firstName: true, lastName: true, avatar: true },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            avatar: true,
+            exitAccessConfig: { select: { isActive: true, accessExpiresAt: true } },
+          },
         },
       },
     });
 
-    if (!user || user.status !== 'ACTIVE') {
+    if (!user) {
       await redis.del(`${REFRESH_TOKEN_PREFIX}${refreshToken}`);
       throw new UnauthorizedError('User not found or inactive');
+    }
+
+    // Allow refresh for exiting employees with active exit access
+    if (user.status !== 'ACTIVE') {
+      const exitAccess = user.employee?.exitAccessConfig;
+      const hasValidExitAccess = exitAccess?.isActive &&
+        (!exitAccess.accessExpiresAt || new Date(exitAccess.accessExpiresAt) > new Date());
+      if (!hasValidExitAccess) {
+        await redis.del(`${REFRESH_TOKEN_PREFIX}${refreshToken}`);
+        throw new UnauthorizedError('User not found or inactive');
+      }
     }
 
     // Rotate refresh token
