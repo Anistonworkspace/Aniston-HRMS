@@ -1,3 +1,4 @@
+import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -144,7 +145,9 @@ app.use('/api/ai-assistant', aiAssistantRouter);
 app.use('/api/jobs', publicApplyRouter);
 
 // Static file serving for uploads (agent downloads, resumes, documents)
-app.use('/uploads', express.static('uploads'));
+// Serve from both root/uploads and backend/uploads (handles monorepo + standalone)
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+app.use('/uploads', express.static(path.join(process.cwd(), 'backend', 'uploads')));
 
 // 404 handler
 app.use((_req, res) => {
