@@ -48,7 +48,7 @@ export default function AgentDownloadBanner() {
     setDismissed(true);
   };
 
-  const downloadUrl = import.meta.env.VITE_AGENT_DOWNLOAD_URL || '/uploads/agent/AnistonActivityAgent-Setup.exe';
+  const downloadUrl = import.meta.env.VITE_AGENT_DOWNLOAD_URL || '/uploads/agent/aniston-agent.exe';
 
   return (
     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mx-6 mt-3 mb-1">
@@ -69,8 +69,8 @@ export default function AgentDownloadBanner() {
               Download and install the agent to get started.
             </p>
 
-            <div className="flex items-center gap-3 mb-3">
-              <a href={downloadUrl} download
+            <div className="flex items-center gap-3 mb-2">
+              <a href={downloadUrl} download="aniston-agent.exe"
                 className="inline-flex items-center gap-2 bg-white text-brand-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-white/90 transition-colors shadow-sm">
                 <Download size={16} /> Download Agent
               </a>
@@ -79,29 +79,34 @@ export default function AgentDownloadBanner() {
                 How to install {showSteps ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </button>
             </div>
+            <p className="text-[11px] text-white/50 mb-3">Windows may show a security warning — this is normal for new software. Follow the steps below to proceed safely.</p>
 
             <AnimatePresence>
               {showSteps && (
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                  <div className="bg-white/10 rounded-xl p-4 text-sm text-white/90 space-y-2">
+                  <div className="bg-white/10 rounded-xl p-4 text-sm text-white/90 space-y-2.5">
                     <div className="flex gap-2">
                       <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold flex-shrink-0">1</span>
-                      <p>Click "Download Agent" above to get the installer (.exe)</p>
+                      <p>Click <strong>"Download Agent"</strong> — your browser may show <em>"isn't commonly downloaded"</em></p>
                     </div>
                     <div className="flex gap-2">
-                      <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold flex-shrink-0">2</span>
-                      <p>Run the downloaded file and follow the installation wizard</p>
+                      <span className="w-5 h-5 rounded-full bg-amber-400/30 flex items-center justify-center text-xs font-bold flex-shrink-0">2</span>
+                      <p>Click the <strong>↑ arrow</strong> next to the warning → Click <strong>"Keep"</strong> → then <strong>"Keep anyway"</strong></p>
                     </div>
                     <div className="flex gap-2">
-                      <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold flex-shrink-0">3</span>
-                      <p>The agent will appear in your system tray (bottom-right). Log in with your HRMS email and password</p>
+                      <span className="w-5 h-5 rounded-full bg-amber-400/30 flex items-center justify-center text-xs font-bold flex-shrink-0">3</span>
+                      <p>If Windows SmartScreen pops up → Click <strong>"More info"</strong> → Click <strong>"Run anyway"</strong></p>
                     </div>
                     <div className="flex gap-2">
                       <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold flex-shrink-0">4</span>
-                      <p>Done! The agent will auto-start on boot and track your activity during work hours</p>
+                      <p>Follow the installer → Agent appears in system tray (bottom-right). Log in with your HRMS credentials</p>
                     </div>
-                    <p className="text-xs text-white/50 mt-2">The agent tracks: active apps, idle time, and periodic screenshots. No keylogging.</p>
+                    <div className="flex gap-2">
+                      <span className="w-5 h-5 rounded-full bg-emerald-400/30 flex items-center justify-center text-xs font-bold flex-shrink-0">5</span>
+                      <p>Done! Agent auto-starts on boot and tracks activity during your shift hours</p>
+                    </div>
+                    <p className="text-xs text-white/40 mt-2 border-t border-white/10 pt-2">The warning appears because the agent is new and doesn't yet have a code signing certificate. It is safe — built by Aniston Technologies IT team. Tracks: active apps, idle time, periodic screenshots. No keylogging.</p>
                   </div>
                 </motion.div>
               )}

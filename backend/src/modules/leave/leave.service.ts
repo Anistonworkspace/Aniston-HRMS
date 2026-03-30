@@ -162,17 +162,17 @@ export class LeaveService {
 
     // 1. Min days check
     if (leaveType.minDays && days < Number(leaveType.minDays)) {
-      throw new BadRequestError(`Minimum ${Number(leaveType.minDays)} day(s) required for ${leaveType.name}`);
+      throw new BadRequestError(`[Section 5] ${leaveType.name} requires a minimum of ${Number(leaveType.minDays)} day(s) per company policy.`);
     }
 
     // 2. Max days check
     if (leaveType.maxDays && days > Number(leaveType.maxDays)) {
-      throw new BadRequestError(`Maximum ${Number(leaveType.maxDays)} day(s) allowed for ${leaveType.name}`);
+      throw new BadRequestError(`[Section 5] Maximum ${Number(leaveType.maxDays)} consecutive day(s) allowed for ${leaveType.name}. For longer durations, use Privilege Leave (PL).`);
     }
 
     // 3. Same-day check
     if (!leaveType.allowSameDay && startDateOnly.getTime() === today.getTime()) {
-      throw new BadRequestError(`Same-day leave application is not allowed for ${leaveType.name}`);
+      throw new BadRequestError(`[Section 5.1] ${leaveType.name} must be applied in advance. Same-day applications are not permitted.`);
     }
 
     // 4. Notice days check
@@ -180,7 +180,7 @@ export class LeaveService {
       const diffMs = startDateOnly.getTime() - today.getTime();
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
       if (diffDays < leaveType.noticeDays) {
-        throw new BadRequestError(`${leaveType.name} requires at least ${leaveType.noticeDays} day(s) advance notice`);
+        throw new BadRequestError(`[Section 5] ${leaveType.name} requires at least ${leaveType.noticeDays} working day(s) advance notice per company policy.`);
       }
     }
 
@@ -197,13 +197,13 @@ export class LeaveService {
         },
       });
       if (monthCount >= leaveType.maxPerMonth) {
-        throw new BadRequestError(`Maximum ${leaveType.maxPerMonth} leave(s) per month allowed for ${leaveType.name}`);
+        throw new BadRequestError(`[Section 4 — Monthly Cap] No employee shall take more than ${leaveType.maxPerMonth} paid leave(s) per calendar month across all categories. You have already used your monthly quota.`);
       }
     }
 
     // 6. Gender restriction
     if (leaveType.gender && employee.gender !== leaveType.gender) {
-      throw new BadRequestError(`${leaveType.name} is restricted to ${leaveType.gender} employees`);
+      throw new BadRequestError(`[Section 5] ${leaveType.name} is restricted to ${leaveType.gender} employees only.`);
     }
 
     // 7. Probation / Confirmed check
@@ -213,10 +213,10 @@ export class LeaveService {
       const isInProbation = today < probationEnd;
 
       if (leaveType.applicableTo === 'CONFIRMED' && isInProbation) {
-        throw new BadRequestError(`${leaveType.name} is only available for confirmed employees (after ${leaveType.probationMonths || 3} months probation)`);
+        throw new BadRequestError(`[Section 5.4] ${leaveType.name} is available only after ${leaveType.probationMonths || 3} months of confirmed service.`);
       }
       if (leaveType.applicableTo === 'PROBATION' && !isInProbation) {
-        throw new BadRequestError(`${leaveType.name} is only available during probation period`);
+        throw new BadRequestError(`[Section 5] ${leaveType.name} is only available during probation period.`);
       }
     }
 
@@ -229,7 +229,7 @@ export class LeaveService {
       const beforeDay = dayBefore.getDay();
       const afterDay = dayAfter.getDay();
       if (beforeDay === 0 || beforeDay === 6 || afterDay === 0 || afterDay === 6) {
-        throw new BadRequestError(`${leaveType.name} cannot be taken adjacent to weekends`);
+        throw new BadRequestError(`[Section 6.2 — Sandwich Rule] ${leaveType.name} cannot be taken on days adjacent to weekends or holidays. The intervening holiday(s) will also be counted as leave.`);
       }
     }
 
@@ -241,7 +241,7 @@ export class LeaveService {
       // Only allow SL with medical emergency documentation
       const isMedicalEmergency = leaveType.code === 'SL' && data.reason?.toLowerCase().includes('hospital');
       if (!isMedicalEmergency) {
-        throw new BadRequestError('Leave during 1st-10th of the month is not permitted (Mandatory Attendance Period). Only documented medical emergencies requiring hospitalization are excepted.');
+        throw new BadRequestError('[Section 2.5 — Mandatory Attendance Period] No leave is permitted during the 1st to 10th of any month. This is a critical business period. Only documented medical emergencies with hospital admission records are excepted.');
       }
     }
 
@@ -255,7 +255,7 @@ export class LeaveService {
         where: { policyId_employeeId: { policyId: leavePolicy.id, employeeId } },
       });
       if (!acknowledged) {
-        throw new BadRequestError('Please accept the Leave & Attendance Policy before applying for leave. Go to Leave Management to review and accept.');
+        throw new BadRequestError('[Policy Compliance] You must accept the Leave, Attendance & Professional Integrity Policy (v3.0) before applying for leave. Go to Leave Management to review and accept the policy.');
       }
     }
 
@@ -276,7 +276,7 @@ export class LeaveService {
     if (balance) {
       const available = Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending);
       if (days > available && leaveType.isPaid) {
-        throw new BadRequestError(`Insufficient leave balance. Available: ${available}, Requested: ${days}`);
+        throw new BadRequestError(`[Section 6.3] Insufficient leave balance. Available: ${available} day(s), Requested: ${days} day(s). Additional absence will be marked as Leave Without Pay (LWP) with proportionate salary deduction.`);
       }
     }
 
@@ -292,7 +292,7 @@ export class LeaveService {
     });
 
     if (overlapping) {
-      throw new BadRequestError('You already have a leave request for overlapping dates');
+      throw new BadRequestError('[Section 6.1] You already have a leave request for these dates. Cancel the existing request first or choose different dates.');
     }
 
     // Create leave request
