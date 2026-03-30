@@ -111,6 +111,10 @@ export const attendanceApi = api.injectEndpoints({
     getAgentStatus: builder.query<any, void>({
       query: () => '/agent/status',
     }),
+
+    generateAgentPairCode: builder.mutation<any, void>({
+      query: () => ({ url: '/agent/pair/generate', method: 'POST' }),
+    }),
   }),
 });
 
@@ -133,4 +137,5 @@ export const {
   useGetEmployeeActivityLogsQuery,
   useGetEmployeeScreenshotsQuery,
   useGetAgentStatusQuery,
+  useGenerateAgentPairCodeMutation,
 } = attendanceApi;

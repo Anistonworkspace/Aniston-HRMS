@@ -1,6 +1,12 @@
+import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError } from '../../middleware/errorHandler.js';
+import { redis } from '../../lib/redis.js';
+import { env } from '../../config/env.js';
+import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import type { ActivityEntry, ScreenshotMetadata } from './agent.validation.js';
+
+const PAIR_PREFIX = 'agent-pair:';
 
 export class AgentService {
   async submitHeartbeat(employeeId: string, organizationId: string, activities: ActivityEntry[]) {
@@ -149,6 +155,57 @@ export class AgentService {
     return {
       isActive: !!lastLog,
       lastHeartbeat: lastLog?.timestamp || null,
+    };
+  }
+  /**
+   * Generate a pairing code for agent authentication (no password needed).
+   * Code is stored in Redis with 5-minute TTL.
+   */
+  async generatePairCode(userId: string, employeeId: string, organizationId: string) {
+    // Generate 8-char code: ANST-XXXX
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no confusing chars (0/O, 1/I)
+    let code = 'ANST-';
+    for (let i = 0; i < 4; i++) code += chars[crypto.randomInt(chars.length)];
+
+    // Store in Redis: code → { userId, employeeId, organizationId }
+    await redis.set(`${PAIR_PREFIX}${code}`, JSON.stringify({ userId, employeeId, organizationId }), 'EX', 300); // 5 min TTL
+
+    return { code, expiresIn: 300 };
+  }
+
+  /**
+   * Verify a pairing code and return JWT tokens for the agent.
+   */
+  async verifyPairCode(code: string) {
+    const data = await redis.get(`${PAIR_PREFIX}${code}`);
+    if (!data) throw new BadRequestError('Invalid or expired pairing code. Generate a new one from the HRMS portal.');
+
+    const { userId, employeeId, organizationId } = JSON.parse(data);
+
+    // Get user info for token
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { employee: { select: { id: true, firstName: true, lastName: true } } },
+    });
+    if (!user) throw new NotFoundError('User');
+
+    // Generate long-lived agent token (30 days)
+    const accessToken = jwt.sign(
+      { userId, email: user.email, role: user.role, organizationId, employeeId },
+      env.JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    // Delete used code
+    await redis.del(`${PAIR_PREFIX}${code}`);
+
+    return {
+      accessToken,
+      user: {
+        email: user.email,
+        firstName: user.employee?.firstName,
+        lastName: user.employee?.lastName,
+      },
     };
   }
 }

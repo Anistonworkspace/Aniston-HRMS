@@ -72,6 +72,25 @@ export class AgentController {
       res.json({ success: true, data: status });
     } catch (err) { next(err); }
   }
+  async generatePairCode(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await agentService.generatePairCode(
+        req.user!.userId,
+        req.user!.employeeId!,
+        req.user!.organizationId
+      );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async verifyPairCode(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { code } = req.body;
+      if (!code) return res.status(400).json({ success: false, error: { message: 'Pairing code is required' } });
+      const result = await agentService.verifyPairCode(code);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
 }
 
 export const agentController = new AgentController();

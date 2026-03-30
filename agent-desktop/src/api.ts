@@ -55,6 +55,18 @@ export async function login(email: string, password: string) {
   return data.data;
 }
 
+export async function pairWithCode(code: string) {
+  const res = await fetch(`${CONFIG.API_URL}/agent/pair/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  const data = await res.json() as any;
+  if (!data.success) throw new Error(data.error?.message || 'Invalid pairing code');
+  accessToken = data.data.accessToken;
+  return data.data;
+}
+
 export async function getAgentConfig() {
   const res = await authFetch('/agent/config');
   const data = await res.json() as any;

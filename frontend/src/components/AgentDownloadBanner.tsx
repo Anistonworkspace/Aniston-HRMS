@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Monitor, Download, ChevronDown, ChevronUp, X, CheckCircle2, Loader2, Wifi, WifiOff } from 'lucide-react';
 import { useAppSelector } from '../app/store';
-import { useGetAgentStatusQuery } from '../features/attendance/attendanceApi';
+import { useGetAgentStatusQuery, useGenerateAgentPairCodeMutation } from '../features/attendance/attendanceApi';
 import { useGetEmployeeShiftQuery } from '../features/workforce/workforceApi';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
@@ -19,6 +19,8 @@ export default function AgentDownloadBanner() {
   const isManagement = user?.role ? MANAGEMENT_ROLES.includes(user.role) : false;
   const [dismissed, setDismissed] = useState(isDismissedToday());
   const [showSteps, setShowSteps] = useState(false);
+  const [pairCode, setPairCode] = useState<string | null>(null);
+  const [generatePairCode, { isLoading: generating }] = useGenerateAgentPairCodeMutation();
   const [phase, setPhase] = useState<'checking' | 'connected' | 'not-connected' | 'hidden'>('checking');
 
   // Skip for management users
@@ -133,13 +135,37 @@ export default function AgentDownloadBanner() {
           <div className="flex items-center gap-2 mb-2">
             <a href={downloadUrl} download="aniston-agent.exe"
               className="flex-1 inline-flex items-center justify-center gap-2 bg-brand-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">
-              <Download size={14} /> Download Agent
+              <Download size={14} /> Download
             </a>
-            <button onClick={() => setShowSteps(!showSteps)}
-              className="px-3 py-2 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg transition-colors flex items-center gap-1">
-              Steps {showSteps ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            <button onClick={async () => {
+              try {
+                const res = await generatePairCode().unwrap();
+                setPairCode(res.data?.code);
+              } catch { /* ignore */ }
+            }} disabled={generating}
+              className="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50">
+              {generating ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />}
+              {pairCode ? 'New Code' : 'Link Agent'}
             </button>
           </div>
+
+          {/* Pairing code display */}
+          {pairCode && (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-2 text-center">
+              <p className="text-[10px] text-gray-400 mb-1">Enter this code in the agent app:</p>
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-2xl font-mono font-bold text-brand-700 tracking-widest" data-mono>{pairCode}</span>
+                <button onClick={() => { navigator.clipboard.writeText(pairCode); }}
+                  className="text-xs text-brand-600 hover:text-brand-700 underline">Copy</button>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">Expires in 5 minutes</p>
+            </div>
+          )}
+
+          <button onClick={() => setShowSteps(!showSteps)}
+            className="w-full text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center justify-center gap-1 mb-1">
+            Installation steps {showSteps ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+          </button>
 
           <AnimatePresence>
             {showSteps && (

@@ -5,7 +5,14 @@ import { uploadImage } from '../../middleware/upload.middleware.js';
 import { Role } from '@aniston/shared';
 
 const router = Router();
+
+// Public: agent pairing verification (no auth — agent uses pairing code)
+router.post('/pair/verify', (req, res, next) => agentController.verifyPairCode(req, res, next));
+
 router.use(authenticate);
+
+// Authenticated: generate pairing code
+router.post('/pair/generate', (req, res, next) => agentController.generatePairCode(req, res, next));
 
 // Agent endpoints (employee sends data from desktop agent)
 router.post('/heartbeat', (req, res, next) => agentController.submitHeartbeat(req, res, next));

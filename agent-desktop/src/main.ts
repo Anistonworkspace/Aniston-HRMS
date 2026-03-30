@@ -2,10 +2,10 @@ import { app, BrowserWindow } from 'electron';
 import Store from 'electron-store';
 import AutoLaunch from 'auto-launch';
 import { CONFIG } from './config';
-import { login, setTokens, sendHeartbeat, isLoggedIn } from './api';
+import { pairWithCode, setTokens, sendHeartbeat, isLoggedIn } from './api';
 import { startTracking, stopTracking, getBuffer } from './tracker';
 import { startScreenshots, stopScreenshots, updateActiveWindow } from './screenshot';
-import { createTray, updateTrayMenu, showLoginWindow, closeLoginWindow, sendLoginError } from './tray';
+import { createTray, updateTrayMenu, showPairWindow, closePairWindow, sendPairError } from './tray';
 
 const store = new Store({ encryptionKey: CONFIG.STORE_ENCRYPTION_KEY });
 
@@ -23,23 +23,22 @@ const autoLauncher = new AutoLaunch({
 
 let syncInterval: NodeJS.Timeout | null = null;
 
-async function handleLogin() {
+async function handlePair() {
   try {
-    const { email, password } = await showLoginWindow();
-    const result = await login(email, password);
-    store.set('email', email);
+    const code = await showPairWindow();
+    const result = await pairWithCode(code);
     store.set('accessToken', result.accessToken);
-    store.set('refreshToken', result.refreshToken);
-    closeLoginWindow();
+    store.set('userEmail', result.user?.email);
+    closePairWindow();
 
     // Start tracking
     await startTracking();
     startScreenshots();
     startSyncLoop();
 
-    updateTrayMenu(handleLogin, handleLogout);
+    updateTrayMenu(handlePair, handleLogout);
   } catch (err) {
-    sendLoginError((err as Error).message);
+    sendPairError((err as Error).message);
   }
 }
 
@@ -50,7 +49,7 @@ function handleLogout() {
   setTokens('');
   store.delete('accessToken');
   store.delete('refreshToken');
-  updateTrayMenu(handleLogin, handleLogout);
+  updateTrayMenu(handlePair, handleLogout);
 }
 
 function startSyncLoop() {
@@ -97,7 +96,7 @@ app.whenReady().then(async () => {
   }
 
   // Create system tray
-  createTray(handleLogin, handleLogout);
+  createTray(handlePair, handleLogout);
 
   // Try auto-login with stored credentials
   const savedToken = store.get('accessToken') as string | undefined;
@@ -108,7 +107,7 @@ app.whenReady().then(async () => {
       await startTracking();
       startScreenshots();
       startSyncLoop();
-      updateTrayMenu(handleLogin, handleLogout);
+      updateTrayMenu(handlePair, handleLogout);
     } catch {
       // Token expired — need re-login
       handleLogout();
