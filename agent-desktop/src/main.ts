@@ -98,20 +98,21 @@ app.whenReady().then(async () => {
   // Create system tray
   createTray(handlePair, handleLogout);
 
-  // Try auto-login with stored credentials
+  // Try auto-connect with stored token
   const savedToken = store.get('accessToken') as string | undefined;
-  const savedRefresh = store.get('refreshToken') as string | undefined;
   if (savedToken) {
-    setTokens(savedToken, savedRefresh);
+    setTokens(savedToken);
     try {
       await startTracking();
       startScreenshots();
       startSyncLoop();
       updateTrayMenu(handlePair, handleLogout);
     } catch {
-      // Token expired — need re-login
       handleLogout();
     }
+  } else {
+    // No stored token — auto-show pairing window on first launch
+    handlePair();
   }
 });
 
