@@ -101,6 +101,16 @@ export class ShiftService {
       data: { endDate: new Date(data.startDate) },
     });
 
+    // Map shift type to employee work mode
+    const workModeMap: Record<string, string> = { OFFICE: 'OFFICE', HYBRID: 'HYBRID', FIELD: 'FIELD_SALES' };
+    const newWorkMode = workModeMap[shift.shiftType] || 'OFFICE';
+
+    // Update employee's workMode to match the assigned shift
+    await prisma.employee.update({
+      where: { id: data.employeeId },
+      data: { workMode: newWorkMode as any },
+    });
+
     return prisma.shiftAssignment.create({
       data: {
         employeeId: data.employeeId,
@@ -113,7 +123,7 @@ export class ShiftService {
       include: {
         shift: true,
         location: { include: { geofence: true } },
-        employee: { select: { firstName: true, lastName: true, employeeCode: true } },
+        employee: { select: { firstName: true, lastName: true, employeeCode: true, workMode: true } },
       },
     });
   }

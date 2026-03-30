@@ -143,10 +143,8 @@ app.use('/api/invitations', invitationRouter);
 app.use('/api/ai-assistant', aiAssistantRouter);
 app.use('/api/jobs', publicApplyRouter);
 
-// Static file serving for uploads (dev only — disable in production)
-if (env.NODE_ENV === 'development') {
-  app.use('/uploads', express.static('uploads'));
-}
+// Static file serving for uploads (agent downloads, resumes, documents)
+app.use('/uploads', express.static('uploads'));
 
 // 404 handler
 app.use((_req, res) => {

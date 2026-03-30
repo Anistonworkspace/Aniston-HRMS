@@ -48,7 +48,8 @@ export default function AgentDownloadBanner() {
     setDismissed(true);
   };
 
-  const downloadUrl = import.meta.env.VITE_AGENT_DOWNLOAD_URL || '/uploads/agent/aniston-agent.exe';
+  const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace('/api', '');
+  const downloadUrl = import.meta.env.VITE_AGENT_DOWNLOAD_URL || `${apiBase}/uploads/agent/aniston-agent.exe`;
 
   return (
     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mx-6 mt-3 mb-1">
