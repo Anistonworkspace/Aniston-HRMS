@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Sidebar from './Sidebar';
@@ -8,11 +9,21 @@ import AgentDownloadBanner from '../AgentDownloadBanner';
 import useActivityTracker from '../../hooks/useActivityTracker';
 import { useAppSelector } from '../../app/store';
 import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
+import { connectSocket, disconnectSocket } from '../../lib/socket';
 
 export default function AppShell() {
   // Activity tracking — runs globally for all logged-in users
   useActivityTracker();
   const user = useAppSelector(s => s.auth.user);
+
+  // Connect Socket.io when user is logged in
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+      connectSocket(token);
+    }
+    return () => { disconnectSocket(); };
+  }, [user?.id]);
   const location = useLocation();
   const isAdminOrHR = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const aiContext = location.pathname.startsWith('/recruitment') ? 'hr-recruitment' as const

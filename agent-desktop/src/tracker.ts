@@ -1,4 +1,5 @@
 import { powerMonitor } from 'electron';
+import { execSync } from 'child_process';
 import { CONFIG, categorizeApp } from './config';
 
 export interface ActivityEntry {
@@ -18,10 +19,6 @@ let activityBuffer: ActivityEntry[] = [];
 let trackingInterval: NodeJS.Timeout | null = null;
 let isPaused = false;
 
-// Simple counters (incremented by global hooks if available)
-let keystrokeCount = 0;
-let mouseClickCount = 0;
-
 export function getBuffer(): ActivityEntry[] {
   const entries = [...activityBuffer];
   activityBuffer = [];
@@ -32,43 +29,77 @@ export function pauseTracking() { isPaused = true; }
 export function resumeTracking() { isPaused = false; }
 export function isTracking() { return trackingInterval !== null && !isPaused; }
 
-export async function startTracking() {
+/**
+ * Get active window using PowerShell (works on Windows without native modules)
+ */
+function getActiveWindowInfo(): { app: string; title: string } {
+  try {
+    const script = `
+      Add-Type @"
+        using System;
+        using System.Runtime.InteropServices;
+        using System.Text;
+        public class Win32 {
+          [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+          [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+          [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+        }
+"@
+      $hwnd = [Win32]::GetForegroundWindow()
+      $sb = New-Object System.Text.StringBuilder 256
+      [Win32]::GetWindowText($hwnd, $sb, 256) | Out-Null
+      $title = $sb.ToString()
+      $pid = 0
+      [Win32]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null
+      $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+      "$($proc.ProcessName)|$title"
+    `;
+    const result = execSync(`powershell -NoProfile -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, {
+      timeout: 5000,
+      encoding: 'utf-8',
+      windowsHide: true,
+    }).trim();
+    const [app, ...titleParts] = result.split('|');
+    return { app: app || 'Unknown', title: titleParts.join('|') || '' };
+  } catch {
+    return { app: 'Unknown', title: '' };
+  }
+}
+
+export function startTracking() {
   if (trackingInterval) return;
 
-  trackingInterval = setInterval(async () => {
+  console.log('[Tracker] Starting activity tracking...');
+
+  trackingInterval = setInterval(() => {
     if (isPaused) return;
 
     try {
-      // Dynamic import for ESM module
-      const activeWin = await import('active-win');
-      const result = await activeWin.default();
-
+      const { app, title } = getActiveWindowInfo();
       const idleTime = powerMonitor.getSystemIdleTime();
       const isIdle = idleTime >= CONFIG.IDLE_THRESHOLD_S;
 
       const entry: ActivityEntry = {
-        activeApp: result?.owner?.name || 'Unknown',
-        activeWindow: result?.title || '',
-        activeUrl: (result as any)?.url || '',
-        category: isIdle ? 'NEUTRAL' : categorizeApp(result?.owner?.name || ''),
+        activeApp: app,
+        activeWindow: title,
+        activeUrl: '',
+        category: isIdle ? 'NEUTRAL' : categorizeApp(app),
         durationSeconds: CONFIG.TRACKING_INTERVAL_MS / 1000,
         idleSeconds: idleTime,
-        keystrokes: keystrokeCount,
-        mouseClicks: mouseClickCount,
+        keystrokes: 0,
+        mouseClicks: 0,
         mouseDistance: 0,
         timestamp: new Date().toISOString(),
       };
 
       activityBuffer.push(entry);
-
-      // Reset counters
-      keystrokeCount = 0;
-      mouseClickCount = 0;
+      console.log(`[Tracker] ${app} — ${title.substring(0, 50)} (idle: ${idleTime}s)`);
     } catch (err) {
-      // Silently skip if active-win fails
       console.error('[Tracker] Error:', (err as Error).message);
     }
   }, CONFIG.TRACKING_INTERVAL_MS);
+
+  console.log('[Tracker] Started with interval:', CONFIG.TRACKING_INTERVAL_MS / 1000, 's');
 }
 
 export function stopTracking() {

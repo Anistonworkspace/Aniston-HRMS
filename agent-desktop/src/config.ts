@@ -2,7 +2,7 @@ export const CONFIG = {
   API_URL: process.env.ANISTON_API_URL || 'http://localhost:4000/api',
   TRACKING_INTERVAL_MS: 30_000,      // 30 seconds — check active window
   SCREENSHOT_INTERVAL_MS: 600_000,   // 10 minutes — take screenshot
-  SYNC_INTERVAL_MS: 300_000,         // 5 minutes — sync heartbeat to server
+  SYNC_INTERVAL_MS: 60_000,          // 1 minute — sync heartbeat to server (was 5min)
   IDLE_THRESHOLD_S: 300,             // 5 minutes idle = inactive
   APP_NAME: 'Aniston Agent',
   STORE_ENCRYPTION_KEY: 'aniston-agent-v1',
