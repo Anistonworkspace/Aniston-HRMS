@@ -4,7 +4,7 @@ import AutoLaunch from 'auto-launch';
 import { CONFIG } from './config';
 import { pairWithCode, setTokens, sendHeartbeat, isLoggedIn, getAgentConfig } from './api';
 import { startTracking, stopTracking, getBuffer } from './tracker';
-import { startScreenshots, stopScreenshots, updateActiveWindow } from './screenshot';
+import { startScreenshots, stopScreenshots, updateActiveWindow, updateInterval } from './screenshot';
 import { createTray, updateTrayMenu, showPairWindow, closePairWindow, sendPairError } from './tray';
 
 const store = new Store({ encryptionKey: CONFIG.STORE_ENCRYPTION_KEY });
@@ -55,10 +55,29 @@ function handleLogout() {
   handlePair();
 }
 
+let configPollInterval: NodeJS.Timeout | null = null;
+
 function startAgent() {
   startTracking();
   startScreenshots();
   startSyncLoop();
+  startConfigPoll();
+}
+
+function startConfigPoll() {
+  if (configPollInterval) return;
+  // Poll config every 30 seconds to detect live mode changes
+  configPollInterval = setInterval(async () => {
+    if (!isLoggedIn()) return;
+    try {
+      const config = await getAgentConfig();
+      if (config?.screenshotIntervalSeconds) {
+        updateInterval(config.screenshotIntervalSeconds * 1000);
+      }
+    } catch {
+      // Config poll failed — non-critical
+    }
+  }, 30_000);
 }
 
 function startSyncLoop() {

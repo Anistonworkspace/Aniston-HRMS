@@ -1,0 +1,566 @@
+import { useState, useMemo, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Monitor, Search, Calendar, Eye, Activity, Clock, Mouse, Keyboard,
+  Wifi, WifiOff, ChevronLeft, ChevronRight, X, Maximize2, Radio, Globe,
+} from 'lucide-react';
+import { useGetEmployeesQuery } from '../employee/employeeApi';
+import { useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery, useSetAgentLiveModeMutation, useGetAgentLiveModeQuery } from '../attendance/attendanceApi';
+import { getInitials, cn } from '../../lib/utils';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
+
+const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace('/api', '');
+
+export default function ActivityTrackingPage() {
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
+  const [fullScreenshot, setFullScreenshot] = useState<string | null>(null);
+
+  const { data: empRes, isLoading: loadingEmps } = useGetEmployeesQuery({ page: 1, limit: 100 });
+  const employees = empRes?.data || [];
+
+  // Filter to HYBRID/OFFICE employees (the ones with agent tracking)
+  const trackableEmployees = useMemo(() => {
+    return employees.filter((e: any) => {
+      const mode = e.workMode || 'OFFICE';
+      return mode === 'HYBRID' || mode === 'OFFICE';
+    });
+  }, [employees]);
+
+  const filteredEmployees = useMemo(() => {
+    if (!searchQuery.trim()) return trackableEmployees;
+    const q = searchQuery.toLowerCase();
+    return trackableEmployees.filter((e: any) =>
+      `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) ||
+      e.employeeCode?.toLowerCase().includes(q)
+    );
+  }, [trackableEmployees, searchQuery]);
+
+  return (
+    <div className="page-container">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-display font-bold text-gray-900 flex items-center gap-2">
+            <Monitor size={24} className="text-brand-600" />
+            Activity Tracking
+          </h1>
+          <p className="text-gray-500 text-sm mt-0.5">
+            Monitor employee desktop activity, screenshots & productivity
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Calendar size={16} className="text-gray-400" />
+            <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
+              className="input-glass text-sm" />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex gap-4 h-[calc(100vh-180px)]">
+        {/* Left: Employee List */}
+        <div className="w-80 flex-shrink-0 layer-card flex flex-col overflow-hidden">
+          <div className="p-3 border-b border-gray-100">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search employees..."
+                className="w-full pl-9 pr-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-300" />
+            </div>
+            <p className="text-[10px] text-gray-400 mt-2">{filteredEmployees.length} trackable employees</p>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {loadingEmps ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : filteredEmployees.length === 0 ? (
+              <p className="text-center text-gray-400 text-xs py-8">No employees found</p>
+            ) : (
+              filteredEmployees.map((emp: any) => (
+                <EmployeeRow
+                  key={emp.id}
+                  employee={emp}
+                  isSelected={selectedEmployee?.id === emp.id}
+                  date={selectedDate}
+                  onClick={() => setSelectedEmployee(emp)}
+                />
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Right: Activity Detail */}
+        <div className="flex-1 overflow-y-auto">
+          {selectedEmployee ? (
+            <ActivityDetail
+              employee={selectedEmployee}
+              date={selectedDate}
+              onScreenshotClick={setFullScreenshot}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full layer-card">
+              <div className="text-center">
+                <Monitor size={48} className="mx-auto text-gray-200 mb-3" />
+                <h3 className="text-lg font-semibold text-gray-600 mb-1">Select an Employee</h3>
+                <p className="text-sm text-gray-400">Click an employee from the left to view their activity</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Fullscreen Screenshot Modal */}
+      {fullScreenshot && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setFullScreenshot(null)}>
+          <button className="absolute top-4 right-4 text-white/70 hover:text-white" onClick={() => setFullScreenshot(null)}>
+            <X size={24} />
+          </button>
+          <img src={fullScreenshot} alt="Screenshot" className="max-w-full max-h-full object-contain rounded-lg" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Employee Row with live status ----------
+function EmployeeRow({ employee, isSelected, date, onClick }: {
+  employee: any; isSelected: boolean; date: string; onClick: () => void;
+}) {
+  const { data: activityRes } = useGetEmployeeActivityLogsQuery(
+    { employeeId: employee.id, date },
+    { pollingInterval: 60000 } // refresh every minute
+  );
+  const summary = activityRes?.data?.summary;
+  const hasActivity = summary && summary.logCount > 0;
+
+  return (
+    <button onClick={onClick}
+      className={cn(
+        'w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors border-b border-gray-50',
+        isSelected ? 'bg-brand-50 border-l-2 border-l-brand-500' : 'hover:bg-gray-50'
+      )}>
+      <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0',
+        hasActivity ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500')}>
+        {getInitials(employee.firstName, employee.lastName)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">{employee.firstName} {employee.lastName}</p>
+        <p className="text-[10px] text-gray-400">{employee.employeeCode} · {employee.workMode}</p>
+      </div>
+      <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+        {hasActivity ? (
+          <>
+            <div className="flex items-center gap-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[9px] text-emerald-600 font-medium">{summary.totalActiveMinutes}m</span>
+            </div>
+            <span className="text-[9px] text-gray-400">{summary.logCount} logs</span>
+          </>
+        ) : (
+          <span className="text-[9px] text-gray-300">No activity</span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+// ---------- Activity Detail Panel ----------
+function ActivityDetail({ employee, date, onScreenshotClick }: {
+  employee: any; date: string; onScreenshotClick: (url: string) => void;
+}) {
+  const [viewMode, setViewMode] = useState<'activity' | 'live'>('activity');
+  const { data: activityRes, isLoading: loadingActivity } = useGetEmployeeActivityLogsQuery(
+    { employeeId: employee.id, date },
+    { pollingInterval: viewMode === 'live' ? 10000 : 30000 } // faster poll in live mode
+  );
+  const { data: screenshotRes, isLoading: loadingScreenshots } = useGetEmployeeScreenshotsQuery(
+    { employeeId: employee.id, date },
+    { pollingInterval: viewMode === 'live' ? 10000 : 30000 }
+  );
+
+  const summary = activityRes?.data?.summary;
+  const logs = activityRes?.data?.logs || [];
+  const screenshots = screenshotRes?.data || [];
+
+  return (
+    <div className="space-y-4">
+      {/* Employee Header + View Toggle */}
+      <div className="layer-card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-lg font-bold">
+              {getInitials(employee.firstName, employee.lastName)}
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">{employee.firstName} {employee.lastName}</h2>
+              <p className="text-xs text-gray-400">{employee.employeeCode} · {employee.designation?.name || 'Employee'} · {employee.workMode}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-gray-400">Tracking Date</p>
+            <p className="text-sm font-mono font-medium text-gray-700" data-mono>{date}</p>
+          </div>
+        </div>
+        {/* View mode toggle */}
+        <div className="flex bg-gray-100 rounded-lg p-0.5 w-fit">
+          <button onClick={() => setViewMode('activity')}
+            className={cn('flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-all',
+              viewMode === 'activity' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
+            <Activity size={14} /> Activity Log
+          </button>
+          <button onClick={() => setViewMode('live')}
+            className={cn('flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-all',
+              viewMode === 'live' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
+            <Radio size={14} className={viewMode === 'live' ? 'animate-pulse' : ''} /> Live Feed
+          </button>
+        </div>
+      </div>
+
+      {/* Live Feed Mode */}
+      {viewMode === 'live' && (
+        <LiveFeedPanel employeeId={employee.id} screenshots={screenshots} onScreenshotClick={onScreenshotClick} />
+      )}
+
+      {viewMode === 'activity' && (loadingActivity ? (
+        <div className="layer-card p-12 text-center">
+          <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-gray-400 mt-2">Loading activity data...</p>
+        </div>
+      ) : !summary || summary.logCount === 0 ? (
+        <div className="layer-card p-12 text-center">
+          <Monitor size={40} className="mx-auto text-gray-200 mb-3" />
+          <p className="text-sm text-gray-500 mb-1">No activity recorded</p>
+          <p className="text-xs text-gray-400">The desktop agent hasn't sent any data for this date</p>
+        </div>
+      ) : (
+        <>
+          {/* Stats Grid */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <StatCard icon={Clock} label="Active Time" value={`${summary.totalActiveMinutes}m`} color="emerald" />
+            <StatCard icon={Clock} label="Idle Time" value={`${summary.totalIdleMinutes}m`} color="amber" />
+            <StatCard icon={Keyboard} label="Keystrokes" value={summary.totalKeystrokes?.toLocaleString() || '0'} color="blue" />
+            <StatCard icon={Mouse} label="Mouse Clicks" value={summary.totalClicks?.toLocaleString() || '0'} color="purple" />
+          </div>
+
+          {/* Top Applications — clickable for URL drilldown */}
+          {summary.topApps?.length > 0 && (
+            <AppDrilldown topApps={summary.topApps} logs={logs} />
+          )}
+
+          {/* Activity Timeline */}
+          {logs.length > 0 && (
+            <div className="layer-card p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Activity Timeline</h3>
+              <div className="max-h-60 overflow-y-auto space-y-1">
+                {logs.slice(-30).reverse().map((log: any, i: number) => (
+                  <div key={i} className="flex items-center gap-3 text-xs py-1.5 border-b border-gray-50 last:border-0">
+                    <span className="text-gray-400 font-mono w-16 flex-shrink-0" data-mono>
+                      {new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                    <div className={cn('w-2 h-2 rounded-full flex-shrink-0',
+                      log.category === 'PRODUCTIVE' ? 'bg-emerald-500' :
+                      log.category === 'UNPRODUCTIVE' ? 'bg-red-400' : 'bg-gray-300'
+                    )} />
+                    <span className="text-gray-700 truncate flex-1">{log.activeApp || 'Unknown'}</span>
+                    <span className="text-gray-400 truncate max-w-[200px]">{log.activeWindow || ''}</span>
+                    <span className="text-gray-300 font-mono flex-shrink-0" data-mono>{log.idleSeconds}s idle</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Screenshots Gallery */}
+          <div className="layer-card p-4">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">
+              Screenshots ({loadingScreenshots ? '...' : screenshots.length})
+            </h3>
+            {screenshots.length > 0 ? (
+              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                {screenshots.map((s: any) => (
+                  <div key={s.id} className="group relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 hover:border-brand-300 hover:shadow-md transition-all"
+                    onClick={() => onScreenshotClick(`${API_BASE}${s.imageUrl}`)}>
+                    <img src={`${API_BASE}${s.imageUrl}`} alt={s.activeApp || 'Screenshot'}
+                      className="w-full h-28 object-cover" />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                      <Maximize2 size={20} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
+                      <p className="text-[9px] text-white truncate">{s.activeApp || 'Desktop'}</p>
+                      <p className="text-[8px] text-gray-300">
+                        {new Date(s.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 text-center py-6">No screenshots captured for this date</p>
+            )}
+          </div>
+        </>
+      ))}
+    </div>
+  );
+}
+
+// ---------- Live Feed Panel ----------
+function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
+  employeeId: string; screenshots: any[]; onScreenshotClick: (url: string) => void;
+}) {
+  const [liveData, setLiveData] = useState<any>(null);
+  const [feedLog, setFeedLog] = useState<any[]>([]);
+  const [interval, setInterval_] = useState(30);
+  const [countdown, setCountdown] = useState(0);
+  const [setLiveMode] = useSetAgentLiveModeMutation();
+  const { data: liveModeRes } = useGetAgentLiveModeQuery(employeeId, { pollingInterval: 10000 });
+  const isLive = liveModeRes?.data?.enabled || false;
+
+  // Listen for real-time heartbeat events
+  useEffect(() => {
+    const handleHeartbeat = (data: any) => {
+      if (data.employeeId === employeeId) {
+        setLiveData(data);
+        setFeedLog(prev => [data, ...prev].slice(0, 50)); // keep last 50
+      }
+    };
+    onSocketEvent('agent:heartbeat', handleHeartbeat);
+    return () => { offSocketEvent('agent:heartbeat', handleHeartbeat); };
+  }, [employeeId]);
+
+  const latestScreenshot = screenshots.length > 0 ? screenshots[screenshots.length - 1] : null;
+
+  return (
+    <div className="space-y-4">
+      {/* Live Controls */}
+      <div className="layer-card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className={cn('w-3 h-3 rounded-full', isLive ? 'bg-red-500 animate-pulse' : 'bg-gray-300')} />
+            <h4 className="text-sm font-semibold text-gray-800">
+              {isLive ? 'Live View Active' : 'Live View Off'}
+            </h4>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Interval selector */}
+            <select value={interval} onChange={e => setInterval_(Number(e.target.value))}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-300">
+              <option value={10}>Every 10s</option>
+              <option value={30}>Every 30s</option>
+              <option value={60}>Every 60s</option>
+            </select>
+            {isLive ? (
+              <button onClick={() => setLiveMode({ employeeId, enabled: false })}
+                className="px-4 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
+                Stop Live View
+              </button>
+            ) : (
+              <button onClick={() => setLiveMode({ employeeId, enabled: true, intervalSeconds: interval })}
+                className="px-4 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-1">
+                <Radio size={12} /> Start Live View
+              </button>
+            )}
+          </div>
+        </div>
+        {isLive && (
+          <div className="flex items-center gap-4 text-xs text-gray-500">
+            <span>Capturing every <strong>{interval}s</strong></span>
+            <span>·</span>
+            <span>Agent will capture the next screenshot automatically</span>
+            {liveData && (
+              <>
+                <span>·</span>
+                <span>Last data: {new Date(liveData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Current Window + URL */}
+      {liveData && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="layer-card p-4">
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1">
+              <Monitor size={12} /> Current Application
+            </h4>
+            <p className="text-lg font-semibold text-gray-800">{liveData.activeApp || 'Unknown'}</p>
+            <p className="text-xs text-gray-500 truncate mt-1">{liveData.activeWindow || 'No window title'}</p>
+            <div className="flex items-center gap-2 mt-2">
+              <span className={cn('text-[10px] px-2 py-0.5 rounded-full font-medium',
+                liveData.category === 'PRODUCTIVE' ? 'bg-emerald-100 text-emerald-700' :
+                liveData.category === 'UNPRODUCTIVE' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600'
+              )}>{liveData.category || 'NEUTRAL'}</span>
+              {liveData.idleSeconds > 60 && (
+                <span className="text-[10px] text-amber-600">Idle: {Math.floor(liveData.idleSeconds / 60)}m</span>
+              )}
+            </div>
+          </div>
+
+          {liveData.activeUrl && (
+            <div className="layer-card p-4">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1">
+                <Globe size={12} /> Browser URL
+              </h4>
+              <p className="text-sm text-brand-600 truncate">{liveData.activeUrl}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Latest Screenshot (auto-refreshes every 10s via polling) */}
+      <div className="layer-card p-4">
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1">
+          <Eye size={12} /> Latest Screen Capture
+        </h4>
+        {latestScreenshot ? (
+          <div className="relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 hover:border-brand-300 transition-colors"
+            onClick={() => onScreenshotClick(`${API_BASE}${latestScreenshot.imageUrl}`)}>
+            <img src={`${API_BASE}${latestScreenshot.imageUrl}`} alt="Latest screenshot"
+              className="w-full h-auto max-h-[400px] object-contain bg-gray-900" />
+            <div className="absolute top-2 right-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded">
+              {new Date(latestScreenshot.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              {' · '}{latestScreenshot.activeApp || 'Desktop'}
+            </div>
+          </div>
+        ) : (
+          <div className="bg-gray-100 rounded-lg h-48 flex items-center justify-center">
+            <p className="text-xs text-gray-400">No screenshots yet — agent captures every 10 minutes</p>
+          </div>
+        )}
+      </div>
+
+      {/* Real-time Activity Feed */}
+      <div className="layer-card p-4">
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1">
+          <Activity size={12} /> Real-time Activity Feed
+        </h4>
+        {feedLog.length > 0 ? (
+          <div className="max-h-60 overflow-y-auto space-y-1">
+            {feedLog.map((entry, i) => (
+              <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                className="flex items-center gap-3 text-xs py-1.5 border-b border-gray-50 last:border-0">
+                <span className="text-gray-400 font-mono w-16 flex-shrink-0" data-mono>
+                  {new Date(entry.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+                <div className={cn('w-2 h-2 rounded-full flex-shrink-0',
+                  entry.category === 'PRODUCTIVE' ? 'bg-emerald-500' :
+                  entry.category === 'UNPRODUCTIVE' ? 'bg-red-400' : 'bg-gray-300'
+                )} />
+                <span className="text-gray-700 font-medium">{entry.activeApp}</span>
+                <span className="text-gray-400 truncate flex-1">{entry.activeWindow}</span>
+              </motion.div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 text-center py-6">Waiting for live data from agent...</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- App Drilldown (clickable Top Applications) ----------
+function AppDrilldown({ topApps, logs }: { topApps: any[]; logs: any[] }) {
+  const [expandedApp, setExpandedApp] = useState<string | null>(null);
+
+  const getAppLogs = (appName: string) => {
+    return logs.filter((l: any) => l.activeApp === appName).sort((a: any, b: any) =>
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+  };
+
+  const isBrowser = (app: string) => {
+    const lower = app.toLowerCase();
+    return lower.includes('chrome') || lower.includes('edge') || lower.includes('firefox') || lower.includes('brave');
+  };
+
+  return (
+    <div className="layer-card p-4">
+      <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+        <Activity size={14} className="text-brand-500" /> Top Applications
+        <span className="text-[10px] text-gray-400 font-normal">(click to expand)</span>
+      </h3>
+      <div className="space-y-1">
+        {topApps.slice(0, 8).map((app: any, i: number) => {
+          const maxMin = topApps[0]?.minutes || 1;
+          const pct = Math.max(5, (app.minutes / maxMin) * 100);
+          const isExpanded = expandedApp === app.app;
+          const appLogs = isExpanded ? getAppLogs(app.app) : [];
+
+          return (
+            <div key={i}>
+              <button onClick={() => setExpandedApp(isExpanded ? null : app.app)}
+                className="w-full flex items-center gap-3 py-1 hover:bg-gray-50 rounded-lg transition-colors">
+                <span className="text-xs text-gray-500 w-24 truncate text-left">{app.app}</span>
+                <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }}
+                    className={cn('h-full rounded-full flex items-center justify-end pr-2',
+                      isBrowser(app.app) ? 'bg-blue-500' : 'bg-brand-500')}>
+                    <span className="text-[9px] text-white font-mono" data-mono>{app.minutes}m</span>
+                  </motion.div>
+                </div>
+                {isBrowser(app.app) && <Globe size={12} className="text-blue-400 flex-shrink-0" />}
+              </button>
+
+              <AnimatePresence>
+                {isExpanded && (
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                    <div className="ml-28 border-l-2 border-gray-200 pl-3 py-2 space-y-1.5 max-h-48 overflow-y-auto">
+                      {appLogs.length === 0 ? (
+                        <p className="text-[10px] text-gray-400">No detailed logs</p>
+                      ) : appLogs.slice(0, 30).map((log: any, j: number) => (
+                        <div key={j} className="flex items-start gap-2 text-[11px]">
+                          <span className="text-gray-400 font-mono flex-shrink-0 w-14" data-mono>
+                            {new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-gray-700 truncate">{log.activeWindow || 'Unknown window'}</p>
+                            {log.activeUrl && (
+                              <p className="text-blue-500 truncate text-[10px]">{log.activeUrl}</p>
+                            )}
+                          </div>
+                          <span className="text-gray-300 flex-shrink-0">{log.durationSeconds}s</span>
+                        </div>
+                      ))}
+                      {appLogs.length > 30 && (
+                        <p className="text-[10px] text-gray-400">...and {appLogs.length - 30} more entries</p>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Stat Card ----------
+function StatCard({ icon: Icon, label, value, color }: { icon: any; label: string; value: string; color: string }) {
+  const colors: Record<string, string> = {
+    emerald: 'bg-emerald-50 text-emerald-600',
+    amber: 'bg-amber-50 text-amber-600',
+    blue: 'bg-blue-50 text-blue-600',
+    purple: 'bg-purple-50 text-purple-600',
+  };
+  return (
+    <div className="layer-card p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center', colors[color])}>
+          <Icon size={16} />
+        </div>
+      </div>
+      <p className="text-2xl font-bold font-mono text-gray-800" data-mono>{value}</p>
+      <p className="text-xs text-gray-400">{label}</p>
+    </div>
+  );
+}

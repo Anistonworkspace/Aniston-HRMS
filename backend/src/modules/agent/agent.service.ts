@@ -4,9 +4,11 @@ import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { env } from '../../config/env.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { emitToOrg, emitToUser } from '../../sockets/index.js';
 import type { ActivityEntry, ScreenshotMetadata } from './agent.validation.js';
 
 const PAIR_PREFIX = 'agent-pair:';
+const LIVE_VIEW_PREFIX = 'agent-live:';
 
 export class AgentService {
   async submitHeartbeat(employeeId: string, organizationId: string, activities: ActivityEntry[]) {
@@ -45,6 +47,21 @@ export class AgentService {
       });
     }
 
+    // Emit real-time agent status to org (so admin dashboard + live feed updates)
+    const lastActivity = activities[activities.length - 1];
+    emitToOrg(organizationId, 'agent:heartbeat', {
+      employeeId,
+      activeApp: lastActivity?.activeApp || 'Unknown',
+      activeWindow: lastActivity?.activeWindow || '',
+      activeUrl: lastActivity?.activeUrl || '',
+      category: lastActivity?.category || 'NEUTRAL',
+      idleSeconds: lastActivity?.idleSeconds || 0,
+      timestamp: new Date().toISOString(),
+    });
+    // Emit to the employee's own session (so their browser widget updates)
+    const user = await prisma.user.findFirst({ where: { employee: { id: employeeId } }, select: { id: true } });
+    if (user) emitToUser(user.id, 'agent:connected', { isActive: true });
+
     return { recorded: activities.length, activeMinutesAdded: activeMinutesIncrement };
   }
 
@@ -79,16 +96,35 @@ export class AgentService {
       include: { shift: true },
     });
 
+    // Check if live mode is enabled by admin
+    const liveData = await redis.get(`${LIVE_VIEW_PREFIX}${employeeId}`);
+    const liveMode = liveData ? JSON.parse(liveData) : null;
+
     return {
       enabled: true,
       shiftType: assignment?.shift?.shiftType || 'OFFICE',
       trackingIntervalSeconds: 30,
-      screenshotIntervalMinutes: 10,
+      screenshotIntervalSeconds: liveMode?.enabled ? (liveMode.intervalSeconds || 30) : 600, // 10min default, or live interval
       syncIntervalMinutes: 5,
-      idleThresholdSeconds: 300, // 5 min
+      idleThresholdSeconds: 300,
       screenshotsEnabled: true,
       inputTrackingEnabled: true,
+      liveMode: liveMode?.enabled || false,
     };
+  }
+
+  async setLiveMode(employeeId: string, enabled: boolean, intervalSeconds: number = 30) {
+    if (enabled) {
+      await redis.set(`${LIVE_VIEW_PREFIX}${employeeId}`, JSON.stringify({ enabled, intervalSeconds }), 'EX', 3600); // 1hr max
+    } else {
+      await redis.del(`${LIVE_VIEW_PREFIX}${employeeId}`);
+    }
+    return { enabled, intervalSeconds };
+  }
+
+  async getLiveMode(employeeId: string) {
+    const data = await redis.get(`${LIVE_VIEW_PREFIX}${employeeId}`);
+    return data ? JSON.parse(data) : { enabled: false, intervalSeconds: 600 };
   }
 
   async getActivityLogs(employeeId: string, date: string, organizationId: string) {
@@ -143,17 +179,20 @@ export class AgentService {
   }
 
   async getAgentStatus(employeeId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
 
     const lastLog = await prisma.activityLog.findFirst({
-      where: { employeeId, date: today },
+      where: { employeeId },
       orderBy: { timestamp: 'desc' },
       select: { timestamp: true },
     });
 
+    // Agent is "active" only if last heartbeat was within 2 minutes
+    const isActive = !!lastLog && new Date(lastLog.timestamp) > twoMinutesAgo;
+
     return {
-      isActive: !!lastLog,
+      isActive,
       lastHeartbeat: lastLog?.timestamp || null,
     };
   }

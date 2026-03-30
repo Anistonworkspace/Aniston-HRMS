@@ -36,6 +36,7 @@ const InterviewAssignmentsPage = lazy(() => import('../features/interviews/Inter
 const AssetManagementPage = lazy(() => import('../features/assets/AssetManagementPage'));
 const MyAssetsPage = lazy(() => import('../features/assets/MyAssetsPage'));
 const EmployeeAttendanceDetailPage = lazy(() => import('../features/attendance/EmployeeAttendanceDetailPage'));
+const ActivityTrackingPage = lazy(() => import('../features/activity/ActivityTrackingPage'));
 const AuthCallbackPage = lazy(() => import('../features/auth/AuthCallbackPage'));
 const PendingApprovalsPage = lazy(() => import('../features/dashboard/PendingApprovalsPage'));
 const ExitManagementPage = lazy(() => import('../features/exit/ExitManagementPage'));
@@ -97,6 +98,7 @@ export default function AppRouter() {
             {/* Placeholder routes */}
             <Route path="/attendance" element={<AttendancePage />} />
             <Route path="/attendance/employee/:employeeId" element={<EmployeeAttendanceDetailPage />} />
+            <Route path="/activity-tracking" element={<ActivityTrackingPage />} />
             <Route path="/leaves" element={<LeavePage />} />
             <Route path="/payroll" element={<PayrollPage />} />
             <Route path="/recruitment" element={<RecruitmentPage />} />

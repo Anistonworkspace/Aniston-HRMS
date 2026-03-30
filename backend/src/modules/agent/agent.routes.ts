@@ -20,6 +20,10 @@ router.post('/screenshot', uploadImage.single('screenshot'), (req, res, next) =>
 router.get('/config', (req, res, next) => agentController.getConfig(req, res, next));
 router.get('/status', (req, res, next) => agentController.getStatus(req, res, next));
 
+// Live mode control (SUPER_ADMIN, ADMIN only)
+router.post('/live-mode', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.setLiveMode(req, res, next));
+router.get('/live-mode/:employeeId', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.getLiveMode(req, res, next));
+
 // HR/Admin view endpoints
 router.get(
   '/activity/:employeeId/:date',

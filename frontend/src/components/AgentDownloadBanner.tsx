@@ -4,6 +4,7 @@ import { Monitor, Download, ChevronDown, ChevronUp, X, CheckCircle2, Loader2, Wi
 import { useAppSelector } from '../app/store';
 import { useGetAgentStatusQuery, useGenerateAgentPairCodeMutation } from '../features/attendance/attendanceApi';
 import { useGetEmployeeShiftQuery } from '../features/workforce/workforceApi';
+import { onSocketEvent, offSocketEvent } from '../lib/socket';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 const DISMISS_KEY = 'agent-banner-dismissed';
@@ -34,9 +35,16 @@ export default function AgentDownloadBanner() {
   // Poll agent status every 30 seconds
   const { data: statusRes, isLoading: loadingStatus } = useGetAgentStatusQuery(undefined, {
     skip: !needsAgent || isManagement,
-    pollingInterval: 30_000,
+    pollingInterval: 15_000,
   });
   const agentActive = statusRes?.data?.isActive;
+
+  // Listen for real-time agent connection via Socket.io
+  useEffect(() => {
+    const handleConnected = () => setPhase('connected');
+    onSocketEvent('agent:connected', handleConnected);
+    return () => { offSocketEvent('agent:connected', handleConnected); };
+  }, []);
 
   // Determine phase
   useEffect(() => {

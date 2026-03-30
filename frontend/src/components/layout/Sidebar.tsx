@@ -24,6 +24,7 @@ import {
   Laptop,
   UserMinus,
   MessageCircle,
+  Activity,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -44,6 +45,7 @@ const navItems: NavItem[] = [
   { name: 'Dashboard', path: '/dashboard', icon: Home },
   { name: 'Employees', managementName: 'Manage Employees', path: '/employees', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Attendance', managementName: 'Attendance Management', path: '/attendance', icon: Clock },
+  { name: 'Activity Tracking', path: '/activity-tracking', icon: Activity, roles: ['SUPER_ADMIN', 'ADMIN'] },
   { name: 'Leave', managementName: 'Leave Management', path: '/leaves', icon: CalendarDays },
   { name: 'Payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },

@@ -115,6 +115,14 @@ export const attendanceApi = api.injectEndpoints({
     generateAgentPairCode: builder.mutation<any, void>({
       query: () => ({ url: '/agent/pair/generate', method: 'POST' }),
     }),
+
+    setAgentLiveMode: builder.mutation<any, { employeeId: string; enabled: boolean; intervalSeconds?: number }>({
+      query: (body) => ({ url: '/agent/live-mode', method: 'POST', body }),
+    }),
+
+    getAgentLiveMode: builder.query<any, string>({
+      query: (employeeId) => `/agent/live-mode/${employeeId}`,
+    }),
   }),
 });
 
@@ -138,4 +146,6 @@ export const {
   useGetEmployeeScreenshotsQuery,
   useGetAgentStatusQuery,
   useGenerateAgentPairCodeMutation,
+  useSetAgentLiveModeMutation,
+  useGetAgentLiveModeQuery,
 } = attendanceApi;

@@ -83,6 +83,22 @@ export class AgentController {
     } catch (err) { next(err); }
   }
 
+  async setLiveMode(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId, enabled, intervalSeconds } = req.body;
+      if (!employeeId) return res.status(400).json({ success: false, error: { message: 'employeeId required' } });
+      const result = await agentService.setLiveMode(employeeId, enabled !== false, intervalSeconds || 30);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async getLiveMode(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await agentService.getLiveMode(req.params.employeeId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
   async verifyPairCode(req: Request, res: Response, next: NextFunction) {
     try {
       const { code } = req.body;
