@@ -2,10 +2,13 @@ import { app, BrowserWindow } from 'electron';
 import Store from 'electron-store';
 import AutoLaunch from 'auto-launch';
 import { CONFIG } from './config';
+import { ipcMain } from 'electron';
 import { pairWithCode, setTokens, sendHeartbeat, isLoggedIn, getAgentConfig } from './api';
 import { startTracking, stopTracking, getBuffer } from './tracker';
 import { startScreenshots, stopScreenshots, updateActiveWindow, updateInterval } from './screenshot';
 import { createTray, updateTrayMenu, showPairWindow, closePairWindow, sendPairError } from './tray';
+import { initStreamWindow, startStream, stopStream, handleSignalingMessage } from './stream';
+import io from 'socket.io-client';
 
 const store = new Store({ encryptionKey: CONFIG.STORE_ENCRYPTION_KEY });
 
@@ -57,12 +60,60 @@ function handleLogout() {
 
 let configPollInterval: NodeJS.Timeout | null = null;
 
+let agentSocket: any = null;
+
 function startAgent() {
   startTracking();
   startScreenshots();
   startSyncLoop();
   startConfigPoll();
+  connectAgentSocket();
+  initStreamWindow();
 }
+
+function connectAgentSocket() {
+  const apiUrl = CONFIG.API_URL.replace('/api', '');
+  const token = store.get('accessToken') as string;
+  if (!token) return;
+
+  agentSocket = io(apiUrl, {
+    auth: { token },
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+  });
+
+  agentSocket.on('connect', () => {
+    console.log('[Socket] Agent connected to server');
+    agentSocket.emit('agent:register');
+  });
+
+  // Admin requests live stream
+  agentSocket.on('stream:start', (data: any) => {
+    console.log('[Socket] Stream start requested by admin:', data.adminSocketId);
+    startStream(data.adminSocketId, apiUrl);
+  });
+
+  agentSocket.on('stream:stop', () => {
+    console.log('[Socket] Stream stop requested');
+    stopStream();
+  });
+
+  // WebRTC signaling from admin browser
+  agentSocket.on('stream:signal', (data: any) => {
+    handleSignalingMessage(data);
+  });
+
+  agentSocket.on('disconnect', () => {
+    console.log('[Socket] Agent disconnected');
+  });
+}
+
+// Forward WebRTC signals from renderer to server
+ipcMain.on('webrtc-signal', (_, data) => {
+  if (agentSocket?.connected) {
+    agentSocket.emit('stream:signal', data);
+  }
+});
 
 function startConfigPoll() {
   if (configPollInterval) return;

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Monitor, Search, Calendar, Eye, Activity, Clock, Mouse, Keyboard,
@@ -7,7 +7,7 @@ import {
 import { useGetEmployeesQuery } from '../employee/employeeApi';
 import { useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery, useSetAgentLiveModeMutation, useGetAgentLiveModeQuery } from '../attendance/attendanceApi';
 import { getInitials, cn } from '../../lib/utils';
-import { onSocketEvent, offSocketEvent } from '../../lib/socket';
+import { onSocketEvent, offSocketEvent, getSocket } from '../../lib/socket';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace('/api', '');
 
@@ -413,6 +413,9 @@ function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
         </div>
       )}
 
+      {/* Live Video Stream */}
+      <LiveVideoStream employeeId={employeeId} />
+
       {/* Latest Screenshot (auto-refreshes every 10s via polling) */}
       <div className="layer-card p-4">
         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1">
@@ -459,6 +462,181 @@ function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
           </div>
         ) : (
           <p className="text-xs text-gray-400 text-center py-6">Waiting for live data from agent...</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Live Video Stream (WebRTC) ----------
+function LiveVideoStream({ employeeId }: { employeeId: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const [streaming, setStreaming] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Get the employee's userId for socket targeting
+  const { data: empRes } = useGetEmployeesQuery({ page: 1, limit: 100 });
+  const employee = (empRes?.data || []).find((e: any) => e.id === employeeId);
+  const employeeUserId = employee?.user?.id;
+
+  const startLiveStream = useCallback(() => {
+    if (!employeeUserId) {
+      setError('Employee user ID not found');
+      return;
+    }
+
+    setConnecting(true);
+    setError(null);
+    const socket = getSocket();
+    if (!socket) {
+      setError('Socket not connected');
+      setConnecting(false);
+      return;
+    }
+
+    // Create RTCPeerConnection
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ],
+    });
+    pcRef.current = pc;
+
+    // Handle incoming video stream
+    pc.ontrack = (event) => {
+      if (videoRef.current && event.streams[0]) {
+        videoRef.current.srcObject = event.streams[0];
+        setStreaming(true);
+        setConnecting(false);
+      }
+    };
+
+    // Send ICE candidates to agent
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit('stream:signal', {
+          type: 'ice-candidate',
+          candidate: event.candidate,
+          targetSocketId: (window as any).__agentSocketId,
+        });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        setStreaming(false);
+        setError('Stream disconnected');
+      }
+    };
+
+    // Listen for WebRTC signals from agent
+    const handleSignal = (data: any) => {
+      if (data.type === 'offer' && data.sdp) {
+        // Save agent's socket ID for sending signals back
+        (window as any).__agentSocketId = data.fromSocketId;
+        pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+          .then(() => pc.createAnswer())
+          .then((answer) => pc.setLocalDescription(answer))
+          .then(() => {
+            socket.emit('stream:signal', {
+              type: 'answer',
+              sdp: pc.localDescription,
+              targetSocketId: data.fromSocketId,
+            });
+          })
+          .catch((err) => {
+            setError('Failed to establish connection');
+            setConnecting(false);
+          });
+      } else if (data.type === 'ice-candidate' && data.candidate) {
+        pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {});
+      }
+    };
+
+    socket.on('stream:signal', handleSignal);
+
+    // Request stream from agent
+    socket.emit('stream:request', { employeeUserId });
+
+    // Timeout after 15 seconds
+    setTimeout(() => {
+      if (!streaming && connecting) {
+        setConnecting(false);
+        setError('Agent did not respond. Make sure the desktop agent is running.');
+      }
+    }, 15000);
+
+    return () => {
+      socket.off('stream:signal', handleSignal);
+    };
+  }, [employeeUserId]);
+
+  const stopLiveStream = useCallback(() => {
+    const socket = getSocket();
+    if (socket && employeeUserId) {
+      socket.emit('stream:stop-request', { employeeUserId });
+    }
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setStreaming(false);
+    setConnecting(false);
+  }, [employeeUserId]);
+
+  return (
+    <div className="layer-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+          <Radio size={12} className={streaming ? 'text-red-500 animate-pulse' : 'text-gray-400'} />
+          Live Screen
+          {streaming && <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-bold animate-pulse">LIVE</span>}
+        </h4>
+        {!streaming && !connecting ? (
+          <button onClick={startLiveStream}
+            className="px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-1">
+            <Radio size={12} /> Start Live Stream
+          </button>
+        ) : (
+          <button onClick={stopLiveStream}
+            className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
+            Stop Stream
+          </button>
+        )}
+      </div>
+
+      <div className="relative bg-gray-900 rounded-lg overflow-hidden" style={{ aspectRatio: '16/9' }}>
+        <video ref={videoRef} autoPlay playsInline muted
+          className={cn('w-full h-full object-contain', !streaming && 'hidden')} />
+
+        {!streaming && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            {connecting ? (
+              <div className="text-center">
+                <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                <p className="text-white text-sm">Connecting to employee's screen...</p>
+                <p className="text-gray-400 text-xs mt-1">Waiting for agent to respond</p>
+              </div>
+            ) : error ? (
+              <div className="text-center">
+                <p className="text-red-400 text-sm mb-2">{error}</p>
+                <button onClick={startLiveStream}
+                  className="text-xs text-white/70 hover:text-white underline">Try again</button>
+              </div>
+            ) : (
+              <div className="text-center">
+                <Monitor size={40} className="mx-auto text-gray-600 mb-2" />
+                <p className="text-gray-400 text-sm">Click "Start Live Stream" to view employee's screen</p>
+                <p className="text-gray-500 text-xs mt-1">Requires desktop agent to be running</p>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

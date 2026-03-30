@@ -33,12 +33,47 @@ export function initSocketServer(httpServer: HttpServer) {
   });
 
   io.on('connection', (socket) => {
-    const { userId, organizationId } = socket.data;
-    logger.info(`Socket connected: user=${userId}`);
+    const { userId, organizationId, role } = socket.data;
+    logger.info(`Socket connected: user=${userId} role=${role}`);
 
     // Join personal room and org room
     socket.join(`user:${userId}`);
     socket.join(`org:${organizationId}`);
+
+    // Agent registers itself with employeeId for direct communication
+    socket.on('agent:register', () => {
+      socket.join(`agent:${userId}`);
+      logger.info(`Agent registered: user=${userId}`);
+    });
+
+    // === WebRTC Signaling for Live Screen Streaming ===
+
+    // Admin requests to start streaming an employee's screen
+    socket.on('stream:request', (data: { employeeUserId: string }) => {
+      if (!['SUPER_ADMIN', 'ADMIN'].includes(role)) return; // Only admin can request
+      logger.info(`Stream requested by admin ${userId} for employee ${data.employeeUserId}`);
+      // Tell the agent to start streaming, pass the admin's socket ID for direct P2P signaling
+      io!.to(`agent:${data.employeeUserId}`).emit('stream:start', {
+        adminSocketId: socket.id,
+        adminUserId: userId,
+      });
+    });
+
+    // Admin requests to stop streaming
+    socket.on('stream:stop-request', (data: { employeeUserId: string }) => {
+      io!.to(`agent:${data.employeeUserId}`).emit('stream:stop');
+    });
+
+    // WebRTC signaling relay — forward offer/answer/ICE between agent and admin
+    socket.on('stream:signal', (data: { type: string; sdp?: any; candidate?: any; targetSocketId?: string }) => {
+      if (data.targetSocketId) {
+        // Direct to specific socket (agent → admin or admin → agent)
+        io!.to(data.targetSocketId).emit('stream:signal', {
+          ...data,
+          fromSocketId: socket.id,
+        });
+      }
+    });
 
     socket.on('disconnect', () => {
       logger.info(`Socket disconnected: user=${userId}`);

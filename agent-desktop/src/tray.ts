@@ -83,6 +83,7 @@ export function showPairWindow(): Promise<string> {
   <form id="form">
     <input type="text" id="code" placeholder="ANST-XXXX" maxlength="9" required autofocus />
     <p class="hint">Go to HRMS → Click "Link Agent" to get your code</p>
+    <p class="hint" style="margin-top:4px;font-size:9px;color:#94a3b8;">By connecting, you consent to activity tracking including screen capture, app usage monitoring, and periodic screenshots during work hours.</p>
     <div class="error" id="error"></div>
     <button type="submit" id="btn">Connect</button>
   </form>

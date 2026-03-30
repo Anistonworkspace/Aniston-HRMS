@@ -8,6 +8,12 @@ declare module 'screenshot-desktop' {
   export default screenshot;
 }
 
+declare module 'socket.io-client' {
+  import { Socket } from 'socket.io-client';
+  export function io(url: string, opts?: any): Socket;
+  export default io;
+}
+
 declare module 'active-win' {
   interface Result {
     title: string;
