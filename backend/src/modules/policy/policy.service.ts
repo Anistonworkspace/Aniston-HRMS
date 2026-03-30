@@ -3,14 +3,17 @@ import { BadRequestError } from '../../middleware/errorHandler.js';
 import type { CreatePolicyInput, UpdatePolicyInput, PolicyQuery } from './policy.validation.js';
 
 export class PolicyService {
-  async list(query: PolicyQuery, organizationId: string) {
+  async list(query: PolicyQuery, organizationId: string, employeeId?: string) {
     const where: any = { organizationId, isActive: true };
     if (query.category) where.category = query.category;
 
     const policies = await prisma.policy.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
-      include: { _count: { select: { acknowledgments: true } } },
+      include: {
+        _count: { select: { acknowledgments: true } },
+        ...(employeeId ? { acknowledgments: { where: { employeeId }, take: 1 } } : {}),
+      },
     });
     return policies;
   }

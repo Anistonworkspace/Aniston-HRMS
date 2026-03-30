@@ -233,6 +233,32 @@ export class LeaveService {
       }
     }
 
+    // 9. Mandatory attendance period: 1st-10th of every month
+    const startDay = startDate.getDate();
+    const endDay = endDate.getDate();
+    const isInMandatoryPeriod = startDay <= 10 || endDay <= 10;
+    if (isInMandatoryPeriod && leaveType.code !== 'LWP') {
+      // Only allow SL with medical emergency documentation
+      const isMedicalEmergency = leaveType.code === 'SL' && data.reason?.toLowerCase().includes('hospital');
+      if (!isMedicalEmergency) {
+        throw new BadRequestError('Leave during 1st-10th of the month is not permitted (Mandatory Attendance Period). Only documented medical emergencies requiring hospitalization are excepted.');
+      }
+    }
+
+    // 10. Check leave policy acceptance
+    const leavePolicy = await prisma.policy.findFirst({
+      where: { organizationId, category: 'LEAVE', isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (leavePolicy) {
+      const acknowledged = await prisma.policyAcknowledgment.findUnique({
+        where: { policyId_employeeId: { policyId: leavePolicy.id, employeeId } },
+      });
+      if (!acknowledged) {
+        throw new BadRequestError('Please accept the Leave & Attendance Policy before applying for leave. Go to Leave Management to review and accept.');
+      }
+    }
+
     // ===== END POLICY ENFORCEMENT =====
 
     // Check balance

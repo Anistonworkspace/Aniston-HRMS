@@ -19,10 +19,11 @@ import {
 } from './leaveApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
+import { useGetPoliciesQuery, useAcknowledgePolicyMutation } from '../policies/policyApi';
 import toast from 'react-hot-toast';
 
 const LEAVE_ICONS: Record<string, string> = {
-  CL: '🏖️', EL: '✨', SL: '🤒', ML: '🤱', PL: '👶', LWP: '📋', SAB: '🧘',
+  CL: '🏖️', EL: '✨', SL: '🤒', PL: '🌴', LWP: '📋',
 };
 
 export default function LeavePage() {
@@ -757,14 +758,94 @@ function LeavePersonalView() {
   const { data: typesRes } = useGetLeaveTypesQuery();
   const { data: leavesRes } = useGetMyLeavesQuery({ page: 1, limit: 20 });
   const { data: holidaysRes } = useGetHolidaysQuery({});
+  const { data: policiesRes } = useGetPoliciesQuery({ category: 'LEAVE' });
+  const [acknowledgePolicy, { isLoading: acknowledging }] = useAcknowledgePolicyMutation();
+  const [accepted, setAccepted] = useState(false);
+  const user = useAppSelector((s) => s.auth.user);
 
   const balances = balancesRes?.data || [];
   const leaveTypes = typesRes?.data || [];
   const leaves = leavesRes?.data || [];
   const holidays = holidaysRes?.data || [];
 
+  // Check if employee has accepted the leave policy
+  const leavePolicy = (policiesRes?.data || []).find((p: any) => p.category === 'LEAVE' && p.isActive);
+  const hasAcknowledged = leavePolicy?.acknowledgments?.length > 0; // backend filters to current employee only
+
+  // Show policy acceptance gate if not acknowledged
+  if (leavePolicy && !hasAcknowledged && !accepted) {
+    return (
+      <div className="page-container">
+        <div className="max-w-3xl mx-auto">
+          <div className="layer-card overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-brand-600 to-purple-600 text-white px-6 py-5">
+              <div className="flex items-center gap-3 mb-2">
+                <FileText size={24} />
+                <h1 className="text-xl font-display font-bold">Leave & Attendance Policy</h1>
+              </div>
+              <p className="text-sm text-white/80">Version {leavePolicy.version || 3} — Effective: Immediate</p>
+              <p className="text-xs text-white/60 mt-1">Document Ref: AT/HR/LAP/2026-03/002</p>
+            </div>
+
+            {/* Policy Content */}
+            <div className="px-6 py-5 max-h-[50vh] overflow-y-auto bg-gray-50 border-b border-gray-200">
+              <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{leavePolicy.content}</pre>
+            </div>
+
+            {/* Acceptance Section */}
+            <div className="px-6 py-5 bg-white">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                <h3 className="text-sm font-semibold text-amber-800 mb-2">Employee Acknowledgement & Declaration</h3>
+                <ul className="text-xs text-amber-700 space-y-1.5">
+                  <li>• I have read and fully understood this Leave, Attendance & Professional Integrity Policy</li>
+                  <li>• I understand the monthly cap of 2 paid leaves and the 1st-10th mandatory attendance rule</li>
+                  <li>• I understand that pattern-based violations will result in leave deductions (EL → SL → CL → PL → LWP)</li>
+                  <li>• I agree to comply with all leave application procedures and professional conduct expectations</li>
+                  <li>• I acknowledge that violations may lead to disciplinary action including salary deductions and termination</li>
+                </ul>
+              </div>
+
+              <label className="flex items-start gap-3 cursor-pointer mb-4">
+                <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)}
+                  className="mt-1 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                <span className="text-sm text-gray-700 font-medium">
+                  I confirm that I have read, understood, and agree to comply with all provisions of this policy.
+                  I understand this supersedes all previous arrangements.
+                </span>
+              </label>
+
+              <button
+                onClick={async () => {
+                  if (!accepted) return toast.error('Please check the checkbox to accept the policy');
+                  try {
+                    await acknowledgePolicy(leavePolicy.id).unwrap();
+                    toast.success('Leave policy accepted. You can now apply for leaves.');
+                  } catch (err: any) {
+                    toast.error(err?.data?.error?.message || 'Failed to submit acceptance');
+                  }
+                }}
+                disabled={!accepted || acknowledging}
+                className="w-full btn-primary flex items-center justify-center gap-2 py-3"
+              >
+                {acknowledging ? <Clock size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                Accept Policy & Continue to Leave Management
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page-container">
+      {/* Policy reminder banner */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-4 flex items-center gap-2 text-xs text-blue-700">
+        <AlertCircle size={14} />
+        <span><strong>Policy:</strong> Max 2 paid leaves/month · 1st-10th mandatory attendance · CL needs 2-day notice · PL needs 7-day notice</span>
+      </div>
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-display font-bold text-gray-900">Leave Management</h1>

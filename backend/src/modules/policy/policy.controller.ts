@@ -6,7 +6,7 @@ export class PolicyController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const query = policyQuerySchema.parse(req.query);
-      const policies = await policyService.list(query, req.user!.organizationId);
+      const policies = await policyService.list(query, req.user!.organizationId, req.user!.employeeId);
       res.json({ success: true, data: policies });
     } catch (err) {
       next(err);

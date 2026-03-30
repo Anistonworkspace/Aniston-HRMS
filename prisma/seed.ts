@@ -182,15 +182,13 @@ async function main() {
     console.log('  ✅ Neha Singh (Employee) reports to Amit Kumar (Manager)');
   }
 
-  // Create leave types
+  // Create leave types — aligned with AT/HR/LAP/2026-03/002 v3.0 policy
   const leaveTypes = [
-    { name: 'Casual Leave', code: 'CL', defaultBalance: 12, isPaid: true },
-    { name: 'Earned Leave', code: 'EL', defaultBalance: 12, isPaid: true, carryForward: true, maxCarryForward: 6 },
-    { name: 'Sick Leave', code: 'SL', defaultBalance: 12, isPaid: true },
-    { name: 'Maternity Leave', code: 'ML', defaultBalance: 182, isPaid: true, gender: 'FEMALE' as const },
-    { name: 'Paternity Leave', code: 'PL', defaultBalance: 15, isPaid: true, gender: 'MALE' as const },
-    { name: 'Leave Without Pay', code: 'LWP', defaultBalance: 0, isPaid: false },
-    { name: 'Sabbatical Leave', code: 'SAB', defaultBalance: 0, isPaid: false },
+    { name: 'Casual Leave', code: 'CL', defaultBalance: 7, isPaid: true, noticeDays: 2, maxDays: 2, maxPerMonth: 2, allowWeekendAdjacent: false, allowSameDay: false },
+    { name: 'Sick Leave', code: 'SL', defaultBalance: 7, isPaid: true, noticeDays: 0, maxPerMonth: 2, allowSameDay: true },
+    { name: 'Emergency Leave', code: 'EL', defaultBalance: 3, isPaid: true, noticeDays: 0, maxPerMonth: 2, allowSameDay: true },
+    { name: 'Privilege Leave', code: 'PL', defaultBalance: 3, isPaid: true, noticeDays: 7, maxDays: 3, maxPerMonth: 2, carryForward: true, maxCarryForward: 3, probationMonths: 6 },
+    { name: 'Leave Without Pay', code: 'LWP', defaultBalance: 0, isPaid: false, allowSameDay: true },
   ];
 
   for (const lt of leaveTypes) {
@@ -201,6 +199,90 @@ async function main() {
     });
   }
   console.log(`  ✅ Leave types: ${leaveTypes.length} created`);
+
+  // Create Leave Policy (AT/HR/LAP/2026-03/002 v3.0)
+  const leavePolicyContent = `LEAVE, ATTENDANCE & PROFESSIONAL INTEGRITY POLICY
+Aniston Technologies LLP — Document Ref: AT/HR/LAP/2026-03/002 | Version 3.0 (Final Revised) | Effective: Immediate
+
+⚠ MANDATORY COMPLIANCE NOTICE
+This policy supersedes all previous verbal or informal leave and attendance arrangements.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. ANNUAL LEAVE ENTITLEMENT (20 Days/Year)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• Casual Leave (CL) — 7 days: Personal work, appointments, family events. 2-day advance notice required. Max 2 consecutive days.
+• Sick Leave (SL) — 7 days: Illness, medical treatment. Inform HR before 9:00 AM. Medical certificate required for 2+ consecutive days.
+• Emergency Leave (EL) — 3 days: Genuine emergencies ONLY (hospitalisation, accident, bereavement). Inform within 1 hour via phone call. Documentation mandatory.
+• Privilege Leave (PL) — 3 days: Planned vacations, travel. 7-day advance notice. Available after 6 months. Carry forward max 3 days.
+• Leave Without Pay (LWP) — When all paid leaves exhausted. Salary deducted proportionally.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. MONTHLY CAP — Maximum 2 Paid Leaves/Month
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+No employee shall take more than 2 paid leaves in any single calendar month across ALL categories. Excess days → LWP with salary deduction.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. MANDATORY ATTENDANCE — 1st to 10th of Every Month
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NO leave permitted during 1st-10th of any month except documented medical emergencies requiring hospitalisation. Violations: LWP + Written Warning → Show Cause → PRP.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. OFFICE TIMINGS & ATTENDANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• Reporting Time: 9:30 AM (Sharp) | Grace Period: 20 minutes (up to 9:50 AM)
+• Working Hours: 8 hours (9:30 AM – 6:30 PM) | Lunch: 2:00 PM – 2:40 PM
+• Working Days: Monday to Saturday
+• Physical presence ≠ Attendance. Must be at workstation and productive.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. SANDWICH RULE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Leave taken adjacent to holidays — the intervening holiday(s) also count as leave.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. PATTERN-BASED DEDUCTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+HR reviews attendance monthly. If habitual lateness/absences detected, leave deducted: Emergency Leave → Sick Leave → Casual Leave → Privilege Leave → LWP.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. DISCIPLINARY ACTIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• Proxy attendance → Immediate termination
+• Fake documentation → Immediate suspension + termination
+• 3 consecutive unauthorised days → Deemed abandonment
+• Exceeding 2-leave cap repeatedly → Performance Review Program
+• Unapproved leave → LWP + Written Warning → Show Cause → PRP
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. LEAVE APPLICATION PROTOCOL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• All requests via official leave management system (this application)
+• WhatsApp/verbal requests are NOT valid leave applications
+• Leave is approved ONLY upon written confirmation from HR/Manager
+• Submitting application does not guarantee approval`;
+
+  await prisma.policy.upsert({
+    where: { id: 'leave-policy-v3' },
+    update: { content: leavePolicyContent, version: 3 },
+    create: {
+      id: 'leave-policy-v3',
+      title: 'Leave, Attendance & Professional Integrity Policy',
+      category: 'LEAVE',
+      content: leavePolicyContent,
+      version: 3,
+      isActive: true,
+      organizationId: org.id,
+    },
+  });
+  console.log('  ✅ Leave policy created');
 
   // Create holidays for 2026
   const holidays2026 = [
