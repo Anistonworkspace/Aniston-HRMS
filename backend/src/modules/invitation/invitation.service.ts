@@ -8,6 +8,7 @@ import { createAuditLog } from '../../utils/auditLogger.js';
 import { generateEmployeeCode } from '../../utils/employeeCode.js';
 import { whatsAppService } from '../whatsapp/whatsapp.service.js';
 import { logger } from '../../lib/logger.js';
+import { env } from '../../config/env.js';
 import type { CreateInvitationInput } from './invitation.validation.js';
 
 /**
@@ -91,7 +92,7 @@ export class InvitationService {
       ? `${inviter.employee.firstName} ${inviter.employee.lastName}`
       : inviter?.email || 'HR Team';
 
-    const inviteUrl = `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/onboarding/invite/${invitation.inviteToken}`;
+    const inviteUrl = `${env.FRONTEND_URL}/onboarding/invite/${invitation.inviteToken}`;
 
     // Send email invitation
     if (email) {
@@ -358,7 +359,7 @@ export class InvitationService {
       ? `${inviter.employee.firstName} ${inviter.employee.lastName}`
       : inviter?.email || 'HR Team';
 
-    const frontendUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
+    const frontendUrl = env.FRONTEND_URL;
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
 
     let sentCount = 0;
@@ -511,7 +512,7 @@ export class InvitationService {
       select: { name: true },
     });
 
-    const inviteUrl = `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/onboarding/invite/${updated.inviteToken}`;
+    const inviteUrl = `${env.FRONTEND_URL}/onboarding/invite/${updated.inviteToken}`;
 
     if (invitation.email) {
       await enqueueEmail({

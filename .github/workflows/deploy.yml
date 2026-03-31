@@ -81,14 +81,14 @@ jobs:
               libasound2t64 || sudo apt-get install -y -qq libasound2 || true
             # Verify Chrome/Chromium is available
             which chromium-browser || which chromium || which google-chrome-stable || echo "WARNING: No system Chrome found, Puppeteer will use bundled Chrome"
-            echo "=== [3/11] Setting production domain in .env ==="
-            # Ensure FRONTEND_URL uses the actual domain, not the IP
-            sed -i 's|FRONTEND_URL=.*|FRONTEND_URL="https://hr.anistonav.com"|' .env || true
-            sed -i 's|API_URL=.*|API_URL="https://hr.anistonav.com"|' .env || true
-            grep -q "FRONTEND_URL" .env || echo 'FRONTEND_URL="https://hr.anistonav.com"' >> .env
-            grep -q "API_URL" .env || echo 'API_URL="https://hr.anistonav.com"' >> .env
-            echo "=== [4/11] Pulling latest code ==="
+            echo "=== [3/11] Pulling latest code ==="
             git pull origin main
+            echo "=== [4/11] Setting production domain in .env ==="
+            # Force FRONTEND_URL and API_URL to the correct domain (never IP)
+            sed -i '/^FRONTEND_URL=/d' .env 2>/dev/null || true
+            sed -i '/^API_URL=/d' .env 2>/dev/null || true
+            echo 'FRONTEND_URL=https://hr.anistonav.com' >> .env
+            echo 'API_URL=https://hr.anistonav.com' >> .env
             echo "=== [5/11] Installing dependencies ==="
             npm ci
             echo "=== [6/11] Generating Prisma client ==="
