@@ -1,6 +1,8 @@
 import PDFDocument from 'pdfkit';
+import { aiService } from '../services/ai.service.js';
+import { logger } from '../lib/logger.js';
 
-interface LetterEmployeeData {
+export interface LetterEmployeeData {
   firstName: string;
   lastName: string;
   employeeCode: string;
@@ -156,6 +158,42 @@ function drawFooter(doc: PDFKit.PDFDocument): void {
     bottomY + 12,
     { align: 'center' },
   );
+}
+
+// =====================
+// AI Offer Letter Content Generator
+// =====================
+
+export async function generateAiOfferLetterContent(
+  organizationId: string,
+  data: { name: string; employeeCode: string; email: string; joiningDate: Date; designation: string; department: string; ctc: string; organization: string },
+): Promise<{ openingParagraph: string; roleDescription: string; whyJoinUs: string; closingParagraph: string } | null> {
+  try {
+    const systemPrompt = `You are a professional HR letter writer for an Indian technology company.
+Generate personalized offer letter content for this candidate.
+Return a JSON object with: { "openingParagraph": string, "roleDescription": string, "whyJoinUs": string, "closingParagraph": string }
+Keep it warm, professional, and specific to the role. Use Indian English.
+Return ONLY valid JSON, no markdown or extra text.`;
+
+    const userPrompt = `Generate personalized offer letter content for the following candidate:
+Name: ${data.name}
+Designation: ${data.designation}
+Department: ${data.department}
+CTC: ${data.ctc}
+Joining Date: ${new Date(data.joiningDate).toLocaleDateString('en-IN')}
+Organization: ${data.organization}`;
+
+    const aiResponse = await aiService.prompt(organizationId, systemPrompt, userPrompt, 1024);
+
+    const content = aiResponse.content || '';
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+
+    return parsed;
+  } catch (err) {
+    logger.warn(`[AI Offer Letter] Failed to generate AI content: ${(err as Error).message}`);
+    return null;
+  }
 }
 
 // =====================

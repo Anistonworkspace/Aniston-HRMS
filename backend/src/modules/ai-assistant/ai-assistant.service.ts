@@ -18,7 +18,7 @@ export class AiAssistantService {
     organizationId: string,
     userId: string,
     message: string,
-    context: 'admin' | 'hr-recruitment' | 'hr-general'
+    context: 'admin' | 'hr-recruitment' | 'hr-general' | 'policy'
   ) {
     // Get conversation history from Redis
     const historyKey = `${CONVERSATION_PREFIX}${userId}:${context}`;
@@ -153,6 +153,20 @@ You can answer questions about system configuration, employee data summaries, re
 - Walk-in candidates waiting: ${walkIns}
 
 You can answer questions about recruitment pipeline, candidate status, interview scheduling, AI screening scores, and hiring workflows.`;
+      } else if (context === 'policy') {
+        const org = await prisma.organization.findFirst({
+          where: { id: organizationId },
+          select: { name: true },
+        });
+        const orgName = org?.name || 'your organization';
+
+        const policies = await prisma.policy.findMany({
+          where: { organizationId, isActive: true },
+          select: { title: true, content: true, category: true },
+        });
+        const policyText = policies.map(p => `## ${p.title} (${p.category})\n${p.content}`).join('\n\n---\n\n');
+
+        basePrompt = `You are an HR policy expert for ${orgName}. Answer employee questions about company policies accurately and helpfully. Always cite the specific policy section when answering. If the answer is not in the policies, say so clearly.\nToday's date: ${new Date().toLocaleDateString('en-IN')}.\n\nCOMPANY POLICIES:\n${policyText || 'No policies configured yet.'}`;
       } else {
         const [empCount, pendingLeaves, todayAttendance] = await Promise.all([
           prisma.employee.count({ where: { organizationId, deletedAt: null } }),
@@ -208,6 +222,15 @@ You can answer questions about leave balances, attendance, employee information,
         'How many candidates are in interview stage?',
         "What's the average AI score for recent applications?",
         'Generate a summary of today\'s interviews',
+      ];
+    }
+    if (context === 'policy') {
+      return [
+        'What is the leave policy?',
+        'How many casual leaves do I get?',
+        'What are the office timings?',
+        'Explain the sandwich rule',
+        'What happens if I take leave on 1st-10th?',
       ];
     }
     return [

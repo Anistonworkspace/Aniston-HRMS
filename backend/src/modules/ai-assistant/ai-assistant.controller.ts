@@ -4,7 +4,7 @@ import { aiAssistantService } from './ai-assistant.service.js';
 
 const chatSchema = z.object({
   message: z.string().min(1, 'Message is required').max(4000, 'Message too long'),
-  context: z.enum(['admin', 'hr-recruitment', 'hr-general']).default('admin'),
+  context: z.enum(['admin', 'hr-recruitment', 'hr-general', 'policy']).default('admin'),
 });
 
 const trainSchema = z.object({

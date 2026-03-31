@@ -148,6 +148,18 @@ router.post('/jobs/:jobId/share-email', authenticate, authorize(Role.SUPER_ADMIN
 });
 
 // =====================
+// AI JOB DESCRIPTION GENERATOR
+// =====================
+
+router.post('/ai-generate-description', authenticate, requirePermission('recruitment', 'create'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { title, department, requirements, type } = req.body;
+    const result = await recruitmentService.generateJobDescription(req.user!.organizationId, { title, department, requirements, type });
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+// =====================
 // PIPELINE STATS
 // =====================
 

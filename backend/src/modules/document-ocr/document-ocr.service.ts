@@ -3,6 +3,7 @@ import { NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { logger } from '../../lib/logger.js';
 import { env } from '../../config/env.js';
+import { aiService } from '../../services/ai.service.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { UpdateOcrInput } from './document-ocr.validation.js';
@@ -175,6 +176,59 @@ export class DocumentOcrService {
         confidence: 0,
       },
     });
+  }
+
+  /**
+   * Trigger LLM-based OCR extraction for a document (parallel to Python OCR).
+   * Uses the org's configured AI provider via aiService.prompt().
+   */
+  async triggerLlmOcr(documentId: string, organizationId: string) {
+    const doc = await prisma.document.findUnique({
+      where: { id: documentId },
+      include: { ocrVerification: true },
+    });
+    if (!doc) throw new NotFoundError('Document');
+
+    const docType = doc.type;
+    const existingOcrText = doc.ocrVerification?.rawText || '';
+
+    const systemPrompt = `You are a document verification expert. Extract key information from this document.
+Document type: ${docType}
+Return a JSON object with: { "extractedName": string|null, "extractedDocNumber": string|null, "extractedDob": string|null, "extractedAddress": string|null, "extractedGender": string|null, "confidence": number, "documentType": string }
+Only include fields that are clearly present. Set confidence 0.0-1.0 based on how certain you are.
+Return ONLY valid JSON, no markdown or extra text.`;
+
+    const userPrompt = `Document type: ${docType}
+${existingOcrText ? `Previously extracted OCR text:\n${existingOcrText}` : 'No prior OCR text available.'}
+Please extract and verify the key fields from this ${docType.replace(/_/g, ' ')} document.`;
+
+    const aiResponse = await aiService.prompt(organizationId, systemPrompt, userPrompt);
+
+    // Parse JSON from the AI response
+    let llmData: any;
+    try {
+      const content = aiResponse.content || '';
+      // Try to extract JSON from the response (handle markdown code blocks)
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      llmData = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+    } catch (parseErr) {
+      logger.warn(`[LLM OCR] Failed to parse AI response for document ${documentId}: ${(parseErr as Error).message}`);
+      llmData = { confidence: 0, error: 'Failed to parse AI response' };
+    }
+
+    const llmConfidence = typeof llmData.confidence === 'number' ? llmData.confidence : 0;
+
+    // Update the DocumentOcrVerification record with LLM data
+    const updated = await prisma.documentOcrVerification.update({
+      where: { documentId },
+      data: {
+        llmExtractedData: llmData,
+        llmConfidence,
+      },
+    });
+
+    logger.info(`[LLM OCR] Completed for document ${documentId} — confidence: ${llmConfidence}`);
+    return updated;
   }
 
   /**

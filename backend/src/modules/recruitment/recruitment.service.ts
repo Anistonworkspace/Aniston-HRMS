@@ -1,6 +1,8 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { enqueueEmail } from '../../jobs/queues.js';
+import { aiService } from '../../services/ai.service.js';
+import { logger } from '../../lib/logger.js';
 import type { CreateJobInput, CreateApplicationInput, InterviewScoreInput, CreateOfferInput, JobQuery } from './recruitment.validation.js';
 
 export class RecruitmentService {
@@ -256,6 +258,37 @@ export class RecruitmentService {
     });
 
     return updated;
+  }
+
+  // ==================
+  // AI JOB DESCRIPTION GENERATOR
+  // ==================
+
+  async generateJobDescription(organizationId: string, data: { title: string; department?: string; requirements?: string; type?: string }) {
+    const systemPrompt = `You are an expert HR recruiter. Generate a professional, engaging job description.
+Return a JSON object with: { "description": string, "keyResponsibilities": string[], "qualifications": string[], "niceToHave": string[] }
+Keep it concise, professional, and relevant to the Indian job market.
+Return ONLY valid JSON, no markdown or extra text.`;
+
+    const userPrompt = `Generate a job description for the following position:
+Title: ${data.title}
+${data.department ? `Department: ${data.department}` : ''}
+${data.type ? `Employment Type: ${data.type}` : ''}
+${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''}`;
+
+    const aiResponse = await aiService.prompt(organizationId, systemPrompt, userPrompt, 2048);
+
+    let parsed: any;
+    try {
+      const content = aiResponse.content || '';
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+    } catch (parseErr) {
+      logger.warn(`[AI Job Description] Failed to parse AI response: ${(parseErr as Error).message}`);
+      throw new BadRequestError('AI failed to generate a valid job description. Please try again.');
+    }
+
+    return parsed;
   }
 
   // ==================

@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
+import { aiService } from '../../services/ai.service.js';
 
 /**
  * Indian Statutory Payroll Calculation Functions
@@ -475,6 +476,60 @@ export class PayrollService {
     });
 
     return records.filter(r => new Date(r.date).getDay() === 0).length;
+  }
+
+  /**
+   * AI-powered payroll anomaly detection for a payroll run
+   */
+  async detectAnomalies(runId: string, organizationId: string) {
+    const run = await prisma.payrollRun.findUnique({ where: { id: runId } });
+    if (!run) throw new NotFoundError('Payroll run');
+
+    const records = await prisma.payrollRecord.findMany({
+      where: { payrollRunId: runId },
+      include: {
+        employee: {
+          select: {
+            firstName: true,
+            lastName: true,
+            employeeCode: true,
+            department: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    if (records.length === 0) throw new BadRequestError('No payroll records found for this run');
+
+    const payrollSummary = records.map(r => ({
+      employeeName: `${r.employee.firstName} ${r.employee.lastName}`,
+      employeeCode: r.employee.employeeCode,
+      department: r.employee.department?.name || 'N/A',
+      grossSalary: Number(r.grossSalary),
+      netSalary: Number(r.netSalary),
+      basic: Number(r.basic),
+      hra: Number(r.hra),
+      epfEmployee: Number(r.epfEmployee),
+      esiEmployee: Number(r.esiEmployee),
+      professionalTax: Number(r.professionalTax),
+      tds: Number(r.tds),
+      lopDays: r.lopDays,
+      lopDeduction: Number(r.lopDeduction),
+      workingDays: r.workingDays,
+      presentDays: r.presentDays,
+    }));
+
+    const systemPrompt = 'You are a payroll auditor for an Indian company. Analyze this payroll data and flag any anomalies, unusual patterns, or potential errors. Consider: unusually high/low salary, excessive deductions, LOP inconsistencies, statutory compliance issues (EPF/ESI/PT/TDS). Return JSON: { anomalies: [{ employeeName: string, employeeCode: string, issue: string, severity: "LOW"|"MEDIUM"|"HIGH", recommendation: string }], overallHealth: "GOOD"|"WARNING"|"CRITICAL", summary: string }';
+    const userPrompt = `Payroll Run: ${run.month}/${run.year}\nTotal Employees: ${records.length}\n\nEmployee Payroll Data:\n${JSON.stringify(payrollSummary, null, 2)}`;
+
+    const result = await aiService.prompt(organizationId, systemPrompt, userPrompt, 2048);
+    if (!result.success) throw new BadRequestError(result.error || 'AI anomaly detection failed');
+
+    try {
+      return JSON.parse(result.data!);
+    } catch {
+      return { rawResponse: result.data };
+    }
   }
 }
 

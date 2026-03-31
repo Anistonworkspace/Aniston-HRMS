@@ -339,6 +339,10 @@ model DocumentOcrVerification {
   crossValidationStatus String?   // PASS, FAIL, PARTIAL, PENDING
   crossValidationDetails Json?
 
+  // LLM extraction (parallel to OCR)
+  llmExtractedData      Json?        // LLM extraction result (parallel to OCR)
+  llmConfidence         Float?       // LLM confidence score
+
   // HR review
   hrReviewedBy          String?
   hrReviewedAt          DateTime?

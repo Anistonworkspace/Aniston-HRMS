@@ -1,10 +1,26 @@
 import { Router } from 'express';
 import { performanceController } from './performance.controller.js';
 import { authenticate, requirePermission } from '../../middleware/auth.middleware.js';
+import { performanceService } from './performance.service.js';
 
 const router = Router();
 
 router.use(authenticate);
+
+// AI Features (before parameterized routes)
+router.post('/ai-suggest-goals/:employeeId', authenticate, async (req, res, next) => {
+  try {
+    const result = await performanceService.suggestGoals(req.params.employeeId, req.user!.organizationId);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+router.post('/ai-review-summary/:reviewId', authenticate, async (req, res, next) => {
+  try {
+    const result = await performanceService.generateReviewSummary(req.params.reviewId, req.user!.organizationId);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
 
 // Review Cycles
 router.get('/cycles', requirePermission('performance', 'read'), (req, res, next) =>

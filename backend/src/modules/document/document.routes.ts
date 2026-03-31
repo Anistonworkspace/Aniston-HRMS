@@ -66,4 +66,30 @@ router.delete('/:id', requirePermission('document', 'delete'), (req, res, next) 
   documentController.remove(req, res, next)
 );
 
+// AI Offer Letter Preview
+router.post('/ai-offer-preview/:employeeId', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { generateAiOfferLetterContent } = await import('../../utils/letterTemplates.js');
+    const employee = await prisma.employee.findFirst({
+      where: { id: req.params.employeeId, organizationId: req.user!.organizationId },
+      include: { department: true, designation: true, salaryStructure: true, organization: true },
+    });
+    if (!employee) {
+      res.status(404).json({ success: false, error: { message: 'Employee not found' } });
+      return;
+    }
+    const content = await generateAiOfferLetterContent(req.user!.organizationId, {
+      name: `${employee.firstName} ${employee.lastName}`,
+      employeeCode: employee.employeeCode,
+      email: employee.email,
+      joiningDate: employee.joiningDate,
+      designation: employee.designation?.name || '',
+      department: employee.department?.name || '',
+      ctc: employee.ctc?.toString() || '0',
+      organization: employee.organization?.name || 'Aniston Technologies LLP',
+    });
+    res.json({ success: true, data: content });
+  } catch (err) { next(err); }
+});
+
 export { router as documentRouter };

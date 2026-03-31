@@ -2,9 +2,18 @@ import { Router } from 'express';
 import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
 import { payrollController } from './payroll.controller.js';
+import { payrollService } from './payroll.service.js';
 
 const router = Router();
 router.use(authenticate);
+
+// AI anomaly detection (must be before /:id routes)
+router.post('/ai-anomaly-check/:runId', authenticate, requirePermission('payroll', 'manage'), async (req, res, next) => {
+  try {
+    const result = await payrollService.detectAnomalies(req.params.runId, req.user!.organizationId);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
 
 // Salary structure
 router.get('/salary-structure/:employeeId',

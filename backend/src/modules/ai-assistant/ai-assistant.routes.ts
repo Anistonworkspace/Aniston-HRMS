@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { aiAssistantController } from './ai-assistant.controller.js';
+import { aiAssistantService } from './ai-assistant.service.js';
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
 
 const router = Router();
@@ -10,6 +11,26 @@ router.use(authenticate);
 router.post('/chat', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
   aiAssistantController.chat(req, res, next)
 );
+
+// POST /api/ai-assistant/policy-qa — any authenticated user can ask about policies
+router.post('/policy-qa', async (req, res, next) => {
+  try {
+    const { question } = req.body;
+    if (!question) {
+      res.status(400).json({ success: false, error: { message: 'Question is required' } });
+      return;
+    }
+    const result = await aiAssistantService.chat(
+      req.user!.organizationId,
+      req.user!.userId,
+      question,
+      'policy'
+    );
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET /api/ai-assistant/history — authenticated (any role that can access assistant)
 router.get('/history', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>

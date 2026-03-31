@@ -22,6 +22,14 @@ const worker = new Worker<DocumentOcrJob>(
       const ocrResult = await documentOcrService.triggerOcr(documentId, organizationId);
       logger.info(`[OCR Worker] OCR done for ${documentId} — confidence: ${ocrResult.confidence}`);
 
+      // 1b. Run LLM-based OCR extraction in parallel (non-blocking)
+      try {
+        await documentOcrService.triggerLlmOcr(documentId, organizationId);
+        logger.info(`[OCR Worker] LLM OCR done for ${documentId}`);
+      } catch (llmErr: any) {
+        logger.warn(`[OCR Worker] LLM OCR failed for ${documentId}: ${llmErr.message}`);
+      }
+
       // 2. Get the document to find the employee
       const doc = await prisma.document.findUnique({
         where: { id: documentId },

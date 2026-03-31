@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { aiService } from '../../services/ai.service.js';
 import type { CreateTicketInput, TicketQuery } from './helpdesk.validation.js';
 
 export class HelpdeskService {
@@ -83,6 +84,44 @@ export class HelpdeskService {
     return prisma.ticketComment.create({
       data: { ticketId, authorId, content, isInternal },
     });
+  }
+
+  async analyzeTicket(ticketId: string, organizationId: string) {
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundError('Ticket');
+
+    const systemPrompt = 'You are an IT helpdesk expert for an Indian technology company. Analyze this support ticket and provide: category classification, priority assessment, suggested resolution steps, and department routing. Return JSON: { category: string, priority: "LOW"|"MEDIUM"|"HIGH"|"CRITICAL", suggestedResolution: string, suggestedDepartment: string, tags: string[] }';
+    const userPrompt = `Subject: ${ticket.subject}\nDescription: ${ticket.description || 'No description provided'}${ticket.category ? `\nCategory: ${ticket.category}` : ''}`;
+
+    const result = await aiService.prompt(organizationId, systemPrompt, userPrompt);
+    if (!result.success) throw new BadRequestError(result.error || 'AI analysis failed');
+
+    try {
+      return JSON.parse(result.data!);
+    } catch {
+      return { rawResponse: result.data };
+    }
+  }
+
+  async suggestResponse(ticketId: string, organizationId: string) {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      include: { comments: { orderBy: { createdAt: 'asc' } } },
+    });
+    if (!ticket) throw new NotFoundError('Ticket');
+
+    const systemPrompt = 'You are a helpful IT support agent. Based on this ticket and conversation history, suggest a professional response. Return JSON: { suggestedResponse: string, isResolvable: boolean, escalationNeeded: boolean }';
+    const conversationHistory = ticket.comments.map(c => `[${c.isInternal ? 'Internal' : 'Reply'}]: ${c.content}`).join('\n');
+    const userPrompt = `Subject: ${ticket.subject}\nDescription: ${ticket.description || 'No description provided'}${ticket.category ? `\nCategory: ${ticket.category}` : ''}${conversationHistory ? `\n\nConversation History:\n${conversationHistory}` : ''}`;
+
+    const result = await aiService.prompt(organizationId, systemPrompt, userPrompt);
+    if (!result.success) throw new BadRequestError(result.error || 'AI suggestion failed');
+
+    try {
+      return JSON.parse(result.data!);
+    } catch {
+      return { rawResponse: result.data };
+    }
   }
 }
 

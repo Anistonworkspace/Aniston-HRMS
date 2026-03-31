@@ -1608,10 +1608,10 @@ function InternProfileTab({ employeeId, employee, isManagement }: { employeeId: 
   );
 }
 
-// ---------- Connections Cards with real data + popup ----------
+// ---------- Connections Cards with full-screen map popup ----------
 function ConnectionsCards({ employeeId, records }: { employeeId: string; records: any[] }) {
   const { data: lifecycleRes } = useGetLifecycleEventsQuery(employeeId);
-  const [expandedCard, setExpandedCard] = useState<string | null>(null);
+  const [openModal, setOpenModal] = useState<string | null>(null);
 
   const lifecycleEvents = lifecycleRes?.data || [];
   const attendanceCount = records.length;
@@ -1619,9 +1619,9 @@ function ConnectionsCards({ employeeId, records }: { employeeId: string; records
   const lifecycleCount = lifecycleEvents.length;
 
   const cards = [
-    { key: 'attendance', l: 'Attendance', c: 'bg-emerald-50', t: 'text-emerald-600', bc: 'border-emerald-200', i: Clock, n: attendanceCount },
-    { key: 'leave', l: 'Leave Application', c: 'bg-purple-50', t: 'text-purple-600', bc: 'border-purple-200', i: Calendar, n: leaveCount },
-    { key: 'lifecycle', l: 'Lifecycle', c: 'bg-blue-50', t: 'text-blue-600', bc: 'border-blue-200', i: Briefcase, n: lifecycleCount },
+    { key: 'attendance', l: 'Attendance', c: 'bg-emerald-50', t: 'text-emerald-600', i: Clock, n: attendanceCount },
+    { key: 'leave', l: 'Leave Application', c: 'bg-purple-50', t: 'text-purple-600', i: Calendar, n: leaveCount },
+    { key: 'lifecycle', l: 'Lifecycle', c: 'bg-blue-50', t: 'text-blue-600', i: Briefcase, n: lifecycleCount },
   ];
 
   return (
@@ -1629,51 +1629,330 @@ function ConnectionsCards({ employeeId, records }: { employeeId: string; records
       <h3 className="text-sm font-semibold text-gray-800 mb-3">Connections</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {cards.map(card => (
-          <div key={card.key}>
-            <div className="bg-surface-2 rounded-xl p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`w-8 h-8 rounded-lg ${card.c} flex items-center justify-center`}><card.i size={16} className={card.t} /></div>
-                <div><p className="text-sm font-medium text-gray-700">{card.l}</p><p className="text-xs text-gray-400">{card.n} records</p></div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-bold font-mono text-gray-500" data-mono>{card.n}</span>
-                <button onClick={() => setExpandedCard(expandedCard === card.key ? null : card.key)}
-                  className="w-6 h-6 rounded-md bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors">
-                  <Plus size={12} className={`text-gray-500 transition-transform ${expandedCard === card.key ? 'rotate-45' : ''}`} />
-                </button>
-              </div>
+          <div key={card.key} className="bg-surface-2 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-lg ${card.c} flex items-center justify-center`}><card.i size={16} className={card.t} /></div>
+              <div><p className="text-sm font-medium text-gray-700">{card.l}</p><p className="text-xs text-gray-400">{card.n} records</p></div>
             </div>
-            <AnimatePresence>
-              {expandedCard === card.key && (
-                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                  <div className={`mt-1 border ${card.bc} rounded-xl p-3 bg-white max-h-48 overflow-y-auto`}>
-                    {card.key === 'attendance' && (records.length > 0 ? records.slice(0, 15).map((r: any, i: number) => (
-                      <div key={i} className="flex justify-between text-xs py-1.5 border-b border-gray-50 last:border-0">
-                        <span className="text-gray-600">{new Date(r.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                        <span className={`font-medium ${r.status === 'PRESENT' ? 'text-emerald-600' : r.status === 'ABSENT' ? 'text-red-500' : r.status === 'ON_LEAVE' ? 'text-purple-500' : 'text-gray-500'}`}>{r.status?.replace('_', ' ')}</span>
-                        <span className="text-gray-400 font-mono" data-mono>{r.totalHours ? `${Number(r.totalHours).toFixed(1)}h` : '—'}</span>
-                      </div>
-                    )) : <p className="text-xs text-gray-400 text-center py-2">No attendance records</p>)}
-                    {card.key === 'leave' && (records.filter((r: any) => r.status === 'ON_LEAVE').length > 0
-                      ? records.filter((r: any) => r.status === 'ON_LEAVE').slice(0, 10).map((r: any, i: number) => (
-                        <div key={i} className="flex justify-between text-xs py-1.5 border-b border-gray-50 last:border-0">
-                          <span className="text-gray-600">{new Date(r.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
-                          <span className="text-purple-600 font-medium">On Leave</span>
-                        </div>
-                      )) : <p className="text-xs text-gray-400 text-center py-2">No leave records</p>)}
-                    {card.key === 'lifecycle' && (lifecycleEvents.length > 0 ? lifecycleEvents.map((ev: any) => (
-                      <div key={ev.id} className="flex justify-between text-xs py-1.5 border-b border-gray-50 last:border-0">
-                        <span className="text-gray-600">{ev.type?.replace('_', ' ')}</span>
-                        <span className="text-gray-500">{new Date(ev.eventDate || ev.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                      </div>
-                    )) : <p className="text-xs text-gray-400 text-center py-2">No lifecycle events</p>)}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-bold font-mono text-gray-500" data-mono>{card.n}</span>
+              <button onClick={() => setOpenModal(card.key)}
+                className="w-6 h-6 rounded-md bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors">
+                <Plus size={12} className="text-gray-500" />
+              </button>
+            </div>
           </div>
         ))}
       </div>
+
+      {/* Attendance Map Modal */}
+      <AnimatePresence>
+        {openModal === 'attendance' && (
+          <AttendanceMapModal employeeId={employeeId} records={records} onClose={() => setOpenModal(null)} />
+        )}
+        {openModal === 'leave' && (
+          <LeaveDetailModal records={records} onClose={() => setOpenModal(null)} />
+        )}
+        {openModal === 'lifecycle' && (
+          <LifecycleDetailModal events={lifecycleEvents} onClose={() => setOpenModal(null)} />
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+// ---- Attendance Map Modal (shows check-in/out locations on map + GPS trail for field) ----
+function AttendanceMapModal({ employeeId, records, onClose }: { employeeId: string; records: any[]; onClose: () => void }) {
+  const [selectedRecord, setSelectedRecord] = useState<any>(null);
+  const [mapReady, setMapReady] = useState(false);
+
+  // Lazy import react-leaflet to avoid SSR issues
+  useEffect(() => { setMapReady(true); }, []);
+
+  // Records with location data
+  const locatedRecords = records.filter((r: any) => r.checkInLocation || r.checkOutLocation);
+
+  // Build markers
+  const markers = locatedRecords.flatMap((r: any) => {
+    const out: any[] = [];
+    const ciLoc = r.checkInLocation;
+    const coLoc = r.checkOutLocation;
+    if (ciLoc?.lat && ciLoc?.lng) out.push({ ...r, type: 'checkin', lat: ciLoc.lat, lng: ciLoc.lng, accuracy: ciLoc.accuracy });
+    if (coLoc?.lat && coLoc?.lng) out.push({ ...r, type: 'checkout', lat: coLoc.lat, lng: coLoc.lng, accuracy: coLoc.accuracy });
+    return out;
+  });
+
+  const defaultCenter: [number, number] = markers.length > 0 ? [markers[0].lat, markers[0].lng] : [28.6139, 77.209];
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-lg font-display font-semibold text-gray-900">Attendance Locations</h2>
+            <p className="text-xs text-gray-400">{locatedRecords.length} records with GPS data out of {records.length} total</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+            <Plus size={20} className="text-gray-500 rotate-45" />
+          </button>
+        </div>
+
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left: Record list */}
+          <div className="w-72 border-r border-gray-100 overflow-y-auto flex-shrink-0">
+            <div className="p-3 border-b border-gray-50 bg-gray-50/50">
+              <p className="text-xs font-medium text-gray-500">All Attendance ({records.length})</p>
+            </div>
+            {records.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-8">No records</p>
+            ) : (
+              records.slice(0, 50).map((r: any, i: number) => {
+                const hasLoc = r.checkInLocation || r.checkOutLocation;
+                const isSelected = selectedRecord?.id === r.id;
+                return (
+                  <button key={r.id || i} onClick={() => hasLoc && setSelectedRecord(r)}
+                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-left border-b border-gray-50 transition-colors ${isSelected ? 'bg-emerald-50' : hasLoc ? 'hover:bg-gray-50 cursor-pointer' : 'opacity-50 cursor-default'}`}>
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${r.status === 'PRESENT' ? 'bg-emerald-500' : r.status === 'ABSENT' ? 'bg-red-500' : r.status === 'HALF_DAY' ? 'bg-amber-500' : r.status === 'ON_LEAVE' ? 'bg-purple-500' : 'bg-gray-300'}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-gray-700">{new Date(r.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', weekday: 'short' })}</p>
+                      <p className="text-[10px] text-gray-400">
+                        {r.checkIn ? new Date(r.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                        {r.checkOut ? ` → ${new Date(r.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                        {r.totalHours ? ` (${Number(r.totalHours).toFixed(1)}h)` : ''}
+                      </p>
+                    </div>
+                    {hasLoc && <MapPin size={12} className="text-emerald-400 flex-shrink-0" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          {/* Right: Map */}
+          <div className="flex-1 relative">
+            {mapReady && (
+              <AttendanceLeafletMap
+                markers={markers}
+                center={selectedRecord?.checkInLocation ? [selectedRecord.checkInLocation.lat, selectedRecord.checkInLocation.lng] : defaultCenter}
+                selectedRecord={selectedRecord}
+              />
+            )}
+            {markers.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 z-10">
+                <div className="text-center">
+                  <MapPin size={32} className="mx-auto text-gray-300 mb-2" />
+                  <p className="text-sm text-gray-500">No GPS data available</p>
+                  <p className="text-xs text-gray-400">Employee clock-in/out locations will appear here</p>
+                </div>
+              </div>
+            )}
+
+            {/* Selected record detail overlay */}
+            {selectedRecord && (
+              <div className="absolute bottom-4 left-4 right-4 z-[1000] bg-white rounded-xl shadow-lg border border-gray-200 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">
+                      {new Date(selectedRecord.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric', weekday: 'long' })}
+                    </p>
+                    <div className="flex items-center gap-4 mt-1">
+                      <span className="text-xs text-gray-500">
+                        Check-in: <strong>{selectedRecord.checkIn ? new Date(selectedRecord.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}</strong>
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        Check-out: <strong>{selectedRecord.checkOut ? new Date(selectedRecord.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}</strong>
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        Hours: <strong>{selectedRecord.totalHours ? `${Number(selectedRecord.totalHours).toFixed(1)}h` : '—'}</strong>
+                      </span>
+                    </div>
+                    {selectedRecord.notes && <p className="text-[10px] text-amber-600 mt-1">{selectedRecord.notes}</p>}
+                  </div>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${selectedRecord.status === 'PRESENT' ? 'bg-emerald-50 text-emerald-700' : selectedRecord.status === 'HALF_DAY' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
+                    {selectedRecord.status?.replace('_', ' ')}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ---- Leaflet Map for attendance markers ----
+function AttendanceLeafletMap({ markers, center, selectedRecord }: { markers: any[]; center: [number, number]; selectedRecord: any }) {
+  // Dynamic import to avoid SSR issues with leaflet
+  const [MapComponents, setMapComponents] = useState<any>(null);
+
+  useEffect(() => {
+    import('react-leaflet').then(mod => {
+      setMapComponents(mod);
+    });
+    import('leaflet').then(L => {
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+      });
+    });
+  }, []);
+
+  if (!MapComponents) return <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin text-gray-400" size={24} /></div>;
+
+  const { MapContainer, TileLayer, CircleMarker, Popup, useMap } = MapComponents;
+
+  function FlyTo({ center }: { center: [number, number] }) {
+    const map = useMap();
+    useEffect(() => { map.flyTo(center, 15, { duration: 0.8 }); }, [center[0], center[1]]);
+    return null;
+  }
+
+  return (
+    <MapContainer center={center} zoom={markers.length > 0 ? 14 : 5} style={{ height: '100%', width: '100%' }} scrollWheelZoom zoomControl>
+      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
+      {selectedRecord && <FlyTo center={center} />}
+      {markers.map((m: any, i: number) => {
+        const isCheckIn = m.type === 'checkin';
+        const isSelected = selectedRecord?.id === m.id;
+        return (
+          <CircleMarker key={`${m.id}-${m.type}-${i}`}
+            center={[m.lat, m.lng]}
+            radius={isSelected ? 10 : 7}
+            pathOptions={{
+              color: isCheckIn ? '#059669' : '#dc2626',
+              fillColor: isCheckIn ? '#10b981' : '#ef4444',
+              fillOpacity: isSelected ? 0.9 : 0.6,
+              weight: isSelected ? 3 : 2,
+            }}>
+            <Popup>
+              <div className="text-xs">
+                <p className="font-semibold">{isCheckIn ? 'Check-In' : 'Check-Out'}</p>
+                <p>{new Date(m.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                <p>{isCheckIn && m.checkIn ? new Date(m.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}</p>
+                <p>{!isCheckIn && m.checkOut ? new Date(m.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}</p>
+                {m.accuracy && <p className="text-gray-400">Accuracy: {Math.round(m.accuracy)}m</p>}
+              </div>
+            </Popup>
+          </CircleMarker>
+        );
+      })}
+    </MapContainer>
+  );
+}
+
+// ---- Leave Detail Modal ----
+function LeaveDetailModal({ records, onClose }: { records: any[]; onClose: () => void }) {
+  const leaveRecords = records.filter((r: any) => r.status === 'ON_LEAVE');
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-lg font-display font-semibold text-gray-900">Leave Applications</h2>
+            <p className="text-xs text-gray-400">{leaveRecords.length} leave days recorded</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+            <Plus size={20} className="text-gray-500 rotate-45" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {leaveRecords.length === 0 ? (
+            <div className="text-center py-12">
+              <Calendar size={32} className="mx-auto text-gray-200 mb-2" />
+              <p className="text-sm text-gray-500">No leave records</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {leaveRecords.map((r: any, i: number) => (
+                <div key={r.id || i} className="flex items-center gap-3 p-3 bg-purple-50/50 rounded-xl border border-purple-100">
+                  <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
+                    <Calendar size={16} className="text-purple-600" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-800">{new Date(r.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric', weekday: 'long' })}</p>
+                    <p className="text-xs text-gray-400">{r.workMode || 'OFFICE'} mode</p>
+                  </div>
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">On Leave</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ---- Lifecycle Events Detail Modal ----
+function LifecycleDetailModal({ events, onClose }: { events: any[]; onClose: () => void }) {
+  const typeColors: Record<string, string> = {
+    JOINING: 'bg-emerald-100 text-emerald-700',
+    PROBATION_END: 'bg-blue-100 text-blue-700',
+    CONFIRMATION: 'bg-green-100 text-green-700',
+    PROMOTION: 'bg-indigo-100 text-indigo-700',
+    TRANSFER: 'bg-cyan-100 text-cyan-700',
+    SALARY_REVISION: 'bg-amber-100 text-amber-700',
+    WARNING: 'bg-red-100 text-red-700',
+    SEPARATION: 'bg-gray-100 text-gray-700',
+    STATUS_CHANGE: 'bg-violet-100 text-violet-700',
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-lg font-display font-semibold text-gray-900">Lifecycle Events</h2>
+            <p className="text-xs text-gray-400">{events.length} events recorded</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+            <Plus size={20} className="text-gray-500 rotate-45" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {events.length === 0 ? (
+            <div className="text-center py-12">
+              <Briefcase size={32} className="mx-auto text-gray-200 mb-2" />
+              <p className="text-sm text-gray-500">No lifecycle events</p>
+            </div>
+          ) : (
+            <div className="relative">
+              {/* Timeline line */}
+              <div className="absolute left-5 top-4 bottom-4 w-px bg-gray-200" />
+              <div className="space-y-4">
+                {events.map((ev: any) => (
+                  <div key={ev.id} className="flex gap-4 relative">
+                    <div className="w-10 h-10 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center flex-shrink-0 z-10">
+                      <Briefcase size={14} className="text-gray-500" />
+                    </div>
+                    <div className="flex-1 bg-gray-50 rounded-xl p-3 border border-gray-100">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${typeColors[ev.eventType || ev.type] || 'bg-gray-100 text-gray-600'}`}>
+                          {(ev.eventType || ev.type || '').replace(/_/g, ' ')}
+                        </span>
+                        <span className="text-[10px] text-gray-400">{new Date(ev.eventDate || ev.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                      </div>
+                      <p className="text-sm font-medium text-gray-800">{ev.title}</p>
+                      {ev.description && <p className="text-xs text-gray-500 mt-1">{ev.description}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
