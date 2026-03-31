@@ -20,10 +20,9 @@ import { cn, getInitials } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
 import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
-import PermissionPresetsTab from '../permissions/PermissionPresetsTab';
 import { useGetKnowledgeBaseQuery, useAddKnowledgeDocMutation, useDeleteKnowledgeDocMutation } from '../ai-assistant/aiAssistantApi';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'permissions' | 'audit' | 'system';
+type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'audit' | 'system';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>(() => {
@@ -45,7 +44,6 @@ export default function SettingsPage() {
     { key: 'salary-privacy', label: 'Salary Privacy', icon: Lock },
     { key: 'api-integration', label: 'API Integration', icon: ExternalLink },
     { key: 'ai-config', label: 'AI API Config', icon: Cpu },
-    { key: 'permissions', label: 'Permission Control', icon: Shield },
     { key: 'audit', label: 'Audit Logs', icon: Shield },
     { key: 'system', label: 'System', icon: Server },
   ];
@@ -86,7 +84,6 @@ export default function SettingsPage() {
             {activeTab === 'salary-privacy' && <SalaryPrivacyTab />}
             {activeTab === 'api-integration' && <ExternalApiIntegrationTab />}
             {activeTab === 'ai-config' && <ApiIntegrationsTab />}
-            {activeTab === 'permissions' && <PermissionPresetsTab />}
             {activeTab === 'audit' && <AuditLogs />}
             {activeTab === 'system' && <SystemInfo />}
           </div>

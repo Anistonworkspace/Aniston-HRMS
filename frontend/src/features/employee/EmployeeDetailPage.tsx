@@ -12,12 +12,13 @@ import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation } from '../p
 import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documents/documentApi';
 import { useGetInternProfileQuery, useGetAchievementLettersQuery, useIssueAchievementLetterMutation } from '../intern/internApi';
 import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } from '../workforce/workforceApi';
+import PermissionOverridePanel from '../permissions/PermissionOverridePanel';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
-type TabKey = 'overview' | 'attendance' | 'personal' | 'salary' | 'documents' | 'connections' | 'intern';
+type TabKey = 'overview' | 'attendance' | 'personal' | 'salary' | 'documents' | 'connections' | 'intern' | 'permissions';
 
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -73,6 +74,7 @@ export default function EmployeeDetailPage() {
     { key: 'documents', label: 'Documents' },
     ...(isIntern ? [{ key: 'intern' as TabKey, label: 'Intern Profile' }] : []),
     { key: 'connections', label: 'Connections' },
+    ...(isManagement ? [{ key: 'permissions' as TabKey, label: 'Permissions' }] : []),
   ];
 
   return (
@@ -267,6 +269,10 @@ export default function EmployeeDetailPage() {
 
             {activeTab === 'connections' && (
               <ConnectionsTab employee={employee} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} navigate={navigate} />
+            )}
+
+            {activeTab === 'permissions' && isManagement && (
+              <PermissionOverridePanel employeeId={id!} />
             )}
           </div>
         </div>
