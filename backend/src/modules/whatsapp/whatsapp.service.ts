@@ -265,7 +265,7 @@ export class WhatsAppService {
   }
 
   async sendJobLink(data: SendJobLinkInput, organizationId: string) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
     const jobUrl = data.jobUrl || `${frontendUrl}/jobs`;
     const name = data.candidateName || 'Candidate';
 

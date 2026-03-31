@@ -248,7 +248,7 @@ export class EmployeeService {
       template: 'onboarding-invite',
       context: {
         name: firstName || normalizedEmail.split('@')[0],
-        link: `${process.env.FRONTEND_URL || 'http://localhost:5173'}${onboardingUrl}`,
+        link: `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}${onboardingUrl}`,
       },
     });
 

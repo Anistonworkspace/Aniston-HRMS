@@ -81,21 +81,27 @@ jobs:
               libasound2t64 || sudo apt-get install -y -qq libasound2 || true
             # Verify Chrome/Chromium is available
             which chromium-browser || which chromium || which google-chrome-stable || echo "WARNING: No system Chrome found, Puppeteer will use bundled Chrome"
-            echo "=== [3/8] Pulling latest code ==="
+            echo "=== [3/11] Setting production domain in .env ==="
+            # Ensure FRONTEND_URL uses the actual domain, not the IP
+            sed -i 's|FRONTEND_URL=.*|FRONTEND_URL="https://hr.anistonav.com"|' .env || true
+            sed -i 's|API_URL=.*|API_URL="https://hr.anistonav.com"|' .env || true
+            grep -q "FRONTEND_URL" .env || echo 'FRONTEND_URL="https://hr.anistonav.com"' >> .env
+            grep -q "API_URL" .env || echo 'API_URL="https://hr.anistonav.com"' >> .env
+            echo "=== [4/11] Pulling latest code ==="
             git pull origin main
-            echo "=== [4/8] Installing dependencies ==="
+            echo "=== [5/11] Installing dependencies ==="
             npm ci
-            echo "=== [5/8] Generating Prisma client ==="
+            echo "=== [6/11] Generating Prisma client ==="
             npx prisma generate
-            echo "=== [6/9] Pushing schema to DB ==="
+            echo "=== [7/11] Pushing schema to DB ==="
             npx prisma db push --accept-data-loss
-            echo "=== [7/10] Cleaning up old employees (keep SuperAdmin only) ==="
+            echo "=== [8/11] Cleaning up old employees (keep SuperAdmin only) ==="
             npx tsx scripts/cleanup-employees.ts || echo "Cleanup completed (or already clean)"
-            echo "=== [8/10] Seeding database (SuperAdmin + defaults) ==="
+            echo "=== [9/11] Seeding database (SuperAdmin + defaults) ==="
             npx prisma db seed || echo "Seed completed (or already seeded)"
-            echo "=== [9/10] Building frontend ==="
-            cd frontend && npx vite build && cd ..
-            echo "=== [10/10] Restarting PM2 ==="
+            echo "=== [10/11] Building frontend ==="
+            cd frontend && VITE_API_URL=/api npx vite build && cd ..
+            echo "=== [11/11] Restarting PM2 ==="
             pm2 restart aniston-hrms
             echo "=== Waiting for startup ==="
             sleep 5

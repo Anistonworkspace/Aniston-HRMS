@@ -49,8 +49,8 @@ const app = express();
 app.use(helmet());
 app.use(cors({
   origin: env.NODE_ENV === 'development'
-    ? [env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:5174', 'http://13.126.128.38']
-    : [env.FRONTEND_URL, 'http://13.126.128.38'].filter(Boolean),
+    ? [env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:5174']
+    : [env.FRONTEND_URL, 'https://hr.anistonav.com'].filter(Boolean),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],

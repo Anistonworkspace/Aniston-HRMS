@@ -350,7 +350,7 @@ export class RecruitmentService {
     if (!job) throw new NotFoundError('Job opening');
     if (!job.publicFormToken) throw new BadRequestError('This job does not have a public application form');
 
-    const applyUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/apply/${job.publicFormToken}`;
+    const applyUrl = `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/apply/${job.publicFormToken}`;
     const orgName = job.organization?.name || 'Aniston Technologies';
 
     await enqueueEmail({

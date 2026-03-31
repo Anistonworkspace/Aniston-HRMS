@@ -91,7 +91,7 @@ export class InvitationService {
       ? `${inviter.employee.firstName} ${inviter.employee.lastName}`
       : inviter?.email || 'HR Team';
 
-    const inviteUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/onboarding/invite/${invitation.inviteToken}`;
+    const inviteUrl = `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/onboarding/invite/${invitation.inviteToken}`;
 
     // Send email invitation
     if (email) {
@@ -349,7 +349,7 @@ export class InvitationService {
       select: { name: true },
     });
 
-    const inviteUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/onboarding/invite/${updated.inviteToken}`;
+    const inviteUrl = `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/onboarding/invite/${updated.inviteToken}`;
 
     if (invitation.email) {
       await enqueueEmail({
