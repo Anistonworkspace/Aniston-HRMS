@@ -227,7 +227,7 @@ export class PayrollService {
     try {
       // Get all active employees with salary structures
       const employees = await prisma.employee.findMany({
-        where: { organizationId, status: 'ACTIVE', deletedAt: null },
+        where: { organizationId, status: 'ACTIVE', deletedAt: null, isSystemAccount: { not: true } },
         include: { salaryStructure: true },
       });
 

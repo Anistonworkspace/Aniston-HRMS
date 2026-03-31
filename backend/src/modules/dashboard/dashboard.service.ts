@@ -14,8 +14,8 @@ export class DashboardService {
       openPositions,
       hiringPassed,
     ] = await Promise.all([
-      prisma.employee.count({ where: { organizationId, deletedAt: null } }),
-      prisma.employee.count({ where: { organizationId, status: 'ACTIVE', deletedAt: null } }),
+      prisma.employee.count({ where: { organizationId, deletedAt: null, isSystemAccount: { not: true } } }),
+      prisma.employee.count({ where: { organizationId, status: 'ACTIVE', deletedAt: null, isSystemAccount: { not: true } } }),
       prisma.department.count({ where: { organizationId, deletedAt: null } }),
       prisma.attendanceRecord.count({
         where: { date: today, status: 'PRESENT', employee: { organizationId } },
@@ -29,7 +29,7 @@ export class DashboardService {
 
     // Upcoming birthdays (next 30 days)
     const employees = await prisma.employee.findMany({
-      where: { organizationId, deletedAt: null, dateOfBirth: { not: null } },
+      where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, dateOfBirth: { not: null } },
       select: { id: true, firstName: true, lastName: true, dateOfBirth: true, avatar: true },
     });
 
@@ -59,6 +59,7 @@ export class DashboardService {
       where: {
         organizationId,
         deletedAt: null,
+        isSystemAccount: { not: true },
         joiningDate: { gte: thirtyDaysAgo },
       },
       select: { id: true, firstName: true, lastName: true, joiningDate: true, avatar: true },

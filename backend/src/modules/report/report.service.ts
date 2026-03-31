@@ -4,7 +4,7 @@ import type { AttendanceSummaryQuery, LeaveSummaryQuery } from './report.validat
 export class ReportService {
   async getEmployeesForExcel(organizationId: string) {
     return prisma.employee.findMany({
-      where: { organizationId, deletedAt: null },
+      where: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
       select: {
         employeeCode: true,
         firstName: true,
@@ -21,26 +21,26 @@ export class ReportService {
 
   async getHeadcount(organizationId: string) {
     const [total, byDepartment, byStatus, byWorkMode, byGender] = await Promise.all([
-      prisma.employee.count({ where: { organizationId, deletedAt: null } }),
+      prisma.employee.count({ where: { organizationId, deletedAt: null, isSystemAccount: { not: true } } }),
       prisma.employee.groupBy({
         by: ['departmentId'],
         _count: true,
-        where: { organizationId, deletedAt: null },
+        where: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
       }),
       prisma.employee.groupBy({
         by: ['status'],
         _count: true,
-        where: { organizationId, deletedAt: null },
+        where: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
       }),
       prisma.employee.groupBy({
         by: ['workMode'],
         _count: true,
-        where: { organizationId, deletedAt: null },
+        where: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
       }),
       prisma.employee.groupBy({
         by: ['gender'],
         _count: true,
-        where: { organizationId, deletedAt: null },
+        where: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
       }),
     ]);
 

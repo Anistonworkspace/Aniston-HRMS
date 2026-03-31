@@ -118,6 +118,9 @@ model Employee {
   // Onboarding
   onboardingComplete Boolean   @default(false)
 
+  // System accounts (superadmin, hr, admin) — not counted as employees
+  isSystemAccount    Boolean   @default(false)
+
   // Exit / Offboarding
   resignationDate    DateTime?
   resignationReason  String?

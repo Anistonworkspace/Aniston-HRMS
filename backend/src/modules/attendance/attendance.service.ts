@@ -415,7 +415,7 @@ export class AttendanceService {
           breaks: true,
         },
       }),
-      prisma.employee.count({ where: { organizationId, deletedAt: null, status: { in: ['ACTIVE', 'PROBATION'] } } }),
+      prisma.employee.count({ where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION'] } } }),
       prisma.attendanceRecord.count({ where: { ...recordWhere, status: 'PRESENT' } }),
       prisma.attendanceRecord.count({ where: { ...recordWhere, status: 'ABSENT' } }),
       prisma.attendanceRecord.count({ where: { ...recordWhere, status: 'ON_LEAVE' } }),

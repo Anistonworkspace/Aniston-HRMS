@@ -78,47 +78,91 @@ async function main() {
   }
   console.log(`  ✅ Designations: ${designations.length} created`);
 
-  // Create Super Admin
-  const adminPassword = await bcrypt.hash('Superadmin@1234', 12);
-  const adminUser = await prisma.user.upsert({
-    where: { email: 'superadmin@anistonav.com' },
-    update: {},
-    create: {
-      email: 'superadmin@anistonav.com',
-      passwordHash: adminPassword,
-      role: 'SUPER_ADMIN',
-      status: 'ACTIVE',
-      organizationId: org.id,
-    },
-  });
+  // ---------- System Accounts (not counted as employees) ----------
 
   const engDept = await prisma.department.findFirst({
     where: { name: 'Engineering', organizationId: org.id },
   });
+  const hrDept = await prisma.department.findFirst({
+    where: { name: 'Human Resources', organizationId: org.id },
+  });
   const ceoDes = await prisma.designation.findFirst({
     where: { name: 'CEO', organizationId: org.id },
   });
+  const hrDirDes = await prisma.designation.findFirst({
+    where: { name: 'HR Director', organizationId: org.id },
+  });
 
-  await prisma.employee.upsert({
-    where: { employeeCode: 'EMP-001' },
-    update: {},
-    create: {
-      employeeCode: 'EMP-001',
-      userId: adminUser.id,
+  const systemAccounts = [
+    {
+      email: 'superadmin@anistonav.com',
+      password: 'Superadmin@1234',
+      role: 'SUPER_ADMIN' as const,
+      employeeCode: 'SYS-001',
       firstName: 'Super',
       lastName: 'Admin',
-      email: 'superadmin@anistonav.com',
-      phone: '+91-9999999999',
-      gender: 'MALE',
       departmentId: engDept?.id,
       designationId: ceoDes?.id,
-      workMode: 'OFFICE',
-      joiningDate: new Date('2024-01-01'),
-      status: 'ACTIVE',
-      organizationId: org.id,
     },
-  });
-  console.log('  ✅ Super Admin: superadmin@anistonav.com / Superadmin@1234');
+    {
+      email: 'hr@anistonav.com',
+      password: 'Hr@1234',
+      role: 'HR' as const,
+      employeeCode: 'SYS-002',
+      firstName: 'HR',
+      lastName: 'Manager',
+      departmentId: hrDept?.id,
+      designationId: hrDirDes?.id,
+    },
+    {
+      email: 'admin@anistonav.com',
+      password: 'Admin@1234',
+      role: 'ADMIN' as const,
+      employeeCode: 'SYS-003',
+      firstName: 'Admin',
+      lastName: 'User',
+      departmentId: engDept?.id,
+      designationId: ceoDes?.id,
+    },
+  ];
+
+  for (const acct of systemAccounts) {
+    const passwordHash = await bcrypt.hash(acct.password, 12);
+    const user = await prisma.user.upsert({
+      where: { email: acct.email },
+      update: {},
+      create: {
+        email: acct.email,
+        passwordHash,
+        role: acct.role,
+        status: 'ACTIVE',
+        organizationId: org.id,
+      },
+    });
+
+    await prisma.employee.upsert({
+      where: { employeeCode: acct.employeeCode },
+      update: { isSystemAccount: true },
+      create: {
+        employeeCode: acct.employeeCode,
+        userId: user.id,
+        firstName: acct.firstName,
+        lastName: acct.lastName,
+        email: acct.email,
+        phone: '+91-0000000000',
+        gender: 'PREFER_NOT_TO_SAY',
+        departmentId: acct.departmentId,
+        designationId: acct.designationId,
+        workMode: 'OFFICE',
+        joiningDate: new Date('2024-01-01'),
+        status: 'ACTIVE',
+        onboardingComplete: true,
+        isSystemAccount: true,
+        organizationId: org.id,
+      },
+    });
+    console.log(`  ✅ ${acct.role}: ${acct.email} / ${acct.password}`);
+  }
 
   // NOTE: All other users are created via the invitation flow.
   // HR/Admin/SuperAdmin sends an invite → user sets password → onboarding wizard.
@@ -250,16 +294,18 @@ HR reviews attendance monthly. If habitual lateness/absences detected, leave ded
   console.log(`  ✅ Holidays 2026: ${holidays2026.length} created`);
 
   console.log('\n🎉 Seed completed successfully!');
-  console.log('\n┌─────────────────────────────────────────────────────────────────┐');
-  console.log('│  LOGIN CREDENTIALS                                             │');
-  console.log('├──────────────┬──────────────────────────┬───────────────────────┤');
-  console.log('│ Role         │ Email                    │ Password              │');
-  console.log('├──────────────┼──────────────────────────┼───────────────────────┤');
-  console.log('│ SUPER_ADMIN  │ superadmin@anistonav.com │ Superadmin@1234       │');
-  console.log('├──────────────┴──────────────────────────┴───────────────────────┤');
-  console.log('│  All other users are created via the Invitation flow.          │');
-  console.log('│  Go to Settings → Invitations to invite new employees.         │');
-  console.log('└────────────────────────────────────────────────────────────────┘');
+  console.log('\n┌──────────────────────────────────────────────────────────────────────┐');
+  console.log('│  SYSTEM ACCOUNT CREDENTIALS (not counted as employees)              │');
+  console.log('├──────────────┬──────────────────────────┬──────────────────────────┤');
+  console.log('│ Role         │ Email                    │ Password                 │');
+  console.log('├──────────────┼──────────────────────────┼──────────────────────────┤');
+  console.log('│ SUPER_ADMIN  │ superadmin@anistonav.com │ Superadmin@1234          │');
+  console.log('│ HR           │ hr@anistonav.com         │ Hr@1234                  │');
+  console.log('│ ADMIN        │ admin@anistonav.com      │ Admin@1234               │');
+  console.log('├──────────────┴──────────────────────────┴──────────────────────────┤');
+  console.log('│  All other users are created via the Invitation flow.              │');
+  console.log('│  Go to Settings → Invitations to invite new employees.             │');
+  console.log('└──────────────────────────────────────────────────────────────────────┘');
 }
 
 main()

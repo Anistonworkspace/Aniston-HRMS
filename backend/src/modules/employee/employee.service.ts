@@ -16,6 +16,7 @@ export class EmployeeService {
     const where: any = {
       organizationId,
       deletedAt: null,
+      isSystemAccount: { not: true },
     };
 
     if (search) {
