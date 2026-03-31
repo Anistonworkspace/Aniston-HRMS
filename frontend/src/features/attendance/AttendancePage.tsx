@@ -6,6 +6,7 @@ import {
   Clock, LogIn, LogOut, Coffee, Play, Square, MapPin,
   ChevronLeft, ChevronRight, Calendar as CalendarIcon,
   Users, Search, Filter, UserCheck, UserX, UserMinus, Eye, Monitor,
+  Shield, Bell, RefreshCw,
 } from 'lucide-react';
 import {
   useGetTodayStatusQuery,
@@ -366,6 +367,9 @@ function AttendancePersonalView() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [liveTime, setLiveTime] = useState(new Date());
   const [locationStatus, setLocationStatus] = useState<'checking' | 'granted' | 'denied' | 'prompt'>('checking');
+  const [notificationStatus, setNotificationStatus] = useState<'checking' | 'granted' | 'denied' | 'default'>('checking');
+  const [requestingLocation, setRequestingLocation] = useState(false);
+  const [requestingNotification, setRequestingNotification] = useState(false);
 
   // Check location permission on mount
   useEffect(() => {
@@ -378,6 +382,43 @@ function AttendancePersonalView() {
       setLocationStatus('prompt');
     }
   }, []);
+
+  // Check notification permission on mount
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotificationStatus(Notification.permission as any);
+    } else {
+      setNotificationStatus('default');
+    }
+  }, []);
+
+  const handleRequestLocation = () => {
+    setRequestingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      () => {
+        setLocationStatus('granted');
+        setRequestingLocation(false);
+      },
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) {
+          setLocationStatus('denied');
+        }
+        setRequestingLocation(false);
+      },
+      { timeout: 10000 }
+    );
+  };
+
+  const handleRequestNotification = async () => {
+    setRequestingNotification(true);
+    try {
+      const result = await Notification.requestPermission();
+      setNotificationStatus(result as any);
+    } catch {
+      setNotificationStatus('default');
+    }
+    setRequestingNotification(false);
+  };
 
   const { data: todayResponse, isLoading: statusLoading } = useGetTodayStatusQuery();
   const today = todayResponse?.data;
@@ -521,30 +562,149 @@ function AttendancePersonalView() {
   // Detect work mode from today's status
   const workMode = today?.workMode || 'OFFICE';
 
-  // Location permission warning
+  // BLOCKING: Location permission denied — cannot use attendance at all
   if (locationStatus === 'denied') {
     return (
       <div className="page-container">
-        <div className="layer-card p-8 text-center max-w-md mx-auto mt-12">
-          <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
-            <MapPin size={32} className="text-red-500" />
-          </div>
-          <h2 className="text-lg font-display font-bold text-gray-900 mb-2">Location Access Required</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Please enable location access in your browser/device settings to use attendance features.
-            This is required for geofence-based check-in/out.
-          </p>
-          <p className="text-xs text-gray-400">
-            Go to your browser settings &gt; Site Settings &gt; Location &gt; Allow for this site
-          </p>
-          <button onClick={() => window.location.reload()} className="btn-primary mt-4 text-sm">
-            I've enabled it — Refresh
-          </button>
+        <div className="min-h-[70vh] flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="layer-card p-10 text-center max-w-md mx-auto"
+          >
+            <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-5">
+              <Shield size={40} className="text-red-500" />
+            </div>
+            <h2 className="text-xl font-display font-bold text-gray-900 mb-3">Location Permission Required</h2>
+            <p className="text-sm text-gray-500 mb-6">
+              You must enable location access to use attendance. Please go to your browser/app settings and allow location for this site.
+            </p>
+            <div className="bg-gray-50 rounded-xl p-4 text-left mb-6">
+              <p className="text-xs font-semibold text-gray-700 mb-2">How to enable:</p>
+              <ol className="text-xs text-gray-500 space-y-1.5 list-decimal list-inside">
+                <li>Open your browser <span className="font-semibold">Settings</span></li>
+                <li>Go to <span className="font-semibold">Site Settings</span> (or Privacy & Security)</li>
+                <li>Tap <span className="font-semibold">Location</span></li>
+                <li>Find this site and set to <span className="font-semibold">Allow</span></li>
+              </ol>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="btn-primary w-full py-3 text-sm flex items-center justify-center gap-2"
+            >
+              <RefreshCw size={16} /> Refresh
+            </button>
+          </motion.div>
         </div>
       </div>
     );
   }
 
+  // BLOCKING: Location permission not yet asked — prompt user to grant
+  if (locationStatus === 'prompt' || locationStatus === 'checking') {
+    return (
+      <div className="page-container">
+        <div className="min-h-[70vh] flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="layer-card p-10 text-center max-w-md mx-auto"
+          >
+            <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-5">
+              <Shield size={40} className="text-blue-500" />
+            </div>
+            <h2 className="text-xl font-display font-bold text-gray-900 mb-3">Enable Location Access</h2>
+            <p className="text-sm text-gray-500 mb-6">
+              Attendance requires your location for GPS-based check-in and geofencing. Tap the button below to enable.
+            </p>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleRequestLocation}
+              disabled={requestingLocation}
+              className="btn-primary w-full py-3.5 text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {requestingLocation ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <MapPin size={16} />
+              )}
+              Allow Location
+            </motion.button>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  // BLOCKING: Location granted but notification not yet granted — prompt for notification
+  if (locationStatus === 'granted' && notificationStatus !== 'granted' && notificationStatus !== 'default') {
+    // notificationStatus is 'denied' — show info
+    return (
+      <div className="page-container">
+        <div className="min-h-[70vh] flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="layer-card p-10 text-center max-w-md mx-auto"
+          >
+            <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-5">
+              <Bell size={40} className="text-amber-500" />
+            </div>
+            <h2 className="text-xl font-display font-bold text-gray-900 mb-3">Enable Notifications</h2>
+            <p className="text-sm text-gray-500 mb-6">
+              Notifications are blocked. Please enable them in your browser settings for real-time alerts on attendance, leave approvals, and announcements.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="btn-primary w-full py-3 text-sm flex items-center justify-center gap-2"
+            >
+              <RefreshCw size={16} /> Refresh
+            </button>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  // Location granted, notification is 'checking' — prompt for notification
+  if (locationStatus === 'granted' && notificationStatus === 'checking') {
+    return (
+      <div className="page-container">
+        <div className="min-h-[70vh] flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="layer-card p-10 text-center max-w-md mx-auto"
+          >
+            <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-5">
+              <Bell size={40} className="text-amber-500" />
+            </div>
+            <h2 className="text-xl font-display font-bold text-gray-900 mb-3">Enable Notifications</h2>
+            <p className="text-sm text-gray-500 mb-6">
+              Please allow notifications for real-time alerts on attendance, leave approvals, and announcements.
+            </p>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleRequestNotification}
+              disabled={requestingNotification}
+              className="btn-primary w-full py-3.5 text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {requestingNotification ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Bell size={16} />
+              )}
+              Allow Notifications
+            </motion.button>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  // Both permissions satisfied (location: granted, notification: granted or default) — show attendance UI
   return (
     <div className="page-container">
       <h1 className="text-2xl font-display font-bold text-gray-900 mb-4">Attendance</h1>

@@ -19,6 +19,11 @@ router.post('/invite', requirePermission('employee', 'create'), (req, res, next)
   employeeController.invite(req, res, next)
 );
 
+// HR: Bulk send app download / attendance instruction emails
+router.post('/send-bulk-email', requirePermission('employee', 'manage'), (req, res, next) =>
+  employeeController.sendBulkEmail(req, res, next)
+);
+
 router.post('/me/resign', (req, res, next) =>
   employeeController.submitResignation(req, res, next)
 );

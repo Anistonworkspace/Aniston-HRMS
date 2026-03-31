@@ -263,6 +263,106 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
       </div>
     </div>
   `,
+  'app-download': (ctx) => `
+    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #F9FAFB;">
+      <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 40px 32px; border-radius: 12px 12px 0 0; text-align: center;">
+        <div style="width: 64px; height: 64px; background: rgba(255,255,255,0.2); border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 16px;">
+          <span style="color: white; font-size: 32px;">📱</span>
+        </div>
+        <h1 style="color: white; margin: 0; font-size: 24px; font-weight: 700;">Download Aniston HRMS App</h1>
+        <p style="color: rgba(255,255,255,0.85); margin: 8px 0 0; font-size: 15px;">Mark attendance, apply leaves, and more — right from your phone</p>
+      </div>
+      <div style="padding: 36px 32px; background: #ffffff; border-left: 1px solid #E5E7EB; border-right: 1px solid #E5E7EB;">
+        <p style="color: #111827; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">Hello <strong>${ctx.employeeName || 'there'}</strong>,</p>
+        <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+          ${ctx.orgName} uses <strong>Aniston HRMS</strong> for attendance tracking, leave management, and more. Please install the app on your phone to mark your daily attendance.
+        </p>
+        <div style="text-align: center; margin: 28px 0;">
+          <a href="${ctx.downloadUrl}" style="display: inline-block; background: linear-gradient(135deg, #4F46E5, #6366F1); color: white; padding: 16px 40px; border-radius: 12px; text-decoration: none; font-weight: 700; font-size: 16px; box-shadow: 0 4px 14px rgba(79,70,229,0.4);">
+            📲 Install App Now
+          </a>
+        </div>
+        <div style="background: #F0F0FF; border-radius: 8px; padding: 20px; margin: 24px 0;">
+          <p style="color: #4338CA; font-weight: 600; margin: 0 0 12px; font-size: 14px;">📋 How to install:</p>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 6px 0; color: #4B5563; font-size: 13px; vertical-align: top; width: 24px;">1.</td><td style="padding: 6px 0; color: #4B5563; font-size: 13px;">Click the <strong>"Install App Now"</strong> button above</td></tr>
+            <tr><td style="padding: 6px 0; color: #4B5563; font-size: 13px; vertical-align: top;">2.</td><td style="padding: 6px 0; color: #4B5563; font-size: 13px;">Tap <strong>"Install"</strong> or <strong>"Add to Home Screen"</strong> when prompted</td></tr>
+            <tr><td style="padding: 6px 0; color: #4B5563; font-size: 13px; vertical-align: top;">3.</td><td style="padding: 6px 0; color: #4B5563; font-size: 13px;">Open the app from your home screen</td></tr>
+            <tr><td style="padding: 6px 0; color: #4B5563; font-size: 13px; vertical-align: top;">4.</td><td style="padding: 6px 0; color: #4B5563; font-size: 13px;">Login with your email and password</td></tr>
+            <tr><td style="padding: 6px 0; color: #4B5563; font-size: 13px; vertical-align: top;">5.</td><td style="padding: 6px 0; color: #4B5563; font-size: 13px;"><strong>Allow location & notification permissions</strong> when asked</td></tr>
+          </table>
+        </div>
+        <div style="background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 8px; padding: 16px; margin: 16px 0;">
+          <p style="color: #92400E; font-weight: 600; margin: 0 0 6px; font-size: 13px;">⚠️ Important</p>
+          <p style="color: #78350F; font-size: 12px; margin: 0;">You <strong>must</strong> allow <strong>Location Permission</strong> for the attendance system to work. Without it, you cannot mark your attendance.</p>
+        </div>
+      </div>
+      <div style="padding: 24px 32px; background: #F9FAFB; border: 1px solid #E5E7EB; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+        <p style="color: #9CA3AF; font-size: 12px; margin: 0 0 8px;">If the button doesn't work, open this link in your phone browser:</p>
+        <p style="color: #4F46E5; font-size: 12px; word-break: break-all; margin: 0 0 16px;">${ctx.downloadUrl}</p>
+        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 16px 0;" />
+        <p style="color: #9CA3AF; font-size: 11px; margin: 0;">${ctx.orgName} | Powered by Aniston HRMS</p>
+      </div>
+    </div>
+  `,
+  'attendance-instructions': (ctx) => `
+    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #F9FAFB;">
+      <div style="background: linear-gradient(135deg, #059669, #10B981); padding: 40px 32px; border-radius: 12px 12px 0 0; text-align: center;">
+        <div style="width: 64px; height: 64px; background: rgba(255,255,255,0.2); border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 16px;">
+          <span style="color: white; font-size: 32px;">⏰</span>
+        </div>
+        <h1 style="color: white; margin: 0; font-size: 24px; font-weight: 700;">Attendance Instructions</h1>
+        <p style="color: rgba(255,255,255,0.85); margin: 8px 0 0; font-size: 15px;">How to mark your daily attendance using Aniston HRMS</p>
+      </div>
+      <div style="padding: 36px 32px; background: #ffffff; border-left: 1px solid #E5E7EB; border-right: 1px solid #E5E7EB;">
+        <p style="color: #111827; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">Hello <strong>${ctx.employeeName || 'there'}</strong>,</p>
+        <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+          Please follow these instructions to mark your attendance daily using the Aniston HRMS app.
+        </p>
+        ${ctx.shiftInfo ? `
+        <div style="background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+          <p style="color: #1E40AF; font-weight: 600; margin: 0 0 8px; font-size: 14px;">🕐 Your Shift</p>
+          <p style="color: #1E3A5F; font-size: 14px; margin: 0;"><strong>${ctx.shiftInfo}</strong></p>
+        </div>` : ''}
+        <div style="background: #F0FDF4; border-radius: 8px; padding: 20px; margin: 0 0 20px;">
+          <p style="color: #166534; font-weight: 600; margin: 0 0 12px; font-size: 14px;">✅ Daily Attendance Steps:</p>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr><td style="padding: 8px 0; color: #166534; font-size: 13px; vertical-align: top; width: 24px;"><strong>1.</strong></td><td style="padding: 8px 0; color: #15803D; font-size: 13px;">Open <strong>Aniston HRMS</strong> app from your home screen</td></tr>
+            <tr><td style="padding: 8px 0; color: #166534; font-size: 13px; vertical-align: top;"><strong>2.</strong></td><td style="padding: 8px 0; color: #15803D; font-size: 13px;">Tap the <strong>green "Check In"</strong> button at the bottom center</td></tr>
+            <tr><td style="padding: 8px 0; color: #166534; font-size: 13px; vertical-align: top;"><strong>3.</strong></td><td style="padding: 8px 0; color: #15803D; font-size: 13px;"><strong>Allow location access</strong> if prompted (REQUIRED)</td></tr>
+            <tr><td style="padding: 8px 0; color: #166534; font-size: 13px; vertical-align: top;"><strong>4.</strong></td><td style="padding: 8px 0; color: #15803D; font-size: 13px;">At the end of your shift, tap the <strong>red "Check Out"</strong> button</td></tr>
+          </table>
+        </div>
+        <div style="background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+          <p style="color: #92400E; font-weight: 600; margin: 0 0 8px; font-size: 13px;">⚠️ Mandatory Requirements</p>
+          <ul style="color: #78350F; font-size: 12px; margin: 0; padding-left: 16px;">
+            <li style="padding: 3px 0;"><strong>Location Permission:</strong> Must be ON at all times. Without it, attendance cannot be marked.</li>
+            <li style="padding: 3px 0;"><strong>Notification Permission:</strong> Must be allowed for shift reminders and alerts.</li>
+            <li style="padding: 3px 0;"><strong>Internet Connection:</strong> Required for real-time attendance sync.</li>
+            <li style="padding: 3px 0;"><strong>Mark attendance from office only</strong> — geofence is enabled.</li>
+          </ul>
+        </div>
+        <div style="background: #FEE2E2; border: 1px solid #FECACA; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+          <p style="color: #991B1B; font-weight: 600; margin: 0 0 6px; font-size: 13px;">🚫 Do NOT</p>
+          <ul style="color: #991B1B; font-size: 12px; margin: 0; padding-left: 16px;">
+            <li style="padding: 2px 0;">Use GPS spoofing or fake location apps</li>
+            <li style="padding: 2px 0;">Ask someone else to mark your attendance (proxy attendance = termination)</li>
+            <li style="padding: 2px 0;">Disable location after checking in</li>
+          </ul>
+        </div>
+        ${ctx.downloadUrl ? `
+        <div style="text-align: center; margin: 24px 0;">
+          <p style="color: #6B7280; font-size: 13px; margin: 0 0 12px;">Haven't installed the app yet?</p>
+          <a href="${ctx.downloadUrl}" style="display: inline-block; background: #4F46E5; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">Download App</a>
+        </div>` : ''}
+      </div>
+      <div style="padding: 24px 32px; background: #F9FAFB; border: 1px solid #E5E7EB; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+        <p style="color: #9CA3AF; font-size: 11px; margin: 0;">For help, contact HR at ${ctx.hrEmail || 'hr@anistonav.com'}</p>
+        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 12px 0;" />
+        <p style="color: #9CA3AF; font-size: 11px; margin: 0;">${ctx.orgName} | Powered by Aniston HRMS</p>
+      </div>
+    </div>
+  `,
   'generic': (ctx) => `
     <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px; background: #fff; border: 1px solid #E5E7EB; border-radius: 12px;">
       <h2 style="color: #111827;">${ctx.title || 'Notification'}</h2>

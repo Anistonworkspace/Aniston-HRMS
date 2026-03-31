@@ -26,6 +26,7 @@ import {
   MessageCircle,
   Activity,
   FileCheck,
+  Send,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -63,6 +64,7 @@ const navItems: NavItem[] = [
   { name: 'Policies', path: '/policies', icon: FileText, permissionKey: 'canViewPolicies' },
   { name: 'Announcements', path: '/announcements', icon: Megaphone, exitAccessKey: 'canViewAnnouncements', permissionKey: 'canViewAnnouncements' },
   { name: 'Helpdesk', path: '/helpdesk', icon: HelpCircle, exitAccessKey: 'canViewHelpdesk', permissionKey: 'canRaiseHelpdeskTickets' },
+  { name: 'Send Bulk Email', path: '/send-bulk-email', icon: Send, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'WhatsApp', path: '/whatsapp', icon: MessageCircle, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Org Chart', path: '/org-chart', icon: Network, permissionKey: 'canViewOrgChart' },
   { name: 'Reports', path: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },

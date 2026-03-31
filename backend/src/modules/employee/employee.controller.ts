@@ -80,6 +80,69 @@ export class EmployeeController {
     }
   }
 
+  async sendBulkEmail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeIds, templateType } = z.object({
+        employeeIds: z.array(z.string().uuid()).min(1),
+        templateType: z.enum(['app-download', 'attendance-instructions']),
+      }).parse(req.body);
+
+      const { enqueueEmail } = await import('../../jobs/queues.js');
+      const { prisma } = await import('../../lib/prisma.js');
+
+      const employees = await prisma.employee.findMany({
+        where: { id: { in: employeeIds }, organizationId: req.user!.organizationId, deletedAt: null },
+        include: { shiftAssignments: { include: { shift: true }, orderBy: { startDate: 'desc' }, take: 1 } },
+      });
+
+      const org = await prisma.organization.findUnique({
+        where: { id: req.user!.organizationId },
+        select: { name: true },
+      });
+
+      const frontendUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
+      const downloadUrl = `${frontendUrl}/download`;
+      let sentCount = 0;
+
+      for (const emp of employees) {
+        if (!emp.email) continue;
+        const shift = emp.shiftAssignments?.[0]?.shift;
+        const shiftInfo = shift ? `${shift.name} (${shift.startTime} - ${shift.endTime})` : undefined;
+
+        if (templateType === 'app-download') {
+          await enqueueEmail({
+            to: emp.email,
+            subject: `📲 Download Aniston HRMS App — ${org?.name || 'Aniston Technologies'}`,
+            template: 'app-download',
+            context: {
+              employeeName: `${emp.firstName} ${emp.lastName}`,
+              orgName: org?.name || 'Aniston Technologies',
+              downloadUrl,
+            },
+          });
+        } else {
+          await enqueueEmail({
+            to: emp.email,
+            subject: `⏰ Attendance Instructions — ${org?.name || 'Aniston Technologies'}`,
+            template: 'attendance-instructions',
+            context: {
+              employeeName: `${emp.firstName} ${emp.lastName}`,
+              orgName: org?.name || 'Aniston Technologies',
+              shiftInfo,
+              downloadUrl,
+              hrEmail: 'hr@anistonav.com',
+            },
+          });
+        }
+        sentCount++;
+      }
+
+      res.json({ success: true, data: { sentCount, totalRequested: employeeIds.length }, message: `${sentCount} emails queued` });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
       await employeeService.softDelete(req.params.id, req.user!.organizationId, req.user!.userId);

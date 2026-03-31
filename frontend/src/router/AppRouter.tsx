@@ -48,6 +48,7 @@ const ActivateAccountPage = lazy(() => import('../features/auth/ActivateAccountP
 const KycGatePage = lazy(() => import('../features/kyc/KycGatePage'));
 const MyDocumentsPage = lazy(() => import('../features/my-documents/MyDocumentsPage'));
 const EmployeeOnboardingPage = lazy(() => import('../features/onboarding/EmployeeOnboardingPage'));
+const SendBulkEmailPage = lazy(() => import('../features/employee/SendBulkEmailPage'));
 
 function PageLoader() {
   return (
@@ -128,6 +129,7 @@ export default function AppRouter() {
             <Route path="/my-documents" element={<MyDocumentsPage />} />
             <Route path="/walk-in-management" element={<WalkInManagementPage />} />
             <Route path="/walk-in-management/:id" element={<WalkInDetailPage />} />
+            <Route path="/send-bulk-email" element={<SendBulkEmailPage />} />
             <Route path="/whatsapp" element={<WhatsAppPage />} />
             <Route path="/exit-management" element={<ExitManagementPage />} />
             <Route path="/exit-management/:id" element={<ExitDetailPage />} />
