@@ -119,7 +119,7 @@ export default function EmployeeListPage() {
       </div>
 
       {/* Table */}
-      <div className="data-table overflow-x-auto">
+      <div className="data-table overflow-x-auto overflow-y-visible">
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-100">
@@ -231,7 +231,7 @@ export default function EmployeeListPage() {
                       {openMenuId === emp.id && (
                         <>
                           <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} />
-                          <div className="absolute right-0 top-8 z-20 w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 animate-in fade-in zoom-in-95">
+                          <div className="absolute right-0 top-8 z-50 w-44 bg-white rounded-xl shadow-xl border border-gray-200 py-1">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
