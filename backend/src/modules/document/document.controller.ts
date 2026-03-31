@@ -89,6 +89,35 @@ export class DocumentController {
     try {
       const { status, rejectionReason } = verifyDocumentSchema.parse(req.body);
       const doc = await documentService.verify(req.params.id, status, req.user!.userId, rejectionReason);
+
+      // Auto-verify KYC gate when HR verifies documents
+      if (status === 'VERIFIED' && doc.employeeId) {
+        try {
+          const { documentGateService } = await import('../onboarding/document-gate.service.js');
+          const gate = await documentGateService.getGate(doc.employeeId);
+
+          if (gate && gate.kycStatus !== 'VERIFIED') {
+            // Check if all required KYC documents (Aadhaar + PAN) are now verified
+            const allDocs = await prisma.document.findMany({
+              where: { employeeId: doc.employeeId, deletedAt: null },
+            });
+            const verifiedTypes = allDocs
+              .filter((d: any) => d.status === 'VERIFIED')
+              .map((d: any) => d.type);
+
+            const hasAadhaar = verifiedTypes.includes('AADHAAR');
+            const hasPan = verifiedTypes.includes('PAN');
+
+            if (hasAadhaar && hasPan) {
+              await documentGateService.verifyKyc(doc.employeeId, req.user!.userId);
+              logger.info(`KYC auto-verified for employee ${doc.employeeId} — all required docs verified by HR`);
+            }
+          }
+        } catch (err) {
+          logger.warn('Failed to auto-verify KYC gate:', err);
+        }
+      }
+
       res.json({ success: true, data: doc, message: `Document ${status.toLowerCase()}` });
     } catch (err) { next(err); }
   }
