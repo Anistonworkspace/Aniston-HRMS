@@ -41,9 +41,12 @@ async function main() {
   }
 }
 
-// Graceful shutdown
+// Graceful shutdown — destroy WhatsApp client (preserves session) before closing
 async function shutdown() {
   logger.info('Shutting down gracefully...');
+  try {
+    await whatsAppService.destroy();
+  } catch { /* ignore */ }
   server.close();
   await prisma.$disconnect();
   process.exit(0);

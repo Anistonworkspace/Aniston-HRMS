@@ -13,7 +13,15 @@ let isInitializing = false;
 let currentOrgId: string | null = null;
 let currentQrCode: string | null = null;
 
+// Session expiry: 7 days in milliseconds
+const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Persistent auth directory — absolute path so it survives PM2 restarts / cwd changes
+const WA_AUTH_DIR = path.resolve(process.cwd(), '.wwebjs_auth');
+
 export class WhatsAppService {
+  private _pingInterval: ReturnType<typeof setInterval> | null = null;
+
   async initialize(organizationId: string) {
     if (isReady) return { isConnected: true, status: 'connected', message: 'Already connected' };
     if (isInitializing) return { isConnected: false, status: 'initializing', message: 'Already initializing... please wait' };
@@ -72,8 +80,16 @@ export class WhatsAppService {
       }
       logger.info(`WhatsApp: using Chrome at ${executablePath || 'puppeteer default'}`);
 
+      // Ensure auth directory exists
+      if (!fs.existsSync(WA_AUTH_DIR)) {
+        fs.mkdirSync(WA_AUTH_DIR, { recursive: true });
+      }
+
       waClient = new Client({
-        authStrategy: new LocalAuth({ clientId: `aniston-${organizationId}` }),
+        authStrategy: new LocalAuth({
+          clientId: `aniston-${organizationId}`,
+          dataPath: WA_AUTH_DIR,
+        }),
         puppeteer: {
           executablePath: executablePath || undefined,
           args: [
@@ -121,6 +137,19 @@ export class WhatsAppService {
         });
         logger.info(`WhatsApp connected: ${info?.wid?.user}`);
         emitToOrg(organizationId, 'whatsapp:ready', { phoneNumber: info?.wid?.user });
+
+        // Periodic ping — keeps lastPing/updatedAt fresh for 7-day expiry tracking
+        if (this._pingInterval) clearInterval(this._pingInterval);
+        this._pingInterval = setInterval(async () => {
+          try {
+            if (isReady) {
+              await prisma.whatsAppSession.updateMany({
+                where: { sessionName: `main-${organizationId}`, isConnected: true },
+                data: { lastPing: new Date() },
+              });
+            }
+          } catch { /* ignore ping errors */ }
+        }, 30 * 60 * 1000); // every 30 minutes
       });
 
       waClient.on('disconnected', async () => {
@@ -460,6 +489,7 @@ export class WhatsAppService {
 
   /**
    * Auto-reconnect on server startup: find any previously-connected session and re-initialize.
+   * Sessions older than 7 days are expired automatically.
    */
   async autoReconnect() {
     try {
@@ -467,23 +497,63 @@ export class WhatsAppService {
         where: { isConnected: true },
         orderBy: { updatedAt: 'desc' },
       });
-      if (session) {
-        logger.info(`WhatsApp auto-reconnecting for org ${session.organizationId} (phone: ${session.phoneNumber})...`);
-        await this.initialize(session.organizationId);
-      } else {
+
+      if (!session) {
         logger.info('WhatsApp: no previous session to reconnect');
+        return;
       }
+
+      // Check 7-day session expiry
+      const sessionAge = Date.now() - new Date(session.updatedAt).getTime();
+      if (sessionAge > SESSION_MAX_AGE_MS) {
+        logger.info(`WhatsApp session expired (${Math.round(sessionAge / 86400000)} days old). Clearing session.`);
+        await prisma.whatsAppSession.updateMany({
+          where: { id: session.id },
+          data: { isConnected: false, qrCode: null },
+        });
+        // Remove expired auth files
+        const sessionDir = path.join(WA_AUTH_DIR, `session-aniston-${session.organizationId}`);
+        if (fs.existsSync(sessionDir)) {
+          fs.rmSync(sessionDir, { recursive: true, force: true });
+        }
+        return;
+      }
+
+      // Check that auth files actually exist on disk before attempting reconnect
+      const sessionDir = path.join(WA_AUTH_DIR, `session-aniston-${session.organizationId}`);
+      if (!fs.existsSync(sessionDir)) {
+        logger.warn('WhatsApp auth files missing on disk — session cannot be restored. QR scan required.');
+        await prisma.whatsAppSession.updateMany({
+          where: { id: session.id },
+          data: { isConnected: false },
+        });
+        return;
+      }
+
+      logger.info(`WhatsApp auto-reconnecting for org ${session.organizationId} (phone: ${session.phoneNumber})...`);
+      await this.initialize(session.organizationId);
     } catch (err: any) {
       logger.warn(`WhatsApp auto-reconnect failed: ${err.message}`);
     }
   }
 
   async logout(organizationId: string) {
+    // Stop ping interval
+    if (this._pingInterval) {
+      clearInterval(this._pingInterval);
+      this._pingInterval = null;
+    }
+
     if (waClient) {
       try {
         await waClient.logout();
       } catch {
         // Ignore logout errors
+      }
+      try {
+        await waClient.destroy();
+      } catch {
+        // Ignore destroy errors
       }
       waClient = null;
     }
@@ -496,7 +566,35 @@ export class WhatsAppService {
       data: { isConnected: false, qrCode: null },
     });
 
+    // Remove auth files so next login starts fresh
+    const sessionDir = path.join(WA_AUTH_DIR, `session-aniston-${organizationId}`);
+    if (fs.existsSync(sessionDir)) {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+    }
+
     return { message: 'WhatsApp disconnected' };
+  }
+
+  /**
+   * Graceful shutdown — destroy the client without logging out.
+   * The auth session files are preserved so the next startup can auto-reconnect.
+   */
+  async destroy() {
+    if (this._pingInterval) {
+      clearInterval(this._pingInterval);
+      this._pingInterval = null;
+    }
+    if (waClient) {
+      try {
+        await waClient.destroy();
+      } catch {
+        // Ignore destroy errors
+      }
+      waClient = null;
+    }
+    isReady = false;
+    isInitializing = false;
+    logger.info('WhatsApp client destroyed gracefully (session preserved for reconnect)');
   }
 }
 

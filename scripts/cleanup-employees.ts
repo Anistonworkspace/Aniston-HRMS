@@ -51,8 +51,9 @@ async function cleanup() {
   // Delete dependent records first (order matters for FK constraints)
   // Each delete is wrapped in try-catch so missing tables don't break the script
   const dependentDeletes = [
-    { name: 'WhatsAppMessages', fn: () => prisma.whatsAppMessage.deleteMany({}) },
-    { name: 'WhatsAppSessions', fn: () => prisma.whatsAppSession.deleteMany({}) },
+    // WhatsApp sessions & messages are PRESERVED across deploys — only deleted on manual logout
+    // { name: 'WhatsAppMessages', fn: () => prisma.whatsAppMessage.deleteMany({}) },
+    // { name: 'WhatsAppSessions', fn: () => prisma.whatsAppSession.deleteMany({}) },
     { name: 'EmployeeInvitations', fn: () => prisma.employeeInvitation.deleteMany({}) },
     { name: 'AuditLogs', fn: () => prisma.auditLog.deleteMany({ where: { userId: { in: otherUserIds } } }) },
     { name: 'Notifications', fn: () => prisma.notification.deleteMany({ where: { userId: { in: otherUserIds } } }) },
