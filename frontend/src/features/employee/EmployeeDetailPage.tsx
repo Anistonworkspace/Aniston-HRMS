@@ -14,7 +14,7 @@ import { useGetInternProfileQuery, useGetAchievementLettersQuery, useIssueAchiev
 import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import PermissionOverridePanel from '../permissions/PermissionOverridePanel';
 import OcrVerificationPanel from '../documents/OcrVerificationPanel';
-import { useCrossValidateEmployeeMutation } from '../documents/documentOcrApi';
+import { useGetEmployeeOcrSummaryQuery } from '../documents/documentOcrApi';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -895,7 +895,7 @@ const DOC_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID', 
 function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: string; documents: any[]; isManagement: boolean }) {
   const [uploadDoc, { isLoading: uploading }] = useUploadDocumentMutation();
   const [verifyDoc] = useVerifyDocumentMutation();
-  const [crossValidate, { isLoading: crossValidating }] = useCrossValidateEmployeeMutation();
+  const { data: ocrSummaryRes } = useGetEmployeeOcrSummaryQuery(employeeId, { skip: !isManagement });
   const [showUpload, setShowUpload] = useState(false);
   const [ocrDocId, setOcrDocId] = useState<string | null>(null);
   const [ocrDocName, setOcrDocName] = useState('');
@@ -904,6 +904,14 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
   const [docName, setDocName] = useState('');
   const [docType, setDocType] = useState('OTHER');
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Build OCR lookup by documentId for inline display
+  const ocrByDocId: Record<string, any> = {};
+  if (ocrSummaryRes?.data) {
+    for (const item of ocrSummaryRes.data) {
+      if (item.ocr) ocrByDocId[item.documentId] = item.ocr;
+    }
+  }
 
   const handleUpload = async () => {
     const file = fileRef.current?.files?.[0];
@@ -939,24 +947,9 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-800">Documents ({documents.length})</h3>
-        <div className="flex gap-2">
-          {isManagement && documents.length >= 2 && (
-            <button onClick={async () => {
-              try {
-                const res = await crossValidate(employeeId).unwrap();
-                if (res.data?.status === 'PASS') toast.success('Cross-validation passed! All fields match.');
-                else if (res.data?.status === 'FAIL') toast.error('Cross-validation failed — mismatches found');
-                else toast('Cross-validation: ' + (res.data?.status || 'Done'));
-              } catch { toast.error('Cross-validation failed'); }
-            }} disabled={crossValidating} className="btn-secondary text-xs flex items-center gap-1.5">
-              {crossValidating ? <Loader2 size={14} className="animate-spin" /> : <Shield size={14} />}
-              Cross-Validate
-            </button>
-          )}
-          <button onClick={() => setShowUpload(!showUpload)} className="btn-primary text-xs flex items-center gap-1.5">
-            <Plus size={14} /> Upload Document
-          </button>
-        </div>
+        <button onClick={() => setShowUpload(!showUpload)} className="btn-primary text-xs flex items-center gap-1.5">
+          <Plus size={14} /> Upload Document
+        </button>
       </div>
 
       {/* Upload form */}
@@ -992,48 +985,98 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
       {/* Document list */}
       {documents.length > 0 ? (
         <div className="grid md:grid-cols-2 gap-3">
-          {documents.map((doc: any) => (
-            <div key={doc.id} className="layer-card p-4">
+          {documents.map((doc: any) => {
+            const ocr = ocrByDocId[doc.id];
+            return (
+            <div key={doc.id} className={`layer-card p-4 ${doc.tamperDetected ? 'ring-2 ring-red-300' : ''}`}>
               <div className="flex items-start justify-between mb-2">
                 <div>
                   <p className="text-sm font-medium text-gray-800">{doc.name}</p>
                   <p className="text-xs text-gray-400">{doc.type?.replace(/_/g, ' ')} · {formatDate(doc.createdAt)}</p>
                 </div>
-                {isManagement && (
-                  <span className={`badge ${getStatusColor(doc.status)} text-xs`}>{doc.status}</span>
-                )}
+                <span className={`badge ${getStatusColor(doc.status)} text-xs`}>{doc.status}</span>
               </div>
+
+              {/* Employee-facing: re-upload prompt for REJECTED documents */}
+              {!isManagement && doc.status === 'REJECTED' && (
+                <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-xs text-red-700 font-medium">This document was rejected. Please re-upload a clear, original scan.</p>
+                  {doc.rejectionReason && <p className="text-xs text-red-600 mt-1">{doc.rejectionReason}</p>}
+                </div>
+              )}
+
               {isManagement && doc.fileUrl && (
                 <a href={`${API_URL}${doc.fileUrl}`} target="_blank" rel="noopener noreferrer"
                   className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1 mb-2">
                   <FileText size={12} /> View Document
                 </a>
               )}
-              {/* AI Tamper Detection Warning — HR only */}
+
+              {/* Tamper/fake alert — HR only */}
               {isManagement && doc.tamperDetected && (
                 <div className="mt-2 p-2.5 bg-red-50 border border-red-200 rounded-lg">
                   <p className="text-xs text-red-700 font-medium flex items-center gap-1.5">
-                    <Shield size={12} className="text-red-600" /> Warning: This document may be altered or fake
+                    <Shield size={12} className="text-red-600" /> FLAGGED: This document may be altered or fake
                   </p>
-                  {doc.tamperDetails && (
-                    <p className="text-xs text-red-600 mt-1">{doc.tamperDetails}</p>
-                  )}
+                  {doc.tamperDetails && <p className="text-xs text-red-600 mt-1">{doc.tamperDetails}</p>}
                 </div>
               )}
+
+              {/* Auto OCR extracted data — HR/Admin/SuperAdmin only */}
+              {isManagement && ocr && (
+                <div className="mt-2 p-3 bg-gray-50 border border-gray-100 rounded-lg space-y-2">
+                  {/* Quality badges */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {ocr.ocrStatus === 'FLAGGED' && (
+                      <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">FLAGGED</span>
+                    )}
+                    {ocr.isScreenshot && (
+                      <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-50 text-red-600">Screenshot</span>
+                    )}
+                    {ocr.isOriginalScan && !ocr.isScreenshot && (
+                      <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-600">Original Scan</span>
+                    )}
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                      ocr.resolutionQuality === 'HIGH' ? 'bg-emerald-50 text-emerald-600' : ocr.resolutionQuality === 'MEDIUM' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'
+                    }`}>{ocr.resolutionQuality || '?'} Quality</span>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                      ocr.confidence >= 0.7 ? 'bg-emerald-50 text-emerald-600' : ocr.confidence >= 0.4 ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'
+                    }`}>{Math.round(ocr.confidence * 100)}% conf</span>
+                    {ocr.crossValidationStatus && (
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                        ocr.crossValidationStatus === 'PASS' ? 'bg-emerald-50 text-emerald-600' : ocr.crossValidationStatus === 'FAIL' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'
+                      }`}>Cross: {ocr.crossValidationStatus}</span>
+                    )}
+                  </div>
+
+                  {/* Extracted fields */}
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    {ocr.extractedName && <div><span className="text-[10px] text-gray-400">Name</span><p className="text-xs font-medium text-gray-700 truncate">{ocr.extractedName}</p></div>}
+                    {ocr.extractedDob && <div><span className="text-[10px] text-gray-400">DOB</span><p className="text-xs font-medium text-gray-700">{ocr.extractedDob}</p></div>}
+                    {ocr.extractedFatherName && <div><span className="text-[10px] text-gray-400">Father</span><p className="text-xs font-medium text-gray-700 truncate">{ocr.extractedFatherName}</p></div>}
+                    {ocr.extractedDocNumber && <div><span className="text-[10px] text-gray-400">Doc No.</span><p className="text-xs font-medium text-gray-700 font-mono">{ocr.extractedDocNumber}</p></div>}
+                    {ocr.extractedGender && <div><span className="text-[10px] text-gray-400">Gender</span><p className="text-xs font-medium text-gray-700">{ocr.extractedGender}</p></div>}
+                    {ocr.extractedMotherName && <div><span className="text-[10px] text-gray-400">Mother</span><p className="text-xs font-medium text-gray-700 truncate">{ocr.extractedMotherName}</p></div>}
+                  </div>
+
+                  {/* Detail panel link */}
+                  <button onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); }}
+                    className="text-[10px] text-brand-600 hover:text-brand-700 font-medium">
+                    View full OCR details &rarr;
+                  </button>
+                </div>
+              )}
+
+              {/* HR verify/reject actions */}
               {isManagement && doc.status === 'PENDING' && (
                 <div className="flex gap-2 mt-2 pt-2 border-t border-gray-50">
                   <button onClick={() => handleVerify(doc.id, 'VERIFIED')} className="text-xs text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg">Verify</button>
                   <button onClick={() => handleVerify(doc.id, 'REJECTED')} className="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg">Reject</button>
                 </div>
               )}
-              {isManagement && (
-                <button onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); }}
-                  className="mt-2 text-xs text-purple-600 hover:bg-purple-50 px-2 py-1 rounded-lg flex items-center gap-1">
-                  <Shield size={12} /> OCR Verification
-                </button>
-              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="layer-card p-12 text-center">
@@ -1043,7 +1086,7 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
         </div>
       )}
 
-      {/* OCR Verification Slide-over */}
+      {/* OCR Detail Slide-over — HR only, opened from inline "View full OCR details" */}
       {ocrDocId && (
         <OcrVerificationPanel
           documentId={ocrDocId}

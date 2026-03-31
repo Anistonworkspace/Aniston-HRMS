@@ -174,6 +174,48 @@ async function main() {
     console.log(`  ✅ ${acct.role}: ${acct.email} / ${acct.password}`);
   }
 
+  // ---------- Demo Employee (visible on dashboard, can be deleted by HR) ----------
+  const sweDes = await prisma.designation.findFirst({
+    where: { name: 'Software Engineer', organizationId: org.id },
+  });
+
+  const demoPassword = await bcrypt.hash('Demo@1234', 12);
+  const demoUser = await prisma.user.upsert({
+    where: { email: 'demo@anistonav.com' },
+    update: { passwordHash: demoPassword, role: 'EMPLOYEE', status: 'ACTIVE' },
+    create: {
+      email: 'demo@anistonav.com',
+      passwordHash: demoPassword,
+      role: 'EMPLOYEE',
+      status: 'ACTIVE',
+      organizationId: org.id,
+    },
+  });
+
+  await prisma.employee.upsert({
+    where: { employeeCode: 'EMP-001' },
+    update: { userId: demoUser.id, status: 'ACTIVE', deletedAt: null, isSystemAccount: false },
+    create: {
+      employeeCode: 'EMP-001',
+      userId: demoUser.id,
+      firstName: 'Demo',
+      lastName: 'Employee',
+      email: 'demo@anistonav.com',
+      phone: '+91-9876543210',
+      gender: 'MALE',
+      dateOfBirth: new Date('1998-06-15'),
+      departmentId: engDept?.id,
+      designationId: sweDes?.id,
+      workMode: 'OFFICE',
+      joiningDate: new Date('2026-03-01'),
+      status: 'ACTIVE',
+      onboardingComplete: true,
+      isSystemAccount: false,
+      organizationId: org.id,
+    },
+  });
+  console.log('  ✅ Demo Employee: demo@anistonav.com / Demo@1234 (EMPLOYEE — can be deleted by HR)');
+
   // NOTE: All other users are created via the invitation flow.
   // HR/Admin/SuperAdmin sends an invite → user sets password → onboarding wizard.
   // No Microsoft Teams sync — invitation-only user creation.
@@ -305,16 +347,19 @@ HR reviews attendance monthly. If habitual lateness/absences detected, leave ded
 
   console.log('\n🎉 Seed completed successfully!');
   console.log('\n┌──────────────────────────────────────────────────────────────────────┐');
-  console.log('│  SYSTEM ACCOUNT CREDENTIALS (not counted as employees)              │');
+  console.log('│  SYSTEM ACCOUNT CREDENTIALS (hidden from employee dashboard)       │');
   console.log('├──────────────┬──────────────────────────┬──────────────────────────┤');
   console.log('│ Role         │ Email                    │ Password                 │');
   console.log('├──────────────┼──────────────────────────┼──────────────────────────┤');
   console.log('│ SUPER_ADMIN  │ superadmin@anistonav.com │ Superadmin@1234          │');
   console.log('│ HR           │ hr@anistonav.com         │ Hr@1234                  │');
   console.log('│ ADMIN        │ admin@anistonav.com      │ Admin@1234               │');
+  console.log('├──────────────┼──────────────────────────┼──────────────────────────┤');
+  console.log('│  DEMO EMPLOYEE (visible on dashboard, HR can delete permanently)   │');
+  console.log('├──────────────┼──────────────────────────┼──────────────────────────┤');
+  console.log('│ EMPLOYEE     │ demo@anistonav.com       │ Demo@1234                │');
   console.log('├──────────────┴──────────────────────────┴──────────────────────────┤');
   console.log('│  All other users are created via the Invitation flow.              │');
-  console.log('│  Go to Settings → Invitations to invite new employees.             │');
   console.log('└──────────────────────────────────────────────────────────────────────┘');
 }
 

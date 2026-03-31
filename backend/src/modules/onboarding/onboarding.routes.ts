@@ -77,13 +77,31 @@ router.patch('/document-gate/:employeeId/unlock', authenticate, authorize(Role.S
 // KYC ENDPOINTS
 // ==================
 
-// Employee: Get own KYC status
+// Employee: Get own KYC status (includes document statuses for flagging)
 router.get('/kyc/me', authenticate,
   async (req, res, next) => {
     try {
       const { documentGateService } = await import('./document-gate.service.js');
+      const { prisma } = await import('../../lib/prisma.js');
       const gate = await documentGateService.getGate(req.user!.employeeId!);
-      res.json({ success: true, data: gate });
+
+      // Include per-document-type status so frontend can show flags/rejections
+      const docs = await prisma.document.findMany({
+        where: { employeeId: req.user!.employeeId!, deletedAt: null },
+        select: { type: true, status: true, rejectionReason: true, tamperDetected: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      // Build a map: { AADHAAR: 'VERIFIED', PAN: 'FLAGGED', ... } (latest per type)
+      const documentStatuses: Record<string, string> = {};
+      const documentReasons: Record<string, string> = {};
+      for (const doc of docs) {
+        if (!documentStatuses[doc.type]) {
+          documentStatuses[doc.type] = doc.status;
+          if (doc.rejectionReason) documentReasons[doc.type] = doc.rejectionReason;
+        }
+      }
+
+      res.json({ success: true, data: { ...gate, documentStatuses, documentReasons } });
     } catch (err) { next(err); }
   }
 );

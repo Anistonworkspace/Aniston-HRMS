@@ -48,6 +48,29 @@ export async function enqueueDocumentOcr(documentId: string, organizationId: str
   });
 }
 
+// Document digest: batched HR email (5-min debounce per employee)
+export const documentDigestQueue = new Queue('document-digest', connection);
+
+export async function enqueueDocumentDigest(employeeId: string, organizationId: string, documentInfo: { type: string; name: string }) {
+  const key = `doc-digest:${organizationId}:${employeeId}`;
+  await redis.rpush(key, JSON.stringify(documentInfo));
+  await redis.expire(key, 600);
+  const jobId = `digest-${organizationId}-${employeeId}`;
+  // Remove existing delayed job if any (to restart the 5-min timer)
+  try {
+    const existing = await documentDigestQueue.getJob(jobId);
+    if (existing && (await existing.getState()) === 'delayed') {
+      await existing.remove();
+    }
+  } catch { /* ignore */ }
+  await documentDigestQueue.add('send-digest', { employeeId, organizationId }, {
+    delay: 5 * 60 * 1000,
+    jobId,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 5000 },
+  });
+}
+
 // Helper to enqueue bulk resume processing
 export async function enqueueBulkResume(uploadId: string, organizationId: string, uploadedBy: string) {
   return bulkResumeQueue.add('process-bulk-resume', { uploadId, organizationId, uploadedBy }, {

@@ -104,6 +104,7 @@ export enum DocumentStatus {
   PENDING = 'PENDING',
   VERIFIED = 'VERIFIED',
   REJECTED = 'REJECTED',
+  FLAGGED = 'FLAGGED',
   EXPIRED = 'EXPIRED',
   ISSUED = 'ISSUED',
 }

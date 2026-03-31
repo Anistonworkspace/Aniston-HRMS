@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { documentService } from './document.service.js';
 import { createDocumentSchema, verifyDocumentSchema, documentQuerySchema } from './document.validation.js';
-import { enqueueDocumentOcr, enqueueEmail } from '../../jobs/queues.js';
+import { enqueueDocumentOcr } from '../../jobs/queues.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 
@@ -52,34 +52,16 @@ export class DocumentController {
         await enqueueDocumentOcr(doc.id, req.user!.organizationId);
       } catch (e) { logger.warn('Failed to enqueue OCR job', e); }
 
-      // Send HR notification email (non-blocking)
-      try {
-        const org = await prisma.organization.findUnique({
-          where: { id: req.user!.organizationId },
-          select: { name: true, adminNotificationEmail: true },
-        });
-        const employee = data.employeeId
-          ? await prisma.employee.findUnique({
-              where: { id: data.employeeId },
-              select: { firstName: true, lastName: true, employeeCode: true },
-            })
-          : null;
-        const hrEmail = org?.adminNotificationEmail || 'hr@anistonav.com';
-        const frontendUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
-        await enqueueEmail({
-          to: hrEmail,
-          subject: `Document Uploaded: ${data.type.replace(/_/g, ' ')} by ${employee ? `${employee.firstName} ${employee.lastName}` : 'Employee'}`,
-          template: 'document-submitted',
-          context: {
-            employeeName: employee ? `${employee.firstName} ${employee.lastName}` : 'Employee',
-            employeeCode: employee?.employeeCode || '',
-            documentType: data.type,
-            documentName: data.name,
-            reviewUrl: data.employeeId ? `${frontendUrl}/employees/${data.employeeId}` : `${frontendUrl}/settings`,
-            orgName: org?.name || 'Aniston Technologies',
-          },
-        });
-      } catch (e) { logger.warn('Failed to send HR notification email', e); }
+      // Queue for consolidated HR email (5-min debounce per employee)
+      if (data.employeeId) {
+        try {
+          const { enqueueDocumentDigest } = await import('../../jobs/queues.js');
+          await enqueueDocumentDigest(data.employeeId, req.user!.organizationId, {
+            type: data.type,
+            name: data.name,
+          });
+        } catch (e) { logger.warn('Failed to enqueue document digest', e); }
+      }
 
       res.status(201).json({ success: true, data: doc, message: 'Document uploaded' });
     } catch (err) { next(err); }

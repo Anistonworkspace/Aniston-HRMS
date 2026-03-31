@@ -168,6 +168,31 @@ export default function KycGatePage() {
                     </button>
                   </div>
                 </div>
+                {/* Show flag/rejection for this doc type */}
+                {kyc?.documentStatuses?.[doc.type] === 'FLAGGED' && (
+                  <div className="mt-3 flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-lg p-2.5 text-xs text-orange-700">
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                    <div>
+                      <span className="font-medium">This document was flagged.</span>
+                      {kyc?.documentReasons?.[doc.type] && (
+                        <p className="mt-0.5">{kyc.documentReasons[doc.type]}</p>
+                      )}
+                      <p className="mt-1">Please re-upload a valid, clearly scanned copy.</p>
+                    </div>
+                  </div>
+                )}
+                {kyc?.documentStatuses?.[doc.type] === 'REJECTED' && (
+                  <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-2.5 text-xs text-red-700">
+                    <XCircle size={14} className="mt-0.5 shrink-0" />
+                    <div>
+                      <span className="font-medium">This document was rejected.</span>
+                      {kyc?.documentReasons?.[doc.type] && (
+                        <p className="mt-0.5">{kyc.documentReasons[doc.type]}</p>
+                      )}
+                      <p className="mt-1">Please re-upload a correct version.</p>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

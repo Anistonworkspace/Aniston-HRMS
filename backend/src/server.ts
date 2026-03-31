@@ -28,6 +28,8 @@ async function main() {
     // Document OCR worker
     await import('./jobs/workers/document-ocr.worker.js');
     logger.info('✅ Document OCR worker started');
+    await import('./jobs/workers/document-digest.worker.js');
+    logger.info('✅ Document digest worker started');
 
     server.listen(env.PORT, () => {
       logger.info(`🚀 Aniston HRMS API running on port ${env.PORT}`);

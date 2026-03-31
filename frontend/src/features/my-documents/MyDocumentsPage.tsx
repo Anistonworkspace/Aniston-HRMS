@@ -77,6 +77,11 @@ const STATUS_CONFIG: Record<string, { label: string; icon: React.ElementType; cl
     icon: XCircle,
     classes: 'bg-red-50 text-red-700',
   },
+  FLAGGED: {
+    label: 'Flagged',
+    icon: AlertTriangle,
+    classes: 'bg-orange-50 text-orange-700',
+  },
   ISSUED: {
     label: 'Issued',
     icon: Briefcase,
@@ -159,10 +164,31 @@ function DocumentCard({ doc }: { doc: any }) {
         )}
       </div>
 
-      {doc.status === 'REJECTED' && doc.remarks && (
+      {doc.status === 'REJECTED' && doc.rejectionReason && (
         <div className="flex items-start gap-2 bg-red-50 rounded-lg p-2.5 text-xs text-red-600">
           <XCircle size={14} className="mt-0.5 shrink-0" />
-          <span>{doc.remarks}</span>
+          <span>{doc.rejectionReason}</span>
+        </div>
+      )}
+
+      {doc.status === 'FLAGGED' && (
+        <div className="flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-lg p-2.5 text-xs text-orange-700">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <div>
+            <span className="font-medium">This document has been flagged.</span>
+            {doc.rejectionReason && <p className="mt-0.5">{doc.rejectionReason}</p>}
+            <p className="mt-1 text-orange-600">Please re-upload a valid, clearly scanned document or contact HR.</p>
+          </div>
+        </div>
+      )}
+
+      {doc.tamperDetected && doc.status !== 'FLAGGED' && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-2.5 text-xs text-red-700">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <div>
+            <span className="font-medium">Possible tampering detected.</span>
+            {doc.tamperDetails && <p className="mt-0.5">{doc.tamperDetails}</p>}
+          </div>
         </div>
       )}
     </div>

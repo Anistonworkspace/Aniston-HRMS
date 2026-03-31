@@ -331,6 +331,10 @@ model DocumentOcrVerification {
   resolutionQuality     String?   // LOW, MEDIUM, HIGH
   tamperingIndicators   Json?     // string[]
 
+  // Format validation
+  formatValid           Boolean?
+  formatErrors          Json?
+
   // Cross-validation
   crossValidationStatus String?   // PASS, FAIL, PARTIAL, PENDING
   crossValidationDetails Json?
@@ -379,6 +383,7 @@ enum DocumentStatus {
   PENDING
   VERIFIED
   REJECTED
+  FLAGGED
   EXPIRED
   ISSUED
 }

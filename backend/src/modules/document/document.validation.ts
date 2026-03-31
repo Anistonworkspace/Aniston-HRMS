@@ -16,7 +16,7 @@ export const createDocumentSchema = z.object({
 });
 
 export const verifyDocumentSchema = z.object({
-  status: z.enum(['VERIFIED', 'REJECTED']),
+  status: z.enum(['VERIFIED', 'REJECTED', 'FLAGGED']),
   rejectionReason: z.string().optional(),
 });
 

@@ -329,6 +329,35 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     <p style="color:#9CA3AF;font-size:11px;margin:0;">${ctx.orgName} | Powered by Aniston HRMS</p>`
   ),
 
+  'document-batch-submitted': (ctx) => `
+    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 32px; border-radius: 12px 12px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">Documents Uploaded</h1>
+        <p style="color: rgba(255,255,255,0.85); margin: 8px 0 0; font-size: 14px;">${ctx.orgName}</p>
+      </div>
+      <div style="padding: 32px; background: #fff; border: 1px solid #E5E7EB; border-radius: 0 0 12px 12px;">
+        <p style="color: #374151; font-size: 15px; line-height: 1.6;">
+          <strong>${ctx.employeeName}</strong> (${ctx.employeeCode}) has uploaded <strong>${ctx.documents.length}</strong> document${ctx.documents.length > 1 ? 's' : ''} for review:
+        </p>
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+          <tr style="background: #F9FAFB;">
+            <th style="text-align: left; padding: 8px 12px; font-size: 12px; color: #6B7280; border-bottom: 1px solid #E5E7EB;">Document</th>
+            <th style="text-align: left; padding: 8px 12px; font-size: 12px; color: #6B7280; border-bottom: 1px solid #E5E7EB;">Type</th>
+          </tr>
+          ${ctx.documents.map((d: any) => `
+            <tr>
+              <td style="padding: 8px 12px; font-size: 13px; color: #111827; border-bottom: 1px solid #F3F4F6;">${d.name}</td>
+              <td style="padding: 8px 12px; font-size: 13px; color: #6B7280; border-bottom: 1px solid #F3F4F6;">${d.type.replace(/_/g, ' ')}</td>
+            </tr>
+          `).join('')}
+        </table>
+        <a href="${ctx.reviewUrl}" style="display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; margin: 16px 0; font-weight: 600;">
+          Review Documents
+        </a>
+      </div>
+    </div>
+  `,
+
   'generic': (ctx) => emailLayout(
     '#4F46E5', 'A', ctx.title || 'Notification', '',
     `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0;">${ctx.message || ''}</p>`,
@@ -351,6 +380,33 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
       </td></tr>
     </table>
     ${ctaButton(ctx.reviewUrl, 'Review Document in HRMS')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies', ctx.reviewUrl)
+  ),
+
+  'document-tamper-alert': (ctx) => emailLayout(
+    '#DC2626', '!', 'Suspicious Document Alert', `Possible fake or altered document detected`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hello HR Team,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      A document uploaded by <strong>${ctx.employeeName}</strong> (${ctx.employeeCode}) has been automatically flagged as suspicious by the OCR verification system.
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;margin:16px 0;">
+      <tr><td style="padding:16px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;width:130px;">Document Type</td><td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${ctx.documentType || 'N/A'}</td></tr>
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;">Document Name</td><td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${ctx.documentName}</td></tr>
+        </table>
+      </td></tr>
+    </table>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEE2E2;border:1px solid #FECACA;margin:16px 0;">
+      <tr><td style="padding:16px;">
+        <p style="color:#991B1B;font-weight:600;margin:0 0 8px;font-size:14px;">Issues Detected:</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          ${(ctx.issues || []).map((issue: string) => `<tr><td style="padding:3px 0;color:#991B1B;font-size:13px;">&#8226; ${issue}</td></tr>`).join('')}
+        </table>
+      </td></tr>
+    </table>
+    <p style="color:#374151;font-size:14px;line-height:1.6;margin:16px 0;">Please review this document immediately and take appropriate action.</p>
+    ${ctaButton(ctx.reviewUrl, 'Review in HRMS Portal', '#DC2626')}`,
     standardFooter(ctx.orgName || 'Aniston Technologies', ctx.reviewUrl)
   ),
 };
