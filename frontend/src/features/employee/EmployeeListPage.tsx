@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight, UserPlus, Mail, Phone, X, Loader2, Copy, Send, Clock, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from './employeeApi';
+import { Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight, UserPlus, Mail, Phone, X, Loader2, Copy, Send, Clock, CheckCircle2, AlertTriangle, Eye, Trash2 } from 'lucide-react';
+import { useGetEmployeesQuery, useChangeEmployeeRoleMutation, useDeleteEmployeeMutation } from './employeeApi';
 import { useCreateInvitationMutation, useGetInvitationsQuery, useResendInvitationMutation } from '../invitation/invitationApi';
 import { useGetDepartmentsQuery, useGetDesignationsQuery } from './employeeDepsApi';
 import { useAppSelector } from '../../app/store';
@@ -13,11 +13,30 @@ export default function EmployeeListPage() {
   const navigate = useNavigate();
   const user = useAppSelector(s => s.auth.user);
   const canInvite = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
+  const canDelete = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [searchDebounce, setSearchDebounce] = useState('');
   const [activeView, setActiveView] = useState<'employees' | 'invitations'>('employees');
   const [showInvitePanel, setShowInvitePanel] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [deleteEmployee] = useDeleteEmployeeMutation();
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async (empId: string) => {
+    setDeleting(true);
+    try {
+      await deleteEmployee(empId).unwrap();
+      toast.success('Employee deleted successfully');
+      setConfirmDeleteId(null);
+      setOpenMenuId(null);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to delete employee');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const { data, isLoading } = useGetEmployeesQuery({
     page,
@@ -198,12 +217,47 @@ export default function EmployeeListPage() {
                     ) : <span className="text-xs text-gray-300">—</span>}
                   </td>
                   <td className="px-4 py-3.5">
-                    <button
-                      onClick={(e) => e.stopPropagation()}
-                      className="p-1 rounded hover:bg-gray-100 transition-colors"
-                    >
-                      <MoreHorizontal size={16} className="text-gray-400" />
-                    </button>
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenMenuId(openMenuId === emp.id ? null : emp.id);
+                        }}
+                        className="p-1 rounded hover:bg-gray-100 transition-colors"
+                      >
+                        <MoreHorizontal size={16} className="text-gray-400" />
+                      </button>
+
+                      {openMenuId === emp.id && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} />
+                          <div className="absolute right-0 top-8 z-20 w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 animate-in fade-in zoom-in-95">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuId(null);
+                                navigate(`/employees/${emp.id}`);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                            >
+                              <Eye size={14} /> View Profile
+                            </button>
+                            {canDelete && !(emp as any).isSystemAccount && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmDeleteId(emp.id);
+                                  setOpenMenuId(null);
+                                }}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                              >
+                                <Trash2 size={14} /> Delete Employee
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </motion.tr>
               ))
@@ -242,6 +296,56 @@ export default function EmployeeListPage() {
       </div>
       </>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {confirmDeleteId && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          >
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => !deleting && setConfirmDeleteId(null)} />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                  <Trash2 size={20} className="text-red-600" />
+                </div>
+                <div>
+                  <h3 className="font-display font-semibold text-gray-900">Delete Employee</h3>
+                  <p className="text-xs text-gray-500">This action cannot be undone</p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 mb-6">
+                Are you sure you want to delete this employee? Their account will be deactivated and all associated data will be soft-deleted.
+              </p>
+              <div className="flex items-center gap-3 justify-end">
+                <button
+                  onClick={() => setConfirmDeleteId(null)}
+                  disabled={deleting}
+                  className="btn-secondary text-sm px-4 py-2"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleDelete(confirmDeleteId)}
+                  disabled={deleting}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
