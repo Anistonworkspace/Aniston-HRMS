@@ -64,6 +64,38 @@ export class AttendanceService {
       ? { lat: data.latitude, lng: data.longitude, accuracy: data.accuracy }
       : null;
 
+    // Shift-aware late detection
+    const shift = shiftAssignment?.shift;
+    let isLate = false;
+    let lateMinutes = 0;
+    let shiftInfo: any = null;
+
+    if (shift) {
+      const [shiftHour, shiftMin] = shift.startTime.split(':').map(Number);
+      const graceMinutes = shift.graceMinutes || 15;
+      const shiftStart = new Date(now);
+      shiftStart.setHours(shiftHour, shiftMin, 0, 0);
+      const graceEnd = new Date(shiftStart);
+      graceEnd.setMinutes(graceEnd.getMinutes() + graceMinutes);
+
+      if (now > graceEnd) {
+        isLate = true;
+        lateMinutes = Math.round((now.getTime() - shiftStart.getTime()) / (1000 * 60));
+        data.notes = `${data.notes || ''} [Late by ${lateMinutes} min — shift ${shift.name} starts at ${shift.startTime}]`.trim();
+      }
+
+      shiftInfo = {
+        shiftId: shift.id,
+        shiftName: shift.name,
+        shiftCode: shift.code,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        graceMinutes: shift.graceMinutes,
+        fullDayHours: Number(shift.fullDayHours),
+        halfDayHours: Number(shift.halfDayHours),
+      };
+    }
+
     const record = await prisma.attendanceRecord.create({
       data: {
         employeeId,
@@ -96,10 +128,10 @@ export class AttendanceService {
     // Emit real-time event
     emitToOrg(organizationId, 'attendance:checkin', {
       employeeId, employeeName: `${employee.firstName} ${employee.lastName}`,
-      checkIn: now.toISOString(), status: 'PRESENT',
+      checkIn: now.toISOString(), status: 'PRESENT', isLate, lateMinutes,
     });
 
-    return record;
+    return { ...record, isLate, lateMinutes, shift: shiftInfo };
   }
 
   /**
@@ -125,15 +157,48 @@ export class AttendanceService {
     const checkIn = new Date(record.checkIn!);
     const totalHours = (now.getTime() - checkIn.getTime()) / (1000 * 60 * 60);
 
-    // Determine status based on hours
+    // Get employee's shift for shift-aware status calculation
+    const shiftAssignment = await prisma.shiftAssignment.findFirst({
+      where: { employeeId, startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+      include: { shift: true },
+      orderBy: { startDate: 'desc' },
+    });
+
+    const shift = shiftAssignment?.shift;
+    const fullDayHours = shift ? Number(shift.fullDayHours) : 8;
+    const halfDayHours = shift ? Number(shift.halfDayHours) : 4;
+
+    // Determine status based on shift hours
     let status: 'PRESENT' | 'HALF_DAY' = 'PRESENT';
-    if (totalHours < 4) {
+    if (totalHours < halfDayHours) {
       status = 'HALF_DAY';
+    }
+
+    // Early checkout detection
+    let isEarlyCheckout = false;
+    let earlyMinutes = 0;
+    if (shift) {
+      const [endHour, endMin] = shift.endTime.split(':').map(Number);
+      const shiftEnd = new Date(now);
+      shiftEnd.setHours(endHour, endMin, 0, 0);
+      // Handle overnight shifts (e.g., night shift 22:00–06:00)
+      if (endHour < parseInt(shift.startTime.split(':')[0])) {
+        shiftEnd.setDate(shiftEnd.getDate() + 1);
+      }
+      if (now < shiftEnd) {
+        isEarlyCheckout = true;
+        earlyMinutes = Math.round((shiftEnd.getTime() - now.getTime()) / (1000 * 60));
+      }
     }
 
     const locationData = data.latitude && data.longitude
       ? { lat: data.latitude, lng: data.longitude, accuracy: data.accuracy }
       : null;
+
+    let notes = record.notes || '';
+    if (isEarlyCheckout && earlyMinutes > 15) {
+      notes = `${notes} [Early checkout by ${earlyMinutes} min]`.trim();
+    }
 
     const updated = await prisma.attendanceRecord.update({
       where: { id: record.id },
@@ -142,6 +207,7 @@ export class AttendanceService {
         totalHours: Math.round(totalHours * 100) / 100,
         status,
         checkOutLocation: locationData,
+        notes: notes || record.notes,
       },
     });
 
@@ -150,11 +216,12 @@ export class AttendanceService {
     if (emp) {
       emitToOrg(emp.organizationId, 'attendance:checkout', {
         employeeId, employeeName: `${emp.firstName} ${emp.lastName}`,
-        checkOut: now.toISOString(), totalHours: Math.round(totalHours * 100) / 100, status,
+        checkOut: now.toISOString(), totalHours: Math.round(totalHours * 100) / 100,
+        status, isEarlyCheckout, earlyMinutes,
       });
     }
 
-    return updated;
+    return { ...updated, isEarlyCheckout, earlyMinutes };
   }
 
   /**
@@ -174,11 +241,20 @@ export class AttendanceService {
       select: { workMode: true, firstName: true, lastName: true },
     });
 
+    // Get current shift
+    const shiftAssignment = await prisma.shiftAssignment.findFirst({
+      where: { employeeId, startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+      include: { shift: true },
+      orderBy: { startDate: 'desc' },
+    });
+
     // Calculate active break
     let activeBreak = null;
     if (record?.breaks) {
       activeBreak = record.breaks.find((b) => !b.endTime) || null;
     }
+
+    const shift = shiftAssignment?.shift;
 
     return {
       record,
@@ -188,6 +264,17 @@ export class AttendanceService {
       activeBreak,
       workMode: employee?.workMode,
       totalHours: record?.totalHours || null,
+      shift: shift ? {
+        id: shift.id,
+        name: shift.name,
+        code: shift.code,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        graceMinutes: shift.graceMinutes,
+        fullDayHours: Number(shift.fullDayHours),
+        halfDayHours: Number(shift.halfDayHours),
+        shiftType: shift.shiftType,
+      } : null,
     };
   }
 

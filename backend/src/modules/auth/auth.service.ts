@@ -24,6 +24,7 @@ export class AuthService {
             status: true,
             exitStatus: true,
             workMode: true,
+            onboardingComplete: true,
             documentGate: { select: { kycStatus: true } },
             exitAccessConfig: true,
           },
@@ -64,6 +65,7 @@ export class AuthService {
 
     const kycCompleted = user.employee?.documentGate?.kycStatus === 'VERIFIED';
     const exitAccess = user.employee?.exitAccessConfig;
+    const onboardingComplete = user.employee?.onboardingComplete ?? true;
 
     return {
       accessToken,
@@ -79,6 +81,7 @@ export class AuthService {
         organizationId: user.organizationId,
         workMode: user.employee?.workMode,
         kycCompleted,
+        onboardingComplete,
         exitAccess: exitAccess?.isActive ? {
           canViewDashboard: exitAccess.canViewDashboard,
           canViewPayslips: exitAccess.canViewPayslips,
@@ -234,6 +237,7 @@ export class AuthService {
 
     const kycCompleted = user.employee?.documentGate?.kycStatus === 'VERIFIED';
     const exitAccess = user.employee?.exitAccessConfig;
+    const onboardingComplete = user.employee?.onboardingComplete ?? true;
 
     return {
       id: user.id,
@@ -248,6 +252,7 @@ export class AuthService {
       designation: user.employee?.designation?.name,
       workMode: user.employee?.workMode,
       kycCompleted,
+      onboardingComplete,
       exitAccess: exitAccess?.isActive ? {
         canViewDashboard: exitAccess.canViewDashboard,
         canViewPayslips: exitAccess.canViewPayslips,

@@ -183,7 +183,7 @@ export class OnboardingService {
     // Mark employee as fully onboarded
     await prisma.employee.update({
       where: { id: data.employeeId },
-      data: { status: 'ACTIVE' },
+      data: { status: 'ACTIVE', onboardingComplete: true },
     });
 
     // Clean up token
@@ -228,6 +228,103 @@ export class OnboardingService {
       }
     }
     return invites;
+  }
+
+  // =====================
+  // AUTHENTICATED ONBOARDING (post-login flow)
+  // =====================
+
+  /**
+   * Get onboarding status for the currently logged-in employee.
+   * Used by the post-login onboarding gate.
+   */
+  async getMyOnboardingStatus(employeeId: string) {
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const org = await prisma.organization.findUnique({
+      where: { id: employee.organizationId },
+      select: { name: true, logo: true },
+    });
+
+    const documentCount = await prisma.document.count({
+      where: { employeeId },
+    });
+
+    return {
+      employeeId: employee.id,
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      email: employee.email,
+      onboardingComplete: employee.onboardingComplete,
+      organization: org,
+      sections: {
+        personalDetails: !!(employee.dateOfBirth && employee.gender !== 'PREFER_NOT_TO_SAY' && employee.address),
+        documents: documentCount > 0,
+        photo: !!employee.avatar,
+        bankDetails: false,
+        emergencyContact: !!employee.emergencyContact,
+      },
+    };
+  }
+
+  /**
+   * Save onboarding data for the currently logged-in employee (authenticated).
+   * Same logic as saveStep but uses employeeId from JWT instead of Redis token.
+   */
+  async saveMyOnboardingStep(employeeId: string, step: number, stepData: any) {
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!employee) throw new NotFoundError('Employee');
+
+    // Step: Personal details
+    if (step === 2) {
+      await prisma.employee.update({
+        where: { id: employeeId },
+        data: {
+          firstName: stepData.firstName || undefined,
+          lastName: stepData.lastName || undefined,
+          dateOfBirth: stepData.dateOfBirth ? new Date(stepData.dateOfBirth) : undefined,
+          gender: stepData.gender || undefined,
+          bloodGroup: stepData.bloodGroup || undefined,
+          maritalStatus: stepData.maritalStatus || undefined,
+          phone: stepData.phone || undefined,
+          personalEmail: stepData.personalEmail || undefined,
+          address: stepData.address || undefined,
+        },
+      });
+    }
+
+    // Step: Photo & signature
+    if (step === 4 && stepData.avatar) {
+      await prisma.employee.update({
+        where: { id: employeeId },
+        data: { avatar: stepData.avatar },
+      });
+    }
+
+    // Step: Emergency contact
+    if (step === 6) {
+      await prisma.employee.update({
+        where: { id: employeeId },
+        data: { emergencyContact: stepData },
+      });
+    }
+
+    return { saved: true };
+  }
+
+  /**
+   * Complete authenticated onboarding — marks the employee as fully onboarded.
+   */
+  async completeMyOnboarding(employeeId: string) {
+    await prisma.employee.update({
+      where: { id: employeeId },
+      data: { onboardingComplete: true, status: 'ACTIVE' },
+    });
+
+    return { completed: true, message: 'Welcome to the team!' };
   }
 }
 

@@ -120,67 +120,9 @@ async function main() {
   });
   console.log('  ✅ Super Admin: superadmin@anistonav.com / Superadmin@1234');
 
-  // ===================== DEV TEST USERS =====================
-  const hrDept = await prisma.department.findFirst({ where: { name: 'Human Resources', organizationId: org.id } });
-  const opsDept = await prisma.department.findFirst({ where: { name: 'Operations', organizationId: org.id } });
-  const vpDes = await prisma.designation.findFirst({ where: { name: 'VP Engineering', organizationId: org.id } });
-  const hrMgrDes = await prisma.designation.findFirst({ where: { name: 'HR Manager', organizationId: org.id } });
-  const engMgrDes = await prisma.designation.findFirst({ where: { name: 'Engineering Manager', organizationId: org.id } });
-  const sweDes = await prisma.designation.findFirst({ where: { name: 'Software Engineer', organizationId: org.id } });
-
-  const devUsers = [
-    {
-      email: 'admin@anistonav.com', password: 'Admin@1234', role: 'ADMIN' as const,
-      code: 'EMP-002', firstName: 'Rahul', lastName: 'Verma', phone: '+91-9888888888',
-      gender: 'MALE' as const, deptId: opsDept?.id, desigId: vpDes?.id, workMode: 'OFFICE' as const,
-    },
-    {
-      email: 'hr@anistonav.com', password: 'Hr@1234', role: 'HR' as const,
-      code: 'EMP-003', firstName: 'Priya', lastName: 'Sharma', phone: '+91-9777777777',
-      gender: 'FEMALE' as const, deptId: hrDept?.id, desigId: hrMgrDes?.id, workMode: 'OFFICE' as const,
-    },
-    {
-      email: 'manager@anistonav.com', password: 'Manager@1234', role: 'MANAGER' as const,
-      code: 'EMP-004', firstName: 'Amit', lastName: 'Kumar', phone: '+91-9666666666',
-      gender: 'MALE' as const, deptId: engDept?.id, desigId: engMgrDes?.id, workMode: 'HYBRID' as const,
-    },
-    {
-      email: 'employee@anistonav.com', password: 'Employee@1234', role: 'EMPLOYEE' as const,
-      code: 'EMP-005', firstName: 'Neha', lastName: 'Singh', phone: '+91-9555555555',
-      gender: 'FEMALE' as const, deptId: engDept?.id, desigId: sweDes?.id, workMode: 'OFFICE' as const,
-    },
-  ];
-
-  for (const u of devUsers) {
-    const hash = await bcrypt.hash(u.password, 12);
-    const user = await prisma.user.upsert({
-      where: { email: u.email },
-      update: {},
-      create: { email: u.email, passwordHash: hash, role: u.role, status: 'ACTIVE', organizationId: org.id },
-    });
-    await prisma.employee.upsert({
-      where: { employeeCode: u.code },
-      update: {},
-      create: {
-        employeeCode: u.code, userId: user.id, firstName: u.firstName, lastName: u.lastName,
-        email: u.email, phone: u.phone, gender: u.gender,
-        departmentId: u.deptId, designationId: u.desigId, workMode: u.workMode,
-        joiningDate: new Date('2024-06-01'), status: 'ACTIVE', organizationId: org.id,
-        ...(u.role === 'EMPLOYEE' ? { managerId: undefined } : {}),
-      },
-    });
-    console.log(`  ✅ ${u.role}: ${u.email} / ${u.password}`);
-  }
-
-  // Set Manager for Employee (Neha reports to Amit)
-  const amitEmp = await prisma.employee.findFirst({ where: { employeeCode: 'EMP-004' } });
-  if (amitEmp) {
-    await prisma.employee.updateMany({
-      where: { employeeCode: 'EMP-005' },
-      data: { managerId: amitEmp.id },
-    });
-    console.log('  ✅ Neha Singh (Employee) reports to Amit Kumar (Manager)');
-  }
+  // NOTE: All other users are created via the invitation flow.
+  // HR/Admin/SuperAdmin sends an invite → user sets password → onboarding wizard.
+  // No Microsoft Teams sync — invitation-only user creation.
 
   // Create leave types — aligned with AT/HR/LAP/2026-03/002 v3.0 policy
   const leaveTypes = [
@@ -309,16 +251,15 @@ HR reviews attendance monthly. If habitual lateness/absences detected, leave ded
 
   console.log('\n🎉 Seed completed successfully!');
   console.log('\n┌─────────────────────────────────────────────────────────────────┐');
-  console.log('│  LOGIN CREDENTIALS (Dev Only)                                  │');
+  console.log('│  LOGIN CREDENTIALS                                             │');
   console.log('├──────────────┬──────────────────────────┬───────────────────────┤');
   console.log('│ Role         │ Email                    │ Password              │');
   console.log('├──────────────┼──────────────────────────┼───────────────────────┤');
   console.log('│ SUPER_ADMIN  │ superadmin@anistonav.com │ Superadmin@1234       │');
-  console.log('│ ADMIN        │ admin@anistonav.com      │ Admin@1234            │');
-  console.log('│ HR           │ hr@anistonav.com         │ Hr@1234               │');
-  console.log('│ MANAGER      │ manager@anistonav.com    │ Manager@1234          │');
-  console.log('│ EMPLOYEE     │ employee@anistonav.com   │ Employee@1234         │');
-  console.log('└──────────────┴──────────────────────────┴───────────────────────┘');
+  console.log('├──────────────┴──────────────────────────┴───────────────────────┤');
+  console.log('│  All other users are created via the Invitation flow.          │');
+  console.log('│  Go to Settings → Invitations to invite new employees.         │');
+  console.log('└────────────────────────────────────────────────────────────────┘');
 }
 
 main()

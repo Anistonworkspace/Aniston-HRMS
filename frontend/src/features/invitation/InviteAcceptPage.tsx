@@ -1,9 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Loader2, CheckCircle2, AlertTriangle, Eye, EyeOff, Building2 } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertTriangle, Eye, EyeOff, Building2, Shield } from 'lucide-react';
 import { useValidateInvitationQuery, useCompleteInvitationMutation } from './invitationApi';
 import toast from 'react-hot-toast';
+
+/** Password strength calculator */
+function getPasswordStrength(pw: string): { score: number; label: string; color: string } {
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 12) score++;
+  if (/[a-z]/.test(pw)) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/\d/.test(pw)) score++;
+  if (/[^a-zA-Z0-9]/.test(pw)) score++;
+
+  if (score <= 2) return { score, label: 'Weak', color: 'bg-red-500' };
+  if (score <= 4) return { score, label: 'Medium', color: 'bg-amber-500' };
+  return { score, label: 'Strong', color: 'bg-green-500' };
+}
 
 export default function InviteAcceptPage() {
   const { token } = useParams<{ token: string }>();
@@ -21,11 +36,26 @@ export default function InviteAcceptPage() {
   const [success, setSuccess] = useState<any>(null);
 
   const invitation = data?.data;
+  const strength = useMemo(() => getPasswordStrength(password), [password]);
 
   // Pre-fill email from invitation
   useEffect(() => {
     if (invitation?.email) setEmail(invitation.email);
   }, [invitation?.email]);
+
+  // Auto-redirect to login after success
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => navigate('/login'), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [success, navigate]);
+
+  const passwordValid = password.length >= 8 &&
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /\d/.test(password) &&
+    /[^a-zA-Z0-9]/.test(password);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,8 +63,8 @@ export default function InviteAcceptPage() {
       toast.error('Passwords do not match');
       return;
     }
-    if (password.length < 8) {
-      toast.error('Password must be at least 8 characters');
+    if (!passwordValid) {
+      toast.error('Password must contain uppercase, lowercase, number, and special character');
       return;
     }
 
@@ -44,11 +74,7 @@ export default function InviteAcceptPage() {
         data: { firstName, lastName, email, phone, password },
       }).unwrap();
       setSuccess(res.data);
-      toast.success('Account created! Redirecting to onboarding...');
-      // Redirect to the 7-step onboarding wizard after 2 seconds
-      setTimeout(() => {
-        navigate(res.data.onboardingUrl);
-      }, 2000);
+      toast.success('Account created! Redirecting to login...');
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to create account');
     }
@@ -94,8 +120,11 @@ export default function InviteAcceptPage() {
           <CheckCircle2 size={48} className="mx-auto text-green-500 mb-4" />
           <h1 className="text-xl font-bold text-gray-900 mb-2">Account Created!</h1>
           <p className="text-sm text-gray-500 mb-1">Employee Code: <span className="font-mono font-semibold">{success.employeeCode}</span></p>
-          <p className="text-sm text-gray-500">Redirecting to onboarding wizard...</p>
-          <Loader2 size={20} className="animate-spin text-brand-600 mx-auto mt-4" />
+          <p className="text-sm text-gray-500 mb-4">Redirecting to login page...</p>
+          <Loader2 size={20} className="animate-spin text-brand-600 mx-auto" />
+          <button onClick={() => navigate('/login')} className="btn-primary mt-4 text-sm">
+            Go to Login Now
+          </button>
         </motion.div>
       </div>
     );
@@ -111,7 +140,12 @@ export default function InviteAcceptPage() {
             <Building2 size={28} className="text-brand-600" />
           </div>
           <h1 className="text-xl font-bold text-gray-900">Join {invitation.organization?.name || 'the team'}</h1>
-          <p className="text-sm text-gray-500 mt-1">Complete your details below to create your account</p>
+          <p className="text-sm text-gray-500 mt-1">Set your password to create your account</p>
+          {invitation.role && invitation.role !== 'EMPLOYEE' && (
+            <span className="inline-flex items-center gap-1 mt-2 px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">
+              <Shield size={12} /> {invitation.role.replace(/_/g, ' ')}
+            </span>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -131,14 +165,17 @@ export default function InviteAcceptPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input value={email} onChange={e => setEmail(e.target.value)} type="email" required
-              className="input-glass w-full text-sm" placeholder="you@example.com"
+              className="input-glass w-full text-sm bg-gray-50" placeholder="you@example.com"
               readOnly={!!invitation.email} />
+            {invitation.email && (
+              <p className="text-xs text-gray-400 mt-1">Email is pre-filled from your invitation</p>
+            )}
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
             <input value={phone} onChange={e => setPhone(e.target.value)}
-              className="input-glass w-full text-sm" placeholder="9876543210" />
+              className="input-glass w-full text-sm" placeholder="+91 9876543210" />
           </div>
 
           <div>
@@ -152,18 +189,41 @@ export default function InviteAcceptPage() {
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
+            {/* Password strength bar */}
+            {password.length > 0 && (
+              <div className="mt-2">
+                <div className="flex gap-1 mb-1">
+                  {[1, 2, 3, 4, 5, 6].map(i => (
+                    <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${i <= strength.score ? strength.color : 'bg-gray-200'}`} />
+                  ))}
+                </div>
+                <p className={`text-xs ${strength.score <= 2 ? 'text-red-500' : strength.score <= 4 ? 'text-amber-500' : 'text-green-500'}`}>
+                  {strength.label}
+                </p>
+                <ul className="text-xs text-gray-400 mt-1 space-y-0.5">
+                  <li className={/[a-z]/.test(password) ? 'text-green-500' : ''}>Lowercase letter</li>
+                  <li className={/[A-Z]/.test(password) ? 'text-green-500' : ''}>Uppercase letter</li>
+                  <li className={/\d/.test(password) ? 'text-green-500' : ''}>Number</li>
+                  <li className={/[^a-zA-Z0-9]/.test(password) ? 'text-green-500' : ''}>Special character (!@#$...)</li>
+                </ul>
+              </div>
+            )}
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
             <input value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
               type="password" required className="input-glass w-full text-sm" placeholder="Repeat password" />
+            {confirmPassword && confirmPassword !== password && (
+              <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
+            )}
           </div>
 
-          <button type="submit" disabled={completing || !firstName || !lastName || !email || !password}
-            className="btn-primary w-full flex items-center justify-center gap-2 text-sm mt-2">
+          <button type="submit"
+            disabled={completing || !firstName || !lastName || !email || !passwordValid || password !== confirmPassword}
+            className="btn-primary w-full flex items-center justify-center gap-2 text-sm mt-2 disabled:opacity-50 disabled:cursor-not-allowed">
             {completing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-            Create Account & Start Onboarding
+            Create Account
           </button>
         </form>
       </motion.div>

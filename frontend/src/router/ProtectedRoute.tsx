@@ -9,8 +9,8 @@ interface ProtectedRouteProps {
   allowedRoles?: string[];
 }
 
-// Roles that bypass KYC gate (they are admins, not regular employees)
-const KYC_EXEMPT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+// Roles that bypass KYC and onboarding gates (they are admins, not regular employees)
+const GATE_EXEMPT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
 export default function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
   const { isAuthenticated, user, accessToken } = useAppSelector((state) => state.auth);
@@ -31,7 +31,6 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 
   useEffect(() => {
     if (isError && shouldFetchUser) {
-      // Token is invalid/expired and refresh also failed — log out
       dispatch(logout());
     }
   }, [isError, shouldFetchUser, dispatch]);
@@ -56,14 +55,31 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
     return <Navigate to="/dashboard" replace />;
   }
 
-  // KYC Gate: redirect employees with incomplete KYC to the KYC page
-  // Don't gate the /kyc-pending route itself, profile, or logout
-  const isKycExemptRoute = location.pathname === '/kyc-pending' || location.pathname === '/profile';
+  // Onboarding Gate: redirect new employees with incomplete onboarding
+  // Don't gate the onboarding route itself, profile, or logout
+  const isOnboardingExemptRoute =
+    location.pathname === '/employee-onboarding' ||
+    location.pathname === '/kyc-pending' ||
+    location.pathname === '/profile';
+
   if (
     user &&
-    !KYC_EXEMPT_ROLES.includes(user.role) &&
+    !GATE_EXEMPT_ROLES.includes(user.role) &&
+    user.onboardingComplete === false &&
+    !user.exitAccess &&
+    !isOnboardingExemptRoute
+  ) {
+    return <Navigate to="/employee-onboarding" replace />;
+  }
+
+  // KYC Gate: redirect employees with incomplete KYC to the KYC page
+  const isKycExemptRoute = location.pathname === '/kyc-pending' || location.pathname === '/profile' || location.pathname === '/employee-onboarding';
+  if (
+    user &&
+    !GATE_EXEMPT_ROLES.includes(user.role) &&
+    user.onboardingComplete !== false && // Only after onboarding is done
     user.kycCompleted === false &&
-    !user.exitAccess && // Exiting employees skip KYC gate
+    !user.exitAccess &&
     !isKycExemptRoute
   ) {
     return <Navigate to="/kyc-pending" replace />;

@@ -128,7 +128,7 @@ describe('InvitationService', () => {
 
       const beforeCall = Date.now();
       const result = await service.createInvitation(
-        { email: 'newjoin@example.com' },
+        { email: 'newjoin@example.com', role: 'EMPLOYEE' as const },
         ORG_ID,
         ADMIN_USER_ID
       );
@@ -161,7 +161,7 @@ describe('InvitationService', () => {
       } as any);
 
       await service.createInvitation(
-        { email: 'newjoin@example.com' },
+        { email: 'newjoin@example.com', role: 'EMPLOYEE' as const },
         ORG_ID,
         ADMIN_USER_ID
       );
@@ -178,7 +178,7 @@ describe('InvitationService', () => {
       );
 
       await expect(
-        service.createInvitation({ email: 'newjoin@example.com' }, ORG_ID, ADMIN_USER_ID)
+        service.createInvitation({ email: 'newjoin@example.com', role: 'EMPLOYEE' as const }, ORG_ID, ADMIN_USER_ID)
       ).rejects.toThrow('A pending invitation already exists for this email');
 
       expect(prisma.employeeInvitation.create).not.toHaveBeenCalled();
@@ -192,7 +192,7 @@ describe('InvitationService', () => {
       } as any);
 
       await expect(
-        service.createInvitation({ email: 'newjoin@example.com' }, ORG_ID, ADMIN_USER_ID)
+        service.createInvitation({ email: 'newjoin@example.com', role: 'EMPLOYEE' as const }, ORG_ID, ADMIN_USER_ID)
       ).rejects.toThrow('An employee with this email already exists');
     });
 
@@ -207,7 +207,7 @@ describe('InvitationService', () => {
         name: 'Aniston Technologies',
       } as any);
 
-      await service.createInvitation({ email: 'UPPER@EXAMPLE.COM' }, ORG_ID, ADMIN_USER_ID);
+      await service.createInvitation({ email: 'UPPER@EXAMPLE.COM', role: 'EMPLOYEE' as const }, ORG_ID, ADMIN_USER_ID);
 
       const createArg = vi.mocked(prisma.employeeInvitation.create).mock.calls[0][0] as any;
       expect(createArg.data.email).toBe('upper@example.com');
@@ -320,11 +320,10 @@ describe('InvitationService', () => {
       expect(result.employeeId).toBe('new-emp-id');
       // employeeCode must follow the EMP-NNN format
       expect(result.employeeCode).toMatch(/^EMP-\d{3}$/);
-      expect(result.onboardingToken).toBeDefined();
-      expect(result.onboardingUrl).toContain(result.onboardingToken);
+      expect(result.redirectTo).toBe('/login');
     });
 
-    it('stores the onboarding state in Redis', async () => {
+    it('returns redirectTo /login (no longer creates Redis onboarding token)', async () => {
       vi.mocked(prisma.employeeInvitation.findUnique).mockResolvedValueOnce(
         makePendingInvitation() as any
       );
@@ -343,14 +342,8 @@ describe('InvitationService', () => {
         return fn(tx);
       });
 
-      const { redis } = await import('../lib/redis.js');
-      await service.completeInvitation('token-uuid-abc', completionData);
-
-      expect(redis.setex).toHaveBeenCalledWith(
-        expect.stringMatching(/^onboarding:/),
-        expect.any(Number),
-        expect.stringContaining('e-new')
-      );
+      const result = await service.completeInvitation('token-uuid-abc', completionData);
+      expect(result.redirectTo).toBe('/login');
     });
 
     it('throws BadRequestError when invitation is already accepted', async () => {
@@ -538,7 +531,7 @@ describe('/api/invitations (integration)', () => {
       const res = await request
         .post('/api/invitations')
         .set('Authorization', `Bearer ${token}`)
-        .send({ email: 'newjoin@example.com' });
+        .send({ email: 'newjoin@example.com', role: 'EMPLOYEE' as const });
 
       expect(res.status).toBe(400);
       expect(res.body.error.message).toMatch(/pending invitation already exists/i);

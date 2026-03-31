@@ -2,6 +2,7 @@ import { api } from '../../app/api';
 
 export const onboardingApi = api.injectEndpoints({
   endpoints: (builder) => ({
+    // Token-based (public) onboarding
     getOnboardingStatus: builder.query<any, string>({
       query: (token) => `/onboarding/status/${token}`,
     }),
@@ -27,6 +28,27 @@ export const onboardingApi = api.injectEndpoints({
     getPendingInvites: builder.query<any, void>({
       query: () => '/onboarding/invites',
     }),
+
+    // Authenticated (post-login) onboarding
+    getMyOnboardingStatus: builder.query<any, void>({
+      query: () => '/onboarding/my-status',
+      providesTags: ['Onboarding'],
+    }),
+    saveMyStep: builder.mutation<any, { step: number; data: any }>({
+      query: ({ step, data }) => ({
+        url: `/onboarding/my-step/${step}`,
+        method: 'PATCH',
+        body: data,
+      }),
+      invalidatesTags: ['Onboarding'],
+    }),
+    completeMyOnboarding: builder.mutation<any, void>({
+      query: () => ({
+        url: '/onboarding/my-complete',
+        method: 'POST',
+      }),
+      invalidatesTags: ['Onboarding'],
+    }),
   }),
 });
 
@@ -36,4 +58,7 @@ export const {
   useCompleteOnboardingMutation,
   useCreateOnboardingInviteMutation,
   useGetPendingInvitesQuery,
+  useGetMyOnboardingStatusQuery,
+  useSaveMyStepMutation,
+  useCompleteMyOnboardingMutation,
 } = onboardingApi;

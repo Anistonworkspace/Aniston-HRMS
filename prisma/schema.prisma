@@ -115,6 +115,9 @@ model Employee {
   policeVerificationStatus PoliceVerificationStatus @default(PENDING)
   policeVerificationDate   DateTime?
 
+  // Onboarding
+  onboardingComplete Boolean   @default(false)
+
   // Exit / Offboarding
   resignationDate    DateTime?
   resignationReason  String?
@@ -1603,6 +1606,9 @@ model EmployeeInvitation {
   organizationId  String
   email           String?
   mobileNumber    String?
+  role            String           @default("EMPLOYEE") // Role to assign on accept
+  departmentId    String?          // Pre-assign department
+  designationId   String?          // Pre-assign designation
   inviteToken     String           @unique @default(uuid())
   status          InvitationStatus @default(PENDING)
   invitedBy       String           // userId FK

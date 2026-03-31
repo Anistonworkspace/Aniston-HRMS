@@ -46,6 +46,7 @@ const PublicApplyPage = lazy(() => import('../features/public-apply/PublicApplyP
 const TrackApplicationPage = lazy(() => import('../features/public-apply/TrackApplicationPage'));
 const ActivateAccountPage = lazy(() => import('../features/auth/ActivateAccountPage'));
 const KycGatePage = lazy(() => import('../features/kyc/KycGatePage'));
+const EmployeeOnboardingPage = lazy(() => import('../features/onboarding/EmployeeOnboardingPage'));
 
 function PageLoader() {
   return (
@@ -78,6 +79,9 @@ export default function AppRouter() {
           <Route path="/walk-in" element={<KioskLayout />}>
             <Route index element={<WalkInKioskPage />} />
           </Route>
+
+          {/* Employee Onboarding — no sidebar, just the onboarding wizard */}
+          <Route path="/employee-onboarding" element={<ProtectedRoute><EmployeeOnboardingPage /></ProtectedRoute>} />
 
           {/* KYC Gate — no sidebar, just the KYC form */}
           <Route path="/kyc-pending" element={<ProtectedRoute><KycGatePage /></ProtectedRoute>} />

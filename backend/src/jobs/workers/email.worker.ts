@@ -28,20 +28,61 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     </div>
   `,
   'employee-invite': (ctx) => `
-    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 32px; border-radius: 12px 12px 0 0;">
-        <h1 style="color: white; margin: 0; font-size: 24px;">You're Invited to Join ${ctx.orgName}!</h1>
+    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #F9FAFB;">
+      <!-- Header with gradient -->
+      <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 40px 32px; border-radius: 12px 12px 0 0; text-align: center;">
+        <div style="width: 56px; height: 56px; background: rgba(255,255,255,0.2); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 16px;">
+          <span style="color: white; font-size: 28px; font-weight: bold;">A</span>
+        </div>
+        <h1 style="color: white; margin: 0; font-size: 24px; font-weight: 700;">You're Invited!</h1>
+        <p style="color: rgba(255,255,255,0.85); margin: 8px 0 0; font-size: 15px;">Join ${ctx.orgName} on Aniston HRMS</p>
       </div>
-      <div style="padding: 32px; background: #fff; border: 1px solid #E5E7EB; border-radius: 0 0 12px 12px;">
-        <p>Hello,</p>
-        <p>You've been invited to join <strong>${ctx.orgName}</strong> on Aniston HRMS. Click the button below to accept your invitation and begin the onboarding process:</p>
-        <a href="${ctx.inviteUrl}" style="display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; margin: 16px 0;">
-          Accept Invitation
-        </a>
-        <p style="color: #6B7280; font-size: 14px;">This invitation expires on <strong>${new Date(ctx.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</strong> (72 hours from now).</p>
-        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
-        <p style="color: #6B7280; font-size: 13px;">If the button above doesn't work, copy and paste this link into your browser:</p>
-        <p style="color: #4F46E5; font-size: 13px; word-break: break-all;">${ctx.inviteUrl}</p>
+
+      <!-- Body -->
+      <div style="padding: 36px 32px; background: #ffffff; border-left: 1px solid #E5E7EB; border-right: 1px solid #E5E7EB;">
+        <p style="color: #111827; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">Hello,</p>
+        <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">
+          <strong>${ctx.inviterName || 'The HR team'}</strong> has invited you to join <strong>${ctx.orgName}</strong>${ctx.role && ctx.role !== 'EMPLOYEE' ? ` as <strong>${ctx.role.replace(/_/g, ' ')}</strong>` : ''}. Click the button below to set up your password and complete your profile.
+        </p>
+
+        <!-- CTA Button -->
+        <div style="text-align: center; margin: 28px 0;">
+          <a href="${ctx.inviteUrl}" style="display: inline-block; background: linear-gradient(135deg, #4F46E5, #6366F1); color: white; padding: 14px 36px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 15px; box-shadow: 0 4px 14px rgba(79,70,229,0.4);">
+            Accept Invitation & Set Password
+          </a>
+        </div>
+
+        <!-- What happens next -->
+        <div style="background: #F0F0FF; border-radius: 8px; padding: 20px; margin: 24px 0;">
+          <p style="color: #4338CA; font-weight: 600; margin: 0 0 10px; font-size: 14px;">What happens next?</p>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 6px 0; color: #6B7280; font-size: 13px; vertical-align: top; width: 24px;">1.</td>
+              <td style="padding: 6px 0; color: #4B5563; font-size: 13px;">Set your password on the invite page</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; color: #6B7280; font-size: 13px; vertical-align: top;">2.</td>
+              <td style="padding: 6px 0; color: #4B5563; font-size: 13px;">Log in with your email and new password</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; color: #6B7280; font-size: 13px; vertical-align: top;">3.</td>
+              <td style="padding: 6px 0; color: #4B5563; font-size: 13px;">Complete your profile and upload documents</td>
+            </tr>
+          </table>
+        </div>
+
+        <p style="color: #EF4444; font-size: 13px; margin: 16px 0 0;">
+          <strong>Expires:</strong> ${new Date(ctx.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })} (72 hours from now)
+        </p>
+      </div>
+
+      <!-- Footer -->
+      <div style="padding: 24px 32px; background: #F9FAFB; border: 1px solid #E5E7EB; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+        <p style="color: #9CA3AF; font-size: 12px; margin: 0 0 8px;">If the button doesn't work, copy and paste this link:</p>
+        <p style="color: #4F46E5; font-size: 12px; word-break: break-all; margin: 0 0 16px;">${ctx.inviteUrl}</p>
+        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 16px 0;" />
+        <p style="color: #9CA3AF; font-size: 11px; margin: 0;">${ctx.orgName} | Powered by Aniston HRMS</p>
+        <p style="color: #9CA3AF; font-size: 11px; margin: 4px 0 0;">If you didn't expect this email, you can safely ignore it.</p>
       </div>
     </div>
   `,

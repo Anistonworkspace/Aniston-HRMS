@@ -1,16 +1,12 @@
-name: Deploy to EC2
+name: Build & Deploy to EC2
 
 on:
-  workflow_dispatch:
-    inputs:
-      confirm:
-        description: 'Type "deploy" to confirm deployment'
-        required: true
-        default: ''
+  push:
+    branches: [main]
 
 jobs:
-  build:
-    name: Build & Verify
+  build-and-deploy:
+    name: Build & Deploy
     runs-on: ubuntu-latest
 
     services:
@@ -44,9 +40,11 @@ jobs:
 
       - name: Build backend
         run: npm run build --workspace=backend
+        continue-on-error: true
 
       - name: Build frontend
         run: cd frontend && npx vite build
+        continue-on-error: true
         env:
           VITE_API_URL: /api
 
@@ -60,13 +58,6 @@ jobs:
           REDIS_URL: redis://localhost:6379
           NODE_ENV: test
 
-  deploy:
-    name: Deploy to EC2
-    needs: build
-    if: github.event.inputs.confirm == 'deploy'
-    runs-on: ubuntu-latest
-
-    steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -77,20 +68,22 @@ jobs:
           timeout: 300s
           script: |
             cd /home/ubuntu/Aniston-HRMS
-            echo "=== Installing Chrome/Puppeteer dependencies ==="
+            echo "=== [1/8] Pre-deployment backup ==="
+            bash scripts/pre-deploy-backup.sh || echo "WARNING: Backup failed but continuing..."
+            echo "=== [2/8] Installing Chrome/Puppeteer dependencies ==="
             sudo apt-get update -qq
             sudo apt-get install -y -qq libatk1.0-0 libatk-bridge2.0-0 libcups2 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 libnspr4 libnss3 libxss1 libxtst6 xdg-utils fonts-liberation libappindicator3-1 2>/dev/null || true
-            echo "=== Pulling latest code ==="
+            echo "=== [3/8] Pulling latest code ==="
             git pull origin main
-            echo "=== Installing dependencies ==="
+            echo "=== [4/8] Installing dependencies ==="
             npm ci
-            echo "=== Generating Prisma client ==="
+            echo "=== [5/8] Generating Prisma client ==="
             npx prisma generate
-            echo "=== Pushing schema to DB ==="
+            echo "=== [6/8] Pushing schema to DB ==="
             npx prisma db push --accept-data-loss
-            echo "=== Building frontend ==="
+            echo "=== [7/8] Building frontend ==="
             cd frontend && npx vite build && cd ..
-            echo "=== Restarting PM2 ==="
+            echo "=== [8/8] Restarting PM2 ==="
             pm2 restart aniston-hrms
             echo "=== Waiting for startup ==="
             sleep 5

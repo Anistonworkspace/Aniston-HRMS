@@ -10,9 +10,6 @@ import { whatsAppService } from '../whatsapp/whatsapp.service.js';
 import { logger } from '../../lib/logger.js';
 import type { CreateInvitationInput } from './invitation.validation.js';
 
-const ONBOARDING_PREFIX = 'onboarding:';
-const ONBOARDING_TTL = 7 * 86400; // 7 days
-
 /**
  * InvitationService — token-based employee invitation flow.
  *
@@ -21,29 +18,17 @@ const ONBOARDING_TTL = 7 * 86400; // 7 days
  *    with PENDING status and 72-hour expiry, sends an email via BullMQ.
  * 2. Candidate opens `/onboarding/invite/:token` → `validateToken` is called to check
  *    validity and return org info.
- * 3. Candidate submits their details → `completeInvitation` creates `User` + `Employee`
- *    in a Prisma transaction, marks invitation ACCEPTED, and issues a 7-day onboarding
- *    token in Redis for the self-onboarding wizard.
- *
- * Never instantiate directly — use the exported singleton `invitationService`.
+ * 3. Candidate sets password → `completeInvitation` creates `User` + `Employee`
+ *    in a Prisma transaction, marks invitation ACCEPTED.
+ * 4. User is redirected to /login → after login, onboarding gate redirects to
+ *    the self-onboarding wizard until profile is complete.
  */
 export class InvitationService {
   /**
    * Create a new employee invitation and send the invite email.
-   *
-   * - Rejects if a PENDING invitation already exists for the same email in this org.
-   * - Rejects if an active employee record already exists for the email.
-   * - Enqueues an `employee-invite` email template via BullMQ.
-   * - Writes an audit log entry.
-   *
-   * @param input - Validated invite payload (`email` and/or `mobileNumber`).
-   * @param organizationId - The org context.
-   * @param invitedBy - User ID of the HR/Admin creating the invitation.
-   * @returns Created invitation with `inviteToken` and `inviteUrl`.
-   * @throws `BadRequestError` if a duplicate pending invite or existing employee is found.
    */
   async createInvitation(input: CreateInvitationInput, organizationId: string, invitedBy: string) {
-    const { email, mobileNumber } = input;
+    const { email, mobileNumber, role, departmentId, designationId } = input;
 
     // Check for existing pending invitation
     if (email) {
@@ -63,6 +48,20 @@ export class InvitationService {
       }
     }
 
+    // Validate department and designation if provided
+    if (departmentId) {
+      const dept = await prisma.department.findFirst({
+        where: { id: departmentId, organizationId, deletedAt: null },
+      });
+      if (!dept) throw new BadRequestError('Department not found');
+    }
+    if (designationId) {
+      const desig = await prisma.designation.findFirst({
+        where: { id: designationId, organizationId, deletedAt: null },
+      });
+      if (!desig) throw new BadRequestError('Designation not found');
+    }
+
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72 hours
 
     const invitation = await prisma.employeeInvitation.create({
@@ -70,6 +69,9 @@ export class InvitationService {
         organizationId,
         email: email?.toLowerCase() || null,
         mobileNumber: mobileNumber || null,
+        role: role || 'EMPLOYEE',
+        departmentId: departmentId || null,
+        designationId: designationId || null,
         invitedBy,
         expiresAt,
       },
@@ -77,8 +79,17 @@ export class InvitationService {
 
     const org = await prisma.organization.findUnique({
       where: { id: organizationId },
-      select: { name: true },
+      select: { name: true, logo: true },
     });
+
+    // Fetch inviter details for the email
+    const inviter = await prisma.user.findUnique({
+      where: { id: invitedBy },
+      include: { employee: { select: { firstName: true, lastName: true } } },
+    });
+    const inviterName = inviter?.employee
+      ? `${inviter.employee.firstName} ${inviter.employee.lastName}`
+      : inviter?.email || 'HR Team';
 
     const inviteUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/onboarding/invite/${invitation.inviteToken}`;
 
@@ -92,6 +103,8 @@ export class InvitationService {
           orgName: org?.name || 'Aniston Technologies',
           inviteUrl,
           expiresAt: expiresAt.toISOString(),
+          inviterName,
+          role: role || 'EMPLOYEE',
         },
       });
     }
@@ -104,7 +117,6 @@ export class InvitationService {
           message: `Hi! You're invited to join ${org?.name || 'Aniston HRMS'} on Aniston HRMS.\n\nClick here to accept: ${inviteUrl}\n\nThis link expires in 72 hours.`,
         }, organizationId);
       } catch (err) {
-        // WhatsApp send is best-effort, don't fail the invitation
         logger.error('Failed to send WhatsApp invite:', err);
       }
     }
@@ -116,7 +128,7 @@ export class InvitationService {
       entity: 'EmployeeInvitation',
       entityId: invitation.id,
       action: 'CREATE',
-      newValue: { email, mobileNumber },
+      newValue: { email, mobileNumber, role, departmentId, designationId },
     });
 
     return {
@@ -125,6 +137,7 @@ export class InvitationService {
       inviteUrl,
       email,
       mobileNumber,
+      role,
       expiresAt,
       status: invitation.status,
     };
@@ -132,13 +145,6 @@ export class InvitationService {
 
   /**
    * Validate an invitation token — public endpoint, no auth required.
-   *
-   * Auto-expires `PENDING` invitations that have passed their `expiresAt` timestamp.
-   *
-   * @param token - The UUID invite token from the email link.
-   * @returns `{ valid: true, status, email, mobileNumber, organization }` if usable,
-   *          or `{ valid: false, reason: 'already_accepted' | 'expired', status }`.
-   * @throws `NotFoundError` if the token does not exist.
    */
   async validateToken(token: string) {
     const invitation = await prisma.employeeInvitation.findUnique({
@@ -154,7 +160,6 @@ export class InvitationService {
     }
 
     if (invitation.status === 'EXPIRED' || new Date() > invitation.expiresAt) {
-      // Mark as expired if not already
       if (invitation.status !== 'EXPIRED') {
         await prisma.employeeInvitation.update({
           where: { id: invitation.id },
@@ -174,26 +179,16 @@ export class InvitationService {
       status: 'PENDING',
       email: invitation.email,
       mobileNumber: invitation.mobileNumber,
+      role: invitation.role,
       organization: org,
     };
   }
 
   /**
-   * Complete an invitation — create `User` + `Employee` records and start onboarding.
+   * Complete an invitation — create User + Employee, redirect user to login.
    *
-   * Operations performed inside a single Prisma transaction:
-   * 1. Create `User` with role `EMPLOYEE`, status `PENDING_VERIFICATION`.
-   * 2. Create `Employee` with auto-generated employee code (`EMP-NNN`).
-   * 3. Mark `EmployeeInvitation` as `ACCEPTED`.
-   *
-   * After the transaction, a 7-day onboarding session token is written to Redis
-   * so the candidate can proceed through the self-onboarding wizard.
-   *
-   * @param token - The UUID invite token from the accept page URL.
-   * @param data - Candidate-provided personal details and password.
-   * @returns `{ employeeId, employeeCode, onboardingToken, onboardingUrl }`.
-   * @throws `NotFoundError` if the token is not found.
-   * @throws `BadRequestError` if the invitation is not PENDING, is expired, or the email is taken.
+   * After completion, user logs in normally → ProtectedRoute detects
+   * onboardingComplete=false → redirects to onboarding wizard.
    */
   async completeInvitation(token: string, data: {
     firstName: string;
@@ -219,13 +214,16 @@ export class InvitationService {
     const passwordHash = await bcrypt.hash(data.password, 12);
     const employeeCode = await generateEmployeeCode(invitation.organizationId);
 
+    // Use role from invitation (set by HR/Admin during creation)
+    const assignedRole = (invitation.role as any) || 'EMPLOYEE';
+
     const result = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
           email: normalizedEmail,
           passwordHash,
-          role: 'EMPLOYEE',
-          status: 'PENDING_VERIFICATION',
+          role: assignedRole,
+          status: 'ACTIVE', // Active immediately — onboarding gate handles the rest
           organizationId: invitation.organizationId,
         },
       });
@@ -242,7 +240,10 @@ export class InvitationService {
           workMode: 'OFFICE',
           joiningDate: new Date(),
           status: 'PROBATION',
+          onboardingComplete: false,
           organizationId: invitation.organizationId,
+          departmentId: invitation.departmentId || undefined,
+          designationId: invitation.designationId || undefined,
         },
       });
 
@@ -255,34 +256,30 @@ export class InvitationService {
       return { user, employee };
     });
 
-    // Generate onboarding token for the 7-step wizard
-    const onboardingToken = randomBytes(32).toString('hex');
-    await redis.setex(`${ONBOARDING_PREFIX}${onboardingToken}`, ONBOARDING_TTL, JSON.stringify({
-      employeeId: result.employee.id,
-      email: normalizedEmail,
-      expiresAt: new Date(Date.now() + ONBOARDING_TTL * 1000).toISOString(),
-      currentStep: 1,
-      stepData: {},
-    }));
+    // Audit log
+    await createAuditLog({
+      userId: result.user.id,
+      organizationId: invitation.organizationId,
+      entity: 'Employee',
+      entityId: result.employee.id,
+      action: 'CREATE',
+      newValue: {
+        employeeCode,
+        email: normalizedEmail,
+        role: assignedRole,
+        source: 'invitation',
+      },
+    });
 
     return {
       employeeId: result.employee.id,
       employeeCode,
-      onboardingToken,
-      onboardingUrl: `/onboarding/${onboardingToken}`,
+      redirectTo: '/login',
     };
   }
 
   /**
    * List all invitations for an organization with pagination.
-   *
-   * Denormalizes inviter email and computes a live `isExpired` flag for PENDING
-   * invitations that have passed `expiresAt` but have not been updated in the DB yet.
-   *
-   * @param organizationId - The org context.
-   * @param page - Page number (1-indexed, default 1).
-   * @param limit - Items per page (default 20).
-   * @returns `{ data, meta }` envelope compatible with the standard pagination format.
    */
   async listInvitations(organizationId: string, page = 1, limit = 20) {
     const skip = (page - 1) * limit;
@@ -326,17 +323,7 @@ export class InvitationService {
   }
 
   /**
-   * Resend an invitation by regenerating the token and extending the expiry by 72 hours.
-   *
-   * Works for both PENDING and EXPIRED invitations. Will not resend if already ACCEPTED.
-   * Sends a reminder email via BullMQ with the new invite URL.
-   *
-   * @param invitationId - The `EmployeeInvitation` record ID.
-   * @param organizationId - The org context (used for ownership check).
-   * @param userId - ID of the user performing the resend (for authorization context).
-   * @returns `{ success: true, inviteUrl, expiresAt }`.
-   * @throws `NotFoundError` if the invitation is not found in this org.
-   * @throws `BadRequestError` if the invitation has already been accepted.
+   * Resend an invitation by regenerating the token and extending the expiry.
    */
   async resendInvitation(invitationId: string, organizationId: string, userId: string) {
     const invitation = await prisma.employeeInvitation.findFirst({
@@ -373,11 +360,12 @@ export class InvitationService {
           orgName: org?.name || 'Aniston Technologies',
           inviteUrl,
           expiresAt: newExpiresAt.toISOString(),
+          inviterName: 'HR Team',
+          role: invitation.role || 'EMPLOYEE',
         },
       });
     }
 
-    // Resend WhatsApp invitation (best-effort)
     if (invitation.mobileNumber) {
       try {
         await whatsAppService.sendMessage({
@@ -385,14 +373,12 @@ export class InvitationService {
           message: `Hi! Reminder: You're invited to join ${org?.name || 'Aniston HRMS'} on Aniston HRMS.\n\nClick here to accept: ${inviteUrl}\n\nThis link expires in 72 hours.`,
         }, organizationId);
       } catch (err) {
-        // WhatsApp send is best-effort, don't fail the resend
         logger.error('Failed to send WhatsApp invite on resend:', err);
       }
     }
 
     return { success: true, inviteUrl, expiresAt: newExpiresAt };
   }
-
 }
 
 export const invitationService = new InvitationService();

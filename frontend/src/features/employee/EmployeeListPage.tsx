@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight, UserPlus, Mail, Phone, X, Loader2, Copy, Send, Clock, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from './employeeApi';
 import { useCreateInvitationMutation, useGetInvitationsQuery, useResendInvitationMutation } from '../invitation/invitationApi';
+import { useGetDepartmentsQuery, useGetDesignationsQuery } from './employeeDepsApi';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -248,14 +249,24 @@ export default function EmployeeListPage() {
 function InviteEmployeeSlideOver({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
+  const [role, setRole] = useState('EMPLOYEE');
+  const [departmentId, setDepartmentId] = useState('');
+  const [designationId, setDesignationId] = useState('');
   const [createInvitation, { isLoading }] = useCreateInvitationMutation();
   const [result, setResult] = useState<any>(null);
 
+  const { data: deptData } = useGetDepartmentsQuery();
+  const { data: desigData } = useGetDesignationsQuery();
+  const departments = deptData?.data || [];
+  const designations = desigData?.data || [];
+
   const handleSubmit = async () => {
     try {
-      const body: any = {};
+      const body: any = { role };
       if (email) body.email = email;
       if (mobile) body.mobileNumber = mobile;
+      if (departmentId) body.departmentId = departmentId;
+      if (designationId) body.designationId = designationId;
       const res = await createInvitation(body).unwrap();
       setResult(res.data);
       toast.success('Invitation sent!');
@@ -296,6 +307,9 @@ function InviteEmployeeSlideOver({ onClose }: { onClose: () => void }) {
                   {result.email && result.mobileNumber && ' and '}
                   {result.mobileNumber && `WhatsApp to ${result.mobileNumber}`}
                 </p>
+                {result.role && result.role !== 'EMPLOYEE' && (
+                  <p className="text-xs text-green-600 mt-1">Role: {result.role.replace(/_/g, ' ')}</p>
+                )}
               </div>
 
               <div>
@@ -312,23 +326,56 @@ function InviteEmployeeSlideOver({ onClose }: { onClose: () => void }) {
             </div>
           ) : (
             <div className="space-y-4">
-              <p className="text-sm text-gray-500">Send an invitation to join the organization. At least one contact method is required.</p>
+              <p className="text-sm text-gray-500">Send an invitation to the employee's Microsoft Teams email. They'll set their password and complete onboarding.</p>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
-                  <Mail size={14} /> Email Address
+                  <Mail size={14} /> Email Address (Microsoft Teams ID)
                 </label>
                 <input value={email} onChange={e => setEmail(e.target.value)}
-                  type="email" placeholder="employee@example.com" className="input-glass w-full text-sm" />
+                  type="email" placeholder="employee@company.com" className="input-glass w-full text-sm" />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
-                  <Phone size={14} /> Mobile Number
+                  <Phone size={14} /> Mobile Number (optional)
                 </label>
                 <input value={mobile} onChange={e => setMobile(e.target.value)}
                   placeholder="919876543210" className="input-glass w-full text-sm" />
                 <p className="text-xs text-gray-400 mt-1">With country code (e.g., 91 for India)</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                <select value={role} onChange={e => setRole(e.target.value)}
+                  className="input-glass w-full text-sm">
+                  <option value="EMPLOYEE">Employee</option>
+                  <option value="MANAGER">Manager</option>
+                  <option value="HR">HR</option>
+                  <option value="ADMIN">Admin</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Department (optional)</label>
+                <select value={departmentId} onChange={e => setDepartmentId(e.target.value)}
+                  className="input-glass w-full text-sm">
+                  <option value="">-- Select Department --</option>
+                  {departments.map((d: any) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Designation (optional)</label>
+                <select value={designationId} onChange={e => setDesignationId(e.target.value)}
+                  className="input-glass w-full text-sm">
+                  <option value="">-- Select Designation --</option>
+                  {designations.map((d: any) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
               </div>
 
               <button onClick={handleSubmit} disabled={isLoading || (!email && !mobile)}
@@ -373,6 +420,7 @@ function InvitationsTab() {
         <thead>
           <tr className="border-b border-gray-100">
             <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Contact</th>
+            <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Role</th>
             <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Invited By</th>
             <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Sent</th>
             <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Expires</th>
@@ -384,12 +432,15 @@ function InvitationsTab() {
           {isLoading ? (
             <tr><td colSpan={6} className="text-center py-12"><Loader2 className="animate-spin mx-auto text-brand-600" size={24} /></td></tr>
           ) : invitations.length === 0 ? (
-            <tr><td colSpan={6} className="text-center py-12 text-gray-400 text-sm">No invitations yet</td></tr>
+            <tr><td colSpan={7} className="text-center py-12 text-gray-400 text-sm">No invitations yet</td></tr>
           ) : invitations.map((inv: any) => (
             <tr key={inv.id} className="border-b border-gray-50">
               <td className="px-4 py-3">
                 <div className="text-sm text-gray-800">{inv.email || inv.mobileNumber}</div>
                 {inv.email && inv.mobileNumber && <div className="text-xs text-gray-400">{inv.mobileNumber}</div>}
+              </td>
+              <td className="px-4 py-3">
+                <span className="text-xs font-medium text-gray-600">{(inv.role || 'EMPLOYEE').replace(/_/g, ' ')}</span>
               </td>
               <td className="px-4 py-3 text-sm text-gray-500">{inv.invitedByEmail}</td>
               <td className="px-4 py-3 text-sm text-gray-500">{formatDate(inv.createdAt)}</td>
