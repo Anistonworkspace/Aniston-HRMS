@@ -166,6 +166,7 @@ model Employee {
   exitAccessConfig       ExitAccessConfig?
   permissionOverride     PermissionOverride?
   headOfDepartments      Department[]          @relation("DepartmentHead")
+  hybridSchedule         HybridSchedule?
 
   @@index([organizationId, status])
   @@index([departmentId])
@@ -626,17 +627,46 @@ enum LeaveRequestStatus {
 }
 
 model Holiday {
-  id             String   @id @default(uuid())
-  name           String
-  date           DateTime @db.Date
-  type           String   @default("PUBLIC")
-  isOptional     Boolean  @default(false)
-  organizationId String
-  createdAt      DateTime @default(now())
+  id              String   @id @default(uuid())
+  name            String
+  date            DateTime @db.Date
+  type            String   @default("PUBLIC")  // PUBLIC, OPTIONAL, EVENT, CUSTOM
+  isOptional      Boolean  @default(false)
+  isHalfDay       Boolean  @default(false)
+  halfDaySession  String?  // FIRST_HALF or SECOND_HALF (if isHalfDay)
+  startTime       String?  // e.g. "09:30" for timed events
+  endTime         String?  // e.g. "18:00"
+  description     String?  // AI-generated or HR-written description
+  color           String?  // Custom color hex for calendar display (e.g. #F97316 for events)
+  notifyEmployees Boolean  @default(true)
+  createdBy       String?  // userId who created it
+  organizationId  String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id])
 
   @@unique([date, organizationId])
+  @@index([organizationId, date])
+}
+
+// Hybrid work schedule — defines which days are office vs WFH for hybrid employees
+model HybridSchedule {
+  id             String   @id @default(uuid())
+  employeeId     String   @unique
+  // Days 0=Sunday, 1=Monday, ..., 6=Saturday — store as JSON array of office days
+  officeDays     Json     // e.g. [1, 2, 3] for Mon/Tue/Wed in office
+  wfhDays        Json     // e.g. [4, 5] for Thu/Fri WFH
+  effectiveFrom  DateTime @db.Date
+  notes          String?
+  setBy          String?  // userId of HR who set this
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([organizationId])
 }
 
 // =====================

@@ -403,11 +403,15 @@ function EditEmployeeModal({ employee, onSave, onClose }: { employee: any; onSav
 
 const STATUS_COLORS: Record<string, string> = {
   PRESENT: '#22c55e', ABSENT: '#ef4444', HALF_DAY: '#f59e0b',
-  HOLIDAY: '#3b82f6', WEEKEND: '#d1d5db', ON_LEAVE: '#a855f7', WORK_FROM_HOME: '#22c55e',
+  HOLIDAY: '#3b82f6', WEEKEND: '#d1d5db', ON_LEAVE: '#a855f7',
+  WORK_FROM_HOME: '#06b6d4', EVENT: '#f97316', WFH_DAY: '#06b6d4',
+  LATE: '#fb923c',
 };
 const STATUS_LABELS: Record<string, string> = {
   PRESENT: 'Present', ABSENT: 'Absent', HALF_DAY: 'Half Day',
-  HOLIDAY: 'Holiday', WEEKEND: 'Weekend', ON_LEAVE: 'On Leave', WORK_FROM_HOME: 'WFH',
+  HOLIDAY: 'Holiday', WEEKEND: 'Weekend', ON_LEAVE: 'On Leave',
+  WORK_FROM_HOME: 'Work From Home', EVENT: 'Company Event', WFH_DAY: 'WFH Day',
+  LATE: 'Late (Half Day)',
 };
 const MONTH_LABELS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -616,6 +620,8 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
                 { color: STATUS_COLORS.HALF_DAY, label: 'Half Day' },
                 { color: STATUS_COLORS.ON_LEAVE, label: 'Leave' },
                 { color: STATUS_COLORS.HOLIDAY, label: 'Holiday' },
+                { color: STATUS_COLORS.EVENT, label: 'Event' },
+                { color: STATUS_COLORS.WORK_FROM_HOME, label: 'WFH' },
                 { color: STATUS_COLORS.WEEKEND, label: 'Weekend' },
               ].map(item => (
                 <div key={item.label} className="flex items-center gap-1">

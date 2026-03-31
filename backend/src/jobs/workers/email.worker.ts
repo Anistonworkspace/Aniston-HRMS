@@ -409,6 +409,39 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     ${ctaButton(ctx.reviewUrl, 'Review in HRMS Portal', '#DC2626')}`,
     standardFooter(ctx.orgName || 'Aniston Technologies', ctx.reviewUrl)
   ),
+
+  'holiday-notification': (ctx) => emailLayout(
+    ctx.isEvent ? 'Company Event' : 'Holiday Announcement',
+    ctx.isEvent
+      ? `<p style="font-size:40px;margin:0 0 4px;">📅</p>`
+      : `<p style="font-size:40px;margin:0 0 4px;">🎉</p>`,
+    ctx.color || '#4F46E5',
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 12px;">Hello <strong>${ctx.employeeName || 'there'}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      ${ctx.isEvent ? 'A new company event has been scheduled' : 'A holiday has been announced'}:
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${ctx.isEvent ? '#FFF7ED' : '#EEF2FF'};border:1px solid ${ctx.isEvent ? '#FED7AA' : '#C7D2FE'};margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:${ctx.isEvent ? '#C2410C' : '#4338CA'};font-weight:700;font-size:18px;margin:0 0 8px;">${ctx.holidayName}</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:4px 0;color:#6B7280;font-size:13px;width:80px;">Date</td>
+            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.holidayDate}</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 0;color:#6B7280;font-size:13px;">Type</td>
+            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.typeLabel}</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 0;color:#6B7280;font-size:13px;">Timing</td>
+            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.timingInfo}</td>
+          </tr>
+        </table>
+        ${ctx.description ? `<p style="color:#4B5563;font-size:13px;margin:12px 0 0;line-height:1.5;border-top:1px solid ${ctx.isEvent ? '#FED7AA' : '#C7D2FE'};padding-top:12px;">${ctx.description}</p>` : ''}
+      </td></tr>
+    </table>`,
+    standardFooter(ctx.orgName)
+  ),
 };
 
 /**

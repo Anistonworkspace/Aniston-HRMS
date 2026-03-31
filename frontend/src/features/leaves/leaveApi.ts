@@ -62,6 +62,27 @@ export const leaveApi = api.injectEndpoints({
       query: (id) => ({ url: `/leaves/types/${id}`, method: 'DELETE' }),
       invalidatesTags: ['Leave'],
     }),
+
+    // Holiday CRUD (via /api/holidays)
+    createHoliday: builder.mutation<any, any>({
+      query: (body) => ({ url: '/holidays', method: 'POST', body }),
+      invalidatesTags: ['Leave', 'Dashboard'],
+    }),
+    bulkCreateHolidays: builder.mutation<any, { holidays: any[] }>({
+      query: (body) => ({ url: '/holidays/bulk', method: 'POST', body }),
+      invalidatesTags: ['Leave', 'Dashboard'],
+    }),
+    updateHoliday: builder.mutation<any, { id: string; data: any }>({
+      query: ({ id, data }) => ({ url: `/holidays/${id}`, method: 'PATCH', body: data }),
+      invalidatesTags: ['Leave', 'Dashboard'],
+    }),
+    deleteHoliday: builder.mutation<any, string>({
+      query: (id) => ({ url: `/holidays/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Leave', 'Dashboard'],
+    }),
+    getHolidaySuggestions: builder.query<any, { year?: number }>({
+      query: (params) => ({ url: '/holidays/suggestions', params }),
+    }),
   }),
 });
 
@@ -77,4 +98,9 @@ export const {
   useCreateLeaveTypeMutation,
   useUpdateLeaveTypeMutation,
   useDeleteLeaveTypeMutation,
+  useCreateHolidayMutation,
+  useBulkCreateHolidaysMutation,
+  useUpdateHolidayMutation,
+  useDeleteHolidayMutation,
+  useGetHolidaySuggestionsQuery,
 } = leaveApi;

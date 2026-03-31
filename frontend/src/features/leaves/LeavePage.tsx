@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CalendarDays, Plus, X, Clock, CheckCircle, XCircle, AlertCircle,
-  Users, Search, FileText, ThumbsUp, ThumbsDown, Pencil, Trash2,
+  Users, Search, FileText, ThumbsUp, ThumbsDown, Pencil, Trash2, Loader2,
 } from 'lucide-react';
 import {
   useGetLeaveBalancesQuery,
@@ -16,6 +16,10 @@ import {
   useCreateLeaveTypeMutation,
   useUpdateLeaveTypeMutation,
   useDeleteLeaveTypeMutation,
+  useCreateHolidayMutation,
+  useBulkCreateHolidaysMutation,
+  useDeleteHolidayMutation,
+  useGetHolidaySuggestionsQuery,
 } from './leaveApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
@@ -38,7 +42,7 @@ export default function LeavePage() {
    ============================================================================= */
 
 function LeaveManagementView() {
-  const [activeTab, setActiveTab] = useState<'approvals' | 'types'>('approvals');
+  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays'>('approvals');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [showLeaveTypeModal, setShowLeaveTypeModal] = useState(false);
@@ -191,6 +195,22 @@ function LeaveManagementView() {
           )}
         >
           Leave Types
+        </button>
+        <button
+          onClick={() => setActiveTab('holidays')}
+          className={cn(
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+            activeTab === 'holidays'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          )}
+        >
+          Holidays & Events
+          {holidays.length > 0 && (
+            <span className="ml-2 bg-purple-100 text-purple-700 text-xs font-bold px-2 py-0.5 rounded-full">
+              {holidays.length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -403,6 +423,9 @@ function LeaveManagementView() {
         </motion.div>
       )}
 
+      {/* Holidays & Events Tab */}
+      {activeTab === 'holidays' && <HolidayManagementTab />}
+
       {/* Create/Edit Leave Type Modal */}
       <AnimatePresence>
         {showLeaveTypeModal && (
@@ -413,6 +436,255 @@ function LeaveManagementView() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+/* =============================================================================
+   HOLIDAY MANAGEMENT TAB
+   ============================================================================= */
+
+function HolidayManagementTab() {
+  const { data: holidaysRes, refetch } = useGetHolidaysQuery({});
+  const { data: suggestionsRes } = useGetHolidaySuggestionsQuery({});
+  const [createHoliday, { isLoading: creating }] = useCreateHolidayMutation();
+  const [bulkCreate, { isLoading: bulkCreating }] = useBulkCreateHolidaysMutation();
+  const [deleteHoliday] = useDeleteHolidayMutation();
+  const [showForm, setShowForm] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedSuggestions, setSelectedSuggestions] = useState<Set<number>>(new Set());
+  const [form, setForm] = useState({
+    name: '', date: '', type: 'PUBLIC', isOptional: false, isHalfDay: false,
+    halfDaySession: '', startTime: '', endTime: '', description: '', color: '',
+    notifyEmployees: true,
+  });
+
+  const holidays = holidaysRes?.data || [];
+  const suggestions = suggestionsRes?.data || [];
+
+  const resetForm = () => {
+    setForm({ name: '', date: '', type: 'PUBLIC', isOptional: false, isHalfDay: false,
+      halfDaySession: '', startTime: '', endTime: '', description: '', color: '', notifyEmployees: true });
+    setShowForm(false);
+  };
+
+  const handleCreate = async () => {
+    if (!form.name || !form.date) return;
+    try {
+      await createHoliday(form).unwrap();
+      toast.success(`${form.type === 'EVENT' ? 'Event' : 'Holiday'} created! ${form.notifyEmployees ? 'Emails sent to employees.' : ''}`);
+      resetForm();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to create');
+    }
+  };
+
+  const handleBulkAdd = async () => {
+    const selected = suggestions.filter((_: any, i: number) => selectedSuggestions.has(i));
+    if (selected.length === 0) return;
+    try {
+      const res = await bulkCreate({ holidays: selected }).unwrap();
+      toast.success(`${res.data?.created || selected.length} holidays added!`);
+      setSelectedSuggestions(new Set());
+      setShowSuggestions(false);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to bulk create');
+    }
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Delete "${name}"?`)) return;
+    try {
+      await deleteHoliday(id).unwrap();
+      toast.success('Holiday deleted');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to delete');
+    }
+  };
+
+  const toggleSuggestion = (i: number) => {
+    const next = new Set(selectedSuggestions);
+    next.has(i) ? next.delete(i) : next.add(i);
+    setSelectedSuggestions(next);
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+      {/* Actions */}
+      <div className="flex items-center gap-3 mb-4">
+        <button onClick={() => setShowForm(true)} className="btn-primary text-sm flex items-center gap-2">
+          <Plus size={14} /> Create Holiday / Event
+        </button>
+        <button onClick={() => setShowSuggestions(!showSuggestions)} className="btn-secondary text-sm flex items-center gap-2">
+          <CalendarDays size={14} /> Indian Holidays ({suggestions.length})
+        </button>
+      </div>
+
+      {/* AI Suggestions Panel */}
+      <AnimatePresence>
+        {showSuggestions && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-4">
+            <div className="layer-card p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800">Indian Holidays — {new Date().getFullYear()}</h3>
+                  <p className="text-xs text-gray-400">Select holidays to add in bulk</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setSelectedSuggestions(new Set(suggestions.map((_: any, i: number) => i)))} className="text-xs text-brand-600 hover:underline">Select All</button>
+                  <button onClick={() => setSelectedSuggestions(new Set())} className="text-xs text-gray-400 hover:underline">Clear</button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto">
+                {suggestions.map((s: any, i: number) => (
+                  <label key={i} className={cn('flex items-start gap-2 p-2 rounded-lg border cursor-pointer transition-colors text-left',
+                    selectedSuggestions.has(i) ? 'bg-brand-50 border-brand-300' : 'bg-white border-gray-200 hover:bg-gray-50')}>
+                    <input type="checkbox" checked={selectedSuggestions.has(i)} onChange={() => toggleSuggestion(i)} className="mt-0.5 rounded" />
+                    <div>
+                      <p className="text-xs font-medium text-gray-800">{s.name}</p>
+                      <p className="text-[10px] text-gray-400">{new Date(s.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', weekday: 'short' })} · {s.type}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              {selectedSuggestions.size > 0 && (
+                <button onClick={handleBulkAdd} disabled={bulkCreating} className="btn-primary text-sm mt-3 flex items-center gap-2">
+                  {bulkCreating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                  Add {selectedSuggestions.size} Selected Holidays
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Create Form */}
+      <AnimatePresence>
+        {showForm && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-4">
+            <div className="layer-card p-5">
+              <h3 className="text-sm font-semibold text-gray-800 mb-4">Create Holiday / Event</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
+                  <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Diwali, Team Offsite" className="input-glass w-full text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Date *</label>
+                  <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                    className="input-glass w-full text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                  <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} className="input-glass w-full text-sm">
+                    <option value="PUBLIC">Public Holiday</option>
+                    <option value="OPTIONAL">Optional Holiday</option>
+                    <option value="EVENT">Company Event</option>
+                    <option value="CUSTOM">Custom</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                  <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                    placeholder="Optional description..." className="input-glass w-full text-sm" />
+                </div>
+                <div className="flex gap-3 items-end">
+                  <label className="flex items-center gap-2 text-xs">
+                    <input type="checkbox" checked={form.isHalfDay} onChange={e => setForm(f => ({ ...f, isHalfDay: e.target.checked }))} className="rounded" />
+                    Half Day
+                  </label>
+                  {form.isHalfDay && (
+                    <select value={form.halfDaySession} onChange={e => setForm(f => ({ ...f, halfDaySession: e.target.value }))} className="input-glass text-sm">
+                      <option value="">Select session</option>
+                      <option value="FIRST_HALF">First Half Off</option>
+                      <option value="SECOND_HALF">Second Half Off</option>
+                    </select>
+                  )}
+                </div>
+                {form.type === 'EVENT' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Start Time</label>
+                      <input type="time" value={form.startTime} onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))} className="input-glass w-full text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">End Time</label>
+                      <input type="time" value={form.endTime} onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))} className="input-glass w-full text-sm" />
+                    </div>
+                  </>
+                )}
+                <div className="flex items-end gap-2">
+                  <label className="flex items-center gap-2 text-xs">
+                    <input type="checkbox" checked={form.notifyEmployees} onChange={e => setForm(f => ({ ...f, notifyEmployees: e.target.checked }))} className="rounded" />
+                    Email all employees
+                  </label>
+                </div>
+              </div>
+              <div className="flex gap-3 mt-4">
+                <button onClick={handleCreate} disabled={creating || !form.name || !form.date} className="btn-primary text-sm flex items-center gap-2">
+                  {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                  Create
+                </button>
+                <button onClick={resetForm} className="btn-secondary text-sm">Cancel</button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Holiday List */}
+      <div className="layer-card overflow-hidden">
+        {holidays.length === 0 ? (
+          <div className="text-center py-12">
+            <CalendarDays size={32} className="mx-auto text-gray-200 mb-2" />
+            <p className="text-sm text-gray-500">No holidays or events yet</p>
+            <p className="text-xs text-gray-400 mt-1">Create holidays or import Indian holidays using the buttons above</p>
+          </div>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50/50">
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Holiday / Event</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Date</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Type</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Duration</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {holidays.map((h: any) => {
+                const isPast = new Date(h.date) < new Date();
+                const typeColors: Record<string, string> = {
+                  PUBLIC: 'bg-blue-50 text-blue-700', OPTIONAL: 'bg-amber-50 text-amber-700',
+                  EVENT: 'bg-orange-50 text-orange-700', CUSTOM: 'bg-purple-50 text-purple-700',
+                };
+                return (
+                  <tr key={h.id} className={cn('border-b border-gray-50 hover:bg-gray-50/50 transition-colors', isPast && 'opacity-50')}>
+                    <td className="px-4 py-3">
+                      <p className="text-sm font-medium text-gray-800">{h.name}</p>
+                      {h.description && <p className="text-xs text-gray-400 mt-0.5 max-w-xs truncate">{h.description}</p>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="text-sm text-gray-700">{new Date(h.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'short' })}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full', typeColors[h.type] || 'bg-gray-100 text-gray-600')}>{h.type}</span>
+                      {h.isOptional && <span className="ml-1 text-[10px] text-amber-500">(Optional)</span>}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">
+                      {h.isHalfDay ? `Half Day (${h.halfDaySession === 'FIRST_HALF' ? '1st' : '2nd'} half)` : h.startTime ? `${h.startTime} — ${h.endTime}` : 'Full Day'}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button onClick={() => handleDelete(h.id, h.name)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </motion.div>
   );
 }
 
