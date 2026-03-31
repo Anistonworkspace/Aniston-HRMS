@@ -1073,7 +1073,7 @@ function UserRolesTab() {
         <div className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-brand-600 mx-auto" /></div>
       ) : employees.length === 0 ? (
         <div className="text-center py-12 text-gray-400 text-sm">
-          No employees found. Sync employees from Microsoft Teams first.
+          No employees found. Invite employees from the Manage Employees page first.
         </div>
       ) : (
         <>

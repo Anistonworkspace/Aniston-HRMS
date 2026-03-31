@@ -28,9 +28,11 @@ router.post('/me/resign', (req, res, next) =>
   employeeController.submitResignation(req, res, next)
 );
 
-router.post('/', requirePermission('employee', 'create'), (req, res, next) =>
-  employeeController.create(req, res, next)
-);
+// Direct employee creation disabled — use invitation flow instead:
+// POST /api/invitations → employee accepts → User + Employee created automatically
+// router.post('/', requirePermission('employee', 'create'), (req, res, next) =>
+//   employeeController.create(req, res, next)
+// );
 
 router.get('/:id', requirePermission('employee', 'read'), (req, res, next) =>
   employeeController.getById(req, res, next)

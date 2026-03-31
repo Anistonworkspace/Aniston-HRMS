@@ -301,8 +301,15 @@ export class WhatsAppService {
   async getChatMessages(chatId: string, limit = 50) {
     if (!isReady || !waClient) throw new BadRequestError('WhatsApp not connected');
 
+    // Ensure chatId has proper suffix — WhatsApp Web.js requires @c.us or @g.us
+    let normalizedChatId = chatId;
+    if (!chatId.includes('@')) {
+      normalizedChatId = `${chatId}@c.us`;
+    }
+
     try {
-      const chat = await waClient.getChatById(chatId);
+      const chat = await waClient.getChatById(normalizedChatId);
+      if (!chat) throw new Error('Chat not found');
       const messages = await chat.fetchMessages({ limit });
 
       // Ensure whatsapp uploads directory exists

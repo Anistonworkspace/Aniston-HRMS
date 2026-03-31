@@ -326,11 +326,11 @@ function InviteEmployeeSlideOver({ onClose }: { onClose: () => void }) {
             </div>
           ) : (
             <div className="space-y-4">
-              <p className="text-sm text-gray-500">Send an invitation to the employee's Microsoft Teams email. They'll set their password and complete onboarding.</p>
+              <p className="text-sm text-gray-500">Send an invitation to the employee's email. They'll set their password and complete onboarding.</p>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
-                  <Mail size={14} /> Email Address (Microsoft Teams ID)
+                  <Mail size={14} /> Email Address
                 </label>
                 <input value={email} onChange={e => setEmail(e.target.value)}
                   type="email" placeholder="employee@company.com" className="input-glass w-full text-sm" />
