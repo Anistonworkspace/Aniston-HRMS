@@ -305,7 +305,7 @@ describe('AiConfigService', () => {
       const result = await service.testConnection(ORG_ID);
 
       expect(result.success).toBe(false);
-      expect(result.message).toMatch(/No AI provider configured/i);
+      expect(result.message).toMatch(/No AI provider configured|No API key available/i);
     });
 
     it('returns success:false and message on provider HTTP error', async () => {

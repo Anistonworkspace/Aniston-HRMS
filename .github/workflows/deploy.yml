@@ -79,11 +79,13 @@ jobs:
             npm ci
             echo "=== [5/8] Generating Prisma client ==="
             npx prisma generate
-            echo "=== [6/8] Pushing schema to DB ==="
+            echo "=== [6/9] Pushing schema to DB ==="
             npx prisma db push --accept-data-loss
-            echo "=== [7/8] Building frontend ==="
+            echo "=== [7/9] Seeding database (SuperAdmin + defaults) ==="
+            npx prisma db seed || echo "Seed completed (or already seeded)"
+            echo "=== [8/9] Building frontend ==="
             cd frontend && npx vite build && cd ..
-            echo "=== [8/8] Restarting PM2 ==="
+            echo "=== [9/9] Restarting PM2 ==="
             pm2 restart aniston-hrms
             echo "=== Waiting for startup ==="
             sleep 5

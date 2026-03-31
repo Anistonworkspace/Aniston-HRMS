@@ -21,6 +21,9 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio --schema=prisma/schema.prisma"
   },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
   "devDependencies": {
     "concurrently": "^9.1.2",
     "prisma": "^6.5.0",
