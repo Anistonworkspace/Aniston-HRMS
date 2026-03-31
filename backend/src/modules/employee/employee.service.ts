@@ -354,31 +354,61 @@ export class EmployeeService {
   async softDelete(id: string, organizationId: string, deletedBy: string) {
     const existing = await prisma.employee.findFirst({
       where: { id, organizationId, deletedAt: null },
+      include: { documents: { select: { id: true } } },
     });
     if (!existing) {
       throw new NotFoundError('Employee');
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.employee.update({
-        where: { id },
-        data: { deletedAt: new Date(), status: 'INACTIVE' },
-      });
+    // Prevent deleting system accounts
+    if ((existing as any).isSystemAccount) {
+      throw new BadRequestError('System accounts cannot be deleted');
+    }
 
-      if (existing.userId) {
-        await tx.user.update({
-          where: { id: existing.userId },
-          data: { status: 'INACTIVE' },
+    await prisma.$transaction(async (tx) => {
+      // 1. Delete dependent records (KYC gate, documents, invitations, etc.)
+      const docIds = existing.documents.map(d => d.id);
+      if (docIds.length > 0) {
+        await tx.documentOcrVerification.deleteMany({ where: { documentId: { in: docIds } } });
+        await tx.document.deleteMany({ where: { employeeId: id } });
+      }
+      await tx.onboardingDocumentGate.deleteMany({ where: { employeeId: id } });
+      await tx.leaveBalance.deleteMany({ where: { employeeId: id } });
+      await tx.leaveRequest.deleteMany({ where: { employeeId: id } });
+      await tx.shiftAssignment.deleteMany({ where: { employeeId: id } });
+      await tx.notification.deleteMany({ where: { userId: existing.userId || '' } });
+      await tx.refreshToken.deleteMany({ where: { userId: existing.userId || '' } });
+
+      // 2. Mark invitations as expired so re-invite creates fresh flow
+      if (existing.email) {
+        await tx.employeeInvitation.updateMany({
+          where: { email: existing.email, organizationId, status: 'ACCEPTED' },
+          data: { status: 'EXPIRED' },
         });
       }
 
+      // 3. Delete employee record permanently
+      await tx.employee.delete({ where: { id } });
+
+      // 4. Delete user record permanently (so re-invite creates fresh account)
+      if (existing.userId) {
+        await tx.user.delete({ where: { id: existing.userId } });
+      }
+
+      // 5. Audit log (use deletedBy as userId since the deleted user no longer exists)
       await tx.auditLog.create({
         data: {
           userId: deletedBy,
           entity: 'Employee',
           entityId: id,
           action: 'DELETE',
-          oldValue: { firstName: existing.firstName, lastName: existing.lastName, employeeCode: existing.employeeCode },
+          oldValue: {
+            firstName: existing.firstName,
+            lastName: existing.lastName,
+            employeeCode: existing.employeeCode,
+            email: existing.email,
+            permanent: true,
+          },
           organizationId,
         },
       });
