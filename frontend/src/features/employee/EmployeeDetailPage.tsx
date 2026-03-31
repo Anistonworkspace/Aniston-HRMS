@@ -15,6 +15,7 @@ import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } f
 import PermissionOverridePanel from '../permissions/PermissionOverridePanel';
 import OcrVerificationPanel from '../documents/OcrVerificationPanel';
 import { useGetEmployeeOcrSummaryQuery } from '../documents/documentOcrApi';
+import { useVerifyKycMutation } from '../kyc/kycApi';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -895,6 +896,7 @@ const DOC_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID', 
 function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: string; documents: any[]; isManagement: boolean }) {
   const [uploadDoc, { isLoading: uploading }] = useUploadDocumentMutation();
   const [verifyDoc] = useVerifyDocumentMutation();
+  const [verifyKyc, { isLoading: verifyingAll }] = useVerifyKycMutation();
   const { data: ocrSummaryRes } = useGetEmployeeOcrSummaryQuery(employeeId, { skip: !isManagement });
   const [showUpload, setShowUpload] = useState(false);
   const [ocrDocId, setOcrDocId] = useState<string | null>(null);
@@ -947,9 +949,30 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-800">Documents ({documents.length})</h3>
-        <button onClick={() => setShowUpload(!showUpload)} className="btn-primary text-xs flex items-center gap-1.5">
-          <Plus size={14} /> Upload Document
-        </button>
+        <div className="flex gap-2">
+          {isManagement && documents.some((d: any) => d.status === 'PENDING') && (
+            <button onClick={async () => {
+              try {
+                // Verify all pending documents
+                const pending = documents.filter((d: any) => d.status === 'PENDING');
+                for (const doc of pending) {
+                  await verifyDoc({ id: doc.id, status: 'VERIFIED' }).unwrap();
+                }
+                // Then approve KYC gate
+                await verifyKyc(employeeId).unwrap();
+                toast.success(`All ${pending.length} documents verified & KYC approved!`);
+              } catch (err: any) {
+                toast.error(err?.data?.error?.message || 'Failed to verify');
+              }
+            }} disabled={verifyingAll} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors">
+              {verifyingAll ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+              Verify All & Approve KYC
+            </button>
+          )}
+          <button onClick={() => setShowUpload(!showUpload)} className="btn-primary text-xs flex items-center gap-1.5">
+            <Plus size={14} /> Upload Document
+          </button>
+        </div>
       </div>
 
       {/* Upload form */}
