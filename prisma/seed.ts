@@ -126,11 +126,21 @@ async function main() {
     },
   ];
 
+  // Migrate old EMP-001 superadmin to SYS-001 if it exists
+  const oldSuperAdmin = await prisma.employee.findUnique({ where: { employeeCode: 'EMP-001' } });
+  if (oldSuperAdmin && oldSuperAdmin.email === 'superadmin@anistonav.com') {
+    await prisma.employee.update({
+      where: { employeeCode: 'EMP-001' },
+      data: { employeeCode: 'SYS-001', isSystemAccount: true },
+    });
+    console.log('  🔄 Migrated superadmin EMP-001 → SYS-001');
+  }
+
   for (const acct of systemAccounts) {
     const passwordHash = await bcrypt.hash(acct.password, 12);
     const user = await prisma.user.upsert({
       where: { email: acct.email },
-      update: {},
+      update: { passwordHash, role: acct.role, status: 'ACTIVE' },
       create: {
         email: acct.email,
         passwordHash,
@@ -142,7 +152,7 @@ async function main() {
 
     await prisma.employee.upsert({
       where: { employeeCode: acct.employeeCode },
-      update: { isSystemAccount: true },
+      update: { isSystemAccount: true, userId: user.id, status: 'ACTIVE', deletedAt: null },
       create: {
         employeeCode: acct.employeeCode,
         userId: user.id,
