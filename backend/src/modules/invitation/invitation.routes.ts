@@ -20,6 +20,10 @@ router.post('/', requirePermission('employee', 'create'), (req, res, next) =>
   invitationController.create(req, res, next)
 );
 
+router.post('/bulk', requirePermission('employee', 'create'), (req, res, next) =>
+  invitationController.bulkInvite(req, res, next)
+);
+
 router.get('/', requirePermission('employee', 'read'), (req, res, next) =>
   invitationController.list(req, res, next)
 );

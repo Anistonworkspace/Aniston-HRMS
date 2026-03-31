@@ -279,6 +279,110 @@ export class InvitationService {
   }
 
   /**
+   * Create bulk invitations from a list of emails — used for migration / mass onboarding.
+   */
+  async createBulkInvitations(
+    emails: string[],
+    organizationId: string,
+    invitedBy: string,
+    options?: { role?: string; departmentId?: string; designationId?: string }
+  ) {
+    const org = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true },
+    });
+
+    const inviter = await prisma.user.findUnique({
+      where: { id: invitedBy },
+      include: { employee: { select: { firstName: true, lastName: true } } },
+    });
+    const inviterName = inviter?.employee
+      ? `${inviter.employee.firstName} ${inviter.employee.lastName}`
+      : inviter?.email || 'HR Team';
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+
+    let sentCount = 0;
+    let skippedCount = 0;
+    const errors: string[] = [];
+
+    for (const rawEmail of emails) {
+      const email = rawEmail.trim().toLowerCase();
+      if (!email || !email.includes('@')) {
+        skippedCount++;
+        continue;
+      }
+
+      try {
+        // Check for existing pending invitation
+        const existing = await prisma.employeeInvitation.findFirst({
+          where: { organizationId, email, status: 'PENDING' },
+        });
+        if (existing) {
+          skippedCount++;
+          errors.push(`${email}: already has pending invitation`);
+          continue;
+        }
+
+        // Check if employee already exists
+        const existingEmployee = await prisma.employee.findFirst({
+          where: { email, organizationId, deletedAt: null },
+        });
+        if (existingEmployee) {
+          skippedCount++;
+          errors.push(`${email}: employee already exists`);
+          continue;
+        }
+
+        const invitation = await prisma.employeeInvitation.create({
+          data: {
+            organizationId,
+            email,
+            role: options?.role || 'EMPLOYEE',
+            departmentId: options?.departmentId || null,
+            designationId: options?.designationId || null,
+            invitedBy,
+            expiresAt,
+          },
+        });
+
+        const inviteUrl = `${frontendUrl}/onboarding/invite/${invitation.inviteToken}`;
+
+        await enqueueEmail({
+          to: email,
+          subject: `You're invited to join ${org?.name || 'Aniston HRMS'}`,
+          template: 'employee-invite',
+          context: {
+            orgName: org?.name || 'Aniston Technologies',
+            inviteUrl,
+            expiresAt: expiresAt.toISOString(),
+            inviterName,
+            role: options?.role || 'EMPLOYEE',
+          },
+        });
+
+        sentCount++;
+      } catch (err: any) {
+        skippedCount++;
+        errors.push(`${email}: ${err.message}`);
+      }
+    }
+
+    // Audit log
+    await createAuditLog({
+      userId: invitedBy,
+      organizationId,
+      entity: 'EmployeeInvitation',
+      entityId: 'bulk',
+      action: 'CREATE',
+      newValue: { totalEmails: emails.length, sentCount, skippedCount, source: 'bulk' },
+    });
+
+    return { sentCount, skippedCount, totalRequested: emails.length, errors };
+  }
+
+  /**
    * List all invitations for an organization with pagination.
    */
   async listInvitations(organizationId: string, page = 1, limit = 20) {

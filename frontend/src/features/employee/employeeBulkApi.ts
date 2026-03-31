@@ -12,7 +12,17 @@ export const employeeBulkApi = api.injectEndpoints({
         body,
       }),
     }),
+    sendBulkOnboardingInvite: builder.mutation<
+      { success: boolean; data: { sentCount: number; skippedCount: number; totalRequested: number; errors: string[] }; message: string },
+      { emails: string[]; role?: string; departmentId?: string; designationId?: string }
+    >({
+      query: (body) => ({
+        url: '/invitations/bulk',
+        method: 'POST',
+        body,
+      }),
+    }),
   }),
 });
 
-export const { useSendBulkEmailMutation } = employeeBulkApi;
+export const { useSendBulkEmailMutation, useSendBulkOnboardingInviteMutation } = employeeBulkApi;

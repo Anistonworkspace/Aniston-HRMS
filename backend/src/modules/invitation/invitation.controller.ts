@@ -54,6 +54,32 @@ export class InvitationController {
     }
   }
 
+  async bulkInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = z.object({
+        emails: z.array(z.string()).min(1, 'At least one email is required'),
+        role: z.enum(['EMPLOYEE', 'MANAGER', 'HR', 'ADMIN']).optional().default('EMPLOYEE'),
+        departmentId: z.string().uuid().optional(),
+        designationId: z.string().uuid().optional(),
+      }).parse(req.body);
+
+      const result = await invitationService.createBulkInvitations(
+        data.emails,
+        req.user!.organizationId,
+        req.user!.userId,
+        { role: data.role, departmentId: data.departmentId, designationId: data.designationId }
+      );
+
+      res.status(201).json({
+        success: true,
+        data: result,
+        message: `${result.sentCount} invitation${result.sentCount !== 1 ? 's' : ''} sent, ${result.skippedCount} skipped`,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async resend(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await invitationService.resendInvitation(
