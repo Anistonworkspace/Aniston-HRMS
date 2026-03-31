@@ -46,6 +46,7 @@ const PublicApplyPage = lazy(() => import('../features/public-apply/PublicApplyP
 const TrackApplicationPage = lazy(() => import('../features/public-apply/TrackApplicationPage'));
 const ActivateAccountPage = lazy(() => import('../features/auth/ActivateAccountPage'));
 const KycGatePage = lazy(() => import('../features/kyc/KycGatePage'));
+const MyDocumentsPage = lazy(() => import('../features/my-documents/MyDocumentsPage'));
 const EmployeeOnboardingPage = lazy(() => import('../features/onboarding/EmployeeOnboardingPage'));
 
 function PageLoader() {
@@ -124,6 +125,7 @@ export default function AppRouter() {
             <Route path="/interview-assignments" element={<InterviewAssignmentsPage />} />
             <Route path="/assets" element={<AssetManagementPage />} />
             <Route path="/my-assets" element={<MyAssetsPage />} />
+            <Route path="/my-documents" element={<MyDocumentsPage />} />
             <Route path="/walk-in-management" element={<WalkInManagementPage />} />
             <Route path="/walk-in-management/:id" element={<WalkInDetailPage />} />
             <Route path="/whatsapp" element={<WhatsAppPage />} />

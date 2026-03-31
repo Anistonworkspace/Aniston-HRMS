@@ -1,5 +1,9 @@
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError } from '../../middleware/errorHandler.js';
+import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
+import { generateOfferLetterPDF, generateJoiningLetterPDF, generateExperienceLetterPDF, generateRelievingLetterPDF } from '../../utils/letterTemplates.js';
+import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
 import type { CreateDocumentInput, DocumentQuery } from './document.validation.js';
 
 export class DocumentService {
@@ -82,6 +86,122 @@ export class DocumentService {
       where: { id },
       data: { deletedAt: new Date() },
     });
+  }
+  /**
+   * Get all documents for the currently logged-in employee.
+   */
+  async getMyDocuments(employeeId: string) {
+    return prisma.document.findMany({
+      where: { employeeId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * HR issues a letter document (Offer, Joining, Experience, Relieving).
+   * Generates PDF, saves to disk, creates Document record.
+   */
+  async issueLetterDocument(
+    employeeId: string,
+    type: 'OFFER_LETTER_DOC' | 'JOINING_LETTER' | 'EXPERIENCE_LETTER' | 'RELIEVING_LETTER',
+    issuedByUserId: string,
+    organizationId: string
+  ) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      include: {
+        department: { select: { name: true } },
+        designation: { select: { name: true } },
+        manager: { select: { firstName: true, lastName: true } },
+        salaryStructure: true,
+      },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const org = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true, address: true },
+    });
+    if (!org) throw new NotFoundError('Organization');
+
+    // Validate letter type appropriateness
+    if ((type === 'EXPERIENCE_LETTER' || type === 'RELIEVING_LETTER') && !employee.lastWorkingDate && !employee.resignationDate) {
+      throw new BadRequestError('Experience and Relieving letters require the employee to have a resignation or last working date set.');
+    }
+
+    const letterData = {
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      employeeCode: employee.employeeCode,
+      email: employee.email,
+      joiningDate: employee.joiningDate,
+      lastWorkingDate: employee.lastWorkingDate,
+      resignationDate: employee.resignationDate,
+      ctc: employee.ctc,
+      department: employee.department,
+      designation: employee.designation,
+      manager: employee.manager,
+      organization: { name: org.name, address: org.address },
+      salaryStructure: employee.salaryStructure,
+    };
+
+    // Generate PDF
+    let pdfBuffer: Buffer;
+    let letterName: string;
+    switch (type) {
+      case 'OFFER_LETTER_DOC':
+        pdfBuffer = await generateOfferLetterPDF(letterData);
+        letterName = 'Offer Letter';
+        break;
+      case 'JOINING_LETTER':
+        pdfBuffer = await generateJoiningLetterPDF(letterData);
+        letterName = 'Joining Letter';
+        break;
+      case 'EXPERIENCE_LETTER':
+        pdfBuffer = await generateExperienceLetterPDF(letterData);
+        letterName = 'Experience Letter';
+        break;
+      case 'RELIEVING_LETTER':
+        pdfBuffer = await generateRelievingLetterPDF(letterData);
+        letterName = 'Relieving Letter';
+        break;
+    }
+
+    // Save PDF to disk
+    const uploadsBase = join(process.cwd(), 'uploads', 'employees', employee.employeeCode, 'letters');
+    if (!existsSync(uploadsBase)) {
+      mkdirSync(uploadsBase, { recursive: true });
+    }
+    const fileName = `${type.toLowerCase()}-${Date.now()}.pdf`;
+    const filePath = join(uploadsBase, fileName);
+    writeFileSync(filePath, pdfBuffer);
+
+    const fileUrl = `/uploads/employees/${employee.employeeCode}/letters/${fileName}`;
+
+    // Create document record
+    const document = await prisma.document.create({
+      data: {
+        name: `${letterName} - ${employee.firstName} ${employee.lastName}`,
+        type: type as any,
+        fileUrl,
+        employeeId,
+        status: 'ISSUED',
+        issuedBy: issuedByUserId,
+        verifiedBy: issuedByUserId,
+        verifiedAt: new Date(),
+      },
+    });
+
+    await createAuditLog({
+      userId: issuedByUserId,
+      organizationId,
+      entity: 'Document',
+      entityId: document.id,
+      action: 'CREATE',
+      newValue: { type, employeeId, letterName },
+    });
+
+    return document;
   }
 }
 

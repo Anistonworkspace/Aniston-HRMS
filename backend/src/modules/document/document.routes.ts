@@ -8,9 +8,20 @@ import { prisma } from '../../lib/prisma.js';
 const router = Router();
 router.use(authenticate);
 
+// Employee: get own documents (must be BEFORE /:id to avoid conflict)
+router.get('/my', (req, res, next) =>
+  documentController.myDocuments(req, res, next)
+);
+
 router.get('/', requirePermission('document', 'read'), (req, res, next) =>
   documentController.list(req, res, next)
 );
+
+// HR: issue a letter document (Offer, Joining, Experience, Relieving)
+router.post('/issue/:employeeId', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res, next) =>
+  documentController.issueLetter(req, res, next)
+);
+
 router.get('/:id', requirePermission('document', 'read'), (req, res, next) =>
   documentController.getById(req, res, next)
 );

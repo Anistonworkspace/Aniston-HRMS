@@ -62,6 +62,28 @@ export class DocumentController {
       res.json({ success: true, data: null, message: 'Document deleted' });
     } catch (err) { next(err); }
   }
+
+  async myDocuments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const docs = await documentService.getMyDocuments(req.user!.employeeId!);
+      res.json({ success: true, data: docs });
+    } catch (err) { next(err); }
+  }
+
+  async issueLetter(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { type } = req.body;
+      const validTypes = ['OFFER_LETTER_DOC', 'JOINING_LETTER', 'EXPERIENCE_LETTER', 'RELIEVING_LETTER'];
+      if (!validTypes.includes(type)) {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid letter type' } });
+        return;
+      }
+      const doc = await documentService.issueLetterDocument(
+        req.params.employeeId, type, req.user!.userId, req.user!.organizationId
+      );
+      res.status(201).json({ success: true, data: doc, message: `${type.replace(/_/g, ' ')} issued successfully` });
+    } catch (err) { next(err); }
+  }
 }
 
 export const documentController = new DocumentController();

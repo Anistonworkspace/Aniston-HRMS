@@ -181,3 +181,74 @@ export function checkExitAccess(req: Request, _res: Response, next: NextFunction
     next();
   }).catch(() => next()); // On error, allow through (fail-open for exit check)
 }
+
+/**
+ * Middleware to check employee-level permission control.
+ * Applied globally after authenticate — restricts feature access based on
+ * role presets and per-employee overrides set by HR.
+ * Admin roles (SUPER_ADMIN, ADMIN, HR) are always allowed through.
+ */
+export function checkEmployeePermissions(req: Request, _res: Response, next: NextFunction) {
+  if (!req.user?.employeeId) return next();
+
+  const adminRoles: Role[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR];
+  if (adminRoles.includes(req.user.role)) return next();
+
+  import('../modules/employee-permissions/employee-permissions.service.js').then(async ({ employeePermissionService }) => {
+    try {
+      const perms = await employeePermissionService.getEffectivePermissions(
+        req.user!.employeeId!, req.user!.role as any, req.user!.organizationId
+      );
+
+      const PERM_ROUTE_MAP: Record<string, string> = {
+        '/api/dashboard': 'canViewDashboardStats',
+        '/api/payroll': 'canViewPayslips',
+        '/api/attendance': 'canViewAttendanceHistory',
+        '/api/leaves': 'canViewLeaveBalance',
+        '/api/documents': 'canViewDocuments',
+        '/api/helpdesk': 'canRaiseHelpdeskTickets',
+        '/api/announcements': 'canViewAnnouncements',
+        '/api/policies': 'canViewPolicies',
+        '/api/performance': 'canViewPerformance',
+        '/api/employees/me': 'canViewEditProfile',
+      };
+
+      const path = req.originalUrl.split('?')[0];
+      let permKey: string | undefined;
+
+      for (const [routePrefix, key] of Object.entries(PERM_ROUTE_MAP)) {
+        if (path.startsWith(routePrefix)) { permKey = key; break; }
+      }
+
+      if (!permKey) return next();
+
+      // Special POST checks for mutation actions
+      if (path.startsWith('/api/attendance') && ['POST', 'PATCH'].includes(req.method)) {
+        if (!(perms as any).canMarkAttendance) {
+          return next(new ForbiddenError('Attendance marking has been restricted by your administrator'));
+        }
+        return next();
+      }
+      if (path.startsWith('/api/leaves') && req.method === 'POST') {
+        if (!(perms as any).canApplyLeaves) {
+          return next(new ForbiddenError('Leave application has been restricted by your administrator'));
+        }
+        return next();
+      }
+      if (path.startsWith('/api/helpdesk') && req.method === 'POST') {
+        if (!(perms as any).canRaiseHelpdeskTickets) {
+          return next(new ForbiddenError('Helpdesk access has been restricted by your administrator'));
+        }
+        return next();
+      }
+
+      if (!(perms as any)[permKey]) {
+        return next(new ForbiddenError('This feature has been restricted by your administrator'));
+      }
+
+      next();
+    } catch {
+      next();
+    }
+  }).catch(() => next());
+}

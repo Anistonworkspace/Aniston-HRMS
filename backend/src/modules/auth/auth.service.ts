@@ -6,6 +6,7 @@ import { redis } from '../../lib/redis.js';
 import { env } from '../../config/env.js';
 import { UnauthorizedError, NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import type { JwtPayload } from '../../middleware/auth.middleware.js';
+import { employeePermissionService } from '../employee-permissions/employee-permissions.service.js';
 
 const REFRESH_TOKEN_PREFIX = 'refresh_token:';
 const RESET_TOKEN_PREFIX = 'reset_token:';
@@ -67,6 +68,19 @@ export class AuthService {
     const exitAccess = user.employee?.exitAccessConfig;
     const onboardingComplete = user.employee?.onboardingComplete ?? true;
 
+    // Get feature permissions for non-admin active employees
+    let featurePermissions = null;
+    const adminRoles = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+    if (user.employee?.id && !adminRoles.includes(user.role) && !exitAccess?.isActive) {
+      try {
+        const perms = await employeePermissionService.getEffectivePermissions(
+          user.employee.id, user.role as any, user.organizationId
+        );
+        const hasRestrictions = Object.values(perms).some(v => v === false);
+        if (hasRestrictions) featurePermissions = perms;
+      } catch { /* fail silently */ }
+    }
+
     return {
       accessToken,
       refreshToken,
@@ -82,6 +96,7 @@ export class AuthService {
         workMode: user.employee?.workMode,
         kycCompleted,
         onboardingComplete,
+        featurePermissions,
         exitAccess: exitAccess?.isActive ? {
           canViewDashboard: exitAccess.canViewDashboard,
           canViewPayslips: exitAccess.canViewPayslips,
@@ -239,6 +254,18 @@ export class AuthService {
     const exitAccess = user.employee?.exitAccessConfig;
     const onboardingComplete = user.employee?.onboardingComplete ?? true;
 
+    let featurePermissions = null;
+    const adminRoles = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+    if (user.employee?.id && !adminRoles.includes(user.role) && !exitAccess?.isActive) {
+      try {
+        const perms = await employeePermissionService.getEffectivePermissions(
+          user.employee.id, user.role as any, user.organizationId
+        );
+        const hasRestrictions = Object.values(perms).some(v => v === false);
+        if (hasRestrictions) featurePermissions = perms;
+      } catch { /* fail silently */ }
+    }
+
     return {
       id: user.id,
       email: user.email,
@@ -253,6 +280,7 @@ export class AuthService {
       workMode: user.employee?.workMode,
       kycCompleted,
       onboardingComplete,
+      featurePermissions,
       exitAccess: exitAccess?.isActive ? {
         canViewDashboard: exitAccess.canViewDashboard,
         canViewPayslips: exitAccess.canViewPayslips,

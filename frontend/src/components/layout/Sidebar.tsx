@@ -25,6 +25,7 @@ import {
   UserMinus,
   MessageCircle,
   Activity,
+  FileCheck,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -40,30 +41,33 @@ interface NavItem {
   icon: React.ElementType;
   roles?: string[];
   exitAccessKey?: string; // Key in ExitAccessInfo to check for exiting employees
+  permissionKey?: string; // Key in FeaturePermissions to check for active employees
 }
 
 const navItems: NavItem[] = [
-  { name: 'Dashboard', path: '/dashboard', icon: Home, exitAccessKey: 'canViewDashboard' },
+  { name: 'Dashboard', path: '/dashboard', icon: Home, exitAccessKey: 'canViewDashboard', permissionKey: 'canViewDashboardStats' },
   { name: 'Employees', managementName: 'Manage Employees', path: '/employees', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { name: 'Attendance', managementName: 'Attendance Management', path: '/attendance', icon: Clock, exitAccessKey: 'canViewAttendance' },
+  { name: 'Attendance', managementName: 'Attendance Management', path: '/attendance', icon: Clock, exitAccessKey: 'canViewAttendance', permissionKey: 'canViewAttendanceHistory' },
   { name: 'Activity Tracking', path: '/activity-tracking', icon: Activity, roles: ['SUPER_ADMIN', 'ADMIN'] },
-  { name: 'Leave', managementName: 'Leave Management', path: '/leaves', icon: CalendarDays, exitAccessKey: 'canViewLeaveBalance' },
+  { name: 'Leave', managementName: 'Leave Management', path: '/leaves', icon: CalendarDays, exitAccessKey: 'canViewLeaveBalance', permissionKey: 'canViewLeaveBalance' },
   { name: 'Payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'], exitAccessKey: 'canViewPayslips' },
+  { name: 'Payslips', path: '/payroll', icon: DollarSign, roles: ['EMPLOYEE', 'INTERN', 'MANAGER'], permissionKey: 'canViewPayslips' },
   { name: 'Roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Employee Exit', path: '/exit-management', icon: UserMinus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Interview Tasks', path: '/interview-assignments', icon: ClipboardCheck },
   { name: 'Assets', managementName: 'Asset Management', path: '/assets', icon: Monitor, roles: ['SUPER_ADMIN', 'ADMIN'] },
   { name: 'My Assets', path: '/my-assets', icon: Laptop, roles: ['HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
-  { name: 'Performance', path: '/performance', icon: BarChart3 },
-  { name: 'Policies', path: '/policies', icon: FileText },
-  { name: 'Announcements', path: '/announcements', icon: Megaphone, exitAccessKey: 'canViewAnnouncements' },
-  { name: 'Helpdesk', path: '/helpdesk', icon: HelpCircle, exitAccessKey: 'canViewHelpdesk' },
+  { name: 'My Documents', path: '/my-documents', icon: FileCheck, roles: ['EMPLOYEE', 'INTERN', 'MANAGER', 'HR'], exitAccessKey: 'canViewDocuments', permissionKey: 'canViewDocuments' },
+  { name: 'Performance', path: '/performance', icon: BarChart3, permissionKey: 'canViewPerformance' },
+  { name: 'Policies', path: '/policies', icon: FileText, permissionKey: 'canViewPolicies' },
+  { name: 'Announcements', path: '/announcements', icon: Megaphone, exitAccessKey: 'canViewAnnouncements', permissionKey: 'canViewAnnouncements' },
+  { name: 'Helpdesk', path: '/helpdesk', icon: HelpCircle, exitAccessKey: 'canViewHelpdesk', permissionKey: 'canRaiseHelpdeskTickets' },
   { name: 'WhatsApp', path: '/whatsapp', icon: MessageCircle, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { name: 'Org Chart', path: '/org-chart', icon: Network },
+  { name: 'Org Chart', path: '/org-chart', icon: Network, permissionKey: 'canViewOrgChart' },
   { name: 'Reports', path: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Settings', path: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'ADMIN'] },
-  { name: 'Profile', path: '/profile', icon: Users, exitAccessKey: 'canViewProfile' },
+  { name: 'Profile', path: '/profile', icon: Users, exitAccessKey: 'canViewProfile', permissionKey: 'canViewEditProfile' },
 ];
 
 export default function Sidebar() {
@@ -100,15 +104,21 @@ export default function Sidebar() {
 
   const exitAccess = user?.exitAccess;
 
+  const featurePermissions = (user as any)?.featurePermissions;
+
   const filteredItems = navItems.filter((item) => {
     // If user has exit access restrictions, only show allowed items
     if (exitAccess) {
-      if (!item.exitAccessKey) return false; // Hide items without exit access mapping
+      if (!item.exitAccessKey) return false;
       return (exitAccess as any)[item.exitAccessKey] === true;
     }
     // Normal role-based filtering
-    if (!item.roles) return true;
-    return user?.role && item.roles.includes(user.role);
+    if (item.roles && !(user?.role && item.roles.includes(user.role))) return false;
+    // Feature permission check (for active employees with restrictions)
+    if (!exitAccess && featurePermissions && item.permissionKey) {
+      if ((featurePermissions as any)[item.permissionKey] === false) return false;
+    }
+    return true;
   });
 
   return (

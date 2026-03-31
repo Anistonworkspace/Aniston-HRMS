@@ -74,6 +74,9 @@ export const api = createApi({
     'Policy',
     'Performance',
     'Kyc',
+    'PermissionPresets',
+    'PermissionOverrides',
+    'MyPermissions',
   ],
   endpoints: () => ({}),
 });

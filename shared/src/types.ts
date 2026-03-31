@@ -28,6 +28,28 @@ export interface PaginationMeta {
   hasPrev: boolean;
 }
 
+/**
+ * Feature-level permissions that HR can control per-role or per-employee.
+ * All default to true. false = feature restricted.
+ */
+export interface FeaturePermissions {
+  canMarkAttendance: boolean;
+  canViewAttendanceHistory: boolean;
+  canApplyLeaves: boolean;
+  canViewLeaveBalance: boolean;
+  canViewPayslips: boolean;
+  canDownloadPayslips: boolean;
+  canViewDocuments: boolean;
+  canDownloadDocuments: boolean;
+  canViewDashboardStats: boolean;
+  canViewAnnouncements: boolean;
+  canViewPolicies: boolean;
+  canRaiseHelpdeskTickets: boolean;
+  canViewOrgChart: boolean;
+  canViewPerformance: boolean;
+  canViewEditProfile: boolean;
+}
+
 export interface PaginationQuery {
   page?: number;
   limit?: number;

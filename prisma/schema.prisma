@@ -161,6 +161,7 @@ model Employee {
   salaryVisibilityRule   SalaryVisibilityRule?
   documentGate           OnboardingDocumentGate?
   exitAccessConfig       ExitAccessConfig?
+  permissionOverride     PermissionOverride?
   headOfDepartments      Department[]          @relation("DepartmentHead")
 
   @@index([organizationId, status])
@@ -293,6 +294,7 @@ model Document {
   verifiedBy      String?
   verifiedAt      DateTime?
   rejectionReason String?
+  issuedBy        String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   deletedAt       DateTime?
@@ -311,6 +313,7 @@ enum DocumentType {
   TWELFTH_CERTIFICATE
   EXPERIENCE_LETTER
   OFFER_LETTER_DOC
+  JOINING_LETTER
   RELIEVING_LETTER
   BANK_STATEMENT
   CANCELLED_CHEQUE
@@ -325,6 +328,7 @@ enum DocumentStatus {
   VERIFIED
   REJECTED
   EXPIRED
+  ISSUED
 }
 
 // =====================
@@ -1797,6 +1801,70 @@ model ExitAccessConfig {
   updatedAt       DateTime @updatedAt
 
   employee     Employee     @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@index([organizationId])
+}
+
+// =====================
+// EMPLOYEE PERMISSION CONTROL
+// =====================
+
+model PermissionPreset {
+  id              String   @id @default(uuid())
+  organizationId  String
+  role            Role
+
+  canMarkAttendance        Boolean @default(true)
+  canViewAttendanceHistory Boolean @default(true)
+  canApplyLeaves           Boolean @default(true)
+  canViewLeaveBalance      Boolean @default(true)
+  canViewPayslips          Boolean @default(true)
+  canDownloadPayslips      Boolean @default(true)
+  canViewDocuments         Boolean @default(true)
+  canDownloadDocuments     Boolean @default(true)
+  canViewDashboardStats    Boolean @default(true)
+  canViewAnnouncements     Boolean @default(true)
+  canViewPolicies          Boolean @default(true)
+  canRaiseHelpdeskTickets  Boolean @default(true)
+  canViewOrgChart          Boolean @default(true)
+  canViewPerformance       Boolean @default(true)
+  canViewEditProfile       Boolean @default(true)
+
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([organizationId, role])
+  @@index([organizationId])
+}
+
+model PermissionOverride {
+  id              String   @id @default(uuid())
+  employeeId      String   @unique
+  organizationId  String
+
+  canMarkAttendance        Boolean?
+  canViewAttendanceHistory Boolean?
+  canApplyLeaves           Boolean?
+  canViewLeaveBalance      Boolean?
+  canViewPayslips          Boolean?
+  canDownloadPayslips      Boolean?
+  canViewDocuments         Boolean?
+  canDownloadDocuments     Boolean?
+  canViewDashboardStats    Boolean?
+  canViewAnnouncements     Boolean?
+  canViewPolicies          Boolean?
+  canRaiseHelpdeskTickets  Boolean?
+  canViewOrgChart          Boolean?
+  canViewPerformance       Boolean?
+  canViewEditProfile       Boolean?
+
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  employee     Employee @relation(fields: [employeeId], references: [id])
 
   @@index([employeeId])
   @@index([organizationId])

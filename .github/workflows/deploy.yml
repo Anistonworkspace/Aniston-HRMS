@@ -72,7 +72,15 @@ jobs:
             bash scripts/pre-deploy-backup.sh || echo "WARNING: Backup failed but continuing..."
             echo "=== [2/8] Installing Chrome/Puppeteer dependencies ==="
             sudo apt-get update -qq
-            sudo apt-get install -y -qq libatk1.0-0 libatk-bridge2.0-0 libcups2 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 libnspr4 libnss3 libxss1 libxtst6 xdg-utils fonts-liberation libappindicator3-1 2>/dev/null || true
+            # Install Chromium browser + all required shared libraries for Puppeteer
+            sudo apt-get install -y -qq chromium-browser || sudo apt-get install -y -qq chromium || true
+            sudo apt-get install -y -qq \
+              libatk1.0-0 libatk-bridge2.0-0 libcups2 libxdamage1 libxrandr2 \
+              libgbm1 libpango-1.0-0 libcairo2 libnspr4 libnss3 libxss1 \
+              libxtst6 xdg-utils fonts-liberation \
+              libasound2t64 || sudo apt-get install -y -qq libasound2 || true
+            # Verify Chrome/Chromium is available
+            which chromium-browser || which chromium || which google-chrome-stable || echo "WARNING: No system Chrome found, Puppeteer will use bundled Chrome"
             echo "=== [3/8] Pulling latest code ==="
             git pull origin main
             echo "=== [4/8] Installing dependencies ==="

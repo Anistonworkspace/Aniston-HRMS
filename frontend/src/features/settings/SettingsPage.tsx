@@ -20,9 +20,10 @@ import { cn, getInitials } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
 import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
+import PermissionPresetsTab from '../permissions/PermissionPresetsTab';
 import { useGetKnowledgeBaseQuery, useAddKnowledgeDocMutation, useDeleteKnowledgeDocMutation } from '../ai-assistant/aiAssistantApi';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'audit' | 'system';
+type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'permissions' | 'audit' | 'system';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>(() => {
@@ -44,6 +45,7 @@ export default function SettingsPage() {
     { key: 'salary-privacy', label: 'Salary Privacy', icon: Lock },
     { key: 'api-integration', label: 'API Integration', icon: ExternalLink },
     { key: 'ai-config', label: 'AI API Config', icon: Cpu },
+    { key: 'permissions', label: 'Permission Control', icon: Shield },
     { key: 'audit', label: 'Audit Logs', icon: Shield },
     { key: 'system', label: 'System', icon: Server },
   ];
@@ -84,6 +86,7 @@ export default function SettingsPage() {
             {activeTab === 'salary-privacy' && <SalaryPrivacyTab />}
             {activeTab === 'api-integration' && <ExternalApiIntegrationTab />}
             {activeTab === 'ai-config' && <ApiIntegrationsTab />}
+            {activeTab === 'permissions' && <PermissionPresetsTab />}
             {activeTab === 'audit' && <AuditLogs />}
             {activeTab === 'system' && <SystemInfo />}
           </div>
@@ -563,6 +566,12 @@ function EmailConfig() {
         </div>
 
         {/* From fields */}
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">Send As (From Email) *</label>
+          <input value={form.fromAddress} onChange={e => setForm({...form, fromAddress: e.target.value})}
+            className="input-glass w-full text-sm" placeholder="hr@anistonav.com" />
+          <p className="text-xs text-gray-400 mt-1">The email address that appears in the "From" field. Can be a shared mailbox if "Send As" permission is granted to the SMTP login user.</p>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-1">From Name</label>
@@ -1230,6 +1239,7 @@ function WhatsAppConfig() {
   const [testMsg, setTestMsg] = useState('Hello from Aniston HRMS!');
   const [connecting, setConnecting] = useState(false);
   const [liveQr, setLiveQr] = useState<string | null>(null);
+  const [waError, setWaError] = useState<string | null>(null);
 
   const status = statusRes?.data;
   const isConnected = status?.isConnected || false;
@@ -1275,11 +1285,14 @@ function WhatsAppConfig() {
     try {
       setConnecting(true);
       setLiveQr(null);
+      setWaError(null);
       await initializeWA().unwrap();
       toast.success('WhatsApp initializing... QR code will appear shortly');
     } catch (err: any) {
       setConnecting(false);
-      toast.error(err?.data?.error?.message || 'Failed to initialize WhatsApp');
+      const errorMsg = err?.data?.error?.message || 'Failed to initialize WhatsApp';
+      setWaError(errorMsg);
+      toast.error(errorMsg);
     }
   };
 
@@ -1342,6 +1355,14 @@ function WhatsAppConfig() {
       </div>
 
       {isConnected && <WhatsAppStats />}
+
+      {waError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4">
+          <p className="text-sm font-medium text-red-700">Connection Error</p>
+          <p className="text-xs text-red-600 mt-1">{waError}</p>
+          <button onClick={() => setWaError(null)} className="text-xs text-red-500 underline mt-2">Dismiss</button>
+        </div>
+      )}
 
       {!isConnected ? (
         <div className="space-y-6">
