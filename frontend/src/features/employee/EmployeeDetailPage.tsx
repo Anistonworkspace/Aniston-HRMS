@@ -13,6 +13,8 @@ import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documen
 import { useGetInternProfileQuery, useGetAchievementLettersQuery, useIssueAchievementLetterMutation } from '../intern/internApi';
 import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import PermissionOverridePanel from '../permissions/PermissionOverridePanel';
+import OcrVerificationPanel from '../documents/OcrVerificationPanel';
+import { useCrossValidateEmployeeMutation } from '../documents/documentOcrApi';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -893,7 +895,12 @@ const DOC_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID', 
 function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: string; documents: any[]; isManagement: boolean }) {
   const [uploadDoc, { isLoading: uploading }] = useUploadDocumentMutation();
   const [verifyDoc] = useVerifyDocumentMutation();
+  const [crossValidate, { isLoading: crossValidating }] = useCrossValidateEmployeeMutation();
   const [showUpload, setShowUpload] = useState(false);
+  const [ocrDocId, setOcrDocId] = useState<string | null>(null);
+  const [ocrDocName, setOcrDocName] = useState('');
+  const [ocrDocType, setOcrDocType] = useState('');
+  const [ocrDocFileUrl, setOcrDocFileUrl] = useState('');
   const [docName, setDocName] = useState('');
   const [docType, setDocType] = useState('OTHER');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -932,9 +939,24 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-800">Documents ({documents.length})</h3>
-        <button onClick={() => setShowUpload(!showUpload)} className="btn-primary text-xs flex items-center gap-1.5">
-          <Plus size={14} /> Upload Document
-        </button>
+        <div className="flex gap-2">
+          {isManagement && documents.length >= 2 && (
+            <button onClick={async () => {
+              try {
+                const res = await crossValidate(employeeId).unwrap();
+                if (res.data?.status === 'PASS') toast.success('Cross-validation passed! All fields match.');
+                else if (res.data?.status === 'FAIL') toast.error('Cross-validation failed — mismatches found');
+                else toast('Cross-validation: ' + (res.data?.status || 'Done'));
+              } catch { toast.error('Cross-validation failed'); }
+            }} disabled={crossValidating} className="btn-secondary text-xs flex items-center gap-1.5">
+              {crossValidating ? <Loader2 size={14} className="animate-spin" /> : <Shield size={14} />}
+              Cross-Validate
+            </button>
+          )}
+          <button onClick={() => setShowUpload(!showUpload)} className="btn-primary text-xs flex items-center gap-1.5">
+            <Plus size={14} /> Upload Document
+          </button>
+        </div>
       </div>
 
       {/* Upload form */}
@@ -1004,6 +1026,12 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
                   <button onClick={() => handleVerify(doc.id, 'REJECTED')} className="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg">Reject</button>
                 </div>
               )}
+              {isManagement && (
+                <button onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); }}
+                  className="mt-2 text-xs text-purple-600 hover:bg-purple-50 px-2 py-1 rounded-lg flex items-center gap-1">
+                  <Shield size={12} /> OCR Verification
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -1013,6 +1041,17 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
           <p className="text-sm text-gray-400">No documents uploaded yet</p>
           <p className="text-xs text-gray-300 mt-1">Click "Upload Document" to add files</p>
         </div>
+      )}
+
+      {/* OCR Verification Slide-over */}
+      {ocrDocId && (
+        <OcrVerificationPanel
+          documentId={ocrDocId}
+          documentName={ocrDocName}
+          documentType={ocrDocType}
+          fileUrl={ocrDocFileUrl}
+          onClose={() => setOcrDocId(null)}
+        />
       )}
     </div>
   );

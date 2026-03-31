@@ -8,6 +8,7 @@ export const emailQueue = new Queue('email', connection);
 export const notificationQueue = new Queue('notification', connection);
 export const payrollQueue = new Queue('payroll-processing', connection);
 export const bulkResumeQueue = new Queue('bulk-resume', connection);
+export const documentOcrQueue = new Queue('document-ocr', connection);
 
 logger.info('✅ BullMQ queues initialized');
 
@@ -36,6 +37,14 @@ export async function enqueueNotification(data: {
   return notificationQueue.add('push-notification', data, {
     attempts: 2,
     backoff: { type: 'fixed', delay: 1000 },
+  });
+}
+
+// Helper to enqueue document OCR processing
+export async function enqueueDocumentOcr(documentId: string, organizationId: string) {
+  return documentOcrQueue.add('process-document-ocr', { documentId, organizationId }, {
+    attempts: 2,
+    backoff: { type: 'exponential', delay: 5000 },
   });
 }
 

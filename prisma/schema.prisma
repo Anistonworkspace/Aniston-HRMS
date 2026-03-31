@@ -299,7 +299,53 @@ model Document {
   updatedAt       DateTime       @updatedAt
   deletedAt       DateTime?
 
-  employee Employee? @relation(fields: [employeeId], references: [id])
+  employee        Employee?              @relation(fields: [employeeId], references: [id])
+  ocrVerification DocumentOcrVerification?
+}
+
+model DocumentOcrVerification {
+  id                    String    @id @default(uuid())
+  documentId            String    @unique
+  organizationId        String
+
+  // Raw OCR
+  rawText               String?
+  detectedType          String?
+  confidence            Float     @default(0)
+
+  // Extracted fields (editable by HR)
+  extractedName         String?
+  extractedDob          String?
+  extractedFatherName   String?
+  extractedMotherName   String?
+  extractedDocNumber    String?
+  extractedGender       String?
+  extractedAddress      String?
+
+  // Image quality
+  isScreenshot          Boolean   @default(false)
+  isOriginalScan        Boolean   @default(true)
+  resolutionQuality     String?   // LOW, MEDIUM, HIGH
+  tamperingIndicators   Json?     // string[]
+
+  // Cross-validation
+  crossValidationStatus String?   // PASS, FAIL, PARTIAL, PENDING
+  crossValidationDetails Json?
+
+  // HR review
+  hrReviewedBy          String?
+  hrReviewedAt          DateTime?
+  hrNotes               String?
+  ocrStatus             String    @default("PENDING") // PENDING, REVIEWED, FLAGGED
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  document              Document  @relation(fields: [documentId], references: [id])
+
+  @@index([organizationId])
+  @@index([documentId])
+  @@index([ocrStatus])
 }
 
 enum DocumentType {

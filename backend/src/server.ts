@@ -25,6 +25,9 @@ async function main() {
     // Resume worker auto-starts on import
     await import('./jobs/workers/resume.worker.js');
     logger.info('✅ Resume worker started');
+    // Document OCR worker
+    await import('./jobs/workers/document-ocr.worker.js');
+    logger.info('✅ Document OCR worker started');
 
     server.listen(env.PORT, () => {
       logger.info(`🚀 Aniston HRMS API running on port ${env.PORT}`);

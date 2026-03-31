@@ -334,6 +334,25 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0;">${ctx.message || ''}</p>`,
     standardFooter('Aniston Technologies')
   ),
+
+  'document-submitted': (ctx) => emailLayout(
+    '#4F46E5', 'A', 'Document Submitted for Review', `${ctx.employeeName} uploaded a document`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hello HR Team,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      <strong>${ctx.employeeName}</strong> (${ctx.employeeCode}) has uploaded a new document that requires your review.
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;margin:16px 0;">
+      <tr><td style="padding:16px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;width:130px;">Document Type</td><td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${ctx.documentType?.replace(/_/g, ' ') || 'N/A'}</td></tr>
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;">Document Name</td><td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${ctx.documentName}</td></tr>
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;">Uploaded At</td><td style="padding:6px 0;font-size:14px;color:#111827;">${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td></tr>
+        </table>
+      </td></tr>
+    </table>
+    ${ctaButton(ctx.reviewUrl, 'Review Document in HRMS')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies', ctx.reviewUrl)
+  ),
 };
 
 /**

@@ -40,6 +40,7 @@ import { aiAssistantRouter } from './modules/ai-assistant/ai-assistant.routes.js
 import { publicApplyRouter } from './modules/public-apply/public-apply.routes.js';
 import { exitAccessRouter } from './modules/exit-access/exit-access.routes.js';
 import { employeePermissionsRouter } from './modules/employee-permissions/employee-permissions.routes.js';
+import { documentOcrRouter } from './modules/document-ocr/document-ocr.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 
@@ -145,6 +146,7 @@ app.use('/api/walk-in', walkInRouter);
 app.use('/api/workforce', shiftRouter);
 app.use('/api/agent', agentRouter);
 app.use('/api/documents', documentRouter);
+app.use('/api/documents', documentOcrRouter);
 app.use('/api/holidays', holidayRouter);
 app.use('/api/assets', assetRouter);
 app.use('/api/interns', internRouter);
