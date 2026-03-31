@@ -71,6 +71,94 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
           </table>
         </div>
 
+        <!-- Pre-Joining Documents Section -->
+        <div style="background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; padding: 20px; margin: 24px 0;">
+          <p style="color: #92400E; font-weight: 700; margin: 0 0 6px; font-size: 15px;">📋 Pre-Joining Documents Required</p>
+          <p style="color: #78350F; font-size: 13px; margin: 0 0 14px; line-height: 1.5;">
+            As part of the pre-joining formalities, please submit the following documents for verification and record-keeping.
+            Combine all documents into <strong>one single PDF</strong> named: <strong>YourName_PreJoiningDocs.pdf</strong>
+          </p>
+
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0 4px; color: #92400E; font-weight: 600; font-size: 13px;" colspan="2">1. Education Certificates</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• 10th & 12th Marksheet / Certificate</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• Diploma / Degree Certificate</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• Post-Graduation Certificate (if applicable)</td>
+            </tr>
+
+            <tr>
+              <td style="padding: 8px 0 4px; color: #92400E; font-weight: 600; font-size: 13px;" colspan="2">2. Identity Proof (any one)</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• Aadhaar Card / Passport / Driving License / Voter ID</td>
+            </tr>
+
+            <tr>
+              <td style="padding: 8px 0 4px; color: #92400E; font-weight: 600; font-size: 13px;" colspan="2">3. PAN Card (Mandatory)</td>
+            </tr>
+
+            <tr>
+              <td style="padding: 8px 0 4px; color: #92400E; font-weight: 600; font-size: 13px;" colspan="2">4. Residence Proof</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• Own House: Electricity / Water / Gas Bill</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• On Rent: Rent Agreement + Owner's Utility Bill (same address)</td>
+            </tr>
+
+            <tr>
+              <td style="padding: 8px 0 4px; color: #92400E; font-weight: 600; font-size: 13px;" colspan="2">5. Passport Size Photographs</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• 2 recent photographs</td>
+            </tr>
+
+            <tr>
+              <td style="padding: 8px 0 4px; color: #92400E; font-weight: 600; font-size: 13px;" colspan="2">6. Previous Employment (if applicable)</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• Offer / Appointment Letter</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• Last 3 Salary Slips OR Bank Statements (showing salary credit)</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• Relieving / Experience Letter</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• If serving notice: Resignation Acceptance Mail + HR Confirmation</td>
+            </tr>
+
+            <tr>
+              <td style="padding: 8px 0 4px; color: #92400E; font-weight: 600; font-size: 13px;" colspan="2">7. Additional (if applicable)</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• Professional Certifications</td>
+            </tr>
+            <tr>
+              <td style="padding: 2px 0 2px 16px; color: #78350F; font-size: 12px;" colspan="2">• PF / ESIC Number from last employer</td>
+            </tr>
+          </table>
+
+          <div style="background: #FEF3C7; border-radius: 6px; padding: 12px; margin-top: 14px;">
+            <p style="color: #92400E; font-weight: 600; font-size: 12px; margin: 0 0 6px;">📌 Submission Guidelines</p>
+            <p style="color: #78350F; font-size: 12px; margin: 0; line-height: 1.6;">
+              • All documents should be clearly scanned (PDF format preferred; avoid mobile screenshots)<br/>
+              • Arrange in order: ID Proof → PAN Card → Education → Employment → Photographs<br/>
+              • Combine all into one single PDF file<br/>
+              • File name format: <strong>YourName_PreJoiningDocs.pdf</strong> (e.g., RahulSharma_PreJoiningDocs.pdf)
+            </p>
+          </div>
+        </div>
+
         <p style="color: #EF4444; font-size: 13px; margin: 16px 0 0;">
           <strong>Expires:</strong> ${new Date(ctx.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })} (72 hours from now)
         </p>

@@ -37,13 +37,34 @@ export class WhatsAppService {
       const chromePaths = [
         process.env.PUPPETEER_EXECUTABLE_PATH,
         process.env.CHROME_PATH,
-        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        // Linux system Chrome/Chromium (production servers)
         '/usr/bin/google-chrome-stable',
         '/usr/bin/google-chrome',
         '/usr/bin/chromium-browser',
         '/usr/bin/chromium',
+        '/snap/bin/chromium',
+        // Windows local dev
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
       ];
+
+      // Also search Puppeteer cache for downloaded Chrome
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const puppeteerCacheDir = path.join(homeDir, '.cache', 'puppeteer', 'chrome');
+      if (fs.existsSync(puppeteerCacheDir)) {
+        try {
+          const versions = fs.readdirSync(puppeteerCacheDir);
+          for (const ver of versions) {
+            const candidates = [
+              path.join(puppeteerCacheDir, ver, 'chrome-linux64', 'chrome'),
+              path.join(puppeteerCacheDir, ver, 'chrome-linux', 'chrome'),
+              path.join(puppeteerCacheDir, ver, 'chrome-win', 'chrome.exe'),
+            ];
+            chromePaths.push(...candidates);
+          }
+        } catch { /* ignore */ }
+      }
+
       let executablePath: string | undefined;
       for (const p of chromePaths) {
         if (!p) continue;
@@ -160,8 +181,17 @@ export class WhatsAppService {
       return { isConnected: false, status: 'initializing', message: 'Initializing... Scan QR code' };
     } catch (error: any) {
       isInitializing = false;
-      logger.error('WhatsApp init failed:', error.message);
-      throw new BadRequestError(`WhatsApp initialization failed: ${error.message}`);
+      const msg = error.message || String(error);
+      logger.error('WhatsApp init failed:', msg);
+
+      // Provide actionable error for missing Chrome dependencies
+      if (msg.includes('shared libraries') || msg.includes('Failed to launch the browser') || msg.includes('ENOENT')) {
+        throw new BadRequestError(
+          'WhatsApp initialization failed: Chrome/Chromium dependencies are missing on this server. ' +
+          'Run: sudo apt-get install -y chromium-browser libatk1.0-0 libatk-bridge2.0-0 libgbm1 libnss3 libxss1 libasound2'
+        );
+      }
+      throw new BadRequestError(`WhatsApp initialization failed: ${msg}`);
     }
   }
 

@@ -10,13 +10,14 @@ import { cn } from '../../lib/utils';
 /*  Document type → category mapping                                   */
 /* ------------------------------------------------------------------ */
 
-const ID_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'VOTER_ID', 'DRIVING_LICENSE'];
+const ID_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'VOTER_ID', 'DRIVING_LICENSE', 'RESIDENCE_PROOF'];
 const EMPLOYMENT_TYPES = [
   'OFFER_LETTER_DOC', 'JOINING_LETTER', 'EXPERIENCE_LETTER',
   'RELIEVING_LETTER', 'SALARY_SLIP_DOC',
 ];
 const EDUCATION_OTHER_TYPES = [
   'DEGREE_CERTIFICATE', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE',
+  'POST_GRADUATION_CERTIFICATE', 'PROFESSIONAL_CERTIFICATION',
   'BANK_STATEMENT', 'CANCELLED_CHEQUE', 'OTHER',
 ];
 

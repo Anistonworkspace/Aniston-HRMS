@@ -234,30 +234,139 @@ function Step2Personal({ onSave, saving, employee }: { onSave: (data: any) => vo
 }
 
 function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; saving: boolean }) {
-  const docs = [
-    { name: 'Aadhaar Card', type: 'AADHAAR', required: true },
-    { name: 'PAN Card', type: 'PAN', required: true },
-    { name: '10th Certificate', type: 'TENTH_CERTIFICATE', required: true },
-    { name: '12th Certificate', type: 'TWELFTH_CERTIFICATE', required: false },
-    { name: 'Graduation Degree', type: 'DEGREE_CERTIFICATE', required: true },
-    { name: 'Bank Statement', type: 'BANK_STATEMENT', required: true },
-    { name: 'Cancelled Cheque', type: 'CANCELLED_CHEQUE', required: true },
+  const [otherCerts, setOtherCerts] = useState<{ id: number; name: string }[]>([]);
+  const [nextId, setNextId] = useState(1);
+
+  const docSections = [
+    {
+      title: 'Education Certificates',
+      docs: [
+        { name: '10th Marksheet / Certificate', type: 'TENTH_CERTIFICATE', required: true },
+        { name: '12th Marksheet / Certificate', type: 'TWELFTH_CERTIFICATE', required: false },
+        { name: 'Diploma / Degree Certificate', type: 'DEGREE_CERTIFICATE', required: true },
+        { name: 'Post-Graduation Certificate', type: 'POST_GRADUATION_CERTIFICATE', required: false },
+      ],
+    },
+    {
+      title: 'Identity & Address Proof',
+      docs: [
+        { name: 'Aadhaar Card / Passport / Driving License / Voter ID', type: 'AADHAAR', required: true },
+        { name: 'PAN Card', type: 'PAN', required: true },
+        { name: 'Residence Proof (Utility Bill / Rent Agreement)', type: 'RESIDENCE_PROOF', required: true },
+      ],
+    },
+    {
+      title: 'Photographs',
+      docs: [
+        { name: 'Passport Size Photographs (2 nos)', type: 'PHOTO', required: true },
+      ],
+    },
+    {
+      title: 'Previous Employment (if applicable)',
+      docs: [
+        { name: 'Offer / Appointment Letter', type: 'OFFER_LETTER_DOC', required: false },
+        { name: 'Last 3 Salary Slips / Bank Statements', type: 'SALARY_SLIP_DOC', required: false },
+        { name: 'Relieving / Experience Letter', type: 'EXPERIENCE_LETTER', required: false },
+      ],
+    },
+    {
+      title: 'Financial',
+      docs: [
+        { name: 'Bank Statement', type: 'BANK_STATEMENT', required: true },
+        { name: 'Cancelled Cheque', type: 'CANCELLED_CHEQUE', required: true },
+      ],
+    },
   ];
+
+  const addOtherCert = () => {
+    setOtherCerts([...otherCerts, { id: nextId, name: '' }]);
+    setNextId(nextId + 1);
+  };
+
+  const removeOtherCert = (id: number) => {
+    setOtherCerts(otherCerts.filter((c) => c.id !== id));
+  };
+
+  const updateOtherCertName = (id: number, name: string) => {
+    setOtherCerts(otherCerts.map((c) => (c.id === id ? { ...c, name } : c)));
+  };
+
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-gray-500 mb-4">Upload your documents. Required documents are marked with *</p>
-      {docs.map((doc) => (
-        <div key={doc.type} className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
-          <div>
-            <p className="text-sm font-medium text-gray-700">{doc.name} {doc.required && <span className="text-red-400">*</span>}</p>
-            <p className="text-xs text-gray-400">{doc.type}</p>
+    <div className="space-y-5">
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+        <p className="text-sm text-amber-800 font-medium">Pre-Joining Documents</p>
+        <p className="text-xs text-amber-700 mt-1">
+          Upload all required documents. Combine into one PDF named <strong>YourName_PreJoiningDocs.pdf</strong> if possible. Required documents are marked with <span className="text-red-500 font-bold">*</span>
+        </p>
+      </div>
+
+      {docSections.map((section) => (
+        <div key={section.title}>
+          <h4 className="text-sm font-semibold text-gray-600 mb-2 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-brand-500" />
+            {section.title}
+          </h4>
+          <div className="space-y-2">
+            {section.docs.map((doc) => (
+              <div key={doc.type} className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
+                <div className="min-w-0 flex-1 mr-3">
+                  <p className="text-sm font-medium text-gray-700">
+                    {doc.name} {doc.required && <span className="text-red-400">*</span>}
+                  </p>
+                </div>
+                <label className="btn-secondary text-xs cursor-pointer shrink-0">
+                  <input type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" />
+                  Upload
+                </label>
+              </div>
+            ))}
           </div>
-          <label className="btn-secondary text-xs cursor-pointer">
-            <input type="file" className="hidden" accept="image/*,.pdf" />
-            Upload
-          </label>
         </div>
       ))}
+
+      {/* Other Certificates Section */}
+      <div>
+        <h4 className="text-sm font-semibold text-gray-600 mb-2 flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          Additional Certificates (Optional)
+        </h4>
+        <p className="text-xs text-gray-400 mb-2">
+          Upload any other professional certifications, PF/ESIC details, or additional documents.
+        </p>
+
+        {otherCerts.map((cert) => (
+          <div key={cert.id} className="flex items-center gap-2 py-2 px-4 bg-surface-2 rounded-lg mb-2">
+            <input
+              type="text"
+              value={cert.name}
+              onChange={(e) => updateOtherCertName(cert.id, e.target.value)}
+              placeholder="Certificate name (e.g., AWS Certified, PF Number)"
+              className="input-glass flex-1 text-sm py-2"
+            />
+            <label className="btn-secondary text-xs cursor-pointer shrink-0">
+              <input type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" />
+              Upload
+            </label>
+            <button
+              type="button"
+              onClick={() => removeOtherCert(cert.id)}
+              className="text-red-400 hover:text-red-600 text-lg font-bold px-1"
+              title="Remove"
+            >
+              &times;
+            </button>
+          </div>
+        ))}
+
+        <button
+          type="button"
+          onClick={addOtherCert}
+          className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-brand-400 hover:text-brand-600 transition-colors"
+        >
+          + Add Other Certificate
+        </button>
+      </div>
+
       <button onClick={() => onSave({ documentsAcknowledged: true })} className="btn-primary w-full mt-4" disabled={saving}>
         Continue
       </button>
