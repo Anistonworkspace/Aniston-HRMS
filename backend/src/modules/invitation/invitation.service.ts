@@ -207,54 +207,112 @@ export class InvitationService {
 
     const normalizedEmail = data.email.toLowerCase();
 
-    // Check duplicate user
+    // Check for existing user
     const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-    if (existingUser) throw new BadRequestError('A user with this email already exists');
 
     const passwordHash = await bcrypt.hash(data.password, 12);
-    const employeeCode = await generateEmployeeCode(invitation.organizationId);
-
-    // Use role from invitation (set by HR/Admin during creation)
     const assignedRole = (invitation.role as any) || 'EMPLOYEE';
 
-    const result = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email: normalizedEmail,
-          passwordHash,
-          role: assignedRole,
-          status: 'ACTIVE', // Active immediately — onboarding gate handles the rest
-          organizationId: invitation.organizationId,
-        },
-      });
+    let result: { user: any; employee: any };
 
-      const employee = await tx.employee.create({
-        data: {
-          employeeCode,
-          userId: user.id,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          email: normalizedEmail,
-          phone: data.phone || '0000000000',
-          gender: 'PREFER_NOT_TO_SAY',
-          workMode: 'OFFICE',
-          joiningDate: new Date(),
-          status: 'PROBATION',
-          onboardingComplete: false,
-          organizationId: invitation.organizationId,
-          departmentId: invitation.departmentId || undefined,
-          designationId: invitation.designationId || undefined,
-        },
-      });
+    if (existingUser) {
+      // If user is ACTIVE with an active employee — block (real duplicate)
+      if (existingUser.status === 'ACTIVE') {
+        const activeEmployee = await prisma.employee.findFirst({
+          where: { userId: existingUser.id, deletedAt: null },
+        });
+        if (activeEmployee) {
+          throw new BadRequestError('A user with this email already exists');
+        }
+      }
 
-      // Mark invitation as accepted
-      await tx.employeeInvitation.update({
-        where: { id: invitation.id },
-        data: { status: 'ACCEPTED', acceptedAt: new Date(), employeeId: employee.id },
-      });
+      // Reactivate previously deleted user — update password, reset status
+      // First unlink userId from any soft-deleted employee records (userId is unique)
+      const employeeCode = await generateEmployeeCode(invitation.organizationId);
 
-      return { user, employee };
-    });
+      result = await prisma.$transaction(async (tx) => {
+        await tx.employee.updateMany({
+          where: { userId: existingUser.id, deletedAt: { not: null } },
+          data: { userId: null },
+        });
+
+        const user = await tx.user.update({
+          where: { id: existingUser.id },
+          data: {
+            passwordHash,
+            role: assignedRole,
+            status: 'ACTIVE',
+          },
+        });
+
+        const employee = await tx.employee.create({
+          data: {
+            employeeCode,
+            userId: user.id,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            email: normalizedEmail,
+            phone: data.phone || '0000000000',
+            gender: 'PREFER_NOT_TO_SAY',
+            workMode: 'OFFICE',
+            joiningDate: new Date(),
+            status: 'PROBATION',
+            onboardingComplete: false,
+            organizationId: invitation.organizationId,
+            departmentId: invitation.departmentId || undefined,
+            designationId: invitation.designationId || undefined,
+          },
+        });
+
+        await tx.employeeInvitation.update({
+          where: { id: invitation.id },
+          data: { status: 'ACCEPTED', acceptedAt: new Date(), employeeId: employee.id },
+        });
+
+        return { user, employee };
+      });
+    } else {
+      // Brand new user — create from scratch
+      const employeeCode = await generateEmployeeCode(invitation.organizationId);
+
+      result = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email: normalizedEmail,
+            passwordHash,
+            role: assignedRole,
+            status: 'ACTIVE',
+            organizationId: invitation.organizationId,
+          },
+        });
+
+        const employee = await tx.employee.create({
+          data: {
+            employeeCode,
+            userId: user.id,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            email: normalizedEmail,
+            phone: data.phone || '0000000000',
+            gender: 'PREFER_NOT_TO_SAY',
+            workMode: 'OFFICE',
+            joiningDate: new Date(),
+            status: 'PROBATION',
+            onboardingComplete: false,
+            organizationId: invitation.organizationId,
+            departmentId: invitation.departmentId || undefined,
+            designationId: invitation.designationId || undefined,
+          },
+        });
+
+        await tx.employeeInvitation.update({
+          where: { id: invitation.id },
+          data: { status: 'ACCEPTED', acceptedAt: new Date(), employeeId: employee.id },
+        });
+
+        return { user, employee };
+      });
+    }
 
     // Audit log
     await createAuditLog({
@@ -264,16 +322,16 @@ export class InvitationService {
       entityId: result.employee.id,
       action: 'CREATE',
       newValue: {
-        employeeCode,
+        employeeCode: result.employee.employeeCode,
         email: normalizedEmail,
         role: assignedRole,
-        source: 'invitation',
+        source: existingUser ? 'invitation-reactivated' : 'invitation',
       },
     });
 
     return {
       employeeId: result.employee.id,
-      employeeCode,
+      employeeCode: result.employee.employeeCode,
       redirectTo: '/login',
     };
   }
