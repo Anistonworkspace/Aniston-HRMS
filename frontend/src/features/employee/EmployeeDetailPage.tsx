@@ -903,6 +903,7 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
   const [ocrDocName, setOcrDocName] = useState('');
   const [ocrDocType, setOcrDocType] = useState('');
   const [ocrDocFileUrl, setOcrDocFileUrl] = useState('');
+  const [ocrDocStatus, setOcrDocStatus] = useState('');
   const [docName, setDocName] = useState('');
   const [docType, setDocType] = useState('OTHER');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1083,7 +1084,7 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
                   </div>
 
                   {/* Detail panel link */}
-                  <button onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); }}
+                  <button onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); setOcrDocStatus(doc.status); }}
                     className="text-[10px] text-brand-600 hover:text-brand-700 font-medium">
                     View full OCR details &rarr;
                   </button>
@@ -1115,6 +1116,8 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
           documentId={ocrDocId}
           documentName={ocrDocName}
           documentType={ocrDocType}
+          documentStatus={ocrDocStatus}
+          employeeId={employeeId}
           fileUrl={ocrDocFileUrl}
           onClose={() => setOcrDocId(null)}
         />

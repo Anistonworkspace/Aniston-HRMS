@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Shield, Save, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle, ScanLine, Eye, Pencil } from 'lucide-react';
+import { Shield, Save, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle, ScanLine, Eye, Pencil, Check } from 'lucide-react';
 import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation } from './documentOcrApi';
+import { useVerifyDocumentMutation } from './documentApi';
+import { useVerifyKycMutation } from '../kyc/kycApi';
 import toast from 'react-hot-toast';
 import { cn } from '../../lib/utils';
 
@@ -8,6 +10,8 @@ interface Props {
   documentId: string;
   documentName: string;
   documentType: string;
+  documentStatus?: string;
+  employeeId?: string;
   fileUrl?: string;
   onClose: () => void;
 }
@@ -24,10 +28,12 @@ const OCR_FIELDS = [
 
 type FieldKey = typeof OCR_FIELDS[number]['key'];
 
-export default function OcrVerificationPanel({ documentId, documentName, documentType, fileUrl, onClose }: Props) {
+export default function OcrVerificationPanel({ documentId, documentName, documentType, documentStatus, employeeId, fileUrl, onClose }: Props) {
   const { data: ocrRes, isLoading, isError, refetch } = useGetDocumentOcrQuery(documentId);
   const [triggerOcr, { isLoading: triggering }] = useTriggerDocumentOcrMutation();
   const [updateOcr, { isLoading: saving }] = useUpdateDocumentOcrMutation();
+  const [verifyDoc, { isLoading: verifyingDoc }] = useVerifyDocumentMutation();
+  const [verifyKyc, { isLoading: verifyingKyc }] = useVerifyKycMutation();
   const [editing, setEditing] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [hrNotes, setHrNotes] = useState('');
@@ -272,6 +278,42 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                 {saving ? 'Saving...' : 'Save Review'}
               </button>
+
+              {/* Verify This Document */}
+              {documentStatus === 'PENDING' && (
+                <button onClick={async () => {
+                  try {
+                    await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
+                    toast.success('Document verified!');
+                  } catch { toast.error('Failed to verify document'); }
+                }} disabled={verifyingDoc}
+                  className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors">
+                  {verifyingDoc ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                  Verify This Document
+                </button>
+              )}
+
+              {/* Verify All & Approve KYC */}
+              {employeeId && (
+                <button onClick={async () => {
+                  try {
+                    // First verify this document if pending
+                    if (documentStatus === 'PENDING') {
+                      await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
+                    }
+                    // Then approve KYC
+                    await verifyKyc(employeeId).unwrap();
+                    toast.success('KYC approved! Employee can now access the portal.');
+                    onClose();
+                  } catch (err: any) {
+                    toast.error(err?.data?.error?.message || 'Failed to approve KYC');
+                  }
+                }} disabled={verifyingKyc}
+                  className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors">
+                  {verifyingKyc ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                  Approve KYC & Grant Portal Access
+                </button>
+              )}
 
               {/* HR reviewed info */}
               {ocr.hrReviewedBy && (
