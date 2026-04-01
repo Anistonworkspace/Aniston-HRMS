@@ -136,7 +136,7 @@ export class EmployeeController {
         sentCount++;
       }
 
-      res.json({ success: true, data: { sentCount, totalRequested: employeeIds.length }, message: `${sentCount} emails queued` });
+      res.json({ success: true, data: { queued: sentCount, sentCount, totalRequested: employeeIds.length }, message: `${sentCount} emails queued` });
     } catch (err) {
       next(err);
     }

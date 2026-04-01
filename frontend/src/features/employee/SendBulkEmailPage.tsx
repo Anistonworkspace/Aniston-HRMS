@@ -1,9 +1,10 @@
 import { useState, useMemo, useRef } from 'react';
-import { Send, Loader2, Search, CheckCircle2, Smartphone, Clock, Users, Mail, Upload, X, AlertTriangle, FileSpreadsheet } from 'lucide-react';
+import { Send, Loader2, Search, CheckCircle2, Smartphone, Clock, Users, Mail, Upload, X, AlertTriangle, FileSpreadsheet, Download } from 'lucide-react';
 import { useGetEmployeesQuery } from './employeeApi';
 import { useSendBulkEmailMutation, useSendBulkOnboardingInviteMutation } from './employeeBulkApi';
 import toast from 'react-hot-toast';
 import { cn, getInitials } from '../../lib/utils';
+import * as XLSX from 'xlsx';
 
 type TemplateType = 'app-download' | 'attendance-instructions' | 'onboarding-invite';
 
@@ -98,41 +99,85 @@ export default function SendBulkEmailPage() {
     setOnboardingEmails(onboardingEmails.filter((e) => e !== email));
   };
 
+  // Download sample Excel template
+  const downloadTemplate = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Email'],
+      ['john@example.com'],
+      ['jane@example.com'],
+    ]);
+    ws['!cols'] = [{ wch: 35 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Emails');
+    XLSX.writeFile(wb, 'bulk-email-template.xlsx');
+  };
+
+  // Extract emails from parsed rows (shared between CSV and Excel)
+  const extractEmailsFromRows = (rows: string[][]) => {
+    const extracted: string[] = [];
+    for (const row of rows) {
+      for (const cell of row) {
+        const trimmed = String(cell ?? '').trim().replace(/^["']|["']$/g, '');
+        if (trimmed.includes('@') && trimmed.includes('.')) {
+          const lower = trimmed.toLowerCase();
+          if (!onboardingEmails.includes(lower) && !extracted.includes(lower)) {
+            extracted.push(lower);
+          }
+        }
+      }
+    }
+    return extracted;
+  };
+
   // Handle CSV/Excel file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      if (!text) return;
+    const isExcel = /\.xlsx?$/i.test(file.name);
 
-      // Parse CSV — extract emails from all columns
-      const lines = text.split(/\r?\n/);
-      const extracted: string[] = [];
+    if (isExcel) {
+      // Parse Excel binary with SheetJS
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const data = new Uint8Array(event.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+          const extracted = extractEmailsFromRows(rows);
 
-      for (const line of lines) {
-        const cells = line.split(/[,;\t]/);
-        for (const cell of cells) {
-          const trimmed = cell.trim().replace(/^["']|["']$/g, ''); // remove quotes
-          if (trimmed.includes('@') && trimmed.includes('.')) {
-            const lower = trimmed.toLowerCase();
-            if (!onboardingEmails.includes(lower) && !extracted.includes(lower)) {
-              extracted.push(lower);
-            }
+          if (extracted.length > 0) {
+            setOnboardingEmails([...onboardingEmails, ...extracted]);
+            toast.success(`${extracted.length} email${extracted.length !== 1 ? 's' : ''} extracted from file`);
+          } else {
+            toast.error('No valid emails found in the file');
           }
+        } catch {
+          toast.error('Failed to parse Excel file');
         }
-      }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      // Parse CSV/TXT as text
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target?.result as string;
+        if (!text) return;
 
-      if (extracted.length > 0) {
-        setOnboardingEmails([...onboardingEmails, ...extracted]);
-        toast.success(`${extracted.length} email${extracted.length !== 1 ? 's' : ''} extracted from file`);
-      } else {
-        toast.error('No valid emails found in the file');
-      }
-    };
-    reader.readAsText(file);
+        const lines = text.split(/\r?\n/);
+        const rows = lines.map((line) => line.split(/[,;\t]/));
+        const extracted = extractEmailsFromRows(rows);
+
+        if (extracted.length > 0) {
+          setOnboardingEmails([...onboardingEmails, ...extracted]);
+          toast.success(`${extracted.length} email${extracted.length !== 1 ? 's' : ''} extracted from file`);
+        } else {
+          toast.error('No valid emails found in the file');
+        }
+      };
+      reader.readAsText(file);
+    }
 
     // Reset file input
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -327,7 +372,7 @@ export default function SendBulkEmailPage() {
             Add Emails for Onboarding
           </h2>
 
-          {/* CSV Upload */}
+          {/* CSV/Excel Upload + Download Template */}
           <div className="flex flex-col sm:flex-row gap-3 mb-4">
             <label
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-brand-400 hover:bg-brand-50/30 transition-colors"
@@ -344,6 +389,13 @@ export default function SendBulkEmailPage() {
                 Upload CSV / Excel file with emails
               </span>
             </label>
+            <button
+              onClick={downloadTemplate}
+              className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg text-sm text-gray-600 hover:border-brand-400 hover:text-brand-600 hover:bg-brand-50/30 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Download Template
+            </button>
           </div>
 
           {/* Manual text input */}
