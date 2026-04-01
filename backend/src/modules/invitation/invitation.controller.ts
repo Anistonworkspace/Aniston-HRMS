@@ -90,6 +90,17 @@ export class InvitationController {
       next(err);
     }
   }
+
+  async remove(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await invitationService.deleteInvitation(
+        req.params.id, req.user!.organizationId, req.user!.userId
+      );
+      res.json({ success: true, data: result, message: 'Invitation deleted' });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const invitationController = new InvitationController();

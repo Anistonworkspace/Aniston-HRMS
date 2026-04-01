@@ -32,4 +32,8 @@ router.post('/:id/resend', requirePermission('employee', 'create'), (req, res, n
   invitationController.resend(req, res, next)
 );
 
+router.delete('/:id', requirePermission('employee', 'delete'), (req, res, next) =>
+  invitationController.remove(req, res, next)
+);
+
 export { router as invitationRouter };

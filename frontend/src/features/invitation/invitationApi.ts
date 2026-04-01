@@ -26,6 +26,10 @@ export const invitationApi = api.injectEndpoints({
       query: (id) => ({ url: `/invitations/${id}/resend`, method: 'POST' }),
       invalidatesTags: ['Invitation'],
     }),
+    deleteInvitation: builder.mutation<any, string>({
+      query: (id) => ({ url: `/invitations/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Invitation'],
+    }),
   }),
 });
 
@@ -35,4 +39,5 @@ export const {
   useValidateInvitationQuery,
   useCompleteInvitationMutation,
   useResendInvitationMutation,
+  useDeleteInvitationMutation,
 } = invitationApi;

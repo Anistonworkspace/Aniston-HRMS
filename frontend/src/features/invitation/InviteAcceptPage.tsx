@@ -43,7 +43,7 @@ export default function InviteAcceptPage() {
     if (invitation?.email) setEmail(invitation.email);
   }, [invitation?.email]);
 
-  // Auto-redirect to login after success
+  // Auto-redirect to login after success — user logs in then onboarding starts
   useEffect(() => {
     if (success) {
       const timer = setTimeout(() => navigate('/login'), 3000);

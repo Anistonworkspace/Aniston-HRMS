@@ -92,7 +92,7 @@ export class InvitationService {
       ? `${inviter.employee.firstName} ${inviter.employee.lastName}`
       : inviter?.email || 'HR Team';
 
-    const inviteUrl = `${env.FRONTEND_URL}/onboarding/invite/${invitation.inviteToken}`;
+    const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`;
 
     // Send email invitation
     if (email) {
@@ -406,7 +406,7 @@ export class InvitationService {
           },
         });
 
-        const inviteUrl = `${frontendUrl}/onboarding/invite/${invitation.inviteToken}`;
+        const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`;
 
         await enqueueEmail({
           to: email,
@@ -512,7 +512,7 @@ export class InvitationService {
       select: { name: true },
     });
 
-    const inviteUrl = `${env.FRONTEND_URL}/onboarding/invite/${updated.inviteToken}`;
+    const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${updated.inviteToken}`;
 
     if (invitation.email) {
       await enqueueEmail({
@@ -541,6 +541,33 @@ export class InvitationService {
     }
 
     return { success: true, inviteUrl, expiresAt: newExpiresAt };
+  }
+
+  /**
+   * Delete an invitation (only if not yet accepted).
+   */
+  async deleteInvitation(invitationId: string, organizationId: string, userId: string) {
+    const invitation = await prisma.employeeInvitation.findFirst({
+      where: { id: invitationId, organizationId },
+    });
+
+    if (!invitation) throw new NotFoundError('Invitation not found');
+    if (invitation.status === 'ACCEPTED') throw new BadRequestError('Cannot delete an accepted invitation');
+
+    await prisma.employeeInvitation.delete({
+      where: { id: invitationId },
+    });
+
+    await createAuditLog({
+      userId,
+      organizationId,
+      entity: 'EmployeeInvitation',
+      entityId: invitationId,
+      action: 'DELETE',
+      oldValue: { email: invitation.email, mobileNumber: invitation.mobileNumber },
+    });
+
+    return { success: true };
   }
 }
 

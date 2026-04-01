@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight, UserPlus, Mail, Phone, X, Loader2, Copy, Send, Clock, CheckCircle2, AlertTriangle, Eye, Trash2 } from 'lucide-react';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation, useDeleteEmployeeMutation } from './employeeApi';
-import { useCreateInvitationMutation, useGetInvitationsQuery, useResendInvitationMutation } from '../invitation/invitationApi';
+import { useCreateInvitationMutation, useGetInvitationsQuery, useResendInvitationMutation, useDeleteInvitationMutation } from '../invitation/invitationApi';
 import { useGetDepartmentsQuery, useGetDesignationsQuery } from './employeeDepsApi';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, cn } from '../../lib/utils';
@@ -509,6 +509,8 @@ function InvitationsTab() {
   const [page, setPage] = useState(1);
   const { data, isLoading } = useGetInvitationsQuery({ page, limit: 20 });
   const [resend, { isLoading: resending }] = useResendInvitationMutation();
+  const [deleteInv, { isLoading: deletingInv }] = useDeleteInvitationMutation();
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const invitations = data?.data || [];
   const meta = data?.meta;
@@ -519,6 +521,16 @@ function InvitationsTab() {
       toast.success('Invitation resent');
     } catch {
       toast.error('Failed to resend');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteInv(id).unwrap();
+      toast.success('Invitation deleted');
+      setConfirmDeleteId(null);
+    } catch {
+      toast.error('Failed to delete invitation');
     }
   };
 
@@ -562,10 +574,25 @@ function InvitationsTab() {
               <td className="px-4 py-3">{statusBadge(inv)}</td>
               <td className="px-4 py-3">
                 {inv.status !== 'ACCEPTED' && (
-                  <button onClick={() => handleResend(inv.id)} disabled={resending}
-                    className="text-xs text-brand-600 hover:text-brand-700 font-medium">
-                    Resend
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => handleResend(inv.id)} disabled={resending}
+                      className="text-xs text-brand-600 hover:text-brand-700 font-medium">
+                      Resend
+                    </button>
+                    {confirmDeleteId === inv.id ? (
+                      <span className="flex items-center gap-1">
+                        <button onClick={() => handleDelete(inv.id)} disabled={deletingInv}
+                          className="text-xs text-red-600 hover:text-red-700 font-medium">Yes</button>
+                        <button onClick={() => setConfirmDeleteId(null)}
+                          className="text-xs text-gray-400 hover:text-gray-600 font-medium">No</button>
+                      </span>
+                    ) : (
+                      <button onClick={() => setConfirmDeleteId(inv.id)}
+                        className="text-xs text-red-500 hover:text-red-700 font-medium">
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 )}
               </td>
             </tr>
