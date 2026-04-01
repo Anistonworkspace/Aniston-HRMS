@@ -13,7 +13,15 @@ export class ShiftService {
     });
   }
 
-  async createShift(data: CreateShiftInput, organizationId: string) {
+  async createShift(data: CreateShiftInput, organizationId: string, assignedBy?: string) {
+    // Only allow one shift per type (General=OFFICE, Live Tracking=FIELD)
+    const existingType = await prisma.shift.findFirst({
+      where: { organizationId, shiftType: data.shiftType, isActive: true },
+    });
+    if (existingType) {
+      throw new ConflictError(`A ${data.shiftType === 'OFFICE' ? 'General' : 'Live Tracking'} shift already exists`);
+    }
+
     // Check if an active shift with same code exists
     const existing = await prisma.shift.findFirst({
       where: { code: data.code, organizationId },
@@ -23,6 +31,8 @@ export class ShiftService {
       throw new ConflictError(`Shift code "${data.code}" already exists`);
     }
 
+    let shift;
+
     // If a soft-deleted shift with same code exists, reactivate it with new data
     if (existing && !existing.isActive) {
       if (data.isDefault) {
@@ -31,23 +41,30 @@ export class ShiftService {
           data: { isDefault: false },
         });
       }
-      return prisma.shift.update({
+      shift = await prisma.shift.update({
         where: { id: existing.id },
         data: { ...data, organizationId, isActive: true },
       });
-    }
+    } else {
+      // If this is default, unset other defaults
+      if (data.isDefault) {
+        await prisma.shift.updateMany({
+          where: { organizationId, isDefault: true },
+          data: { isDefault: false },
+        });
+      }
 
-    // If this is default, unset other defaults
-    if (data.isDefault) {
-      await prisma.shift.updateMany({
-        where: { organizationId, isDefault: true },
-        data: { isDefault: false },
+      shift = await prisma.shift.create({
+        data: { ...data, organizationId },
       });
     }
 
-    return prisma.shift.create({
-      data: { ...data, organizationId },
-    });
+    // Auto-assign General (OFFICE) shift to all employees without a shift
+    if (data.shiftType === 'OFFICE' && data.isDefault && assignedBy) {
+      await this.autoAssignDefaultShift(organizationId, assignedBy);
+    }
+
+    return shift;
   }
 
   async updateShift(id: string, data: any, organizationId: string) {
@@ -102,7 +119,7 @@ export class ShiftService {
     });
 
     // Map shift type to employee work mode
-    const workModeMap: Record<string, string> = { OFFICE: 'OFFICE', HYBRID: 'HYBRID', FIELD: 'FIELD_SALES' };
+    const workModeMap: Record<string, string> = { OFFICE: 'OFFICE', FIELD: 'FIELD_SALES' };
     const newWorkMode = workModeMap[shift.shiftType] || 'OFFICE';
 
     // Update employee's workMode to match the assigned shift
@@ -144,6 +161,58 @@ export class ShiftService {
       },
       orderBy: { startDate: 'desc' },
     });
+  }
+
+  /**
+   * Auto-assign the default (General/OFFICE) shift to all employees without an active shift assignment.
+   * Called when the General shift is created or on-demand via API.
+   */
+  async autoAssignDefaultShift(organizationId: string, assignedBy: string) {
+    const defaultShift = await prisma.shift.findFirst({
+      where: { organizationId, isActive: true, shiftType: 'OFFICE', isDefault: true },
+    });
+    if (!defaultShift) return { assigned: 0, message: 'No default General shift found' };
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Find employees without any active shift assignment
+    const employeesWithoutShift = await prisma.employee.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        NOT: {
+          shiftAssignments: {
+            some: {
+              startDate: { lte: today },
+              OR: [{ endDate: null }, { endDate: { gte: today } }],
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (employeesWithoutShift.length === 0) return { assigned: 0, message: 'All employees already have shifts' };
+
+    // Bulk create assignments and update workMode
+    await prisma.$transaction(async (tx) => {
+      await tx.shiftAssignment.createMany({
+        data: employeesWithoutShift.map(emp => ({
+          employeeId: emp.id,
+          shiftId: defaultShift.id,
+          startDate: today,
+          endDate: null,
+          assignedBy,
+        })),
+      });
+      await tx.employee.updateMany({
+        where: { id: { in: employeesWithoutShift.map(e => e.id) } },
+        data: { workMode: 'OFFICE' },
+      });
+    });
+
+    return { assigned: employeesWithoutShift.length, message: `General shift auto-assigned to ${employeesWithoutShift.length} employees` };
   }
 
   // ===================== OFFICE LOCATIONS + GEOFENCE =====================

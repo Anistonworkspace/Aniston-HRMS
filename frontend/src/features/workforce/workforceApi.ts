@@ -23,6 +23,10 @@ export const workforceApi = api.injectEndpoints({
       query: (body) => ({ url: '/workforce/shifts/assign', method: 'POST', body }),
       invalidatesTags: ['Attendance'],
     }),
+    autoAssignDefault: builder.mutation<any, void>({
+      query: () => ({ url: '/workforce/shifts/auto-assign', method: 'POST' }),
+      invalidatesTags: ['Attendance'],
+    }),
     getEmployeeShift: builder.query<any, string>({
       query: (employeeId) => `/workforce/shifts/employee/${employeeId}`,
       providesTags: ['Attendance'],
@@ -54,6 +58,7 @@ export const {
   useUpdateShiftMutation,
   useDeleteShiftMutation,
   useAssignShiftMutation,
+  useAutoAssignDefaultMutation,
   useGetEmployeeShiftQuery,
   useGetLocationsQuery,
   useCreateLocationMutation,

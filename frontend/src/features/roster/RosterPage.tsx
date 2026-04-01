@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2 } from 'lucide-react';
 import {
-  useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation,
+  useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation,
   useGetLocationsQuery, useCreateLocationMutation, useUpdateLocationMutation, useDeleteLocationMutation,
-  useAssignShiftMutation,
+  useAssignShiftMutation, useAutoAssignDefaultMutation,
 } from '../workforce/workforceApi';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
 import LocationPickerMap from '../../components/map/LocationPickerMap';
@@ -59,22 +58,26 @@ export default function RosterPage() {
   );
 }
 
+/* ===== SHIFT TYPE LABELS ===== */
+const SHIFT_DISPLAY: Record<string, { label: string; description: string; badgeClass: string; bgColor: string; textColor: string; borderColor: string }> = {
+  OFFICE: { label: 'General Shift', description: 'Geofence-based attendance. Employees can only mark in/out within assigned office locations. HR is notified if marking outside geofence.', badgeClass: 'bg-blue-50 text-blue-600', bgColor: '#eff6ff', textColor: '#1d4ed8', borderColor: '#bfdbfe' },
+  FIELD: { label: 'Live Tracking', description: 'GPS-based live location tracking. Ideal for field sales employees. Locations are recorded at regular intervals.', badgeClass: 'bg-green-50 text-green-600', bgColor: '#f0fdf4', textColor: '#15803d', borderColor: '#bbf7d0' },
+};
+
 /* ===== SHIFTS PANEL ===== */
 function ShiftsPanel() {
   const { data: res } = useGetShiftsQuery();
   const shifts = res?.data || [];
   const [createShift, { isLoading: creating }] = useCreateShiftMutation();
   const [updateShift] = useUpdateShiftMutation();
-  const [deleteShift] = useDeleteShiftMutation();
   const [show, setShow] = useState(false);
   const [editShift, setEditShift] = useState<any>(null);
-  const emptyForm = { name: '', code: '', shiftType: 'OFFICE' as string, startTime: '09:00', endTime: '18:00', graceMinutes: 15, halfDayHours: 4, fullDayHours: 8, trackingIntervalMinutes: undefined as number | undefined, isDefault: false };
+  const emptyForm = { name: '', code: '', shiftType: 'OFFICE' as string, startTime: '09:00', endTime: '18:00', graceMinutes: 30, halfDayHours: 4, fullDayHours: 8, trackingIntervalMinutes: undefined as number | undefined, isDefault: true };
   const [form, setForm] = useState(emptyForm);
 
-  // Auto-generate code from name + type
   const autoGenerateCode = (name: string, shiftType: string) => {
     const base = name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').substring(0, 15);
-    const suffix = shiftType === 'OFFICE' ? 'OFC' : shiftType === 'HYBRID' ? 'HYB' : 'FLD';
+    const suffix = shiftType === 'OFFICE' ? 'GEN' : 'LT';
     return base ? `${base}-${suffix}` : '';
   };
 
@@ -84,15 +87,12 @@ function ShiftsPanel() {
       shiftType,
       code: autoGenerateCode(prev.name, shiftType),
       trackingIntervalMinutes: shiftType === 'FIELD' ? 60 : undefined,
+      isDefault: shiftType === 'OFFICE',
     }));
   };
 
   const handleNameChange = (name: string) => {
-    setForm(prev => ({
-      ...prev,
-      name,
-      code: autoGenerateCode(name, prev.shiftType),
-    }));
+    setForm(prev => ({ ...prev, name, code: autoGenerateCode(name, prev.shiftType) }));
   };
 
   const preparePayload = () => {
@@ -134,11 +134,30 @@ function ShiftsPanel() {
   const isEditing = !!editShift;
   const showForm = show || isEditing;
 
+  // Check which shift types already exist
+  const existingTypes = new Set(shifts.map((s: any) => s.shiftType));
+  const canCreateGeneral = !existingTypes.has('OFFICE');
+  const canCreateLiveTracking = !existingTypes.has('FIELD');
+  const canCreate = canCreateGeneral || canCreateLiveTracking;
+
   return (
     <div className="space-y-4">
+      {/* Info banner */}
+      <div className="layer-card p-4 bg-blue-50/50 border border-blue-100">
+        <p className="text-sm text-blue-800 font-medium">Two shift types are available:</p>
+        <ul className="text-xs text-blue-700 mt-1 space-y-0.5 list-disc list-inside">
+          <li><strong>General Shift</strong> — Geofence-based. All employees are auto-assigned. HR gets email alerts for out-of-geofence attendance.</li>
+          <li><strong>Live Tracking</strong> — GPS tracking for field employees. Locations recorded at configurable intervals.</li>
+        </ul>
+      </div>
+
       <div className="flex justify-end">
-        {!showForm && (
-          <button onClick={() => { setShow(true); setEditShift(null); setForm(emptyForm); }}
+        {!showForm && canCreate && (
+          <button onClick={() => {
+            setShow(true); setEditShift(null);
+            const defaultType = canCreateGeneral ? 'OFFICE' : 'FIELD';
+            setForm({ ...emptyForm, shiftType: defaultType, name: defaultType === 'OFFICE' ? 'General' : 'Live Tracking', code: defaultType === 'OFFICE' ? 'GENERAL-GEN' : 'LIVE-TRACKING-LT', trackingIntervalMinutes: defaultType === 'FIELD' ? 60 : undefined, isDefault: defaultType === 'OFFICE' });
+          }}
             className="btn-primary text-sm flex items-center gap-1.5"><Plus size={14} /> Create Shift</button>
         )}
       </div>
@@ -149,37 +168,38 @@ function ShiftsPanel() {
             <h3 className="text-sm font-semibold text-gray-700">{isEditing ? 'Edit Shift' : 'Create Shift'}</h3>
             <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
           </div>
-          {/* Shift Type Selector */}
-          <div>
-            <label className="block text-xs text-gray-500 mb-1.5">Shift Type</label>
-            <div className="flex gap-2">
-              {[
-                { key: 'OFFICE', label: 'Office', color: 'blue' },
-                { key: 'HYBRID', label: 'Hybrid', color: 'purple' },
-                { key: 'FIELD', label: 'Field', color: 'green' },
-              ].map(t => (
-                <button key={t.key} type="button" onClick={() => handleShiftTypeChange(t.key)}
-                  className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all border',
-                    form.shiftType === t.key
-                      ? `bg-${t.color}-50 text-${t.color}-700 border-${t.color}-200`
-                      : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
-                  )}
-                  style={form.shiftType === t.key ? {
-                    backgroundColor: t.color === 'blue' ? '#eff6ff' : t.color === 'purple' ? '#faf5ff' : '#f0fdf4',
-                    color: t.color === 'blue' ? '#1d4ed8' : t.color === 'purple' ? '#7e22ce' : '#15803d',
-                    borderColor: t.color === 'blue' ? '#bfdbfe' : t.color === 'purple' ? '#e9d5ff' : '#bbf7d0',
-                  } : {}}>
-                  {t.label}
-                </button>
-              ))}
+          {/* Shift Type Selector — only 2 options */}
+          {!isEditing && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">Shift Type</label>
+              <div className="flex gap-2">
+                {[
+                  { key: 'OFFICE', label: 'General Shift', disabled: !canCreateGeneral },
+                  { key: 'FIELD', label: 'Live Tracking', disabled: !canCreateLiveTracking },
+                ].map(t => (
+                  <button key={t.key} type="button" onClick={() => !t.disabled && handleShiftTypeChange(t.key)}
+                    disabled={t.disabled}
+                    className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all border',
+                      t.disabled ? 'opacity-40 cursor-not-allowed bg-gray-50 text-gray-400 border-gray-200' :
+                      form.shiftType === t.key ? '' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                    )}
+                    style={!t.disabled && form.shiftType === t.key ? {
+                      backgroundColor: SHIFT_DISPLAY[t.key].bgColor,
+                      color: SHIFT_DISPLAY[t.key].textColor,
+                      borderColor: SHIFT_DISPLAY[t.key].borderColor,
+                    } : {}}>
+                    {t.label} {t.disabled && '(exists)'}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Shift Name *</label>
-              <input value={form.name} onChange={e => handleNameChange(e.target.value)} className="input-glass w-full text-sm" placeholder="Morning Shift" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Code <span className="text-gray-300 font-normal">(auto-generated)</span></label>
-              <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm text-gray-500" placeholder="Auto from name + type" /></div>
+              <input value={form.name} onChange={e => handleNameChange(e.target.value)} className="input-glass w-full text-sm" placeholder={form.shiftType === 'OFFICE' ? 'General' : 'Live Tracking'} /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">Code <span className="text-gray-300 font-normal">(auto)</span></label>
+              <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm text-gray-500" /></div>
           </div>
           <div className={cn('grid gap-3', form.shiftType === 'FIELD' ? 'grid-cols-6' : 'grid-cols-5')}>
             <div><label className="block text-xs text-gray-500 mb-1">Start Time</label>
@@ -206,26 +226,22 @@ function ShiftsPanel() {
             )}
           </div>
 
-          {/* Hybrid info note */}
-          {form.shiftType === 'HYBRID' && (
-            <div className="bg-purple-50 rounded-lg p-3 text-xs text-purple-700 space-y-1">
-              <p className="font-semibold">Hybrid Shift Tracking</p>
-              <p>Office days: Geofence-based check-in/out + location tracking</p>
-              <p>WFH days: Browser activity tracking (Page Visibility API), periodic "still working?" prompts, session duration</p>
+          {/* Shift type info */}
+          {form.shiftType === 'OFFICE' && (
+            <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-1">
+              <p className="font-semibold">General Shift — Geofence Attendance</p>
+              <p>Employees must mark attendance within assigned office geofence. If marking outside, an email alert is sent to HR.</p>
+              <p>This shift is automatically assigned to all employees by default. Different locations can be assigned per employee.</p>
             </div>
           )}
 
           {form.shiftType === 'FIELD' && (
-            <div className="bg-green-50 rounded-lg p-3 text-xs text-green-700">
-              <p className="font-semibold">Field Shift</p>
-              <p>Live GPS tracking at the selected interval. Employee locations are recorded automatically.</p>
+            <div className="bg-green-50 rounded-lg p-3 text-xs text-green-700 space-y-1">
+              <p className="font-semibold">Live Tracking — GPS Field Tracking</p>
+              <p>Live GPS tracking at the selected interval. Employee locations are recorded automatically for field visits.</p>
             </div>
           )}
 
-          <label className="flex items-center gap-2 text-sm text-gray-600">
-            <input type="checkbox" checked={form.isDefault} onChange={e => setForm({...form, isDefault: e.target.checked})} className="rounded" />
-            Set as default shift
-          </label>
           <div className="flex gap-2">
             <button onClick={isEditing ? handleUpdate : handleCreate} disabled={creating}
               className="btn-primary text-sm flex items-center gap-1.5">
@@ -236,38 +252,34 @@ function ShiftsPanel() {
         </div>
       )}
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {shifts.map((s: any) => (
-          <div key={s.id} className="layer-card p-5">
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="font-semibold text-gray-800">{s.name}</h3>
-                  <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500" data-mono>{s.code}</span>
-                  {s.shiftType && s.shiftType !== 'OFFICE' && (
-                    <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded',
-                      s.shiftType === 'HYBRID' ? 'bg-purple-50 text-purple-600' : 'bg-green-50 text-green-600'
-                    )}>{s.shiftType}</span>
-                  )}
-                  {s.isDefault && <span className="text-xs bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded">Default</span>}
+      <div className="grid md:grid-cols-2 gap-4">
+        {shifts.map((s: any) => {
+          const display = SHIFT_DISPLAY[s.shiftType] || SHIFT_DISPLAY.OFFICE;
+          return (
+            <div key={s.id} className="layer-card p-5">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-semibold text-gray-800">{s.name}</h3>
+                    <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500" data-mono>{s.code}</span>
+                    <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded', display.badgeClass)}>{display.label}</span>
+                    {s.isDefault && <span className="text-xs bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded">Default</span>}
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">{s.startTime} — {s.endTime}</p>
                 </div>
-                <p className="text-sm text-gray-500 mt-1">{s.startTime} — {s.endTime}</p>
-              </div>
-              <div className="flex gap-1">
                 <button onClick={() => handleEdit(s)} className="text-gray-400 hover:text-brand-600 p-1"><Pencil size={14} /></button>
-                <button onClick={async () => { if (confirm('Deactivate?')) { await deleteShift(s.id).unwrap(); toast.success('Done'); } }}
-                  className="text-red-400 hover:text-red-600 p-1"><Trash2 size={14} /></button>
+              </div>
+              <p className="text-xs text-gray-400 mb-2">{display.description}</p>
+              <div className="flex gap-3 text-xs text-gray-400 flex-wrap">
+                <span>Grace: {s.graceMinutes}min</span>
+                <span>Full day: {Number(s.fullDayHours)}hrs</span>
+                {s.trackingIntervalMinutes && <span>GPS: every {s.trackingIntervalMinutes}min</span>}
+                <span>{s._count?.assignments || 0} assigned</span>
               </div>
             </div>
-            <div className="flex gap-3 text-xs text-gray-400 flex-wrap">
-              <span>Grace: {s.graceMinutes}min</span>
-              <span>Full day: {Number(s.fullDayHours)}hrs</span>
-              {s.trackingIntervalMinutes && <span>GPS: every {s.trackingIntervalMinutes}min</span>}
-              <span>{s._count?.assignments || 0} assigned</span>
-            </div>
-          </div>
-        ))}
-        {shifts.length === 0 && <p className="text-sm text-gray-400 col-span-3 text-center py-8">No shifts created yet</p>}
+          );
+        })}
+        {shifts.length === 0 && <p className="text-sm text-gray-400 col-span-2 text-center py-8">No shifts created yet. Create the General Shift and Live Tracking shift.</p>}
       </div>
     </div>
   );
@@ -443,9 +455,8 @@ function LocationsPanel() {
 
 /* ===== ASSIGNMENTS PANEL ===== */
 const SHIFT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
-  OFFICE: { label: 'Office', color: 'text-blue-600' },
-  HYBRID: { label: 'Hybrid', color: 'text-purple-600' },
-  FIELD: { label: 'Field', color: 'text-green-600' },
+  OFFICE: { label: 'General', color: 'text-blue-600' },
+  FIELD: { label: 'Live Tracking', color: 'text-green-600' },
 };
 
 function AssignmentsPanel() {
@@ -453,6 +464,7 @@ function AssignmentsPanel() {
   const { data: shiftRes } = useGetShiftsQuery();
   const { data: locRes } = useGetLocationsQuery();
   const [assignShift, { isLoading }] = useAssignShiftMutation();
+  const [autoAssign, { isLoading: autoAssigning }] = useAutoAssignDefaultMutation();
   const [search, setSearch] = useState('');
   const employees = empRes?.data || [];
   const shifts = shiftRes?.data || [];
@@ -514,12 +526,26 @@ function AssignmentsPanel() {
     setEditing(prev => ({ ...prev, [empId]: false }));
   };
 
+  const handleAutoAssign = async () => {
+    try {
+      const res = await autoAssign().unwrap();
+      toast.success(res?.data?.message || 'Auto-assigned General shift');
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="relative max-w-sm">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employees..."
-          className="input-glass w-full pl-10 text-sm" />
+      <div className="flex items-center justify-between gap-3">
+        <div className="relative max-w-sm flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employees..."
+            className="input-glass w-full pl-10 text-sm" />
+        </div>
+        <button onClick={handleAutoAssign} disabled={autoAssigning}
+          className="btn-primary text-sm flex items-center gap-1.5 whitespace-nowrap">
+          {autoAssigning ? <Loader2 size={14} className="animate-spin" /> : <Users size={14} />}
+          Auto-Assign General Shift
+        </button>
       </div>
 
       <div className="layer-card overflow-hidden">
@@ -558,19 +584,16 @@ function AssignmentsPanel() {
                       <td className="p-3">
                         <div className="flex items-center gap-1.5">
                           <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded',
-                            saved[emp.id].shiftType === 'OFFICE' ? 'bg-blue-50 text-blue-600' :
-                            saved[emp.id].shiftType === 'HYBRID' ? 'bg-purple-50 text-purple-600' : 'bg-green-50 text-green-600'
-                          )}>{saved[emp.id].shiftType}</span>
+                            saved[emp.id].shiftType === 'OFFICE' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600'
+                          )}>{saved[emp.id].shiftType === 'OFFICE' ? 'General' : 'Live Tracking'}</span>
                           <span className="text-xs text-gray-700 font-medium">{saved[emp.id].shiftName}</span>
                         </div>
                       </td>
                       <td className="p-3">
                         {saved[emp.id].locationName ? (
                           <span className="text-xs text-gray-600">{saved[emp.id].locationName}</span>
-                        ) : saved[emp.id].shiftType === 'HYBRID' ? (
-                          <span className="text-[10px] text-purple-500">WFH + Office</span>
                         ) : saved[emp.id].shiftType === 'FIELD' ? (
-                          <span className="text-[10px] text-green-600">Live GPS</span>
+                          <span className="text-[10px] text-green-600">Live GPS Tracking</span>
                         ) : (
                           <span className="text-[10px] text-gray-400">—</span>
                         )}
@@ -608,8 +631,7 @@ function AssignmentsPanel() {
                             {!hasLocation && <p className="text-[10px] text-red-400 mt-0.5">Required</p>}
                           </div>
                         )}
-                        {selType === 'HYBRID' && <span className="text-[10px] text-purple-500 bg-purple-50 px-2 py-1 rounded">WFH + Office · No fixed location</span>}
-                        {selType === 'FIELD' && <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS · {sel?.trackingIntervalMinutes || 60}min</span>}
+                        {selType === 'FIELD' && <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS Tracking · {sel?.trackingIntervalMinutes || 60}min interval</span>}
                         {!selType && <span className="text-[10px] text-gray-300">Select a shift first</span>}
                       </td>
                       <td className="p-3">

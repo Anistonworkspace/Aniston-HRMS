@@ -17,7 +17,7 @@ export class ShiftController {
   async createShift(req: Request, res: Response, next: NextFunction) {
     try {
       const data = createShiftSchema.parse(req.body);
-      const shift = await shiftService.createShift(data, req.user!.organizationId);
+      const shift = await shiftService.createShift(data, req.user!.organizationId, req.user!.userId);
       res.status(201).json({ success: true, data: shift, message: 'Shift created' });
     } catch (err) { next(err); }
   }
@@ -49,6 +49,13 @@ export class ShiftController {
     try {
       const assignment = await shiftService.getEmployeeShift(req.params.employeeId as string);
       res.json({ success: true, data: assignment });
+    } catch (err) { next(err); }
+  }
+
+  async autoAssignDefault(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await shiftService.autoAssignDefaultShift(req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
 

@@ -201,6 +201,15 @@ export class AttendanceController {
       res.json({ success: true, data: result, message: 'Hybrid schedule saved' });
     } catch (err) { next(err); }
   }
+
+  async getAttendanceLogs(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employeeId = req.params.employeeId as string;
+      const date = req.params.date as string;
+      const result = await attendanceService.getAttendanceLogsByDate(employeeId, date);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
 }
 
 export const attendanceController = new AttendanceController();

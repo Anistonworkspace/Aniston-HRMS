@@ -466,6 +466,38 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     </table>`,
     standardFooter(ctx.orgName)
   ),
+
+  'geofence-violation': (ctx) => emailLayout(
+    '#DC2626', '!', 'Geofence Alert', `Employee attendance marked outside office location`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hello HR Team,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      <strong>${ctx.employeeName}</strong> (${ctx.employeeCode}) has marked attendance <strong>outside</strong> the assigned office geofence.
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF2F2;margin:16px 0;">
+      <tr><td style="padding:16px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:4px 0;color:#6B7280;font-size:13px;width:130px;">Employee</td>
+            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.employeeName} (${ctx.employeeCode})</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 0;color:#6B7280;font-size:13px;">Assigned Location</td>
+            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.locationName}</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 0;color:#6B7280;font-size:13px;">Distance from Office</td>
+            <td style="padding:4px 0;color:#DC2626;font-size:13px;font-weight:600;">${ctx.distance}m (allowed: ${ctx.allowedRadius}m)</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 0;color:#6B7280;font-size:13px;">Check-in Time</td>
+            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.checkInTime}</td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+    <p style="color:#6B7280;font-size:13px;margin:16px 0 0;">Please review this attendance record and take appropriate action if needed.</p>`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
 };
 
 /**

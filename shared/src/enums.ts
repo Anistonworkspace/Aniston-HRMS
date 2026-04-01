@@ -264,7 +264,6 @@ export enum WalkInStatus {
 
 export enum ShiftType {
   OFFICE = 'OFFICE',
-  HYBRID = 'HYBRID',
   FIELD = 'FIELD',
 }
 

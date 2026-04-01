@@ -6,7 +6,7 @@ import {
   Clock, LogIn, LogOut, Coffee, Play, Square, MapPin,
   ChevronLeft, ChevronRight, Calendar as CalendarIcon,
   Users, Search, Filter, UserCheck, UserX, UserMinus, Eye, Monitor,
-  Shield, Bell, RefreshCw,
+  Shield, Bell, RefreshCw, Flag, AlertTriangle,
 } from 'lucide-react';
 import {
   useGetTodayStatusQuery,
@@ -766,6 +766,22 @@ function AttendancePersonalView() {
               </div>
             )}
 
+            {/* Shift info banner */}
+            {today?.shift && (
+              <div className="mb-3 p-2.5 bg-blue-50 rounded-lg border border-blue-100">
+                <p className="text-xs font-medium text-blue-700">
+                  Shift: {today.shift.name} ({today.shift.startTime} – {today.shift.endTime})
+                </p>
+              </div>
+            )}
+            {!today?.shift && today?.hasShift === false && (
+              <div className="mb-3 p-2.5 bg-amber-50 rounded-lg border border-amber-100">
+                <p className="text-xs font-medium text-amber-700">
+                  No shift assigned — using default schedule
+                </p>
+              </div>
+            )}
+
             {/* Main CTA button */}
             {!today?.isCheckedIn && !today?.isCheckedOut && (
               <motion.button
@@ -781,6 +797,24 @@ function AttendancePersonalView() {
                   <LogIn size={22} />
                 )}
                 Check In
+              </motion.button>
+            )}
+
+            {/* Re-clock-in button (after accidental clock-out) */}
+            {today?.isCheckedOut && (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleClockIn}
+                disabled={clockingIn}
+                className="w-full bg-amber-500 hover:bg-amber-400 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 mt-3"
+              >
+                {clockingIn ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <LogIn size={20} />
+                )}
+                Re-Check In
               </motion.button>
             )}
 
@@ -821,6 +855,15 @@ function AttendancePersonalView() {
               <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-gray-400">
                 <MapPin size={12} />
                 {today.workMode.replace('_', ' ')}
+              </div>
+            )}
+
+            {/* Geofence violation warning */}
+            {today?.geofenceViolation && (
+              <div className="mt-3 p-2.5 bg-red-50 rounded-lg border border-red-100">
+                <p className="text-xs font-medium text-red-600 flex items-center gap-1">
+                  <Shield size={12} /> Marked outside geofence area
+                </p>
               </div>
             )}
           </motion.div>
@@ -917,7 +960,12 @@ function AttendancePersonalView() {
                   {day.date > 0 ? day.date : ''}
                 </span>
                 {day.status && day.date > 0 && (
-                  <div className={cn('w-1.5 h-1.5 rounded-full mt-0.5', STATUS_COLORS[day.status])} />
+                  <div className="flex items-center gap-0.5 mt-0.5">
+                    <div className={cn('w-1.5 h-1.5 rounded-full', STATUS_COLORS[day.status])} />
+                    {day.record?.geofenceViolation && (
+                      <Flag size={8} className="text-red-500" title="Outside geofence" />
+                    )}
+                  </div>
                 )}
                 {day.record?.totalHours && (
                   <span className="text-[9px] font-mono text-gray-400 mt-0.5" data-mono>
@@ -944,6 +992,10 @@ function AttendancePersonalView() {
                 <span className="text-xs text-gray-500">{item.label}</span>
               </div>
             ))}
+            <div className="flex items-center gap-1.5">
+              <Flag size={10} className="text-red-500" />
+              <span className="text-xs text-gray-500">Outside Geofence</span>
+            </div>
           </div>
         </motion.div>
       </div>

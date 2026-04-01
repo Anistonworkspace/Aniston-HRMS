@@ -16,6 +16,7 @@ router.delete('/shifts/:id', hrAuth, (req, res, next) => shiftController.deleteS
 
 // Shift assignments
 router.post('/shifts/assign', hrAuth, (req, res, next) => shiftController.assignShift(req, res, next));
+router.post('/shifts/auto-assign', hrAuth, (req, res, next) => shiftController.autoAssignDefault(req, res, next));
 router.get('/shifts/employee/:employeeId', (req, res, next) => shiftController.getEmployeeShift(req, res, next));
 
 // Office Locations + Geofence CRUD

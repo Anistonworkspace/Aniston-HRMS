@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { emitToOrg } from '../../sockets/index.js';
+import { enqueueEmail } from '../../jobs/queues.js';
 import type { ClockInInput, ClockOutInput, GPSTrailBatchInput, AttendanceQuery, MarkAttendanceInput } from './attendance.validation.js';
 
 export class AttendanceService {
@@ -26,28 +27,47 @@ export class AttendanceService {
       throw new BadRequestError('Already clocked in. Please clock out first.');
     }
 
-    if (existing?.checkOut) {
-      throw new BadRequestError('Already completed attendance for today.');
-    }
+    // Allow re-clock-in after clock-out (e.g., accidental clock-out or returning after break)
+    const isReClockIn = !!(existing?.checkOut);
 
-    // Geofence validation — only for OFFICE shift type
-    // Check employee's current shift assignment type
+    // Check shift assignment — employee must have a shift assigned (or use org default)
     const shiftAssignment = await prisma.shiftAssignment.findFirst({
       where: { employeeId, startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
       include: { shift: true, location: { include: { geofence: true } } },
       orderBy: { startDate: 'desc' },
     });
-    const currentShiftType = shiftAssignment?.shift?.shiftType || 'OFFICE';
+
+    // If no shift assignment, try to find the default shift for the org
+    let shift = shiftAssignment?.shift;
+    if (!shift) {
+      const defaultShift = await prisma.shift.findFirst({
+        where: { organizationId, isDefault: true, isActive: true },
+      });
+      if (defaultShift) {
+        shift = defaultShift;
+      }
+    }
+
+    const currentShiftType = shift?.shiftType || 'OFFICE';
 
     // Use shift assignment's location geofence, or fall back to employee's office location geofence
     const geofence = shiftAssignment?.location?.geofence || employee.officeLocation?.geofence;
 
-    // Only enforce geofence for OFFICE shifts (FIELD and HYBRID can clock in from anywhere)
+    // Geofence validation
+    let geofenceViolation = false;
+    let geofenceDistance: number | null = null;
+    let geofenceStatus = 'NO_GEOFENCE';
+
     if (currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude && data.longitude) {
       const coords = geofence.coordinates as any;
       if (coords?.lat && coords?.lng) {
         const distance = this.haversineDistance(data.latitude, data.longitude, coords.lat, coords.lng);
+        geofenceDistance = Math.round(distance);
+
         if (distance > geofence.radiusMeters) {
+          geofenceViolation = true;
+          geofenceStatus = 'OUTSIDE';
+
           if (geofence.strictMode) {
             throw new BadRequestError(
               `You are ${Math.round(distance)}m away from ${employee.officeLocation?.name || 'office'}. ` +
@@ -55,6 +75,28 @@ export class AttendanceService {
             );
           }
           data.notes = `${data.notes || ''} [Geofence warning: ${Math.round(distance)}m from office]`.trim();
+
+          // Send email alert to HR when employee marks outside geofence
+          const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { adminNotificationEmail: true, name: true } });
+          if (org?.adminNotificationEmail) {
+            enqueueEmail({
+              to: org.adminNotificationEmail,
+              subject: `Geofence Alert: ${employee.firstName} ${employee.lastName} (${employee.employeeCode}) marked attendance outside office`,
+              template: 'geofence-violation',
+              context: {
+                employeeName: `${employee.firstName} ${employee.lastName}`,
+                employeeCode: employee.employeeCode,
+                employeeId: employee.id,
+                distance: Math.round(distance),
+                allowedRadius: geofence.radiusMeters,
+                locationName: shiftAssignment?.location?.name || employee.officeLocation?.name || 'Office',
+                checkInTime: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+                orgName: org.name,
+              },
+            }).catch(() => {}); // fire & forget
+          }
+        } else {
+          geofenceStatus = 'INSIDE';
         }
       }
     }
@@ -65,7 +107,6 @@ export class AttendanceService {
       : null;
 
     // Shift-aware late detection
-    const shift = shiftAssignment?.shift;
     let isLate = false;
     let lateMinutes = 0;
     let shiftInfo: any = null;
@@ -78,17 +119,20 @@ export class AttendanceService {
       const graceEnd = new Date(shiftStart);
       graceEnd.setMinutes(graceEnd.getMinutes() + graceMinutes);
 
-      if (now > graceEnd) {
+      // Only check late on first clock-in, not re-clock-in
+      if (!isReClockIn && now > graceEnd) {
         isLate = true;
         lateMinutes = Math.round((now.getTime() - shiftStart.getTime()) / (1000 * 60));
         data.notes = `${data.notes || ''} [Late by ${lateMinutes} min — shift ${shift.name} starts at ${shift.startTime}]`.trim();
       }
 
-      // Auto-mark HALF_DAY if late beyond grace + 30 min (configurable threshold)
-      const halfDayThreshold = graceMinutes + 30;
-      const minutesLate = Math.round((now.getTime() - shiftStart.getTime()) / (1000 * 60));
-      if (minutesLate > halfDayThreshold) {
-        data.notes = `${data.notes || ''} [Auto-marked HALF_DAY: ${minutesLate} min late, threshold ${halfDayThreshold} min]`.trim();
+      // Auto-mark HALF_DAY if late beyond grace + 30 min (only first clock-in)
+      if (!isReClockIn) {
+        const halfDayThreshold = graceMinutes + 30;
+        const minutesLate = Math.round((now.getTime() - shiftStart.getTime()) / (1000 * 60));
+        if (minutesLate > halfDayThreshold) {
+          data.notes = `${data.notes || ''} [Auto-marked HALF_DAY: ${minutesLate} min late, threshold ${halfDayThreshold} min]`.trim();
+        }
       }
 
       shiftInfo = {
@@ -103,24 +147,58 @@ export class AttendanceService {
       };
     }
 
-    // Determine initial status: HALF_DAY if very late, else PRESENT
-    const autoHalfDay = shift && (() => {
-      const [sh, sm] = shift.startTime.split(':').map(Number);
-      const ss = new Date(now); ss.setHours(sh, sm, 0, 0);
-      const threshold = (shift.graceMinutes || 15) + 30;
-      return Math.round((now.getTime() - ss.getTime()) / 60000) > threshold;
-    })();
+    let record;
 
-    const record = await prisma.attendanceRecord.create({
+    if (isReClockIn && existing) {
+      // Re-clock-in: clear checkOut, keep original checkIn, update notes
+      const reClockInNotes = `${existing.notes || ''} [Re-clocked in at ${now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}]`.trim();
+      record = await prisma.attendanceRecord.update({
+        where: { id: existing.id },
+        data: {
+          checkOut: null,
+          totalHours: null,
+          status: 'PRESENT',
+          notes: reClockInNotes,
+          geofenceViolation: existing.geofenceViolation || geofenceViolation,
+          clockInCount: { increment: 1 },
+        },
+      });
+    } else {
+      // Determine initial status: HALF_DAY if very late, else PRESENT
+      const autoHalfDay = shift && (() => {
+        const [sh, sm] = shift.startTime.split(':').map(Number);
+        const ss = new Date(now); ss.setHours(sh, sm, 0, 0);
+        const threshold = (shift.graceMinutes || 15) + 30;
+        return Math.round((now.getTime() - ss.getTime()) / 60000) > threshold;
+      })();
+
+      record = await prisma.attendanceRecord.create({
+        data: {
+          employeeId,
+          date: today,
+          checkIn: now,
+          status: autoHalfDay ? 'HALF_DAY' : 'PRESENT',
+          workMode: employee.workMode,
+          source: data.source || 'MANUAL_APP',
+          checkInLocation: locationData,
+          notes: data.notes,
+          geofenceViolation,
+          clockInCount: 1,
+        },
+      });
+    }
+
+    // Log the attendance event
+    await prisma.attendanceLog.create({
       data: {
-        employeeId,
-        date: today,
-        checkIn: now,
-        status: autoHalfDay ? 'HALF_DAY' : 'PRESENT',
-        workMode: employee.workMode,
-        source: data.source || 'MANUAL_APP',
-        checkInLocation: locationData,
-        notes: data.notes,
+        attendanceId: record.id,
+        action: isReClockIn ? 'RE_CLOCK_IN' : 'CLOCK_IN',
+        timestamp: now,
+        location: locationData,
+        notes: data.notes || null,
+        geofenceStatus,
+        distanceMeters: geofenceDistance,
+        shiftName: shift?.name || null,
       },
     });
 
@@ -144,9 +222,10 @@ export class AttendanceService {
     emitToOrg(organizationId, 'attendance:checkin', {
       employeeId, employeeName: `${employee.firstName} ${employee.lastName}`,
       checkIn: now.toISOString(), status: 'PRESENT', isLate, lateMinutes,
+      isReClockIn, geofenceViolation,
     });
 
-    return { ...record, isLate, lateMinutes, shift: shiftInfo };
+    return { ...record, isLate, lateMinutes, shift: shiftInfo, isReClockIn, geofenceViolation };
   }
 
   /**
@@ -226,6 +305,18 @@ export class AttendanceService {
       },
     });
 
+    // Log the clock-out event
+    await prisma.attendanceLog.create({
+      data: {
+        attendanceId: record.id,
+        action: 'CLOCK_OUT',
+        timestamp: now,
+        location: locationData,
+        notes: isEarlyCheckout && earlyMinutes > 15 ? `Early checkout by ${earlyMinutes} min` : null,
+        shiftName: shift?.name || null,
+      },
+    });
+
     // Emit real-time event
     const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { firstName: true, lastName: true, organizationId: true } });
     if (emp) {
@@ -248,28 +339,35 @@ export class AttendanceService {
 
     const record = await prisma.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId, date: today } },
-      include: { breaks: true },
+      include: { breaks: true, logs: { orderBy: { timestamp: 'asc' } } },
     });
 
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { workMode: true, firstName: true, lastName: true },
+      select: { workMode: true, firstName: true, lastName: true, organizationId: true },
     });
 
-    // Get current shift
+    // Get current shift assignment
     const shiftAssignment = await prisma.shiftAssignment.findFirst({
       where: { employeeId, startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
       include: { shift: true },
       orderBy: { startDate: 'desc' },
     });
 
+    // Fallback to default shift
+    let shift = shiftAssignment?.shift;
+    if (!shift && employee?.organizationId) {
+      const defaultShift = await prisma.shift.findFirst({
+        where: { organizationId: employee.organizationId, isDefault: true, isActive: true },
+      });
+      if (defaultShift) shift = defaultShift;
+    }
+
     // Calculate active break
     let activeBreak = null;
     if (record?.breaks) {
       activeBreak = record.breaks.find((b) => !b.endTime) || null;
     }
-
-    const shift = shiftAssignment?.shift;
 
     return {
       record,
@@ -279,6 +377,9 @@ export class AttendanceService {
       activeBreak,
       workMode: employee?.workMode,
       totalHours: record?.totalHours || null,
+      geofenceViolation: record?.geofenceViolation || false,
+      clockInCount: record?.clockInCount || 0,
+      logs: record?.logs || [],
       shift: shift ? {
         id: shift.id,
         name: shift.name,
@@ -290,6 +391,7 @@ export class AttendanceService {
         halfDayHours: Number(shift.halfDayHours),
         shiftType: shift.shiftType,
       } : null,
+      hasShift: !!shift,
     };
   }
 
@@ -307,7 +409,7 @@ export class AttendanceService {
         employeeId,
         date: { gte: start, lte: end },
       },
-      include: { breaks: true },
+      include: { breaks: true, logs: { orderBy: { timestamp: 'asc' } } },
       orderBy: { date: 'asc' },
     });
 
@@ -545,11 +647,22 @@ export class AttendanceService {
       throw new BadRequestError('Already on a break. Please end current break first.');
     }
 
+    const now = new Date();
     const breakRecord = await prisma.break.create({
       data: {
         attendanceId: record.id,
-        startTime: new Date(),
+        startTime: now,
         type: breakType as any,
+      },
+    });
+
+    // Log break start event
+    await prisma.attendanceLog.create({
+      data: {
+        attendanceId: record.id,
+        action: 'BREAK_START',
+        timestamp: now,
+        notes: `Break type: ${breakType}`,
       },
     });
 
@@ -583,6 +696,16 @@ export class AttendanceService {
     const updated = await prisma.break.update({
       where: { id: activeBreak.id },
       data: { endTime: now, durationMinutes: duration },
+    });
+
+    // Log break end event
+    await prisma.attendanceLog.create({
+      data: {
+        attendanceId: record.id,
+        action: 'BREAK_END',
+        timestamp: now,
+        notes: `Break duration: ${duration} min`,
+      },
     });
 
     return updated;
@@ -796,7 +919,7 @@ export class AttendanceService {
         employeeId,
         date: { gte: start, lte: end },
       },
-      include: { breaks: true },
+      include: { breaks: true, logs: { orderBy: { timestamp: 'asc' } } },
       orderBy: { date: 'asc' },
     });
 
@@ -947,6 +1070,33 @@ export class AttendanceService {
   /**
    * Haversine distance between two coordinates in meters
    */
+  /**
+   * Get attendance logs for a specific attendance record (HR view)
+   */
+  async getAttendanceLogs(attendanceId: string) {
+    const logs = await prisma.attendanceLog.findMany({
+      where: { attendanceId },
+      orderBy: { timestamp: 'asc' },
+    });
+    return logs;
+  }
+
+  /**
+   * Get attendance logs for an employee on a specific date (HR view)
+   */
+  async getAttendanceLogsByDate(employeeId: string, date: string) {
+    const targetDate = new Date(date);
+    targetDate.setHours(0, 0, 0, 0);
+
+    const record = await prisma.attendanceRecord.findUnique({
+      where: { employeeId_date: { employeeId, date: targetDate } },
+      include: { logs: { orderBy: { timestamp: 'asc' } }, breaks: true },
+    });
+
+    if (!record) return { record: null, logs: [] };
+    return { record, logs: record.logs };
+  }
+
   private haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371000; // Earth's radius in meters
     const dLat = (lat2 - lat1) * Math.PI / 180;

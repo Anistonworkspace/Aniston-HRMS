@@ -412,14 +412,17 @@ model AttendanceRecord {
   ipAddress       String?
   deviceType      String?
   notes           String?
-  activeMinutes   Int              @default(0)
-  activityPulses  Int              @default(0)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  activeMinutes      Int              @default(0)
+  activityPulses     Int              @default(0)
+  geofenceViolation  Boolean          @default(false)
+  clockInCount       Int              @default(0)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
   employee Employee @relation(fields: [employeeId], references: [id])
   breaks   Break[]
   regularization AttendanceRegularization?
+  logs     AttendanceLog[]
 
   @@unique([employeeId, date])
   @@index([date])
@@ -459,6 +462,24 @@ enum BreakType {
   SHORT
   PRAYER
   CUSTOM
+}
+
+model AttendanceLog {
+  id             String   @id @default(uuid())
+  attendanceId   String
+  action         String   // CLOCK_IN, CLOCK_OUT, RE_CLOCK_IN, BREAK_START, BREAK_END
+  timestamp      DateTime @default(now())
+  location       Json?    // { lat, lng, accuracy }
+  notes          String?
+  geofenceStatus String?  // INSIDE, OUTSIDE, NO_GEOFENCE
+  distanceMeters Int?     // distance from office if geofence checked
+  shiftName      String?
+  ipAddress      String?
+
+  attendance AttendanceRecord @relation(fields: [attendanceId], references: [id])
+
+  @@index([attendanceId])
+  @@index([attendanceId, timestamp])
 }
 
 model AttendanceRegularization {
@@ -1454,7 +1475,6 @@ model TicketComment {
 
 enum ShiftType {
   OFFICE
-  HYBRID
   FIELD
 }
 

@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Clock, MapPin, Calendar, ChevronLeft, ChevronRight, User, Activity } from 'lucide-react';
+import { ArrowLeft, Clock, MapPin, Calendar, ChevronLeft, ChevronRight, User, Activity, Flag, LogIn, LogOut, Coffee, Play } from 'lucide-react';
 import { useGetEmployeeQuery } from '../employee/employeeApi';
-import { useGetEmployeeAttendanceQuery, useGetEmployeeGPSTrailQuery, useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery } from './attendanceApi';
+import { useGetEmployeeAttendanceQuery, useGetEmployeeGPSTrailQuery, useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery, useGetAttendanceLogsQuery } from './attendanceApi';
 import { useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import { MapContainer, TileLayer, Marker, Circle, Polyline } from 'react-leaflet';
 import L from 'leaflet';
@@ -73,6 +73,13 @@ export default function EmployeeAttendanceDetailPage() {
     { skip: !employeeId }
   );
   const screenshots = screenshotRes?.data || [];
+
+  // Attendance event logs
+  const { data: logsRes } = useGetAttendanceLogsQuery(
+    { employeeId: employeeId || '', date: selectedDate },
+    { skip: !employeeId }
+  );
+  const attendanceLogs = logsRes?.data?.logs || [];
 
   // Find selected date record
   const selectedRecord = useMemo(() => {
@@ -182,11 +189,81 @@ export default function EmployeeAttendanceDetailPage() {
                   <span className="text-xs text-gray-400">Work Mode</span>
                   <span className="text-xs text-gray-600">{selectedRecord.workMode || 'OFFICE'}</span>
                 </div>
+                {selectedRecord.geofenceViolation && (
+                  <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-100">
+                    <p className="text-xs font-medium text-red-600 flex items-center gap-1">
+                      <Flag size={10} /> Marked outside geofence area
+                    </p>
+                  </div>
+                )}
+                {selectedRecord.clockInCount > 1 && (
+                  <div className="mt-2 p-2 bg-amber-50 rounded-lg border border-amber-100">
+                    <p className="text-xs font-medium text-amber-600">
+                      Re-clocked in {selectedRecord.clockInCount - 1} time(s)
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-sm text-gray-400 text-center py-4">No record for this date</p>
             )}
           </div>
+
+          {/* Attendance Event Logs */}
+          {attendanceLogs.length > 0 && (
+            <div className="layer-card p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <Clock size={14} className="text-brand-500" /> Attendance Timeline
+              </h3>
+              <div className="space-y-0">
+                {attendanceLogs.map((log: any, idx: number) => {
+                  const actionIcons: Record<string, any> = {
+                    CLOCK_IN: <LogIn size={12} className="text-emerald-500" />,
+                    RE_CLOCK_IN: <LogIn size={12} className="text-amber-500" />,
+                    CLOCK_OUT: <LogOut size={12} className="text-red-500" />,
+                    BREAK_START: <Coffee size={12} className="text-amber-500" />,
+                    BREAK_END: <Play size={12} className="text-blue-500" />,
+                  };
+                  const actionLabels: Record<string, string> = {
+                    CLOCK_IN: 'Checked In',
+                    RE_CLOCK_IN: 'Re-Checked In',
+                    CLOCK_OUT: 'Checked Out',
+                    BREAK_START: 'Break Started',
+                    BREAK_END: 'Break Ended',
+                  };
+                  return (
+                    <div key={log.id || idx} className="flex items-start gap-3 py-2 relative">
+                      {idx < attendanceLogs.length - 1 && (
+                        <div className="absolute left-[11px] top-8 bottom-0 w-px bg-gray-200" />
+                      )}
+                      <div className="w-6 h-6 rounded-full bg-surface-2 flex items-center justify-center flex-shrink-0 z-10">
+                        {actionIcons[log.action] || <Clock size={12} className="text-gray-400" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-gray-700">{actionLabels[log.action] || log.action}</p>
+                          <span className="text-[10px] font-mono text-gray-400" data-mono>
+                            {new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                        </div>
+                        {log.geofenceStatus === 'OUTSIDE' && (
+                          <p className="text-[10px] text-red-500 flex items-center gap-0.5 mt-0.5">
+                            <Flag size={8} /> Outside geofence ({log.distanceMeters}m)
+                          </p>
+                        )}
+                        {log.notes && (
+                          <p className="text-[10px] text-gray-400 mt-0.5 truncate">{log.notes}</p>
+                        )}
+                        {log.shiftName && (
+                          <p className="text-[10px] text-blue-400 mt-0.5">Shift: {log.shiftName}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Check-in location map (for OFFICE/HYBRID) */}
           {checkInLoc?.lat && (
@@ -264,7 +341,12 @@ export default function EmployeeAttendanceDetailPage() {
                   <span className={cn('font-medium text-xs', day.isToday ? 'text-brand-600' : 'text-gray-700', day.status === 'WEEKEND' && 'text-gray-400')}>
                     {day.date > 0 ? day.date : ''}
                   </span>
-                  {day.status && day.date > 0 && <div className={cn('w-1.5 h-1.5 rounded-full mt-0.5', DOT_COLORS[day.status])} />}
+                  {day.status && day.date > 0 && (
+                    <div className="flex items-center gap-0.5 mt-0.5">
+                      <div className={cn('w-1.5 h-1.5 rounded-full', DOT_COLORS[day.status])} />
+                      {day.record?.geofenceViolation && <Flag size={7} className="text-red-500" />}
+                    </div>
+                  )}
                 </button>
               ))}
             </div>
@@ -416,6 +498,7 @@ export default function EmployeeAttendanceDetailPage() {
                   <th className="text-left text-xs text-gray-500 px-5 py-2">Status</th>
                   <th className="text-left text-xs text-gray-500 px-5 py-2 hidden md:table-cell">Active</th>
                   <th className="text-left text-xs text-gray-500 px-5 py-2 hidden md:table-cell">Mode</th>
+                  <th className="text-left text-xs text-gray-500 px-5 py-2 hidden md:table-cell">Flags</th>
                 </tr>
               </thead>
               <tbody>
@@ -438,6 +521,10 @@ export default function EmployeeAttendanceDetailPage() {
                       {r.activeMinutes ? `${Math.floor(r.activeMinutes / 60)}h${r.activeMinutes % 60}m` : '--'}
                     </td>
                     <td className="px-5 py-2 text-xs text-gray-400 hidden md:table-cell">{r.workMode || 'OFFICE'}</td>
+                    <td className="px-5 py-2 hidden md:table-cell">
+                      {r.geofenceViolation && <Flag size={12} className="text-red-500" title="Outside geofence" />}
+                      {r.clockInCount > 1 && <span className="text-[10px] text-amber-500 ml-1">×{r.clockInCount}</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>

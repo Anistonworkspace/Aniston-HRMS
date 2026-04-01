@@ -61,6 +61,13 @@ router.post(
   (req, res, next) => attendanceController.markAttendance(req, res, next)
 );
 
+// HR/Admin — attendance event logs for an employee on a date
+router.get(
+  '/logs/:employeeId/:date',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
+  (req, res, next) => attendanceController.getAttendanceLogs(req, res, next)
+);
+
 // Admin/HR view — all employees
 router.get(
   '/all',

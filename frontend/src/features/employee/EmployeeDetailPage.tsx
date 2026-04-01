@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import 'leaflet/dist/leaflet.css';
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
@@ -1924,7 +1925,7 @@ function AttendanceMapModal({ employeeId, records, onClose }: { employeeId: stri
           </button>
         </div>
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-hidden" style={{ minHeight: '500px' }}>
           {/* Left: Record list */}
           <div className="w-72 border-r border-gray-100 overflow-y-auto flex-shrink-0">
             <div className="p-3 border-b border-gray-50 bg-gray-50/50">
@@ -2031,16 +2032,27 @@ function AttendanceLeafletMap({ markers, center, selectedRecord }: { markers: an
 
   const { MapContainer, TileLayer, CircleMarker, Popup, useMap } = MapComponents;
 
-  function FlyTo({ center }: { center: [number, number] }) {
+  function MapController({ center, shouldFly }: { center: [number, number]; shouldFly: boolean }) {
     const map = useMap();
-    useEffect(() => { map.flyTo(center, 15, { duration: 0.8 }); }, [center[0], center[1]]);
+    // Invalidate map size on mount so tiles render fully
+    useEffect(() => {
+      setTimeout(() => { map.invalidateSize(); }, 100);
+    }, []);
+    // Fly to selected record location
+    useEffect(() => {
+      if (shouldFly) {
+        map.flyTo(center, 16, { duration: 0.8 });
+        // Invalidate again after fly animation
+        setTimeout(() => { map.invalidateSize(); }, 900);
+      }
+    }, [center[0], center[1], shouldFly]);
     return null;
   }
 
   return (
-    <MapContainer center={center} zoom={markers.length > 0 ? 14 : 5} style={{ height: '100%', width: '100%' }} scrollWheelZoom zoomControl>
+    <MapContainer center={center} zoom={markers.length > 0 ? 14 : 5} style={{ height: '100%', width: '100%', minHeight: '500px' }} scrollWheelZoom zoomControl>
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
-      {selectedRecord && <FlyTo center={center} />}
+      <MapController center={center} shouldFly={!!selectedRecord} />
       {markers.map((m: any, i: number) => {
         const isCheckIn = m.type === 'checkin';
         const isSelected = selectedRecord?.id === m.id;

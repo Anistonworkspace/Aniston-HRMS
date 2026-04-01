@@ -47,8 +47,9 @@ export default function DashboardPage() {
         await clockOut(coords).unwrap();
         toast.success('Checked out successfully!');
       } else {
+        // Works for both first clock-in and re-clock-in after accidental clock-out
         await clockIn({ ...coords, source: 'MANUAL_APP' }).unwrap();
-        toast.success('Checked in successfully!');
+        toast.success(todayStatus?.isCheckedOut ? 'Re-checked in successfully!' : 'Checked in successfully!');
       }
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed');
@@ -128,21 +129,24 @@ export default function DashboardPage() {
                     ? `Done for today (${Number(todayStatus.totalHours || 0).toFixed(1)}h)`
                     : 'Not checked in yet'}
                 </p>
-                <p className="text-xs text-gray-400 flex items-center gap-1"><MapPin size={10} /> GPS-based attendance</p>
+                <p className="text-xs text-gray-400 flex items-center gap-1">
+                  <MapPin size={10} />
+                  {todayStatus.shift ? `${todayStatus.shift.name} (${todayStatus.shift.startTime}–${todayStatus.shift.endTime})` : 'GPS-based attendance'}
+                </p>
               </div>
               <button
                 onClick={handleQuickCheckIn}
-                disabled={clockingIn || clockingOut || todayStatus.isCheckedOut}
+                disabled={clockingIn || clockingOut}
                 className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors ${
                   todayStatus.isCheckedIn && !todayStatus.isCheckedOut
                     ? 'bg-red-500 hover:bg-red-600 text-white'
                     : todayStatus.isCheckedOut
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    ? 'bg-amber-500 hover:bg-amber-600 text-white'
                     : 'bg-emerald-500 hover:bg-emerald-600 text-white'
                 }`}
               >
                 {(clockingIn || clockingOut) ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
-                {todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'Check Out' : todayStatus.isCheckedOut ? 'Completed' : 'Check In'}
+                {todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'Check Out' : todayStatus.isCheckedOut ? 'Re-Check In' : 'Check In'}
               </button>
             </div>
           )}
