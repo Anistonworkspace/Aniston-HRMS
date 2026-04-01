@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
+import multer from 'multer';
 import { logger } from '../lib/logger.js';
 
 export class AppError extends Error {
@@ -81,6 +82,28 @@ export function errorHandler(
       error: {
         code: err.code,
         message: err.message,
+      },
+    });
+    return;
+  }
+
+  // Multer file upload errors (file too large, wrong type, etc.)
+  if (err instanceof multer.MulterError) {
+    const messages: Record<string, string> = {
+      LIMIT_FILE_SIZE: 'File is too large. Maximum size is 10MB.',
+      LIMIT_FILE_COUNT: 'Too many files uploaded.',
+      LIMIT_FIELD_KEY: 'Field name is too long.',
+      LIMIT_FIELD_VALUE: 'Field value is too long.',
+      LIMIT_FIELD_COUNT: 'Too many fields.',
+      LIMIT_UNEXPECTED_FILE: 'Unexpected file field. Please try again.',
+      LIMIT_PART_COUNT: 'Too many parts in the upload.',
+    };
+    res.status(400).json({
+      success: false,
+      data: null,
+      error: {
+        code: 'UPLOAD_ERROR',
+        message: messages[err.code] || `File upload error: ${err.message}`,
       },
     });
     return;

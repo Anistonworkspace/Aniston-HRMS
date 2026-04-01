@@ -79,6 +79,7 @@ export const api = createApi({
     'Policy',
     'Performance',
     'Kyc',
+    'Onboarding',
     'PermissionPresets',
     'PermissionOverrides',
     'MyPermissions',
