@@ -300,7 +300,8 @@ export class AuthService {
     };
   }
 
-  private generateAccessToken(user: any): string {
+  /** Generate tokens for a user (used by login + invitation accept) */
+  public generateAccessToken(user: any): string {
     const payload: JwtPayload = {
       userId: user.id,
       email: user.email,
@@ -314,7 +315,7 @@ export class AuthService {
     });
   }
 
-  private async generateRefreshToken(userId: string): Promise<string> {
+  public async generateRefreshToken(userId: string): Promise<string> {
     const token = randomBytes(40).toString('hex');
     const expiry = 7 * 24 * 60 * 60; // 7 days in seconds
     await redis.setex(`${REFRESH_TOKEN_PREFIX}${token}`, expiry, userId);

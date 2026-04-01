@@ -48,6 +48,16 @@ export class InvitationController {
         password: z.string().min(8).regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, 'Password must contain uppercase, lowercase, and a number'),
       }).parse(req.body);
       const result = await invitationService.completeInvitation(req.params.token, data);
+      // Set refresh token as httpOnly cookie (same as login)
+      if (result.refreshToken) {
+        res.cookie('refreshToken', result.refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+          path: '/',
+        });
+      }
       res.json({ success: true, data: result, message: 'Account created successfully' });
     } catch (err) {
       next(err);

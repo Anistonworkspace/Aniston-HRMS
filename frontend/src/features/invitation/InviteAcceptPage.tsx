@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Loader2, CheckCircle2, AlertTriangle, Eye, EyeOff, Building2, Shield } from 'lucide-react';
 import { useValidateInvitationQuery, useCompleteInvitationMutation } from './invitationApi';
+import { useAppDispatch } from '../../app/store';
+import { setCredentials } from '../auth/authSlice';
 import toast from 'react-hot-toast';
 
 /** Password strength calculator */
@@ -23,6 +25,7 @@ function getPasswordStrength(pw: string): { score: number; label: string; color:
 export default function InviteAcceptPage() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const { data, isLoading, isError } = useValidateInvitationQuery(token || '', { skip: !token });
   const [complete, { isLoading: completing }] = useCompleteInvitationMutation();
 
@@ -36,20 +39,12 @@ export default function InviteAcceptPage() {
   const [success, setSuccess] = useState<any>(null);
 
   const invitation = data?.data;
-  const strength = useMemo(() => getPasswordStrength(password), [password]);
+  const strength = useMemo(() => getPasswordStrength(password), [password])
 
   // Pre-fill email from invitation
   useEffect(() => {
     if (invitation?.email) setEmail(invitation.email);
   }, [invitation?.email]);
-
-  // Auto-redirect to login after success — user logs in then onboarding starts
-  useEffect(() => {
-    if (success) {
-      const timer = setTimeout(() => navigate('/login'), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [success, navigate]);
 
   const passwordValid = password.length >= 8 &&
     /[a-z]/.test(password) &&
@@ -73,8 +68,29 @@ export default function InviteAcceptPage() {
         token: token!,
         data: { firstName, lastName, email, phone, password },
       }).unwrap();
-      setSuccess(res.data);
-      toast.success('Account created! Redirecting to login...');
+
+      const resData = res.data;
+      setSuccess(resData);
+
+      // Auto-login if tokens are returned
+      if (resData.accessToken && resData.user) {
+        dispatch(setCredentials({ user: resData.user, accessToken: resData.accessToken }));
+        toast.success('Account created! Setting up your workspace...');
+        // Redirect based on onboarding/KYC status
+        setTimeout(() => {
+          if (resData.user.onboardingComplete === false) {
+            navigate('/employee-onboarding', { replace: true });
+          } else if (resData.user.kycCompleted === false) {
+            navigate('/kyc-pending', { replace: true });
+          } else {
+            navigate('/dashboard', { replace: true });
+          }
+        }, 1500);
+      } else {
+        // Fallback: redirect to login
+        toast.success('Account created! Redirecting to login...');
+        setTimeout(() => navigate('/login', { replace: true }), 2000);
+      }
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to create account');
     }
@@ -120,11 +136,10 @@ export default function InviteAcceptPage() {
           <CheckCircle2 size={48} className="mx-auto text-green-500 mb-4" />
           <h1 className="text-xl font-bold text-gray-900 mb-2">Account Created!</h1>
           <p className="text-sm text-gray-500 mb-1">Employee Code: <span className="font-mono font-semibold">{success.employeeCode}</span></p>
-          <p className="text-sm text-gray-500 mb-4">Redirecting to login page...</p>
+          <p className="text-sm text-gray-500 mb-4">
+            {success.accessToken ? 'Setting up your workspace...' : 'Redirecting to login...'}
+          </p>
           <Loader2 size={20} className="animate-spin text-brand-600 mx-auto" />
-          <button onClick={() => navigate('/login')} className="btn-primary mt-4 text-sm">
-            Go to Login Now
-          </button>
         </motion.div>
       </div>
     );

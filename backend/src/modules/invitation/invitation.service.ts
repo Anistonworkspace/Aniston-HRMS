@@ -329,10 +329,46 @@ export class InvitationService {
       },
     });
 
+    // Auto-login: generate tokens so frontend can skip the login page
+    const { authService } = await import('../auth/auth.service.js');
+    const userWithEmployee = await prisma.user.findUnique({
+      where: { id: result.user.id },
+      include: {
+        employee: {
+          select: {
+            id: true, firstName: true, lastName: true, avatar: true,
+            status: true, workMode: true, onboardingComplete: true,
+            documentGate: { select: { kycStatus: true } },
+          },
+        },
+      },
+    });
+
+    const accessToken = authService.generateAccessToken(userWithEmployee);
+    const refreshToken = await authService.generateRefreshToken(result.user.id);
+
+    const kycCompleted = userWithEmployee?.employee?.documentGate?.kycStatus === 'VERIFIED';
+
     return {
       employeeId: result.employee.id,
       employeeCode: result.employee.employeeCode,
-      redirectTo: '/login',
+      accessToken,
+      refreshToken,
+      user: {
+        id: result.user.id,
+        email: normalizedEmail,
+        role: assignedRole,
+        employeeId: result.employee.id,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        avatar: null,
+        organizationId: invitation.organizationId,
+        workMode: 'OFFICE',
+        kycCompleted,
+        onboardingComplete: false,
+        featurePermissions: null,
+        exitAccess: null,
+      },
     };
   }
 
