@@ -31,6 +31,10 @@ export const workforceApi = api.injectEndpoints({
       query: (employeeId) => `/workforce/shifts/employee/${employeeId}`,
       providesTags: ['Attendance'],
     }),
+    getAllAssignments: builder.query<any, void>({
+      query: () => '/workforce/shifts/assignments',
+      providesTags: ['Attendance'],
+    }),
 
     // Office Locations
     getLocations: builder.query<any, void>({
@@ -60,6 +64,7 @@ export const {
   useAssignShiftMutation,
   useAutoAssignDefaultMutation,
   useGetEmployeeShiftQuery,
+  useGetAllAssignmentsQuery,
   useGetLocationsQuery,
   useCreateLocationMutation,
   useUpdateLocationMutation,

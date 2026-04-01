@@ -215,6 +215,28 @@ export class ShiftService {
     return { assigned: employeesWithoutShift.length, message: `General shift auto-assigned to ${employeesWithoutShift.length} employees` };
   }
 
+  /**
+   * Get all active shift assignments for all employees in the org (for roster page)
+   */
+  async getAllAssignments(organizationId: string) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return prisma.shiftAssignment.findMany({
+      where: {
+        employee: { organizationId, deletedAt: null },
+        startDate: { lte: today },
+        OR: [{ endDate: null }, { endDate: { gte: today } }],
+      },
+      include: {
+        shift: true,
+        location: { include: { geofence: true } },
+        employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true, workMode: true } },
+      },
+      orderBy: { startDate: 'desc' },
+    });
+  }
+
   // ===================== OFFICE LOCATIONS + GEOFENCE =====================
 
   async getLocations(organizationId: string) {

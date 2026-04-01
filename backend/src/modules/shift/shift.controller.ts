@@ -52,6 +52,13 @@ export class ShiftController {
     } catch (err) { next(err); }
   }
 
+  async getAllAssignments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const assignments = await shiftService.getAllAssignments(req.user!.organizationId);
+      res.json({ success: true, data: assignments });
+    } catch (err) { next(err); }
+  }
+
   async autoAssignDefault(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await shiftService.autoAssignDefaultShift(req.user!.organizationId, req.user!.userId);

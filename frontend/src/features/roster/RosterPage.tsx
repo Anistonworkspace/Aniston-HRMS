@@ -3,7 +3,7 @@ import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2 } 
 import {
   useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation,
   useGetLocationsQuery, useCreateLocationMutation, useUpdateLocationMutation, useDeleteLocationMutation,
-  useAssignShiftMutation, useAutoAssignDefaultMutation,
+  useAssignShiftMutation, useAutoAssignDefaultMutation, useGetAllAssignmentsQuery,
 } from '../workforce/workforceApi';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
 import LocationPickerMap from '../../components/map/LocationPickerMap';
@@ -463,16 +463,26 @@ function AssignmentsPanel() {
   const { data: empRes } = useGetEmployeesQuery({ limit: 100 });
   const { data: shiftRes } = useGetShiftsQuery();
   const { data: locRes } = useGetLocationsQuery();
+  const { data: assignRes } = useGetAllAssignmentsQuery();
   const [assignShift, { isLoading }] = useAssignShiftMutation();
   const [autoAssign, { isLoading: autoAssigning }] = useAutoAssignDefaultMutation();
   const [search, setSearch] = useState('');
   const employees = empRes?.data || [];
   const shifts = shiftRes?.data || [];
   const locations = locRes?.data || [];
+  const existingAssignments = assignRes?.data || [];
 
-  // Track: pending selections (not yet saved), saved assignments, and editing state
+  // Build a map of employeeId → current assignment from DB
+  const assignmentMap = new Map<string, any>();
+  existingAssignments.forEach((a: any) => {
+    // Only keep the latest assignment per employee
+    if (!assignmentMap.has(a.employeeId)) {
+      assignmentMap.set(a.employeeId, a);
+    }
+  });
+
+  // Track editing state and pending selections
   const [pending, setPending] = useState<Record<string, { shiftId: string; locationId: string }>>({});
-  const [saved, setSaved] = useState<Record<string, { shiftId: string; locationId: string; shiftName: string; shiftType: string; locationName: string }>>({});
   const [editing, setEditing] = useState<Record<string, boolean>>({});
 
   const filtered = employees.filter((e: any) => {
@@ -486,7 +496,7 @@ function AssignmentsPanel() {
     const selectedShift = shifts.find((s: any) => s.id === shiftId);
 
     if (selectedShift?.shiftType === 'OFFICE' && !locationId) {
-      toast.error('Please select an office location for this employee');
+      toast.error('Please select an office location for General shift');
       return;
     }
 
@@ -497,26 +507,15 @@ function AssignmentsPanel() {
         startDate: new Date().toISOString().split('T')[0],
       }).unwrap();
       toast.success('Shift assigned successfully');
-
-      // Move to saved state
-      const loc = locations.find((l: any) => l.id === locationId);
-      setSaved(prev => ({
-        ...prev,
-        [empId]: {
-          shiftId, locationId: locationId || '',
-          shiftName: selectedShift?.name || '', shiftType: selectedShift?.shiftType || 'OFFICE',
-          locationName: loc?.name || '',
-        },
-      }));
       setPending(prev => { const n = { ...prev }; delete n[empId]; return n; });
       setEditing(prev => ({ ...prev, [empId]: false }));
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
   };
 
   const startEdit = (empId: string) => {
-    const s = saved[empId];
-    if (s) {
-      setPending(prev => ({ ...prev, [empId]: { shiftId: s.shiftId, locationId: s.locationId } }));
+    const a = assignmentMap.get(empId);
+    if (a) {
+      setPending(prev => ({ ...prev, [empId]: { shiftId: a.shiftId, locationId: a.locationId || '' } }));
     }
     setEditing(prev => ({ ...prev, [empId]: true }));
   };
@@ -561,8 +560,11 @@ function AssignmentsPanel() {
           </thead>
           <tbody>
             {filtered.map((emp: any) => {
-              const isSaved = !!saved[emp.id] && !editing[emp.id];
-              const isEditing = editing[emp.id] || !saved[emp.id];
+              const dbAssignment = assignmentMap.get(emp.id);
+              const hasDbAssignment = !!dbAssignment;
+              const isEditMode = editing[emp.id];
+              const showSaved = hasDbAssignment && !isEditMode;
+              const showEditing = isEditMode || !hasDbAssignment;
               const p = pending[emp.id] || { shiftId: '', locationId: '' };
               const sel = shifts.find((s: any) => s.id === p.shiftId);
               const selType = sel?.shiftType || '';
@@ -571,44 +573,51 @@ function AssignmentsPanel() {
               const canAssign = p.shiftId && (!needsLocation || hasLocation);
 
               return (
-                <tr key={emp.id} className={cn('border-b border-gray-50', isSaved ? 'bg-emerald-50/30' : 'hover:bg-surface-2')}>
+                <tr key={emp.id} className={cn('border-b border-gray-50', showSaved ? 'bg-emerald-50/30' : 'hover:bg-surface-2')}>
                   <td className="p-3">
                     <p className="font-medium text-gray-800">{emp.firstName} {emp.lastName}</p>
                     <p className="text-xs text-gray-400">{emp.employeeCode}</p>
                   </td>
                   <td className="p-3"><span className="badge badge-info text-xs">{emp.workMode}</span></td>
 
-                  {/* SAVED STATE — read-only display */}
-                  {isSaved && (
+                  {/* SAVED STATE — read-only display from DB */}
+                  {showSaved && (
                     <>
                       <td className="p-3">
                         <div className="flex items-center gap-1.5">
                           <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded',
-                            saved[emp.id].shiftType === 'OFFICE' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600'
-                          )}>{saved[emp.id].shiftType === 'OFFICE' ? 'General' : 'Live Tracking'}</span>
-                          <span className="text-xs text-gray-700 font-medium">{saved[emp.id].shiftName}</span>
+                            dbAssignment.shift?.shiftType === 'OFFICE' ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600'
+                          )}>{dbAssignment.shift?.shiftType === 'OFFICE' ? 'General' : 'Live Tracking'}</span>
+                          <span className="text-xs text-gray-700 font-medium">{dbAssignment.shift?.name}</span>
+                          <span className="text-[10px] text-gray-400">({dbAssignment.shift?.startTime}–{dbAssignment.shift?.endTime})</span>
                         </div>
                       </td>
                       <td className="p-3">
-                        {saved[emp.id].locationName ? (
-                          <span className="text-xs text-gray-600">{saved[emp.id].locationName}</span>
-                        ) : saved[emp.id].shiftType === 'FIELD' ? (
-                          <span className="text-[10px] text-green-600">Live GPS Tracking</span>
+                        {dbAssignment.location?.name ? (
+                          <span className="text-xs text-gray-600 flex items-center gap-1">
+                            <MapPin size={10} className="text-brand-500" />
+                            {dbAssignment.location.name}
+                            {dbAssignment.location.geofence?.radiusMeters && (
+                              <span className="text-[10px] text-gray-400">· {dbAssignment.location.geofence.radiusMeters}m</span>
+                            )}
+                          </span>
+                        ) : dbAssignment.shift?.shiftType === 'FIELD' ? (
+                          <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS Tracking</span>
                         ) : (
-                          <span className="text-[10px] text-gray-400">—</span>
+                          <span className="text-[10px] text-red-400">No location assigned</span>
                         )}
                       </td>
                       <td className="p-3">
                         <button onClick={() => startEdit(emp.id)}
                           className="text-xs py-1.5 px-4 rounded-lg font-medium bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 flex items-center gap-1">
-                          <Pencil size={12} /> Edit
+                          <Pencil size={12} /> Change
                         </button>
                       </td>
                     </>
                   )}
 
                   {/* EDITING/NEW STATE — dropdowns */}
-                  {isEditing && (
+                  {showEditing && (
                     <>
                       <td className="p-3">
                         <select value={p.shiftId} onChange={e => setPending(prev => ({...prev, [emp.id]: { shiftId: e.target.value, locationId: '' }}))}
@@ -626,9 +635,9 @@ function AssignmentsPanel() {
                             <select value={p.locationId} onChange={e => setPending(prev => ({...prev, [emp.id]: { ...prev[emp.id], locationId: e.target.value }}))}
                               className={cn('input-glass text-xs py-1.5 w-44', !hasLocation && 'border-red-300')}>
                               <option value="">Select office *</option>
-                              {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name} ({l.city})</option>)}
+                              {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name} ({l.city || 'N/A'})</option>)}
                             </select>
-                            {!hasLocation && <p className="text-[10px] text-red-400 mt-0.5">Required</p>}
+                            {!hasLocation && <p className="text-[10px] text-red-400 mt-0.5">Location required for geofencing</p>}
                           </div>
                         )}
                         {selType === 'FIELD' && <span className="text-[10px] text-green-600 bg-green-50 px-2 py-1 rounded">Live GPS Tracking · {sel?.trackingIntervalMinutes || 60}min interval</span>}
@@ -641,10 +650,10 @@ function AssignmentsPanel() {
                               className={cn('text-xs py-1.5 px-3 rounded-lg font-medium transition-colors',
                                 canAssign ? 'btn-primary' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                               )}>
-                              {isLoading ? '...' : saved[emp.id] ? 'Save' : 'Assign'}
+                              {isLoading ? '...' : hasDbAssignment ? 'Save' : 'Assign'}
                             </button>
                           )}
-                          {saved[emp.id] && (
+                          {hasDbAssignment && (
                             <button onClick={() => cancelEdit(emp.id)}
                               className="text-xs py-1.5 px-3 rounded-lg font-medium bg-white border border-gray-200 text-gray-500 hover:bg-gray-50">
                               Cancel
