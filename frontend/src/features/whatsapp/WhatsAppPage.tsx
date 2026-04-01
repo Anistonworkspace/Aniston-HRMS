@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Send, Phone, Video, MessageCircle, Loader2, WifiOff, Plus, User, Check, CheckCheck, ArrowLeft, X, ExternalLink, FileText, Play, Image as ImageIcon, PhoneOff, Mic, MicOff, Volume2, AlertCircle } from 'lucide-react';
+import { Search, Send, Phone, Video, MessageCircle, Loader2, WifiOff, Plus, User, Check, CheckCheck, ArrowLeft, X, ExternalLink, FileText, Play, Image as ImageIcon, PhoneOff, Mic, MicOff, Volume2, AlertCircle, RefreshCw } from 'lucide-react';
 import {
   useGetWhatsAppStatusQuery,
   useGetWhatsAppChatsQuery,
@@ -45,8 +45,31 @@ export default function WhatsAppPage() {
   return <WhatsAppChat />;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Syncing progress bar component                                    */
+/* ------------------------------------------------------------------ */
+function SyncProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 px-6">
+      <Loader2 className="animate-spin text-brand-500 mb-4" size={28} />
+      <p className="text-sm font-medium text-gray-700 mb-3">{label}</p>
+      <div className="w-48 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+        <motion.div
+          className="h-full bg-brand-500 rounded-full"
+          initial={{ width: '5%' }}
+          animate={{ width: `${Math.max(progress, 5)}%` }}
+          transition={{ duration: 0.5, ease: 'easeOut' }}
+        />
+      </div>
+      <p className="text-xs text-gray-400 mt-2 font-mono" data-mono>{Math.round(progress)}%</p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main Chat Component                                               */
+/* ------------------------------------------------------------------ */
 function WhatsAppChat() {
-  // Auto-open New Chat if there's a prefill message from Share Job
   const hasPrefill = !!sessionStorage.getItem('whatsapp_prefill_message');
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -55,16 +78,45 @@ function WhatsAppChat() {
   const [leftTab, setLeftTab] = useState<'chats' | 'contacts' | 'hrms'>('chats');
   const [hrmsPhone, setHrmsPhone] = useState<string | null>(null);
 
-  const { data: chatsRes, isLoading: loadingChats, refetch: refetchChats } = useGetWhatsAppChatsQuery(undefined, { pollingInterval: 15000 });
-  const { data: contactsRes, isLoading: loadingContacts } = useGetWhatsAppContactsQuery();
+  // Simulated progress for loading states
+  const [chatProgress, setChatProgress] = useState(0);
+  const [contactProgress, setContactProgress] = useState(0);
+
+  const { data: chatsRes, isLoading: loadingChats, isFetching: fetchingChats, refetch: refetchChats } = useGetWhatsAppChatsQuery(undefined, { pollingInterval: 30000 });
+  const { data: contactsRes, isLoading: loadingContacts, isFetching: fetchingContacts } = useGetWhatsAppContactsQuery();
   const { data: hrmsMessagesRes, isLoading: loadingHrms } = useGetWhatsAppMessagesQuery({ page: 1, limit: 100 });
   const phoneContacts = contactsRes?.data || [];
   const chats = chatsRes?.data || [];
 
+  // Simulate progress when loading chats
+  useEffect(() => {
+    if (!loadingChats && !fetchingChats) { setChatProgress(100); return; }
+    setChatProgress(0);
+    const steps = [10, 25, 40, 55, 70, 82, 90, 95];
+    let i = 0;
+    const interval = setInterval(() => {
+      if (i < steps.length) { setChatProgress(steps[i]); i++; }
+      else clearInterval(interval);
+    }, 400);
+    return () => clearInterval(interval);
+  }, [loadingChats, fetchingChats]);
+
+  // Simulate progress when loading contacts
+  useEffect(() => {
+    if (!loadingContacts && !fetchingContacts) { setContactProgress(100); return; }
+    setContactProgress(0);
+    const steps = [8, 20, 35, 50, 65, 78, 88, 94];
+    let i = 0;
+    const interval = setInterval(() => {
+      if (i < steps.length) { setContactProgress(steps[i]); i++; }
+      else clearInterval(interval);
+    }, 500);
+    return () => clearInterval(interval);
+  }, [loadingContacts, fetchingContacts]);
+
   // Build HRMS contacts from DB messages (grouped by phone)
   const hrmsContacts = useMemo(() => {
     const raw = hrmsMessagesRes?.data;
-    // Handle both { data: [...] } and direct array responses
     const msgs = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
     const grouped = new Map<string, { phone: string; lastMessage: string; lastDate: string; count: number; status: string }>();
     for (const m of msgs) {
@@ -89,25 +141,21 @@ function WhatsAppChat() {
     c.name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const filteredContacts = phoneContacts.filter((c: any) =>
+    !searchQuery || c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.number?.includes(searchQuery)
+  );
+
   const selectedChatData = chats.find((c: any) => c.id === selectedChat);
 
-  // Close contact info when chat changes
-  useEffect(() => {
-    setShowContactInfo(false);
-  }, [selectedChat]);
+  useEffect(() => { setShowContactInfo(false); }, [selectedChat]);
 
   // Listen for real-time socket events to refresh chats
   useEffect(() => {
-    const handleNewMessage = () => {
-      refetchChats();
-    };
+    const handleNewMessage = () => { refetchChats(); };
     onSocketEvent('whatsapp:message:new', handleNewMessage);
-    return () => {
-      offSocketEvent('whatsapp:message:new', handleNewMessage);
-    };
+    return () => { offSocketEvent('whatsapp:message:new', handleNewMessage); };
   }, [refetchChats]);
 
-  // Helper: find existing chat ID for a phone number
   const findChatIdForPhone = useCallback((phone: string) => {
     const cleanPhone = phone.replace(/\D/g, '');
     const chat = chats.find((c: any) => {
@@ -117,20 +165,15 @@ function WhatsAppChat() {
     return chat?.id || null;
   }, [chats]);
 
-  // Handle clicking a contact — open existing chat or start new one
   const handleContactClick = useCallback((contact: any) => {
     const phone = contact.number || contact.id?.replace('@c.us', '');
     if (!phone) return;
-
-    // Try to find existing chat for this contact
     const existingChatId = contact.id?.includes('@c.us') ? contact.id : findChatIdForPhone(phone);
-
     if (existingChatId) {
       setSelectedChat(existingChatId);
       setShowNewChat(false);
       setHrmsPhone(null);
     } else {
-      // No existing chat — open new chat with pre-filled phone
       sessionStorage.setItem('whatsapp_prefill_phone', phone);
       setShowNewChat(true);
       setSelectedChat(null);
@@ -152,12 +195,12 @@ function WhatsAppChat() {
               <button onClick={() => setLeftTab('chats')}
                 className={cn('flex-1 text-xs font-medium py-1.5 rounded-md transition-all',
                   leftTab === 'chats' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
-                Chats
+                Chats{chats.length > 0 && ` (${chats.length})`}
               </button>
               <button onClick={() => setLeftTab('contacts')}
                 className={cn('flex-1 text-xs font-medium py-1.5 rounded-md transition-all',
                   leftTab === 'contacts' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
-                Contacts
+                Contacts{phoneContacts.length > 0 && ` (${phoneContacts.length})`}
               </button>
               <button onClick={() => setLeftTab('hrms')}
                 className={cn('flex-1 text-xs font-medium py-1.5 rounded-md transition-all',
@@ -181,56 +224,69 @@ function WhatsAppChat() {
         {/* Chat/Contact list */}
         <div className="flex-1 overflow-y-auto">
           {leftTab === 'chats' ? (
-            /* Phone Chats */
             loadingChats ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="animate-spin text-brand-600" size={24} />
-              </div>
+              <SyncProgress label="Syncing chats from WhatsApp..." progress={chatProgress} />
             ) : filteredChats.length === 0 ? (
-              <div className="text-center py-12 text-gray-400 text-sm">
-                {searchQuery ? 'No matching chats' : 'No chats yet'}
+              <div className="text-center py-12 px-4">
+                <MessageCircle size={32} className="mx-auto text-gray-200 mb-2" />
+                <p className="text-gray-400 text-sm">{searchQuery ? 'No matching chats' : 'No chats yet'}</p>
+                {!searchQuery && (
+                  <button onClick={() => refetchChats()} className="text-xs text-brand-600 hover:text-brand-700 font-medium mt-2 flex items-center gap-1 mx-auto">
+                    <RefreshCw size={12} /> Refresh
+                  </button>
+                )}
               </div>
             ) : (
-              filteredChats.map((chat: any) => (
-                <button key={chat.id} onClick={() => { setSelectedChat(chat.id); setShowNewChat(false); setHrmsPhone(null); }}
-                  className={cn(
-                    'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50',
-                    selectedChat === chat.id && 'bg-brand-50 hover:bg-brand-50'
-                  )}>
-                  <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-                    <User size={18} className="text-green-700" />
+              <>
+                {fetchingChats && !loadingChats && (
+                  <div className="px-4 py-1.5 bg-brand-50 text-brand-600 text-[10px] font-medium flex items-center gap-1.5">
+                    <Loader2 size={10} className="animate-spin" /> Refreshing chats...
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-gray-800 truncate">{chat.name}</p>
-                      {chat.timestamp && (
-                        <span className="text-[10px] text-gray-400 flex-shrink-0">
-                          {new Date(chat.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      )}
+                )}
+                {filteredChats.map((chat: any) => (
+                  <button key={chat.id} onClick={() => { setSelectedChat(chat.id); setShowNewChat(false); setHrmsPhone(null); }}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50',
+                      selectedChat === chat.id && 'bg-brand-50 hover:bg-brand-50'
+                    )}>
+                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                      <User size={18} className="text-green-700" />
                     </div>
-                    <p className="text-xs text-gray-500 truncate">{chat.lastMessage || 'No messages'}</p>
-                  </div>
-                  {chat.unreadCount > 0 && (
-                    <span className="w-5 h-5 rounded-full bg-green-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">
-                      {chat.unreadCount}
-                    </span>
-                  )}
-                </button>
-              ))
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-gray-800 truncate">{chat.name}</p>
+                        {chat.timestamp && (
+                          <span className="text-[10px] text-gray-400 flex-shrink-0">
+                            {formatChatTime(chat.timestamp)}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 truncate">{chat.lastMessage || 'No messages'}</p>
+                    </div>
+                    {chat.unreadCount > 0 && (
+                      <span className="w-5 h-5 rounded-full bg-green-500 text-white text-[10px] flex items-center justify-center flex-shrink-0">
+                        {chat.unreadCount}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </>
             )
           ) : leftTab === 'contacts' ? (
-            /* Phone Contacts */
             loadingContacts ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="animate-spin text-brand-600" size={24} />
+              <SyncProgress label="Syncing contacts..." progress={contactProgress} />
+            ) : filteredContacts.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 text-sm">
+                {searchQuery ? 'No matching contacts' : 'No contacts found'}
               </div>
-            ) : phoneContacts.length === 0 ? (
-              <div className="text-center py-12 text-gray-400 text-sm">No contacts found</div>
             ) : (
-              phoneContacts
-                .filter((c: any) => !searchQuery || c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.number?.includes(searchQuery))
-                .map((contact: any) => (
+              <>
+                {fetchingContacts && !loadingContacts && (
+                  <div className="px-4 py-1.5 bg-brand-50 text-brand-600 text-[10px] font-medium flex items-center gap-1.5">
+                    <Loader2 size={10} className="animate-spin" /> Refreshing contacts...
+                  </div>
+                )}
+                {filteredContacts.map((contact: any) => (
                   <button key={contact.id}
                     onClick={() => handleContactClick(contact)}
                     className={cn(
@@ -238,7 +294,9 @@ function WhatsAppChat() {
                       selectedChat === contact.id && 'bg-brand-50 hover:bg-brand-50'
                     )}>
                     <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                      <User size={18} className="text-blue-700" />
+                      <span className="text-xs font-bold text-blue-700">
+                        {(contact.name || '?').charAt(0).toUpperCase()}
+                      </span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-800 truncate">{contact.name}</p>
@@ -248,14 +306,13 @@ function WhatsAppChat() {
                       <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">Saved</span>
                     )}
                   </button>
-                ))
+                ))}
+              </>
             )
           ) : (
             /* HRMS Contacts (from DB messages) */
             loadingHrms ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="animate-spin text-brand-600" size={24} />
-              </div>
+              <SyncProgress label="Loading HRMS messages..." progress={50} />
             ) : hrmsContacts.length === 0 ? (
               <div className="text-center py-12 px-4">
                 <MessageCircle size={32} className="mx-auto text-gray-200 mb-2" />
@@ -268,7 +325,6 @@ function WhatsAppChat() {
                 .map((contact) => (
                   <button key={contact.phone}
                     onClick={() => {
-                      // Try to open WhatsApp chat for this phone, fall back to HRMS view
                       const chatId = findChatIdForPhone(contact.phone);
                       if (chatId) {
                         setSelectedChat(chatId);
@@ -341,7 +397,6 @@ function WhatsAppChat() {
       <AnimatePresence>
         {showContactInfo && selectedChat && (
           <>
-            {/* Mobile overlay backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -349,7 +404,6 @@ function WhatsAppChat() {
               className="lg:hidden fixed inset-0 bg-black/30 z-40"
               onClick={() => setShowContactInfo(false)}
             />
-            {/* Panel */}
             <motion.div
               initial={{ x: 300, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
@@ -374,37 +428,46 @@ function WhatsAppChat() {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
+function formatChatTime(timestamp: string) {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / 86400000);
+
+  if (diffDays === 0) {
+    return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  } else if (diffDays === 1) {
+    return 'Yesterday';
+  } else if (diffDays < 7) {
+    return date.toLocaleDateString('en-IN', { weekday: 'short' });
+  }
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Contact Info Panel                                                */
+/* ------------------------------------------------------------------ */
 function ContactInfoPanel({ chatId, chatName, onClose }: { chatId: string; chatName: string; onClose: () => void }) {
   const phoneNumber = chatId.replace('@c.us', '').replace('@g.us', '');
-  const initials = chatName
-    .split(' ')
-    .map(w => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase() || '?';
+  const initials = chatName.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between bg-gray-50/50">
         <h3 className="text-sm font-semibold text-gray-800">Contact Info</h3>
         <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-200 transition-colors">
           <X size={18} className="text-gray-500" />
         </button>
       </div>
-
-      {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {/* Avatar */}
         <div className="flex flex-col items-center py-8 border-b border-gray-100">
           <div className="w-24 h-24 rounded-full bg-green-100 flex items-center justify-center mb-4">
             <span className="text-2xl font-bold text-green-700">{initials}</span>
           </div>
           <h4 className="text-base font-semibold text-gray-800">{chatName}</h4>
         </div>
-
-        {/* Phone */}
         <div className="px-4 py-4 border-b border-gray-100">
           <p className="text-xs text-gray-400 mb-1">Phone number</p>
           <div className="flex items-center gap-2">
@@ -412,8 +475,6 @@ function ContactInfoPanel({ chatId, chatName, onClose }: { chatId: string; chatN
             <span className="text-sm text-gray-700 font-mono">+{phoneNumber}</span>
           </div>
         </div>
-
-        {/* View Employee Profile link */}
         <div className="px-4 py-4">
           <a
             href={`/employees?search=${encodeURIComponent(phoneNumber)}`}
@@ -422,43 +483,51 @@ function ContactInfoPanel({ chatId, chatName, onClose }: { chatId: string; chatN
             <ExternalLink size={14} />
             View Employee Profile
           </a>
-          <p className="text-[10px] text-gray-400 mt-2 text-center">
-            Searches employees matching this phone number
-          </p>
+          <p className="text-[10px] text-gray-400 mt-2 text-center">Searches employees matching this phone number</p>
         </div>
       </div>
     </div>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Chat View                                                         */
+/* ------------------------------------------------------------------ */
 function ChatView({ chatId, chatName, onBack, onToggleContactInfo }: { chatId: string; chatName: string; onBack?: () => void; onToggleContactInfo?: () => void }) {
-  const { data: messagesRes, isLoading, isError, error, refetch } = useGetWhatsAppChatMessagesQuery(
+  const { data: messagesRes, isLoading, isFetching, isError, error, refetch } = useGetWhatsAppChatMessagesQuery(
     { chatId, limit: 50 },
-    { pollingInterval: 8000 }
+    { pollingInterval: 10000 }
   );
   const [sendMessage] = useSendWhatsAppMessageMutation();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [callState, setCallState] = useState<null | { type: 'voice' | 'video'; status: 'ringing' | 'active' | 'ended' }>(null);
-  const [muted, setMuted] = useState(false);
+  const [msgProgress, setMsgProgress] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const messages = messagesRes?.data || [];
 
-  // Auto-scroll to bottom when messages load or change
+  // Message loading progress
+  useEffect(() => {
+    if (!isLoading) { setMsgProgress(100); return; }
+    setMsgProgress(0);
+    const steps = [15, 35, 55, 72, 85, 93];
+    let i = 0;
+    const interval = setInterval(() => {
+      if (i < steps.length) { setMsgProgress(steps[i]); i++; }
+      else clearInterval(interval);
+    }, 300);
+    return () => clearInterval(interval);
+  }, [isLoading]);
+
   useEffect(() => {
     if (messages.length > 0) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages.length]);
 
-  // Listen for real-time new messages to refetch
   useEffect(() => {
     const handleNewMessage = (data: any) => {
-      // Refetch if the new message is for this chat
-      if (data?.chatId === chatId || !data?.chatId) {
-        refetch();
-      }
+      if (data?.chatId === chatId || !data?.chatId) refetch();
     };
     onSocketEvent('whatsapp:message:new', handleNewMessage);
     onSocketEvent('whatsapp:message:status', handleNewMessage);
@@ -472,7 +541,6 @@ function ChatView({ chatId, chatName, onBack, onToggleContactInfo }: { chatId: s
     if (!input.trim()) return;
     setSending(true);
     try {
-      // Extract phone number from chatId (format: "919876543210@c.us")
       const phone = chatId.replace('@c.us', '').replace('@g.us', '');
       await sendMessage({ to: phone, message: input.trim() }).unwrap();
       setInput('');
@@ -492,70 +560,35 @@ function ChatView({ chatId, chatName, onBack, onToggleContactInfo }: { chatId: s
 
   const renderMediaContent = (msg: any) => {
     if (!msg.hasMedia) return null;
-
     if (msg.type === 'image' || msg.type === 'sticker') {
       if (msg.mediaUrl) {
-        return (
-          <div className="mb-1 rounded-lg overflow-hidden">
-            <img src={msg.mediaUrl} alt="Image" className="max-w-full max-h-64 rounded-lg object-cover" loading="lazy" />
-          </div>
-        );
+        return <div className="mb-1 rounded-lg overflow-hidden"><img src={msg.mediaUrl} alt="Image" className="max-w-full max-h-64 rounded-lg object-cover" loading="lazy" /></div>;
       }
-      return (
-        <div className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2">
-          <ImageIcon size={14} />
-          <span>Image</span>
-        </div>
-      );
+      return <div className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2"><ImageIcon size={14} /><span>Image</span></div>;
     }
-
     if (msg.type === 'document') {
       return (
         <div className="mb-1">
           {msg.mediaUrl ? (
-            <a href={msg.mediaUrl} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-2 text-xs bg-gray-100 rounded-lg px-3 py-2 hover:bg-gray-200 transition-colors">
+            <a href={msg.mediaUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs bg-gray-100 rounded-lg px-3 py-2 hover:bg-gray-200 transition-colors">
               <FileText size={14} className="text-brand-600 flex-shrink-0" />
               <span className="truncate text-gray-700">{msg.mediaFilename || 'Document'}</span>
             </a>
           ) : (
-            <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2">
-              <FileText size={14} />
-              <span>{msg.mediaFilename || 'Document'}</span>
-            </div>
+            <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2"><FileText size={14} /><span>{msg.mediaFilename || 'Document'}</span></div>
           )}
         </div>
       );
     }
-
     if (msg.type === 'audio' || msg.type === 'ptt') {
       if (msg.mediaUrl) {
-        return (
-          <div className="mb-1">
-            <audio controls preload="none" className="max-w-full h-10">
-              <source src={msg.mediaUrl} />
-              Your browser does not support audio.
-            </audio>
-          </div>
-        );
+        return <div className="mb-1"><audio controls preload="none" className="max-w-full h-10"><source src={msg.mediaUrl} /></audio></div>;
       }
-      return (
-        <div className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2">
-          <Play size={14} />
-          <span>Voice message</span>
-        </div>
-      );
+      return <div className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2"><Play size={14} /><span>Voice message</span></div>;
     }
-
     if (msg.type === 'video') {
-      return (
-        <div className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2">
-          <Play size={14} />
-          <span>Video</span>
-        </div>
-      );
+      return <div className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2"><Play size={14} /><span>Video</span></div>;
     }
-
     return null;
   };
 
@@ -568,10 +601,7 @@ function ChatView({ chatId, chatName, onBack, onToggleContactInfo }: { chatId: s
             <ArrowLeft size={18} className="text-gray-600" />
           </button>
         )}
-        <button
-          onClick={onToggleContactInfo}
-          className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity cursor-pointer"
-        >
+        <button onClick={onToggleContactInfo} className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity cursor-pointer">
           <div className="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
             <User size={16} className="text-green-700" />
           </div>
@@ -581,60 +611,16 @@ function ChatView({ chatId, chatName, onBack, onToggleContactInfo }: { chatId: s
           </div>
         </button>
         <div className="flex items-center gap-1 flex-shrink-0">
-          <button onClick={() => setCallState({ type: 'video', status: 'ringing' })}
-            className="p-2 rounded-lg hover:bg-gray-200 transition-colors" title="Video call">
-            <Video size={18} className="text-gray-500" />
-          </button>
-          <button onClick={() => setCallState({ type: 'voice', status: 'ringing' })}
-            className="p-2 rounded-lg hover:bg-gray-200 transition-colors" title="Voice call">
-            <Phone size={18} className="text-gray-500" />
+          <button onClick={() => refetch()} className="p-2 rounded-lg hover:bg-gray-200 transition-colors" title="Refresh messages">
+            <RefreshCw size={16} className={cn('text-gray-500', isFetching && 'animate-spin')} />
           </button>
         </div>
       </div>
 
-      {/* Call Overlay */}
-      <AnimatePresence>
-        {callState && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 bg-gradient-to-b from-gray-900 to-gray-800 flex flex-col items-center justify-center text-white"
-          >
-            <div className="w-24 h-24 rounded-full bg-green-500/20 flex items-center justify-center mb-6">
-              <User size={40} className="text-green-400" />
-            </div>
-            <h3 className="text-xl font-semibold mb-1">{chatName}</h3>
-            <p className="text-sm text-gray-400 mb-2">{chatId.replace('@c.us', '').replace('@g.us', '')}</p>
-            <p className="text-sm text-gray-300 mb-8">
-              {callState.status === 'ringing' ? (callState.type === 'voice' ? 'Voice calling...' : 'Video calling...') : 'Call in progress'}
-            </p>
-            <p className="text-xs text-amber-400 bg-amber-400/10 rounded-lg px-4 py-2 mb-8">
-              Calls require WhatsApp on phone — use your phone to accept/make calls
-            </p>
-            <div className="flex items-center gap-8">
-              <button onClick={() => setMuted(!muted)}
-                className={cn('w-14 h-14 rounded-full flex items-center justify-center transition-colors', muted ? 'bg-red-500' : 'bg-gray-600 hover:bg-gray-500')}>
-                {muted ? <MicOff size={22} /> : <Mic size={22} />}
-              </button>
-              <button onClick={() => setCallState(null)}
-                className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors">
-                <PhoneOff size={24} />
-              </button>
-              <button className="w-14 h-14 rounded-full bg-gray-600 hover:bg-gray-500 flex items-center justify-center transition-colors">
-                <Volume2 size={22} />
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Messages */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-2 bg-[#efeae2]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'200\' height=\'200\' viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M100 0l100 200H0z\' fill=\'%23d4cfc4\' fill-opacity=\'0.05\'/%3E%3C/svg%3E")' }}>
         {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="animate-spin text-gray-400" size={24} />
-          </div>
+          <SyncProgress label="Loading messages..." progress={msgProgress} />
         ) : isError ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <AlertCircle size={32} className="text-red-300 mb-3" />
@@ -642,8 +628,8 @@ function ChatView({ chatId, chatName, onBack, onToggleContactInfo }: { chatId: s
             <p className="text-xs text-gray-400 mb-3 max-w-xs">
               {(error as any)?.data?.error?.message || 'WhatsApp may be disconnected or the chat is unavailable'}
             </p>
-            <button onClick={() => refetch()} className="text-xs text-brand-600 hover:text-brand-700 font-medium">
-              Try again
+            <button onClick={() => refetch()} className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+              <RefreshCw size={12} /> Try again
             </button>
           </div>
         ) : messages.length === 0 ? (
@@ -653,14 +639,10 @@ function ChatView({ chatId, chatName, onBack, onToggleContactInfo }: { chatId: s
             <div key={msg.id} className={cn('flex', msg.fromMe ? 'justify-end' : 'justify-start')}>
               <div className={cn(
                 'max-w-[85%] sm:max-w-[75%] md:max-w-[65%] px-3 py-2 rounded-xl text-sm shadow-sm overflow-hidden',
-                msg.fromMe
-                  ? 'bg-[#dcf8c6] text-gray-800 rounded-tr-none'
-                  : 'bg-white text-gray-800 rounded-tl-none'
+                msg.fromMe ? 'bg-[#dcf8c6] text-gray-800 rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none'
               )}>
                 {renderMediaContent(msg)}
-                {msg.body && (
-                  <p className="whitespace-pre-wrap break-words" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{msg.body}</p>
-                )}
+                {msg.body && <p className="whitespace-pre-wrap break-words" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{msg.body}</p>}
                 <div className="flex items-center justify-end gap-1 mt-1">
                   <span className="text-[10px] text-gray-400 whitespace-nowrap">
                     {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
@@ -692,14 +674,15 @@ function ChatView({ chatId, chatName, onBack, onToggleContactInfo }: { chatId: s
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  New Chat View                                                     */
+/* ------------------------------------------------------------------ */
 function NewChatView({ onSent, onBack }: { onSent: (chatId: string) => void; onBack: () => void }) {
-  // Check for pre-filled message from Share Job flow
   const prefillMsg = sessionStorage.getItem('whatsapp_prefill_message') || '';
   const prefillPhone = sessionStorage.getItem('whatsapp_prefill_phone') || '';
   const [phone, setPhone] = useState(prefillPhone);
   const [message, setMessage] = useState(prefillMsg);
 
-  // Clear prefill after reading
   useEffect(() => {
     sessionStorage.removeItem('whatsapp_prefill_message');
     sessionStorage.removeItem('whatsapp_prefill_phone');
@@ -711,9 +694,7 @@ function NewChatView({ onSent, onBack }: { onSent: (chatId: string) => void; onB
     try {
       const res = await sendToNumber({ phone: phone.trim(), message: message.trim() }).unwrap();
       toast.success('Message sent!');
-      if (res.data?.chatId) {
-        onSent(res.data.chatId);
-      }
+      if (res.data?.chatId) onSent(res.data.chatId);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to send');
     }
@@ -755,9 +736,10 @@ function NewChatView({ onSent, onBack }: { onSent: (chatId: string) => void; onB
   );
 }
 
-// ---------- HRMS Message View ----------
+/* ------------------------------------------------------------------ */
+/*  HRMS Message View                                                 */
+/* ------------------------------------------------------------------ */
 function HrmsMessageView({ phone, messages, onBack }: { phone: string; messages: any; onBack: () => void }) {
-  // Handle both response shapes: { data: [...] } and { data: { data: [...] } }
   const raw = messages?.data;
   const allMsgs = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
   const cleanPhone = phone.replace(/\D/g, '');

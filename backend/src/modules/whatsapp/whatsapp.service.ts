@@ -332,14 +332,29 @@ export class WhatsAppService {
   }
 
   /**
-   * Get all chats from connected WhatsApp.
+   * Get all chats from connected WhatsApp with timeout protection.
    */
   async getChats(organizationId: string) {
     if (!isReady || !waClient) throw new BadRequestError('WhatsApp not connected');
 
     try {
-      const chats = await waClient.getChats();
-      return chats.slice(0, 50).map((chat: any) => ({
+      const chatsPromise = waClient.getChats();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Chat fetch timed out (30s)')), 30000)
+      );
+      const chats = await Promise.race([chatsPromise, timeoutPromise]) as any[];
+
+      // Sort by most recent message first, take top 100
+      const sorted = chats
+        .filter((c: any) => c.lastMessage || c.unreadCount > 0)
+        .sort((a: any, b: any) => {
+          const tA = a.lastMessage?.timestamp || 0;
+          const tB = b.lastMessage?.timestamp || 0;
+          return tB - tA;
+        })
+        .slice(0, 100);
+
+      return sorted.map((chat: any) => ({
         id: chat.id._serialized,
         name: chat.name || chat.id.user,
         isGroup: chat.isGroup,
@@ -480,20 +495,31 @@ export class WhatsAppService {
   }
 
   /**
-   * Get contacts from connected WhatsApp.
+   * Get contacts from connected WhatsApp with timeout protection.
    */
   async getContacts() {
     if (!isReady || !waClient) throw new BadRequestError('WhatsApp not connected');
     try {
-      const contacts = await waClient.getContacts();
+      const contactsPromise = waClient.getContacts();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Contact fetch timed out (30s)')), 30000)
+      );
+      const contacts = await Promise.race([contactsPromise, timeoutPromise]) as any[];
+
       return contacts
-        .filter((c: any) => c.isWAContact && !c.isGroup)
-        .slice(0, 100)
+        .filter((c: any) => c.isWAContact && !c.isGroup && (c.name || c.pushname))
+        .sort((a: any, b: any) => {
+          const nameA = (a.name || a.pushname || '').toLowerCase();
+          const nameB = (b.name || b.pushname || '').toLowerCase();
+          return nameA.localeCompare(nameB);
+        })
+        .slice(0, 200)
         .map((c: any) => ({
           id: c.id._serialized,
           name: c.name || c.pushname || c.id.user,
           number: c.number,
           isMyContact: c.isMyContact,
+          pushname: c.pushname || null,
         }));
     } catch (err: any) {
       throw new BadRequestError(`Failed to get contacts: ${err.message}`);
