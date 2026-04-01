@@ -84,6 +84,13 @@ export class AttendanceService {
         data.notes = `${data.notes || ''} [Late by ${lateMinutes} min — shift ${shift.name} starts at ${shift.startTime}]`.trim();
       }
 
+      // Auto-mark HALF_DAY if late beyond grace + 30 min (configurable threshold)
+      const halfDayThreshold = graceMinutes + 30;
+      const minutesLate = Math.round((now.getTime() - shiftStart.getTime()) / (1000 * 60));
+      if (minutesLate > halfDayThreshold) {
+        data.notes = `${data.notes || ''} [Auto-marked HALF_DAY: ${minutesLate} min late, threshold ${halfDayThreshold} min]`.trim();
+      }
+
       shiftInfo = {
         shiftId: shift.id,
         shiftName: shift.name,
@@ -96,12 +103,20 @@ export class AttendanceService {
       };
     }
 
+    // Determine initial status: HALF_DAY if very late, else PRESENT
+    const autoHalfDay = shift && (() => {
+      const [sh, sm] = shift.startTime.split(':').map(Number);
+      const ss = new Date(now); ss.setHours(sh, sm, 0, 0);
+      const threshold = (shift.graceMinutes || 15) + 30;
+      return Math.round((now.getTime() - ss.getTime()) / 60000) > threshold;
+    })();
+
     const record = await prisma.attendanceRecord.create({
       data: {
         employeeId,
         date: today,
         checkIn: now,
-        status: 'PRESENT',
+        status: autoHalfDay ? 'HALF_DAY' : 'PRESENT',
         workMode: employee.workMode,
         source: data.source || 'MANUAL_APP',
         checkInLocation: locationData,

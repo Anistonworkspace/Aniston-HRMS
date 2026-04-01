@@ -7,7 +7,8 @@ import {
   Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send,
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery } from './employeeApi';
-import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation } from '../attendance/attendanceApi';
+import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery } from '../attendance/attendanceApi';
+import { useGetHolidaysQuery } from '../leaves/leaveApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation } from '../payroll/payrollApi';
 import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documents/documentApi';
 import { useGetInternProfileQuery, useGetAchievementLettersQuery, useIssueAchievementLetterMutation } from '../intern/internApi';
@@ -455,22 +456,39 @@ function buildMonthGroups(year: number) {
 function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: string; employeeName: string }) {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
-  const [popupCell, setPopupCell] = useState<{ date: string; x: number; y: number } | null>(null);
+  const [popupCell, setPopupCell] = useState<{ date: string; x: number; y: number; record?: any } | null>(null);
+  const [showRegForm, setShowRegForm] = useState(false);
+  const [regReason, setRegReason] = useState('');
   const popupRef = useRef<HTMLDivElement>(null);
 
   const startDate = `${selectedYear - 1}-12-01`;
   const endDate = `${selectedYear}-12-31`;
   const { data: response, isLoading } = useGetEmployeeAttendanceQuery({ employeeId, startDate, endDate });
+  const { data: holidaysRes } = useGetHolidaysQuery({ year: selectedYear });
+  const { data: hybridRes } = useGetHybridScheduleQuery(employeeId);
   const [markAttendance, { isLoading: marking }] = useMarkAttendanceMutation();
+  const [submitReg, { isLoading: submittingReg }] = useSubmitRegularizationMutation();
 
   const records = response?.data?.records || [];
   const summary = response?.data?.summary;
+  const holidays = holidaysRes?.data || [];
+  const hybridSchedule = hybridRes?.data;
 
+  // Build lookup maps
   const dateStatusMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    records.forEach((r: any) => { const k = r.date?.split('T')[0]; if (k) map[k] = r.status; });
+    const map: Record<string, any> = {};
+    records.forEach((r: any) => { const k = r.date?.split('T')[0]; if (k) map[k] = r; });
     return map;
   }, [records]);
+
+  const holidayMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    holidays.forEach((h: any) => { const k = h.date?.split('T')[0]; if (k) map[k] = h; });
+    return map;
+  }, [holidays]);
+
+  const hybridOfficeDays = useMemo(() => new Set((hybridSchedule?.officeDays as number[]) || []), [hybridSchedule]);
+  const hybridWfhDays = useMemo(() => new Set((hybridSchedule?.wfhDays as number[]) || []), [hybridSchedule]);
 
   const monthGroups = useMemo(() => buildMonthGroups(selectedYear), [selectedYear]);
   const today = new Date();
@@ -478,12 +496,33 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
 
   const getDateStatus = useCallback((date: Date): string | null => {
     const dateStr = date.toISOString().split('T')[0];
-    if (dateStr > todayStr) return null;
-    if (dateStatusMap[dateStr]) return dateStatusMap[dateStr];
+    if (dateStr > todayStr) {
+      // Future: show hybrid schedule colors
+      if (hybridSchedule) {
+        const dow = date.getDay();
+        if (hybridWfhDays.has(dow)) return 'WORK_FROM_HOME';
+        if (hybridOfficeDays.has(dow)) return null; // normal office day
+      }
+      // Future holidays/events show as orange
+      if (holidayMap[dateStr]) return holidayMap[dateStr].type === 'EVENT' ? 'EVENT' : 'HOLIDAY';
+      return null;
+    }
+    // Past/today: check attendance record first
+    const rec = dateStatusMap[dateStr];
+    if (rec) {
+      // Check if late and marked HALF_DAY
+      if (rec.status === 'HALF_DAY' && rec.notes?.includes('Late')) return 'LATE';
+      return rec.status;
+    }
+    // Check holiday
+    if (holidayMap[dateStr]) return holidayMap[dateStr].type === 'EVENT' ? 'EVENT' : 'HOLIDAY';
+    // Weekend
     const dow = date.getDay();
     if (dow === 0 || dow === 6) return 'WEEKEND';
+    // Hybrid WFH day with no record
+    if (hybridSchedule && hybridWfhDays.has(dow)) return 'WORK_FROM_HOME';
     return null;
-  }, [dateStatusMap, todayStr]);
+  }, [dateStatusMap, holidayMap, hybridSchedule, hybridOfficeDays, hybridWfhDays, todayStr]);
 
   const getCellColor = (date: Date): string => {
     const s = getDateStatus(date);
@@ -492,9 +531,12 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
 
   const handleCellClick = (date: Date, e: React.MouseEvent) => {
     const dateStr = date.toISOString().split('T')[0];
-    if (dateStr > todayStr) return;
     const rect = (e.target as HTMLElement).getBoundingClientRect();
-    setPopupCell({ date: dateStr, x: rect.left, y: rect.bottom + 4 });
+    const rec = dateStatusMap[dateStr];
+    const holiday = holidayMap[dateStr];
+    setPopupCell({ date: dateStr, x: rect.left, y: rect.bottom + 4, record: rec || holiday || null });
+    setShowRegForm(false);
+    setRegReason('');
   };
 
   const handleMarkStatus = async (status: string) => {
@@ -504,6 +546,15 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
       toast.success(`Marked as ${STATUS_LABELS[status] || status}`);
       setPopupCell(null);
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to mark attendance'); }
+  };
+
+  const handleSubmitReg = async () => {
+    if (!popupCell?.record?.id || !regReason.trim()) return;
+    try {
+      await submitReg({ attendanceId: popupCell.record.id, reason: regReason.trim() }).unwrap();
+      toast.success('Regularization request submitted');
+      setPopupCell(null);
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to submit'); }
   };
 
   useEffect(() => {
@@ -635,25 +686,128 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
         )}
       </div>
 
-      {/* Mark attendance popup */}
+      {/* Cell click popup — shows details + mark + regularization */}
       <AnimatePresence>
         {popupCell && (
           <motion.div ref={popupRef} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-            className="fixed z-50 bg-white rounded-xl shadow-glass-lg border border-gray-100 p-2 min-w-[160px]"
-            style={{ left: Math.min(popupCell.x, window.innerWidth - 200), top: popupCell.y }}>
-            <p className="text-[10px] text-gray-400 px-2 py-1 font-medium">Mark {popupCell.date}</p>
-            {[
-              { status: 'PRESENT', label: 'Present', color: STATUS_COLORS.PRESENT },
-              { status: 'ABSENT', label: 'Absent', color: STATUS_COLORS.ABSENT },
-              { status: 'HALF_DAY', label: 'Half Day', color: STATUS_COLORS.HALF_DAY },
-              { status: 'ON_LEAVE', label: 'On Leave', color: STATUS_COLORS.ON_LEAVE },
-            ].map(opt => (
-              <button key={opt.status} onClick={() => handleMarkStatus(opt.status)} disabled={marking}
-                className="flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-sm text-gray-700 hover:bg-surface-2 transition-colors text-left">
-                <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: opt.color }} />
-                {opt.label}
+            className="fixed z-50 bg-white rounded-xl shadow-glass-lg border border-gray-100 p-3 min-w-[220px] max-w-[300px]"
+            style={{ left: Math.min(popupCell.x, window.innerWidth - 320), top: Math.min(popupCell.y, window.innerHeight - 350) }}>
+
+            <p className="text-[10px] text-gray-400 font-medium mb-2">{new Date(popupCell.date + 'T00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric', weekday: 'long' })}</p>
+
+            {/* Holiday/Event info */}
+            {holidayMap[popupCell.date] && (
+              <div className={`rounded-lg px-2.5 py-2 mb-2 ${holidayMap[popupCell.date].type === 'EVENT' ? 'bg-orange-50 border border-orange-200' : 'bg-blue-50 border border-blue-200'}`}>
+                <p className={`text-xs font-semibold ${holidayMap[popupCell.date].type === 'EVENT' ? 'text-orange-700' : 'text-blue-700'}`}>
+                  {holidayMap[popupCell.date].type === 'EVENT' ? '📅 Event' : '🎉 Holiday'}: {holidayMap[popupCell.date].name}
+                </p>
+                {holidayMap[popupCell.date].description && (
+                  <p className="text-[10px] text-gray-500 mt-0.5">{holidayMap[popupCell.date].description}</p>
+                )}
+                {holidayMap[popupCell.date].isHalfDay && (
+                  <p className="text-[10px] text-amber-600 mt-0.5">Half Day ({holidayMap[popupCell.date].halfDaySession === 'FIRST_HALF' ? '1st half off' : '2nd half off'})</p>
+                )}
+                {holidayMap[popupCell.date].startTime && (
+                  <p className="text-[10px] text-gray-500 mt-0.5">Time: {holidayMap[popupCell.date].startTime} — {holidayMap[popupCell.date].endTime}</p>
+                )}
+              </div>
+            )}
+
+            {/* Attendance record info */}
+            {popupCell.record?.checkIn && (
+              <div className="bg-gray-50 rounded-lg px-2.5 py-2 mb-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Check-in</span>
+                  <span className="font-medium text-gray-700">{new Date(popupCell.record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                {popupCell.record.checkOut && (
+                  <div className="flex justify-between mt-0.5">
+                    <span className="text-gray-500">Check-out</span>
+                    <span className="font-medium text-gray-700">{new Date(popupCell.record.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                )}
+                {popupCell.record.totalHours && (
+                  <div className="flex justify-between mt-0.5">
+                    <span className="text-gray-500">Hours</span>
+                    <span className="font-medium font-mono text-gray-700" data-mono>{Number(popupCell.record.totalHours).toFixed(1)}h</span>
+                  </div>
+                )}
+                <div className="flex justify-between mt-0.5">
+                  <span className="text-gray-500">Status</span>
+                  <span className={`font-medium ${popupCell.record.status === 'PRESENT' ? 'text-emerald-600' : popupCell.record.status === 'HALF_DAY' ? 'text-amber-600' : 'text-gray-600'}`}>
+                    {STATUS_LABELS[popupCell.record.status] || popupCell.record.status}
+                  </span>
+                </div>
+                {popupCell.record.notes && (
+                  <p className="text-[10px] text-amber-600 mt-1 border-t border-gray-200 pt-1">{popupCell.record.notes}</p>
+                )}
+              </div>
+            )}
+
+            {/* Hybrid WFH indicator */}
+            {hybridSchedule && !popupCell.record?.checkIn && !holidayMap[popupCell.date] && (() => {
+              const dow = new Date(popupCell.date + 'T00:00').getDay();
+              if (hybridWfhDays.has(dow)) return (
+                <div className="bg-cyan-50 border border-cyan-200 rounded-lg px-2.5 py-2 mb-2">
+                  <p className="text-xs text-cyan-700 font-medium">🏠 Work From Home Day</p>
+                  <p className="text-[10px] text-cyan-600">Hybrid schedule — WFH on this day</p>
+                </div>
+              );
+              if (hybridOfficeDays.has(dow)) return (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-2.5 py-2 mb-2">
+                  <p className="text-xs text-indigo-700 font-medium">🏢 Office Day</p>
+                  <p className="text-[10px] text-indigo-600">Hybrid schedule — in-office on this day</p>
+                </div>
+              );
+              return null;
+            })()}
+
+            {/* Regularization for HALF_DAY/LATE */}
+            {popupCell.record && (popupCell.record.status === 'HALF_DAY' || popupCell.record.notes?.includes('Late')) && !showRegForm && (
+              <button onClick={() => setShowRegForm(true)}
+                className="w-full text-xs text-brand-600 hover:text-brand-700 font-medium py-1.5 px-2 rounded-lg hover:bg-brand-50 transition-colors text-left mb-1">
+                📝 Request Regularization (Half Day → Full Day)
               </button>
-            ))}
+            )}
+
+            {showRegForm && (
+              <div className="bg-brand-50 border border-brand-200 rounded-lg p-2 mb-2">
+                <p className="text-[10px] font-medium text-brand-700 mb-1">Regularization Request</p>
+                <textarea value={regReason} onChange={e => setRegReason(e.target.value)}
+                  placeholder="Reason for regularization..." rows={2}
+                  className="w-full text-xs border border-brand-200 rounded-lg p-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-brand-300" />
+                <div className="flex gap-1.5 mt-1.5">
+                  <button onClick={handleSubmitReg} disabled={submittingReg || !regReason.trim()}
+                    className="flex-1 text-[10px] bg-brand-600 text-white rounded-lg py-1 font-medium disabled:opacity-50">
+                    {submittingReg ? 'Submitting...' : 'Submit'}
+                  </button>
+                  <button onClick={() => setShowRegForm(false)} className="text-[10px] text-gray-500 px-2">Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {/* HR Mark Attendance options */}
+            {popupCell.date <= todayStr && (
+              <>
+                <div className="border-t border-gray-100 pt-1.5 mt-1">
+                  <p className="text-[10px] text-gray-400 px-1 mb-1">HR: Mark as</p>
+                  <div className="grid grid-cols-2 gap-1">
+                    {[
+                      { status: 'PRESENT', label: 'Present', color: STATUS_COLORS.PRESENT },
+                      { status: 'ABSENT', label: 'Absent', color: STATUS_COLORS.ABSENT },
+                      { status: 'HALF_DAY', label: 'Half Day', color: STATUS_COLORS.HALF_DAY },
+                      { status: 'ON_LEAVE', label: 'On Leave', color: STATUS_COLORS.ON_LEAVE },
+                    ].map(opt => (
+                      <button key={opt.status} onClick={() => handleMarkStatus(opt.status)} disabled={marking}
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] text-gray-700 hover:bg-surface-2 transition-colors text-left">
+                        <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: opt.color }} />
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

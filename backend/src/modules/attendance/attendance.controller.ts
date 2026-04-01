@@ -164,6 +164,43 @@ export class AttendanceController {
       res.json({ success: true, data: result, message: `Regularization ${action.toLowerCase()}` });
     } catch (err) { next(err); }
   }
+
+  async getPendingRegularizations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+      const regs = await prisma.attendanceRegularization.findMany({
+        where: { status: 'PENDING' },
+        include: {
+          attendance: {
+            include: { employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true, email: true } } },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+      res.json({ success: true, data: regs });
+    } catch (err) { next(err); }
+  }
+
+  async getHybridSchedule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { hybridScheduleService } = await import('./hybrid-schedule.service.js');
+      const schedule = await hybridScheduleService.getSchedule(req.params.employeeId);
+      res.json({ success: true, data: schedule });
+    } catch (err) { next(err); }
+  }
+
+  async setHybridSchedule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { hybridScheduleService } = await import('./hybrid-schedule.service.js');
+      const { officeDays, wfhDays, notes } = req.body;
+      const result = await hybridScheduleService.setSchedule(
+        req.params.employeeId, { officeDays, wfhDays, notes },
+        req.user!.organizationId, req.user!.userId
+      );
+      res.json({ success: true, data: result, message: 'Hybrid schedule saved' });
+    } catch (err) { next(err); }
+  }
 }
 
 export const attendanceController = new AttendanceController();

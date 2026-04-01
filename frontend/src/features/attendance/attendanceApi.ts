@@ -123,6 +123,26 @@ export const attendanceApi = api.injectEndpoints({
     getAgentLiveMode: builder.query<any, string>({
       query: (employeeId) => `/agent/live-mode/${employeeId}`,
     }),
+
+    // Pending regularizations (HR view)
+    getPendingRegularizations: builder.query<any, void>({
+      query: () => '/attendance/regularizations/pending',
+      providesTags: ['Attendance'],
+    }),
+    handleRegularization: builder.mutation<any, { id: string; action: string; remarks?: string }>({
+      query: ({ id, ...body }) => ({ url: `/attendance/regularization/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Attendance'],
+    }),
+
+    // Hybrid schedule
+    getHybridSchedule: builder.query<any, string>({
+      query: (employeeId) => `/attendance/hybrid-schedule/${employeeId}`,
+      providesTags: ['Attendance'],
+    }),
+    setHybridSchedule: builder.mutation<any, { employeeId: string; officeDays: number[]; wfhDays: number[]; notes?: string }>({
+      query: ({ employeeId, ...body }) => ({ url: `/attendance/hybrid-schedule/${employeeId}`, method: 'PUT', body }),
+      invalidatesTags: ['Attendance'],
+    }),
   }),
 });
 
@@ -148,4 +168,8 @@ export const {
   useGenerateAgentPairCodeMutation,
   useSetAgentLiveModeMutation,
   useGetAgentLiveModeQuery,
+  useGetPendingRegularizationsQuery,
+  useHandleRegularizationMutation,
+  useGetHybridScheduleQuery,
+  useSetHybridScheduleMutation,
 } = attendanceApi;

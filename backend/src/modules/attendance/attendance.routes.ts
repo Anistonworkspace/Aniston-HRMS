@@ -32,6 +32,20 @@ router.patch(
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
   (req, res, next) => attendanceController.handleRegularization(req, res, next)
 );
+// Pending regularizations (HR view)
+router.get(
+  '/regularizations/pending',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
+  (req, res, next) => attendanceController.getPendingRegularizations(req, res, next)
+);
+
+// Hybrid schedule
+router.get('/hybrid-schedule/:employeeId', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
+  (req, res, next) => attendanceController.getHybridSchedule(req, res, next)
+);
+router.put('/hybrid-schedule/:employeeId', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => attendanceController.setHybridSchedule(req, res, next)
+);
 
 // HR/Admin — get attendance for a specific employee
 router.get(
