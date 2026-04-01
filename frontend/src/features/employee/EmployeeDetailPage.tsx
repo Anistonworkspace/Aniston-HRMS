@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
-  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send,
+  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle,
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery } from './employeeApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery } from '../attendance/attendanceApi';
@@ -1104,7 +1104,10 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
     } catch { toast.error('Failed to verify'); }
   };
 
-  const API_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:4000';
+  // Build base URL for file access — on production VITE_API_URL=/api so base becomes '', on dev it becomes http://localhost:4000
+  const API_URL = import.meta.env.VITE_API_URL === '/api' ? '' : (import.meta.env.VITE_API_URL?.replace('/api', '') || '');
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewName, setPreviewName] = useState('');
 
   return (
     <div className="space-y-4">
@@ -1190,10 +1193,10 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
               )}
 
               {isManagement && doc.fileUrl && (
-                <a href={`${API_URL}${doc.fileUrl}`} target="_blank" rel="noopener noreferrer"
+                <button onClick={() => { setPreviewUrl(`${API_URL}${doc.fileUrl}`); setPreviewName(doc.name); }}
                   className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1 mb-2">
                   <FileText size={12} /> View Document
-                </a>
+                </button>
               )}
 
               {/* Tamper/fake alert — HR only */}
@@ -1267,6 +1270,34 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
           <FileText size={32} className="text-gray-200 mx-auto mb-2" />
           <p className="text-sm text-gray-400">No documents uploaded yet</p>
           <p className="text-xs text-gray-300 mt-1">Click "Upload Document" to add files</p>
+        </div>
+      )}
+
+      {/* Document Preview Modal */}
+      {previewUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPreviewUrl(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-[90vw] h-[85vh] max-w-5xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-800">{previewName}</h3>
+              <div className="flex items-center gap-2">
+                <a href={previewUrl} target="_blank" rel="noopener noreferrer"
+                  className="text-xs px-3 py-1.5 bg-brand-50 text-brand-600 rounded-lg hover:bg-brand-100 font-medium">
+                  Open in New Tab
+                </a>
+                <button onClick={() => setPreviewUrl(null)}
+                  className="text-gray-400 hover:text-gray-600 p-1">
+                  <XCircle size={20} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              {previewUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i) ? (
+                <img src={previewUrl} alt={previewName} className="w-full h-full object-contain p-4" />
+              ) : (
+                <iframe src={previewUrl} className="w-full h-full border-0" title={previewName} />
+              )}
+            </div>
+          </div>
         </div>
       )}
 

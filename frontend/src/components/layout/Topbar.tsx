@@ -66,9 +66,13 @@ export default function Topbar() {
             onClick={() => setMenuOpen(!menuOpen)}
             className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-lg hover:bg-surface-2 transition-colors"
           >
-            <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white text-sm font-semibold">
-              {getInitials(user?.firstName, user?.lastName)}
-            </div>
+            {user?.avatar ? (
+              <img src={user.avatar} alt="" className="w-8 h-8 rounded-lg object-cover" />
+            ) : (
+              <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white text-sm font-semibold">
+                {getInitials(user?.firstName, user?.lastName)}
+              </div>
+            )}
             <div className="hidden md:block text-left">
               <p className="text-sm font-medium text-gray-800 leading-tight">
                 {user?.firstName} {user?.lastName}

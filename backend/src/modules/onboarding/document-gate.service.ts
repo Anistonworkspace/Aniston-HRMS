@@ -70,6 +70,14 @@ export class DocumentGateService {
   // ==================
 
   async saveKycPhoto(employeeId: string, photoUrl: string) {
+    // Also set employee avatar so it shows in sidebar/topbar
+    try {
+      await prisma.employee.update({
+        where: { id: employeeId },
+        data: { avatar: photoUrl },
+      });
+    } catch { /* non-blocking */ }
+
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) {
       // Auto-create gate if it doesn't exist
