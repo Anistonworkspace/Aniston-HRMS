@@ -116,7 +116,7 @@ export class PublicApplyService {
     if (data.mobileNumber) {
       try {
         const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
-        const trackUrl = `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/track/${application.uid}`;
+        const trackUrl = `https://hr.anistonav.com/track/${application.uid}`;
         const msg = `Hi ${data.candidateName}! 🎯\n\nThank you for applying for *${job.title}* at Aniston Technologies.\n\nYour Application ID: *${application.uid}*\nTrack your application: ${trackUrl}\n\nWe'll review your application and get back to you soon.\n— HR Team, Aniston Technologies LLP`;
         await whatsAppService.sendMessage({ to: data.mobileNumber, message: msg }, job.organizationId);
       } catch {

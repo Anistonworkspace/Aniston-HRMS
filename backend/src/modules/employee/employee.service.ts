@@ -250,7 +250,7 @@ export class EmployeeService {
       template: 'onboarding-invite',
       context: {
         name: firstName || normalizedEmail.split('@')[0],
-        link: `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}${onboardingUrl}`,
+        link: `https://hr.anistonav.com${onboardingUrl}`,
       },
     });
 
@@ -555,7 +555,7 @@ export class EmployeeService {
 
     // Email HR users
     const hrUsers = await prisma.user.findMany({ where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' }, select: { email: true } });
-    const link = `${env.FRONTEND_URL}/exit-management`;
+    const link = `https://hr.anistonav.com/exit-management`;
     for (const hr of hrUsers) {
       await enqueueEmail({ to: hr.email, subject: `Resignation: ${employee.firstName} ${employee.lastName}`, template: 'resignation-submitted', context: { name: `${employee.firstName} ${employee.lastName}`, employeeCode: employee.employeeCode, department: employee.department?.name, lastWorkingDate: new Date(data.lastWorkingDate).toLocaleDateString('en-IN'), reason: data.reason, link } });
       const hrUser = await prisma.user.findUnique({ where: { email: hr.email }, select: { id: true } });
@@ -759,7 +759,7 @@ export class EmployeeService {
     });
 
     // Enqueue activation email
-    const activationUrl = `${env.FRONTEND_URL}/activate/${token}`;
+    const activationUrl = `https://hr.anistonav.com/activate/${token}`;
     await enqueueEmail({
       to: employee.email,
       subject: 'Activate your Aniston HRMS account',

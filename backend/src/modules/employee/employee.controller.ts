@@ -100,8 +100,7 @@ export class EmployeeController {
         select: { name: true },
       });
 
-      const frontendUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
-      const downloadUrl = `${frontendUrl}/download`;
+      const downloadUrl = `https://hr.anistonav.com/download`;
       let sentCount = 0;
 
       for (const emp of employees) {

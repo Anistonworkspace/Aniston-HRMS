@@ -110,7 +110,7 @@ const worker = new Worker<DocumentOcrJob>(
           select: { name: true, adminNotificationEmail: true },
         });
         const hrEmail = org?.adminNotificationEmail || 'hr@anistonav.com';
-        const frontendUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
+        const frontendUrl = 'https://hr.anistonav.com';
         const issues = [
           ...(isFake ? ['Document may be altered or fake'] : []),
           ...(isScreenshot ? ['Screenshot detected instead of original scan'] : []),

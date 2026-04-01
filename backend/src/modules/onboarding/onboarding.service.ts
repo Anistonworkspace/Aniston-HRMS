@@ -58,7 +58,7 @@ export class OnboardingService {
       template: 'onboarding-invite',
       context: {
         name: employee.firstName,
-        link: `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/onboarding/${token}`,
+        link: `https://hr.anistonav.com/onboarding/${token}`,
       },
     });
 

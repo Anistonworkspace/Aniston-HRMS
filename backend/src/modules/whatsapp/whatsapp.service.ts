@@ -294,8 +294,7 @@ export class WhatsAppService {
   }
 
   async sendJobLink(data: SendJobLinkInput, organizationId: string) {
-    const frontendUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
-    const jobUrl = data.jobUrl || `${frontendUrl}/jobs`;
+    const jobUrl = data.jobUrl || `https://hr.anistonav.com/jobs`;
     const name = data.candidateName || 'Candidate';
 
     const message = `Hi ${name}! We'd like you to apply for *${data.jobTitle}* at Aniston Technologies.\n\nPlease click the link to apply: ${jobUrl}\n\nThank you!\n— HR Team, Aniston Technologies LLP`;
