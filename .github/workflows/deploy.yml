@@ -85,8 +85,11 @@ jobs:
             git pull origin main
             echo "=== [4/11] Setting production domain in .env ==="
             # Force FRONTEND_URL and API_URL to the correct domain (never IP)
-            sed -i '/^FRONTEND_URL=/d' .env 2>/dev/null || true
-            sed -i '/^API_URL=/d' .env 2>/dev/null || true
+            # Remove ALL lines containing FRONTEND_URL or API_URL (handles quotes, spaces, duplicates)
+            sed -i '/FRONTEND_URL/d' .env 2>/dev/null || true
+            sed -i '/API_URL/d' .env 2>/dev/null || true
+            # Ensure file ends with newline before appending
+            sed -i -e '$a\' .env 2>/dev/null || true
             echo 'FRONTEND_URL=https://hr.anistonav.com' >> .env
             echo 'API_URL=https://hr.anistonav.com' >> .env
             echo "=== [5/11] Installing dependencies ==="

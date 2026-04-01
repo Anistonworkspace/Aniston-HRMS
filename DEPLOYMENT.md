@@ -81,9 +81,9 @@ JWT_REFRESH_SECRET="CHANGE-THIS-TO-ANOTHER-RANDOM-64-CHAR-STRING-FOR-PROD"
 JWT_ACCESS_EXPIRY="15m"
 JWT_REFRESH_EXPIRY="7d"
 
-# URLs (use your domain or EC2 public IP)
-FRONTEND_URL="http://13.126.128.38"
-API_URL="http://13.126.128.38/api"
+# URLs (use your domain)
+FRONTEND_URL="http://hr.anistonav.com"
+API_URL="http://hr.anistonav.com/api"
 
 # AI Service
 AI_SERVICE_URL="http://localhost:8000"
@@ -200,7 +200,7 @@ Paste this:
 ```nginx
 server {
     listen 80;
-    server_name 13.126.128.38;
+    server_name hr.anistonav.com 13.126.128.38;
 
     # Frontend static files
     root /home/ubuntu/Aniston-HRMS/frontend/dist;
@@ -317,8 +317,8 @@ curl http://localhost:4000/api/health
 # Check nginx
 curl http://localhost/api/health
 
-# Check from outside (use EC2 public IP)
-# Open browser: http://13.126.128.38
+# Check from outside (use domain or EC2 public IP)
+# Open browser: http://hr.anistonav.com
 ```
 
 ---
@@ -374,5 +374,5 @@ sudo systemctl restart nginx
 
 ## Login
 
-After deployment, open `http://13.126.128.38` in browser:
+After deployment, open `http://hr.anistonav.com` in browser:
 - **Super Admin:** `superadmin@anistonav.com` / `Superadmin@1234`

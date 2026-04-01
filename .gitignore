@@ -73,3 +73,6 @@ backups/
 agent-desktop/node_modules/
 agent-desktop/dist/
 agent-desktop/build/
+
+
+keys.txt

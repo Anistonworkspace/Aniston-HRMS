@@ -391,7 +391,7 @@ function InviteEmployeeSlideOver({ onClose }: { onClose: () => void }) {
 
   const copyLink = () => {
     if (result?.inviteUrl) {
-      navigator.clipboard.writeText(window.location.origin + result.inviteUrl);
+      navigator.clipboard.writeText(result.inviteUrl);
       toast.success('Invite link copied!');
     }
   };
@@ -429,7 +429,7 @@ function InviteEmployeeSlideOver({ onClose }: { onClose: () => void }) {
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Invite Link</label>
                 <div className="flex items-center gap-2">
-                  <input readOnly value={window.location.origin + (result.inviteUrl || '')}
+                  <input readOnly value={result.inviteUrl || ''}
                     className="input-glass flex-1 text-xs" />
                   <button onClick={copyLink} className="btn-secondary p-2"><Copy size={16} /></button>
                 </div>
