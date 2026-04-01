@@ -6,6 +6,7 @@ import { NotFoundError, ConflictError, BadRequestError } from '../../middleware/
 import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { env } from '../../config/env.js';
+import { logger } from '../../lib/logger.js';
 import type { CreateEmployeeInput, UpdateEmployeeInput, EmployeeQuery, SubmitResignationInput, ApproveExitInput, InitiateTerminationInput, ExitQuery } from './employee.validation.js';
 
 export class EmployeeService {
@@ -365,21 +366,78 @@ export class EmployeeService {
       throw new BadRequestError('System accounts cannot be deleted');
     }
 
-    await prisma.$transaction(async (tx) => {
-      // 1. Delete dependent records (KYC gate, documents, invitations, etc.)
-      const docIds = existing.documents.map(d => d.id);
-      if (docIds.length > 0) {
-        await tx.documentOcrVerification.deleteMany({ where: { documentId: { in: docIds } } });
-        await tx.document.deleteMany({ where: { employeeId: id } });
-      }
-      await tx.onboardingDocumentGate.deleteMany({ where: { employeeId: id } });
-      await tx.leaveBalance.deleteMany({ where: { employeeId: id } });
-      await tx.leaveRequest.deleteMany({ where: { employeeId: id } });
-      await tx.shiftAssignment.deleteMany({ where: { employeeId: id } });
-      await tx.notification.deleteMany({ where: { userId: existing.userId || '' } });
-      await tx.refreshToken.deleteMany({ where: { userId: existing.userId || '' } });
+    // Save info for audit log before deletion
+    const auditData = {
+      firstName: existing.firstName,
+      lastName: existing.lastName,
+      employeeCode: existing.employeeCode,
+      email: existing.email,
+      permanent: true,
+    };
 
-      // 2. Mark invitations as expired so re-invite creates fresh flow
+    await prisma.$transaction(async (tx) => {
+      const docIds = existing.documents.map(d => d.id);
+
+      // Delete all dependent records — order matters for FK constraints
+      // Each deleteMany is wrapped in try-catch so missing tables don't break the flow
+      const deletions: Array<{ name: string; fn: () => Promise<any> }> = [
+        // OCR verifications (depends on documents)
+        { name: 'DocumentOcrVerification', fn: () => tx.documentOcrVerification.deleteMany({ where: { documentId: { in: docIds.length ? docIds : ['none'] } } }) },
+        // Documents
+        { name: 'Document', fn: () => tx.document.deleteMany({ where: { employeeId: id } }) },
+        // KYC / Onboarding
+        { name: 'OnboardingDocumentGate', fn: () => tx.onboardingDocumentGate.deleteMany({ where: { employeeId: id } }) },
+        // Leave
+        { name: 'LeaveBalance', fn: () => tx.leaveBalance.deleteMany({ where: { employeeId: id } }) },
+        { name: 'LeaveRequest', fn: () => tx.leaveRequest.deleteMany({ where: { employeeId: id } }) },
+        // Attendance
+        { name: 'AttendanceRecord', fn: () => tx.attendanceRecord.deleteMany({ where: { employeeId: id } }) },
+        { name: 'GPSTrailPoint', fn: () => tx.gPSTrailPoint.deleteMany({ where: { employeeId: id } }) },
+        { name: 'ProjectSiteCheckIn', fn: () => tx.projectSiteCheckIn.deleteMany({ where: { employeeId: id } }) },
+        // Shifts
+        { name: 'ShiftAssignment', fn: () => tx.shiftAssignment.deleteMany({ where: { employeeId: id } }) },
+        // Payroll
+        { name: 'SalaryStructure', fn: () => tx.salaryStructure.deleteMany({ where: { employeeId: id } }) },
+        { name: 'PayrollRecord', fn: () => tx.payrollRecord.deleteMany({ where: { employeeId: id } }) },
+        // Performance
+        { name: 'PerformanceGoal', fn: () => tx.performanceGoal.deleteMany({ where: { employeeId: id } }) },
+        { name: 'PerformanceReview', fn: () => tx.performanceReview.deleteMany({ where: { employeeId: id } }) },
+        // Assets
+        { name: 'AssetAssignment', fn: () => tx.assetAssignment.deleteMany({ where: { employeeId: id } }) },
+        // Helpdesk
+        { name: 'Ticket', fn: () => tx.ticket.deleteMany({ where: { employeeId: id } }) },
+        // Activity / Agent
+        { name: 'ActivityLog', fn: () => tx.activityLog.deleteMany({ where: { employeeId: id } }) },
+        { name: 'AgentScreenshot', fn: () => tx.agentScreenshot.deleteMany({ where: { employeeId: id } }) },
+        // Exit
+        { name: 'ExitChecklist', fn: () => tx.exitChecklist.deleteMany({ where: { employeeId: id } }) },
+        { name: 'ExitAccessConfig', fn: () => tx.exitAccessConfig.deleteMany({ where: { employeeId: id } }) },
+        // Intern
+        { name: 'InternProfile', fn: () => tx.internProfile.deleteMany({ where: { employeeId: id } }) },
+        // Permissions / Visibility
+        { name: 'SalaryVisibilityRule', fn: () => tx.salaryVisibilityRule.deleteMany({ where: { employeeId: id } }) },
+        { name: 'PermissionOverride', fn: () => tx.permissionOverride.deleteMany({ where: { employeeId: id } }) },
+        // Lifecycle events
+        { name: 'EmployeeEvent', fn: () => tx.employeeEvent.deleteMany({ where: { employeeId: id } }) },
+      ];
+
+      // User-related deletions
+      if (existing.userId) {
+        deletions.push(
+          { name: 'AuditLog(user)', fn: () => tx.auditLog.deleteMany({ where: { userId: existing.userId! } }) },
+          { name: 'Notification', fn: () => tx.notification.deleteMany({ where: { userId: existing.userId! } }) },
+          { name: 'RefreshToken', fn: () => tx.refreshToken.deleteMany({ where: { userId: existing.userId! } }) },
+        );
+      }
+
+      for (const { name, fn } of deletions) {
+        try { await fn(); } catch (e: any) {
+          // Log but don't block — some tables may not exist or have no matching records
+          logger.warn(`Delete ${name} for employee ${id}: ${e.message?.slice(0, 80)}`);
+        }
+      }
+
+      // Mark invitations as expired so re-invite starts fresh
       if (existing.email) {
         await tx.employeeInvitation.updateMany({
           where: { email: existing.email, organizationId, status: 'ACCEPTED' },
@@ -387,31 +445,31 @@ export class EmployeeService {
         });
       }
 
-      // 3. Delete employee record permanently
+      // Unlink manager references from other employees
+      await tx.employee.updateMany({
+        where: { managerId: id },
+        data: { managerId: null },
+      });
+
+      // Delete employee record permanently
       await tx.employee.delete({ where: { id } });
 
-      // 4. Delete user record permanently (so re-invite creates fresh account)
+      // Delete user record permanently
       if (existing.userId) {
         await tx.user.delete({ where: { id: existing.userId } });
       }
+    });
 
-      // 5. Audit log (use deletedBy as userId since the deleted user no longer exists)
-      await tx.auditLog.create({
-        data: {
-          userId: deletedBy,
-          entity: 'Employee',
-          entityId: id,
-          action: 'DELETE',
-          oldValue: {
-            firstName: existing.firstName,
-            lastName: existing.lastName,
-            employeeCode: existing.employeeCode,
-            email: existing.email,
-            permanent: true,
-          },
-          organizationId,
-        },
-      });
+    // Audit log after transaction (use a separate call since the user is deleted)
+    await prisma.auditLog.create({
+      data: {
+        userId: deletedBy,
+        entity: 'Employee',
+        entityId: id,
+        action: 'DELETE',
+        oldValue: auditData,
+        organizationId,
+      },
     });
   }
 
