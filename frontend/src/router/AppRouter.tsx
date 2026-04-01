@@ -52,7 +52,7 @@ const SendBulkEmailPage = lazy(() => import('../features/employee/SendBulkEmailP
 
 function PageLoader() {
   return (
-    <div className="flex items-center justify-center h-64">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
       <div className="flex flex-col items-center gap-3">
         <div className="w-8 h-8 border-3 border-brand-600 border-t-transparent rounded-full animate-spin" />
         <p className="text-sm text-gray-400">Loading...</p>

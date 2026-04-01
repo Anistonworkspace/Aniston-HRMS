@@ -39,13 +39,13 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Show loading while restoring user session
-  if (shouldFetchUser && isLoading) {
+  // Show loading while restoring user session or waiting for user data to hydrate
+  if (shouldFetchUser || (isAuthenticated && !user && isLoading)) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-3 border-brand-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-gray-400">Restoring session...</p>
+          <p className="text-sm text-gray-400">Loading your workspace...</p>
         </div>
       </div>
     );

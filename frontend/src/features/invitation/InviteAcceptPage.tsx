@@ -37,6 +37,7 @@ export default function InviteAcceptPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [success, setSuccess] = useState<any>(null);
+  const [redirecting, setRedirecting] = useState(false);
 
   const invitation = data?.data;
   const strength = useMemo(() => getPasswordStrength(password), [password])
@@ -45,6 +46,33 @@ export default function InviteAcceptPage() {
   useEffect(() => {
     if (invitation?.email) setEmail(invitation.email);
   }, [invitation?.email]);
+
+  // Handle redirect after successful account creation — driven by state, not setTimeout
+  useEffect(() => {
+    if (!success || redirecting) return;
+    const resData = success;
+
+    if (resData.accessToken && resData.user) {
+      // Give a brief moment for the success screen to display, then redirect
+      const timer = setTimeout(() => {
+        setRedirecting(true);
+        if (resData.user.onboardingComplete === false) {
+          navigate('/employee-onboarding', { replace: true });
+        } else if (resData.user.kycCompleted === false) {
+          navigate('/kyc-pending', { replace: true });
+        } else {
+          navigate('/dashboard', { replace: true });
+        }
+      }, 1200);
+      return () => clearTimeout(timer);
+    } else {
+      const timer = setTimeout(() => {
+        setRedirecting(true);
+        navigate('/login', { replace: true });
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [success, redirecting, navigate]);
 
   const passwordValid = password.length >= 8 &&
     /[a-z]/.test(password) &&
@@ -70,27 +98,17 @@ export default function InviteAcceptPage() {
       }).unwrap();
 
       const resData = res.data;
-      setSuccess(resData);
 
-      // Auto-login if tokens are returned
+      // Auto-login if tokens are returned — set credentials FIRST, then show success
       if (resData.accessToken && resData.user) {
         dispatch(setCredentials({ user: resData.user, accessToken: resData.accessToken }));
         toast.success('Account created! Setting up your workspace...');
-        // Redirect based on onboarding/KYC status
-        setTimeout(() => {
-          if (resData.user.onboardingComplete === false) {
-            navigate('/employee-onboarding', { replace: true });
-          } else if (resData.user.kycCompleted === false) {
-            navigate('/kyc-pending', { replace: true });
-          } else {
-            navigate('/dashboard', { replace: true });
-          }
-        }, 1500);
       } else {
-        // Fallback: redirect to login
         toast.success('Account created! Redirecting to login...');
-        setTimeout(() => navigate('/login', { replace: true }), 2000);
       }
+
+      // Setting success triggers the useEffect redirect
+      setSuccess(resData);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to create account');
     }
@@ -137,7 +155,11 @@ export default function InviteAcceptPage() {
           <h1 className="text-xl font-bold text-gray-900 mb-2">Account Created!</h1>
           <p className="text-sm text-gray-500 mb-1">Employee Code: <span className="font-mono font-semibold">{success.employeeCode}</span></p>
           <p className="text-sm text-gray-500 mb-4">
-            {success.accessToken ? 'Setting up your workspace...' : 'Redirecting to login...'}
+            {redirecting
+              ? 'Redirecting...'
+              : success.accessToken
+                ? 'Setting up your workspace...'
+                : 'Redirecting to login...'}
           </p>
           <Loader2 size={20} className="animate-spin text-brand-600 mx-auto" />
         </motion.div>

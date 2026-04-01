@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Check, ChevronRight, ChevronLeft, Loader2, PartyPopper,
+  Check, ChevronRight, ChevronLeft, Loader2, PartyPopper, AlertTriangle,
   User, FileText, Camera, Building2, Phone, ClipboardCheck
 } from 'lucide-react';
 import { useGetMyOnboardingStatusQuery, useSaveMyStepMutation, useCompleteMyOnboardingMutation } from './onboardingApi';
@@ -23,7 +23,7 @@ const STEPS = [
 export default function EmployeeOnboardingPage() {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  const { data: statusRes, isLoading, refetch } = useGetMyOnboardingStatusQuery();
+  const { data: statusRes, isLoading, isError, error, refetch } = useGetMyOnboardingStatusQuery();
   const [saveStep, { isLoading: saving }] = useSaveMyStepMutation();
   const [completeOnboarding, { isLoading: completing }] = useCompleteMyOnboardingMutation();
   const [currentStep, setCurrentStep] = useState(1);
@@ -82,7 +82,33 @@ export default function EmployeeOnboardingPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
-        <Loader2 size={32} className="animate-spin text-brand-600" />
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 size={32} className="animate-spin text-brand-600" />
+          <p className="text-sm text-gray-400">Loading your onboarding...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
+          <AlertTriangle size={48} className="mx-auto text-amber-500 mb-4" />
+          <h1 className="text-xl font-bold text-gray-900 mb-2">Unable to Load Onboarding</h1>
+          <p className="text-sm text-gray-500 mb-4">
+            {(error as any)?.data?.error?.message || 'Something went wrong loading your onboarding status. Please try again.'}
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button onClick={() => refetch()} className="btn-primary text-sm flex items-center gap-2">
+              <Loader2 size={14} className={isLoading ? 'animate-spin' : 'hidden'} />
+              Try Again
+            </button>
+            <button onClick={() => navigate('/login', { replace: true })} className="text-sm text-gray-500 hover:text-gray-700 underline">
+              Back to Login
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
