@@ -1,5 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError } from '../../middleware/errorHandler.js';
+import { emitToOrg } from '../../sockets/index.js';
+import { logger } from '../../lib/logger.js';
 
 const DEFAULT_REQUIRED_DOCS = ['PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO'];
 const IDENTITY_PROOF_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
@@ -92,10 +94,12 @@ export class DocumentGateService {
 
     // If combined PDF is uploaded, bypass individual checks
     if (gate.combinedPdfUploaded) {
-      return prisma.onboardingDocumentGate.update({
+      const updated = await prisma.onboardingDocumentGate.update({
         where: { employeeId },
         data: { kycStatus: 'SUBMITTED' },
       });
+      await this.emitKycUpdate(employeeId, 'SUBMITTED');
+      return updated;
     }
 
     // Verify all mandatory documents
@@ -115,10 +119,34 @@ export class DocumentGateService {
       throw new BadRequestError(`Missing mandatory documents: ${missing.join(', ')}`);
     }
 
-    return prisma.onboardingDocumentGate.update({
+    const updated = await prisma.onboardingDocumentGate.update({
       where: { employeeId },
       data: { kycStatus: 'SUBMITTED' },
     });
+    await this.emitKycUpdate(employeeId, 'SUBMITTED');
+    return updated;
+  }
+
+  /**
+   * Emit real-time socket event when KYC status changes — HR sees updates instantly.
+   */
+  private async emitKycUpdate(employeeId: string, status: string) {
+    try {
+      const emp = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { organizationId: true, firstName: true, lastName: true, employeeCode: true },
+      });
+      if (emp) {
+        emitToOrg(emp.organizationId, 'kyc:status-changed', {
+          employeeId,
+          employeeName: `${emp.firstName} ${emp.lastName}`,
+          employeeCode: emp.employeeCode,
+          status,
+        });
+      }
+    } catch (err) {
+      logger.warn('Failed to emit KYC socket event:', err);
+    }
   }
 
   async setCombinedPdfUploaded(employeeId: string) {
@@ -142,7 +170,7 @@ export class DocumentGateService {
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) throw new NotFoundError('Document gate');
 
-    return prisma.onboardingDocumentGate.update({
+    const updated = await prisma.onboardingDocumentGate.update({
       where: { employeeId },
       data: {
         kycStatus: 'VERIFIED',
@@ -151,13 +179,15 @@ export class DocumentGateService {
         rejectionReason: null,
       },
     });
+    await this.emitKycUpdate(employeeId, 'VERIFIED');
+    return updated;
   }
 
   async rejectKyc(employeeId: string, reason: string, rejectedBy: string) {
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) throw new NotFoundError('Document gate');
 
-    return prisma.onboardingDocumentGate.update({
+    const updated = await prisma.onboardingDocumentGate.update({
       where: { employeeId },
       data: {
         kycStatus: 'REJECTED',
@@ -165,6 +195,8 @@ export class DocumentGateService {
         verifiedBy: rejectedBy,
       },
     });
+    await this.emitKycUpdate(employeeId, 'REJECTED');
+    return updated;
   }
 
   async getPendingKyc(organizationId: string, page: number = 1, limit: number = 20) {

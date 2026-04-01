@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText, Camera, Upload, CheckCircle2, Clock, XCircle, Loader2,
@@ -11,6 +11,7 @@ import {
   useUploadCombinedPdfMutation, useUploadPhotoFileMutation, useSubmitKycMutation,
 } from './kycApi';
 import CameraCapture from './CameraCapture';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
 
 // ===== Document Categories =====
@@ -115,6 +116,13 @@ export default function KycGatePage() {
   const [uploadPhotoFile] = useUploadPhotoFileMutation();
   const [submitKyc, { isLoading: submitting }] = useSubmitKycMutation();
 
+  // Real-time: auto-refetch when HR verifies/rejects
+  useEffect(() => {
+    const handler = () => { refetch(); };
+    onSocketEvent('kyc:status-changed', handler);
+    return () => { offSocketEvent('kyc:status-changed', handler); };
+  }, [refetch]);
+
   const [showCamera, setShowCamera] = useState(false);
   const [uploading, setUploading] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -146,6 +154,7 @@ export default function KycGatePage() {
   const rejectionReason = kyc?.rejectionReason || null;
   const status = statusConfig[kycStatus] || statusConfig.PENDING;
   const StatusIcon = status.icon;
+  // Only lock when submitted (under review) or verified. Rejected = allow re-upload
   const isLocked = kycStatus === 'SUBMITTED' || kycStatus === 'VERIFIED';
 
   // Progress calculation
@@ -363,7 +372,7 @@ export default function KycGatePage() {
                 <input
                   ref={combinedPdfRef}
                   type="file"
-                  accept=".pdf"
+                  accept=".pdf,.doc,.docx,image/*,application/pdf"
                   className="hidden"
                   onChange={e => {
                     const file = e.target.files?.[0];
@@ -537,7 +546,7 @@ export default function KycGatePage() {
                                       <input
                                         ref={el => { fileInputRefs.current[doc.type] = el; }}
                                         type="file"
-                                        accept="image/*,.pdf"
+                                        accept="image/*,.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                                         className="hidden"
                                         onChange={e => {
                                           const file = e.target.files?.[0];
