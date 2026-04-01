@@ -642,7 +642,7 @@ model Holiday {
   createdBy       String?  // userId who created it
   organizationId  String
   createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  updatedAt       DateTime @default(now()) @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id])
 
