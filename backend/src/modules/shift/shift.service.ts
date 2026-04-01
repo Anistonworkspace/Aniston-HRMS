@@ -5,7 +5,42 @@ import type { CreateShiftInput, AssignShiftInput, CreateLocationInput } from './
 export class ShiftService {
   // ===================== SHIFTS =====================
 
+  /**
+   * One-time cleanup: ensure only one active shift per type (OFFICE, FIELD).
+   * Deactivates duplicates, keeping the default or most-assigned one.
+   */
+  private async ensureOnePerType(organizationId: string) {
+    for (const shiftType of ['OFFICE', 'FIELD'] as const) {
+      const shifts = await prisma.shift.findMany({
+        where: { organizationId, shiftType, isActive: true },
+        include: { _count: { select: { assignments: true } } },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      });
+      if (shifts.length <= 1) continue;
+
+      // Keep the first one (default or oldest), deactivate the rest
+      const keep = shifts[0];
+      const remove = shifts.slice(1);
+
+      for (const dup of remove) {
+        // Move any active assignments from duplicate to the kept shift
+        await prisma.shiftAssignment.updateMany({
+          where: { shiftId: dup.id, OR: [{ endDate: null }, { endDate: { gte: new Date() } }] },
+          data: { shiftId: keep.id },
+        });
+        // Deactivate duplicate
+        await prisma.shift.update({
+          where: { id: dup.id },
+          data: { isActive: false, code: `${dup.code}_DUP_${Date.now()}` },
+        });
+      }
+    }
+  }
+
   async getShifts(organizationId: string) {
+    // Auto-cleanup duplicates on first load
+    await this.ensureOnePerType(organizationId);
+
     return prisma.shift.findMany({
       where: { organizationId, isActive: true },
       include: { _count: { select: { assignments: true } } },
