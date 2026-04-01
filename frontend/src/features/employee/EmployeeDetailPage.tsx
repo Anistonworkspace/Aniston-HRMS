@@ -198,9 +198,14 @@ export default function EmployeeDetailPage() {
             {activeTab === 'overview' && (
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="layer-card p-5">
-                  <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                    <Building2 size={15} className="text-purple-500" /> Employment Details
-                  </h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                      <Building2 size={15} className="text-purple-500" /> Employment Details
+                    </h3>
+                    {isManagement && (
+                      <button onClick={() => setShowEditModal(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Edit</button>
+                    )}
+                  </div>
                   <dl className="space-y-2.5">
                     <InfoRow label="Department" value={employee.department?.name || '—'} />
                     <InfoRow label="Designation" value={employee.designation?.name || '—'} />
@@ -212,9 +217,14 @@ export default function EmployeeDetailPage() {
                   </dl>
                 </div>
                 <div className="layer-card p-5">
-                  <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                    <Shield size={15} className="text-brand-500" /> Personal Information
-                  </h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                      <Shield size={15} className="text-brand-500" /> Personal Information
+                    </h3>
+                    {isManagement && (
+                      <button onClick={() => setShowEditModal(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Edit</button>
+                    )}
+                  </div>
                   <dl className="space-y-2.5">
                     <InfoRow label="Gender" value={employee.gender} />
                     <InfoRow label="Date of Birth" value={employee.dateOfBirth ? formatDate(employee.dateOfBirth) : '—'} />
@@ -239,7 +249,12 @@ export default function EmployeeDetailPage() {
             {activeTab === 'personal' && (
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="layer-card p-5">
-                  <h3 className="text-sm font-semibold text-gray-800 mb-3">Personal Details</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-800">Personal Details</h3>
+                    {isManagement && (
+                      <button onClick={() => setShowEditModal(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Edit</button>
+                    )}
+                  </div>
                   <dl className="space-y-2.5">
                     <InfoRow label="Full Name" value={`${employee.firstName} ${employee.lastName}`} />
                     <InfoRow label="Gender" value={employee.gender} />
@@ -249,7 +264,12 @@ export default function EmployeeDetailPage() {
                   </dl>
                 </div>
                 <div className="layer-card p-5">
-                  <h3 className="text-sm font-semibold text-gray-800 mb-3">Contact Information</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-800">Contact Information</h3>
+                    {isManagement && (
+                      <button onClick={() => setShowEditModal(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Edit</button>
+                    )}
+                  </div>
                   <dl className="space-y-2.5">
                     <InfoRow label="Official Email" value={employee.email} />
                     <InfoRow label="Personal Email" value={employee.personalEmail || '—'} />
