@@ -26,6 +26,10 @@ export const whatsappApi = api.injectEndpoints({
       query: (params) => ({ url: '/whatsapp/messages', params }),
       providesTags: ['WhatsApp'],
     }),
+    refreshWhatsAppQr: builder.mutation<any, void>({
+      query: () => ({ url: '/whatsapp/refresh-qr', method: 'POST' }),
+      invalidatesTags: ['WhatsApp'],
+    }),
     logoutWhatsApp: builder.mutation<any, void>({
       query: () => ({ url: '/whatsapp/logout', method: 'POST' }),
       invalidatesTags: ['WhatsApp'],
@@ -54,6 +58,7 @@ export const {
   useInitializeWhatsAppMutation,
   useGetWhatsAppStatusQuery,
   useGetWhatsAppQrQuery,
+  useRefreshWhatsAppQrMutation,
   useSendWhatsAppMessageMutation,
   useSendWhatsAppJobLinkMutation,
   useGetWhatsAppMessagesQuery,

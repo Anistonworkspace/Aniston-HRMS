@@ -83,6 +83,13 @@ export class WhatsAppController {
     } catch (err) { next(err); }
   }
 
+  async refreshQr(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await whatsAppService.refreshQr(req.user!.organizationId);
+      res.json({ success: true, data: result, message: 'QR refreshed — scan the new code' });
+    } catch (err) { next(err); }
+  }
+
   async logout(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await whatsAppService.logout(req.user!.organizationId);

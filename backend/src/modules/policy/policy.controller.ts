@@ -1,12 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import { policyService } from './policy.service.js';
-import { createPolicySchema, updatePolicySchema, policyQuerySchema } from './policy.validation.js';
+import { createPolicySchema, updatePolicySchema } from './policy.validation.js';
 
 export class PolicyController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const query = policyQuerySchema.parse(req.query);
-      const policies = await policyService.list(query, req.user!.organizationId, req.user!.employeeId);
+      const policies = await policyService.list(req.user!.organizationId, req.user!.employeeId);
       res.json({ success: true, data: policies });
     } catch (err) {
       next(err);
@@ -25,7 +24,12 @@ export class PolicyController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const data = createPolicySchema.parse(req.body);
-      const policy = await policyService.create(data, req.user!.organizationId);
+      const file = req.file;
+      const policy = await policyService.create(
+        { title: data.title },
+        req.user!.organizationId,
+        file,
+      );
       res.status(201).json({ success: true, data: policy, message: 'Policy created' });
     } catch (err) {
       next(err);
@@ -35,7 +39,8 @@ export class PolicyController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updatePolicySchema.parse(req.body);
-      const policy = await policyService.update(req.params.id, data);
+      const file = req.file;
+      const policy = await policyService.update(req.params.id, data, file);
       res.json({ success: true, data: policy, message: 'Policy updated' });
     } catch (err) {
       next(err);
@@ -46,15 +51,6 @@ export class PolicyController {
     try {
       const ack = await policyService.acknowledge(req.params.id, req.user!.employeeId);
       res.json({ success: true, data: ack, message: 'Policy acknowledged' });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  async getCategories(_req: Request, res: Response, next: NextFunction) {
-    try {
-      const categories = policyService.getCategories();
-      res.json({ success: true, data: categories });
     } catch (err) {
       next(err);
     }

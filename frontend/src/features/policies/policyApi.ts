@@ -2,8 +2,8 @@ import { api } from '../../app/api';
 
 export const policyApi = api.injectEndpoints({
   endpoints: (builder) => ({
-    getPolicies: builder.query<any, { category?: string }>({
-      query: (params) => ({ url: '/policies', params }),
+    getPolicies: builder.query<any, void>({
+      query: () => '/policies',
       providesTags: (result) =>
         result?.data
           ? [
@@ -16,11 +16,11 @@ export const policyApi = api.injectEndpoints({
       query: (id) => `/policies/${id}`,
       providesTags: (result, error, id) => [{ type: 'Policy', id }],
     }),
-    createPolicy: builder.mutation<any, { title: string; content: string; category: string; version: string }>({
+    createPolicy: builder.mutation<any, FormData>({
       query: (body) => ({ url: '/policies', method: 'POST', body }),
       invalidatesTags: [{ type: 'Policy', id: 'LIST' }],
     }),
-    updatePolicy: builder.mutation<any, { id: string; data: Partial<{ title: string; content: string; category: string; version: string }> }>({
+    updatePolicy: builder.mutation<any, { id: string; data: FormData }>({
       query: ({ id, data }) => ({ url: `/policies/${id}`, method: 'PATCH', body: data }),
       invalidatesTags: (result, error, { id }) => [{ type: 'Policy', id }, { type: 'Policy', id: 'LIST' }],
     }),

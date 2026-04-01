@@ -6,14 +6,17 @@ const router = Router();
 
 router.use(authenticate);
 
-// Admin only
-router.post('/initialize', authorize('SUPER_ADMIN', 'ADMIN'), (req, res, next) =>
+// Admin + HR can initialize, refresh QR, and logout
+router.post('/initialize', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
   whatsAppController.initialize(req, res, next)
+);
+router.post('/refresh-qr', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
+  whatsAppController.refreshQr(req, res, next)
 );
 router.get('/qr', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
   whatsAppController.getQrCode(req, res, next)
 );
-router.post('/logout', authorize('SUPER_ADMIN', 'ADMIN'), (req, res, next) =>
+router.post('/logout', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
   whatsAppController.logout(req, res, next)
 );
 

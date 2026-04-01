@@ -15,7 +15,7 @@ L.Icon.Default.mergeOptions({
 import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation } from './settingsApi';
 import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
-import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation, useGetWhatsAppContactsQuery, useGetWhatsAppMessagesQuery } from '../whatsapp/whatsappApi';
+import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useRefreshWhatsAppQrMutation, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation, useGetWhatsAppContactsQuery, useGetWhatsAppMessagesQuery } from '../whatsapp/whatsappApi';
 import { cn, getInitials } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
@@ -1230,23 +1230,27 @@ function WhatsAppConfig() {
   const { data: statusRes, refetch: refetchStatus } = useGetWhatsAppStatusQuery(undefined, { pollingInterval: 10000 });
   const { data: qrRes, refetch: refetchQr } = useGetWhatsAppQrQuery(undefined, { pollingInterval: 10000 });
   const [initializeWA, { isLoading: initializing }] = useInitializeWhatsAppMutation();
+  const [refreshQrMutation, { isLoading: refreshingQr }] = useRefreshWhatsAppQrMutation();
   const [logoutWA, { isLoading: disconnecting }] = useLogoutWhatsAppMutation();
   const [sendMessage] = useSendWhatsAppMessageMutation();
   const [testPhone, setTestPhone] = useState('');
   const [testMsg, setTestMsg] = useState('Hello from Aniston HRMS!');
   const [connecting, setConnecting] = useState(false);
+  const [linking, setLinking] = useState(false); // QR scanned, waiting for full connection
   const [liveQr, setLiveQr] = useState<string | null>(null);
+  const [liveConnected, setLiveConnected] = useState(false); // instant connected state via socket
+  const [livePhone, setLivePhone] = useState<string | null>(null);
   const [waError, setWaError] = useState<string | null>(null);
 
   const status = statusRes?.data;
-  const isConnected = status?.isConnected || false;
+  const isConnected = liveConnected || status?.isConnected || false;
   const serverInitializing = status?.isInitializing || false;
   const qrCode = liveQr || qrRes?.data?.qrCode;
 
   // Sync connecting state with server's isInitializing
   useEffect(() => {
     if (serverInitializing && !connecting) setConnecting(true);
-    if (isConnected) setConnecting(false);
+    if (isConnected) { setConnecting(false); setLinking(false); }
   }, [serverInitializing, isConnected]);
 
   // Listen for real-time socket events for instant QR + connection updates
@@ -1254,26 +1258,51 @@ function WhatsAppConfig() {
     const handleQr = (data: any) => {
       setLiveQr(data.qrCode);
       setConnecting(false);
+      setLinking(false);
+    };
+    const handleAuthenticated = () => {
+      // QR was scanned — immediately hide QR and show linking spinner
+      setLiveQr(null);
+      setLinking(true);
+      setConnecting(false);
     };
     const handleReady = (data: any) => {
       setLiveQr(null);
+      setLinking(false);
       setConnecting(false);
+      setLiveConnected(true);
+      setLivePhone(data.phoneNumber || null);
       toast.success(`WhatsApp connected${data.phoneNumber ? ` (+${data.phoneNumber})` : ''}!`);
+      refetchStatus();
+    };
+    const handleAuthFailure = (data: any) => {
+      setLiveQr(null);
+      setLinking(false);
+      setConnecting(false);
+      setWaError(data?.message || 'Authentication failed. Please try again.');
+      toast.error('WhatsApp authentication failed');
       refetchStatus();
     };
     const handleDisconnected = () => {
       setLiveQr(null);
+      setLinking(false);
       setConnecting(false);
+      setLiveConnected(false);
+      setLivePhone(null);
       refetchStatus();
     };
 
     onSocketEvent('whatsapp:qr', handleQr);
+    onSocketEvent('whatsapp:authenticated', handleAuthenticated);
     onSocketEvent('whatsapp:ready', handleReady);
+    onSocketEvent('whatsapp:auth_failure', handleAuthFailure);
     onSocketEvent('whatsapp:disconnected', handleDisconnected);
 
     return () => {
       offSocketEvent('whatsapp:qr', handleQr);
+      offSocketEvent('whatsapp:authenticated', handleAuthenticated);
       offSocketEvent('whatsapp:ready', handleReady);
+      offSocketEvent('whatsapp:auth_failure', handleAuthFailure);
       offSocketEvent('whatsapp:disconnected', handleDisconnected);
     };
   }, [refetchStatus]);
@@ -1323,14 +1352,23 @@ function WhatsAppConfig() {
 
       <div className={cn('rounded-xl px-4 py-3 mb-6 flex items-center gap-3',
         isConnected ? 'bg-emerald-50 border border-emerald-200'
-        : connecting ? 'bg-amber-50 border border-amber-200'
+        : linking ? 'bg-blue-50 border border-blue-200'
+        : (connecting || qrCode) ? 'bg-amber-50 border border-amber-200'
         : 'bg-gray-50 border border-gray-200')}>
         {isConnected ? (
           <>
             <Wifi size={18} className="text-emerald-600" />
             <div>
               <p className="text-sm font-medium text-emerald-700">Connected</p>
-              {status?.phoneNumber && <p className="text-xs text-emerald-500">Phone: +{status.phoneNumber}</p>}
+              {(livePhone || status?.phoneNumber) && <p className="text-xs text-emerald-500">Phone: +{livePhone || status?.phoneNumber}</p>}
+            </div>
+          </>
+        ) : linking ? (
+          <>
+            <Loader2 size={18} className="text-blue-600 animate-spin" />
+            <div>
+              <p className="text-sm font-medium text-blue-700">Linking device...</p>
+              <p className="text-xs text-blue-500">QR scanned successfully! Connecting to WhatsApp...</p>
             </div>
           </>
         ) : connecting && !qrCode ? (
@@ -1363,7 +1401,13 @@ function WhatsAppConfig() {
 
       {!isConnected ? (
         <div className="space-y-6">
-          {qrCode ? (
+          {linking ? (
+            <div className="text-center py-12">
+              <Loader2 size={48} className="mx-auto text-blue-500 animate-spin mb-4" />
+              <p className="text-sm font-medium text-gray-700">Linking your WhatsApp device...</p>
+              <p className="text-xs text-gray-400 mt-1">QR code scanned! Please wait while we establish the connection.</p>
+            </div>
+          ) : qrCode ? (
             <div className="text-center">
               <p className="text-sm text-gray-600 mb-4">Scan this QR code with WhatsApp on your phone</p>
               <div className="inline-block p-4 bg-white rounded-2xl shadow-lg border border-gray-100">
@@ -1371,7 +1415,24 @@ function WhatsAppConfig() {
               </div>
               <p className="text-xs text-gray-400 mt-3">Open WhatsApp → Settings → Linked Devices → Link a Device</p>
               <div className="flex items-center justify-center gap-3 mt-4">
-                <button onClick={() => { refetchQr(); refetchStatus(); }} className="btn-secondary text-xs">Refresh QR</button>
+                <button
+                  onClick={async () => {
+                    try {
+                      setLiveQr(null);
+                      setConnecting(true);
+                      await refreshQrMutation().unwrap();
+                      toast.success('Refreshing QR code...');
+                    } catch (err: any) {
+                      setConnecting(false);
+                      toast.error(err?.data?.error?.message || 'Failed to refresh QR');
+                    }
+                  }}
+                  disabled={refreshingQr}
+                  className="btn-secondary text-xs flex items-center gap-1.5"
+                >
+                  {refreshingQr && <Loader2 size={12} className="animate-spin" />}
+                  Refresh QR
+                </button>
                 <span className="text-xs text-gray-400">QR updates automatically via real-time connection</span>
               </div>
             </div>

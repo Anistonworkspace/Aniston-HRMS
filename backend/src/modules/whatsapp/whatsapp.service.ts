@@ -41,6 +41,14 @@ export class WhatsAppService {
 
       currentOrgId = organizationId;
 
+      // Clean up any corrupted session files that might cause "Couldn't link device"
+      const sessionDir = path.join(WA_AUTH_DIR, `session-aniston-${organizationId}`);
+      const defaultDir = path.join(sessionDir, 'Default');
+      if (fs.existsSync(sessionDir) && !fs.existsSync(defaultDir)) {
+        logger.info('WhatsApp: removing corrupted session directory');
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+      }
+
       // Find Chrome/Chromium executable — MUST set for Puppeteer v24+
       const chromePaths = [
         process.env.PUPPETEER_EXECUTABLE_PATH,
@@ -102,11 +110,13 @@ export class WhatsAppService {
             '--no-first-run',
           ],
           headless: 'new' as any,
-          timeout: 60000,
+          timeout: 120000,
         },
         webVersionCache: {
-          type: 'none',
+          type: 'remote',
+          remotePath: 'https://raw.githubusercontent.com/nicehero/nicehero.github.io/main/nicehero-whatsapp-web-version-cache/',
         },
+        authTimeoutMs: 120000,
       });
 
       waClient.on('qr', async (qr: string) => {
@@ -123,6 +133,25 @@ export class WhatsAppService {
         } catch (err) {
           logger.error('Failed to process QR:', err);
         }
+      });
+
+      // Fired immediately when QR is scanned successfully — before full ready
+      waClient.on('authenticated', () => {
+        logger.info('WhatsApp QR scanned — authenticating...');
+        currentQrCode = null;
+        emitToOrg(organizationId, 'whatsapp:authenticated', { message: 'QR scanned, linking device...' });
+      });
+
+      waClient.on('auth_failure', async (msg: string) => {
+        isReady = false;
+        isInitializing = false;
+        currentQrCode = null;
+        logger.error('WhatsApp auth failure:', msg);
+        await prisma.whatsAppSession.updateMany({
+          where: { sessionName: `main-${organizationId}` },
+          data: { isConnected: false, qrCode: null },
+        });
+        emitToOrg(organizationId, 'whatsapp:auth_failure', { message: msg || 'Authentication failed' });
       });
 
       waClient.on('ready', async () => {
@@ -534,6 +563,36 @@ export class WhatsAppService {
     } catch (err: any) {
       logger.warn(`WhatsApp auto-reconnect failed: ${err.message}`);
     }
+  }
+
+  /**
+   * Refresh QR code — destroy the current client (without logging out)
+   * and re-initialize so a fresh QR is generated.
+   */
+  async refreshQr(organizationId: string) {
+    // Stop ping interval
+    if (this._pingInterval) {
+      clearInterval(this._pingInterval);
+      this._pingInterval = null;
+    }
+
+    // Destroy existing client without logging out (preserve auth files)
+    if (waClient) {
+      try { await waClient.destroy(); } catch { /* ignore */ }
+      waClient = null;
+    }
+    isReady = false;
+    isInitializing = false;
+    currentQrCode = null;
+
+    // Clear old QR from DB
+    await prisma.whatsAppSession.updateMany({
+      where: { organizationId },
+      data: { qrCode: null, isConnected: false },
+    });
+
+    // Re-initialize — will generate a fresh QR
+    return this.initialize(organizationId);
   }
 
   async logout(organizationId: string) {

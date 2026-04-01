@@ -1,45 +1,29 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, Check, Plus, X, Eye, Shield, BookOpen, Users, Laptop, Heart, Loader2 } from 'lucide-react';
-import { useGetPoliciesQuery, useGetPolicyQuery, useAcknowledgePolicyMutation, useCreatePolicyMutation } from './policyApi';
+import { FileText, Check, Plus, X, Eye, Upload, Loader2, Download } from 'lucide-react';
+import { useGetPoliciesQuery, useAcknowledgePolicyMutation, useCreatePolicyMutation } from './policyApi';
 import { useAppSelector } from '../../app/store';
-import { cn, formatDate } from '../../lib/utils';
+import { formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
-
-const CATEGORY_ICONS: Record<string, React.ReactNode> = {
-  HR_GENERAL: <Users size={18} className="text-brand-500" />,
-  LEAVE: <BookOpen size={18} className="text-purple-500" />,
-  HYBRID: <Shield size={18} className="text-teal-500" />,
-  WORK_MANAGEMENT: <FileText size={18} className="text-blue-500" />,
-  ESCALATION: <FileText size={18} className="text-red-500" />,
-  IT: <Laptop size={18} className="text-gray-500" />,
-  CODE_OF_CONDUCT: <Shield size={18} className="text-amber-500" />,
-  HEALTH_SAFETY: <Heart size={18} className="text-rose-500" />,
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  HR_GENERAL: 'HR General',
-  LEAVE: 'Leave Policy',
-  HYBRID: 'Hybrid Work',
-  WORK_MANAGEMENT: 'Work Management',
-  ESCALATION: 'Escalation',
-  IT: 'IT Policy',
-  CODE_OF_CONDUCT: 'Code of Conduct',
-  HEALTH_SAFETY: 'Health & Safety',
-};
 
 const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
+/** Build an absolute URL for a policy file stored on the backend */
+function getFileUrl(filePath: string) {
+  const base = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+  // Remove /api suffix — files are served from the server root
+  const serverRoot = base.replace(/\/api\/?$/, '');
+  return `${serverRoot}${filePath}`;
+}
+
 export default function PoliciesPage() {
-  const [selectedCategory, setSelectedCategory] = useState('');
-  const [viewingPolicy, setViewingPolicy] = useState<string | null>(null);
+  const [viewingPolicy, setViewingPolicy] = useState<any | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const { data: policiesRes } = useGetPoliciesQuery({ category: selectedCategory || undefined });
+  const { data: policiesRes } = useGetPoliciesQuery();
   const [acknowledgePolicy] = useAcknowledgePolicyMutation();
   const user = useAppSelector((s) => s.auth.user);
 
   const policies = policiesRes?.data || [];
-  const categories = Object.keys(CATEGORY_LABELS);
   const canCreate = user && ADMIN_ROLES.includes(user.role);
 
   const handleAcknowledge = async (id: string) => {
@@ -65,32 +49,9 @@ export default function PoliciesPage() {
             onClick={() => setShowCreateModal(true)}
             className="btn-primary flex items-center gap-2"
           >
-            <Plus size={18} /> Create Policy
+            <Plus size={18} /> Upload Policy
           </motion.button>
         )}
-      </div>
-
-      {/* Category filter chips */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        <button
-          onClick={() => setSelectedCategory('')}
-          className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-            !selectedCategory ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
-          )}
-        >
-          All
-        </button>
-        {categories.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setSelectedCategory(cat)}
-            className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5',
-              selectedCategory === cat ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
-            )}
-          >
-            {CATEGORY_LABELS[cat]}
-          </button>
-        ))}
       </div>
 
       {/* Policy cards */}
@@ -98,7 +59,7 @@ export default function PoliciesPage() {
         <div className="layer-card p-16 text-center">
           <FileText size={48} className="mx-auto text-gray-200 mb-4" />
           <h3 className="text-lg font-display font-semibold text-gray-600">No policies found</h3>
-          <p className="text-sm text-gray-400 mt-1">Policies will appear here once HR publishes them.</p>
+          <p className="text-sm text-gray-400 mt-1">Policies will appear here once HR uploads them.</p>
         </div>
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -112,27 +73,26 @@ export default function PoliciesPage() {
             >
               <div className="flex items-start gap-3 mb-3">
                 <div className="p-2 rounded-lg bg-surface-2">
-                  {CATEGORY_ICONS[policy.category] || <FileText size={18} className="text-gray-400" />}
+                  <FileText size={18} className="text-brand-500" />
                 </div>
-                <div className="flex-1">
-                  <h3 className="text-sm font-semibold text-gray-800">{policy.title}</h3>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-semibold text-gray-800 truncate">{policy.title}</h3>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    {CATEGORY_LABELS[policy.category] || policy.category} · v{policy.version}
+                    v{policy.version} &middot; {formatDate(policy.updatedAt)}
                   </p>
+                  {policy.fileName && (
+                    <p className="text-xs text-gray-400 mt-0.5 truncate">{policy.fileName}</p>
+                  )}
                 </div>
               </div>
 
-              <p className="text-xs text-gray-500 line-clamp-2 mb-4 flex-1">
-                {policy.content.substring(0, 120)}...
-              </p>
-
-              <div className="flex items-center justify-between pt-3 border-t border-gray-50">
+              <div className="flex items-center justify-between pt-3 border-t border-gray-50 mt-auto">
                 <span className="text-xs text-gray-400">
                   {policy._count?.acknowledgments || 0} acknowledged
                 </span>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setViewingPolicy(policy.id)}
+                    onClick={() => setViewingPolicy(policy)}
                     className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
                   >
                     <Eye size={14} /> Read
@@ -155,31 +115,40 @@ export default function PoliciesPage() {
         {showCreateModal && <CreatePolicyModal onClose={() => setShowCreateModal(false)} />}
       </AnimatePresence>
 
-      {/* Policy Detail Modal */}
+      {/* Policy Viewer Modal — inline PDF/doc reader */}
       <AnimatePresence>
-        {viewingPolicy && <PolicyDetailModal policyId={viewingPolicy} onClose={() => setViewingPolicy(null)} />}
+        {viewingPolicy && (
+          <PolicyViewerModal policy={viewingPolicy} onClose={() => setViewingPolicy(null)} />
+        )}
       </AnimatePresence>
     </div>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Create Policy Modal — title + file upload only                    */
+/* ------------------------------------------------------------------ */
 function CreatePolicyModal({ onClose }: { onClose: () => void }) {
   const [createPolicy, { isLoading }] = useCreatePolicyMutation();
-  const [form, setForm] = useState({ title: '', category: 'HR_GENERAL', content: '', version: '1.0' });
+  const [title, setTitle] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!file) {
+      toast.error('Please select a PDF or document file');
+      return;
+    }
     try {
-      await createPolicy({
-        title: form.title,
-        category: form.category,
-        content: form.content,
-        version: form.version,
-      }).unwrap();
-      toast.success('Policy created!');
+      const formData = new FormData();
+      formData.append('title', title);
+      formData.append('file', file);
+      await createPolicy(formData).unwrap();
+      toast.success('Policy uploaded!');
       onClose();
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to create policy');
+      toast.error(err?.data?.error?.message || 'Failed to upload policy');
     }
   };
 
@@ -197,7 +166,7 @@ function CreatePolicyModal({ onClose }: { onClose: () => void }) {
         className="bg-white rounded-2xl shadow-glass-lg w-full max-w-lg p-6"
       >
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-display font-semibold text-gray-800">Create Policy</h2>
+          <h2 className="text-lg font-display font-semibold text-gray-800">Upload Policy</h2>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
             <X size={18} className="text-gray-400" />
           </button>
@@ -206,56 +175,64 @@ function CreatePolicyModal({ onClose }: { onClose: () => void }) {
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-1">Title *</label>
             <input
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
               className="input-glass w-full"
-              placeholder="e.g. Remote Work Policy"
+              placeholder="e.g. Leave & Attendance Policy"
               required
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Category *</label>
-              <select
-                value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value })}
-                className="input-glass w-full"
-              >
-                {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Version</label>
-              <input
-                value={form.version}
-                onChange={(e) => setForm({ ...form, version: e.target.value })}
-                className="input-glass w-full"
-                placeholder="1.0"
-              />
-            </div>
-          </div>
+
+          {/* File upload area */}
           <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">Content *</label>
-            <textarea
-              value={form.content}
-              onChange={(e) => setForm({ ...form, content: e.target.value })}
-              className="input-glass w-full min-h-48 resize-y"
-              placeholder="Write the full policy content here..."
-              required
+            <label className="block text-sm font-medium text-gray-600 mb-1">Document *</label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              className="hidden"
             />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-brand-400 hover:bg-brand-50/30 transition-colors group"
+            >
+              {file ? (
+                <div className="flex items-center justify-center gap-3">
+                  <FileText size={24} className="text-brand-500" />
+                  <div className="text-left">
+                    <p className="text-sm font-medium text-gray-800 truncate max-w-[280px]">{file.name}</p>
+                    <p className="text-xs text-gray-400">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setFile(null); }}
+                    className="p-1 hover:bg-gray-100 rounded"
+                  >
+                    <X size={14} className="text-gray-400" />
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <Upload size={28} className="mx-auto text-gray-300 group-hover:text-brand-400 mb-2" />
+                  <p className="text-sm text-gray-500">Click to upload PDF or DOC file</p>
+                  <p className="text-xs text-gray-400 mt-1">Max 10MB</p>
+                </div>
+              )}
+            </button>
           </div>
+
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
             <motion.button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || !file}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              className="btn-primary flex-1 flex items-center justify-center gap-2"
+              className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              {isLoading && <Loader2 size={16} className="animate-spin" />} Create
+              {isLoading && <Loader2 size={16} className="animate-spin" />} Upload
             </motion.button>
           </div>
         </form>
@@ -264,9 +241,12 @@ function CreatePolicyModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function PolicyDetailModal({ policyId, onClose }: { policyId: string; onClose: () => void }) {
-  const { data: policyRes, isLoading } = useGetPolicyQuery(policyId);
-  const policy = policyRes?.data;
+/* ------------------------------------------------------------------ */
+/*  Policy Viewer Modal — inline PDF reader / download fallback       */
+/* ------------------------------------------------------------------ */
+function PolicyViewerModal({ policy, onClose }: { policy: any; onClose: () => void }) {
+  const fileUrl = policy.filePath ? getFileUrl(policy.filePath) : null;
+  const isPdf = policy.fileName?.toLowerCase().endsWith('.pdf');
 
   return (
     <motion.div
@@ -279,43 +259,72 @@ function PolicyDetailModal({ policyId, onClose }: { policyId: string; onClose: (
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl p-6 max-h-[80vh] overflow-y-auto"
+        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-4xl flex flex-col"
+        style={{ height: '90vh' }}
       >
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-display font-semibold text-gray-800">
-            {isLoading ? 'Loading...' : policy?.title || 'Policy'}
-          </h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
-            <X size={18} className="text-gray-400" />
-          </button>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-display font-semibold text-gray-800 truncate">{policy.title}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              v{policy.version} &middot; {formatDate(policy.updatedAt)}
+              {policy.fileName && <> &middot; {policy.fileName}</>}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 ml-4">
+            {fileUrl && (
+              <a
+                href={fileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                download
+                className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-gray-700"
+                title="Download"
+              >
+                <Download size={18} />
+              </a>
+            )}
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
+              <X size={18} className="text-gray-400" />
+            </button>
+          </div>
         </div>
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 size={24} className="animate-spin text-brand-500" />
-          </div>
-        ) : policy ? (
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <span className={cn(
-                'px-2.5 py-1 rounded-lg text-xs font-medium bg-brand-50 text-brand-700'
-              )}>
-                {CATEGORY_LABELS[policy.category] || policy.category}
-              </span>
-              <span className="text-xs text-gray-400 font-mono" data-mono>v{policy.version}</span>
-              <span className="text-xs text-gray-400">
-                {policy._count?.acknowledgments || 0} acknowledged
-              </span>
+        {/* Content area */}
+        <div className="flex-1 overflow-hidden">
+          {fileUrl && isPdf ? (
+            <iframe
+              src={fileUrl}
+              className="w-full h-full border-0"
+              title={policy.title}
+            />
+          ) : fileUrl ? (
+            <div className="flex flex-col items-center justify-center h-full gap-4">
+              <FileText size={64} className="text-gray-200" />
+              <p className="text-gray-500 text-sm">This document cannot be previewed in the browser.</p>
+              <a
+                href={fileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                download
+                className="btn-primary flex items-center gap-2"
+              >
+                <Download size={16} /> Download Document
+              </a>
             </div>
-            <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap leading-relaxed">
+          ) : policy.content ? (
+            <div className="p-6 overflow-y-auto h-full prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap leading-relaxed">
               {policy.content}
             </div>
-          </div>
-        ) : (
-          <p className="text-sm text-gray-400 text-center py-8">Policy not found</p>
-        )}
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-sm text-gray-400">No document attached</p>
+            </div>
+          )}
+        </div>
 
-        <div className="flex justify-end pt-4 mt-4 border-t border-gray-100">
+        {/* Footer */}
+        <div className="flex justify-end px-6 py-3 border-t border-gray-100 shrink-0">
           <button onClick={onClose} className="btn-secondary">Close</button>
         </div>
       </motion.div>
