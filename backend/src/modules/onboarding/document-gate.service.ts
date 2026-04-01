@@ -1,7 +1,8 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError } from '../../middleware/errorHandler.js';
 
-const DEFAULT_REQUIRED_DOCS = ['AADHAAR', 'PAN', 'TENTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'CANCELLED_CHEQUE', 'PHOTO'];
+const DEFAULT_REQUIRED_DOCS = ['PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO'];
+const IDENTITY_PROOF_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
 
 export class DocumentGateService {
   async createGate(employeeId: string, requiredDocs?: string[]) {
@@ -89,19 +90,51 @@ export class DocumentGateService {
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) throw new NotFoundError('Document gate');
 
-    // Verify minimum required docs are present (Aadhaar + PAN + Photo)
-    const hasAadhaar = gate.submittedDocs.includes('AADHAAR' as any);
-    const hasPan = gate.submittedDocs.includes('PAN' as any);
-    const hasPhoto = !!gate.photoUrl;
+    // If combined PDF is uploaded, bypass individual checks
+    if (gate.combinedPdfUploaded) {
+      return prisma.onboardingDocumentGate.update({
+        where: { employeeId },
+        data: { kycStatus: 'SUBMITTED' },
+      });
+    }
 
-    if (!hasAadhaar || !hasPan || !hasPhoto) {
+    // Verify all mandatory documents
+    const submitted = gate.submittedDocs as string[];
+    const missing: string[] = [];
+
+    if (!submitted.includes('PAN')) missing.push('PAN Card');
+    if (!IDENTITY_PROOF_TYPES.some(t => submitted.includes(t))) missing.push('Identity Proof (Aadhaar/Passport/DL/Voter ID)');
+    if (!submitted.includes('TENTH_CERTIFICATE')) missing.push('10th Certificate');
+    if (!submitted.includes('TWELFTH_CERTIFICATE')) missing.push('12th Certificate');
+    if (!submitted.includes('DEGREE_CERTIFICATE')) missing.push('Degree Certificate');
+    if (!submitted.includes('RESIDENCE_PROOF')) missing.push('Residence Proof');
+    if (!gate.photoUrl && !submitted.includes('PHOTO')) missing.push('Photograph');
+
+    if (missing.length > 0) {
       const { BadRequestError } = await import('../../middleware/errorHandler.js');
-      throw new BadRequestError('Aadhaar, PAN, and photo are required to submit KYC');
+      throw new BadRequestError(`Missing mandatory documents: ${missing.join(', ')}`);
     }
 
     return prisma.onboardingDocumentGate.update({
       where: { employeeId },
       data: { kycStatus: 'SUBMITTED' },
+    });
+  }
+
+  async setCombinedPdfUploaded(employeeId: string) {
+    const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+    if (!gate) {
+      return prisma.onboardingDocumentGate.create({
+        data: {
+          employeeId,
+          requiredDocs: DEFAULT_REQUIRED_DOCS as any,
+          combinedPdfUploaded: true,
+        },
+      });
+    }
+    return prisma.onboardingDocumentGate.update({
+      where: { employeeId },
+      data: { combinedPdfUploaded: true },
     });
   }
 

@@ -22,6 +22,22 @@ export const kycApi = api.injectEndpoints({
       }),
       invalidatesTags: ['Kyc'],
     }),
+    uploadCombinedPdf: builder.mutation<any, { employeeId: string; formData: FormData }>({
+      query: ({ employeeId, formData }) => ({
+        url: `/onboarding/kyc/${employeeId}/combined-pdf`,
+        method: 'POST',
+        body: formData,
+      }),
+      invalidatesTags: ['Kyc'],
+    }),
+    uploadPhotoFile: builder.mutation<any, { employeeId: string; formData: FormData }>({
+      query: ({ employeeId, formData }) => ({
+        url: `/onboarding/kyc/${employeeId}/photo-upload`,
+        method: 'POST',
+        body: formData,
+      }),
+      invalidatesTags: ['Kyc'],
+    }),
     submitKyc: builder.mutation<any, string>({
       query: (employeeId) => ({
         url: `/onboarding/kyc/${employeeId}/submit`,
@@ -55,6 +71,8 @@ export const {
   useGetMyKycStatusQuery,
   useUploadKycDocumentMutation,
   useUploadKycPhotoMutation,
+  useUploadCombinedPdfMutation,
+  useUploadPhotoFileMutation,
   useSubmitKycMutation,
   useGetPendingKycQuery,
   useVerifyKycMutation,

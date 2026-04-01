@@ -39,7 +39,11 @@ export class DocumentController {
       const doc = await documentService.create(data, fileUrl, req.user!.userId);
 
       // Auto-update KYC document gate if this is a KYC document
-      const kycTypes = ['AADHAAR', 'PAN'];
+      const kycTypes = ['AADHAAR', 'PAN', 'PASSPORT', 'VOTER_ID', 'DRIVING_LICENSE',
+        'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE',
+        'POST_GRADUATION_CERTIFICATE', 'EXPERIENCE_LETTER', 'OFFER_LETTER_DOC',
+        'RELIEVING_LETTER', 'BANK_STATEMENT', 'CANCELLED_CHEQUE', 'SALARY_SLIP_DOC',
+        'RESIDENCE_PROOF', 'PROFESSIONAL_CERTIFICATION', 'PHOTO'];
       if (data.employeeId && kycTypes.includes(data.type)) {
         try {
           const { documentGateService } = await import('../onboarding/document-gate.service.js');
@@ -87,10 +91,14 @@ export class DocumentController {
               .filter((d: any) => d.status === 'VERIFIED')
               .map((d: any) => d.type);
 
-            const hasAadhaar = verifiedTypes.includes('AADHAAR');
             const hasPan = verifiedTypes.includes('PAN');
+            const hasIdentity = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'].some(t => verifiedTypes.includes(t));
+            const hasTenth = verifiedTypes.includes('TENTH_CERTIFICATE');
+            const hasTwelfth = verifiedTypes.includes('TWELFTH_CERTIFICATE');
+            const hasDegree = verifiedTypes.includes('DEGREE_CERTIFICATE');
+            const hasResidence = verifiedTypes.includes('RESIDENCE_PROOF');
 
-            if (hasAadhaar && hasPan) {
+            if (hasPan && hasIdentity && hasTenth && hasTwelfth && hasDegree && hasResidence) {
               await documentGateService.verifyKyc(doc.employeeId, req.user!.userId);
               logger.info(`KYC auto-verified for employee ${doc.employeeId} — all required docs verified by HR`);
             }

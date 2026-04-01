@@ -983,6 +983,7 @@ model OnboardingDocumentGate {
   // KYC verification
   kycStatus           KycStatus      @default(PENDING)
   photoUrl            String?
+  combinedPdfUploaded Boolean        @default(false)
   verifiedAt          DateTime?
   verifiedBy          String?
   rejectionReason     String?

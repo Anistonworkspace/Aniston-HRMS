@@ -129,6 +129,70 @@ router.post('/kyc/:employeeId/photo', authenticate,
   }
 );
 
+// Employee: Upload combined PDF (all documents in one file)
+router.post('/kyc/:employeeId/combined-pdf', authenticate,
+  async (req, res, next) => {
+    try {
+      const employeeId = req.params.employeeId as string;
+      const { createEmployeeKycUpload } = await import('../../middleware/upload.middleware.js');
+      const kycUpload = createEmployeeKycUpload(employeeId);
+      kycUpload.document.single('file')(req, res, async (err: any) => {
+        if (err) return next(err);
+        if (!req.file) {
+          res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'No file provided' } });
+          return;
+        }
+        const fileUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
+        // Create document record
+        const { documentService } = await import('../document/document.service.js');
+        const doc = await documentService.create(
+          { name: 'Combined KYC Documents', type: 'OTHER', employeeId },
+          fileUrl,
+          req.user!.userId
+        );
+        // Mark combined PDF uploaded on gate
+        const { documentGateService } = await import('./document-gate.service.js');
+        await documentGateService.setCombinedPdfUploaded(employeeId);
+        // Trigger OCR
+        try {
+          const { enqueueDocumentOcr } = await import('../../jobs/queues.js');
+          await enqueueDocumentOcr(doc.id, req.user!.organizationId);
+        } catch { /* non-blocking */ }
+        // Queue HR digest
+        try {
+          const { enqueueDocumentDigest } = await import('../../jobs/queues.js');
+          await enqueueDocumentDigest(employeeId, req.user!.organizationId, {
+            type: 'OTHER', name: 'Combined KYC Documents',
+          });
+        } catch { /* non-blocking */ }
+        res.status(201).json({ success: true, data: doc, message: 'Combined PDF uploaded' });
+      });
+    } catch (err) { next(err); }
+  }
+);
+
+// Employee: Upload photo file (alternative to camera capture)
+router.post('/kyc/:employeeId/photo-upload', authenticate,
+  async (req, res, next) => {
+    try {
+      const employeeId = req.params.employeeId as string;
+      const { createEmployeeKycUpload } = await import('../../middleware/upload.middleware.js');
+      const kycUpload = createEmployeeKycUpload(employeeId);
+      kycUpload.photo.single('file')(req, res, async (err: any) => {
+        if (err) return next(err);
+        if (!req.file) {
+          res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'No file provided' } });
+          return;
+        }
+        const photoUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
+        const { documentGateService } = await import('./document-gate.service.js');
+        const gate = await documentGateService.saveKycPhoto(employeeId, photoUrl);
+        res.json({ success: true, data: gate, message: 'Photo uploaded' });
+      });
+    } catch (err) { next(err); }
+  }
+);
+
 // Employee: Submit KYC for review
 router.post('/kyc/:employeeId/submit', authenticate,
   async (req, res, next) => {
