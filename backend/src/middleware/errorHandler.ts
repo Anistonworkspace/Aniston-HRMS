@@ -86,6 +86,20 @@ export function errorHandler(
     return;
   }
 
+  // Prisma validation errors (e.g., undefined passed to required field)
+  if (err.constructor.name === 'PrismaClientValidationError') {
+    logger.error('Prisma validation error:', err.message);
+    res.status(400).json({
+      success: false,
+      data: null,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid data provided. Please check your input and try again.',
+      },
+    });
+    return;
+  }
+
   // Prisma known errors
   if (err.constructor.name === 'PrismaClientKnownRequestError') {
     const prismaErr = err as any;
@@ -97,6 +111,18 @@ export function errorHandler(
         error: {
           code: 'DUPLICATE_ENTRY',
           message: `A record with this ${target} already exists`,
+        },
+      });
+      return;
+    }
+    if (prismaErr.code === 'P2003') {
+      const field = prismaErr.meta?.field_name || 'related record';
+      res.status(400).json({
+        success: false,
+        data: null,
+        error: {
+          code: 'FOREIGN_KEY_ERROR',
+          message: `Referenced ${field} does not exist`,
         },
       });
       return;

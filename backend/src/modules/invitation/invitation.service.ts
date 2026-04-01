@@ -331,6 +331,14 @@ export class InvitationService {
       },
     });
 
+    // Pre-create OnboardingDocumentGate so KYC page works immediately
+    try {
+      const { documentGateService } = await import('../onboarding/document-gate.service.js');
+      await documentGateService.createGate(result.employee.id);
+    } catch (e) {
+      logger.warn('Failed to auto-create document gate for employee:', e);
+    }
+
     // Auto-login: generate tokens so frontend can skip the login page
     const { authService } = await import('../auth/auth.service.js');
     const userWithEmployee = await prisma.user.findUnique({

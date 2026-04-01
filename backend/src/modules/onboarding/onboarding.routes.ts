@@ -29,25 +29,40 @@ router.post('/complete/:token', (req, res, next) => onboardingController.complet
 // ==================
 router.get('/my-status', authenticate, async (req, res, next) => {
   try {
+    const employeeId = req.user?.employeeId;
+    if (!employeeId) {
+      res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Employee profile not linked. Please contact HR.' } });
+      return;
+    }
     const { onboardingService } = await import('./onboarding.service.js');
-    const data = await onboardingService.getMyOnboardingStatus(req.user!.employeeId!);
+    const data = await onboardingService.getMyOnboardingStatus(employeeId);
     res.json({ success: true, data });
   } catch (err) { next(err); }
 });
 
 router.patch('/my-step/:step', authenticate, async (req, res, next) => {
   try {
+    const employeeId = req.user?.employeeId;
+    if (!employeeId) {
+      res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Employee profile not linked. Please contact HR.' } });
+      return;
+    }
     const { onboardingService } = await import('./onboarding.service.js');
     const step = parseInt(req.params.step);
-    const result = await onboardingService.saveMyOnboardingStep(req.user!.employeeId!, step, req.body);
+    const result = await onboardingService.saveMyOnboardingStep(employeeId, step, req.body);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 });
 
 router.post('/my-complete', authenticate, async (req, res, next) => {
   try {
+    const employeeId = req.user?.employeeId;
+    if (!employeeId) {
+      res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Employee profile not linked. Please contact HR.' } });
+      return;
+    }
     const { onboardingService } = await import('./onboarding.service.js');
-    const result = await onboardingService.completeMyOnboarding(req.user!.employeeId!);
+    const result = await onboardingService.completeMyOnboarding(employeeId);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 });
@@ -81,13 +96,26 @@ router.patch('/document-gate/:employeeId/unlock', authenticate, authorize(Role.S
 router.get('/kyc/me', authenticate,
   async (req, res, next) => {
     try {
+      const employeeId = req.user?.employeeId;
+      if (!employeeId) {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Employee profile not linked to your account. Please contact HR.' } });
+        return;
+      }
+
       const { documentGateService } = await import('./document-gate.service.js');
       const { prisma } = await import('../../lib/prisma.js');
-      const gate = await documentGateService.getGate(req.user!.employeeId!);
+
+      // Auto-create gate if it doesn't exist (e.g., first visit to KYC page)
+      let gate = await documentGateService.getGate(employeeId);
+      if (!gate) {
+        gate = await documentGateService.createGate(employeeId);
+        // Re-fetch with relations
+        gate = await documentGateService.getGate(employeeId);
+      }
 
       // Include per-document-type status so frontend can show flags/rejections
       const docs = await prisma.document.findMany({
-        where: { employeeId: req.user!.employeeId!, deletedAt: null },
+        where: { employeeId, deletedAt: null },
         select: { type: true, status: true, rejectionReason: true, tamperDetected: true },
         orderBy: { createdAt: 'desc' },
       });
@@ -111,6 +139,10 @@ router.post('/kyc/:employeeId/photo', authenticate,
   async (req, res, next) => {
     try {
       const employeeId = req.params.employeeId as string;
+      if (!employeeId || employeeId === 'undefined' || employeeId === 'null') {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Employee ID is required' } });
+        return;
+      }
       // Save photo in employee's KYC folder: uploads/employees/{employeeId}/kyc/
       const { createEmployeeKycUpload } = await import('../../middleware/upload.middleware.js');
       const kycUpload = createEmployeeKycUpload(employeeId);
@@ -120,10 +152,15 @@ router.post('/kyc/:employeeId/photo', authenticate,
           res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'No photo provided' } });
           return;
         }
-        const { documentGateService } = await import('./document-gate.service.js');
-        const photoUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
-        const gate = await documentGateService.saveKycPhoto(employeeId, photoUrl);
-        res.json({ success: true, data: gate, message: 'Photo uploaded' });
+        try {
+          const { documentGateService } = await import('./document-gate.service.js');
+          const photoUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
+          const gate = await documentGateService.saveKycPhoto(employeeId, photoUrl);
+          res.json({ success: true, data: gate, message: 'Photo uploaded' });
+        } catch (innerErr) {
+          console.error('[KYC Photo] Upload error:', innerErr);
+          next(innerErr);
+        }
       });
     } catch (err) { next(err); }
   }
@@ -134,6 +171,21 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
   async (req, res, next) => {
     try {
       const employeeId = req.params.employeeId as string;
+
+      // Validate employeeId exists
+      if (!employeeId || employeeId === 'undefined' || employeeId === 'null') {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Employee ID is required' } });
+        return;
+      }
+
+      // Verify the employee record exists before attempting upload
+      const { prisma } = await import('../../lib/prisma.js');
+      const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { id: true } });
+      if (!employee) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Employee not found. Please contact HR.' } });
+        return;
+      }
+
       const { createEmployeeKycUpload } = await import('../../middleware/upload.middleware.js');
       const kycUpload = createEmployeeKycUpload(employeeId);
       kycUpload.document.single('file')(req, res, async (err: any) => {
@@ -187,6 +239,10 @@ router.post('/kyc/:employeeId/photo-upload', authenticate,
   async (req, res, next) => {
     try {
       const employeeId = req.params.employeeId as string;
+      if (!employeeId || employeeId === 'undefined' || employeeId === 'null') {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Employee ID is required' } });
+        return;
+      }
       const { createEmployeeKycUpload } = await import('../../middleware/upload.middleware.js');
       const kycUpload = createEmployeeKycUpload(employeeId);
       kycUpload.photo.single('file')(req, res, async (err: any) => {
@@ -195,10 +251,15 @@ router.post('/kyc/:employeeId/photo-upload', authenticate,
           res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'No file provided' } });
           return;
         }
-        const photoUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
-        const { documentGateService } = await import('./document-gate.service.js');
-        const gate = await documentGateService.saveKycPhoto(employeeId, photoUrl);
-        res.json({ success: true, data: gate, message: 'Photo uploaded' });
+        try {
+          const photoUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
+          const { documentGateService } = await import('./document-gate.service.js');
+          const gate = await documentGateService.saveKycPhoto(employeeId, photoUrl);
+          res.json({ success: true, data: gate, message: 'Photo uploaded' });
+        } catch (innerErr) {
+          console.error('[KYC Photo Upload] Error:', innerErr);
+          next(innerErr);
+        }
       });
     } catch (err) { next(err); }
   }
