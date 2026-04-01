@@ -230,6 +230,19 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
+    # Hashed assets (JS/CSS chunks) — cache forever (new deploy = new filenames)
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # index.html — NEVER cache (always fetch latest to get new chunk references)
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+    }
+
     # Uploaded files
     location /uploads/ {
         alias /home/ubuntu/Aniston-HRMS/uploads/;
@@ -237,9 +250,11 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
-    # SPA fallback — all other routes serve index.html
+    # SPA fallback — all other routes serve index.html (with no-cache headers)
     location / {
         try_files $uri $uri/ /index.html;
+        # Ensure HTML pages are not cached
+        add_header Cache-Control "no-cache" always;
     }
 
     # Gzip
