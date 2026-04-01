@@ -1,26 +1,20 @@
-const CACHE_NAME = 'aniston-hrms-v1';
-const STATIC_ASSETS = [
-  '/',
-  '/logo.png',
-  '/manifest.json',
-];
+// This file is overwritten by vite-plugin-pwa (Workbox) during production builds.
+// It serves as a development fallback only.
 
-// Install — cache static assets
+const CACHE_NAME = 'aniston-hrms-v1';
+
+// Install — skip waiting to activate immediately
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
-  );
   self.skipWaiting();
 });
 
-// Activate — clean old caches
+// Activate — clear ALL old caches so users always get fresh content
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+      Promise.all(keys.map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 // Fetch — network first, fallback to cache
@@ -36,7 +30,6 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(request)
       .then((response) => {
-        // Cache successful responses
         if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
@@ -45,4 +38,11 @@ self.addEventListener('fetch', (event) => {
       })
       .catch(() => caches.match(request).then((cached) => cached || caches.match('/')))
   );
+});
+
+// Listen for skip-waiting message from the app (update prompt)
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });

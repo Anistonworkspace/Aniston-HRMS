@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['logo.png'],
       manifest: {
         name: 'Aniston HRMS',
@@ -33,6 +33,11 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Clean old precaches on every new SW activation
+        cleanupOutdatedCaches: true,
+        // Skip waiting so new SW activates immediately when user clicks update
+        skipWaiting: false,
+        // Clear all runtime caches on new SW activation
         runtimeCaching: [
           {
             urlPattern: /\/api\/.*/i,

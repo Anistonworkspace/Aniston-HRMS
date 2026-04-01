@@ -108,6 +108,30 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
           <tr><td style="padding:6px 0;color:#6B7280;font-size:13px;vertical-align:top;width:24px;">1.</td><td style="padding:6px 0;color:#4B5563;font-size:13px;">Set your password on the invite page</td></tr>
           <tr><td style="padding:6px 0;color:#6B7280;font-size:13px;vertical-align:top;">2.</td><td style="padding:6px 0;color:#4B5563;font-size:13px;">Log in with your email and new password</td></tr>
           <tr><td style="padding:6px 0;color:#6B7280;font-size:13px;vertical-align:top;">3.</td><td style="padding:6px 0;color:#4B5563;font-size:13px;">Complete your profile and upload documents</td></tr>
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:13px;vertical-align:top;">4.</td><td style="padding:6px 0;color:#4B5563;font-size:13px;">Install the app on your phone for attendance &amp; more</td></tr>
+        </table>
+      </td></tr>
+    </table>
+
+    <!-- Download App Section -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EFF6FF;border:1px solid #BFDBFE;margin:0 0 24px;">
+      <tr><td style="padding:20px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="vertical-align:top;width:44px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td style="width:40px;height:40px;background:#DBEAFE;text-align:center;vertical-align:middle;font-size:20px;">&#128241;</td></tr></table>
+            </td>
+            <td style="padding-left:12px;">
+              <p style="color:#1E40AF;font-weight:700;margin:0 0 4px;font-size:14px;">Download Aniston HRMS App</p>
+              <p style="color:#1E3A5F;font-size:12px;margin:0 0 12px;line-height:1.5;">Install the app on your phone or desktop to mark attendance, apply for leaves, view payslips, and access all HR features on the go.</p>
+              ${ctaButton(ctx.downloadUrl || 'https://hr.anistonav.com/download', 'Install App', '#2563EB')}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr><td style="padding:4px 0;color:#3B82F6;font-size:11px;">&#8226; Works on Android, iPhone, Windows &amp; Mac</td></tr>
+                <tr><td style="padding:4px 0;color:#3B82F6;font-size:11px;">&#8226; Tap "Install" or "Add to Home Screen" when prompted</td></tr>
+                <tr><td style="padding:4px 0;color:#3B82F6;font-size:11px;">&#8226; Allow Location &amp; Notification permissions (required)</td></tr>
+              </table>
+            </td>
+          </tr>
         </table>
       </td></tr>
     </table>

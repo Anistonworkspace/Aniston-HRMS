@@ -3,6 +3,7 @@ import { Toaster } from 'react-hot-toast';
 import { store } from './app/store';
 import AppRouter from './router/AppRouter';
 import ErrorBoundary from './components/ErrorBoundary';
+import PWAUpdatePrompt from './components/pwa/PWAUpdatePrompt';
 
 export default function App() {
   return (
@@ -10,6 +11,7 @@ export default function App() {
       <ErrorBoundary>
         <AppRouter />
       </ErrorBoundary>
+      <PWAUpdatePrompt />
       <Toaster
         position="top-right"
         toastOptions={{

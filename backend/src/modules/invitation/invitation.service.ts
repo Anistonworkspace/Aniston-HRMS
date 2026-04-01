@@ -92,6 +92,7 @@ export class InvitationService {
       : inviter?.email || 'HR Team';
 
     const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`;
+    const downloadUrl = `https://hr.anistonav.com/download`;
 
     // Send email invitation
     if (email) {
@@ -102,6 +103,7 @@ export class InvitationService {
         context: {
           orgName: org?.name || 'Aniston Technologies',
           inviteUrl,
+          downloadUrl,
           expiresAt: expiresAt.toISOString(),
           inviterName,
           role: role || 'EMPLOYEE',
@@ -441,6 +443,7 @@ export class InvitationService {
         });
 
         const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`;
+        const downloadUrl = `https://hr.anistonav.com/download`;
 
         await enqueueEmail({
           to: email,
@@ -449,6 +452,7 @@ export class InvitationService {
           context: {
             orgName: org?.name || 'Aniston Technologies',
             inviteUrl,
+            downloadUrl,
             expiresAt: expiresAt.toISOString(),
             inviterName,
             role: options?.role || 'EMPLOYEE',
@@ -547,6 +551,7 @@ export class InvitationService {
     });
 
     const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${updated.inviteToken}`;
+    const downloadUrl = `https://hr.anistonav.com/download`;
 
     if (invitation.email) {
       await enqueueEmail({
@@ -556,6 +561,7 @@ export class InvitationService {
         context: {
           orgName: org?.name || 'Aniston Technologies',
           inviteUrl,
+          downloadUrl,
           expiresAt: newExpiresAt.toISOString(),
           inviterName: 'HR Team',
           role: invitation.role || 'EMPLOYEE',
