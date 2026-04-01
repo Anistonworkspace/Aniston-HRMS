@@ -176,14 +176,18 @@ export default function KycGatePage() {
 
   // Handlers
   const handleFileUpload = async (docType: string, file: File) => {
+    if (!user?.employeeId) {
+      toast.error('Employee profile not linked. Please contact HR.');
+      return;
+    }
     setUploading(docType);
     try {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('type', docType);
       formData.append('name', docType.replace(/_/g, ' '));
-      formData.append('employeeId', user?.employeeId || '');
-      await uploadDoc({ employeeId: user?.employeeId || '', formData }).unwrap();
+      formData.append('employeeId', user.employeeId);
+      await uploadDoc({ employeeId: user.employeeId, formData }).unwrap();
       toast.success(`${docType.replace(/_/g, ' ')} uploaded`);
       refetch();
     } catch (err: any) {
@@ -193,11 +197,15 @@ export default function KycGatePage() {
   };
 
   const handleCombinedPdfUpload = async (file: File) => {
+    if (!user?.employeeId) {
+      toast.error('Employee profile not linked. Please contact HR.');
+      return;
+    }
     setUploading('COMBINED_PDF');
     try {
       const formData = new FormData();
       formData.append('file', file);
-      await uploadCombinedPdf({ employeeId: user?.employeeId || '', formData }).unwrap();
+      await uploadCombinedPdf({ employeeId: user.employeeId, formData }).unwrap();
       toast.success('Combined PDF uploaded successfully');
       refetch();
     } catch (err: any) {
@@ -207,12 +215,16 @@ export default function KycGatePage() {
   };
 
   const handlePhotoCapture = async (blob: Blob) => {
+    if (!user?.employeeId) {
+      toast.error('Employee profile not linked. Please contact HR.');
+      return;
+    }
     setShowCamera(false);
     setUploading('PHOTO');
     try {
       const formData = new FormData();
       formData.append('photo', blob, 'kyc-photo.jpg');
-      await uploadPhoto({ employeeId: user?.employeeId || '', formData }).unwrap();
+      await uploadPhoto({ employeeId: user.employeeId, formData }).unwrap();
       toast.success('Photo captured successfully');
       refetch();
     } catch (err: any) {
@@ -222,11 +234,15 @@ export default function KycGatePage() {
   };
 
   const handlePhotoFileUpload = async (file: File) => {
+    if (!user?.employeeId) {
+      toast.error('Employee profile not linked. Please contact HR.');
+      return;
+    }
     setUploading('PHOTO');
     try {
       const formData = new FormData();
       formData.append('file', file);
-      await uploadPhotoFile({ employeeId: user?.employeeId || '', formData }).unwrap();
+      await uploadPhotoFile({ employeeId: user.employeeId, formData }).unwrap();
       toast.success('Photo uploaded successfully');
       refetch();
     } catch (err: any) {

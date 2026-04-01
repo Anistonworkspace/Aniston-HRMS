@@ -23,6 +23,8 @@ export class DocumentController {
 
   async upload(req: Request, res: Response, next: NextFunction) {
     try {
+      // Clean up empty string fields from FormData (multer parses them as strings)
+      if (req.body?.employeeId === '') delete req.body.employeeId;
       const data = createDocumentSchema.parse(req.body);
       // Use structured path if available (employee-specific folder), else default
       const fileUrl = (req as any)._structuredFileUrl || (req.file ? `/uploads/${req.file.filename}` : '');

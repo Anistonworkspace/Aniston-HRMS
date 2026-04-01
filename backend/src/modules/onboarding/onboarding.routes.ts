@@ -137,37 +137,48 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
       const { createEmployeeKycUpload } = await import('../../middleware/upload.middleware.js');
       const kycUpload = createEmployeeKycUpload(employeeId);
       kycUpload.document.single('file')(req, res, async (err: any) => {
-        if (err) return next(err);
+        if (err) {
+          console.error('[KYC Combined PDF] Multer error:', err);
+          return next(err);
+        }
         if (!req.file) {
           res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'No file provided' } });
           return;
         }
-        const fileUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
-        // Create document record
-        const { documentService } = await import('../document/document.service.js');
-        const doc = await documentService.create(
-          { name: 'Combined KYC Documents', type: 'OTHER', employeeId },
-          fileUrl,
-          req.user!.userId
-        );
-        // Mark combined PDF uploaded on gate
-        const { documentGateService } = await import('./document-gate.service.js');
-        await documentGateService.setCombinedPdfUploaded(employeeId);
-        // Trigger OCR
         try {
-          const { enqueueDocumentOcr } = await import('../../jobs/queues.js');
-          await enqueueDocumentOcr(doc.id, req.user!.organizationId);
-        } catch { /* non-blocking */ }
-        // Queue HR digest
-        try {
-          const { enqueueDocumentDigest } = await import('../../jobs/queues.js');
-          await enqueueDocumentDigest(employeeId, req.user!.organizationId, {
-            type: 'OTHER', name: 'Combined KYC Documents',
-          });
-        } catch { /* non-blocking */ }
-        res.status(201).json({ success: true, data: doc, message: 'Combined PDF uploaded' });
+          const fileUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
+          // Create document record
+          const { documentService } = await import('../document/document.service.js');
+          const doc = await documentService.create(
+            { name: 'Combined KYC Documents', type: 'OTHER', employeeId },
+            fileUrl,
+            req.user!.userId
+          );
+          // Mark combined PDF uploaded on gate
+          const { documentGateService } = await import('./document-gate.service.js');
+          await documentGateService.setCombinedPdfUploaded(employeeId);
+          // Trigger OCR (non-blocking)
+          try {
+            const { enqueueDocumentOcr } = await import('../../jobs/queues.js');
+            await enqueueDocumentOcr(doc.id, req.user!.organizationId);
+          } catch { /* non-blocking */ }
+          // Queue HR digest (non-blocking)
+          try {
+            const { enqueueDocumentDigest } = await import('../../jobs/queues.js');
+            await enqueueDocumentDigest(employeeId, req.user!.organizationId, {
+              type: 'OTHER', name: 'Combined KYC Documents',
+            });
+          } catch { /* non-blocking */ }
+          res.status(201).json({ success: true, data: doc, message: 'Combined PDF uploaded' });
+        } catch (innerErr) {
+          console.error('[KYC Combined PDF] Post-upload error:', innerErr);
+          next(innerErr);
+        }
       });
-    } catch (err) { next(err); }
+    } catch (err) {
+      console.error('[KYC Combined PDF] Outer error:', err);
+      next(err);
+    }
   }
 );
 
