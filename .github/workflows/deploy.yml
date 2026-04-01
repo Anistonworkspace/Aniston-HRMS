@@ -150,19 +150,16 @@ jobs:
                     add_header Expires "0";
                 }
 
-                # Uploaded files — try project root, then backend subfolder
+                # Uploaded files — proxy to backend (most reliable for monorepo)
                 location /uploads/ {
-                    root /home/ubuntu/Aniston-HRMS;
-                    try_files $uri @backend_uploads;
-                    expires 30d;
-                    add_header Cache-Control "public";
-                }
-
-                # Fallback: proxy to Express static if file not found by nginx
-                location @backend_uploads {
-                    proxy_pass http://127.0.0.1:4000;
+                    proxy_pass http://127.0.0.1:4000/uploads/;
                     proxy_set_header Host $host;
                     proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_cache_bypass $http_upgrade;
+                    expires 30d;
+                    add_header Cache-Control "public";
                 }
 
                 # SPA fallback
@@ -174,15 +171,23 @@ jobs:
                 gzip on;
                 gzip_types text/plain text/css application/json application/javascript text/xml;
                 gzip_min_length 256;
-                client_max_body_size 10M;
+                client_max_body_size 20M;
             }
             NGINX_CONF
             sudo nginx -t && sudo systemctl reload nginx || echo "WARNING: Nginx reload failed"
-            echo "=== [12/12] Restarting PM2 ==="
+            echo "=== [12/13] Checking uploads directory ==="
+            echo "Uploads in project root:"
+            find /home/ubuntu/Aniston-HRMS/uploads -type f 2>/dev/null | head -20 || echo "(none)"
+            echo "Uploads in backend/:"
+            find /home/ubuntu/Aniston-HRMS/backend/uploads -type f 2>/dev/null | head -20 || echo "(none)"
+            echo "=== [13/13] Restarting PM2 ==="
             pm2 restart aniston-hrms
             echo "=== Waiting for startup ==="
             sleep 5
             echo "=== Health check ==="
             curl -s http://localhost:4000/api/health
+            echo ""
+            echo "=== Upload file test ==="
+            curl -s -o /dev/null -w "%{http_code}" http://localhost:4000/uploads/ || echo "N/A"
             echo ""
             echo "=== Deploy complete! ==="

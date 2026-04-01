@@ -159,10 +159,14 @@ app.use('/api/jobs', publicApplyRouter);
 app.use('/api/exit-access', exitAccessRouter);
 app.use('/api/employee-permissions', employeePermissionsRouter);
 
-// Static file serving for uploads (agent downloads, resumes, documents)
-// Serve from both root/uploads and backend/uploads (handles monorepo + standalone)
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
-app.use('/uploads', express.static(path.join(process.cwd(), 'backend', 'uploads')));
+// Resolve uploads base — always relative to project root (handles both root + backend/ cwd)
+const uploadsBase = process.cwd().replace(/[/\\]backend[/\\]?$/, '');
+// Static file serving for uploads (KYC documents, photos, resumes, agent downloads)
+// Serve at both /uploads and /api/uploads so nginx proxy and direct access both work
+app.use('/uploads', express.static(path.join(uploadsBase, 'uploads')));
+app.use('/uploads', express.static(path.join(uploadsBase, 'backend', 'uploads')));
+app.use('/api/uploads', express.static(path.join(uploadsBase, 'uploads')));
+app.use('/api/uploads', express.static(path.join(uploadsBase, 'backend', 'uploads')));
 
 // 404 handler
 app.use((_req, res) => {
