@@ -99,8 +99,12 @@ export default function EmployeeDetailPage() {
         {/* Left sidebar — Profile card */}
         <div className="w-64 shrink-0 border-r border-gray-100 bg-white p-5 overflow-y-auto hidden lg:block">
           <div className="flex flex-col items-center mb-5">
-            <div className="w-24 h-24 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-3xl font-display mb-3">
-              {getInitials(employee.firstName, employee.lastName)}
+            <div className="w-24 h-24 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-3xl font-display mb-3 overflow-hidden">
+              {employee.avatar ? (
+                <img src={employee.avatar.startsWith('http') ? employee.avatar : `${import.meta.env.VITE_API_URL === '/api' ? '' : (import.meta.env.VITE_API_URL?.replace('/api', '') || '')}${employee.avatar}`} alt={`${employee.firstName} ${employee.lastName}`} className="w-full h-full object-cover" />
+              ) : (
+                getInitials(employee.firstName, employee.lastName)
+              )}
             </div>
             <h2 className="text-base font-display font-bold text-gray-900 text-center">
               {employee.firstName} {employee.lastName}
@@ -1314,7 +1318,16 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
               {previewUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i) ? (
                 <img src={previewUrl} alt={previewName} className="w-full h-full object-contain p-4" />
               ) : (
-                <iframe src={previewUrl} className="w-full h-full border-0" title={previewName} />
+                <object data={previewUrl} type="application/pdf" className="w-full h-full">
+                  <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
+                    <FileText size={48} className="text-gray-300" />
+                    <p className="text-sm text-gray-500">Unable to preview this document inline.</p>
+                    <a href={previewUrl} target="_blank" rel="noopener noreferrer"
+                      className="btn-primary text-sm px-4 py-2">
+                      Download / Open Document
+                    </a>
+                  </div>
+                </object>
               )}
             </div>
           </div>

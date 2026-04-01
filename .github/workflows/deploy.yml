@@ -150,11 +150,19 @@ jobs:
                     add_header Expires "0";
                 }
 
-                # Uploaded files
+                # Uploaded files — try project root, then backend subfolder
                 location /uploads/ {
-                    alias /home/ubuntu/Aniston-HRMS/uploads/;
+                    root /home/ubuntu/Aniston-HRMS;
+                    try_files $uri @backend_uploads;
                     expires 30d;
-                    add_header Cache-Control "public, immutable";
+                    add_header Cache-Control "public";
+                }
+
+                # Fallback: proxy to Express static if file not found by nginx
+                location @backend_uploads {
+                    proxy_pass http://127.0.0.1:4000;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
                 }
 
                 # SPA fallback

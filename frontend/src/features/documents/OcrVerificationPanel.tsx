@@ -74,7 +74,7 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
     }
   };
 
-  const API_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:4000';
+  const API_URL = import.meta.env.VITE_API_URL === '/api' ? '' : (import.meta.env.VITE_API_URL?.replace('/api', '') || '');
 
   return (
     <div className="fixed inset-0 z-50 flex">
