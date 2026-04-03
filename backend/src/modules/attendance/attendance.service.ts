@@ -79,10 +79,10 @@ export class AttendanceService {
       data.notes = `${data.notes || ''} [Working on optional holiday: ${holiday.name}]`.trim();
     }
 
-    // ===== PHASE 3: Warn on weekend clock-in =====
+    // ===== PHASE 3: Warn on weekend clock-in (Sunday only — Saturday is working day) =====
     const dayOfWeek = today.getDay();
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      data.notes = `${data.notes || ''} [Weekend clock-in: ${dayOfWeek === 0 ? 'Sunday' : 'Saturday'}]`.trim();
+    if (dayOfWeek === 0) {
+      data.notes = `${data.notes || ''} [Weekend clock-in: Sunday]`.trim();
     }
 
     // Check if already clocked in today
@@ -629,7 +629,7 @@ export class AttendanceService {
     while (current <= end) {
       summary.totalDays++;
       const day = current.getDay();
-      if (day === 0 || day === 6) {
+      if (day === 0) { // Sunday only — Saturday is working day
         summary.weekends++;
       }
       current.setDate(current.getDate() + 1);
@@ -1145,7 +1145,7 @@ export class AttendanceService {
     while (current <= end) {
       summary.totalDays++;
       const day = current.getDay();
-      if (day === 0 || day === 6) summary.weekends++;
+      if (day === 0) summary.weekends++; // Sunday only — Saturday is working day
       current.setDate(current.getDate() + 1);
     }
 

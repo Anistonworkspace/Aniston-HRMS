@@ -541,9 +541,9 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
     }
     // Check holiday
     if (holidayMap[dateStr]) return holidayMap[dateStr].type === 'EVENT' ? 'EVENT' : 'HOLIDAY';
-    // Weekend
+    // Weekend (Sunday only — Saturday is a working day)
     const dow = date.getDay();
-    if (dow === 0 || dow === 6) return 'WEEKEND';
+    if (dow === 0) return 'WEEKEND';
     // Hybrid WFH day with no record
     if (hybridSchedule && hybridWfhDays.has(dow)) return 'WORK_FROM_HOME';
     return null;
