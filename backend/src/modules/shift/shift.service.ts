@@ -6,10 +6,36 @@ export class ShiftService {
   // ===================== SHIFTS =====================
 
   /**
-   * One-time cleanup: ensure only one active shift per type (OFFICE, FIELD).
+   * Cleanup: ensure only one active shift per type (OFFICE, FIELD).
+   * HYBRID shifts are treated as OFFICE duplicates and deactivated.
    * Deactivates duplicates, keeping the default or most-assigned one.
    */
   private async ensureOnePerType(organizationId: string) {
+    // First, deactivate any HYBRID shifts — they are deprecated.
+    // Move their assignments to the active OFFICE shift if one exists.
+    const hybridShifts = await prisma.shift.findMany({
+      where: { organizationId, shiftType: 'HYBRID', isActive: true },
+    });
+    if (hybridShifts.length > 0) {
+      const officeShift = await prisma.shift.findFirst({
+        where: { organizationId, shiftType: 'OFFICE', isActive: true },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      });
+      for (const hybrid of hybridShifts) {
+        if (officeShift) {
+          await prisma.shiftAssignment.updateMany({
+            where: { shiftId: hybrid.id, OR: [{ endDate: null }, { endDate: { gte: new Date() } }] },
+            data: { shiftId: officeShift.id },
+          });
+        }
+        await prisma.shift.update({
+          where: { id: hybrid.id },
+          data: { isActive: false, code: `${hybrid.code}_HYB_${Date.now()}` },
+        });
+      }
+    }
+
+    // Then ensure only one active per real type (OFFICE, FIELD)
     for (const shiftType of ['OFFICE', 'FIELD'] as const) {
       const shifts = await prisma.shift.findMany({
         where: { organizationId, shiftType, isActive: true },
@@ -41,11 +67,61 @@ export class ShiftService {
     // Auto-cleanup duplicates on first load
     await this.ensureOnePerType(organizationId);
 
+    // Auto-ensure both shift types exist (General + Live Tracking)
+    await this.ensureDefaultShifts(organizationId);
+
     return prisma.shift.findMany({
       where: { organizationId, isActive: true },
       include: { _count: { select: { assignments: true } } },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  /**
+   * Ensure both a General (OFFICE) and Live Tracking (FIELD) shift exist.
+   * Auto-creates missing ones with sensible defaults.
+   */
+  private async ensureDefaultShifts(organizationId: string) {
+    const existing = await prisma.shift.findMany({
+      where: { organizationId, isActive: true },
+      select: { shiftType: true },
+    });
+    const types = existing.map(s => s.shiftType);
+
+    if (!types.includes('FIELD')) {
+      // Check for a soft-deleted FIELD shift to reactivate
+      const deleted = await prisma.shift.findFirst({
+        where: { organizationId, shiftType: 'FIELD', isActive: false },
+      });
+      if (deleted) {
+        await prisma.shift.update({
+          where: { id: deleted.id },
+          data: {
+            isActive: true,
+            code: 'LIVE-TRACK',
+            name: 'Live Tracking',
+            startTime: '09:00',
+            endTime: '18:30',
+          },
+        });
+      } else {
+        await prisma.shift.create({
+          data: {
+            organizationId,
+            name: 'Live Tracking',
+            code: 'LIVE-TRACK',
+            shiftType: 'FIELD',
+            startTime: '09:00',
+            endTime: '18:30',
+            graceMinutes: 30,
+            fullDayHours: 8,
+            halfDayHours: 4,
+            isDefault: false,
+            isActive: true,
+          },
+        });
+      }
+    }
   }
 
   async createShift(data: CreateShiftInput, organizationId: string, assignedBy?: string) {
