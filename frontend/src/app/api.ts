@@ -84,6 +84,7 @@ export const api = createApi({
     'PermissionOverrides',
     'MyPermissions',
     'AgentSetup',
+    'SalaryTemplate',
   ],
   endpoints: () => ({}),
 });

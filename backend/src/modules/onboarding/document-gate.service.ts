@@ -114,13 +114,28 @@ export class DocumentGateService {
     const submitted = gate.submittedDocs as string[];
     const missing: string[] = [];
 
-    if (!submitted.includes('PAN')) missing.push('PAN Card');
-    if (!IDENTITY_PROOF_TYPES.some(t => submitted.includes(t))) missing.push('Identity Proof (Aadhaar/Passport/DL/Voter ID)');
-    if (!submitted.includes('TENTH_CERTIFICATE')) missing.push('10th Certificate');
-    if (!submitted.includes('TWELFTH_CERTIFICATE')) missing.push('12th Certificate');
-    if (!submitted.includes('DEGREE_CERTIFICATE')) missing.push('Degree Certificate');
-    if (!submitted.includes('RESIDENCE_PROOF')) missing.push('Residence Proof');
-    if (!gate.photoUrl && !submitted.includes('PHOTO')) missing.push('Photograph');
+    // Use stored required docs if available, otherwise fall back to defaults
+    const requiredDocTypes: string[] = gate.requiredDocs?.length > 0
+      ? (gate.requiredDocs as string[])
+      : DEFAULT_REQUIRED_DOCS;
+
+    for (const docType of requiredDocTypes) {
+      if (docType === 'PHOTO') {
+        if (!gate.photoUrl && !submitted.includes('PHOTO')) missing.push('Photograph');
+      } else if (['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'].includes(docType)) {
+        // Any identity proof type satisfies an identity proof requirement
+        if (!IDENTITY_PROOF_TYPES.some(t => submitted.includes(t))) missing.push('Identity Proof (Aadhaar/Passport/DL/Voter ID)');
+      } else if (!submitted.includes(docType)) {
+        const labelMap: Record<string, string> = {
+          PAN: 'PAN Card',
+          TENTH_CERTIFICATE: '10th Certificate',
+          TWELFTH_CERTIFICATE: '12th Certificate',
+          DEGREE_CERTIFICATE: 'Degree Certificate',
+          RESIDENCE_PROOF: 'Residence Proof',
+        };
+        missing.push(labelMap[docType] || docType);
+      }
+    }
 
     if (missing.length > 0) {
       const { BadRequestError } = await import('../../middleware/errorHandler.js');

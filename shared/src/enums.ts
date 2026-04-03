@@ -27,9 +27,11 @@ export enum Gender {
 }
 
 export enum EmployeeStatus {
+  ONBOARDING = 'ONBOARDING',
   ACTIVE = 'ACTIVE',
   PROBATION = 'PROBATION',
   NOTICE_PERIOD = 'NOTICE_PERIOD',
+  SUSPENDED = 'SUSPENDED',
   INACTIVE = 'INACTIVE',
   TERMINATED = 'TERMINATED',
   ABSCONDED = 'ABSCONDED',
@@ -167,6 +169,21 @@ export enum PayrollRunStatus {
 export enum TaxRegime {
   OLD_REGIME = 'OLD_REGIME',
   NEW_REGIME = 'NEW_REGIME',
+}
+
+export enum SalaryTemplateType {
+  INTERN = 'INTERN',
+  FULL_TIME = 'FULL_TIME',
+  CONTRACT = 'CONTRACT',
+  CUSTOM = 'CUSTOM',
+}
+
+export enum SalaryChangeType {
+  INITIAL = 'INITIAL',
+  REVISION = 'REVISION',
+  PROMOTION = 'PROMOTION',
+  CORRECTION = 'CORRECTION',
+  TEMPLATE_APPLIED = 'TEMPLATE_APPLIED',
 }
 
 export enum PoliceVerificationStatus {

@@ -261,12 +261,27 @@ export class EmployeeService {
     };
   }
 
-  async update(id: string, data: UpdateEmployeeInput, organizationId: string, updatedBy: string) {
+  async update(id: string, data: UpdateEmployeeInput, organizationId: string, updatedBy: string, callerRole?: string) {
     const existing = await prisma.employee.findFirst({
       where: { id, organizationId, deletedAt: null },
     });
     if (!existing) {
       throw new NotFoundError('Employee');
+    }
+
+    // Field-level permission control — restrict sensitive fields to SUPER_ADMIN only
+    const SUPER_ADMIN_ONLY_FIELDS = ['ctc', 'status'];
+    const MANAGEMENT_ONLY_FIELDS = ['joiningDate', 'probationEndDate', 'workMode', 'officeLocationId'];
+
+    if (callerRole && !['SUPER_ADMIN'].includes(callerRole)) {
+      for (const field of SUPER_ADMIN_ONLY_FIELDS) {
+        delete (data as any)[field];
+      }
+    }
+    if (callerRole && !['SUPER_ADMIN', 'ADMIN', 'HR'].includes(callerRole)) {
+      for (const field of MANAGEMENT_ONLY_FIELDS) {
+        delete (data as any)[field];
+      }
     }
 
     // Check email uniqueness if changed
@@ -276,6 +291,24 @@ export class EmployeeService {
       });
       if (duplicate) {
         throw new ConflictError('An employee with this email already exists');
+      }
+    }
+
+    // Enforce valid status transitions
+    if (data.status && data.status !== existing.status) {
+      const VALID_TRANSITIONS: Record<string, string[]> = {
+        'ONBOARDING': ['PROBATION', 'ACTIVE', 'INACTIVE'],
+        'PROBATION': ['ACTIVE', 'NOTICE_PERIOD', 'INACTIVE', 'TERMINATED'],
+        'ACTIVE': ['NOTICE_PERIOD', 'INACTIVE', 'SUSPENDED'],
+        'NOTICE_PERIOD': ['TERMINATED', 'ACTIVE'],
+        'SUSPENDED': ['ACTIVE', 'TERMINATED'],
+        'INACTIVE': ['ACTIVE', 'ONBOARDING'],
+        'TERMINATED': ['ACTIVE'], // rehire
+        'ABSCONDED': ['TERMINATED', 'ACTIVE'],
+      };
+      const allowed = VALID_TRANSITIONS[existing.status] || [];
+      if (!allowed.includes(data.status)) {
+        throw new BadRequestError(`Cannot transition from ${existing.status} to ${data.status}. Allowed: ${allowed.join(', ')}`);
       }
     }
 

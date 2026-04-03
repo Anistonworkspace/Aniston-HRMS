@@ -57,17 +57,27 @@ export function errorHandler(
   if (err instanceof ZodError) {
     const details: Record<string, string[]> = {};
     err.errors.forEach((e) => {
-      const path = e.path.join('.');
+      const path = e.path.join('.') || 'unknown';
       if (!details[path]) details[path] = [];
       details[path].push(e.message);
     });
+
+    // Build a human-readable summary from field errors
+    const fieldSummaries = Object.entries(details).map(
+      ([field, messages]) => `${field}: ${messages.join(', ')}`
+    );
+    const message = fieldSummaries.length === 1
+      ? fieldSummaries[0]
+      : `Validation failed — ${fieldSummaries.join('; ')}`;
+
+    logger.warn('Validation error:', { details, url: _req.originalUrl, method: _req.method });
 
     res.status(400).json({
       success: false,
       data: null,
       error: {
         code: 'VALIDATION_ERROR',
-        message: 'Validation failed',
+        message,
         details,
       },
     });

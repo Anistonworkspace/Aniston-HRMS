@@ -3,7 +3,7 @@ import { authenticate, requirePermission, authorize } from '../../middleware/aut
 import { Role } from '@aniston/shared';
 import { payrollController } from './payroll.controller.js';
 import { payrollService } from './payroll.service.js';
-import { amendPayrollRecordSchema } from './payroll.validation.js';
+import { amendPayrollRecordSchema, salaryStructureSchema } from './payroll.validation.js';
 
 const router = Router();
 router.use(authenticate);
@@ -16,7 +16,23 @@ router.post('/ai-anomaly-check/:runId', requirePermission('payroll', 'manage'), 
   } catch (err) { next(err); }
 });
 
-// Salary structure
+// ── PUT /employee/:id/salary — primary dynamic salary endpoint ────
+router.put('/employee/:id/salary',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const data = salaryStructureSchema.parse(req.body);
+      const result = await payrollService.upsertSalaryStructure(req.params.id, data, req.user!.organizationId, req.user!.userId);
+      if ('requiresConfirmation' in result) {
+        res.status(409).json({ success: false, data: result, error: { code: 'OVERWRITE_CONFIRMATION', message: result.message } });
+        return;
+      }
+      res.json({ success: true, data: result, message: 'Salary structure saved' });
+    } catch (err) { next(err); }
+  }
+);
+
+// Salary structure (legacy + new — POST also accepts new format)
 router.get('/salary-structure/:employeeId',
   requirePermission('payroll', 'read'),
   (req, res, next) => payrollController.getSalaryStructure(req, res, next)
@@ -161,7 +177,7 @@ router.post('/import',
                 const hra = Number(row.getCell(6).value) || 0;
                 if (!ctc || !basic) { skipped++; errors.push(`Row ${rowNumber}: Missing CTC or Basic for ${empCode}`); return; }
 
-                await payrollService.upsertSalaryStructure(employee.id, {
+                await payrollService.upsertSalaryStructureLegacy(employee.id, {
                   ctc, basic, hra,
                   da: Number(row.getCell(7).value) || 0,
                   ta: Number(row.getCell(8).value) || 0,

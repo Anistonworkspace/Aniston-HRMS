@@ -44,7 +44,8 @@ export class EmployeeController {
         req.params.id,
         data,
         req.user!.organizationId,
-        req.user!.userId
+        req.user!.userId,
+        req.user!.role
       );
       res.json({ success: true, data: employee, message: 'Employee updated' });
     } catch (err) {

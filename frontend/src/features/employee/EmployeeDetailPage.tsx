@@ -907,10 +907,78 @@ function ShiftAssignmentCard({ employeeId, isManagement }: { employeeId: string;
 }
 
 /* =============================================================================
-   Salary Tab — View & Edit Salary Structure
+   Salary Tab — Full Manual Editing with Component Builder
    ============================================================================= */
 
-const DEFAULT_ENABLED: Record<string, boolean> = { basic: true, hra: true, da: true, ta: true, special: true, epf: true, esi: true, pt: true };
+interface SalaryComponent {
+  id: string;
+  name: string;
+  amount: number;
+  mode: 'fixed' | 'percent'; // fixed amount or % of CTC
+  percentValue: number; // stored % when in percent mode
+  type: 'earning' | 'deduction';
+  isStatutory?: boolean; // EPF, ESI, PT — auto-calculated
+  isRequired?: boolean; // basic is always required
+}
+
+const DEFAULT_EARNINGS: SalaryComponent[] = [
+  { id: 'basic', name: 'Basic Salary', amount: 0, mode: 'percent', percentValue: 50, type: 'earning', isRequired: true },
+  { id: 'hra', name: 'House Rent Allowance', amount: 0, mode: 'percent', percentValue: 20, type: 'earning' },
+  { id: 'da', name: 'Dearness Allowance', amount: 0, mode: 'percent', percentValue: 10, type: 'earning' },
+  { id: 'ta', name: 'Transport Allowance', amount: 0, mode: 'percent', percentValue: 5, type: 'earning' },
+  { id: 'specialAllowance', name: 'Special Allowance', amount: 0, mode: 'fixed', percentValue: 0, type: 'earning' },
+  { id: 'medicalAllowance', name: 'Medical Allowance', amount: 0, mode: 'fixed', percentValue: 0, type: 'earning' },
+  { id: 'lta', name: 'Leave Travel Assistance', amount: 0, mode: 'fixed', percentValue: 0, type: 'earning' },
+];
+
+function buildComponentsFromStructure(structure: any, annualCtc: number): SalaryComponent[] {
+  const monthly = annualCtc / 12;
+  const earnings: SalaryComponent[] = [];
+
+  // Basic — always present
+  const basicAmt = structure?.basic ? Number(structure.basic) : 0;
+  const basicPct = monthly > 0 ? (basicAmt / monthly) * 100 : 50;
+  earnings.push({ id: 'basic', name: 'Basic Salary', amount: basicAmt, mode: 'percent', percentValue: Math.round(basicPct * 100) / 100, type: 'earning', isRequired: true });
+
+  // Standard components
+  const stdComponents: { id: string; field: string; name: string; defaultPct: number }[] = [
+    { id: 'hra', field: 'hra', name: 'House Rent Allowance', defaultPct: 20 },
+    { id: 'da', field: 'da', name: 'Dearness Allowance', defaultPct: 10 },
+    { id: 'ta', field: 'ta', name: 'Transport Allowance', defaultPct: 5 },
+    { id: 'specialAllowance', field: 'specialAllowance', name: 'Special Allowance', defaultPct: 0 },
+    { id: 'medicalAllowance', field: 'medicalAllowance', name: 'Medical Allowance', defaultPct: 0 },
+    { id: 'lta', field: 'lta', name: 'Leave Travel Assistance', defaultPct: 0 },
+  ];
+
+  for (const c of stdComponents) {
+    const amt = structure?.[c.field] ? Number(structure[c.field]) : 0;
+    if (amt > 0 || c.defaultPct > 0) {
+      const pct = monthly > 0 ? (amt / monthly) * 100 : c.defaultPct;
+      earnings.push({ id: c.id, name: c.name, amount: amt, mode: amt > 0 ? 'fixed' : 'percent', percentValue: Math.round(pct * 100) / 100, type: 'earning' });
+    }
+  }
+
+  // Custom components from enabledComponents JSON
+  if (structure?.enabledComponents?.customEarnings) {
+    for (const ce of structure.enabledComponents.customEarnings) {
+      earnings.push({ id: ce.id, name: ce.name, amount: ce.amount || 0, mode: ce.mode || 'fixed', percentValue: ce.percentValue || 0, type: 'earning' });
+    }
+  }
+
+  return earnings;
+}
+
+function buildDeductionsFromStructure(structure: any, annualCtc: number): SalaryComponent[] {
+  const deductions: SalaryComponent[] = [];
+  if (structure?.enabledComponents?.customDeductions) {
+    for (const cd of structure.enabledComponents.customDeductions) {
+      deductions.push({ id: cd.id, name: cd.name, amount: cd.amount || 0, mode: cd.mode || 'fixed', percentValue: cd.percentValue || 0, type: 'deduction' });
+    }
+  }
+  return deductions;
+}
+
+let componentCounter = 0;
 
 function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: string; ctc: any; workMode: string; isManagement: boolean }) {
   const { data: salRes } = useGetSalaryStructureQuery(employeeId);
@@ -918,132 +986,376 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
   const structure = salRes?.data;
   const [editing, setEditing] = useState(false);
   const [annualCtc, setAnnualCtc] = useState(ctc ? Number(ctc) : 0);
-  const [enabled, setEnabled] = useState<Record<string, boolean>>(
-    structure?.enabledComponents ? { ...DEFAULT_ENABLED, ...structure.enabledComponents } : { ...DEFAULT_ENABLED }
-  );
+  const [taxRegime, setTaxRegime] = useState<'OLD_REGIME' | 'NEW_REGIME'>(structure?.incomeTaxRegime || 'NEW_REGIME');
+  const [earnings, setEarnings] = useState<SalaryComponent[]>([]);
+  const [customDeductions, setCustomDeductions] = useState<SalaryComponent[]>([]);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Sync enabled state when structure loads
+  // Sync from server data
   useEffect(() => {
-    if (structure?.enabledComponents) {
-      setEnabled({ ...DEFAULT_ENABLED, ...structure.enabledComponents });
+    if (structure) {
+      const annual = structure.ctc ? Number(structure.ctc) : (ctc ? Number(ctc) : 0);
+      setAnnualCtc(annual);
+      setTaxRegime(structure.incomeTaxRegime || 'NEW_REGIME');
+      const builtEarnings = buildComponentsFromStructure(structure, annual);
+      setEarnings(builtEarnings.length > 0 ? builtEarnings : DEFAULT_EARNINGS);
+      setCustomDeductions(buildDeductionsFromStructure(structure, annual));
+    } else if (!structure && ctc) {
+      // No structure yet — initialize defaults from CTC
+      const monthly = Number(ctc) / 12;
+      setEarnings(DEFAULT_EARNINGS.map(e => ({
+        ...e,
+        amount: e.mode === 'percent' ? Math.round(monthly * e.percentValue / 100) : 0,
+      })));
     }
-  }, [structure]);
+  }, [structure, ctc]);
 
-  const toggleComponent = (key: string) => {
-    if (key === 'basic') return; // Basic is always required
-    setEnabled(prev => ({ ...prev, [key]: !prev[key] }));
+  // Recalculate amounts when CTC changes (for percent-mode components)
+  const recalcFromCtc = useCallback((newCtc: number) => {
+    const monthly = newCtc / 12;
+    setEarnings(prev => prev.map(e =>
+      e.mode === 'percent' ? { ...e, amount: Math.round(monthly * e.percentValue / 100) } : e
+    ));
+    setCustomDeductions(prev => prev.map(d =>
+      d.mode === 'percent' ? { ...d, amount: Math.round(monthly * d.percentValue / 100) } : d
+    ));
+  }, []);
+
+  const handleCtcChange = (val: number) => {
+    setAnnualCtc(val);
+    recalcFromCtc(val);
   };
 
-  // Auto-compute components from CTC
+  // Live calculations
   const monthly = annualCtc / 12;
-  const basic = enabled.basic ? monthly * 0.5 : 0;
-  const hra = enabled.hra ? basic * 0.4 : 0;
-  const da = enabled.da ? monthly * 0.1 : 0;
-  const ta = enabled.ta ? monthly * 0.05 : 0;
-  const special = enabled.special ? monthly - (monthly * 0.5) - (monthly * 0.5 * 0.4) - (monthly * 0.1) - (monthly * 0.05) : 0;
-  const gross = basic + hra + da + ta + (enabled.special ? special : 0);
+  const grossEarnings = earnings.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const basicAmount = earnings.find(e => e.id === 'basic')?.amount || 0;
 
-  // Deductions
-  const epfEmployee = enabled.epf ? Math.min(basic, 15000) * 0.12 : 0;
-  const esiEmployee = enabled.esi ? (monthly <= 21000 ? monthly * 0.0075 : 0) : 0;
-  const pt = enabled.pt ? (monthly > 15000 ? 200 : monthly > 10000 ? 150 : 0) : 0;
-  const totalDeductions = epfEmployee + esiEmployee + pt;
-  const netMonthly = gross - totalDeductions;
+  // Statutory deductions (auto-calculated)
+  const epfEmployee = Math.min(basicAmount, 15000) * 0.12;
+  const epfEmployer = Math.min(basicAmount, 15000) * 0.12;
+  const esiEmployee = grossEarnings <= 21000 ? grossEarnings * 0.0075 : 0;
+  const esiEmployer = grossEarnings <= 21000 ? grossEarnings * 0.0325 : 0;
+  const pt = grossEarnings > 15000 ? 200 : grossEarnings > 10000 ? 150 : 0;
+
+  const customDeductionTotal = customDeductions.reduce((sum, d) => sum + (d.amount || 0), 0);
+  const totalDeductions = Math.round(epfEmployee) + Math.round(esiEmployee) + pt + customDeductionTotal;
+  const netMonthly = grossEarnings - totalDeductions;
+
+  // Validation
+  const validate = useCallback((): Record<string, string> => {
+    const errs: Record<string, string> = {};
+    if (annualCtc <= 0) errs.ctc = 'Annual CTC must be greater than zero';
+    if (basicAmount <= 0) errs.basic = 'Basic salary is required and must be positive';
+    if (grossEarnings > monthly * 1.5) errs.gross = 'Total earnings significantly exceed monthly CTC';
+    if (totalDeductions > grossEarnings) errs.deductions = 'Total deductions exceed earnings — net pay would be negative';
+    if (netMonthly < 0) errs.net = 'Net take-home cannot be negative';
+    for (const e of earnings) {
+      if (e.amount < 0) errs[e.id] = `${e.name} cannot be negative`;
+      if (!e.name.trim()) errs[e.id] = 'Component name is required';
+    }
+    for (const d of customDeductions) {
+      if (d.amount < 0) errs[d.id] = `${d.name} cannot be negative`;
+      if (!d.name.trim()) errs[d.id] = 'Deduction name is required';
+    }
+    return errs;
+  }, [annualCtc, basicAmount, grossEarnings, monthly, totalDeductions, netMonthly, earnings, customDeductions]);
+
+  useEffect(() => {
+    if (editing) setErrors(validate());
+  }, [editing, validate]);
+
+  const hasErrors = Object.keys(errors).length > 0;
+
+  // Component CRUD
+  const updateEarning = (id: string, updates: Partial<SalaryComponent>) => {
+    setEarnings(prev => prev.map(e => {
+      if (e.id !== id) return e;
+      const updated = { ...e, ...updates };
+      // If switching mode or changing percent, recalculate amount
+      if (updates.mode === 'percent' || (updates.percentValue !== undefined && e.mode === 'percent')) {
+        updated.amount = Math.round(monthly * (updates.percentValue ?? updated.percentValue) / 100);
+      }
+      if (updates.mode === 'fixed' && updates.amount === undefined) {
+        // keep existing amount when switching to fixed
+      }
+      return updated;
+    }));
+  };
+
+  const updateDeduction = (id: string, updates: Partial<SalaryComponent>) => {
+    setCustomDeductions(prev => prev.map(d => {
+      if (d.id !== id) return d;
+      const updated = { ...d, ...updates };
+      if (updates.mode === 'percent' || (updates.percentValue !== undefined && d.mode === 'percent')) {
+        updated.amount = Math.round(monthly * (updates.percentValue ?? updated.percentValue) / 100);
+      }
+      return updated;
+    }));
+  };
+
+  const addEarning = () => {
+    componentCounter++;
+    setEarnings(prev => [...prev, {
+      id: `custom_earning_${componentCounter}_${Date.now()}`,
+      name: '',
+      amount: 0,
+      mode: 'fixed',
+      percentValue: 0,
+      type: 'earning',
+    }]);
+  };
+
+  const addDeduction = () => {
+    componentCounter++;
+    setCustomDeductions(prev => [...prev, {
+      id: `custom_deduction_${componentCounter}_${Date.now()}`,
+      name: '',
+      amount: 0,
+      mode: 'fixed',
+      percentValue: 0,
+      type: 'deduction',
+    }]);
+  };
+
+  const removeEarning = (id: string) => {
+    setEarnings(prev => prev.filter(e => e.id !== id));
+  };
+
+  const removeDeduction = (id: string) => {
+    setCustomDeductions(prev => prev.filter(d => d.id !== id));
+  };
 
   const handleSave = async () => {
+    const errs = validate();
+    setErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      const firstError = Object.values(errs)[0];
+      toast.error(firstError);
+      return;
+    }
+
+    // Map earnings to backend fields
+    const earningMap: Record<string, number> = {};
+    const customEarnings: { id: string; name: string; amount: number; mode: string; percentValue: number }[] = [];
+    const customDeds: { id: string; name: string; amount: number; mode: string; percentValue: number }[] = [];
+
+    for (const e of earnings) {
+      const backendField = ['basic', 'hra', 'da', 'ta', 'specialAllowance', 'medicalAllowance', 'lta'].find(f => f === e.id);
+      if (backendField) {
+        earningMap[backendField] = Math.round(e.amount);
+      } else {
+        customEarnings.push({ id: e.id, name: e.name, amount: Math.round(e.amount), mode: e.mode, percentValue: e.percentValue });
+      }
+    }
+
+    for (const d of customDeductions) {
+      customDeds.push({ id: d.id, name: d.name, amount: Math.round(d.amount), mode: d.mode, percentValue: d.percentValue });
+    }
+
     try {
-      await saveSalary({ employeeId, data: { ctc: annualCtc, enabledComponents: enabled } }).unwrap();
-      toast.success('Salary structure saved');
+      await saveSalary({
+        employeeId,
+        data: {
+          ctc: annualCtc,
+          basic: earningMap.basic || Math.round(basicAmount),
+          hra: earningMap.hra || 0,
+          da: earningMap.da,
+          ta: earningMap.ta,
+          specialAllowance: earningMap.specialAllowance,
+          medicalAllowance: earningMap.medicalAllowance,
+          lta: earningMap.lta,
+          incomeTaxRegime: taxRegime,
+          enabledComponents: { customEarnings, customDeductions: customDeds },
+        },
+      }).unwrap();
+      toast.success('Salary structure saved successfully');
       setEditing(false);
-    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to save'); }
+    } catch (err: any) {
+      const msg = err?.data?.error?.message;
+      if (msg?.toLowerCase().includes('validation')) {
+        toast.error('Please check all fields — ensure CTC and Basic are positive numbers');
+      } else {
+        toast.error(msg || 'Failed to save salary structure');
+      }
+    }
   };
 
-  const earningRows = [
-    { key: 'basic', label: 'Basic Salary (50%)', value: Math.round(basic) },
-    { key: 'hra', label: 'HRA (40% of Basic)', value: Math.round(hra) },
-    { key: 'da', label: 'Dearness Allowance (10%)', value: Math.round(da) },
-    { key: 'ta', label: 'Transport Allowance (5%)', value: Math.round(ta) },
-    { key: 'special', label: 'Special Allowance', value: Math.round(special) },
-  ];
+  const handleCancel = () => {
+    setEditing(false);
+    setErrors({});
+    if (structure) {
+      const annual = structure.ctc ? Number(structure.ctc) : (ctc ? Number(ctc) : 0);
+      setAnnualCtc(annual);
+      setTaxRegime(structure.incomeTaxRegime || 'NEW_REGIME');
+      const builtEarnings = buildComponentsFromStructure(structure, annual);
+      setEarnings(builtEarnings.length > 0 ? builtEarnings : DEFAULT_EARNINGS);
+      setCustomDeductions(buildDeductionsFromStructure(structure, annual));
+    } else {
+      setAnnualCtc(ctc ? Number(ctc) : 0);
+      setEarnings(DEFAULT_EARNINGS);
+      setCustomDeductions([]);
+    }
+  };
 
-  const deductionRows = [
-    { key: 'epf', label: 'EPF (Employee 12%)', value: Math.round(epfEmployee) },
-    ...(esiEmployee > 0 || enabled.esi ? [{ key: 'esi', label: 'ESI (Employee 0.75%)', value: Math.round(esiEmployee) }] : []),
-    { key: 'pt', label: 'Professional Tax', value: pt },
+  const statutoryDeductionRows = [
+    { label: 'EPF (Employee 12%)', value: Math.round(epfEmployee), note: `Employer: ${formatCurrency(Math.round(epfEmployer))}` },
+    ...(esiEmployee > 0 ? [{ label: 'ESI (Employee 0.75%)', value: Math.round(esiEmployee), note: `Employer: ${formatCurrency(Math.round(esiEmployer))}` }] : []),
+    { label: 'Professional Tax', value: pt, note: 'State slab-based' },
   ];
 
   return (
     <div className="space-y-6">
-      {/* CTC Overview */}
-      <div className="grid md:grid-cols-3 gap-4">
+      {/* CTC & Summary Cards */}
+      <div className="grid md:grid-cols-4 gap-4">
         <div className="layer-card p-5 text-center">
           <p className="text-xs text-gray-400 mb-1">CTC (Annual)</p>
           {editing ? (
-            <input type="number" value={annualCtc} onChange={e => setAnnualCtc(Number(e.target.value))}
-              className="input-glass w-full text-center text-lg font-bold font-mono" data-mono />
+            <div>
+              <input
+                type="number"
+                value={annualCtc || ''}
+                onChange={e => handleCtcChange(Number(e.target.value))}
+                className={`input-glass w-full text-center text-lg font-bold font-mono ${errors.ctc ? 'ring-2 ring-red-400' : ''}`}
+                data-mono
+                placeholder="Enter annual CTC"
+              />
+              {errors.ctc && <p className="text-xs text-red-500 mt-1">{errors.ctc}</p>}
+            </div>
           ) : (
             <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{annualCtc ? formatCurrency(annualCtc) : '—'}</p>
           )}
         </div>
         <div className="layer-card p-5 text-center">
           <p className="text-xs text-gray-400 mb-1">Monthly Gross</p>
-          <p className="text-2xl font-bold font-mono text-brand-600" data-mono>{formatCurrency(Math.round(gross))}</p>
+          <p className={`text-2xl font-bold font-mono ${errors.gross ? 'text-amber-600' : 'text-brand-600'}`} data-mono>
+            {formatCurrency(Math.round(grossEarnings))}
+          </p>
+          {errors.gross && <p className="text-xs text-amber-500 mt-1">{errors.gross}</p>}
         </div>
         <div className="layer-card p-5 text-center">
-          <p className="text-xs text-gray-400 mb-1">Monthly Net</p>
-          <p className="text-2xl font-bold font-mono text-emerald-600" data-mono>{formatCurrency(Math.round(netMonthly))}</p>
+          <p className="text-xs text-gray-400 mb-1">Total Deductions</p>
+          <p className={`text-2xl font-bold font-mono ${errors.deductions ? 'text-red-600' : 'text-red-500'}`} data-mono>
+            -{formatCurrency(Math.round(totalDeductions))}
+          </p>
+          {errors.deductions && <p className="text-xs text-red-500 mt-1">{errors.deductions}</p>}
+        </div>
+        <div className="layer-card p-5 text-center">
+          <p className="text-xs text-gray-400 mb-1">Net Take-Home</p>
+          <p className={`text-2xl font-bold font-mono ${netMonthly < 0 ? 'text-red-600' : 'text-emerald-600'}`} data-mono>
+            {formatCurrency(Math.round(netMonthly))}
+          </p>
+          {errors.net && <p className="text-xs text-red-500 mt-1">{errors.net}</p>}
         </div>
       </div>
 
-      {/* Salary Breakdown */}
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="layer-card p-5">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3">Earnings (Monthly)</h3>
-          <div className="space-y-2.5">
-            {earningRows.map(row => (
-              <div key={row.key} className={`flex items-center gap-2 ${!enabled[row.key] ? 'opacity-40' : ''}`}>
-                {isManagement && editing && (
-                  <input
-                    type="checkbox"
-                    checked={enabled[row.key]}
-                    onChange={() => toggleComponent(row.key)}
-                    disabled={row.key === 'basic'}
-                    className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                  />
-                )}
-                <div className="flex-1">
-                  <SalaryRow label={row.label} value={enabled[row.key] ? row.value : 0} />
-                </div>
-              </div>
-            ))}
-            <div className="border-t border-gray-100 pt-2 mt-2">
-              <SalaryRow label="Gross Monthly" value={Math.round(gross)} bold />
+      {/* Tax Regime Toggle */}
+      {editing && (
+        <div className="layer-card p-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-800">Income Tax Regime</p>
+            <p className="text-xs text-gray-400">Affects TDS calculation</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setTaxRegime('NEW_REGIME')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${taxRegime === 'NEW_REGIME' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              New Regime
+            </button>
+            <button
+              onClick={() => setTaxRegime('OLD_REGIME')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${taxRegime === 'OLD_REGIME' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              Old Regime
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Earnings */}
+      <div className="layer-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-800">Earnings (Monthly)</h3>
+          {editing && (
+            <button onClick={addEarning} className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+              <Plus size={14} /> Add Component
+            </button>
+          )}
+        </div>
+        <div className="space-y-2">
+          {earnings.map(comp => (
+            <SalaryComponentRow
+              key={comp.id}
+              component={comp}
+              editing={editing}
+              monthly={monthly}
+              error={errors[comp.id]}
+              onUpdate={(updates) => updateEarning(comp.id, updates)}
+              onRemove={comp.isRequired ? undefined : () => removeEarning(comp.id)}
+            />
+          ))}
+          <div className="border-t border-gray-200 pt-3 mt-3">
+            <div className="flex justify-between items-center font-semibold">
+              <span className="text-sm text-gray-700">Gross Monthly</span>
+              <span className="text-base font-mono text-brand-600" data-mono>{formatCurrency(Math.round(grossEarnings))}</span>
             </div>
           </div>
         </div>
-        <div className="layer-card p-5">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3">Deductions (Monthly)</h3>
-          <div className="space-y-2.5">
-            {deductionRows.map(row => (
-              <div key={row.key} className={`flex items-center gap-2 ${!enabled[row.key] ? 'opacity-40' : ''}`}>
-                {isManagement && editing && (
-                  <input
-                    type="checkbox"
-                    checked={enabled[row.key]}
-                    onChange={() => toggleComponent(row.key)}
-                    className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                  />
-                )}
-                <div className="flex-1">
-                  <SalaryRow label={row.label} value={enabled[row.key] ? row.value : 0} deduct />
-                </div>
+      </div>
+
+      {/* Deductions */}
+      <div className="layer-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-800">Deductions (Monthly)</h3>
+          {editing && (
+            <button onClick={addDeduction} className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+              <Plus size={14} /> Add Deduction
+            </button>
+          )}
+        </div>
+        <div className="space-y-2">
+          {/* Statutory (auto-calculated, read-only) */}
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">Statutory (Auto-calculated)</p>
+          {statutoryDeductionRows.map(row => (
+            <div key={row.label} className="flex justify-between items-center py-1.5">
+              <div>
+                <span className="text-xs text-gray-500">{row.label}</span>
+                <span className="text-[10px] text-gray-400 ml-2">{row.note}</span>
               </div>
-            ))}
-            <div className="border-t border-gray-100 pt-2 mt-2">
-              <SalaryRow label="Total Deductions" value={Math.round(totalDeductions)} deduct bold />
+              <span className="text-sm font-mono text-red-600" data-mono>-{formatCurrency(row.value)}</span>
             </div>
-            <div className="border-t border-gray-200 pt-2 mt-2">
-              <SalaryRow label="Net Take-Home" value={Math.round(netMonthly)} bold />
+          ))}
+
+          {/* Custom deductions */}
+          {customDeductions.length > 0 && (
+            <>
+              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mt-3 mb-1">Custom Deductions</p>
+              {customDeductions.map(comp => (
+                <SalaryComponentRow
+                  key={comp.id}
+                  component={comp}
+                  editing={editing}
+                  monthly={monthly}
+                  error={errors[comp.id]}
+                  onUpdate={(updates) => updateDeduction(comp.id, updates)}
+                  onRemove={() => removeDeduction(comp.id)}
+                  isDeduction
+                />
+              ))}
+            </>
+          )}
+
+          <div className="border-t border-gray-200 pt-3 mt-3 space-y-2">
+            <div className="flex justify-between items-center font-semibold">
+              <span className="text-sm text-gray-700">Total Deductions</span>
+              <span className="text-base font-mono text-red-600" data-mono>-{formatCurrency(Math.round(totalDeductions))}</span>
+            </div>
+            <div className="border-t border-gray-200 pt-2">
+              <div className="flex justify-between items-center font-semibold">
+                <span className="text-sm text-gray-700">Net Take-Home</span>
+                <span className={`text-base font-mono ${netMonthly < 0 ? 'text-red-600' : 'text-emerald-600'}`} data-mono>{formatCurrency(Math.round(netMonthly))}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -1051,13 +1363,23 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
 
       {/* Actions */}
       {isManagement && (
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
           {editing ? (
             <>
-              <button onClick={handleSave} disabled={saving} className="btn-primary text-sm flex items-center gap-1.5">
-                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save Structure
+              <button
+                onClick={handleSave}
+                disabled={saving || hasErrors}
+                className={`btn-primary text-sm flex items-center gap-1.5 ${hasErrors ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                {saving ? 'Saving...' : 'Save Structure'}
               </button>
-              <button onClick={() => { setEditing(false); setAnnualCtc(ctc ? Number(ctc) : 0); if (structure?.enabledComponents) setEnabled({ ...DEFAULT_ENABLED, ...structure.enabledComponents }); else setEnabled({ ...DEFAULT_ENABLED }); }} className="btn-secondary text-sm">Cancel</button>
+              <button onClick={handleCancel} className="btn-secondary text-sm">Cancel</button>
+              {hasErrors && (
+                <span className="text-xs text-red-500 flex items-center gap-1">
+                  <XCircle size={12} /> {Object.values(errors)[0]}
+                </span>
+              )}
             </>
           ) : (
             <button onClick={() => setEditing(true)} className="btn-primary text-sm flex items-center gap-1.5">
@@ -1066,6 +1388,117 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function SalaryComponentRow({
+  component,
+  editing,
+  monthly,
+  error,
+  onUpdate,
+  onRemove,
+  isDeduction,
+}: {
+  component: SalaryComponent;
+  editing: boolean;
+  monthly: number;
+  error?: string;
+  onUpdate: (updates: Partial<SalaryComponent>) => void;
+  onRemove?: () => void;
+  isDeduction?: boolean;
+}) {
+  if (!editing) {
+    return (
+      <div className="flex justify-between items-center py-1.5">
+        <span className="text-xs text-gray-500">{component.name}</span>
+        <span className={`text-sm font-mono ${isDeduction ? 'text-red-600' : 'text-gray-800'}`} data-mono>
+          {isDeduction ? '-' : ''}{formatCurrency(Math.round(component.amount))}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex items-center gap-2 py-1.5 rounded-lg transition-colors ${error ? 'bg-red-50 px-2 -mx-2' : ''}`}>
+      {/* Component Name */}
+      <input
+        type="text"
+        value={component.name}
+        onChange={e => onUpdate({ name: e.target.value })}
+        disabled={component.isRequired}
+        placeholder="Component name"
+        className={`input-glass text-xs flex-1 min-w-0 py-1.5 ${component.isRequired ? 'bg-gray-50 text-gray-600' : ''} ${error && !component.name.trim() ? 'ring-2 ring-red-400' : ''}`}
+      />
+
+      {/* Mode Toggle */}
+      <button
+        onClick={() => {
+          const newMode = component.mode === 'fixed' ? 'percent' : 'fixed';
+          if (newMode === 'percent') {
+            const pct = monthly > 0 ? (component.amount / monthly) * 100 : 0;
+            onUpdate({ mode: 'percent', percentValue: Math.round(pct * 100) / 100 });
+          } else {
+            onUpdate({ mode: 'fixed' });
+          }
+        }}
+        className="text-[10px] font-mono px-2 py-1 rounded border border-gray-200 hover:border-brand-400 hover:bg-brand-50 transition-colors whitespace-nowrap"
+        title={component.mode === 'percent' ? 'Switch to fixed amount' : 'Switch to % of CTC'}
+      >
+        {component.mode === 'percent' ? '%' : '₹'}
+      </button>
+
+      {/* Percent Input (shown when in percent mode) */}
+      {component.mode === 'percent' && (
+        <input
+          type="number"
+          value={component.percentValue || ''}
+          onChange={e => {
+            const pct = Number(e.target.value);
+            onUpdate({ percentValue: pct, amount: Math.round(monthly * pct / 100) });
+          }}
+          className="input-glass text-xs w-16 text-right py-1.5 font-mono"
+          data-mono
+          placeholder="%"
+          min={0}
+          max={100}
+          step={0.5}
+        />
+      )}
+
+      {/* Amount Input */}
+      <input
+        type="number"
+        value={component.amount || ''}
+        onChange={e => {
+          const amt = Number(e.target.value);
+          onUpdate({
+            amount: amt,
+            ...(component.mode === 'percent' && monthly > 0 ? { percentValue: Math.round((amt / monthly) * 100 * 100) / 100 } : {}),
+          });
+        }}
+        className={`input-glass text-xs w-28 text-right py-1.5 font-mono ${error ? 'ring-2 ring-red-400' : ''}`}
+        data-mono
+        placeholder="Amount"
+        min={0}
+      />
+
+      {/* Delete Button */}
+      {onRemove ? (
+        <button
+          onClick={onRemove}
+          className="text-gray-400 hover:text-red-500 transition-colors p-0.5"
+          title="Remove component"
+        >
+          <XCircle size={16} />
+        </button>
+      ) : (
+        <div className="w-[20px]" /> /* spacer for required components */
+      )}
+
+      {/* Error tooltip */}
+      {error && <span className="text-[10px] text-red-500 absolute right-0 -bottom-4">{error}</span>}
     </div>
   );
 }

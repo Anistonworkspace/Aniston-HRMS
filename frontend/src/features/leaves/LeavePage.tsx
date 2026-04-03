@@ -1499,7 +1499,15 @@ function ApplyLeaveModal({ leaveTypes, balances, onClose }: { leaveTypes: any[];
       }).unwrap();
       setSubmitted(true);
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to apply leave');
+      const errorData = err?.data?.error;
+      if (errorData?.code === 'VALIDATION_ERROR' && errorData?.details) {
+        const fields = Object.entries(errorData.details as Record<string, string[]>);
+        fields.forEach(([field, messages]) => {
+          toast.error(`${field}: ${(messages as string[]).join(', ')}`);
+        });
+      } else {
+        toast.error(errorData?.message || 'Failed to apply leave');
+      }
     }
   };
 

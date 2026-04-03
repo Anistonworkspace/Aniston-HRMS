@@ -258,7 +258,7 @@ export class InvitationService {
             gender: 'PREFER_NOT_TO_SAY',
             workMode: 'OFFICE',
             joiningDate: new Date(),
-            status: 'PROBATION',
+            status: 'ONBOARDING',
             onboardingComplete: false,
             organizationId: invitation.organizationId,
             departmentId: invitation.departmentId || undefined,
@@ -266,10 +266,13 @@ export class InvitationService {
           },
         });
 
-        await tx.employeeInvitation.update({
-          where: { id: invitation.id },
+        const claimed = await tx.employeeInvitation.updateMany({
+          where: { id: invitation.id, status: 'PENDING' },
           data: { status: 'ACCEPTED', acceptedAt: new Date(), employeeId: employee.id },
         });
+        if (claimed.count === 0) {
+          throw new BadRequestError('This invitation has already been used');
+        }
 
         return { user, employee };
       });
@@ -299,7 +302,7 @@ export class InvitationService {
             gender: 'PREFER_NOT_TO_SAY',
             workMode: 'OFFICE',
             joiningDate: new Date(),
-            status: 'PROBATION',
+            status: 'ONBOARDING',
             onboardingComplete: false,
             organizationId: invitation.organizationId,
             departmentId: invitation.departmentId || undefined,
@@ -307,10 +310,13 @@ export class InvitationService {
           },
         });
 
-        await tx.employeeInvitation.update({
-          where: { id: invitation.id },
+        const claimed = await tx.employeeInvitation.updateMany({
+          where: { id: invitation.id, status: 'PENDING' },
           data: { status: 'ACCEPTED', acceptedAt: new Date(), employeeId: employee.id },
         });
+        if (claimed.count === 0) {
+          throw new BadRequestError('This invitation has already been used');
+        }
 
         return { user, employee };
       });

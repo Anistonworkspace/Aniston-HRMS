@@ -15,8 +15,15 @@ export class PayrollController {
   async upsertSalaryStructure(req: Request, res: Response, next: NextFunction) {
     try {
       const data = salaryStructureSchema.parse(req.body);
-      const structure = await payrollService.upsertSalaryStructure(req.params.employeeId, data, req.user!.organizationId);
-      res.json({ success: true, data: structure, message: 'Salary structure saved' });
+      const result = await payrollService.upsertSalaryStructure(
+        req.params.employeeId, data, req.user!.organizationId, req.user!.userId
+      );
+      // Overwrite protection: requires user to confirm
+      if ('requiresConfirmation' in result) {
+        res.status(409).json({ success: false, data: result, error: { code: 'OVERWRITE_CONFIRMATION', message: result.message } });
+        return;
+      }
+      res.json({ success: true, data: result, message: 'Salary structure saved' });
     } catch (err) { next(err); }
   }
 
@@ -52,7 +59,6 @@ export class PayrollController {
   async downloadSalarySlip(req: Request, res: Response, next: NextFunction) {
     try {
       const record = await payrollService.getPayrollRecordById(req.params.id, req.user!.organizationId);
-      // Ownership check: only the employee themselves or management can download
       const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(req.user!.role);
       if (!isManagement && record.employeeId !== req.user!.employeeId) {
         res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorized to access this salary slip' } });
@@ -80,6 +86,7 @@ export class PayrollController {
       res.json({ success: true, data: payslips });
     } catch (err) { next(err); }
   }
+
   async getVisibilityRules(req: Request, res: Response, next: NextFunction) {
     try {
       const rules = await salaryVisibilityService.getVisibilityRules(req.user!.organizationId);
