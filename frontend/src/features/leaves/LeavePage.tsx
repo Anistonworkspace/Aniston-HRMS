@@ -1420,3 +1420,387 @@ function LeaveRequestCard({ leave }: { leave: any }) {
     </div>
   );
 }
+type LeaveMode = 'single' | 'multiple' | 'half';
+
+function ApplyLeaveModal({ leaveTypes, balances, onClose }: { leaveTypes: any[]; balances: any[]; onClose: () => void }) {
+  const [leaveMode, setLeaveMode] = useState<LeaveMode | null>(null);
+  const [formData, setFormData] = useState({
+    leaveTypeId: '',
+    startDate: '',
+    endDate: '',
+    halfDaySession: '' as '' | 'FIRST_HALF' | 'SECOND_HALF',
+    reason: '',
+  });
+  const [applyLeave, { isLoading }] = useApplyLeaveMutation();
+  const [previewLeave] = usePreviewLeaveMutation();
+  const [preview, setPreview] = useState<any>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [previewTimer, setPreviewTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+
+  const isHalfDay = leaveMode === 'half';
+  const effectiveEndDate = leaveMode === 'single' || leaveMode === 'half'
+    ? formData.startDate
+    : formData.endDate;
+
+  const selectedBalance = balances.find((b: any) => b.leaveType?.id === formData.leaveTypeId);
+
+  // Fetch preview from backend
+  const fetchPreview = async () => {
+    if (!formData.leaveTypeId || !formData.startDate || (leaveMode === 'multiple' && !formData.endDate)) {
+      setPreview(null);
+      return;
+    }
+    const endD = leaveMode === 'single' || leaveMode === 'half' ? formData.startDate : formData.endDate;
+    setPreviewLoading(true);
+    try {
+      const result = await previewLeave({
+        leaveTypeId: formData.leaveTypeId,
+        startDate: formData.startDate,
+        endDate: endD,
+        isHalfDay,
+        halfDaySession: isHalfDay && formData.halfDaySession ? formData.halfDaySession : undefined,
+      }).unwrap();
+      setPreview(result.data);
+    } catch {
+      setPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const triggerPreview = () => {
+    if (previewTimer) clearTimeout(previewTimer);
+    setPreviewTimer(setTimeout(fetchPreview, 400));
+  };
+
+  const previewKey = `${formData.leaveTypeId}-${formData.startDate}-${effectiveEndDate}-${leaveMode}-${formData.halfDaySession}`;
+  const [lastPreviewKey, setLastPreviewKey] = useState('');
+  if (previewKey !== lastPreviewKey && formData.leaveTypeId && formData.startDate && (leaveMode !== 'multiple' || formData.endDate)) {
+    setLastPreviewKey(previewKey);
+    triggerPreview();
+  }
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!leaveMode) return toast.error('Please select a leave mode');
+    if (leaveMode === 'half' && !formData.halfDaySession) return toast.error('Please select First Half or Second Half');
+    if (leaveMode === 'multiple' && formData.endDate && formData.endDate < formData.startDate) {
+      return toast.error('End date must be on or after the start date');
+    }
+    try {
+      await applyLeave({
+        leaveTypeId: formData.leaveTypeId,
+        startDate: formData.startDate,
+        endDate: effectiveEndDate,
+        isHalfDay,
+        halfDaySession: isHalfDay ? formData.halfDaySession : undefined,
+        reason: formData.reason,
+      }).unwrap();
+      setSubmitted(true);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to apply leave');
+    }
+  };
+
+  // Success screen
+  if (submitted) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        onClick={(e) => e.target === e.currentTarget && onClose()}
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white rounded-2xl shadow-glass-lg w-full max-w-sm p-8 text-center"
+        >
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: 'spring', stiffness: 200, delay: 0.1 }}
+            className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4"
+          >
+            <CheckCircle size={32} className="text-emerald-600" />
+          </motion.div>
+          <h3 className="text-lg font-display font-bold text-gray-900 mb-1">Leave Request Submitted</h3>
+          <p className="text-sm text-gray-500 mb-1">
+            {preview?.days || ''} {(preview?.days || 0) === 1 ? 'day' : 'days'} of {preview?.leaveTypeName || 'leave'}
+          </p>
+          <p className="text-xs text-gray-400 mb-6">Your request is pending approval</p>
+          <button onClick={onClose} className="btn-primary w-full py-3">
+            Done
+          </button>
+        </motion.div>
+      </motion.div>
+    );
+  }
+
+  const modeConfig = [
+    { key: 'single' as LeaveMode, icon: '1', label: 'Single Day', desc: 'One full day off' },
+    { key: 'multiple' as LeaveMode, icon: '\uD83D\uDCC5', label: 'Multiple Days', desc: 'Date range' },
+    { key: 'half' as LeaveMode, icon: '\u00BD', label: 'Half Day', desc: 'Morning or afternoon' },
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 40 }}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Apply for leave"
+        className="bg-white rounded-t-2xl sm:rounded-2xl shadow-glass-lg w-full sm:max-w-md max-h-[92vh] flex flex-col"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
+          <h2 className="text-lg font-display font-semibold text-gray-800">Apply Leave</h2>
+          <button aria-label="Close" onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+            <X size={18} className="text-gray-400" />
+          </button>
+        </div>
+
+        {/* Scrollable Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {/* Step 1: Leave Mode Selection */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">How long?</label>
+            <div className="grid grid-cols-3 gap-2">
+              {modeConfig.map((mode) => (
+                <motion.button
+                  key={mode.key}
+                  type="button"
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => {
+                    setLeaveMode(mode.key);
+                    if (mode.key !== 'multiple') setFormData(f => ({ ...f, endDate: '' }));
+                    if (mode.key !== 'half') setFormData(f => ({ ...f, halfDaySession: '' }));
+                    setPreview(null);
+                  }}
+                  className={cn(
+                    'flex flex-col items-center gap-1 py-3 px-2 rounded-xl border-2 transition-all text-center',
+                    leaveMode === mode.key
+                      ? 'border-brand-500 bg-brand-50 shadow-sm'
+                      : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                  )}
+                >
+                  <span className="text-xl leading-none">{mode.icon}</span>
+                  <span className={cn('text-xs font-semibold', leaveMode === mode.key ? 'text-brand-700' : 'text-gray-700')}>
+                    {mode.label}
+                  </span>
+                  <span className="text-[10px] text-gray-400 leading-tight">{mode.desc}</span>
+                </motion.button>
+              ))}
+            </div>
+          </div>
+
+          {/* Step 2: Leave Type */}
+          {leaveMode && (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Leave Type</label>
+              <select
+                value={formData.leaveTypeId}
+                onChange={(e) => setFormData({ ...formData, leaveTypeId: e.target.value })}
+                className="input-glass w-full text-sm py-3"
+                required
+              >
+                <option value="">Select leave type</option>
+                {leaveTypes.map((lt: any) => {
+                  const bal = balances.find((b: any) => b.leaveType?.id === lt.id);
+                  return (
+                    <option key={lt.id} value={lt.id}>
+                      {lt.name} ({lt.code}) — {bal ? bal.remaining : '?'} days left
+                    </option>
+                  );
+                })}
+              </select>
+              {selectedBalance && (
+                <div className="flex items-center gap-3 mt-2 px-1">
+                  <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                    <div
+                      className="bg-brand-500 h-1.5 rounded-full transition-all"
+                      style={{ width: `${Math.min((Number(selectedBalance.used) / Math.max(Number(selectedBalance.allocated), 1)) * 100, 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-[11px] text-gray-500 font-mono shrink-0" data-mono>
+                    {selectedBalance.remaining}/{Number(selectedBalance.allocated)}
+                  </span>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* Step 3: Date Fields (dynamic by mode) */}
+          {leaveMode && formData.leaveTypeId && (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+              {(leaveMode === 'single' || leaveMode === 'half') && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Date</label>
+                  <input
+                    type="date"
+                    value={formData.startDate}
+                    onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                    className="input-glass w-full text-sm py-3"
+                    required
+                  />
+                </div>
+              )}
+
+              {leaveMode === 'multiple' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Start Date</label>
+                    <input
+                      type="date"
+                      value={formData.startDate}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setFormData(f => ({ ...f, startDate: v, endDate: (!f.endDate || f.endDate < v) ? v : f.endDate }));
+                      }}
+                      className="input-glass w-full text-sm py-3"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">End Date</label>
+                    <input
+                      type="date"
+                      value={formData.endDate}
+                      onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                      className="input-glass w-full text-sm py-3"
+                      min={formData.startDate}
+                      required
+                    />
+                  </div>
+                </div>
+              )}
+
+              {leaveMode === 'half' && (
+                <div className="mt-3">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Session</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'FIRST_HALF' as const, label: 'First Half', desc: 'Morning off' },
+                      { value: 'SECOND_HALF' as const, label: 'Second Half', desc: 'Afternoon off' },
+                    ].map((session) => (
+                      <motion.button
+                        key={session.value}
+                        type="button"
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => setFormData(f => ({ ...f, halfDaySession: session.value }))}
+                        className={cn(
+                          'py-3 px-3 rounded-xl border-2 text-center transition-all',
+                          formData.halfDaySession === session.value
+                            ? 'border-brand-500 bg-brand-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        )}
+                      >
+                        <p className={cn('text-sm font-semibold', formData.halfDaySession === session.value ? 'text-brand-700' : 'text-gray-700')}>
+                          {session.label}
+                        </p>
+                        <p className="text-[10px] text-gray-400">{session.desc}</p>
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* Real-time Preview Panel */}
+          {preview && !previewLoading && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-gradient-to-br from-brand-50 to-indigo-50 rounded-xl p-4 border border-brand-100"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-brand-700 uppercase tracking-wide">Leave Summary</span>
+                <span className="text-lg font-bold font-mono text-brand-600" data-mono>
+                  {preview.days} {preview.days === 1 ? 'day' : 'days'}
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Current balance</span>
+                  <span className="font-mono text-gray-700" data-mono>{preview.balance.available} days</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">After this request</span>
+                  <span className={cn('font-mono font-semibold', preview.balance.remainingAfter < 0 ? 'text-red-600' : 'text-emerald-600')} data-mono>
+                    {preview.balance.remainingAfter} days
+                  </span>
+                </div>
+              </div>
+              {preview.warnings.length > 0 && (
+                <div className="mt-3 space-y-1">
+                  {preview.warnings.map((w: string, i: number) => (
+                    <div key={i} className="flex items-start gap-1.5 text-[11px]">
+                      <AlertCircle size={12} className="text-amber-500 mt-0.5 shrink-0" />
+                      <span className="text-amber-700">{w}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {previewLoading && (
+            <div className="flex items-center justify-center py-3">
+              <Loader2 size={16} className="animate-spin text-brand-500" />
+              <span className="text-xs text-gray-400 ml-2">Calculating...</span>
+            </div>
+          )}
+
+          {/* Reason */}
+          {leaveMode && formData.leaveTypeId && formData.startDate && (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Reason</label>
+              <textarea
+                value={formData.reason}
+                onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+                className="input-glass w-full h-20 resize-none text-sm"
+                placeholder="Why do you need this leave?"
+                required
+                minLength={5}
+              />
+            </motion.div>
+          )}
+        </div>
+
+        {/* Sticky Submit Footer */}
+        <div className="px-5 py-4 border-t border-gray-100 bg-white rounded-b-2xl shrink-0">
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1 py-3">
+              Cancel
+            </button>
+            <motion.button
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              onClick={handleSubmit}
+              disabled={isLoading || !leaveMode || !formData.leaveTypeId || !formData.startDate || !formData.reason || (leaveMode === 'multiple' && !formData.endDate) || (leaveMode === 'half' && !formData.halfDaySession)}
+              className="btn-primary flex-1 py-3 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <CalendarDays size={16} />
+              )}
+              Submit Request
+            </motion.button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
 import { Users, UserCheck, CalendarOff, Briefcase, TrendingUp, Clock, MapPin, Loader2, Award, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Clock3, Sun, Coffee } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -9,6 +9,10 @@ import { useGetLeaveBalancesQuery, useGetHolidaysQuery } from '../leaves/leaveAp
 import { formatDate, getInitials } from '../../lib/utils';
 import { RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 import toast from 'react-hot-toast';
+
+// Lazy-load role-specific dashboards
+const SuperAdminDashboard = lazy(() => import('./SuperAdminDashboard'));
+const HRDashboard = lazy(() => import('./HRDashboard'));
 
 const container = {
   hidden: { opacity: 0 },
@@ -23,6 +27,54 @@ const item = {
   show: { opacity: 1, y: 0 },
 };
 
+// ─── ROLE-BASED ROUTER ─────────────────────────────────────────
+export default function DashboardPage() {
+  const user = useAppSelector((state) => state.auth.user);
+  const role = user?.role || '';
+
+  // SUPER_ADMIN / ADMIN → Analytics dashboard
+  if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
+    return (
+      <Suspense fallback={<DashboardSkeleton />}>
+        <SuperAdminDashboard />
+      </Suspense>
+    );
+  }
+
+  // HR → Operations dashboard
+  if (role === 'HR') {
+    return (
+      <Suspense fallback={<DashboardSkeleton />}>
+        <HRDashboard />
+      </Suspense>
+    );
+  }
+
+  // MANAGER / EMPLOYEE / INTERN / others → Employee dashboard
+  return <EmployeeDashboard />;
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="page-container animate-pulse">
+      <div className="mb-8">
+        <div className="h-8 bg-gray-200 rounded-lg w-64 mb-2" />
+        <div className="h-4 bg-gray-100 rounded w-48" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
+        {[1,2,3,4,5,6].map(i => (
+          <div key={i} className="stat-card">
+            <div className="h-4 bg-gray-100 rounded w-16 mb-3" />
+            <div className="h-7 bg-gray-200 rounded w-12 mb-1" />
+            <div className="h-3 bg-gray-100 rounded w-20" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── EMPLOYEE DASHBOARD (unchanged logic, extracted) ────────────
 function LeaveBalanceWidget() {
   const user = useAppSelector(s => s.auth.user);
   const { data: balRes, isLoading } = useGetLeaveBalancesQuery(undefined, { skip: !user?.employeeId });
@@ -80,7 +132,7 @@ function UpcomingHolidaysWidget() {
         {holidays.map((h: any) => (
           <div key={h.id} className="flex items-center justify-between text-sm">
             <span className="text-gray-700">{h.name}</span>
-            <span className="text-xs text-gray-500 font-mono" data-mono>
+            <span className="text-xs text-gray-400 font-mono" data-mono>
               {new Date(h.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', weekday: 'short' })}
             </span>
           </div>
@@ -90,12 +142,11 @@ function UpcomingHolidaysWidget() {
   );
 }
 
-export default function DashboardPage() {
+function EmployeeDashboard() {
   const navigate = useNavigate();
   const user = useAppSelector((state) => state.auth.user);
   const { data: statsResponse, isLoading, isError } = useGetDashboardStatsQuery();
   const stats = statsResponse?.data;
-  const isEmployee = !['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const { data: todayRes, isLoading: statusLoading } = useGetTodayStatusQuery(undefined, {
     pollingInterval: 60000,
   });
@@ -188,14 +239,6 @@ export default function DashboardPage() {
   const completedHours = Number(todayStatus?.totalHours || 0);
   const hoursPercent = Math.min((completedHours / expectedHours) * 100, 100);
 
-  const statCards = [
-    { label: 'Total Employees', value: stats?.totalEmployees ?? 0, icon: Users, color: 'bg-blue-500', change: '+3 this month' },
-    { label: 'Present Today', value: stats?.presentToday ?? 0, icon: UserCheck, color: 'bg-emerald-500', change: 'of active' },
-    { label: 'On Leave', value: stats?.onLeaveToday ?? 0, icon: CalendarOff, color: 'bg-amber-500', change: 'today' },
-    { label: 'Open Positions', value: stats?.openPositions ?? 0, icon: Briefcase, color: 'bg-purple-500', change: 'hiring' },
-    ...(stats?.hiringPassed ? [{ label: 'Hiring Passed', value: stats.hiringPassed, icon: Award, color: 'bg-emerald-500', change: 'ready to onboard' }] : []),
-  ];
-
   const navigateMonth = (dir: number) => {
     setSelectedMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + dir, 1));
   };
@@ -210,7 +253,6 @@ export default function DashboardPage() {
           <div className="h-8 bg-gray-200 rounded-lg w-64 mb-2" />
           <div className="h-4 bg-gray-100 rounded w-48" />
         </div>
-        {/* Skeleton for circular chart */}
         <div className="layer-card p-6 mb-8">
           <div className="flex flex-col md:flex-row items-center gap-6">
             <div className="w-[200px] h-[200px] rounded-full bg-gray-100" />
@@ -227,7 +269,6 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-        {/* Skeleton for quick actions */}
         <div className="layer-card p-6">
           <div className="h-5 bg-gray-200 rounded w-32 mb-4" />
           <div className="grid grid-cols-2 gap-3">
@@ -259,44 +300,17 @@ export default function DashboardPage() {
         className="mb-8"
       >
         <h1 className="text-2xl md:text-3xl font-display font-bold text-gray-900">
-          {greeting()}, {user?.firstName || 'Admin'} 👋
+          {greeting()}, {user?.firstName || 'there'}
         </h1>
-        <p className="text-gray-500 mt-1">
-          {isEmployee ? 'Manage your attendance, leaves & more' : `Here\u2019s what\u2019s happening at Aniston today \u2014 ${formatDate(new Date(), 'long')}`}
-        </p>
+        <p className="text-gray-500 mt-1">Manage your attendance, leaves & more</p>
       </motion.div>
 
-      {/* Stat cards — admin/HR only, hidden on mobile */}
-      {!isEmployee && (
-        <motion.div
-          variants={container}
-          initial="hidden"
-          animate="show"
-          className="hidden md:grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8"
-        >
-          {statCards.map((card) => (
-            <motion.div key={card.label} variants={item} className="stat-card">
-              <div className="flex items-start justify-between mb-3">
-                <div className={`p-2.5 rounded-lg ${card.color}/10`}>
-                  <card.icon size={20} className={card.color.replace('bg-', 'text-')} />
-                </div>
-              </div>
-              <p className="text-2xl font-bold font-mono text-gray-900" data-mono>
-                {isLoading ? '—' : card.value}
-              </p>
-              <p className="text-sm text-gray-500 mt-0.5">{card.label}</p>
-              <p className="text-xs text-gray-500 mt-1">{card.change}</p>
-            </motion.div>
-          ))}
-        </motion.div>
-      )}
-
-      {/* Today's Hours Circular Chart — all users on mobile, employee-only on desktop */}
+      {/* Today's Hours Circular Chart */}
       <motion.div
         variants={container}
         initial="hidden"
         animate="show"
-        className={`mb-8 ${!isEmployee ? 'md:hidden' : ''}`}
+        className="mb-8"
       >
           <motion.div variants={item} className="layer-card p-6">
             <div className="flex flex-col md:flex-row items-center gap-6">
@@ -330,7 +344,7 @@ export default function DashboardPage() {
                       ? `${completedHours.toFixed(1)}h`
                       : '0h 0m'}
                   </p>
-                  <p className="text-xs text-gray-500">of {expectedHours}h</p>
+                  <p className="text-xs text-gray-400">of {expectedHours}h</p>
                 </div>
               </div>
 
@@ -339,7 +353,7 @@ export default function DashboardPage() {
                 <h2 className="text-lg font-display font-semibold text-gray-800">Today&apos;s Progress</h2>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-3 bg-surface-2 rounded-xl">
-                    <p className="text-xs text-gray-500 mb-1">Status</p>
+                    <p className="text-xs text-gray-400 mb-1">Status</p>
                     <p className="text-sm font-semibold text-gray-700">
                       {todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut
                         ? 'Working'
@@ -349,7 +363,7 @@ export default function DashboardPage() {
                     </p>
                   </div>
                   <div className="p-3 bg-surface-2 rounded-xl">
-                    <p className="text-xs text-gray-500 mb-1">Check In</p>
+                    <p className="text-xs text-gray-400 mb-1">Check In</p>
                     <p className="text-sm font-semibold text-gray-700" data-mono>
                       {todayStatus?.record?.checkIn
                         ? new Date(todayStatus.record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
@@ -357,7 +371,7 @@ export default function DashboardPage() {
                     </p>
                   </div>
                   <div className="p-3 bg-surface-2 rounded-xl">
-                    <p className="text-xs text-gray-500 mb-1">Check Out</p>
+                    <p className="text-xs text-gray-400 mb-1">Check Out</p>
                     <p className="text-sm font-semibold text-gray-700" data-mono>
                       {todayStatus?.record?.checkOut
                         ? new Date(todayStatus.record.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
@@ -365,7 +379,7 @@ export default function DashboardPage() {
                     </p>
                   </div>
                   <div className="p-3 bg-surface-2 rounded-xl">
-                    <p className="text-xs text-gray-500 mb-1">Shift</p>
+                    <p className="text-xs text-gray-400 mb-1">Shift</p>
                     <p className="text-sm font-semibold text-gray-700">
                       {todayStatus?.shift ? `${todayStatus.shift.startTime}–${todayStatus.shift.endTime}` : 'Default'}
                     </p>
@@ -384,8 +398,8 @@ export default function DashboardPage() {
             <Clock size={18} className="text-brand-500" />
             Quick Actions
           </h2>
-          {/* Direct Check In/Out for employees */}
-          {isEmployee && todayStatus && (
+          {/* Direct Check In/Out */}
+          {todayStatus && (
             <div className="mb-4 p-4 bg-surface-2 rounded-xl flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-700">
@@ -395,7 +409,7 @@ export default function DashboardPage() {
                     ? `Done for today (${Number(todayStatus.totalHours || 0).toFixed(1)}h)`
                     : 'Not checked in yet'}
                 </p>
-                <p className="text-xs text-gray-500 flex items-center gap-1">
+                <p className="text-xs text-gray-400 flex items-center gap-1">
                   <MapPin size={10} />
                   {todayStatus.shift ? `${todayStatus.shift.name} (${todayStatus.shift.startTime}–${todayStatus.shift.endTime})` : 'GPS-based attendance'}
                 </p>
@@ -422,20 +436,12 @@ export default function DashboardPage() {
           )}
 
           <div className="grid grid-cols-2 gap-3">
-            {((!isEmployee)
-              ? [
-                  { label: 'Manage Attendance', icon: '📊', path: '/attendance' },
-                  { label: 'Approve Leaves', icon: '✅', path: '/leaves' },
-                  { label: 'Run Payroll', icon: '💰', path: '/payroll' },
-                  { label: 'Review Tickets', icon: '🎫', path: '/helpdesk' },
-                ]
-              : [
-                  { label: 'Attendance', icon: '⏰', path: '/attendance' },
-                  { label: 'Apply Leave', icon: '🏖️', path: '/leaves' },
-                  { label: 'View Payslip', icon: '💰', path: '/payroll' },
-                  { label: 'Raise Ticket', icon: '🎫', path: '/helpdesk' },
-                ]
-            ).map((action) => (
+            {[
+              { label: 'Attendance', icon: '⏰', path: '/attendance' },
+              { label: 'Apply Leave', icon: '🏖️', path: '/leaves' },
+              { label: 'View Payslip', icon: '💰', path: '/payroll' },
+              { label: 'Raise Ticket', icon: '🎫', path: '/helpdesk' },
+            ].map((action) => (
               <button
                 key={action.label}
                 onClick={() => navigate(action.path)}
@@ -448,198 +454,113 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
-        {/* Pending approvals — admin/HR only */}
-        {!isEmployee && (
-          <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6 cursor-pointer hover:ring-2 hover:ring-brand-200 transition-all" onClick={() => navigate('/pending-approvals')}>
-            <h2 className="text-lg font-display font-semibold text-gray-800 mb-4">
-              📋 Pending Approvals
+        {/* Monthly Attendance History */}
+        <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-display font-semibold text-gray-800">
+              Attendance History
             </h2>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between py-2.5 px-3 bg-amber-50 rounded-lg border border-amber-100">
-                <div className="flex items-center gap-2">
-                  <CalendarOff size={16} className="text-amber-600" />
-                  <span className="text-sm text-amber-800">Leave Requests</span>
-                </div>
-                <span className="badge badge-warning font-mono" data-mono>
-                  {stats?.pendingLeaves ?? 0}
-                </span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => navigateMonth(-1)} aria-label="Previous month" className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                <ChevronLeft size={16} className="text-gray-500" />
+              </button>
+              <span className="text-sm font-medium text-gray-700 min-w-[140px] text-center">{monthLabel}</span>
+              <button onClick={() => navigateMonth(1)} aria-label="Next month" className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                disabled={selectedMonth.getMonth() === new Date().getMonth() && selectedMonth.getFullYear() === new Date().getFullYear()}>
+                <ChevronRight size={16} className={`${selectedMonth.getMonth() === new Date().getMonth() && selectedMonth.getFullYear() === new Date().getFullYear() ? 'text-gray-200' : 'text-gray-500'}`} />
+              </button>
+            </div>
+          </div>
+
+          {/* Summary cards */}
+          {myAttendance?.summary && (
+            <div className="grid grid-cols-4 gap-2 mb-4">
+              <div className="p-2.5 bg-emerald-50 rounded-lg text-center">
+                <p className="text-lg font-bold text-emerald-700 font-mono" data-mono>{myAttendance.summary.present}</p>
+                <p className="text-[10px] text-emerald-600">Present</p>
+              </div>
+              <div className="p-2.5 bg-red-50 rounded-lg text-center">
+                <p className="text-lg font-bold text-red-700 font-mono" data-mono>{myAttendance.summary.absent}</p>
+                <p className="text-[10px] text-red-600">Absent</p>
+              </div>
+              <div className="p-2.5 bg-amber-50 rounded-lg text-center">
+                <p className="text-lg font-bold text-amber-700 font-mono" data-mono>{myAttendance.summary.halfDay}</p>
+                <p className="text-[10px] text-amber-600">Half Day</p>
+              </div>
+              <div className="p-2.5 bg-purple-50 rounded-lg text-center">
+                <p className="text-lg font-bold text-purple-700 font-mono" data-mono>{myAttendance.summary.onLeave}</p>
+                <p className="text-[10px] text-purple-600">On Leave</p>
               </div>
             </div>
-          </motion.div>
-        )}
+          )}
 
-        {/* Employee: Monthly Attendance History */}
-        {isEmployee && (
-          <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-display font-semibold text-gray-800">
-                Attendance History
-              </h2>
-              <div className="flex items-center gap-2">
-                <button onClick={() => navigateMonth(-1)} aria-label="Previous month" className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                  <ChevronLeft size={16} className="text-gray-500" />
-                </button>
-                <span className="text-sm font-medium text-gray-700 min-w-[140px] text-center">{monthLabel}</span>
-                <button onClick={() => navigateMonth(1)} aria-label="Next month" className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
-                  disabled={selectedMonth.getMonth() === new Date().getMonth() && selectedMonth.getFullYear() === new Date().getFullYear()}>
-                  <ChevronRight size={16} className={`${selectedMonth.getMonth() === new Date().getMonth() && selectedMonth.getFullYear() === new Date().getFullYear() ? 'text-gray-200' : 'text-gray-500'}`} />
-                </button>
-              </div>
-            </div>
-
-            {/* Summary cards */}
-            {myAttendance?.summary && (
-              <div className="grid grid-cols-4 gap-2 mb-4">
-                <div className="p-2.5 bg-emerald-50 rounded-lg text-center">
-                  <p className="text-lg font-bold text-emerald-700 font-mono" data-mono>{myAttendance.summary.present}</p>
-                  <p className="text-[10px] text-emerald-600">Present</p>
-                </div>
-                <div className="p-2.5 bg-red-50 rounded-lg text-center">
-                  <p className="text-lg font-bold text-red-700 font-mono" data-mono>{myAttendance.summary.absent}</p>
-                  <p className="text-[10px] text-red-600">Absent</p>
-                </div>
-                <div className="p-2.5 bg-amber-50 rounded-lg text-center">
-                  <p className="text-lg font-bold text-amber-700 font-mono" data-mono>{myAttendance.summary.halfDay}</p>
-                  <p className="text-[10px] text-amber-600">Half Day</p>
-                </div>
-                <div className="p-2.5 bg-purple-50 rounded-lg text-center">
-                  <p className="text-lg font-bold text-purple-700 font-mono" data-mono>{myAttendance.summary.onLeave}</p>
-                  <p className="text-[10px] text-purple-600">On Leave</p>
-                </div>
-              </div>
-            )}
-
-            {/* Daily records */}
-            <div className="space-y-1 max-h-[300px] overflow-y-auto pr-1">
-              {myAttendance?.records && myAttendance.records.length > 0 ? (
-                [...myAttendance.records].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((record: any) => {
-                  const statusConfig: Record<string, { bg: string; text: string; icon: any }> = {
-                    PRESENT: { bg: 'bg-emerald-50', text: 'text-emerald-700', icon: CheckCircle2 },
-                    ABSENT: { bg: 'bg-red-50', text: 'text-red-700', icon: XCircle },
-                    HALF_DAY: { bg: 'bg-amber-50', text: 'text-amber-700', icon: Clock3 },
-                    ON_LEAVE: { bg: 'bg-purple-50', text: 'text-purple-700', icon: Coffee },
-                    HOLIDAY: { bg: 'bg-blue-50', text: 'text-blue-700', icon: Sun },
-                    WEEKEND: { bg: 'bg-gray-50', text: 'text-gray-500', icon: Sun },
-                  };
-                  const cfg = statusConfig[record.status] || statusConfig.ABSENT;
-                  const StatusIcon = cfg.icon;
-                  return (
-                    <div key={record.id || record.date} className={`flex items-center justify-between py-2 px-3 rounded-lg ${cfg.bg} transition-colors`}>
-                      <div className="flex items-center gap-2.5">
-                        <StatusIcon size={14} className={cfg.text} />
-                        <div>
-                          <p className="text-xs font-medium text-gray-700">
-                            {new Date(record.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}
-                          </p>
-                          <p className="text-[10px] text-gray-500">
-                            {record.checkIn
-                              ? new Date(record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
-                              : '—'}
-                            {record.checkOut
-                              ? ` → ${new Date(record.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`
-                              : ''}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.text}`}>
-                          {record.status?.replace('_', ' ')}
-                        </span>
-                        {record.totalHours != null && (
-                          <p className="text-[10px] text-gray-500 mt-0.5 font-mono" data-mono>
-                            {Number(record.totalHours).toFixed(1)}h
-                          </p>
-                        )}
+          {/* Daily records */}
+          <div className="space-y-1 max-h-[300px] overflow-y-auto pr-1">
+            {myAttendance?.records && myAttendance.records.length > 0 ? (
+              [...myAttendance.records].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((record: any) => {
+                const statusConfig: Record<string, { bg: string; text: string; icon: any }> = {
+                  PRESENT: { bg: 'bg-emerald-50', text: 'text-emerald-700', icon: CheckCircle2 },
+                  ABSENT: { bg: 'bg-red-50', text: 'text-red-700', icon: XCircle },
+                  HALF_DAY: { bg: 'bg-amber-50', text: 'text-amber-700', icon: Clock3 },
+                  ON_LEAVE: { bg: 'bg-purple-50', text: 'text-purple-700', icon: Coffee },
+                  HOLIDAY: { bg: 'bg-blue-50', text: 'text-blue-700', icon: Sun },
+                  WEEKEND: { bg: 'bg-gray-50', text: 'text-gray-500', icon: Sun },
+                };
+                const cfg = statusConfig[record.status] || statusConfig.ABSENT;
+                const StatusIcon = cfg.icon;
+                return (
+                  <div key={record.id || record.date} className={`flex items-center justify-between py-2 px-3 rounded-lg ${cfg.bg} transition-colors`}>
+                    <div className="flex items-center gap-2.5">
+                      <StatusIcon size={14} className={cfg.text} />
+                      <div>
+                        <p className="text-xs font-medium text-gray-700">
+                          {new Date(record.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}
+                        </p>
+                        <p className="text-[10px] text-gray-400">
+                          {record.checkIn
+                            ? new Date(record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
+                            : '—'}
+                          {record.checkOut
+                            ? ` → ${new Date(record.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`
+                            : ''}
+                        </p>
                       </div>
                     </div>
-                  );
-                })
-              ) : (
-                <p className="text-sm text-gray-500 text-center py-8">No records for this month</p>
-              )}
+                    <div className="text-right">
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.text}`}>
+                        {record.status?.replace('_', ' ')}
+                      </span>
+                      {record.totalHours != null && (
+                        <p className="text-[10px] text-gray-400 mt-0.5 font-mono" data-mono>
+                          {Number(record.totalHours).toFixed(1)}h
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <p className="text-sm text-gray-400 text-center py-8">No records for this month</p>
+            )}
+          </div>
+
+          {/* Avg hours footer */}
+          {myAttendance?.summary && (
+            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+              <p className="text-xs text-gray-400">Average daily hours</p>
+              <p className="text-sm font-semibold text-gray-700 font-mono" data-mono>
+                {Number(myAttendance.summary.averageHours || 0).toFixed(1)}h
+              </p>
             </div>
-
-            {/* Avg hours footer */}
-            {myAttendance?.summary && (
-              <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-                <p className="text-xs text-gray-500">Average daily hours</p>
-                <p className="text-sm font-semibold text-gray-700 font-mono" data-mono>
-                  {Number(myAttendance.summary.averageHours || 0).toFixed(1)}h
-                </p>
-              </div>
-            )}
-          </motion.div>
-        )}
-
-        {/* Upcoming birthdays — admin/HR only */}
-        {!isEmployee && (
-          <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
-            <h2 className="text-lg font-display font-semibold text-gray-800 mb-4">
-              🎂 Upcoming Birthdays
-            </h2>
-            {stats?.upcomingBirthdays && stats.upcomingBirthdays.length > 0 ? (
-              <div className="space-y-3">
-                {stats.upcomingBirthdays.map((bday: any) => (
-                  <div key={bday.id} className="flex items-center gap-3 py-2">
-                    <div className="w-9 h-9 rounded-lg bg-pink-100 flex items-center justify-center text-pink-700 font-semibold text-sm">
-                      {getInitials(bday.firstName, bday.lastName)}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-800">
-                        {bday.firstName} {bday.lastName}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {bday.dateOfBirth ? formatDate(bday.dateOfBirth, 'short') : ''}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 text-center py-8">No upcoming birthdays</p>
-            )}
-          </motion.div>
-        )}
-
-        {/* Recent hires — admin/HR only */}
-        {!isEmployee && (
-          <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
-            <h2 className="text-lg font-display font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <TrendingUp size={18} className="text-emerald-500" />
-              Recent Hires
-            </h2>
-            {stats?.recentHires && stats.recentHires.length > 0 ? (
-              <div className="space-y-3">
-                {stats.recentHires.map((hire: any) => (
-                  <div key={hire.id} className="flex items-center gap-3 py-2">
-                    <div className="w-9 h-9 rounded-lg bg-brand-100 flex items-center justify-center text-brand-700 font-semibold text-sm">
-                      {getInitials(hire.firstName, hire.lastName)}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-800">
-                        {hire.firstName} {hire.lastName}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Joined {formatDate(hire.joiningDate)}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 text-center py-8">No recent hires</p>
-            )}
-          </motion.div>
-        )}
+          )}
+        </motion.div>
       </div>
 
-      {/* Leave Balance + Upcoming Holidays — employee only */}
-      {isEmployee && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-          <LeaveBalanceWidget />
-          <UpcomingHolidaysWidget />
-        </div>
-      )}
+      {/* Leave Balance + Upcoming Holidays */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+        <LeaveBalanceWidget />
+        <UpcomingHolidaysWidget />
+      </div>
     </div>
   );
 }
