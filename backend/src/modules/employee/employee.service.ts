@@ -390,12 +390,22 @@ export class EmployeeService {
         // Leave
         { name: 'LeaveBalance', fn: () => tx.leaveBalance.deleteMany({ where: { employeeId: id } }) },
         { name: 'LeaveRequest', fn: () => tx.leaveRequest.deleteMany({ where: { employeeId: id } }) },
-        // Attendance
+        // Attendance — delete child records first (Break, AttendanceLog, Regularization depend on AttendanceRecord)
+        { name: 'AttendanceLog', fn: async () => {
+          const attRecords = await tx.attendanceRecord.findMany({ where: { employeeId: id }, select: { id: true } });
+          const attIds = attRecords.map(r => r.id);
+          if (attIds.length) {
+            await tx.attendanceLog.deleteMany({ where: { attendanceId: { in: attIds } } });
+            await tx.break.deleteMany({ where: { attendanceId: { in: attIds } } });
+            await tx.attendanceRegularization.deleteMany({ where: { attendanceId: { in: attIds } } });
+          }
+        }},
         { name: 'AttendanceRecord', fn: () => tx.attendanceRecord.deleteMany({ where: { employeeId: id } }) },
         { name: 'GPSTrailPoint', fn: () => tx.gPSTrailPoint.deleteMany({ where: { employeeId: id } }) },
         { name: 'ProjectSiteCheckIn', fn: () => tx.projectSiteCheckIn.deleteMany({ where: { employeeId: id } }) },
         // Shifts
         { name: 'ShiftAssignment', fn: () => tx.shiftAssignment.deleteMany({ where: { employeeId: id } }) },
+        { name: 'HybridSchedule', fn: () => tx.hybridSchedule.deleteMany({ where: { employeeId: id } }) },
         // Payroll
         { name: 'SalaryStructure', fn: () => tx.salaryStructure.deleteMany({ where: { employeeId: id } }) },
         { name: 'PayrollRecord', fn: () => tx.payrollRecord.deleteMany({ where: { employeeId: id } }) },
@@ -419,6 +429,11 @@ export class EmployeeService {
         { name: 'PermissionOverride', fn: () => tx.permissionOverride.deleteMany({ where: { employeeId: id } }) },
         // Lifecycle events
         { name: 'EmployeeEvent', fn: () => tx.employeeEvent.deleteMany({ where: { employeeId: id } }) },
+        // Goals & Policy
+        { name: 'Goal', fn: () => tx.goal.deleteMany({ where: { employeeId: id } }) },
+        { name: 'PolicyAcknowledgment', fn: () => tx.policyAcknowledgment.deleteMany({ where: { employeeId: id } }) },
+        // Activation tokens
+        { name: 'EmployeeActivation', fn: () => tx.employeeActivation.deleteMany({ where: { employeeId: id } }) },
       ];
 
       // User-related deletions
