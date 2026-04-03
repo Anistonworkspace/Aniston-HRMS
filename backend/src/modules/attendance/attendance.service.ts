@@ -282,9 +282,9 @@ export class AttendanceService {
       // Determine initial status: HALF_DAY if very late, else PRESENT
       const autoHalfDay = shift && (() => {
         const [sh, sm] = shift.startTime.split(':').map(Number);
-        const ss = new Date(now); ss.setHours(sh, sm, 0, 0);
+        const ss = new Date(istNow); ss.setHours(sh, sm, 0, 0); // IST comparison for shift times
         const threshold = (shift.graceMinutes || 15) + 30;
-        return Math.round((now.getTime() - ss.getTime()) / 60000) > threshold;
+        return Math.round((istNow.getTime() - ss.getTime()) / 60000) > threshold;
       })();
 
       record = await prisma.attendanceRecord.create({
