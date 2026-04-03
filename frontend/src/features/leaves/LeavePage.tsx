@@ -1149,7 +1149,7 @@ function LeavePersonalView() {
   const hasAcknowledged = leavePolicy?.acknowledgments?.length > 0; // backend filters to current employee only
 
   // Show policy acceptance gate if not acknowledged
-  if (leavePolicy && !hasAcknowledged && !accepted) {
+  if (leavePolicy && !hasAcknowledged) {
     return (
       <div className="page-container">
         <div className="max-w-3xl mx-auto">
@@ -1165,8 +1165,8 @@ function LeavePersonalView() {
             </div>
 
             {/* Policy Content */}
-            <div className="px-6 py-5 max-h-[50vh] overflow-y-auto bg-gray-50 border-b border-gray-200">
-              <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{leavePolicy.content}</pre>
+            <div className="px-6 py-5 max-h-[50vh] overflow-y-auto overflow-x-hidden bg-gray-50 border-b border-gray-200">
+              <div className="text-sm text-gray-700 whitespace-pre-wrap break-words font-sans leading-relaxed">{leavePolicy.content}</div>
             </div>
 
             {/* Acceptance Section */}
@@ -1182,14 +1182,16 @@ function LeavePersonalView() {
                 </ul>
               </div>
 
-              <label className="flex items-start gap-3 cursor-pointer mb-4">
-                <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)}
-                  className="mt-1 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
-                <span className="text-sm text-gray-700 font-medium">
+              <div className="flex items-start gap-3 mb-4">
+                <button type="button" role="checkbox" aria-checked={accepted} onClick={() => setAccepted(prev => !prev)}
+                  className={`mt-0.5 flex-shrink-0 w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${accepted ? 'bg-brand-600 border-brand-600' : 'bg-white border-gray-300'}`}>
+                  {accepted && <CheckCircle size={16} className="text-white" />}
+                </button>
+                <span className="text-sm text-gray-700 font-medium cursor-pointer select-none" onClick={() => setAccepted(prev => !prev)}>
                   I confirm that I have read, understood, and agree to comply with all provisions of this policy.
                   I understand this supersedes all previous arrangements.
                 </span>
-              </label>
+              </div>
 
               <button
                 onClick={async () => {
