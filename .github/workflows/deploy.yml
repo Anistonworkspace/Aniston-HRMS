@@ -148,7 +148,12 @@ jobs:
             echo "Uploads in project root:"
             find /home/ubuntu/Aniston-HRMS/uploads -type f 2>/dev/null | head -10 || echo "(none)"
 
-            echo "=== [14/14] Restarting PM2 ==="
+            echo "=== [14/15] Setting server timezone to UTC ==="
+            sudo timedatectl set-timezone UTC || true
+            echo "Server time: $(date)"
+            echo "UTC time: $(date -u)"
+
+            echo "=== [15/15] Restarting PM2 ==="
             pm2 restart aniston-hrms
             echo "=== Waiting for startup ==="
             sleep 5
