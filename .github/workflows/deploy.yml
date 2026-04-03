@@ -36,7 +36,7 @@ jobs:
         run: npm ci
 
       - name: Generate Prisma client
-        run: npx prisma generate
+        run: npx --no-install prisma generate
 
       - name: Build backend
         run: npm run build --workspace=backend
@@ -102,10 +102,10 @@ jobs:
             npm ci || (echo "Retrying npm ci..." && rm -rf node_modules && npm ci)
 
             echo "=== [6/14] Generating Prisma client ==="
-            npx prisma generate
+            npx --no-install prisma generate
 
             echo "=== [7/14] Pushing schema to DB ==="
-            npx prisma db push --accept-data-loss
+            npx --no-install prisma db push --accept-data-loss
 
             echo "=== [8/14] Building & starting AI service (Docker) ==="
             if command -v docker &> /dev/null; then
@@ -124,7 +124,7 @@ jobs:
             npx tsx scripts/cleanup-employees.ts || echo "Cleanup completed (or already clean)"
 
             echo "=== [10/14] Seeding database ==="
-            npx prisma db seed || echo "Seed completed (or already seeded)"
+            npx --no-install prisma db seed || echo "Seed completed (or already seeded)"
 
             echo "=== [11/14] Building frontend ==="
             cd frontend && VITE_API_URL=/api npx vite build && cd ..
