@@ -180,6 +180,16 @@ export class PayrollService {
       data: { ctc },
     });
 
+    // Save salary history
+    try {
+      const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { organizationId: true } });
+      if (emp) {
+        const existing = await prisma.salaryHistory.findFirst({ where: { employeeId }, orderBy: { createdAt: 'desc' } });
+        const changeType = existing ? 'REVISION' : 'INITIAL';
+        await this.saveSalaryHistory(employeeId, data, changeType, undefined, 'system', emp.organizationId);
+      }
+    } catch { /* non-blocking */ }
+
     return structure;
   }
 
@@ -485,6 +495,111 @@ export class PayrollService {
     });
 
     return records.filter(r => new Date(r.date).getDay() === 0).length;
+  }
+
+  /**
+   * Amend a payroll record after processing (HR correction)
+   */
+  async amendPayrollRecord(recordId: string, data: {
+    grossSalary?: number;
+    netSalary?: number;
+    basic?: number;
+    hra?: number;
+    epfEmployee?: number;
+    esiEmployee?: number;
+    professionalTax?: number;
+    tds?: number;
+    lopDays?: number;
+    lopDeduction?: number;
+    reason: string;
+  }, amendedBy: string, organizationId: string) {
+    const record = await prisma.payrollRecord.findUnique({
+      where: { id: recordId },
+      include: { payrollRun: true },
+    });
+    if (!record) throw new NotFoundError('Payroll record');
+    if (record.payrollRun.status === 'LOCKED') {
+      throw new BadRequestError('Cannot amend a locked payroll run. Unlock it first.');
+    }
+
+    const oldValues = {
+      grossSalary: Number(record.grossSalary),
+      netSalary: Number(record.netSalary),
+      basic: Number(record.basic),
+      hra: Number(record.hra),
+      lopDays: record.lopDays,
+    };
+
+    const updateData: any = {
+      amendedBy,
+      amendedAt: new Date(),
+      amendmentReason: data.reason,
+    };
+
+    if (data.grossSalary !== undefined) updateData.grossSalary = data.grossSalary;
+    if (data.netSalary !== undefined) updateData.netSalary = data.netSalary;
+    if (data.basic !== undefined) updateData.basic = data.basic;
+    if (data.hra !== undefined) updateData.hra = data.hra;
+    if (data.epfEmployee !== undefined) updateData.epfEmployee = data.epfEmployee;
+    if (data.esiEmployee !== undefined) updateData.esiEmployee = data.esiEmployee;
+    if (data.professionalTax !== undefined) updateData.professionalTax = data.professionalTax;
+    if (data.tds !== undefined) updateData.tds = data.tds;
+    if (data.lopDays !== undefined) updateData.lopDays = data.lopDays;
+    if (data.lopDeduction !== undefined) updateData.lopDeduction = data.lopDeduction;
+
+    const updated = await prisma.payrollRecord.update({
+      where: { id: recordId },
+      data: updateData,
+      include: { employee: { select: { firstName: true, lastName: true, employeeCode: true } } },
+    });
+
+    await createAuditLog({
+      userId: amendedBy,
+      organizationId,
+      entity: 'PayrollRecord',
+      entityId: recordId,
+      action: 'UPDATE',
+      oldValue: oldValues,
+      newValue: { ...updateData, reason: data.reason },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Get salary history for an employee
+   */
+  async getSalaryHistory(employeeId: string) {
+    return prisma.salaryHistory.findMany({
+      where: { employeeId },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+  }
+
+  /**
+   * Save salary history entry when salary structure changes
+   */
+  private async saveSalaryHistory(
+    employeeId: string, data: any, changeType: string, reason: string | undefined,
+    changedBy: string, organizationId: string
+  ) {
+    await prisma.salaryHistory.create({
+      data: {
+        employeeId,
+        changeType,
+        ctc: data.ctc,
+        basic: data.basic,
+        hra: data.hra,
+        da: data.da || null,
+        ta: data.ta || null,
+        medicalAllowance: data.medicalAllowance || null,
+        specialAllowance: data.specialAllowance || null,
+        effectiveFrom: new Date(),
+        reason,
+        changedBy,
+        organizationId,
+      },
+    });
   }
 
   /**

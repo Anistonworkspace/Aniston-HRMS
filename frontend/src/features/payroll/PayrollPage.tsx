@@ -6,6 +6,8 @@ import {
   useCreatePayrollRunMutation,
   useProcessPayrollMutation,
   useGetMyPayslipsQuery,
+  useGetPayrollRecordsQuery,
+  useAmendPayrollRecordMutation,
 } from './payrollApi';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
@@ -32,6 +34,7 @@ function PayrollAdminView() {
   const { data: runsRes, isLoading } = useGetPayrollRunsQuery();
   const [createRun] = useCreatePayrollRunMutation();
   const [processPayroll] = useProcessPayrollMutation();
+  const [viewingRunId, setViewingRunId] = useState<string | null>(null);
   const runs = runsRes?.data || [];
 
   const handleCreateRun = async () => {
@@ -215,8 +218,11 @@ function PayrollAdminView() {
                           >
                             <Download size={14} /> Excel
                           </button>
-                          <button className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
-                            <Eye size={14} /> View
+                          <button
+                            onClick={() => setViewingRunId(viewingRunId === run.id ? null : run.id)}
+                            className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                          >
+                            <Eye size={14} /> {viewingRunId === run.id ? 'Hide' : 'View'}
                           </button>
                         </>
                       )}
@@ -228,7 +234,144 @@ function PayrollAdminView() {
           </tbody>
         </table>
       </div>
+
+      {/* Payroll Records Panel */}
+      {viewingRunId && (
+        <PayrollRecordsPanel runId={viewingRunId} onClose={() => setViewingRunId(null)} />
+      )}
     </div>
+  );
+}
+
+function PayrollRecordsPanel({ runId, onClose }: { runId: string; onClose: () => void }) {
+  const { data: recordsRes, isLoading } = useGetPayrollRecordsQuery(runId);
+  const [amendRecord] = useAmendPayrollRecordMutation();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [amendForm, setAmendForm] = useState<any>({});
+  const records = recordsRes?.data || [];
+
+  const handleAmend = async (recordId: string) => {
+    if (!amendForm.reason) {
+      toast.error('Please provide an amendment reason');
+      return;
+    }
+    try {
+      await amendRecord({ recordId, data: amendForm }).unwrap();
+      toast.success('Payroll record amended');
+      setEditingId(null);
+      setAmendForm({});
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to amend');
+    }
+  };
+
+  const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-6">
+      <div className="layer-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-700">Payroll Records ({records.length} employees)</h3>
+          <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-600">&times; Close</button>
+        </div>
+
+        {isLoading ? (
+          <div className="p-8 text-center"><Loader2 size={20} className="animate-spin text-gray-400 mx-auto" /></div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  <th className="text-left text-xs text-gray-500 px-4 py-2">Employee</th>
+                  <th className="text-right text-xs text-gray-500 px-4 py-2">Basic</th>
+                  <th className="text-right text-xs text-gray-500 px-4 py-2">HRA</th>
+                  <th className="text-right text-xs text-gray-500 px-4 py-2">Gross</th>
+                  <th className="text-right text-xs text-gray-500 px-4 py-2">EPF</th>
+                  <th className="text-right text-xs text-gray-500 px-4 py-2">TDS</th>
+                  <th className="text-right text-xs text-gray-500 px-4 py-2">LOP</th>
+                  <th className="text-right text-xs text-gray-500 px-4 py-2 font-bold">Net</th>
+                  <th className="text-center text-xs text-gray-500 px-4 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((rec: any) => (
+                  <tr key={rec.id} className="border-b border-gray-50 hover:bg-surface-2">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-gray-800 text-xs">{rec.employee?.firstName} {rec.employee?.lastName}</p>
+                      <p className="text-[10px] text-gray-400">{rec.employee?.employeeCode} · {rec.employee?.department?.name || '-'}</p>
+                      {rec.amendedAt && (
+                        <p className="text-[10px] text-amber-600 mt-0.5">Amended: {rec.amendmentReason}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-xs" data-mono>{formatCurrency(Number(rec.basic))}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs" data-mono>{formatCurrency(Number(rec.hra))}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs" data-mono>{formatCurrency(Number(rec.grossSalary))}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs text-gray-500" data-mono>{formatCurrency(Number(rec.epfEmployee || 0))}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs text-gray-500" data-mono>{formatCurrency(Number(rec.tds || 0))}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs" data-mono>
+                      {rec.lopDays > 0 ? <span className="text-red-500">{rec.lopDays}d / {formatCurrency(Number(rec.lopDeduction || 0))}</span> : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-xs font-bold text-emerald-600" data-mono>{formatCurrency(Number(rec.netSalary))}</td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => window.open(`${apiBase}/payroll/records/${rec.id}/pdf`, '_blank')}
+                          className="text-[10px] text-brand-600 hover:text-brand-700 px-2 py-1 rounded bg-brand-50"
+                        >
+                          PDF
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingId(editingId === rec.id ? null : rec.id);
+                            setAmendForm({ grossSalary: Number(rec.grossSalary), netSalary: Number(rec.netSalary), lopDays: rec.lopDays, reason: '' });
+                          }}
+                          className="text-[10px] text-amber-600 hover:text-amber-700 px-2 py-1 rounded bg-amber-50"
+                        >
+                          Amend
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Amendment form */}
+        {editingId && (
+          <div className="p-4 border-t border-amber-200 bg-amber-50/50">
+            <p className="text-xs font-semibold text-amber-700 mb-3">Amend Payroll Record</p>
+            <div className="grid grid-cols-3 gap-3 mb-3">
+              <div>
+                <label className="block text-[10px] text-gray-500 mb-1">Gross Salary</label>
+                <input type="number" value={amendForm.grossSalary || ''} onChange={e => setAmendForm({ ...amendForm, grossSalary: Number(e.target.value) })}
+                  className="input-glass text-xs w-full" />
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-500 mb-1">Net Salary</label>
+                <input type="number" value={amendForm.netSalary || ''} onChange={e => setAmendForm({ ...amendForm, netSalary: Number(e.target.value) })}
+                  className="input-glass text-xs w-full" />
+              </div>
+              <div>
+                <label className="block text-[10px] text-gray-500 mb-1">LOP Days</label>
+                <input type="number" value={amendForm.lopDays ?? ''} onChange={e => setAmendForm({ ...amendForm, lopDays: Number(e.target.value) })}
+                  className="input-glass text-xs w-full" />
+              </div>
+            </div>
+            <div className="mb-3">
+              <label className="block text-[10px] text-gray-500 mb-1">Reason for Amendment *</label>
+              <input value={amendForm.reason || ''} onChange={e => setAmendForm({ ...amendForm, reason: e.target.value })}
+                className="input-glass text-xs w-full" placeholder="e.g., LOP correction, bonus adjustment" />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => handleAmend(editingId)} className="btn-primary text-xs px-4 py-2">Save Amendment</button>
+              <button onClick={() => { setEditingId(null); setAmendForm({}); }} className="btn-secondary text-xs px-4 py-2">Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.div>
   );
 }
 

@@ -19,6 +19,7 @@ export const payrollApi = api.injectEndpoints({
 
     getPayrollRecords: builder.query<any, string>({
       query: (runId) => `/payroll/runs/${runId}/records`,
+      providesTags: ['Payroll'],
     }),
 
     getMyPayslips: builder.query<any, void>({
@@ -28,6 +29,7 @@ export const payrollApi = api.injectEndpoints({
 
     getSalaryStructure: builder.query<any, string>({
       query: (employeeId) => `/payroll/salary-structure/${employeeId}`,
+      providesTags: ['Payroll'],
     }),
 
     saveSalaryStructure: builder.mutation<any, { employeeId: string; data: any }>({
@@ -37,6 +39,24 @@ export const payrollApi = api.injectEndpoints({
         body: data,
       }),
       invalidatesTags: ['Payroll'],
+    }),
+
+    amendPayrollRecord: builder.mutation<any, { recordId: string; data: any }>({
+      query: ({ recordId, data }) => ({
+        url: `/payroll/records/${recordId}/amend`,
+        method: 'PATCH',
+        body: data,
+      }),
+      invalidatesTags: ['Payroll'],
+    }),
+
+    getSalaryHistory: builder.query<any, string>({
+      query: (employeeId) => `/payroll/salary-history/${employeeId}`,
+      providesTags: ['Payroll'],
+    }),
+
+    detectAnomalies: builder.mutation<any, string>({
+      query: (runId) => ({ url: `/payroll/ai-anomaly-check/${runId}`, method: 'POST' }),
     }),
   }),
 });
@@ -49,4 +69,7 @@ export const {
   useGetMyPayslipsQuery,
   useGetSalaryStructureQuery,
   useSaveSalaryStructureMutation,
+  useAmendPayrollRecordMutation,
+  useGetSalaryHistoryQuery,
+  useDetectAnomaliesMutation,
 } = payrollApi;

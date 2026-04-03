@@ -434,6 +434,8 @@ export class EmployeeService {
         { name: 'PolicyAcknowledgment', fn: () => tx.policyAcknowledgment.deleteMany({ where: { employeeId: id } }) },
         // Activation tokens
         { name: 'EmployeeActivation', fn: () => tx.employeeActivation.deleteMany({ where: { employeeId: id } }) },
+        // Salary history
+        { name: 'SalaryHistory', fn: () => tx.salaryHistory.deleteMany({ where: { employeeId: id } }) },
       ];
 
       // User-related deletions

@@ -47,6 +47,30 @@ router.get('/runs/:id/records',
   (req, res, next) => payrollController.getPayrollRecords(req, res, next)
 );
 
+// Amend a payroll record
+router.patch('/records/:id/amend',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const result = await payrollService.amendPayrollRecord(
+        req.params.id as string, req.body, req.user!.userId, req.user!.organizationId
+      );
+      res.json({ success: true, data: result, message: 'Payroll record amended' });
+    } catch (err) { next(err); }
+  }
+);
+
+// Get salary history for an employee
+router.get('/salary-history/:employeeId',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const history = await payrollService.getSalaryHistory(req.params.employeeId as string);
+      res.json({ success: true, data: history });
+    } catch (err) { next(err); }
+  }
+);
+
 // PDF salary slip download
 router.get('/records/:id/pdf',
   authenticate,

@@ -151,6 +151,7 @@ model Employee {
   leaveBalances     LeaveBalance[]
   leaveRequests     LeaveRequest[]
   salaryStructure   SalaryStructure?
+  salaryHistory     SalaryHistory[]
   payrollRecords    PayrollRecord[]
   assetAssignments  AssetAssignment[]
   shiftAssignments  ShiftAssignment[]
@@ -721,6 +722,29 @@ model SalaryStructure {
   employee Employee @relation(fields: [employeeId], references: [id])
 }
 
+model SalaryHistory {
+  id               String   @id @default(uuid())
+  employeeId       String
+  changeType       String   // INITIAL, REVISION, PROMOTION, CORRECTION
+  ctc              Decimal  @db.Decimal(12, 2)
+  basic            Decimal  @db.Decimal(12, 2)
+  hra              Decimal  @db.Decimal(12, 2)
+  da               Decimal? @db.Decimal(12, 2)
+  ta               Decimal? @db.Decimal(12, 2)
+  medicalAllowance Decimal? @db.Decimal(12, 2)
+  specialAllowance Decimal? @db.Decimal(12, 2)
+  effectiveFrom    DateTime
+  reason           String?
+  changedBy        String
+  organizationId   String
+  createdAt        DateTime @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@index([organizationId])
+}
+
 enum TaxRegime {
   OLD_REGIME
   NEW_REGIME
@@ -772,7 +796,11 @@ model PayrollRecord {
   lopDeduction   Decimal? @db.Decimal(12, 2)
   workingDays    Int
   presentDays    Int
+  amendedBy      String?
+  amendedAt      DateTime?
+  amendmentReason String?
   createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id])
   employee   Employee   @relation(fields: [employeeId], references: [id])
