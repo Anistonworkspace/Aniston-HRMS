@@ -93,7 +93,9 @@ jobs:
             echo 'FRONTEND_URL=https://hr.anistonav.com' >> .env
             echo 'API_URL=https://hr.anistonav.com' >> .env
             echo "=== [5/11] Installing dependencies ==="
-            npm ci
+            export SCARF_ANALYTICS=false
+            npm config set ignore-scripts false
+            npm ci || (echo "Retrying npm ci..." && rm -rf node_modules && npm ci)
             echo "=== [6/11] Generating Prisma client ==="
             npx prisma generate
             echo "=== [7/11] Pushing schema to DB ==="
