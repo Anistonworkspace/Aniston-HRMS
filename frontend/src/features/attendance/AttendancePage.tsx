@@ -6,7 +6,7 @@ import {
   Clock, LogIn, LogOut, Coffee, Play, Square, MapPin,
   ChevronLeft, ChevronRight, Calendar as CalendarIcon,
   Users, Search, Filter, UserCheck, UserX, UserMinus, Eye, Monitor,
-  Shield, Bell, RefreshCw, Flag, AlertTriangle,
+  Shield, Bell, RefreshCw, Flag, AlertTriangle, Download,
 } from 'lucide-react';
 import {
   useGetTodayStatusQuery,
@@ -113,6 +113,18 @@ function AttendanceManagementView() {
           <h1 className="text-2xl font-display font-bold text-gray-900">Attendance Management</h1>
           <p className="text-gray-500 text-sm mt-0.5">Monitor and manage employee attendance</p>
         </div>
+        <button
+          onClick={() => {
+            const date = new Date(selectedDate);
+            const month = date.getMonth() + 1;
+            const year = date.getFullYear();
+            const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
+            window.open(`${apiBase}/attendance/export?month=${month}&year=${year}`, '_blank');
+          }}
+          className="btn-primary text-sm flex items-center gap-1.5"
+        >
+          <Download size={14} /> Export Excel
+        </button>
       </div>
 
       {/* Summary Stats */}

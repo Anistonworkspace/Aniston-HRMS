@@ -337,6 +337,15 @@ export class PayrollService {
   }
 
   /**
+   * Get a payroll run by ID
+   */
+  async getPayrollRunById(runId: string) {
+    const run = await prisma.payrollRun.findUnique({ where: { id: runId } });
+    if (!run) throw new NotFoundError('Payroll run');
+    return run;
+  }
+
+  /**
    * Get payroll records for a run
    */
   async getPayrollRecords(runId: string) {

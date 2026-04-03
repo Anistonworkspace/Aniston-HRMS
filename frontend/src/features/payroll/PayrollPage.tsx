@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { DollarSign, Play, Download, Eye, Plus, Calendar } from 'lucide-react';
+import { DollarSign, Play, Download, Eye, Plus, Calendar, Upload, FileSpreadsheet, Loader2 } from 'lucide-react';
 import {
   useGetPayrollRunsQuery,
   useCreatePayrollRunMutation,
@@ -60,15 +60,49 @@ function PayrollAdminView() {
           <h1 className="text-2xl font-display font-bold text-gray-900">Payroll</h1>
           <p className="text-gray-500 text-sm mt-0.5">Manage salary processing and payslips</p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={handleCreateRun}
-          className="btn-primary flex items-center gap-2"
-        >
-          <Plus size={18} />
-          New Payroll Run
-        </motion.button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
+              window.open(`${apiBase}/payroll/template`, '_blank');
+            }}
+            className="btn-secondary text-sm flex items-center gap-1.5"
+          >
+            <FileSpreadsheet size={14} /> Download Template
+          </button>
+          <label className="btn-secondary text-sm flex items-center gap-1.5 cursor-pointer">
+            <Upload size={14} /> Import Salaries
+            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const formData = new FormData();
+              formData.append('file', file);
+              try {
+                const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
+                const res = await fetch(`${apiBase}/payroll/import`, {
+                  method: 'POST', body: formData,
+                  headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
+                });
+                const data = await res.json();
+                if (data.success) {
+                  toast.success(data.message || 'Import complete');
+                } else {
+                  toast.error(data.error?.message || 'Import failed');
+                }
+              } catch { toast.error('Import failed'); }
+              e.target.value = '';
+            }} />
+          </label>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={handleCreateRun}
+            className="btn-primary flex items-center gap-2"
+          >
+            <Plus size={18} />
+            New Payroll Run
+          </motion.button>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -170,10 +204,21 @@ function PayrollAdminView() {
                           <Play size={14} /> Process
                         </button>
                       )}
-                      {run.status === 'COMPLETED' && (
-                        <button className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
-                          <Eye size={14} /> View
-                        </button>
+                      {(run.status === 'COMPLETED' || run.status === 'LOCKED') && (
+                        <>
+                          <button
+                            onClick={() => {
+                              const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
+                              window.open(`${apiBase}/payroll/runs/${run.id}/export`, '_blank');
+                            }}
+                            className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
+                          >
+                            <Download size={14} /> Excel
+                          </button>
+                          <button className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                            <Eye size={14} /> View
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>

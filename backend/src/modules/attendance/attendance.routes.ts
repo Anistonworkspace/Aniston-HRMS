@@ -68,6 +68,35 @@ router.get(
   (req, res, next) => attendanceController.getAttendanceLogs(req, res, next)
 );
 
+// HR/Admin — Export attendance as Excel
+router.get(
+  '/export',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const employeeId = req.query.employeeId as string;
+
+      if (employeeId) {
+        const { generateEmployeeAttendanceExcel } = await import('../../utils/attendanceExcelExporter.js');
+        const buffer = await generateEmployeeAttendanceExcel(employeeId, month, year);
+        const monthName = new Date(year, month - 1).toLocaleString('en-IN', { month: 'short' });
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="attendance-${employeeId}-${monthName}-${year}.xlsx"`);
+        res.send(buffer);
+      } else {
+        const { generateMonthlyAttendanceExcel } = await import('../../utils/attendanceExcelExporter.js');
+        const buffer = await generateMonthlyAttendanceExcel(req.user!.organizationId, month, year);
+        const monthName = new Date(year, month - 1).toLocaleString('en-IN', { month: 'short' });
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="attendance-${monthName}-${year}.xlsx"`);
+        res.send(buffer);
+      }
+    } catch (err) { next(err); }
+  }
+);
+
 // Admin/HR view — all employees
 router.get(
   '/all',
