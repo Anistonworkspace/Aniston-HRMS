@@ -68,7 +68,9 @@ export class PayrollController {
         res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
         return;
       }
-      const payslips = await payrollService.getMyPayslips(req.user!.employeeId);
+      const month = req.query.month ? Number(req.query.month) : undefined;
+      const year = req.query.year ? Number(req.query.year) : undefined;
+      const payslips = await payrollService.getMyPayslips(req.user!.employeeId, month, year);
       res.json({ success: true, data: payslips });
     } catch (err) { next(err); }
   }

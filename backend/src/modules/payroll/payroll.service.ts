@@ -395,11 +395,18 @@ export class PayrollService {
   }
 
   /**
-   * Get employee's payslips
+   * Get employee's payslips with optional month/year filter
    */
-  async getMyPayslips(employeeId: string) {
+  async getMyPayslips(employeeId: string, month?: number, year?: number) {
+    const where: any = {
+      employeeId,
+      payrollRun: { status: { in: ['COMPLETED', 'LOCKED'] } },
+    };
+    if (month) where.payrollRun.month = month;
+    if (year) where.payrollRun.year = year;
+
     return prisma.payrollRecord.findMany({
-      where: { employeeId },
+      where,
       include: {
         payrollRun: { select: { month: true, year: true, status: true } },
       },

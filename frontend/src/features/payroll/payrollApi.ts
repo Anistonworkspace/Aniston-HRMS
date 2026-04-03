@@ -22,8 +22,11 @@ export const payrollApi = api.injectEndpoints({
       providesTags: ['Payroll'],
     }),
 
-    getMyPayslips: builder.query<any, void>({
-      query: () => '/payroll/my-payslips',
+    getMyPayslips: builder.query<any, { month?: number; year?: number } | void>({
+      query: (params) => ({
+        url: '/payroll/my-payslips',
+        params: params || undefined,
+      }),
       providesTags: ['Payroll'],
     }),
 

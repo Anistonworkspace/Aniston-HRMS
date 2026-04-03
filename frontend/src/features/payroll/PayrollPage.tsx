@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { DollarSign, Play, Download, Eye, Plus, Calendar, Upload, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { DollarSign, Play, Download, Eye, Plus, Calendar, Upload, FileSpreadsheet, Loader2, Filter, ChevronDown, ChevronUp, IndianRupee, TrendingDown, Briefcase, FileText } from 'lucide-react';
 import {
   useGetPayrollRunsQuery,
   useCreatePayrollRunMutation,
@@ -375,79 +375,336 @@ function PayrollRecordsPanel({ runId, onClose }: { runId: string; onClose: () =>
   );
 }
 
+const FULL_MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
 function PayrollEmployeeView() {
-  const { data: payslipsRes, isLoading } = useGetMyPayslipsQuery();
+  const now = new Date();
+  const [filterMonth, setFilterMonth] = useState<number>(0); // 0 = All months
+  const [filterYear, setFilterYear] = useState<number>(now.getFullYear());
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const queryParams = {
+    ...(filterMonth > 0 && { month: filterMonth }),
+    ...(filterYear > 0 && { year: filterYear }),
+  };
+  const { data: payslipsRes, isLoading, isFetching } = useGetMyPayslipsQuery(
+    Object.keys(queryParams).length > 0 ? queryParams : undefined
+  );
   const payslips = payslipsRes?.data || [];
+
+  const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
+
+  // Generate year options (current year down to 3 years back)
+  const yearOptions = Array.from({ length: 4 }, (_, i) => now.getFullYear() - i);
+
+  // Summary stats from current filtered payslips
+  const totalNet = payslips.reduce((sum: number, s: any) => sum + Number(s.netSalary || 0), 0);
+  const totalDeductions = payslips.reduce((sum: number, s: any) =>
+    sum + Number(s.epfEmployee || 0) + Number(s.esiEmployee || 0) +
+    Number(s.professionalTax || 0) + Number(s.tds || 0) + Number(s.lopDeduction || 0), 0);
+  const latestSlip = payslips[0];
 
   return (
     <div className="page-container">
-      <h1 className="text-2xl font-display font-bold text-gray-900 mb-6">My Payslips</h1>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-display font-bold text-gray-900">My Payslips</h1>
+          <p className="text-gray-500 text-sm mt-0.5">View and download your salary slips</p>
+        </div>
+      </div>
 
+      {/* Summary cards */}
+      {payslips.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="stat-card">
+            <FileText size={18} className="text-brand-500 mb-2" />
+            <p className="text-xs text-gray-500">Total Payslips</p>
+            <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{payslips.length}</p>
+          </div>
+          <div className="stat-card">
+            <Calendar size={18} className="text-blue-500 mb-2" />
+            <p className="text-xs text-gray-500">Latest</p>
+            <p className="text-lg font-bold text-gray-900">
+              {latestSlip ? `${MONTH_NAMES[(latestSlip.payrollRun?.month || 1) - 1]} ${latestSlip.payrollRun?.year}` : '—'}
+            </p>
+          </div>
+          <div className="stat-card">
+            <IndianRupee size={18} className="text-emerald-500 mb-2" />
+            <p className="text-xs text-gray-500">Latest Net Pay</p>
+            <p className="text-lg font-bold font-mono text-emerald-600" data-mono>
+              {latestSlip ? formatCurrency(Number(latestSlip.netSalary)) : '—'}
+            </p>
+          </div>
+          <div className="stat-card">
+            <TrendingDown size={18} className="text-red-400 mb-2" />
+            <p className="text-xs text-gray-500">Total Deductions ({filterYear})</p>
+            <p className="text-lg font-bold font-mono text-red-500" data-mono>
+              {formatCurrency(totalDeductions)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="layer-card p-4 mb-6">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <Filter size={14} />
+            <span className="font-medium">Filters</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500">Month</label>
+            <select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(Number(e.target.value))}
+              className="input-glass text-sm py-1.5 px-3 min-w-[140px]"
+            >
+              <option value={0}>All Months</option>
+              {FULL_MONTH_NAMES.map((m, i) => (
+                <option key={i + 1} value={i + 1}>{m}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500">Year</label>
+            <select
+              value={filterYear}
+              onChange={(e) => setFilterYear(Number(e.target.value))}
+              className="input-glass text-sm py-1.5 px-3 min-w-[100px]"
+            >
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+
+          {(filterMonth > 0) && (
+            <button
+              onClick={() => { setFilterMonth(0); }}
+              className="text-xs text-brand-600 hover:text-brand-700 font-medium"
+            >
+              Clear filters
+            </button>
+          )}
+
+          {isFetching && <Loader2 size={14} className="animate-spin text-gray-400" />}
+        </div>
+      </div>
+
+      {/* Payslips list */}
       {isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="layer-card p-4 animate-pulse">
-              <div className="h-4 bg-gray-100 rounded w-1/3" />
+            <div key={i} className="layer-card p-5 animate-pulse">
+              <div className="flex justify-between items-center">
+                <div className="space-y-2 flex-1">
+                  <div className="h-4 bg-gray-100 rounded w-1/4" />
+                  <div className="h-3 bg-gray-100 rounded w-2/3" />
+                </div>
+                <div className="h-8 bg-gray-100 rounded w-20" />
+              </div>
             </div>
           ))}
         </div>
       ) : payslips.length === 0 ? (
         <div className="layer-card p-12 text-center">
           <DollarSign size={40} className="mx-auto text-gray-200 mb-3" />
-          <p className="text-sm text-gray-400">No payslips available yet</p>
+          <p className="text-sm text-gray-500 font-medium">No payslips found</p>
+          <p className="text-xs text-gray-400 mt-1">
+            {filterMonth > 0
+              ? `No payslip for ${FULL_MONTH_NAMES[filterMonth - 1]} ${filterYear}. Try changing the filters.`
+              : `No payslips have been generated for ${filterYear} yet. Contact HR if you believe this is an error.`}
+          </p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {payslips.map((slip: any) => (
-            <motion.div
-              key={slip.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="layer-card p-5"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">
-                    {MONTH_NAMES[(slip.payrollRun?.month || 1) - 1]} {slip.payrollRun?.year}
-                  </p>
-                  <div className="flex gap-6 mt-2 text-sm">
-                    <div>
-                      <span className="text-gray-400">Gross: </span>
-                      <span className="font-mono text-gray-600" data-mono>{formatCurrency(Number(slip.grossSalary))}</span>
+        <div className="space-y-3">
+          {payslips.map((slip: any, index: number) => {
+            const isExpanded = expandedId === slip.id;
+            const gross = Number(slip.grossSalary || 0);
+            const net = Number(slip.netSalary || 0);
+            const basic = Number(slip.basic || 0);
+            const hra = Number(slip.hra || 0);
+            const epf = Number(slip.epfEmployee || 0);
+            const esi = Number(slip.esiEmployee || 0);
+            const pt = Number(slip.professionalTax || 0);
+            const tds = Number(slip.tds || 0);
+            const lopDed = Number(slip.lopDeduction || 0);
+            const totalDed = epf + esi + pt + tds + lopDed;
+            const otherEarnings = slip.otherEarnings || {};
+            const da = Number(otherEarnings.da || 0);
+            const ta = Number(otherEarnings.ta || 0);
+            const medical = Number(otherEarnings.medical || 0);
+            const special = Number(otherEarnings.special || 0);
+            const sundayBonus = Number(otherEarnings.sundayBonus || 0);
+            const month = slip.payrollRun?.month || 1;
+            const year = slip.payrollRun?.year || now.getFullYear();
+
+            return (
+              <motion.div
+                key={slip.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.04 }}
+                className="layer-card overflow-hidden"
+              >
+                {/* Payslip header row */}
+                <div
+                  className="flex items-center justify-between p-5 cursor-pointer hover:bg-surface-2/50 transition-colors"
+                  onClick={() => setExpandedId(isExpanded ? null : slip.id)}
+                >
+                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center flex-shrink-0">
+                      <IndianRupee size={18} className="text-brand-600" />
                     </div>
-                    <div>
-                      <span className="text-gray-400">Deductions: </span>
-                      <span className="font-mono text-red-500" data-mono>
-                        {formatCurrency(
-                          Number(slip.epfEmployee || 0) + Number(slip.esiEmployee || 0) +
-                          Number(slip.professionalTax || 0) + Number(slip.tds || 0) +
-                          Number(slip.lopDeduction || 0)
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-800">
+                        {FULL_MONTH_NAMES[month - 1]} {year}
+                      </p>
+                      <div className="flex flex-wrap gap-x-5 gap-y-1 mt-1">
+                        <span className="text-xs text-gray-400">
+                          Gross: <span className="font-mono text-gray-600" data-mono>{formatCurrency(gross)}</span>
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          Deductions: <span className="font-mono text-red-500" data-mono>{formatCurrency(totalDed)}</span>
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          Net: <span className="font-mono font-semibold text-emerald-600" data-mono>{formatCurrency(net)}</span>
+                        </span>
+                        {slip.lopDays > 0 && (
+                          <span className="text-xs text-red-400">LOP: {slip.lopDays} day(s)</span>
                         )}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-gray-400">Net: </span>
-                      <span className="font-mono font-semibold text-emerald-600" data-mono>
-                        {formatCurrency(Number(slip.netSalary))}
-                      </span>
+                      </div>
                     </div>
                   </div>
-                  {slip.lopDays > 0 && (
-                    <p className="text-xs text-red-400 mt-1">LOP: {slip.lopDays} days</p>
-                  )}
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.open(`${apiBase}/payroll/records/${slip.id}/pdf`, '_blank');
+                      }}
+                      className="btn-secondary flex items-center gap-1.5 text-xs py-2 px-3"
+                    >
+                      <Download size={13} />
+                      Download
+                    </button>
+                    {isExpanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+                  </div>
                 </div>
-                <button
-                  onClick={() => window.open(`/api/payroll/records/${slip.id}/pdf`, '_blank')}
-                  className="btn-secondary flex items-center gap-1.5 text-sm"
-                >
-                  <Download size={14} />
-                  PDF
-                </button>
-              </div>
-            </motion.div>
-          ))}
+
+                {/* Expanded detail */}
+                {isExpanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    className="border-t border-gray-100"
+                  >
+                    <div className="p-5 bg-gray-50/50">
+                      {/* Working days info */}
+                      <div className="flex gap-6 mb-4 text-xs">
+                        <div>
+                          <span className="text-gray-400">Working Days: </span>
+                          <span className="font-mono font-medium text-gray-700" data-mono>{slip.workingDays || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Present Days: </span>
+                          <span className="font-mono font-medium text-gray-700" data-mono>{slip.presentDays ?? '—'}</span>
+                        </div>
+                        {slip.lopDays > 0 && (
+                          <div>
+                            <span className="text-gray-400">LOP Days: </span>
+                            <span className="font-mono font-medium text-red-500" data-mono>{slip.lopDays}</span>
+                          </div>
+                        )}
+                        {(otherEarnings.sundaysWorked || 0) > 0 && (
+                          <div>
+                            <span className="text-gray-400">Sundays Worked: </span>
+                            <span className="font-mono font-medium text-gray-700" data-mono>{otherEarnings.sundaysWorked}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Two-column: Earnings + Deductions */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Earnings */}
+                        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                          <div className="px-4 py-2.5 bg-emerald-50 border-b border-emerald-100">
+                            <p className="text-xs font-semibold text-emerald-700">Earnings</p>
+                          </div>
+                          <div className="divide-y divide-gray-50">
+                            <PayslipRow label="Basic Salary" amount={basic} />
+                            <PayslipRow label="HRA" amount={hra} />
+                            {da > 0 && <PayslipRow label="Dearness Allowance" amount={da} />}
+                            {ta > 0 && <PayslipRow label="Transport Allowance" amount={ta} />}
+                            {medical > 0 && <PayslipRow label="Medical Allowance" amount={medical} />}
+                            {special > 0 && <PayslipRow label="Special Allowance" amount={special} />}
+                            {sundayBonus > 0 && <PayslipRow label="Sunday Bonus" amount={sundayBonus} />}
+                            <div className="px-4 py-2.5 bg-emerald-50/50 flex justify-between">
+                              <span className="text-xs font-semibold text-gray-700">Total Earnings</span>
+                              <span className="text-xs font-bold font-mono text-emerald-600" data-mono>{formatCurrency(gross)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Deductions */}
+                        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                          <div className="px-4 py-2.5 bg-red-50 border-b border-red-100">
+                            <p className="text-xs font-semibold text-red-700">Deductions</p>
+                          </div>
+                          <div className="divide-y divide-gray-50">
+                            {epf > 0 && <PayslipRow label="EPF (Employee)" amount={epf} isDeduction />}
+                            {esi > 0 && <PayslipRow label="ESI (Employee)" amount={esi} isDeduction />}
+                            {pt > 0 && <PayslipRow label="Professional Tax" amount={pt} isDeduction />}
+                            {tds > 0 && <PayslipRow label="TDS" amount={tds} isDeduction />}
+                            {lopDed > 0 && <PayslipRow label="LOP Deduction" amount={lopDed} isDeduction />}
+                            {totalDed === 0 && (
+                              <div className="px-4 py-2.5 text-xs text-gray-400">No deductions</div>
+                            )}
+                            <div className="px-4 py-2.5 bg-red-50/50 flex justify-between">
+                              <span className="text-xs font-semibold text-gray-700">Total Deductions</span>
+                              <span className="text-xs font-bold font-mono text-red-500" data-mono>{formatCurrency(totalDed)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Net Pay highlight */}
+                      <div className="mt-4 bg-brand-600 rounded-xl p-4 flex items-center justify-between">
+                        <span className="text-sm font-semibold text-white">Net Pay</span>
+                        <span className="text-xl font-bold font-mono text-white" data-mono>{formatCurrency(net)}</span>
+                      </div>
+
+                      {/* Download button at bottom */}
+                      <div className="mt-4 flex justify-end">
+                        <button
+                          onClick={() => window.open(`${apiBase}/payroll/records/${slip.id}/pdf`, '_blank')}
+                          className="btn-primary flex items-center gap-2 text-sm"
+                        >
+                          <Download size={14} />
+                          Download Salary Slip (PDF)
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </motion.div>
+            );
+          })}
         </div>
       )}
+    </div>
+  );
+}
+
+function PayslipRow({ label, amount, isDeduction }: { label: string; amount: number; isDeduction?: boolean }) {
+  return (
+    <div className="px-4 py-2 flex justify-between items-center">
+      <span className="text-xs text-gray-600">{label}</span>
+      <span className={cn('text-xs font-mono', isDeduction ? 'text-red-500' : 'text-gray-800')} data-mono>
+        {isDeduction ? '- ' : ''}{formatCurrency(amount)}
+      </span>
     </div>
   );
 }
