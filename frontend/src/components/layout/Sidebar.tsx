@@ -56,7 +56,7 @@ const navItems: NavItem[] = [
   { name: 'Roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { name: 'Recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Employee Exit', path: '/exit-management', icon: UserMinus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { name: 'Interview Tasks', path: '/interview-assignments', icon: ClipboardCheck },
+  { name: 'Interview Tasks', path: '/interview-assignments', icon: ClipboardCheck, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'GUEST_INTERVIEWER'] },
   { name: 'Assets', managementName: 'Asset Management', path: '/assets', icon: Monitor, roles: ['SUPER_ADMIN', 'ADMIN'] },
   { name: 'My Assets', path: '/my-assets', icon: Laptop, roles: ['HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
   { name: 'My Documents', path: '/my-documents', icon: FileCheck, roles: ['EMPLOYEE', 'INTERN', 'MANAGER', 'HR'], exitAccessKey: 'canViewDocuments', permissionKey: 'canViewDocuments' },

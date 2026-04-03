@@ -24,6 +24,16 @@ export const leaveApi = api.injectEndpoints({
       invalidatesTags: ['Leave', 'LeaveBalance', 'Dashboard'],
     }),
 
+    previewLeave: builder.mutation<any, {
+      leaveTypeId: string;
+      startDate: string;
+      endDate: string;
+      isHalfDay: boolean;
+      halfDaySession?: string;
+    }>({
+      query: (body) => ({ url: '/leaves/preview', method: 'POST', body }),
+    }),
+
     getMyLeaves: builder.query<any, { page?: number; limit?: number; status?: string }>({
       query: (params) => ({ url: '/leaves/my', params }),
       providesTags: ['Leave'],
@@ -91,6 +101,7 @@ export const {
   useGetLeaveTypesQuery,
   useGetLeaveBalancesQuery,
   useApplyLeaveMutation,
+  usePreviewLeaveMutation,
   useGetMyLeavesQuery,
   useCancelLeaveMutation,
   useGetPendingApprovalsQuery,

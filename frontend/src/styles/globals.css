@@ -182,3 +182,12 @@
 [data-mono] {
   font-family: 'JetBrains Mono', monospace;
 }
+
+@layer utilities {
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-area-pt {
+    padding-top: env(safe-area-inset-top);
+  }
+}

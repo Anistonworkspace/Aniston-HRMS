@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Search, CalendarOff, MessageSquare, Check, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -24,11 +24,11 @@ export default function PendingApprovalsPage() {
   const leavesCount = response?.data?.pendingLeaves?.total || 0;
   const ticketsCount = response?.data?.openTickets?.total || 0;
 
-  let searchTimer: ReturnType<typeof setTimeout>;
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const handleSearch = (value: string) => {
     setSearch(value);
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => setSearchDebounce(value), 300);
+    clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => setSearchDebounce(value), 300);
   };
 
   const onLeaveAction = async (id: string, action: string) => {

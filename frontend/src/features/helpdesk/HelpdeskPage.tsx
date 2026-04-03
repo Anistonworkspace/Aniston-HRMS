@@ -231,6 +231,7 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-start justify-center p-4 pt-12 overflow-y-auto"
       onClick={e => e.target === e.currentTarget && onClose()}>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
+        role="dialog" aria-modal="true" aria-label="Ticket details"
         className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl">
         {isLoading || !ticket ? (
           <div className="p-12 text-center"><Loader2 size={24} className="animate-spin mx-auto text-brand-500" /></div>
@@ -251,7 +252,7 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
                   </p>
                 )}
               </div>
-              <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} className="text-gray-400" /></button>
+              <button onClick={onClose} aria-label="Close" className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
 
             {/* Body */}
@@ -327,6 +328,7 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
                     placeholder="Add a comment..." className="input-glass flex-1 text-sm"
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleComment(); } }} />
                   <button onClick={handleComment} disabled={commenting || !commentText.trim()}
+                    aria-label="Send comment"
                     className="btn-primary text-sm px-3 disabled:opacity-50">
                     {commenting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                   </button>
@@ -382,7 +384,9 @@ function HelpdeskPersonalView() {
           {tickets.map((ticket: any, i: number) => (
             <motion.div key={ticket.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.04 }}
+              role="button" tabIndex={0}
               onClick={() => setSelectedTicketId(ticket.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTicketId(ticket.id); } }}
               className="layer-card p-5 cursor-pointer hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
@@ -440,10 +444,11 @@ function CreateTicketModal({ onClose }: { onClose: () => void }) {
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
       onClick={e => e.target === e.currentTarget && onClose()}>
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-2xl shadow-glass-lg w-full max-w-md p-6">
+        exit={{ opacity: 0, scale: 0.95 }} role="dialog" aria-modal="true" aria-label="Create ticket"
+        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-md p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-display font-semibold text-gray-800">Raise a Ticket</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} className="text-gray-400" /></button>
+          <button onClick={onClose} aria-label="Close" className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} className="text-gray-400" /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">

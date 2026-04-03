@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { leaveService } from './leave.service.js';
-import { applyLeaveSchema, leaveActionSchema, leaveQuerySchema, createLeaveTypeSchema, updateLeaveTypeSchema } from './leave.validation.js';
+import { applyLeaveSchema, leaveActionSchema, leaveQuerySchema, createLeaveTypeSchema, updateLeaveTypeSchema, previewLeaveSchema } from './leave.validation.js';
 import { Role } from '@aniston/shared';
 
 export class LeaveController {
@@ -107,6 +107,18 @@ export class LeaveController {
     try {
       const result = await leaveService.deleteLeaveType(req.params.id, req.user!.organizationId);
       res.json({ success: true, data: result, message: 'Leave type deactivated' });
+    } catch (err) { next(err); }
+  }
+
+  async previewLeave(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = previewLeaveSchema.parse(req.body);
+      if (!req.user!.employeeId) {
+        res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
+        return;
+      }
+      const preview = await leaveService.previewLeave(req.user!.employeeId, data);
+      res.json({ success: true, data: preview });
     } catch (err) { next(err); }
   }
 

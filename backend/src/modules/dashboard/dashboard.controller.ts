@@ -9,6 +9,20 @@ export class DashboardController {
     } catch (err) { next(err); }
   }
 
+  async getSuperAdminStats(req: Request, res: Response, next: NextFunction) {
+    try {
+      const stats = await dashboardService.getSuperAdminStats(req.user!.organizationId);
+      res.json({ success: true, data: stats });
+    } catch (err) { next(err); }
+  }
+
+  async getHRStats(req: Request, res: Response, next: NextFunction) {
+    try {
+      const stats = await dashboardService.getHRStats(req.user!.organizationId);
+      res.json({ success: true, data: stats });
+    } catch (err) { next(err); }
+  }
+
   async getPendingApprovals(req: Request, res: Response, next: NextFunction) {
     try {
       const { search, page, limit } = req.query as any;

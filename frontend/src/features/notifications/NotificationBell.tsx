@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Bell, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
 
@@ -31,6 +32,7 @@ const playNotificationSound = () => {
 };
 
 export default function NotificationBell() {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -138,7 +140,7 @@ export default function NotificationBell() {
                       ${!notif.read ? 'bg-brand-50/30' : ''}`}
                     onClick={() => {
                       setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, read: true } : n));
-                      if (notif.link) window.location.href = notif.link;
+                      if (notif.link) navigate(notif.link);
                     }}
                   >
                     <div className="flex items-start gap-2">

@@ -200,3 +200,85 @@ export interface DashboardStats {
   upcomingBirthdays: { id: string; firstName: string; lastName: string; dateOfBirth: string }[];
   recentHires: { id: string; firstName: string; lastName: string; joiningDate: string }[];
 }
+
+/**
+ * Super Admin Dashboard — company-level analytics
+ */
+export interface SuperAdminDashboardStats {
+  // KPI Grid
+  totalEmployees: number;
+  activeEmployees: number;
+  attritionRate: number; // % employees left in last 12 months
+  monthlyPayrollCost: number; // total net pay of last completed payroll
+  openPositions: number;
+  newHiresThisMonth: number;
+
+  // Trends (last 6 months)
+  hiringTrend: { month: string; hires: number; exits: number }[];
+  attendanceTrend: { month: string; avgPercentage: number }[];
+  leaveTrend: { month: string; totalDays: number }[];
+
+  // Alerts
+  alerts: DashboardAlert[];
+
+  // Recent Activity
+  recentHires: { id: string; firstName: string; lastName: string; joiningDate: string; department?: string }[];
+  recentExits: { id: string; firstName: string; lastName: string; lastWorkingDate: string; department?: string }[];
+
+  // Department headcount
+  departmentBreakdown: { name: string; count: number }[];
+
+  // Birthdays
+  upcomingBirthdays: { id: string; firstName: string; lastName: string; dateOfBirth: string; avatar?: string }[];
+}
+
+export interface DashboardAlert {
+  type: 'warning' | 'danger' | 'info';
+  title: string;
+  message: string;
+  action?: string; // route to navigate
+}
+
+/**
+ * HR Dashboard — daily operations
+ */
+export interface HRDashboardStats {
+  // Today's Attendance Status
+  todayAttendance: {
+    present: number;
+    absent: number;
+    late: number;
+    onLeave: number;
+    notCheckedIn: number;
+    workFromHome: number;
+    totalActive: number;
+  };
+
+  // Action Center — pending counts
+  pendingActions: {
+    leaveRequests: number;
+    regularizations: number;
+    helpdeskTickets: number;
+    documentsToVerify: number;
+    pendingOnboarding: number;
+  };
+
+  // Attention Required
+  attentionItems: AttentionItem[];
+
+  // Quick Stats
+  upcomingBirthdays: { id: string; firstName: string; lastName: string; dateOfBirth: string; avatar?: string }[];
+  recentHires: { id: string; firstName: string; lastName: string; joiningDate: string; department?: string }[];
+
+  // Today's leave details
+  todayLeaves: { id: string; employeeName: string; leaveType: string; days: number }[];
+}
+
+export interface AttentionItem {
+  type: 'late' | 'missing_checkout' | 'leave_conflict' | 'probation_ending' | 'document_expiry';
+  title: string;
+  description: string;
+  employeeId?: string;
+  employeeName?: string;
+  action?: string;
+}

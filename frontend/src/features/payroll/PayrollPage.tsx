@@ -154,7 +154,7 @@ function PayrollAdminView() {
               ))
             ) : runs.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-12 text-gray-400 text-sm">
+                <td colSpan={6} className="text-center py-12 text-gray-500 text-sm">
                   No payroll runs yet. Create one to get started.
                 </td>
               </tr>
@@ -172,7 +172,7 @@ function PayrollAdminView() {
                       {MONTH_NAMES[run.month - 1]} {run.year}
                     </p>
                     {run.processedAt && (
-                      <p className="text-xs text-gray-400">Processed {formatDate(run.processedAt)}</p>
+                      <p className="text-xs text-gray-500">Processed {formatDate(run.processedAt)}</p>
                     )}
                   </td>
                   <td className="px-4 py-3.5 hidden md:table-cell">
@@ -297,7 +297,7 @@ function PayrollRecordsPanel({ runId, onClose }: { runId: string; onClose: () =>
                   <tr key={rec.id} className="border-b border-gray-50 hover:bg-surface-2">
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-800 text-xs">{rec.employee?.firstName} {rec.employee?.lastName}</p>
-                      <p className="text-[10px] text-gray-400">{rec.employee?.employeeCode} · {rec.employee?.department?.name || '-'}</p>
+                      <p className="text-[10px] text-gray-500">{rec.employee?.employeeCode} · {rec.employee?.department?.name || '-'}</p>
                       {rec.amendedAt && (
                         <p className="text-[10px] text-amber-600 mt-0.5">Amended: {rec.amendmentReason}</p>
                       )}
@@ -512,7 +512,7 @@ function PayrollEmployeeView() {
         <div className="layer-card p-12 text-center">
           <DollarSign size={40} className="mx-auto text-gray-200 mb-3" />
           <p className="text-sm text-gray-500 font-medium">No payslips found</p>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             {filterMonth > 0
               ? `No payslip for ${FULL_MONTH_NAMES[filterMonth - 1]} ${filterYear}. Try changing the filters.`
               : `No payslips have been generated for ${filterYear} yet. Contact HR if you believe this is an error.`}
@@ -563,13 +563,13 @@ function PayrollEmployeeView() {
                         {FULL_MONTH_NAMES[month - 1]} {year}
                       </p>
                       <div className="flex flex-wrap gap-x-5 gap-y-1 mt-1">
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-gray-500">
                           Gross: <span className="font-mono text-gray-600" data-mono>{formatCurrency(gross)}</span>
                         </span>
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-gray-500">
                           Deductions: <span className="font-mono text-red-500" data-mono>{formatCurrency(totalDed)}</span>
                         </span>
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-gray-500">
                           Net: <span className="font-mono font-semibold text-emerald-600" data-mono>{formatCurrency(net)}</span>
                         </span>
                         {slip.lopDays > 0 && (
@@ -604,22 +604,22 @@ function PayrollEmployeeView() {
                       {/* Working days info */}
                       <div className="flex gap-6 mb-4 text-xs">
                         <div>
-                          <span className="text-gray-400">Working Days: </span>
+                          <span className="text-gray-500">Working Days: </span>
                           <span className="font-mono font-medium text-gray-700" data-mono>{slip.workingDays || '—'}</span>
                         </div>
                         <div>
-                          <span className="text-gray-400">Present Days: </span>
+                          <span className="text-gray-500">Present Days: </span>
                           <span className="font-mono font-medium text-gray-700" data-mono>{slip.presentDays ?? '—'}</span>
                         </div>
                         {slip.lopDays > 0 && (
                           <div>
-                            <span className="text-gray-400">LOP Days: </span>
+                            <span className="text-gray-500">LOP Days: </span>
                             <span className="font-mono font-medium text-red-500" data-mono>{slip.lopDays}</span>
                           </div>
                         )}
                         {(otherEarnings.sundaysWorked || 0) > 0 && (
                           <div>
-                            <span className="text-gray-400">Sundays Worked: </span>
+                            <span className="text-gray-500">Sundays Worked: </span>
                             <span className="font-mono font-medium text-gray-700" data-mono>{otherEarnings.sundaysWorked}</span>
                           </div>
                         )}
@@ -659,7 +659,7 @@ function PayrollEmployeeView() {
                             {tds > 0 && <PayslipRow label="TDS" amount={tds} isDeduction />}
                             {lopDed > 0 && <PayslipRow label="LOP Deduction" amount={lopDed} isDeduction />}
                             {totalDed === 0 && (
-                              <div className="px-4 py-2.5 text-xs text-gray-400">No deductions</div>
+                              <div className="px-4 py-2.5 text-xs text-gray-500">No deductions</div>
                             )}
                             <div className="px-4 py-2.5 bg-red-50/50 flex justify-between">
                               <span className="text-xs font-semibold text-gray-700">Total Deductions</span>

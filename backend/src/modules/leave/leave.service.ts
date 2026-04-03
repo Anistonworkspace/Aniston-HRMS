@@ -658,14 +658,109 @@ export class LeaveService {
   }
 
   /**
-   * Calculate business days between two dates
+   * Preview leave duration (dry-run for real-time UI feedback)
+   */
+  async previewLeave(employeeId: string, data: { leaveTypeId: string; startDate: string; endDate: string; isHalfDay: boolean; halfDaySession?: string }) {
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { organizationId: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const leaveType = await prisma.leaveType.findUnique({
+      where: { id: data.leaveTypeId },
+    });
+    if (!leaveType) throw new NotFoundError('Leave type');
+
+    const startDate = new Date(data.startDate);
+    const endDate = new Date(data.endDate);
+
+    if (endDate < startDate) {
+      throw new BadRequestError('End date must be after start date');
+    }
+
+    // Calculate days
+    const days = data.isHalfDay ? 0.5 : await this.calculateBusinessDays(startDate, endDate, employee.organizationId);
+
+    // Get holidays in range for warnings
+    const holidaysInRange = await prisma.holiday.findMany({
+      where: {
+        organizationId: employee.organizationId,
+        date: { gte: startDate, lte: endDate },
+        type: { in: ['PUBLIC', 'CUSTOM'] },
+      },
+      select: { name: true, date: true },
+    });
+
+    // Check for weekends (Sundays) in range
+    const sundaysInRange: string[] = [];
+    const current = new Date(startDate);
+    while (current <= endDate) {
+      if (current.getDay() === 0) {
+        sundaysInRange.push(current.toISOString().split('T')[0]);
+      }
+      current.setDate(current.getDate() + 1);
+    }
+
+    // Get balance
+    const year = startDate.getFullYear();
+    const balance = await prisma.leaveBalance.findUnique({
+      where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: data.leaveTypeId, year } },
+    });
+
+    const allocated = balance ? Number(balance.allocated) + Number(balance.carriedForward) : 0;
+    const used = balance ? Number(balance.used) : 0;
+    const pending = balance ? Number(balance.pending) : 0;
+    const available = allocated - used - pending;
+    const remainingAfter = available - days;
+
+    // Build warnings
+    const warnings: string[] = [];
+    if (holidaysInRange.length > 0) {
+      warnings.push(`${holidaysInRange.length} holiday(s) fall in this range: ${holidaysInRange.map(h => h.name).join(', ')}. These are excluded from leave count.`);
+    }
+    if (sundaysInRange.length > 0) {
+      warnings.push(`${sundaysInRange.length} Sunday(s) in range (excluded from leave count).`);
+    }
+    if (leaveType.isPaid && days > available) {
+      warnings.push(`Insufficient balance. Available: ${available} day(s), Requested: ${days} day(s).`);
+    }
+
+    return {
+      days,
+      leaveTypeName: leaveType.name,
+      leaveTypeCode: leaveType.code,
+      isPaid: leaveType.isPaid,
+      balance: { allocated, used, pending, available, remainingAfter },
+      holidays: holidaysInRange.map(h => ({ name: h.name, date: h.date })),
+      sundaysExcluded: sundaysInRange.length,
+      warnings,
+    };
+  }
+
+  /**
+   * Calculate business days between two dates (excludes Sundays and org holidays)
    */
   private async calculateBusinessDays(start: Date, end: Date, organizationId: string): Promise<number> {
+    // Fetch org holidays in range for exclusion
+    const holidays = await prisma.holiday.findMany({
+      where: {
+        organizationId,
+        date: { gte: start, lte: end },
+        type: { in: ['PUBLIC', 'CUSTOM'] }, // Only mandatory holidays excluded
+      },
+      select: { date: true, isHalfDay: true },
+    });
+    const holidayDates = new Set(
+      holidays.map(h => new Date(h.date).toISOString().split('T')[0])
+    );
+
     let days = 0;
     const current = new Date(start);
     while (current <= end) {
       const dayOfWeek = current.getDay();
-      if (dayOfWeek !== 0) { // Only Sunday is weekoff
+      const dateStr = current.toISOString().split('T')[0];
+      if (dayOfWeek !== 0 && !holidayDates.has(dateStr)) { // Exclude Sundays + holidays
         days++;
       }
       current.setDate(current.getDate() + 1);

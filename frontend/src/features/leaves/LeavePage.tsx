@@ -20,6 +20,7 @@ import {
   useBulkCreateHolidaysMutation,
   useDeleteHolidayMutation,
   useGetHolidaySuggestionsQuery,
+  usePreviewLeaveMutation,
 } from './leaveApi';
 import { useGetPendingRegularizationsQuery, useHandleRegularizationMutation } from '../attendance/attendanceApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
@@ -169,8 +170,9 @@ function LeaveManagementView() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-surface-2 rounded-xl p-1 mb-6 w-fit">
+      <div role="tablist" className="flex gap-1 bg-surface-2 rounded-xl p-1 mb-6 w-fit">
         <button
+          role="tab" aria-selected={activeTab === 'approvals'}
           onClick={() => setActiveTab('approvals')}
           className={cn(
             'px-4 py-2 rounded-lg text-sm font-medium transition-all',
@@ -187,6 +189,7 @@ function LeaveManagementView() {
           )}
         </button>
         <button
+          role="tab" aria-selected={activeTab === 'types'}
           onClick={() => setActiveTab('types')}
           className={cn(
             'px-4 py-2 rounded-lg text-sm font-medium transition-all',
@@ -198,6 +201,7 @@ function LeaveManagementView() {
           Leave Types
         </button>
         <button
+          role="tab" aria-selected={activeTab === 'holidays'}
           onClick={() => setActiveTab('holidays')}
           className={cn(
             'px-4 py-2 rounded-lg text-sm font-medium transition-all',
@@ -214,6 +218,7 @@ function LeaveManagementView() {
           )}
         </button>
         <button
+          role="tab" aria-selected={activeTab === 'regularizations'}
           onClick={() => setActiveTab('regularizations')}
           className={cn(
             'px-4 py-2 rounded-lg text-sm font-medium transition-all',
@@ -1132,9 +1137,9 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
 
 function LeavePersonalView() {
   const [showApplyModal, setShowApplyModal] = useState(false);
-  const { data: balancesRes } = useGetLeaveBalancesQuery();
+  const { data: balancesRes, isLoading: balancesLoading } = useGetLeaveBalancesQuery();
   const { data: typesRes } = useGetLeaveTypesQuery();
-  const { data: leavesRes } = useGetMyLeavesQuery({ page: 1, limit: 20 });
+  const { data: leavesRes, isLoading: leavesLoading } = useGetMyLeavesQuery({ page: 1, limit: 20 });
   const { data: holidaysRes } = useGetHolidaysQuery({});
   const { data: policiesRes } = useGetPoliciesQuery({ category: 'LEAVE' });
   const [acknowledgePolicy, { isLoading: acknowledging }] = useAcknowledgePolicyMutation();
@@ -1243,40 +1248,51 @@ function LeavePersonalView() {
       </div>
 
       {/* Leave balance cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-8">
-        {balances.map((bal: any, index: number) => (
-          <motion.div
-            key={bal.id}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05 }}
-            className="layer-card p-4 text-center"
-          >
-            <span className="text-2xl">{LEAVE_ICONS[bal.leaveType.code] || '📅'}</span>
-            <p className="text-sm font-medium text-gray-700 mt-2">{bal.leaveType.name}</p>
-            <div className="mt-3">
-              <p className="text-2xl font-bold font-mono text-brand-600" data-mono>
-                {bal.remaining}
-              </p>
-              <p className="text-xs text-gray-400">
-                of {Number(bal.allocated)} available
-              </p>
+      {balancesLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-8">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="layer-card p-4 animate-pulse">
+              <div className="h-4 bg-gray-200 rounded w-20 mb-2" />
+              <div className="h-6 bg-gray-200 rounded w-12" />
             </div>
-            {Number(bal.used) > 0 && (
-              <p className="text-xs text-gray-400 mt-1">
-                Used: <span className="font-mono" data-mono>{Number(bal.used)}</span>
-              </p>
-            )}
-            {/* Progress bar */}
-            <div className="mt-2 w-full bg-gray-100 rounded-full h-1.5">
-              <div
-                className="bg-brand-500 h-1.5 rounded-full transition-all"
-                style={{ width: `${Math.min((Number(bal.used) / Number(bal.allocated)) * 100, 100)}%` }}
-              />
-            </div>
-          </motion.div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-8">
+          {balances.map((bal: any, index: number) => (
+            <motion.div
+              key={bal.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
+              className="layer-card p-4 text-center"
+            >
+              <span className="text-2xl">{LEAVE_ICONS[bal.leaveType.code] || '📅'}</span>
+              <p className="text-sm font-medium text-gray-700 mt-2">{bal.leaveType.name}</p>
+              <div className="mt-3">
+                <p className="text-2xl font-bold font-mono text-brand-600" data-mono>
+                  {bal.remaining}
+                </p>
+                <p className="text-xs text-gray-500">
+                  of {Number(bal.allocated)} available
+                </p>
+              </div>
+              {Number(bal.used) > 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Used: <span className="font-mono" data-mono>{Number(bal.used)}</span>
+                </p>
+              )}
+              {/* Progress bar */}
+              <div className="mt-2 w-full bg-gray-100 rounded-full h-1.5">
+                <div
+                  className="bg-brand-500 h-1.5 rounded-full transition-all"
+                  style={{ width: `${Math.min((Number(bal.used) / Number(bal.allocated)) * 100, 100)}%` }}
+                />
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* My leave requests */}
@@ -1285,7 +1301,11 @@ function LeavePersonalView() {
             <CalendarDays size={18} className="text-brand-500" />
             My Leave Requests
           </h2>
-          {leaves.length === 0 ? (
+          {leavesLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
+            </div>
+          ) : leaves.length === 0 ? (
             <div className="text-center py-12">
               <CalendarDays size={40} className="mx-auto text-gray-200 mb-3" />
               <p className="text-sm text-gray-400">No leave requests yet</p>
@@ -1317,7 +1337,7 @@ function LeavePersonalView() {
                 >
                   <div>
                     <p className="text-sm font-medium text-gray-700">{holiday.name}</p>
-                    <p className="text-xs text-gray-400">{formatDate(holiday.date, 'long')}</p>
+                    <p className="text-xs text-gray-500">{formatDate(holiday.date, 'long')}</p>
                   </div>
                   {holiday.isOptional && (
                     <span className="badge badge-info text-xs">Optional</span>
@@ -1334,6 +1354,7 @@ function LeavePersonalView() {
         {showApplyModal && (
           <ApplyLeaveModal
             leaveTypes={leaveTypes}
+            balances={balances}
             onClose={() => setShowApplyModal(false)}
           />
         )}
@@ -1346,6 +1367,7 @@ function LeaveRequestCard({ leave }: { leave: any }) {
   const [cancelLeave] = useCancelLeaveMutation();
 
   const handleCancel = async () => {
+    if (!window.confirm('Are you sure you want to cancel this leave request?')) return;
     try {
       await cancelLeave(leave.id).unwrap();
       toast.success('Leave cancelled');
@@ -1374,11 +1396,11 @@ function LeaveRequestCard({ leave }: { leave: any }) {
               {Number(leave.days)} {Number(leave.days) === 1 ? 'day' : 'days'}
             </span>
           </p>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-500">
             {formatDate(leave.startDate)} — {formatDate(leave.endDate)}
           </p>
           {leave.reason && (
-            <p className="text-xs text-gray-400 mt-0.5 truncate max-w-xs">{leave.reason}</p>
+            <p className="text-xs text-gray-500 mt-0.5 truncate max-w-xs">{leave.reason}</p>
           )}
         </div>
       </div>
@@ -1396,137 +1418,5 @@ function LeaveRequestCard({ leave }: { leave: any }) {
         )}
       </div>
     </div>
-  );
-}
-
-function ApplyLeaveModal({ leaveTypes, onClose }: { leaveTypes: any[]; onClose: () => void }) {
-  const [formData, setFormData] = useState({
-    leaveTypeId: '',
-    startDate: '',
-    endDate: '',
-    isHalfDay: false,
-    reason: '',
-  });
-  const [applyLeave, { isLoading }] = useApplyLeaveMutation();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (formData.startDate && formData.endDate && formData.endDate < formData.startDate) {
-      toast.error('End date must be on or after the start date');
-      return;
-    }
-    try {
-      await applyLeave(formData).unwrap();
-      toast.success('Leave request submitted!');
-      onClose();
-    } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to apply leave');
-    }
-  };
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-md p-6"
-      >
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-display font-semibold text-gray-800">Apply Leave</h2>
-          <button aria-label="Close" onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
-            <X size={18} className="text-gray-400" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">Leave Type</label>
-            <select
-              value={formData.leaveTypeId}
-              onChange={(e) => setFormData({ ...formData, leaveTypeId: e.target.value })}
-              className="input-glass w-full"
-              required
-            >
-              <option value="">Select leave type</option>
-              {leaveTypes.map((lt: any) => (
-                <option key={lt.id} value={lt.id}>
-                  {lt.name} ({lt.code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Start Date</label>
-              <input
-                type="date"
-                value={formData.startDate}
-                onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                className="input-glass w-full"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">End Date</label>
-              <input
-                type="date"
-                value={formData.endDate}
-                onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                className="input-glass w-full"
-                min={formData.startDate}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="halfDay"
-              checked={formData.isHalfDay}
-              onChange={(e) => setFormData({ ...formData, isHalfDay: e.target.checked })}
-              className="rounded border-gray-300"
-            />
-            <label htmlFor="halfDay" className="text-sm text-gray-600">Half day</label>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">Reason</label>
-            <textarea
-              value={formData.reason}
-              onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-              className="input-glass w-full h-20 resize-none"
-              placeholder="Enter reason for leave"
-              required
-              minLength={5}
-            />
-          </div>
-
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">
-              Cancel
-            </button>
-            <motion.button
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.99 }}
-              type="submit"
-              disabled={isLoading}
-              className="btn-primary flex-1 flex items-center justify-center gap-2"
-            >
-              {isLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-              Submit
-            </motion.button>
-          </div>
-        </form>
-      </motion.div>
-    </motion.div>
   );
 }

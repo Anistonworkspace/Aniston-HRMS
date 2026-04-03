@@ -45,6 +45,15 @@ export const createLeaveTypeSchema = z.object({
 
 export const updateLeaveTypeSchema = createLeaveTypeSchema.partial();
 
+export const previewLeaveSchema = z.object({
+  leaveTypeId: z.string().uuid(),
+  startDate: z.string().min(1, 'Start date is required'),
+  endDate: z.string().min(1, 'End date is required'),
+  isHalfDay: z.boolean().default(false),
+  halfDaySession: z.enum(['FIRST_HALF', 'SECOND_HALF']).optional(),
+});
+
+export type PreviewLeaveInput = z.infer<typeof previewLeaveSchema>;
 export type ApplyLeaveInput = z.infer<typeof applyLeaveSchema>;
 export type LeaveActionInput = z.infer<typeof leaveActionSchema>;
 export type LeaveQuery = z.infer<typeof leaveQuerySchema>;

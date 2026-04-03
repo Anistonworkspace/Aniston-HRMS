@@ -29,6 +29,7 @@ router.get('/holidays', (req, res, next) => leaveController.getHolidays(req, res
 router.get('/balances', (req, res, next) => leaveController.getBalances(req, res, next));
 router.get('/balances/:employeeId', requirePermission('leave', 'read'), (req, res, next) => leaveController.getBalances(req, res, next));
 router.post('/apply', (req, res, next) => leaveController.applyLeave(req, res, next));
+router.post('/preview', (req, res, next) => leaveController.previewLeave(req, res, next));
 router.get('/my', (req, res, next) => leaveController.getMyLeaves(req, res, next));
 router.delete('/:id', (req, res, next) => leaveController.cancelLeave(req, res, next));
 

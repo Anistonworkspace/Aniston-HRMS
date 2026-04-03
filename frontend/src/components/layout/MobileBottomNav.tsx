@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Home, CalendarDays, MapPin, Bell, User, Loader2 } from 'lucide-react';
+import { Home, CalendarDays, MapPin, Calendar, User, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useGetTodayStatusQuery, useClockInMutation, useClockOutMutation } from '../../features/attendance/attendanceApi';
 import { useAppSelector } from '../../app/store';
@@ -10,7 +10,7 @@ const navItems = [
   { name: 'Home', path: '/dashboard', icon: Home },
   { name: 'Leave', path: '/leaves', icon: CalendarDays },
   // Center button handled separately
-  { name: 'Alerts', path: '/helpdesk', icon: Bell },
+  { name: 'Attend', path: '/attendance', icon: Calendar },
   { name: 'Profile', path: '/profile', icon: User },
 ];
 
@@ -63,7 +63,7 @@ export default function MobileBottomNav() {
           const isActive = location.pathname.startsWith(item.path);
           return (
             <NavLink key={item.path} to={item.path}
-              className={cn('flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors', isActive ? 'text-brand-600' : 'text-gray-400')}>
+              className={cn('flex flex-col items-center justify-center gap-0.5 flex-1 py-2 transition-colors', isActive ? 'text-brand-600' : 'text-gray-400')}>
               <item.icon size={20} strokeWidth={isActive ? 2.5 : 1.5} />
               <span className="text-[10px] font-medium">{item.name}</span>
             </NavLink>
@@ -75,6 +75,7 @@ export default function MobileBottomNav() {
           <button
             onClick={handleCheckInOut}
             disabled={isLoading || isManagement}
+            aria-label={isCompleted ? 'Checked out' : isCheckedIn ? 'Check out' : 'Check in'}
             className={cn(
               'w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all',
               isLoading
@@ -108,7 +109,7 @@ export default function MobileBottomNav() {
           const isActive = location.pathname.startsWith(item.path);
           return (
             <NavLink key={item.path} to={item.path}
-              className={cn('flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors', isActive ? 'text-brand-600' : 'text-gray-400')}>
+              className={cn('flex flex-col items-center justify-center gap-0.5 flex-1 py-2 transition-colors', isActive ? 'text-brand-600' : 'text-gray-400')}>
               <item.icon size={20} strokeWidth={isActive ? 2.5 : 1.5} />
               <span className="text-[10px] font-medium">{item.name}</span>
             </NavLink>

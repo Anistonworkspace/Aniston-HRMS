@@ -100,7 +100,7 @@ export default function AppRouter() {
             }
           >
             <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/pending-approvals" element={<PendingApprovalsPage />} />
+            <Route path="/pending-approvals" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER']}><PendingApprovalsPage /></ProtectedRoute>} />
             <Route path="/employees" element={<EmployeeListPage />} />
 
             {/* Placeholder routes */}

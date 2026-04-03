@@ -6,7 +6,7 @@ import {
   Clock, LogIn, LogOut, Coffee, Play, Square, MapPin,
   ChevronLeft, ChevronRight, Calendar as CalendarIcon,
   Users, Search, Filter, UserCheck, UserX, UserMinus, Eye, Monitor,
-  Shield, Bell, RefreshCw, Flag, AlertTriangle, Download,
+  Shield, Bell, RefreshCw, Flag, AlertTriangle, Download, X,
 } from 'lucide-react';
 import {
   useGetTodayStatusQuery,
@@ -330,7 +330,7 @@ function AttendanceManagementView() {
                       <button
                         onClick={(e) => { e.stopPropagation(); record.employeeId && navigate(`/attendance/employee/${record.employeeId}`); }}
                         className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg transition-colors font-medium"
-                        title="View activity details, screenshots & GPS trail"
+                        aria-label="View activity details, screenshots & GPS trail"
                       >
                         <Monitor size={12} /> Activity
                       </button>
@@ -352,6 +352,7 @@ function AttendanceManagementView() {
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
+                aria-label="Previous page"
                 className="p-1.5 rounded-lg hover:bg-surface-2 transition-colors disabled:opacity-40"
               >
                 <ChevronLeft size={16} />
@@ -359,6 +360,7 @@ function AttendanceManagementView() {
               <button
                 onClick={() => setPage((p) => p + 1)}
                 disabled={page >= (meta.totalPages || 1)}
+                aria-label="Next page"
                 className="p-1.5 rounded-lg hover:bg-surface-2 transition-colors disabled:opacity-40"
               >
                 <ChevronRight size={16} />
@@ -382,6 +384,7 @@ function AttendancePersonalView() {
   const [notificationStatus, setNotificationStatus] = useState<'checking' | 'granted' | 'denied' | 'default'>('checking');
   const [requestingLocation, setRequestingLocation] = useState(false);
   const [requestingNotification, setRequestingNotification] = useState(false);
+  const [dismissedNotifBanner, setDismissedNotifBanner] = useState(false);
 
   // Check location permission on mount
   useEffect(() => {
@@ -649,76 +652,17 @@ function AttendancePersonalView() {
     );
   }
 
-  // BLOCKING: Location granted but notification not yet granted — prompt for notification
-  if (locationStatus === 'granted' && notificationStatus !== 'granted' && notificationStatus !== 'default') {
-    // notificationStatus is 'denied' — show info
-    return (
-      <div className="page-container">
-        <div className="min-h-[70vh] flex items-center justify-center">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="layer-card p-10 text-center max-w-md mx-auto"
-          >
-            <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-5">
-              <Bell size={40} className="text-amber-500" />
-            </div>
-            <h2 className="text-xl font-display font-bold text-gray-900 mb-3">Enable Notifications</h2>
-            <p className="text-sm text-gray-500 mb-6">
-              Notifications are blocked. Please enable them in your browser settings for real-time alerts on attendance, leave approvals, and announcements.
-            </p>
-            <button
-              onClick={() => window.location.reload()}
-              className="btn-primary w-full py-3 text-sm flex items-center justify-center gap-2"
-            >
-              <RefreshCw size={16} /> Refresh
-            </button>
-          </motion.div>
-        </div>
-      </div>
-    );
-  }
-
-  // Location granted, notification is 'checking' — prompt for notification
-  if (locationStatus === 'granted' && notificationStatus === 'checking') {
-    return (
-      <div className="page-container">
-        <div className="min-h-[70vh] flex items-center justify-center">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="layer-card p-10 text-center max-w-md mx-auto"
-          >
-            <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-5">
-              <Bell size={40} className="text-amber-500" />
-            </div>
-            <h2 className="text-xl font-display font-bold text-gray-900 mb-3">Enable Notifications</h2>
-            <p className="text-sm text-gray-500 mb-6">
-              Please allow notifications for real-time alerts on attendance, leave approvals, and announcements.
-            </p>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={handleRequestNotification}
-              disabled={requestingNotification}
-              className="btn-primary w-full py-3.5 text-sm flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {requestingNotification ? (
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <Bell size={16} />
-              )}
-              Allow Notifications
-            </motion.button>
-          </motion.div>
-        </div>
-      </div>
-    );
-  }
-
-  // Both permissions satisfied (location: granted, notification: granted or default) — show attendance UI
+  // Both location permission states handled — show attendance UI (notification is non-blocking)
   return (
     <div className="page-container">
+      {notificationStatus === 'denied' && !dismissedNotifBanner && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex items-center justify-between">
+          <p className="text-sm text-amber-700">Notifications are disabled. Enable them in browser settings for real-time attendance alerts.</p>
+          <button onClick={() => setDismissedNotifBanner(true)} className="text-amber-500 hover:text-amber-700 ml-2" aria-label="Dismiss">
+            <X size={16} />
+          </button>
+        </div>
+      )}
       <h1 className="text-2xl font-display font-bold text-gray-900 mb-4">Attendance</h1>
 
       {/* Work Mode Indicator */}
@@ -849,6 +793,7 @@ function AttendancePersonalView() {
 
                 <button
                   onClick={handleBreak}
+                  aria-label={today.isOnBreak ? 'End break' : 'Start break'}
                   className={cn(
                     'w-full py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors',
                     today.isOnBreak
@@ -917,6 +862,7 @@ function AttendancePersonalView() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
+                aria-label="Previous month"
                 className="p-2 rounded-lg hover:bg-surface-2 transition-colors"
               >
                 <ChevronLeft size={18} />
@@ -929,6 +875,7 @@ function AttendancePersonalView() {
               </button>
               <button
                 onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
+                aria-label="Next month"
                 className="p-2 rounded-lg hover:bg-surface-2 transition-colors"
               >
                 <ChevronRight size={18} />

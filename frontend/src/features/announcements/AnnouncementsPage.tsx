@@ -57,14 +57,14 @@ export default function AnnouncementsPage() {
         </div>
       </div>
 
-      <div className="flex gap-1 bg-surface-2 rounded-lg p-1 w-fit mb-6">
-        <button onClick={() => setTab('announcements')}
+      <div role="tablist" className="flex gap-1 bg-surface-2 rounded-lg p-1 w-fit mb-6">
+        <button role="tab" aria-selected={tab === 'announcements'} onClick={() => setTab('announcements')}
           className={cn('px-4 py-2 rounded-md text-sm font-medium transition-colors',
             tab === 'announcements' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
           )}>
           <Megaphone size={14} className="inline mr-1.5 -mt-0.5" /> Announcements
         </button>
-        <button onClick={() => setTab('social')}
+        <button role="tab" aria-selected={tab === 'social'} onClick={() => setTab('social')}
           className={cn('px-4 py-2 rounded-md text-sm font-medium transition-colors',
             tab === 'social' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
           )}>
