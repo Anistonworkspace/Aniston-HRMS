@@ -147,7 +147,7 @@ export class AttendanceController {
   async markAttendance(req: Request, res: Response, next: NextFunction) {
     try {
       const data = markAttendanceSchema.parse(req.body);
-      const record = await attendanceService.markAttendance(data, req.user!.userId);
+      const record = await attendanceService.markAttendance(data, req.user!.userId, req.user!.organizationId);
       res.status(201).json({ success: true, data: record, message: 'Attendance marked successfully' });
     } catch (err) { next(err); }
   }

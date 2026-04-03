@@ -2,11 +2,48 @@ import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { emitToOrg } from '../../sockets/index.js';
 import { enqueueEmail } from '../../jobs/queues.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
+import { logger } from '../../lib/logger.js';
 import type { ClockInInput, ClockOutInput, GPSTrailBatchInput, AttendanceQuery, MarkAttendanceInput } from './attendance.validation.js';
 
+// ============================
+// IST Timezone Helpers
+// ============================
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/** Get current time in IST */
+function getISTNow(): Date {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  return new Date(utc + IST_OFFSET_MS);
+}
+
+/** Get IST today at midnight (for date-only comparisons) */
+function getISTToday(): Date {
+  const ist = getISTNow();
+  ist.setHours(0, 0, 0, 0);
+  return ist;
+}
+
+/** Get IST yesterday at midnight */
+function getISTYesterday(): Date {
+  const d = getISTToday();
+  d.setDate(d.getDate() - 1);
+  return d;
+}
+
 export class AttendanceService {
+  // ===================== EDGE CASE CONSTANTS =====================
+  private readonly MAX_RECLOCKIN_PER_DAY = 3;
+  private readonly EARLY_CLOCKIN_WARNING_MINUTES = 120; // warn if >2h before shift
+  private readonly LATE_CLOCKOUT_FLAG_MINUTES = 120;    // flag if >2h after shift
+  private readonly MAX_BREAK_PERCENT = 50;              // breaks can't exceed 50% of shift
+  private readonly GPS_SPOOF_DISTANCE_M = 10000;        // 10km
+  private readonly GPS_SPOOF_TIME_MINUTES = 5;          // within 5 minutes
+  private readonly OVERTIME_FLAG_EXTRA_HOURS = 2;       // flag if totalHours > fullDay + 2
+
   /**
-   * Clock in — handles all 3 work modes
+   * Clock in — handles all 3 work modes with comprehensive edge case handling
    */
   async clockIn(employeeId: string, data: ClockInInput, organizationId: string) {
     const employee = await prisma.employee.findFirst({
@@ -15,8 +52,38 @@ export class AttendanceService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getISTToday();
+    const now = getISTNow();
+
+    // ===== PHASE 3: Block clock-in on approved leave =====
+    const leaveToday = await prisma.leaveRequest.findFirst({
+      where: {
+        employeeId,
+        status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
+        startDate: { lte: today },
+        endDate: { gte: today },
+      },
+    });
+    if (leaveToday) {
+      throw new BadRequestError('Cannot clock in: you have approved leave for today. Cancel your leave first if you need to work.');
+    }
+
+    // ===== PHASE 3: Block/warn clock-in on holidays =====
+    const holiday = await prisma.holiday.findFirst({
+      where: { organizationId, date: today },
+    });
+    if (holiday && !holiday.isOptional) {
+      throw new BadRequestError(`Cannot clock in: today is a holiday (${holiday.name}). Contact HR if you need to work.`);
+    }
+    if (holiday?.isOptional) {
+      data.notes = `${data.notes || ''} [Working on optional holiday: ${holiday.name}]`.trim();
+    }
+
+    // ===== PHASE 3: Warn on weekend clock-in =====
+    const dayOfWeek = today.getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      data.notes = `${data.notes || ''} [Weekend clock-in: ${dayOfWeek === 0 ? 'Sunday' : 'Saturday'}]`.trim();
+    }
 
     // Check if already clocked in today
     const existing = await prisma.attendanceRecord.findUnique({
@@ -29,6 +96,11 @@ export class AttendanceService {
 
     // Allow re-clock-in after clock-out (e.g., accidental clock-out or returning after break)
     const isReClockIn = !!(existing?.checkOut);
+
+    // ===== PHASE 1: Re-clock-in limit =====
+    if (isReClockIn && existing && existing.clockInCount >= this.MAX_RECLOCKIN_PER_DAY) {
+      throw new BadRequestError(`Maximum re-clock-in limit (${this.MAX_RECLOCKIN_PER_DAY}) reached for today. Please contact HR for manual attendance.`);
+    }
 
     // Check shift assignment — employee must have a shift assigned (or use org default)
     const shiftAssignment = await prisma.shiftAssignment.findFirst({
@@ -49,6 +121,15 @@ export class AttendanceService {
     }
 
     const currentShiftType = shift?.shiftType || 'OFFICE';
+
+    // ===== PHASE 1.4: GPS spoofing detection =====
+    if (data.latitude && data.longitude) {
+      const spoofResult = await this.detectGPSSpoofing(employeeId, data.latitude, data.longitude);
+      if (spoofResult.spoofing) {
+        data.notes = `${data.notes || ''} [GPS SPOOF WARNING: ${spoofResult.distance}m jump in ${spoofResult.timeDiff}min]`.trim();
+        logger.warn(`GPS spoofing detected for employee ${employeeId}: ${spoofResult.distance}m in ${spoofResult.timeDiff}min`);
+      }
+    }
 
     // Use shift assignment's location geofence, or fall back to employee's office location geofence
     const geofence = shiftAssignment?.location?.geofence || employee.officeLocation?.geofence;
@@ -101,7 +182,6 @@ export class AttendanceService {
       }
     }
 
-    const now = new Date();
     const locationData = data.latitude && data.longitude
       ? { lat: data.latitude, lng: data.longitude, accuracy: data.accuracy }
       : null;
@@ -118,6 +198,16 @@ export class AttendanceService {
       shiftStart.setHours(shiftHour, shiftMin, 0, 0);
       const graceEnd = new Date(shiftStart);
       graceEnd.setMinutes(graceEnd.getMinutes() + graceMinutes);
+
+      // ===== PHASE 3: Early clock-in warning =====
+      if (!isReClockIn) {
+        const earlyThreshold = new Date(shiftStart);
+        earlyThreshold.setMinutes(earlyThreshold.getMinutes() - this.EARLY_CLOCKIN_WARNING_MINUTES);
+        if (now < earlyThreshold) {
+          const earlyMin = Math.round((shiftStart.getTime() - now.getTime()) / 60000);
+          data.notes = `${data.notes || ''} [Early clock-in: ${earlyMin} min before shift start ${shift.startTime}]`.trim();
+        }
+      }
 
       // Only check late on first clock-in, not re-clock-in
       if (!isReClockIn && now > graceEnd) {
@@ -150,17 +240,33 @@ export class AttendanceService {
     let record;
 
     if (isReClockIn && existing) {
-      // Re-clock-in: clear checkOut, keep original checkIn, update notes
+      // ===== PHASE 2: Log the gap for accurate totalHours calculation =====
+      const gapStart = existing.checkOut ? new Date(existing.checkOut).toISOString() : '';
+      const gapEnd = now.toISOString();
+
+      // ===== PHASE 2: Preserve auto-HALF_DAY status (don't reset to PRESENT if late) =====
+      const preservedStatus = existing.status === 'HALF_DAY' ? 'HALF_DAY' : 'PRESENT';
+
       const reClockInNotes = `${existing.notes || ''} [Re-clocked in at ${now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}]`.trim();
       record = await prisma.attendanceRecord.update({
         where: { id: existing.id },
         data: {
           checkOut: null,
           totalHours: null,
-          status: 'PRESENT',
+          status: preservedStatus,
           notes: reClockInNotes,
           geofenceViolation: existing.geofenceViolation || geofenceViolation,
           clockInCount: { increment: 1 },
+        },
+      });
+
+      // Log the gap period for accurate totalHours calculation later
+      await prisma.attendanceLog.create({
+        data: {
+          attendanceId: record.id,
+          action: 'GAP_PERIOD',
+          timestamp: now,
+          notes: `Gap: ${gapStart} to ${gapEnd}`,
         },
       });
     } else {
@@ -225,35 +331,65 @@ export class AttendanceService {
       isReClockIn, geofenceViolation,
     });
 
+    // ===== Audit log =====
+    try {
+      await createAuditLog({
+        userId: employeeId,
+        organizationId,
+        entity: 'AttendanceRecord',
+        entityId: record.id,
+        action: isReClockIn ? 'RE_CLOCK_IN' : 'CLOCK_IN',
+        newValue: { status: record.status, isLate, lateMinutes, geofenceViolation, clockInCount: record.clockInCount },
+      });
+    } catch { /* non-blocking */ }
+
     return { ...record, isLate, lateMinutes, shift: shiftInfo, isReClockIn, geofenceViolation };
   }
 
   /**
-   * Clock out
+   * Clock out — with previous-day and night shift support
    */
   async clockOut(employeeId: string, data: ClockOutInput) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getISTToday();
+    const now = getISTNow();
 
-    const record = await prisma.attendanceRecord.findUnique({
+    // ===== PHASE 1: Check today first, then yesterday (forgot to clock out / night shift) =====
+    let record = await prisma.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId, date: today } },
     });
 
-    if (!record) {
-      throw new BadRequestError('No clock-in found for today. Please clock in first.');
+    let isPreviousDayClockOut = false;
+
+    if (!record || record.checkOut) {
+      // No record today or already clocked out today — check yesterday's open record
+      const yesterday = getISTYesterday();
+      const yesterdayRecord = await prisma.attendanceRecord.findUnique({
+        where: { employeeId_date: { employeeId, date: yesterday } },
+      });
+
+      if (yesterdayRecord && !yesterdayRecord.checkOut) {
+        record = yesterdayRecord;
+        isPreviousDayClockOut = true;
+      } else if (!record) {
+        throw new BadRequestError('No clock-in found for today or yesterday. Please clock in first.');
+      } else {
+        throw new BadRequestError('Already clocked out for today.');
+      }
     }
 
     if (record.checkOut) {
-      throw new BadRequestError('Already clocked out for today.');
+      throw new BadRequestError('Already clocked out.');
     }
 
-    const now = new Date();
     const checkIn = new Date(record.checkIn!);
-    const totalHours = (now.getTime() - checkIn.getTime()) / (1000 * 60 * 60);
+
+    // ===== PHASE 2: Calculate accurate totalHours (subtract gap periods) =====
+    const totalHours = await this.calculateAccurateTotalHours(record.id, checkIn, now);
 
     // Get employee's shift for shift-aware status calculation
+    const recordDate = new Date(record.date);
     const shiftAssignment = await prisma.shiftAssignment.findFirst({
-      where: { employeeId, startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+      where: { employeeId, startDate: { lte: recordDate }, OR: [{ endDate: null }, { endDate: { gte: recordDate } }] },
       include: { shift: true },
       orderBy: { startDate: 'desc' },
     });
@@ -271,6 +407,11 @@ export class AttendanceService {
     // Early checkout detection
     let isEarlyCheckout = false;
     let earlyMinutes = 0;
+    // ===== PHASE 2: Late clock-out flagging =====
+    let isLateClockout = false;
+    let lateClockoutMinutes = 0;
+    let overtimeFlag = false;
+
     if (shift) {
       const [endHour, endMin] = shift.endTime.split(':').map(Number);
       const shiftEnd = new Date(now);
@@ -282,7 +423,17 @@ export class AttendanceService {
       if (now < shiftEnd) {
         isEarlyCheckout = true;
         earlyMinutes = Math.round((shiftEnd.getTime() - now.getTime()) / (1000 * 60));
+      } else {
+        lateClockoutMinutes = Math.round((now.getTime() - shiftEnd.getTime()) / (1000 * 60));
+        if (lateClockoutMinutes > this.LATE_CLOCKOUT_FLAG_MINUTES) {
+          isLateClockout = true;
+        }
       }
+    }
+
+    // ===== PHASE 2: Flag excessive hours =====
+    if (totalHours > fullDayHours + this.OVERTIME_FLAG_EXTRA_HOURS) {
+      overtimeFlag = true;
     }
 
     const locationData = data.latitude && data.longitude
@@ -290,8 +441,17 @@ export class AttendanceService {
       : null;
 
     let notes = record.notes || '';
+    if (isPreviousDayClockOut) {
+      notes = `${notes} [Clock-out for previous day's record]`.trim();
+    }
     if (isEarlyCheckout && earlyMinutes > 15) {
       notes = `${notes} [Early checkout by ${earlyMinutes} min]`.trim();
+    }
+    if (isLateClockout) {
+      notes = `${notes} [Late clock-out: ${lateClockoutMinutes} min after shift end]`.trim();
+    }
+    if (overtimeFlag) {
+      notes = `${notes} [Overtime flagged: ${totalHours.toFixed(1)}h, max expected ${fullDayHours + this.OVERTIME_FLAG_EXTRA_HOURS}h]`.trim();
     }
 
     const updated = await prisma.attendanceRecord.update({
@@ -301,7 +461,7 @@ export class AttendanceService {
         totalHours: Math.round(totalHours * 100) / 100,
         status,
         checkOutLocation: locationData,
-        notes: notes || record.notes,
+        notes,
       },
     });
 
@@ -312,7 +472,11 @@ export class AttendanceService {
         action: 'CLOCK_OUT',
         timestamp: now,
         location: locationData,
-        notes: isEarlyCheckout && earlyMinutes > 15 ? `Early checkout by ${earlyMinutes} min` : null,
+        notes: [
+          isEarlyCheckout && earlyMinutes > 15 ? `Early checkout by ${earlyMinutes} min` : '',
+          isPreviousDayClockOut ? 'Previous day clock-out' : '',
+          isLateClockout ? `Late clock-out by ${lateClockoutMinutes} min` : '',
+        ].filter(Boolean).join('; ') || null,
         shiftName: shift?.name || null,
       },
     });
@@ -323,19 +487,30 @@ export class AttendanceService {
       emitToOrg(emp.organizationId, 'attendance:checkout', {
         employeeId, employeeName: `${emp.firstName} ${emp.lastName}`,
         checkOut: now.toISOString(), totalHours: Math.round(totalHours * 100) / 100,
-        status, isEarlyCheckout, earlyMinutes,
+        status, isEarlyCheckout, earlyMinutes, isPreviousDayClockOut,
       });
+
+      // ===== Audit log =====
+      try {
+        await createAuditLog({
+          userId: employeeId,
+          organizationId: emp.organizationId,
+          entity: 'AttendanceRecord',
+          entityId: record.id,
+          action: 'CLOCK_OUT',
+          newValue: { totalHours: Math.round(totalHours * 100) / 100, status, isEarlyCheckout, isPreviousDayClockOut, overtimeFlag },
+        });
+      } catch { /* non-blocking */ }
     }
 
-    return { ...updated, isEarlyCheckout, earlyMinutes };
+    return { ...updated, isEarlyCheckout, earlyMinutes, isPreviousDayClockOut, overtimeFlag };
   }
 
   /**
    * Get today's attendance status for an employee
    */
   async getTodayStatus(employeeId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getISTToday();
 
     const record = await prisma.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId, date: today } },
@@ -600,8 +775,7 @@ export class AttendanceService {
    * Record activity pulse (for hybrid/WFH session tracking)
    */
   async recordActivityPulse(employeeId: string, data: { isActive: boolean; tabVisible: boolean }) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getISTToday();
 
     const record = await prisma.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId, date: today } },
@@ -629,8 +803,7 @@ export class AttendanceService {
    * Start a break
    */
   async startBreak(employeeId: string, breakType: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getISTToday();
 
     const record = await prisma.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId, date: today } },
@@ -647,7 +820,16 @@ export class AttendanceService {
       throw new BadRequestError('Already on a break. Please end current break first.');
     }
 
-    const now = new Date();
+    // ===== PHASE 3: Break duration validation =====
+    const totalBreakMinutes = record.breaks
+      .filter((b: any) => b.endTime && b.durationMinutes)
+      .reduce((sum: number, b: any) => sum + (b.durationMinutes || 0), 0);
+    const maxBreakMinutes = Math.round(8 * 60 * this.MAX_BREAK_PERCENT / 100); // 50% of 8h = 240min
+    if (totalBreakMinutes >= maxBreakMinutes) {
+      throw new BadRequestError(`Total break time (${totalBreakMinutes} min) has reached the maximum (${maxBreakMinutes} min). Cannot start another break.`);
+    }
+
+    const now = getISTNow();
     const breakRecord = await prisma.break.create({
       data: {
         attendanceId: record.id,
@@ -673,8 +855,7 @@ export class AttendanceService {
    * End a break
    */
   async endBreak(employeeId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getISTToday();
 
     const record = await prisma.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId, date: today } },
@@ -688,7 +869,7 @@ export class AttendanceService {
       throw new BadRequestError('No active break to end.');
     }
 
-    const now = new Date();
+    const now = getISTNow();
     const duration = Math.round(
       (now.getTime() - new Date(activeBreak.startTime).getTime()) / (1000 * 60)
     );
@@ -715,8 +896,7 @@ export class AttendanceService {
    * Store GPS trail points (for FIELD_SALES employees)
    */
   async storeGPSTrail(employeeId: string, data: GPSTrailBatchInput) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getISTToday();
 
     const points = data.points.map((p) => ({
       employeeId,
@@ -767,6 +947,12 @@ export class AttendanceService {
       where: { id: attendanceId, employeeId },
     });
     if (!record) throw new NotFoundError('Attendance record');
+
+    // ===== PHASE 3: Block future date regularization =====
+    const today = getISTToday();
+    if (new Date(record.date) > today) {
+      throw new BadRequestError('Cannot submit regularization for future dates.');
+    }
 
     const existing = await prisma.attendanceRegularization.findUnique({
       where: { attendanceId },
@@ -975,9 +1161,14 @@ export class AttendanceService {
    * Mark attendance for a specific employee on a specific date (HR/Admin)
    * Creates or updates (upsert) an attendance record.
    */
-  async markAttendance(data: MarkAttendanceInput, markedBy: string) {
+  async markAttendance(data: MarkAttendanceInput, markedBy: string, organizationId?: string) {
     const employee = await prisma.employee.findUnique({ where: { id: data.employeeId } });
     if (!employee) throw new NotFoundError('Employee');
+
+    // ===== Multi-tenant validation =====
+    if (organizationId && employee.organizationId !== organizationId) {
+      throw new BadRequestError('Employee does not belong to your organization.');
+    }
 
     const date = new Date(data.date);
     date.setHours(0, 0, 0, 0);
@@ -1005,7 +1196,105 @@ export class AttendanceService {
       },
     });
 
+    // ===== Audit log for HR marking =====
+    try {
+      await createAuditLog({
+        userId: markedBy,
+        organizationId: employee.organizationId,
+        entity: 'AttendanceRecord',
+        entityId: record.id,
+        action: 'MARK_ATTENDANCE',
+        newValue: { status: data.status, date: data.date, source: 'MANUAL_HR' },
+      });
+    } catch { /* non-blocking */ }
+
     return record;
+  }
+
+  // ===================== PRIVATE HELPERS =====================
+
+  /**
+   * Calculate accurate total hours by subtracting gap periods and breaks
+   * Uses AttendanceLog entries to find gap periods between clock-out and re-clock-in
+   */
+  private async calculateAccurateTotalHours(recordId: string, checkIn: Date, checkOut: Date): Promise<number> {
+    const rawHours = (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60);
+
+    // Get gap periods from logs
+    const gapLogs = await prisma.attendanceLog.findMany({
+      where: { attendanceId: recordId, action: 'GAP_PERIOD' },
+      orderBy: { timestamp: 'asc' },
+    });
+
+    let totalGapMs = 0;
+    for (const gap of gapLogs) {
+      if (gap.notes) {
+        // Parse "Gap: <ISO> to <ISO>" format
+        const match = gap.notes.match(/Gap: (.+) to (.+)/);
+        if (match) {
+          const gapStart = new Date(match[1]);
+          const gapEnd = new Date(match[2]);
+          if (!isNaN(gapStart.getTime()) && !isNaN(gapEnd.getTime())) {
+            totalGapMs += gapEnd.getTime() - gapStart.getTime();
+          }
+        }
+      }
+    }
+
+    // Subtract break durations
+    const breaks = await prisma.break.findMany({
+      where: { attendanceId: recordId, endTime: { not: null } },
+    });
+    const totalBreakMs = breaks.reduce((sum, b) => sum + (b.durationMinutes || 0) * 60 * 1000, 0);
+
+    const accurateMs = (checkOut.getTime() - checkIn.getTime()) - totalGapMs - totalBreakMs;
+    const accurateHours = Math.max(0, accurateMs / (1000 * 60 * 60));
+
+    return Math.round(accurateHours * 100) / 100;
+  }
+
+  /**
+   * Detect GPS spoofing — flag if location jumps >10km in <5 minutes
+   */
+  private async detectGPSSpoofing(employeeId: string, lat: number, lng: number): Promise<{ spoofing: boolean; distance?: number; timeDiff?: number }> {
+    try {
+      const lastPoint = await prisma.gPSTrailPoint.findFirst({
+        where: { employeeId },
+        orderBy: { timestamp: 'desc' },
+      });
+
+      if (!lastPoint) {
+        // Also check last attendance log with location
+        const lastLog = await prisma.attendanceLog.findFirst({
+          where: { attendance: { employeeId }, location: { not: null } },
+          orderBy: { timestamp: 'desc' },
+        });
+        if (!lastLog?.location) return { spoofing: false };
+
+        const loc = lastLog.location as any;
+        if (!loc?.lat || !loc?.lng) return { spoofing: false };
+
+        const timeDiffMin = (Date.now() - new Date(lastLog.timestamp).getTime()) / (1000 * 60);
+        if (timeDiffMin > this.GPS_SPOOF_TIME_MINUTES) return { spoofing: false };
+
+        const distance = this.haversineDistance(loc.lat, loc.lng, lat, lng);
+        if (distance > this.GPS_SPOOF_DISTANCE_M) {
+          return { spoofing: true, distance: Math.round(distance), timeDiff: Math.round(timeDiffMin) };
+        }
+        return { spoofing: false };
+      }
+
+      const timeDiffMin = (Date.now() - new Date(lastPoint.timestamp).getTime()) / (1000 * 60);
+      if (timeDiffMin > this.GPS_SPOOF_TIME_MINUTES) return { spoofing: false };
+
+      const distance = this.haversineDistance(Number(lastPoint.lat), Number(lastPoint.lng), lat, lng);
+      if (distance > this.GPS_SPOOF_DISTANCE_M) {
+        return { spoofing: true, distance: Math.round(distance), timeDiff: Math.round(timeDiffMin) };
+      }
+      return { spoofing: false };
+    } catch {
+      return { spoofing: false }; // fail open
+    }
   }
 
   /**

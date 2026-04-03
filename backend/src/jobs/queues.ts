@@ -10,7 +10,31 @@ export const payrollQueue = new Queue('payroll-processing', connection);
 export const bulkResumeQueue = new Queue('bulk-resume', connection);
 export const documentOcrQueue = new Queue('document-ocr', connection);
 
+export const attendanceCronQueue = new Queue('attendance-cron', connection);
+
 logger.info('✅ BullMQ queues initialized');
+
+// Schedule attendance cron jobs (IST 23:59 = UTC 18:29, IST 00:04 = UTC 18:34)
+(async () => {
+  try {
+    // Remove old repeatable jobs to avoid duplicates on restart
+    const repeatableJobs = await attendanceCronQueue.getRepeatableJobs();
+    for (const job of repeatableJobs) {
+      await attendanceCronQueue.removeRepeatableByKey(job.key);
+    }
+    // Auto-close stale records at 23:59 IST daily
+    await attendanceCronQueue.add('auto-close-stale', {}, {
+      repeat: { cron: '29 18 * * *' }, // 18:29 UTC = 23:59 IST
+    });
+    // Auto-mark absent at 00:04 IST daily (for previous day)
+    await attendanceCronQueue.add('auto-mark-absent', {}, {
+      repeat: { cron: '34 18 * * *' }, // 18:34 UTC = 00:04 IST
+    });
+    logger.info('✅ Attendance cron jobs scheduled');
+  } catch (err) {
+    logger.warn('Failed to schedule attendance cron jobs:', err);
+  }
+})();
 
 // Helper to enqueue an email job
 export async function enqueueEmail(data: {

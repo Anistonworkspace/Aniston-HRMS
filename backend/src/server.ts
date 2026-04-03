@@ -6,6 +6,7 @@ import { prisma } from './lib/prisma.js';
 import { initSocketServer } from './sockets/index.js';
 import { startEmailWorker } from './jobs/workers/email.worker.js';
 import { startNotificationWorker } from './jobs/workers/notification.worker.js';
+import { startAttendanceCronWorker } from './jobs/workers/attendance-cron.worker.js';
 import { whatsAppService } from './modules/whatsapp/whatsapp.service.js';
 
 const server = createServer(app);
@@ -30,6 +31,8 @@ async function main() {
     logger.info('✅ Document OCR worker started');
     await import('./jobs/workers/document-digest.worker.js');
     logger.info('✅ Document digest worker started');
+    // Attendance cron worker (auto-close stale + auto-mark absent)
+    startAttendanceCronWorker();
 
     server.listen(env.PORT, () => {
       logger.info(`🚀 Aniston HRMS API running on port ${env.PORT}`);
