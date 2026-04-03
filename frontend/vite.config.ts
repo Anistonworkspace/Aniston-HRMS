@@ -37,6 +37,8 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         // Skip waiting so new SW activates immediately when user clicks update
         skipWaiting: false,
+        // Don't serve index.html for /uploads/ or /api/ — let the server handle these directly
+        navigateFallbackDenylist: [/^\/uploads\//, /^\/api\//],
         // Clear all runtime caches on new SW activation
         runtimeCaching: [
           {

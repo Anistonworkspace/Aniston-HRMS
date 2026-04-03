@@ -74,7 +74,7 @@ export const uploadImage = multer({
 export const uploadDocument = multer({
   storage,
   fileFilter: documentFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
 });
 
 export const uploadResume = multer({
@@ -83,10 +83,10 @@ export const uploadResume = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
 
-// Generic upload (any file type, 10MB limit)
+// Generic upload (any file type, 50MB limit)
 export const uploadAny = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
 });
 
 // Dynamic storage for walk-in uploads — creates uploads/walkin/{folder}/
@@ -103,7 +103,7 @@ export function createWalkInUpload(folderName: string) {
       },
     }),
     fileFilter: documentFilter,
-    limits: { fileSize: 10 * 1024 * 1024 },
+    limits: { fileSize: 50 * 1024 * 1024 },
   });
 }
 
@@ -122,7 +122,7 @@ export function createEmployeeUpload(empCode: string) {
       },
     }),
     fileFilter: documentFilter,
-    limits: { fileSize: 10 * 1024 * 1024 },
+    limits: { fileSize: 50 * 1024 * 1024 },
   });
 }
 
@@ -144,7 +144,7 @@ export function createEmployeeKycUpload(employeeId: string) {
         },
       }),
       fileFilter: documentFilter,
-      limits: { fileSize: 10 * 1024 * 1024 },
+      limits: { fileSize: 50 * 1024 * 1024 },
     }),
     photo: multer({
       storage: multer.diskStorage({

@@ -90,7 +90,7 @@ export function errorHandler(
   // Multer file upload errors (file too large, wrong type, etc.)
   if (err instanceof multer.MulterError) {
     const messages: Record<string, string> = {
-      LIMIT_FILE_SIZE: 'File is too large. Maximum size is 10MB.',
+      LIMIT_FILE_SIZE: 'File is too large. Maximum size is 50MB.',
       LIMIT_FILE_COUNT: 'Too many files uploaded.',
       LIMIT_FIELD_KEY: 'Field name is too long.',
       LIMIT_FIELD_VALUE: 'Field value is too long.',
