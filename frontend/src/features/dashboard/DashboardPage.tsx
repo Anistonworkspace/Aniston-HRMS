@@ -49,7 +49,11 @@ export default function DashboardPage() {
   );
   const myAttendance = myAttendanceRes?.data;
 
+  const [gettingGps, setGettingGps] = useState(false);
+
   const handleQuickCheckIn = async () => {
+    if (gettingGps || clockingIn || clockingOut) return;
+    setGettingGps(true);
     try {
       let coords: { latitude?: number; longitude?: number } = {};
       if (navigator.geolocation) {
@@ -60,6 +64,7 @@ export default function DashboardPage() {
           coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
         } catch { /* proceed without */ }
       }
+      setGettingGps(false);
       if (todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut) {
         await clockOut(coords).unwrap();
         toast.success('Checked out successfully!');
@@ -68,9 +73,12 @@ export default function DashboardPage() {
         toast.success(todayStatus?.isCheckedOut ? 'Re-checked in successfully!' : 'Checked in successfully!');
       }
     } catch (err: any) {
+      setGettingGps(false);
       toast.error(err?.data?.error?.message || 'Failed');
     }
   };
+
+  const isCheckingInOut = gettingGps || clockingIn || clockingOut;
 
   const greeting = () => {
     const hour = new Date().getHours();
@@ -257,17 +265,21 @@ export default function DashboardPage() {
               </div>
               <button
                 onClick={handleQuickCheckIn}
-                disabled={clockingIn || clockingOut}
-                className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors ${
-                  todayStatus.isCheckedIn && !todayStatus.isCheckedOut
+                disabled={isCheckingInOut}
+                className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-all active:scale-95 ${
+                  isCheckingInOut
+                    ? 'bg-brand-500 text-white animate-pulse'
+                    : todayStatus.isCheckedIn && !todayStatus.isCheckedOut
                     ? 'bg-red-500 hover:bg-red-600 text-white'
                     : todayStatus.isCheckedOut
                     ? 'bg-amber-500 hover:bg-amber-600 text-white'
                     : 'bg-emerald-500 hover:bg-emerald-600 text-white'
                 }`}
               >
-                {(clockingIn || clockingOut) ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
-                {todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'Check Out' : todayStatus.isCheckedOut ? 'Re-Check In' : 'Check In'}
+                {isCheckingInOut ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
+                {isCheckingInOut
+                  ? (gettingGps ? 'Getting GPS...' : 'Marking...')
+                  : todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'Check Out' : todayStatus.isCheckedOut ? 'Re-Check In' : 'Check In'}
               </button>
             </div>
           )}
