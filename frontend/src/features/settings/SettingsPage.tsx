@@ -1709,26 +1709,27 @@ function ApiIntegrationsTab() {
   }, [config]);
 
   const handleProviderChange = (p: string) => {
+    if (p === provider) return; // Don't reset if clicking same provider
     setProvider(p);
     const defaults = PROVIDER_DEFAULTS[p];
     if (defaults) setModelName(defaults.modelName);
     setBaseUrl('');
-    setApiKey('');
+    setApiKey(''); // Clear for new provider — user must enter key for new provider
     setTestResult(null);
   };
 
   const handleSave = async () => {
-    // Require API key for first-time setup
-    if (!config?.hasApiKey && !apiKey) {
+    // Require API key for first-time setup or if decrypt error
+    if ((!config?.hasApiKey || config?.decryptError) && !apiKey) {
       toast.error('Please enter an API key');
       return;
     }
     try {
       const body: any = { provider, modelName };
-      if (apiKey) body.apiKey = apiKey;
+      if (apiKey) body.apiKey = apiKey.trim(); // Trim whitespace from pasted keys
       if (provider === 'CUSTOM' && baseUrl) body.baseUrl = baseUrl;
       await saveConfig(body).unwrap();
-      toast.success('AI configuration saved');
+      toast.success(apiKey ? 'AI configuration saved with new API key' : 'AI configuration updated');
       setApiKey('');
       setTestResult(null);
     } catch (err: any) {
@@ -1810,7 +1811,21 @@ function ApiIntegrationsTab() {
               />
               <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
             </div>
-            <p className="text-xs text-gray-400 mt-1">Your key is encrypted with AES-256-GCM before storage. Leave blank to keep existing key.</p>
+            {config?.hasApiKey && !apiKey && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <CheckCircle2 size={12} className="text-green-500" />
+                <p className="text-xs text-green-600 font-medium">API key is saved and encrypted. Leave blank to keep it, or enter a new key to replace.</p>
+              </div>
+            )}
+            {config?.decryptError && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <AlertTriangle size={12} className="text-red-500" />
+                <p className="text-xs text-red-600 font-medium">Saved key could not be read. Please re-enter your API key.</p>
+              </div>
+            )}
+            {!config?.hasApiKey && !config?.decryptError && (
+              <p className="text-xs text-gray-400 mt-1">Your key is encrypted with AES-256-GCM before storage.</p>
+            )}
           </div>
 
           {/* Base URL (only for CUSTOM) */}

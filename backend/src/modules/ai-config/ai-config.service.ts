@@ -3,11 +3,12 @@ import { redis } from '../../lib/redis.js';
 import { encrypt, decrypt } from '../../utils/encryption.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { BadRequestError } from '../../middleware/errorHandler.js';
+import { logger } from '../../lib/logger.js';
 import type { AiProvider } from '@prisma/client';
 import type { UpsertAiConfigInput } from './ai-config.validation.js';
 
 const CACHE_KEY_PREFIX = 'ai-config:';
-const CACHE_TTL = 60; // 60 seconds
+const CACHE_TTL = 3600; // 1 hour (increased from 60s to reduce decrypt overhead)
 
 /**
  * AiConfigService — manages per-org AI provider configuration.
@@ -52,16 +53,23 @@ export class AiConfigService {
     // Mask the API key — show only last 4 characters
     let maskedKey = '••••••••';
     let hasApiKey = false;
-    try {
-      const raw = decrypt(config.apiKeyEncrypted);
-      if (raw && raw.length > 0) {
-        hasApiKey = true;
-        if (raw.length > 4) {
-          maskedKey = '••••••••' + raw.slice(-4);
+    let decryptError = false;
+
+    if (config.apiKeyEncrypted) {
+      try {
+        const raw = decrypt(config.apiKeyEncrypted);
+        if (raw && raw.length > 0) {
+          hasApiKey = true;
+          if (raw.length > 4) {
+            maskedKey = '••••••••' + raw.slice(-4);
+          }
         }
+      } catch (err) {
+        // Key exists in DB but can't be decrypted — log this critical error
+        logger.error(`[AI Config] Failed to decrypt API key for org ${organizationId}, config ${config.id}: ${(err as Error).message}`);
+        decryptError = true;
+        hasApiKey = false;
       }
-    } catch {
-      // If decryption fails, keep default mask
     }
 
     return {
@@ -69,6 +77,7 @@ export class AiConfigService {
       provider: config.provider,
       apiKeyMasked: maskedKey,
       hasApiKey,
+      decryptError,
       baseUrl: config.baseUrl,
       modelName: config.modelName,
       isActive: config.isActive,
@@ -100,14 +109,48 @@ export class AiConfigService {
     let apiKeyEncrypted: string;
     if (apiKey) {
       apiKeyEncrypted = encrypt(apiKey);
+      // Verify encryption round-trip — decrypt immediately to ensure key is recoverable
+      try {
+        const verified = decrypt(apiKeyEncrypted);
+        if (verified !== apiKey) {
+          logger.error(`[AI Config] Encryption round-trip verification FAILED for org ${organizationId}`);
+          throw new BadRequestError('Failed to securely store API key. Please try again.');
+        }
+      } catch (err) {
+        if (err instanceof BadRequestError) throw err;
+        logger.error(`[AI Config] Encryption verification error for org ${organizationId}: ${(err as Error).message}`);
+        throw new BadRequestError('Failed to encrypt API key. Please contact support.');
+      }
     } else {
+      // Try to find existing key: first by same provider, then ANY active config for this org
       const existing = await prisma.aiApiConfig.findFirst({
         where: { organizationId, provider: provider as AiProvider },
       });
-      if (!existing) {
-        throw new BadRequestError('API key is required for a new configuration');
+      if (existing?.apiKeyEncrypted) {
+        // Verify the existing key can still be decrypted
+        try {
+          decrypt(existing.apiKeyEncrypted);
+          apiKeyEncrypted = existing.apiKeyEncrypted;
+        } catch {
+          logger.error(`[AI Config] Existing key for ${provider} cannot be decrypted for org ${organizationId}. User must re-enter key.`);
+          throw new BadRequestError('Your saved API key could not be read. Please re-enter your API key.');
+        }
+      } else {
+        // Fallback: check if ANY active config has a key (user might be switching providers)
+        const anyActive = await prisma.aiApiConfig.findFirst({
+          where: { organizationId, isActive: true },
+        });
+        if (anyActive?.apiKeyEncrypted) {
+          try {
+            decrypt(anyActive.apiKeyEncrypted);
+            apiKeyEncrypted = anyActive.apiKeyEncrypted;
+          } catch {
+            throw new BadRequestError('API key is required. Please enter your API key.');
+          }
+        } else {
+          throw new BadRequestError('API key is required for a new configuration');
+        }
       }
-      apiKeyEncrypted = existing.apiKeyEncrypted;
     }
 
     // Atomic: deactivate all + upsert active config
@@ -246,14 +289,23 @@ export class AiConfigService {
 
     if (!config) return null;
 
+    let apiKey: string;
+    try {
+      apiKey = decrypt(config.apiKeyEncrypted);
+    } catch (err) {
+      logger.error(`[AI Config] Failed to decrypt active config for org ${organizationId}: ${(err as Error).message}`);
+      return null;
+    }
+
+    if (!apiKey) return null;
+
     const raw = {
       provider: config.provider,
-      apiKey: decrypt(config.apiKeyEncrypted),
+      apiKey,
       baseUrl: config.baseUrl,
       modelName: config.modelName,
     };
 
-    // Cache for 60 seconds
     await redis.setex(`${CACHE_KEY_PREFIX}${organizationId}`, CACHE_TTL, JSON.stringify(raw));
 
     return raw;
