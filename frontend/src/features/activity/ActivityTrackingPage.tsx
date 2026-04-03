@@ -20,13 +20,8 @@ export default function ActivityTrackingPage() {
   const { data: empRes, isLoading: loadingEmps } = useGetEmployeesQuery({ page: 1, limit: 100 });
   const employees = empRes?.data || [];
 
-  // Filter to HYBRID/OFFICE employees (the ones with agent tracking)
-  const trackableEmployees = useMemo(() => {
-    return employees.filter((e: any) => {
-      const mode = e.workMode || 'OFFICE';
-      return mode === 'HYBRID' || mode === 'OFFICE';
-    });
-  }, [employees]);
+  // All employees are trackable (enterprise agent setup)
+  const trackableEmployees = employees;
 
   const filteredEmployees = useMemo(() => {
     if (!searchQuery.trim()) return trackableEmployees;

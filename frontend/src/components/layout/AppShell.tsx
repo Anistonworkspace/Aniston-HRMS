@@ -5,7 +5,7 @@ import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import MobileBottomNav from './MobileBottomNav';
 import ActivityCheckInPrompt from '../ActivityCheckInPrompt';
-import AgentDownloadBanner from '../AgentDownloadBanner';
+// AgentDownloadBanner removed — agent setup is now admin-only via Settings > Agent Setup
 import useActivityTracker from '../../hooks/useActivityTracker';
 import { useAppSelector } from '../../app/store';
 import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
@@ -50,7 +50,6 @@ export default function AppShell() {
               <p className="text-xs text-amber-700">You are in <strong>limited access mode</strong>. Only specific features are available. Contact HR for details.</p>
             </div>
           )}
-          <AgentDownloadBanner />
           <motion.div
             key={location.pathname}
             initial={{ opacity: 0, y: 8 }}

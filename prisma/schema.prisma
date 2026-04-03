@@ -118,6 +118,10 @@ model Employee {
   // Onboarding
   onboardingComplete Boolean   @default(false)
 
+  // Agent pairing (permanent code for desktop activity agent)
+  agentPairingCode   String?   @unique
+  agentPairedAt      DateTime?
+
   // System accounts (superadmin, hr, admin) — not counted as employees
   isSystemAccount    Boolean   @default(false)
 

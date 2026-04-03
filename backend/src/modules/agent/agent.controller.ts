@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { agentService } from './agent.service.js';
-import { heartbeatSchema, screenshotMetadataSchema } from './agent.validation.js';
+import { heartbeatSchema, screenshotMetadataSchema, generateCodeSchema } from './agent.validation.js';
 
 export class AgentController {
   async submitHeartbeat(req: Request, res: Response, next: NextFunction) {
@@ -104,6 +104,38 @@ export class AgentController {
       const { code } = req.body;
       if (!code) return res.status(400).json({ success: false, error: { message: 'Pairing code is required' } });
       const result = await agentService.verifyPairCode(code);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  // ===== Enterprise Agent Setup (Admin) =====
+
+  async getAgentSetupList(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employees = await agentService.getEmployeesWithAgentStatus(req.user!.organizationId);
+      res.json({ success: true, data: employees });
+    } catch (err) { next(err); }
+  }
+
+  async generateSetupCode(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId } = generateCodeSchema.parse(req.body);
+      const result = await agentService.generatePermanentCode(employeeId, req.user!.organizationId, req.user!.userId);
+      res.status(201).json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async regenerateSetupCode(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId } = generateCodeSchema.parse(req.body);
+      const result = await agentService.regenerateCode(employeeId, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async bulkGenerateCodes(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await agentService.bulkGenerateCodes(req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }

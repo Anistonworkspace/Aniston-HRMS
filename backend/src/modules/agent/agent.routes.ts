@@ -24,6 +24,13 @@ router.get('/status', (req, res, next) => agentController.getStatus(req, res, ne
 router.post('/live-mode', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.setLiveMode(req, res, next));
 router.get('/live-mode/:employeeId', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.getLiveMode(req, res, next));
 
+// Enterprise Agent Setup (Admin/HR)
+const setupAuth = authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR);
+router.get('/setup/employees', setupAuth, (req, res, next) => agentController.getAgentSetupList(req, res, next));
+router.post('/setup/generate-code', setupAuth, (req, res, next) => agentController.generateSetupCode(req, res, next));
+router.post('/setup/regenerate-code', setupAuth, (req, res, next) => agentController.regenerateSetupCode(req, res, next));
+router.post('/setup/bulk-generate', setupAuth, (req, res, next) => agentController.bulkGenerateCodes(req, res, next));
+
 // HR/Admin view endpoints
 router.get(
   '/activity/:employeeId/:date',

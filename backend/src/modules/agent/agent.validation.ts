@@ -23,6 +23,12 @@ export const screenshotMetadataSchema = z.object({
   timestamp: z.string().optional(),
 });
 
+// Agent setup (admin)
+export const generateCodeSchema = z.object({
+  employeeId: z.string().uuid(),
+});
+
 export type ActivityEntry = z.infer<typeof activityEntrySchema>;
 export type HeartbeatInput = z.infer<typeof heartbeatSchema>;
 export type ScreenshotMetadata = z.infer<typeof screenshotMetadataSchema>;
+export type GenerateCodeInput = z.infer<typeof generateCodeSchema>;

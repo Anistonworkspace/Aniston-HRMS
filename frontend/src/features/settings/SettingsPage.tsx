@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen } from 'lucide-react';
+import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -12,7 +12,7 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation } from './settingsApi';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation } from './settingsApi';
 import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
 import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useRefreshWhatsAppQrMutation, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation, useGetWhatsAppContactsQuery, useGetWhatsAppMessagesQuery } from '../whatsapp/whatsappApi';
@@ -22,7 +22,7 @@ import toast from 'react-hot-toast';
 import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
 import { useGetKnowledgeBaseQuery, useAddKnowledgeDocMutation, useDeleteKnowledgeDocMutation } from '../ai-assistant/aiAssistantApi';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'audit' | 'system';
+type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>(() => {
@@ -44,6 +44,7 @@ export default function SettingsPage() {
     { key: 'salary-privacy', label: 'Salary Privacy', icon: Lock },
     { key: 'api-integration', label: 'API Integration', icon: ExternalLink },
     { key: 'ai-config', label: 'AI API Config', icon: Cpu },
+    { key: 'agent-setup', label: 'Agent Setup', icon: Monitor },
     { key: 'audit', label: 'Audit Logs', icon: Shield },
     { key: 'system', label: 'System', icon: Server },
   ];
@@ -84,6 +85,7 @@ export default function SettingsPage() {
             {activeTab === 'salary-privacy' && <SalaryPrivacyTab />}
             {activeTab === 'api-integration' && <ExternalApiIntegrationTab />}
             {activeTab === 'ai-config' && <ApiIntegrationsTab />}
+            {activeTab === 'agent-setup' && <AgentSetupTab />}
             {activeTab === 'audit' && <AuditLogs />}
             {activeTab === 'system' && <SystemInfo />}
           </div>
@@ -2018,6 +2020,243 @@ function KnowledgeBaseSection() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ===== AGENT SETUP TAB ===== */
+function AgentSetupTab() {
+  const { data: res, isLoading } = useGetAgentSetupListQuery();
+  const [generateCode, { isLoading: generating }] = useGenerateAgentCodeMutation();
+  const [regenerateCode, { isLoading: regenerating }] = useRegenerateAgentCodeMutation();
+  const [bulkGenerate, { isLoading: bulkGenerating }] = useBulkGenerateAgentCodesMutation();
+  const [search, setSearch] = useState('');
+  const [liveStatuses, setLiveStatuses] = useState<Record<string, { isActive: boolean; lastHeartbeat: string }>>({});
+
+  const employees: any[] = res?.data || [];
+
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+  const downloadUrl = `${apiUrl.replace('/api', '')}/uploads/agent/aniston-agent.exe`;
+
+  // Real-time socket updates
+  useEffect(() => {
+    const handler = (data: any) => {
+      if (data?.employeeId) {
+        setLiveStatuses(prev => ({
+          ...prev,
+          [data.employeeId]: { isActive: true, lastHeartbeat: data.timestamp || new Date().toISOString() },
+        }));
+      }
+    };
+    onSocketEvent('agent:heartbeat', handler);
+    return () => { offSocketEvent('agent:heartbeat', handler); };
+  }, []);
+
+  // Auto-fade: mark as disconnected if no heartbeat in 2 min
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const twoMinAgo = Date.now() - 2 * 60 * 1000;
+      setLiveStatuses(prev => {
+        const next = { ...prev };
+        for (const [id, status] of Object.entries(next)) {
+          if (status.isActive && new Date(status.lastHeartbeat).getTime() < twoMinAgo) {
+            next[id] = { ...status, isActive: false };
+          }
+        }
+        return next;
+      });
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const getStatus = (emp: any) => {
+    const live = liveStatuses[emp.id];
+    if (live) return live;
+    return emp.agentStatus || { isActive: false, lastHeartbeat: null };
+  };
+
+  const filtered = employees.filter((e: any) => {
+    if (!search) return true;
+    return `${e.firstName} ${e.lastName} ${e.employeeCode} ${e.email || ''}`.toLowerCase().includes(search.toLowerCase());
+  });
+
+  const connectedCount = employees.filter(e => getStatus(e).isActive).length;
+  const withCodeCount = employees.filter(e => !!e.agentPairingCode).length;
+
+  const handleGenerate = async (employeeId: string) => {
+    try {
+      const result = await generateCode({ employeeId }).unwrap();
+      const code = result?.data?.code;
+      if (code) {
+        navigator.clipboard.writeText(code).catch(() => {});
+        toast.success(`Code generated: ${code} (copied to clipboard)`);
+      }
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  const handleRegenerate = async (employeeId: string) => {
+    if (!confirm('This will invalidate the old code. The agent on this employee\'s machine will need to be reconfigured. Continue?')) return;
+    try {
+      const result = await regenerateCode({ employeeId }).unwrap();
+      const code = result?.data?.code;
+      if (code) {
+        navigator.clipboard.writeText(code).catch(() => {});
+        toast.success(`New code: ${code} (copied to clipboard)`);
+      }
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  const handleBulkGenerate = async () => {
+    if (!confirm(`Generate codes for all ${employees.length - withCodeCount} employees without a code?`)) return;
+    try {
+      const result = await bulkGenerate().unwrap();
+      toast.success(`Generated ${result?.data?.generated || 0} codes`);
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  };
+
+  const copyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    toast.success('Code copied to clipboard');
+  };
+
+  const relativeTime = (dateStr: string | null) => {
+    if (!dateStr) return '—';
+    const diff = Date.now() - new Date(dateStr).getTime();
+    if (diff < 60000) return 'Just now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)} min ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  };
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-brand-600" size={32} /></div>;
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="layer-card p-5">
+        <div className="flex items-center justify-between mb-1">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2"><Monitor size={20} className="text-brand-600" /> Agent Setup</h3>
+            <p className="text-sm text-gray-500 mt-0.5">Generate permanent pairing codes and deploy the desktop agent to employee machines.</p>
+          </div>
+          <a href={downloadUrl} download className="btn-primary text-sm flex items-center gap-1.5">
+            <Download size={14} /> Download Agent (.exe)
+          </a>
+        </div>
+      </div>
+
+      {/* Summary + Search + Bulk */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-4">
+          <div className="relative flex-1 min-w-[260px]">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employees..."
+              className="input-glass w-full pl-10 text-sm" />
+          </div>
+          <div className="flex items-center gap-3 text-xs text-gray-500 whitespace-nowrap">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> {connectedCount} connected</span>
+            <span>{withCodeCount} with code</span>
+            <span>{employees.length} total</span>
+          </div>
+        </div>
+        {employees.length - withCodeCount > 0 && (
+          <button onClick={handleBulkGenerate} disabled={bulkGenerating}
+            className="btn-secondary text-xs flex items-center gap-1.5 whitespace-nowrap">
+            {bulkGenerating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+            Generate All Codes ({employees.length - withCodeCount})
+          </button>
+        )}
+      </div>
+
+      {/* Employee Table */}
+      <div className="layer-card overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100">
+              <th className="text-left p-3 text-xs text-gray-500 font-medium">Employee</th>
+              <th className="text-left p-3 text-xs text-gray-500 font-medium">Department</th>
+              <th className="text-left p-3 text-xs text-gray-500 font-medium">Agent Code</th>
+              <th className="text-left p-3 text-xs text-gray-500 font-medium">Status</th>
+              <th className="text-left p-3 text-xs text-gray-500 font-medium">Last Seen</th>
+              <th className="text-left p-3 text-xs text-gray-500 font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((emp: any) => {
+              const status = getStatus(emp);
+              return (
+                <tr key={emp.id} className="border-b border-gray-50 hover:bg-surface-2">
+                  <td className="p-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-semibold flex-shrink-0">
+                        {emp.avatar ? <img src={emp.avatar} alt="" className="w-full h-full rounded-full object-cover" /> : getInitials(`${emp.firstName} ${emp.lastName}`)}
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-800 text-sm">{emp.firstName} {emp.lastName}</p>
+                        <p className="text-[11px] text-gray-400">{emp.employeeCode} · {emp.email}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="p-3 text-xs text-gray-500">{emp.department || '—'}</td>
+                  <td className="p-3">
+                    {emp.agentPairingCode ? (
+                      <div className="flex items-center gap-1.5">
+                        <code className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-700 select-all" data-mono>{emp.agentPairingCode}</code>
+                        <button onClick={() => copyCode(emp.agentPairingCode)} className="text-gray-400 hover:text-brand-600 p-0.5" title="Copy code">
+                          <Copy size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-300">No code</span>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className={cn('w-2 h-2 rounded-full', status.isActive ? 'bg-green-500 animate-pulse' : emp.agentPairedAt ? 'bg-red-400' : 'bg-gray-300')} />
+                      <span className={cn('text-xs font-medium', status.isActive ? 'text-green-600' : emp.agentPairedAt ? 'text-red-500' : 'text-gray-400')}>
+                        {status.isActive ? 'Connected' : emp.agentPairedAt ? 'Disconnected' : 'Not paired'}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="p-3 text-xs text-gray-400">{relativeTime(status.lastHeartbeat)}</td>
+                  <td className="p-3">
+                    <div className="flex gap-1.5">
+                      {!emp.agentPairingCode ? (
+                        <button onClick={() => handleGenerate(emp.id)} disabled={generating}
+                          className="btn-primary text-[11px] py-1 px-2.5 flex items-center gap-1">
+                          {generating ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />} Generate Code
+                        </button>
+                      ) : (
+                        <button onClick={() => handleRegenerate(emp.id)} disabled={regenerating}
+                          className="text-[11px] py-1 px-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 flex items-center gap-1"
+                          title="Generate new code (invalidates old)">
+                          <RefreshCw size={10} /> Regenerate
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && (
+              <tr><td colSpan={6} className="p-8 text-center text-sm text-gray-400">No employees found</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Setup instructions */}
+      <div className="layer-card p-4 bg-blue-50/50 border border-blue-100">
+        <p className="text-sm text-blue-800 font-medium mb-1">How to set up an agent:</p>
+        <ol className="text-xs text-blue-700 space-y-0.5 list-decimal list-inside">
+          <li>Click "Generate Code" for the employee to get a permanent pairing code.</li>
+          <li>Download and install the agent (.exe) on the employee's computer.</li>
+          <li>Open the agent and paste the pairing code when prompted.</li>
+          <li>Once connected, the status will turn green and activity tracking begins automatically.</li>
+        </ol>
+      </div>
     </div>
   );
 }

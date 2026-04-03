@@ -64,6 +64,23 @@ export const settingsApi = api.injectEndpoints({
     testAdminNotificationEmail: builder.mutation<any, void>({
       query: () => ({ url: '/settings/organization/test-admin-email', method: 'POST' }),
     }),
+    // Agent Setup
+    getAgentSetupList: builder.query<any, void>({
+      query: () => '/agent/setup/employees',
+      providesTags: ['AgentSetup'],
+    }),
+    generateAgentCode: builder.mutation<any, { employeeId: string }>({
+      query: (body) => ({ url: '/agent/setup/generate-code', method: 'POST', body }),
+      invalidatesTags: ['AgentSetup'],
+    }),
+    regenerateAgentCode: builder.mutation<any, { employeeId: string }>({
+      query: (body) => ({ url: '/agent/setup/regenerate-code', method: 'POST', body }),
+      invalidatesTags: ['AgentSetup'],
+    }),
+    bulkGenerateAgentCodes: builder.mutation<any, void>({
+      query: () => ({ url: '/agent/setup/bulk-generate', method: 'POST' }),
+      invalidatesTags: ['AgentSetup'],
+    }),
   }),
 });
 
@@ -88,4 +105,8 @@ export const {
   useSaveAiConfigMutation,
   useTestAiConnectionMutation,
   useTestAdminNotificationEmailMutation,
+  useGetAgentSetupListQuery,
+  useGenerateAgentCodeMutation,
+  useRegenerateAgentCodeMutation,
+  useBulkGenerateAgentCodesMutation,
 } = settingsApi;

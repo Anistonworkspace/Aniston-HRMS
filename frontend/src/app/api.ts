@@ -83,6 +83,7 @@ export const api = createApi({
     'PermissionPresets',
     'PermissionOverrides',
     'MyPermissions',
+    'AgentSetup',
   ],
   endpoints: () => ({}),
 });
