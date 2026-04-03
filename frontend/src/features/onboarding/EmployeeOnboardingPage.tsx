@@ -3,26 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Check, ChevronRight, ChevronLeft, Loader2, PartyPopper, AlertTriangle,
-  User, FileText, Camera, Building2, Phone, ClipboardCheck
+  User, Phone, ClipboardCheck, Building2
 } from 'lucide-react';
 import { useGetMyOnboardingStatusQuery, useSaveMyStepMutation, useCompleteMyOnboardingMutation } from './onboardingApi';
-import { useAppDispatch } from '../../app/store';
-import { logout } from '../auth/authSlice';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
+// Only 3 steps — removed placeholder steps (Documents, Photo, Bank Details)
 const STEPS = [
   { num: 1, title: 'Personal Details', desc: 'Basic personal information', icon: User },
-  { num: 2, title: 'Documents', desc: 'Upload required documents', icon: FileText },
-  { num: 3, title: 'Photo', desc: 'Profile photo', icon: Camera },
-  { num: 4, title: 'Bank Details', desc: 'Salary account information', icon: Building2 },
-  { num: 5, title: 'Emergency Contact', desc: 'Emergency contact person', icon: Phone },
-  { num: 6, title: 'Review & Submit', desc: 'Confirm and complete', icon: ClipboardCheck },
+  { num: 2, title: 'Emergency Contact', desc: 'Emergency contact person', icon: Phone },
+  { num: 3, title: 'Review & Submit', desc: 'Confirm and complete', icon: ClipboardCheck },
 ];
 
 export default function EmployeeOnboardingPage() {
   const navigate = useNavigate();
-  const dispatch = useAppDispatch();
   const { data: statusRes, isLoading, isError, error, refetch } = useGetMyOnboardingStatusQuery();
   const [saveStep, { isLoading: saving }] = useSaveMyStepMutation();
   const [completeOnboarding, { isLoading: completing }] = useCompleteMyOnboardingMutation();
@@ -53,9 +48,9 @@ export default function EmployeeOnboardingPage() {
     }
   }, [status, navigate]);
 
-  const handleSaveStep = async (step: number, data: any) => {
+  const handleSaveStep = async (backendStep: number, data: any) => {
     try {
-      await saveStep({ step: step + 1, data }).unwrap(); // Backend steps are 2-indexed (1 was password)
+      await saveStep({ step: backendStep, data }).unwrap();
       toast.success('Saved!');
       setCurrentStep(s => Math.min(s + 1, STEPS.length));
       refetch();
@@ -69,12 +64,12 @@ export default function EmployeeOnboardingPage() {
       await completeOnboarding().unwrap();
       setCompleted(true);
       toast.success('Onboarding complete! Welcome aboard!');
-      // Wait briefly for the success screen to show, then redirect to login
+      // Clear token directly and hard redirect — no dispatch(logout()) to avoid
+      // ProtectedRoute race condition that causes blank page flash
       setTimeout(() => {
-        // Navigate first, then clear auth — prevents blank screen flash
-        dispatch(logout());
+        localStorage.removeItem('accessToken');
         window.location.href = '/login';
-      }, 2000);
+      }, 2500);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to complete onboarding');
     }
@@ -102,7 +97,6 @@ export default function EmployeeOnboardingPage() {
           </p>
           <div className="flex gap-3 justify-center">
             <button onClick={() => refetch()} className="btn-primary text-sm flex items-center gap-2">
-              <Loader2 size={14} className={isLoading ? 'animate-spin' : 'hidden'} />
               Try Again
             </button>
             <button onClick={() => navigate('/login', { replace: true })} className="text-sm text-gray-500 hover:text-gray-700 underline">
@@ -164,7 +158,7 @@ export default function EmployeeOnboardingPage() {
                   {isDone ? <Check size={16} /> : <Icon size={16} />}
                 </button>
                 {idx < STEPS.length - 1 && (
-                  <div className={cn('w-8 h-0.5 mx-1', isDone ? 'bg-green-500' : 'bg-gray-200')} />
+                  <div className={cn('w-12 h-0.5 mx-1', isDone ? 'bg-green-500' : 'bg-gray-200')} />
                 )}
               </div>
             );
@@ -255,35 +249,8 @@ export default function EmployeeOnboardingPage() {
                 </div>
               )}
 
-              {/* Step 2: Documents */}
+              {/* Step 2: Emergency Contact */}
               {currentStep === 2 && (
-                <div className="text-center py-8">
-                  <FileText size={48} className="mx-auto text-gray-300 mb-4" />
-                  <p className="text-gray-500 mb-2">Upload your documents (Aadhaar, PAN, certificates)</p>
-                  <p className="text-xs text-gray-400">You can upload documents from your Profile page after onboarding. Click Next to continue.</p>
-                </div>
-              )}
-
-              {/* Step 3: Photo */}
-              {currentStep === 3 && (
-                <div className="text-center py-8">
-                  <Camera size={48} className="mx-auto text-gray-300 mb-4" />
-                  <p className="text-gray-500 mb-2">Upload a profile photo</p>
-                  <p className="text-xs text-gray-400">You can set your photo from Profile page. Click Next to continue.</p>
-                </div>
-              )}
-
-              {/* Step 4: Bank Details */}
-              {currentStep === 4 && (
-                <div className="text-center py-8">
-                  <Building2 size={48} className="mx-auto text-gray-300 mb-4" />
-                  <p className="text-gray-500 mb-2">Bank details for salary disbursement</p>
-                  <p className="text-xs text-gray-400">HR will set up your salary structure. Click Next to continue.</p>
-                </div>
-              )}
-
-              {/* Step 5: Emergency Contact */}
-              {currentStep === 5 && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -319,22 +286,23 @@ export default function EmployeeOnboardingPage() {
                 </div>
               )}
 
-              {/* Step 6: Review & Submit */}
-              {currentStep === 6 && (
+              {/* Step 3: Review & Submit */}
+              {currentStep === 3 && (
                 <div className="space-y-4">
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                     <h3 className="text-sm font-semibold text-green-800 mb-2">Ready to submit!</h3>
                     <p className="text-xs text-green-600">
-                      Review your information above. After submitting, you'll be redirected to the dashboard.
-                      You can always update your profile later from the Settings page.
+                      Review your information below. After submitting, you'll be redirected to login.
+                      You can upload documents and update your profile later.
                     </p>
                   </div>
-                  <div className="bg-gray-50 rounded-lg p-4 text-sm">
+                  <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1.5">
                     <p><strong>Name:</strong> {personal.firstName} {personal.lastName}</p>
                     {personal.dateOfBirth && <p><strong>DOB:</strong> {personal.dateOfBirth}</p>}
                     {personal.gender && <p><strong>Gender:</strong> {personal.gender}</p>}
                     {personal.phone && <p><strong>Phone:</strong> {personal.phone}</p>}
-                    {emergency.name && <p><strong>Emergency:</strong> {emergency.name} ({emergency.relationship})</p>}
+                    {personal.address.city && <p><strong>Address:</strong> {[personal.address.line1, personal.address.city, personal.address.state, personal.address.pincode].filter(Boolean).join(', ')}</p>}
+                    {emergency.name && <p><strong>Emergency Contact:</strong> {emergency.name} ({emergency.relationship}) — {emergency.phone}</p>}
                   </div>
                 </div>
               )}
@@ -353,14 +321,15 @@ export default function EmployeeOnboardingPage() {
             {currentStep < STEPS.length ? (
               <button
                 onClick={() => {
-                  if (currentStep === 1) handleSaveStep(1, personal);
-                  else if (currentStep === 5) handleSaveStep(5, emergency);
+                  // Step 1 (Personal) → backend step 2, Step 2 (Emergency) → backend step 6
+                  if (currentStep === 1) handleSaveStep(2, personal);
+                  else if (currentStep === 2) handleSaveStep(6, emergency);
                   else setCurrentStep(s => s + 1);
                 }}
                 disabled={saving}
                 className="btn-primary flex items-center gap-1 text-sm">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : null}
-                {currentStep === 1 || currentStep === 5 ? 'Save & Continue' : 'Next'}
+                Save & Continue
                 <ChevronRight size={16} />
               </button>
             ) : (
