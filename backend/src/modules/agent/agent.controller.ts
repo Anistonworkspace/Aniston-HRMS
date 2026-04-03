@@ -94,7 +94,7 @@ export class AgentController {
 
   async getLiveMode(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await agentService.getLiveMode(req.params.employeeId);
+      const result = await agentService.getLiveMode(req.params.employeeId as string);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
