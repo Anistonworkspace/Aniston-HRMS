@@ -23,6 +23,13 @@ export class DashboardController {
     } catch (err) { next(err); }
   }
 
+  async getSummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await dashboardService.getSummary(req.user!.organizationId, req.user!.role);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  }
+
   async getPendingApprovals(req: Request, res: Response, next: NextFunction) {
     try {
       const { search, page, limit } = req.query as any;

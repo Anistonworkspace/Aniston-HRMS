@@ -46,7 +46,12 @@ describe('encryption', () => {
     it('should throw on tampered ciphertext', () => {
       const encrypted = encrypt('secret');
       const parts = encrypted.split(':');
-      parts[2] = parts[2].replace(/^./, 'f'); // tamper with ciphertext
+      // Flip every hex digit in the authTag (XOR with 0xF) to guarantee corruption
+      const authTagIndex = parts.length === 4 ? 2 : 1;
+      parts[authTagIndex] = parts[authTagIndex]
+        .split('')
+        .map((c) => (parseInt(c, 16) ^ 0xf).toString(16))
+        .join('');
       expect(() => decrypt(parts.join(':'))).toThrow();
     });
   });

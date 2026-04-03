@@ -1,8 +1,20 @@
 import { api } from '../../app/api';
 import type { ApiResponse, DashboardStats, SuperAdminDashboardStats, HRDashboardStats } from '@aniston/shared';
 
+export interface DashboardSummaryResponse {
+  success: boolean;
+  role: 'SUPER_ADMIN' | 'HR' | 'EMPLOYEE';
+  data: SuperAdminDashboardStats | HRDashboardStats | DashboardStats;
+}
+
 export const dashboardApi = api.injectEndpoints({
   endpoints: (builder) => ({
+    // Unified summary — returns role-appropriate data
+    getDashboardSummary: builder.query<DashboardSummaryResponse, void>({
+      query: () => '/dashboard/summary',
+      providesTags: ['Dashboard'],
+    }),
+    // Role-specific endpoints (used by lazy-loaded components)
     getDashboardStats: builder.query<ApiResponse<DashboardStats>, void>({
       query: () => '/dashboard/stats',
       providesTags: ['Dashboard'],
@@ -23,6 +35,7 @@ export const dashboardApi = api.injectEndpoints({
 });
 
 export const {
+  useGetDashboardSummaryQuery,
   useGetDashboardStatsQuery,
   useGetSuperAdminStatsQuery,
   useGetHRStatsQuery,
