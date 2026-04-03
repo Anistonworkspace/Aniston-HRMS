@@ -10,7 +10,7 @@
   }
   body {
     @apply bg-surface-1 text-gray-900 font-body antialiased;
-    overscroll-behavior: none; /* Prevent pull-to-refresh / bounce */
+    overscroll-behavior-x: none; /* Prevent horizontal bounce only — allow vertical pull-to-refresh */
   }
   h1, h2, h3, h4, h5, h6 {
     @apply font-display;
@@ -39,16 +39,12 @@
       -webkit-tap-highlight-color: transparent;
     }
 
-    /* Allow pull-to-refresh but prevent horizontal overscroll bounce */
+    /* Pull-to-refresh: allow vertical overscroll, block horizontal bounce */
     html, body {
       overscroll-behavior-x: none;
-      overflow: hidden;
-      height: 100%;
+      overscroll-behavior-y: contain; /* Enable pull-to-refresh in PWA */
     }
     #root {
-      height: 100%;
-      overflow-y: auto;
-      overscroll-behavior-y: auto; /* Enable pull-to-refresh */
       -webkit-overflow-scrolling: touch;
     }
 
