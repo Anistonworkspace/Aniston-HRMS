@@ -319,6 +319,63 @@ export class EmployeeService {
       return updated;
     });
 
+    // Auto-create lifecycle events on key field changes
+    if (data.status && data.status !== existing.status) {
+      await prisma.employeeEvent.create({
+        data: {
+          employeeId: id,
+          eventType: 'STATUS_CHANGE',
+          title: `Status changed from ${existing.status} to ${data.status}`,
+          description: `Employee status updated by HR`,
+          eventDate: new Date(),
+          metadata: { oldStatus: existing.status, newStatus: data.status },
+          createdBy: updatedBy,
+        },
+      });
+    }
+
+    if (data.departmentId && data.departmentId !== existing.departmentId) {
+      await prisma.employeeEvent.create({
+        data: {
+          employeeId: id,
+          eventType: 'TRANSFER',
+          title: 'Department changed',
+          description: `Department updated by HR`,
+          eventDate: new Date(),
+          metadata: { oldDepartmentId: existing.departmentId, newDepartmentId: data.departmentId },
+          createdBy: updatedBy,
+        },
+      });
+    }
+
+    if (data.designationId && data.designationId !== existing.designationId) {
+      await prisma.employeeEvent.create({
+        data: {
+          employeeId: id,
+          eventType: 'PROMOTION',
+          title: 'Designation changed',
+          description: `Designation updated by HR`,
+          eventDate: new Date(),
+          metadata: { oldDesignationId: existing.designationId, newDesignationId: data.designationId },
+          createdBy: updatedBy,
+        },
+      });
+    }
+
+    if (data.joiningDate && new Date(data.joiningDate).getTime() !== new Date(existing.joiningDate).getTime()) {
+      await prisma.employeeEvent.create({
+        data: {
+          employeeId: id,
+          eventType: 'STATUS_CHANGE',
+          title: 'Joining date updated',
+          description: `Joining date changed from ${existing.joiningDate?.toLocaleDateString()} to ${new Date(data.joiningDate).toLocaleDateString()}`,
+          eventDate: new Date(),
+          metadata: { oldJoiningDate: existing.joiningDate, newJoiningDate: data.joiningDate },
+          createdBy: updatedBy,
+        },
+      });
+    }
+
     return employee;
   }
 

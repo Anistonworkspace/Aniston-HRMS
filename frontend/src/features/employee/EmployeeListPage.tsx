@@ -1,41 +1,66 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight, UserPlus, Mail, Phone, X, Loader2, Copy, Send, Clock, CheckCircle2, AlertTriangle, Eye, Trash2 } from 'lucide-react';
-import { useGetEmployeesQuery, useChangeEmployeeRoleMutation, useDeleteEmployeeMutation } from './employeeApi';
+import { Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight, UserPlus, Mail, Phone, X, Loader2, Copy, Send, CheckCircle2, Eye, Pencil, RefreshCw, UserCheck, UserX } from 'lucide-react';
+import { useGetEmployeesQuery, useChangeEmployeeRoleMutation, useUpdateEmployeeMutation, useSendActivationInviteMutation } from './employeeApi';
 import { useCreateInvitationMutation, useGetInvitationsQuery, useResendInvitationMutation, useDeleteInvitationMutation } from '../invitation/invitationApi';
 import { useGetDepartmentsQuery, useGetDesignationsQuery } from './employeeDepsApi';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
+const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:4000';
+
 export default function EmployeeListPage() {
   const navigate = useNavigate();
   const user = useAppSelector(s => s.auth.user);
   const canInvite = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
-  const canDelete = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
+  const canManage = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [searchDebounce, setSearchDebounce] = useState('');
   const [activeView, setActiveView] = useState<'employees' | 'invitations'>('employees');
   const [showInvitePanel, setShowInvitePanel] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterDepartment, setFilterDepartment] = useState('');
+  const [filterWorkMode, setFilterWorkMode] = useState('');
+  const [sortBy, setSortBy] = useState('createdAt');
+  const [sortOrder, setSortOrder] = useState('desc');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  const [deleteEmployee] = useDeleteEmployeeMutation();
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [updateEmployee] = useUpdateEmployeeMutation();
+  const [sendActivationInvite] = useSendActivationInviteMutation();
 
-  const handleDelete = async (empId: string) => {
-    setDeleting(true);
+  const { data: deptDataFilter } = useGetDepartmentsQuery();
+  const departmentsFilter = deptDataFilter?.data || [];
+
+  const hasFilters = !!(filterStatus || filterDepartment || filterWorkMode);
+
+  const clearFilters = () => {
+    setFilterStatus('');
+    setFilterDepartment('');
+    setFilterWorkMode('');
+    setPage(1);
+  };
+
+  const handleStatusChange = async (empId: string, newStatus: string) => {
+    setOpenMenuId(null);
     try {
-      await deleteEmployee(empId).unwrap();
-      toast.success('Employee deleted successfully');
-      setConfirmDeleteId(null);
-      setOpenMenuId(null);
+      await updateEmployee({ id: empId, data: { status: newStatus as any } }).unwrap();
+      toast.success(`Employee ${newStatus === 'ACTIVE' ? 'reactivated' : 'marked inactive'}`);
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to delete employee');
-    } finally {
-      setDeleting(false);
+      toast.error(err?.data?.error?.message || 'Failed to update status');
+    }
+  };
+
+  const handleSendActivation = async (empId: string) => {
+    setOpenMenuId(null);
+    try {
+      await sendActivationInvite(empId).unwrap();
+      toast.success('Activation email sent');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to send activation email');
     }
   };
 
@@ -43,8 +68,11 @@ export default function EmployeeListPage() {
     page,
     limit: 10,
     search: searchDebounce,
-    sortBy: 'createdAt',
-    sortOrder: 'desc',
+    ...(filterStatus && { status: filterStatus }),
+    ...(filterDepartment && { department: filterDepartment }),
+    ...(filterWorkMode && { workMode: filterWorkMode }),
+    sortBy,
+    sortOrder: sortOrder as 'asc' | 'desc',
   });
 
   const employees = data?.data || [];
@@ -101,9 +129,9 @@ export default function EmployeeListPage() {
         <InvitationsTab />
       ) : (
       <>
-      {/* Search & Filters */}
-      <div className="flex items-center gap-3 mb-4">
-        <div className="relative flex-1 max-w-sm">
+      {/* Search & Controls */}
+      <div className="flex flex-wrap items-center gap-3 mb-3">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
@@ -113,11 +141,101 @@ export default function EmployeeListPage() {
             className="input-glass w-full pl-9 text-sm"
           />
         </div>
-        <button className="btn-secondary flex items-center gap-2 text-sm">
+        <button
+          onClick={() => setShowFilters(v => !v)}
+          className={cn('btn-secondary flex items-center gap-2 text-sm', showFilters && 'ring-2 ring-brand-400')}
+        >
           <Filter size={16} />
           <span className="hidden sm:inline">Filters</span>
+          {hasFilters && (
+            <span className="ml-1 w-2 h-2 rounded-full bg-brand-500 inline-block" />
+          )}
         </button>
+        <select
+          value={`${sortBy}-${sortOrder}`}
+          onChange={(e) => {
+            const [field, order] = e.target.value.split('-');
+            setSortBy(field);
+            setSortOrder(order);
+            setPage(1);
+          }}
+          className="input-glass text-sm"
+        >
+          <option value="createdAt-desc">Newest First</option>
+          <option value="createdAt-asc">Oldest First</option>
+          <option value="firstName-asc">Name A-Z</option>
+          <option value="firstName-desc">Name Z-A</option>
+          <option value="employeeCode-asc">Code &uarr;</option>
+          <option value="joiningDate-desc">Recently Joined</option>
+        </select>
       </div>
+
+      {/* Filter Panel */}
+      <AnimatePresence>
+        {showFilters && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="flex flex-wrap items-end gap-3 mb-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
+              <div className="flex-1 min-w-[150px]">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
+                  className="input-glass w-full text-sm"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="PROBATION">Probation</option>
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="TERMINATED">Terminated</option>
+                  <option value="NOTICE_PERIOD">Notice Period</option>
+                  <option value="ABSCONDED">Absconded</option>
+                </select>
+              </div>
+              <div className="flex-1 min-w-[150px]">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Department</label>
+                <select
+                  value={filterDepartment}
+                  onChange={(e) => { setFilterDepartment(e.target.value); setPage(1); }}
+                  className="input-glass w-full text-sm"
+                >
+                  <option value="">All Departments</option>
+                  {departmentsFilter.map((d: any) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1 min-w-[150px]">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Work Mode</label>
+                <select
+                  value={filterWorkMode}
+                  onChange={(e) => { setFilterWorkMode(e.target.value); setPage(1); }}
+                  className="input-glass w-full text-sm"
+                >
+                  <option value="">All Work Modes</option>
+                  <option value="OFFICE">Office</option>
+                  <option value="HYBRID">Hybrid</option>
+                  <option value="REMOTE">Remote</option>
+                  <option value="FIELD_SALES">Field Sales</option>
+                  <option value="PROJECT_SITE">Project Site</option>
+                </select>
+              </div>
+              {hasFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="btn-secondary flex items-center gap-1.5 text-sm text-red-600 hover:bg-red-50 border-red-200"
+                >
+                  <X size={14} /> Clear Filters
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Table */}
       <div className="data-table overflow-x-auto">
@@ -178,8 +296,26 @@ export default function EmployeeListPage() {
                 >
                   <td className="px-4 py-3.5">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-brand-100 flex items-center justify-center text-brand-700 font-semibold text-sm flex-shrink-0">
-                        {getInitials(emp.firstName, emp.lastName)}
+                      <div className="w-10 h-10 rounded-lg flex-shrink-0 relative">
+                        {(emp as any).avatar ? (
+                          <img
+                            src={(emp as any).avatar.startsWith('http') ? (emp as any).avatar : `${API_BASE}${(emp as any).avatar}`}
+                            alt=""
+                            className="w-10 h-10 rounded-lg object-cover"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'none';
+                              const sibling = target.nextElementSibling as HTMLElement | null;
+                              if (sibling) sibling.style.display = 'flex';
+                            }}
+                          />
+                        ) : null}
+                        <div
+                          className="w-10 h-10 rounded-lg bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white font-semibold text-sm"
+                          style={{ display: (emp as any).avatar ? 'none' : 'flex' }}
+                        >
+                          {getInitials(emp.firstName, emp.lastName)}
+                        </div>
                       </div>
                       <div>
                         <p className="text-sm font-medium text-gray-800">
@@ -235,7 +371,7 @@ export default function EmployeeListPage() {
                       <>
                         <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)} />
                         <div
-                          className="fixed z-50 w-44 bg-white rounded-xl shadow-xl border border-gray-200 py-1"
+                          className="fixed z-50 w-52 bg-white rounded-xl shadow-xl border border-gray-200 py-1"
                           style={{ top: menuPos.top, left: menuPos.left }}
                         >
                           <button
@@ -248,16 +384,49 @@ export default function EmployeeListPage() {
                           >
                             <Eye size={14} /> View Profile
                           </button>
-                          {canDelete && !(emp as any).isSystemAccount && (
+                          {canManage && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setConfirmDeleteId(emp.id);
                                 setOpenMenuId(null);
+                                navigate(`/employees/${emp.id}?edit=true`);
                               }}
-                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                             >
-                              <Trash2 size={14} /> Delete Employee
+                              <Pencil size={14} /> Edit Employee
+                            </button>
+                          )}
+                          {canManage && emp.email && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSendActivation(emp.id);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                            >
+                              <RefreshCw size={14} /> Resend Activation
+                            </button>
+                          )}
+                          {canManage && emp.status === 'ACTIVE' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStatusChange(emp.id, 'INACTIVE');
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors"
+                            >
+                              <UserX size={14} /> Mark Inactive
+                            </button>
+                          )}
+                          {canManage && emp.status === 'INACTIVE' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStatusChange(emp.id, 'ACTIVE');
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-600 hover:bg-green-50 transition-colors"
+                            >
+                              <UserCheck size={14} /> Reactivate
                             </button>
                           )}
                         </div>
@@ -304,61 +473,6 @@ export default function EmployeeListPage() {
       </>
       )}
 
-      {/* Delete Confirmation Modal */}
-      <AnimatePresence>
-        {confirmDeleteId && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          >
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => !deleting && setConfirmDeleteId(null)} />
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="relative bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full"
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
-                  <Trash2 size={20} className="text-red-600" />
-                </div>
-                <div>
-                  <h3 className="font-display font-semibold text-gray-900">Delete Employee</h3>
-                  <p className="text-xs text-gray-500">This action cannot be undone</p>
-                </div>
-              </div>
-              <p className="text-sm text-gray-600 mb-2">
-                Are you sure you want to <strong className="text-red-600">permanently delete</strong> this employee?
-              </p>
-              <ul className="text-xs text-gray-500 mb-4 space-y-1 list-disc pl-4">
-                <li>User account and employee record will be permanently removed</li>
-                <li>All KYC documents and onboarding data will be cleared</li>
-                <li>The employee will need to complete onboarding again if re-invited</li>
-              </ul>
-              <p className="text-xs text-red-500 font-medium mb-4">This action cannot be undone.</p>
-              <div className="flex items-center gap-3 justify-end">
-                <button
-                  onClick={() => setConfirmDeleteId(null)}
-                  disabled={deleting}
-                  className="btn-secondary text-sm px-4 py-2"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => handleDelete(confirmDeleteId)}
-                  disabled={deleting}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                >
-                  {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                  {deleting ? 'Deleting...' : 'Delete'}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

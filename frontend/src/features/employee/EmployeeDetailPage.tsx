@@ -36,6 +36,8 @@ export default function EmployeeDetailPage() {
   const [updateEmployee] = useUpdateEmployeeMutation();
   const [sendActivationInvite, { isLoading: sendingInvite }] = useSendActivationInviteMutation();
 
+  const [avatarError, setAvatarError] = useState(false);
+
   const isManagement = MANAGEMENT_ROLES.includes(user?.role || '');
   const isTeamsSynced = !!(employee?.user as any)?.microsoftId;
   const hasNotLoggedIn = !employee?.user?.lastLoginAt;
@@ -101,10 +103,17 @@ export default function EmployeeDetailPage() {
         <div className="w-64 shrink-0 border-r border-gray-100 bg-white p-5 overflow-y-auto hidden lg:block">
           <div className="flex flex-col items-center mb-5">
             <div className="w-24 h-24 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-3xl font-display mb-3 overflow-hidden">
-              {employee.avatar ? (
-                <img src={employee.avatar.startsWith('http') ? employee.avatar : `${import.meta.env.VITE_API_URL === '/api' ? '' : (import.meta.env.VITE_API_URL?.replace('/api', '') || '')}${employee.avatar}`} alt={`${employee.firstName} ${employee.lastName}`} className="w-full h-full object-cover" />
+              {employee.avatar && !avatarError ? (
+                <img
+                  src={employee.avatar.startsWith('http') ? employee.avatar : `${import.meta.env.VITE_API_URL === '/api' ? '' : (import.meta.env.VITE_API_URL?.replace('/api', '') || '')}${employee.avatar}`}
+                  alt={`${employee.firstName} ${employee.lastName}`}
+                  className="w-full h-full object-cover"
+                  onError={() => setAvatarError(true)}
+                />
               ) : (
-                getInitials(employee.firstName, employee.lastName)
+                <div className="w-full h-full flex items-center justify-center">
+                  {getInitials(employee.firstName, employee.lastName)}
+                </div>
               )}
             </div>
             <h2 className="text-base font-display font-bold text-gray-900 text-center">
