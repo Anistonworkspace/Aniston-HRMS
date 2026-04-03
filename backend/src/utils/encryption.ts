@@ -13,10 +13,12 @@ function getSecret(): string {
   const secret = process.env.ENCRYPTION_KEY;
   if (secret) return secret;
 
-  if (process.env.NODE_ENV === 'development') {
+  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
     const fallback = process.env.JWT_SECRET;
     if (fallback) {
-      console.warn('[WARN] ENCRYPTION_KEY not set — falling back to JWT_SECRET. Set ENCRYPTION_KEY in production.');
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[WARN] ENCRYPTION_KEY not set — falling back to JWT_SECRET. Set ENCRYPTION_KEY in production.');
+      }
       return fallback;
     }
   }

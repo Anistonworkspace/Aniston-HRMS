@@ -27,6 +27,7 @@ vi.mock('../lib/prisma.js', () => ({
     },
     employee: {
       findFirst: vi.fn(),
+      findMany: vi.fn(),
       create: vi.fn(),
       count: vi.fn(),
     },
@@ -52,6 +53,9 @@ vi.mock('../lib/redis.js', () => ({
     setex: vi.fn().mockResolvedValue('OK'),
     del: vi.fn().mockResolvedValue(1),
     ping: vi.fn().mockResolvedValue('PONG'),
+    incr: vi.fn().mockResolvedValue(1),
+    expire: vi.fn().mockResolvedValue(1),
+    on: vi.fn(),
   },
 }));
 
@@ -66,6 +70,17 @@ vi.mock('../jobs/queues.js', () => ({
   bulkResumeQueue: { add: vi.fn() },
   enqueueEmail: vi.fn().mockResolvedValue(undefined),
   enqueueNotification: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../modules/auth/auth.service.js', () => ({
+  authService: {
+    generateAccessToken: vi.fn().mockReturnValue('mock-access-token'),
+    generateRefreshToken: vi.fn().mockResolvedValue('mock-refresh-token'),
+  },
+}));
+
+vi.mock('../utils/employeeCode.js', () => ({
+  generateEmployeeCode: vi.fn().mockResolvedValue('EMP-001'),
 }));
 
 // ── Imports after mocks ───────────────────────────────────────────────────
@@ -291,13 +306,22 @@ describe('InvitationService', () => {
       vi.mocked(prisma.employeeInvitation.findUnique).mockResolvedValueOnce(
         makePendingInvitation() as any
       );
-      vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(null); // no existing user
+      vi.mocked(prisma.user.findUnique)
+        .mockResolvedValueOnce(null) // no existing user (pre-check)
+        .mockResolvedValueOnce({     // auto-login lookup after transaction
+          id: 'new-user-id', email: 'priya@example.com', role: 'EMPLOYEE',
+          organizationId: ORG_ID, employee: { id: 'new-emp-id', firstName: 'Priya',
+          lastName: 'Sharma', avatar: null, status: 'PROBATION', workMode: 'OFFICE',
+          onboardingComplete: false, documentGate: null },
+        } as any);
 
-      // generateEmployeeCode calls prisma.employee.count to determine the next code.
-      // Mock it to return any consistent value — we verify format not exact number.
-      vi.mocked(prisma.employee.count).mockResolvedValue(5);
+      // generateEmployeeCode calls prisma.employee.findMany to find existing codes.
+      vi.mocked(prisma.employee.findMany).mockResolvedValue([
+        { employeeCode: 'EMP-003' },
+        { employeeCode: 'EMP-005' },
+      ] as any);
 
-      const mockUser = { id: 'new-user-id', email: 'priya@example.com' };
+      const mockUser = { id: 'new-user-id', email: 'priya@example.com', role: 'EMPLOYEE', organizationId: ORG_ID };
       const mockEmployee = {
         id: 'new-emp-id',
         employeeCode: 'EMP-006',
@@ -320,17 +344,26 @@ describe('InvitationService', () => {
       expect(result.employeeId).toBe('new-emp-id');
       // employeeCode must follow the EMP-NNN format
       expect(result.employeeCode).toMatch(/^EMP-\d{3}$/);
-      expect(result.redirectTo).toBe('/login');
     });
 
-    it('returns redirectTo /login (no longer creates Redis onboarding token)', async () => {
+    it('returns tokens and user data after successful completion', async () => {
       vi.mocked(prisma.employeeInvitation.findUnique).mockResolvedValueOnce(
         makePendingInvitation() as any
       );
-      vi.mocked(prisma.user.findUnique).mockResolvedValueOnce(null);
-      vi.mocked(prisma.employee.count).mockResolvedValue(5);
+      vi.mocked(prisma.user.findUnique)
+        .mockResolvedValueOnce(null) // no existing user
+        .mockResolvedValueOnce({     // auto-login lookup
+          id: 'u-new', email: 'priya@example.com', role: 'EMPLOYEE',
+          organizationId: ORG_ID, employee: { id: 'e-new', firstName: 'Priya',
+          lastName: 'Sharma', avatar: null, status: 'PROBATION', workMode: 'OFFICE',
+          onboardingComplete: false, documentGate: null },
+        } as any);
+      vi.mocked(prisma.employee.findMany).mockResolvedValue([
+        { employeeCode: 'EMP-003' },
+        { employeeCode: 'EMP-005' },
+      ] as any);
 
-      const mockUser = { id: 'u-new', email: 'priya@example.com' };
+      const mockUser = { id: 'u-new', email: 'priya@example.com', role: 'EMPLOYEE', organizationId: ORG_ID };
       const mockEmployee = { id: 'e-new', employeeCode: 'EMP-006', email: 'priya@example.com' };
 
       vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn: any) => {
@@ -343,7 +376,8 @@ describe('InvitationService', () => {
       });
 
       const result = await service.completeInvitation('token-uuid-abc', completionData);
-      expect(result.redirectTo).toBe('/login');
+      expect(result.accessToken).toBeDefined();
+      expect(result.employeeId).toBe('e-new');
     });
 
     it('throws BadRequestError when invitation is already accepted', async () => {
@@ -373,6 +407,13 @@ describe('InvitationService', () => {
       vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
         id: 'existing-user',
         email: 'priya@example.com',
+        status: 'ACTIVE',
+      } as any);
+      // Active employee exists for this user — triggers the duplicate block
+      vi.mocked(prisma.employee.findFirst).mockResolvedValueOnce({
+        id: 'emp-existing',
+        userId: 'existing-user',
+        deletedAt: null,
       } as any);
 
       await expect(
