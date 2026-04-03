@@ -10,6 +10,6 @@ export default defineConfig({
       reporter: ['text', 'lcov'],
       include: ['src/modules/**/*.service.ts', 'src/utils/**/*.ts'],
     },
-    setupFiles: [],
+    setupFiles: ['./src/test/setup.ts'],
   },
 });

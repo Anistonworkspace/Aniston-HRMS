@@ -51,6 +51,9 @@ vi.mock('../lib/redis.js', () => ({
     setex: vi.fn().mockResolvedValue('OK'),
     del: vi.fn().mockResolvedValue(1),
     ping: vi.fn().mockResolvedValue('PONG'),
+    incr: vi.fn().mockResolvedValue(1),
+    expire: vi.fn().mockResolvedValue(1),
+    on: vi.fn(),
   },
 }));
 
