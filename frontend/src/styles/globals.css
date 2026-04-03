@@ -10,9 +10,83 @@
   }
   body {
     @apply bg-surface-1 text-gray-900 font-body antialiased;
+    overscroll-behavior: none; /* Prevent pull-to-refresh / bounce */
   }
   h1, h2, h3, h4, h5, h6 {
     @apply font-display;
+  }
+
+  /* ===== PWA Native Mobile App Feel ===== */
+  @media (display-mode: standalone) {
+    /* Disable text selection (app-like behavior) */
+    body, p, span, div, td, th, label {
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    /* Allow text selection only on inputs, textareas, and editable content */
+    input, textarea, [contenteditable="true"], .selectable, pre, code {
+      -webkit-user-select: text;
+      user-select: text;
+    }
+
+    /* Disable long-press context menu */
+    body {
+      -webkit-touch-callout: none;
+    }
+
+    /* Disable tap highlight on Android */
+    * {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Prevent overscroll bounce (iOS rubber-band effect) */
+    html, body {
+      overscroll-behavior: none;
+      overflow: hidden;
+      height: 100%;
+    }
+    #root {
+      height: 100%;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Safe area insets for notch/home indicator */
+    body {
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+
+    /* Native button press effect */
+    button, a, [role="button"], .clickable {
+      transition: transform 0.1s ease, opacity 0.1s ease;
+      cursor: pointer;
+    }
+    button:active, a:active, [role="button"]:active, .clickable:active {
+      transform: scale(0.97);
+      opacity: 0.85;
+    }
+
+    /* Disable double-tap zoom */
+    * {
+      touch-action: manipulation;
+    }
+
+    /* Smooth momentum scrolling */
+    .page-container, .overflow-y-auto, .overflow-auto {
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Hide scrollbars (native apps don't show them) */
+    ::-webkit-scrollbar {
+      display: none;
+    }
+    * {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
   }
 }
 

@@ -18,6 +18,8 @@ export default defineConfig({
         background_color: '#ffffff',
         theme_color: '#4F46E5',
         orientation: 'portrait-primary',
+        categories: ['business', 'productivity'],
+        prefer_related_applications: false,
         icons: [
           {
             src: '/logo.png',
