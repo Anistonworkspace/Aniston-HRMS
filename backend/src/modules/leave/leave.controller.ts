@@ -75,7 +75,7 @@ export class LeaveController {
     try {
       const { id } = req.params;
       const { action, remarks } = leaveActionSchema.parse(req.body);
-      const result = await leaveService.handleLeaveAction(id, action, req.user!.userId, remarks);
+      const result = await leaveService.handleLeaveAction(id, action, req.user!.userId, remarks, req.user!.organizationId);
       res.json({ success: true, data: result, message: `Leave ${action.toLowerCase()}` });
     } catch (err) { next(err); }
   }
@@ -98,14 +98,14 @@ export class LeaveController {
   async updateLeaveType(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateLeaveTypeSchema.parse(req.body);
-      const result = await leaveService.updateLeaveType(req.params.id, data);
+      const result = await leaveService.updateLeaveType(req.params.id, data, req.user!.organizationId);
       res.json({ success: true, data: result, message: 'Leave type updated' });
     } catch (err) { next(err); }
   }
 
   async deleteLeaveType(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await leaveService.deleteLeaveType(req.params.id);
+      const result = await leaveService.deleteLeaveType(req.params.id, req.user!.organizationId);
       res.json({ success: true, data: result, message: 'Leave type deactivated' });
     } catch (err) { next(err); }
   }

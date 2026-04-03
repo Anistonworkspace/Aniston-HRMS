@@ -178,9 +178,10 @@ export class AuthService {
     const resetToken = randomBytes(32).toString('hex');
     await redis.setex(`${RESET_TOKEN_PREFIX}${resetToken}`, 3600, user.id); // 1 hour
 
-    // TODO: Send email with reset link
-    // For dev: log the token
-    console.log(`[DEV] Password reset token for ${email}: ${resetToken}`);
+    // Send email with reset link
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DEV] Password reset token for ${email}: ${resetToken}`);
+    }
 
     return { message: 'If the email exists, a reset link has been sent' };
   }

@@ -17,13 +17,13 @@ export default function AppShell() {
   const user = useAppSelector(s => s.auth.user);
 
   // Connect Socket.io when user is logged in
+  const accessToken = useAppSelector(s => s.auth.accessToken);
   useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    if (token) {
-      connectSocket(token);
+    if (accessToken) {
+      connectSocket(accessToken);
     }
     return () => { disconnectSocket(); };
-  }, [user?.id]);
+  }, [accessToken]);
   const location = useLocation();
   const isAdminOrHR = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const aiContext = location.pathname.startsWith('/recruitment') ? 'hr-recruitment' as const

@@ -37,7 +37,9 @@ export class PerformanceService {
     return cycle;
   }
 
-  async updateCycle(id: string, data: UpdateReviewCycleInput) {
+  async updateCycle(id: string, data: UpdateReviewCycleInput, organizationId: string) {
+    const existing = await prisma.reviewCycle.findFirst({ where: { id, organizationId } });
+    if (!existing) throw new NotFoundError('Review cycle');
     const cycle = await prisma.reviewCycle.update({
       where: { id },
       data: { status: data.status },
@@ -83,7 +85,10 @@ export class PerformanceService {
   // REVIEWS
   // ==================
 
-  async listReviews(employeeId: string) {
+  async listReviews(employeeId: string, organizationId: string) {
+    // Verify employee belongs to org
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId } });
+    if (!employee) throw new NotFoundError('Employee');
     const reviews = await prisma.performanceReview.findMany({
       where: { employeeId },
       orderBy: { createdAt: 'desc' },
@@ -92,7 +97,7 @@ export class PerformanceService {
     return reviews;
   }
 
-  async createReview(data: CreateReviewInput, reviewerId: string, organizationId?: string) {
+  async createReview(data: CreateReviewInput, reviewerId: string, organizationId: string) {
     const review = await prisma.performanceReview.create({
       data: {
         ...data,
@@ -103,21 +108,19 @@ export class PerformanceService {
       },
     });
 
-    if (organizationId) {
-      await createAuditLog({
-        userId: reviewerId,
-        organizationId,
-        entity: 'PerformanceReview',
-        entityId: review.id,
-        action: 'CREATE',
-        newValue: { employeeId: data.employeeId, status: 'PENDING' },
-      });
-    }
+    await createAuditLog({
+      userId: reviewerId,
+      organizationId,
+      entity: 'PerformanceReview',
+      entityId: review.id,
+      action: 'CREATE',
+      newValue: { employeeId: data.employeeId, status: 'PENDING' },
+    });
 
     return review;
   }
 
-  async updateReview(id: string, data: UpdateReviewInput, userId?: string, organizationId?: string) {
+  async updateReview(id: string, data: UpdateReviewInput, userId: string, organizationId: string) {
     const updateData: any = {};
     if (data.managerRating) updateData.managerRating = data.managerRating;
     if (data.managerComments) updateData.managerComments = data.managerComments;
@@ -129,16 +132,14 @@ export class PerformanceService {
 
     const review = await prisma.performanceReview.update({ where: { id }, data: updateData });
 
-    if (userId && organizationId) {
-      await createAuditLog({
-        userId,
-        organizationId,
-        entity: 'PerformanceReview',
-        entityId: id,
-        action: 'UPDATE',
-        newValue: updateData,
-      });
-    }
+    await createAuditLog({
+      userId,
+      organizationId,
+      entity: 'PerformanceReview',
+      entityId: id,
+      action: 'UPDATE',
+      newValue: updateData,
+    });
 
     return review;
   }

@@ -88,8 +88,8 @@ export default function AppRouter() {
           {/* KYC Gate — no sidebar, just the KYC form */}
           <Route path="/kyc-pending" element={<ProtectedRoute><KycGatePage /></ProtectedRoute>} />
 
-          {/* Employee Detail — standalone (no sidebar) */}
-          <Route path="/employees/:id" element={<ProtectedRoute><EmployeeDetailPage /></ProtectedRoute>} />
+          {/* Employee Detail — standalone (no sidebar), restricted to management */}
+          <Route path="/employees/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER']}><EmployeeDetailPage /></ProtectedRoute>} />
 
           {/* Protected routes */}
           <Route
@@ -106,7 +106,7 @@ export default function AppRouter() {
             {/* Placeholder routes */}
             <Route path="/attendance" element={<AttendancePage />} />
             <Route path="/attendance/employee/:employeeId" element={<EmployeeAttendanceDetailPage />} />
-            <Route path="/activity-tracking" element={<ActivityTrackingPage />} />
+            <Route path="/activity-tracking" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER']}><ActivityTrackingPage /></ProtectedRoute>} />
             <Route path="/leaves" element={<LeavePage />} />
             <Route path="/payroll" element={<PayrollPage />} />
             <Route path="/recruitment" element={<RecruitmentPage />} />
@@ -118,21 +118,21 @@ export default function AppRouter() {
             <Route path="/announcements" element={<AnnouncementsPage />} />
             <Route path="/org-chart" element={<OrgChartPage />} />
             <Route path="/helpdesk" element={<HelpdeskPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/reports" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER']}><ReportsPage /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><SettingsPage /></ProtectedRoute>} />
             <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/roster" element={<RosterPage />} />
+            <Route path="/roster" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><RosterPage /></ProtectedRoute>} />
             <Route path="/hiring-passed" element={<HiringPassedPage />} />
             <Route path="/interview-assignments" element={<InterviewAssignmentsPage />} />
             <Route path="/assets" element={<AssetManagementPage />} />
             <Route path="/my-assets" element={<MyAssetsPage />} />
             <Route path="/my-documents" element={<MyDocumentsPage />} />
-            <Route path="/walk-in-management" element={<WalkInManagementPage />} />
-            <Route path="/walk-in-management/:id" element={<WalkInDetailPage />} />
-            <Route path="/send-bulk-email" element={<SendBulkEmailPage />} />
+            <Route path="/walk-in-management" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><WalkInManagementPage /></ProtectedRoute>} />
+            <Route path="/walk-in-management/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><WalkInDetailPage /></ProtectedRoute>} />
+            <Route path="/send-bulk-email" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><SendBulkEmailPage /></ProtectedRoute>} />
             <Route path="/whatsapp" element={<WhatsAppPage />} />
-            <Route path="/exit-management" element={<ExitManagementPage />} />
-            <Route path="/exit-management/:id" element={<ExitDetailPage />} />
+            <Route path="/exit-management" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><ExitManagementPage /></ProtectedRoute>} />
+            <Route path="/exit-management/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><ExitDetailPage /></ProtectedRoute>} />
             <Route path="/more" element={<ProfilePage />} />
           </Route>
 
@@ -142,16 +142,5 @@ export default function AppRouter() {
         </Routes>
       </Suspense>
     </BrowserRouter>
-  );
-}
-
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="page-container">
-      <div className="layer-card p-12 text-center">
-        <h1 className="text-2xl font-display font-bold text-gray-800">{title}</h1>
-        <p className="text-gray-400 mt-2">This module is coming soon in Phase 2.</p>
-      </div>
-    </div>
   );
 }

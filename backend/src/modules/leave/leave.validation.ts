@@ -11,7 +11,7 @@ export const applyLeaveSchema = z.object({
 });
 
 export const leaveActionSchema = z.object({
-  action: z.enum(['APPROVED', 'REJECTED']),
+  action: z.enum(['APPROVED', 'REJECTED', 'MANAGER_APPROVED']),
   remarks: z.string().optional(),
 });
 

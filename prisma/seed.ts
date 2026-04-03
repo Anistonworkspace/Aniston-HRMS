@@ -221,18 +221,21 @@ async function main() {
   // No Microsoft Teams sync — invitation-only user creation.
 
   // Create leave types — aligned with AT/HR/LAP/2026-03/002 v3.0 policy
+  // minDays: minimum days per application (0.5 = half-day allowed)
+  // maxDays: max consecutive days per single application
+  // maxPerMonth: max number of leave requests per calendar month
   const leaveTypes = [
-    { name: 'Casual Leave', code: 'CL', defaultBalance: 7, isPaid: true, noticeDays: 2, maxDays: 2, maxPerMonth: 2, allowWeekendAdjacent: false, allowSameDay: false },
-    { name: 'Sick Leave', code: 'SL', defaultBalance: 7, isPaid: true, noticeDays: 0, maxPerMonth: 2, allowSameDay: true },
-    { name: 'Emergency Leave', code: 'EL', defaultBalance: 3, isPaid: true, noticeDays: 0, maxPerMonth: 2, allowSameDay: true },
-    { name: 'Privilege Leave', code: 'PL', defaultBalance: 3, isPaid: true, noticeDays: 7, maxDays: 3, maxPerMonth: 2, carryForward: true, maxCarryForward: 3, probationMonths: 6 },
-    { name: 'Leave Without Pay', code: 'LWP', defaultBalance: 0, isPaid: false, allowSameDay: true },
+    { name: 'Casual Leave', code: 'CL', defaultBalance: 7, isPaid: true, minDays: 0.5, noticeDays: 2, maxDays: 2, maxPerMonth: 2, allowWeekendAdjacent: false, allowSameDay: false },
+    { name: 'Sick Leave', code: 'SL', defaultBalance: 7, isPaid: true, minDays: 0.5, noticeDays: 0, maxPerMonth: 2, allowSameDay: true },
+    { name: 'Emergency Leave', code: 'EL', defaultBalance: 3, isPaid: true, minDays: 0.5, noticeDays: 0, maxPerMonth: 2, allowSameDay: true },
+    { name: 'Privilege Leave', code: 'PL', defaultBalance: 3, isPaid: true, minDays: 0.5, noticeDays: 7, maxDays: 3, maxPerMonth: 2, carryForward: true, maxCarryForward: 3, probationMonths: 6 },
+    { name: 'Leave Without Pay', code: 'LWP', defaultBalance: 0, isPaid: false, minDays: 0.5, allowSameDay: true },
   ];
 
   for (const lt of leaveTypes) {
     await prisma.leaveType.upsert({
       where: { code_organizationId: { code: lt.code, organizationId: org.id } },
-      update: {},
+      update: { minDays: lt.minDays, maxDays: lt.maxDays, maxPerMonth: lt.maxPerMonth },
       create: { ...lt, organizationId: org.id },
     });
   }

@@ -41,9 +41,9 @@ export class RecruitmentService {
     };
   }
 
-  async getJobById(id: string) {
-    const job = await prisma.jobOpening.findUnique({
-      where: { id },
+  async getJobById(id: string, organizationId: string) {
+    const job = await prisma.jobOpening.findFirst({
+      where: { id, organizationId },
       include: {
         applications: {
           orderBy: { createdAt: 'desc' },
@@ -70,13 +70,18 @@ export class RecruitmentService {
     });
   }
 
-  async updateJob(id: string, data: any) {
+  async updateJob(id: string, data: any, organizationId: string) {
+    const existing = await prisma.jobOpening.findFirst({ where: { id, organizationId } });
+    if (!existing) throw new NotFoundError('Job opening');
+    // Remove fields that should not be overwritable
+    delete data.organizationId;
+    delete data.postedBy;
     return prisma.jobOpening.update({ where: { id }, data });
   }
 
-  async deleteJob(id: string) {
-    const job = await prisma.jobOpening.findUnique({
-      where: { id },
+  async deleteJob(id: string, organizationId: string) {
+    const job = await prisma.jobOpening.findFirst({
+      where: { id, organizationId },
       include: { _count: { select: { applications: true } } },
     });
     if (!job) throw new NotFoundError('Job opening');
@@ -91,7 +96,11 @@ export class RecruitmentService {
   // APPLICATIONS
   // ==================
 
-  async getApplications(jobId: string, status?: string) {
+  async getApplications(jobId: string, organizationId: string, status?: string) {
+    // Verify job belongs to org
+    const job = await prisma.jobOpening.findFirst({ where: { id: jobId, organizationId } });
+    if (!job) throw new NotFoundError('Job opening');
+
     const where: any = { jobOpeningId: jobId };
     if (status) where.status = status;
 
@@ -105,9 +114,9 @@ export class RecruitmentService {
     });
   }
 
-  async getApplicationById(id: string) {
-    const app = await prisma.application.findUnique({
-      where: { id },
+  async getApplicationById(id: string, organizationId: string) {
+    const app = await prisma.application.findFirst({
+      where: { id, jobOpening: { organizationId } },
       include: {
         jobOpening: { select: { title: true, department: true, location: true } },
         interviewScores: { orderBy: { round: 'asc' } },
@@ -142,8 +151,8 @@ export class RecruitmentService {
     });
   }
 
-  async moveApplicationStage(id: string, status: string) {
-    const app = await prisma.application.findUnique({ where: { id } });
+  async moveApplicationStage(id: string, status: string, organizationId: string) {
+    const app = await prisma.application.findFirst({ where: { id, jobOpening: { organizationId } } });
     if (!app) throw new NotFoundError('Application');
 
     return prisma.application.update({

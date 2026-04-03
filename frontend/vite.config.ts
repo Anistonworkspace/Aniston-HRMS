@@ -50,7 +50,7 @@ export default defineConfig({
               cacheName: 'api-cache',
               expiration: {
                 maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24, // 24 hours
+                maxAgeSeconds: 60 * 5, // 5 minutes — avoid serving stale payroll/leave data
               },
               networkTimeoutSeconds: 10,
               cacheableResponse: {

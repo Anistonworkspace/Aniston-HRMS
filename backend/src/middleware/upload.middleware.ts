@@ -27,41 +27,44 @@ const storage = multer.diskStorage({
   },
 });
 
-// File type filters
-const imageFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-  if (allowedTypes.includes(file.mimetype)) {
+// Validate both MIME type and file extension to prevent polyglot attacks
+function validateFileType(
+  file: Express.Multer.File,
+  allowedMimes: string[],
+  allowedExts: string[],
+  errorMsg: string,
+  cb: multer.FileFilterCallback
+) {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (allowedMimes.includes(file.mimetype) && allowedExts.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new BadRequestError('Only JPEG, PNG, WebP, and GIF images are allowed'));
+    cb(new BadRequestError(errorMsg));
   }
+}
+
+// File type filters
+const imageFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  validateFileType(file,
+    ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+    ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
+    'Only JPEG, PNG, WebP, and GIF images are allowed', cb);
 };
 
 const documentFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const allowedTypes = [
-    'application/pdf',
-    'image/jpeg', 'image/png', 'image/webp',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  ];
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new BadRequestError('Only PDF, DOC, DOCX, and image files are allowed'));
-  }
+  validateFileType(file,
+    ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'application/msword',
+     'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.doc', '.docx'],
+    'Only PDF, DOC, DOCX, and image files are allowed', cb);
 };
 
 const resumeFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const allowedTypes = [
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  ];
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new BadRequestError('Only PDF, DOC, and DOCX files are allowed'));
-  }
+  validateFileType(file,
+    ['application/pdf', 'application/msword',
+     'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    ['.pdf', '.doc', '.docx'],
+    'Only PDF, DOC, and DOCX files are allowed', cb);
 };
 
 // Multer instances
@@ -74,7 +77,7 @@ export const uploadImage = multer({
 export const uploadDocument = multer({
   storage,
   fileFilter: documentFilter,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per spec
 });
 
 export const uploadResume = multer({
@@ -103,7 +106,7 @@ export function createWalkInUpload(folderName: string) {
       },
     }),
     fileFilter: documentFilter,
-    limits: { fileSize: 50 * 1024 * 1024 },
+    limits: { fileSize: 10 * 1024 * 1024 },
   });
 }
 
@@ -122,7 +125,7 @@ export function createEmployeeUpload(empCode: string) {
       },
     }),
     fileFilter: documentFilter,
-    limits: { fileSize: 50 * 1024 * 1024 },
+    limits: { fileSize: 10 * 1024 * 1024 },
   });
 }
 
@@ -144,7 +147,7 @@ export function createEmployeeKycUpload(employeeId: string) {
         },
       }),
       fileFilter: documentFilter,
-      limits: { fileSize: 50 * 1024 * 1024 },
+      limits: { fileSize: 10 * 1024 * 1024 },
     }),
     photo: multer({
       storage: multer.diskStorage({

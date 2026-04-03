@@ -37,7 +37,7 @@ export class HelpdeskController {
 
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      const ticket = await helpdeskService.getById(req.params.id);
+      const ticket = await helpdeskService.getById(req.params.id, req.user!.organizationId);
       res.json({ success: true, data: ticket });
     } catch (err) { next(err); }
   }
@@ -45,7 +45,7 @@ export class HelpdeskController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateTicketSchema.parse(req.body);
-      const ticket = await helpdeskService.update(req.params.id, data);
+      const ticket = await helpdeskService.update(req.params.id, data, req.user!.organizationId);
       res.json({ success: true, data: ticket, message: `Ticket ${data.status?.toLowerCase() || 'updated'}` });
     } catch (err) { next(err); }
   }

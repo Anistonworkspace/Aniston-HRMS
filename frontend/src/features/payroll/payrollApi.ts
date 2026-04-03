@@ -61,6 +61,15 @@ export const payrollApi = api.injectEndpoints({
     detectAnomalies: builder.mutation<any, string>({
       query: (runId) => ({ url: `/payroll/ai-anomaly-check/${runId}`, method: 'POST' }),
     }),
+
+    importSalaries: builder.mutation<any, FormData>({
+      query: (formData) => ({
+        url: '/payroll/import',
+        method: 'POST',
+        body: formData,
+      }),
+      invalidatesTags: ['Payroll'],
+    }),
   }),
 });
 
@@ -75,4 +84,5 @@ export const {
   useAmendPayrollRecordMutation,
   useGetSalaryHistoryQuery,
   useDetectAnomaliesMutation,
+  useImportSalariesMutation,
 } = payrollApi;

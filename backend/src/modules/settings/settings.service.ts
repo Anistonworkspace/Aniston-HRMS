@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { encrypt, decrypt } from '../../utils/encryption.js';
 import { validateConnection, getClientCredentialsToken, getOrganizationUsers } from '../../lib/microsoftGraph.js';
@@ -57,7 +58,9 @@ export class SettingsService {
     return location;
   }
 
-  async updateLocation(id: string, data: UpdateLocationInput) {
+  async updateLocation(id: string, data: UpdateLocationInput, organizationId: string) {
+    const existing = await prisma.officeLocation.findFirst({ where: { id, organizationId } });
+    if (!existing) throw new NotFoundError('Office location');
     const location = await prisma.officeLocation.update({
       where: { id },
       data,
@@ -65,7 +68,9 @@ export class SettingsService {
     return location;
   }
 
-  async deleteLocation(id: string) {
+  async deleteLocation(id: string, organizationId: string) {
+    const existing = await prisma.officeLocation.findFirst({ where: { id, organizationId } });
+    if (!existing) throw new NotFoundError('Office location');
     await prisma.officeLocation.delete({ where: { id } });
   }
 

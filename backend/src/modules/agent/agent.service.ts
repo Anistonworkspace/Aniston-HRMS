@@ -365,7 +365,7 @@ export class AgentService {
       const accessToken = jwt.sign(
         { userId: employee.user.id, email: employee.user.email, role: employee.user.role, organizationId: employee.organizationId, employeeId: employee.id },
         env.JWT_SECRET,
-        { expiresIn: '30d' }
+        { expiresIn: '24h' }
       );
 
       return {
@@ -389,7 +389,7 @@ export class AgentService {
     const accessToken = jwt.sign(
       { userId, email: user.email, role: user.role, organizationId, employeeId },
       env.JWT_SECRET,
-      { expiresIn: '30d' }
+      { expiresIn: '24h' }
     );
 
     await redis.del(`${PAIR_PREFIX}${code}`);

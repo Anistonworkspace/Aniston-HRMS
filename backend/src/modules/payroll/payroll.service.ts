@@ -60,8 +60,8 @@ function calculateTDS(annualCTC: number, regime: string): number {
 
     // 4% health & education cess
     tax = Math.round(tax * 1.04);
-    // Section 87A rebate — income up to 7L, full rebate
-    if (taxable <= 700000) tax = 0;
+    // Section 87A rebate — gross income up to 7.5L (new regime FY 2025-26)
+    if (annualCTC <= 750000) tax = 0;
     return Math.round(tax / 12);
   }
 
@@ -482,16 +482,6 @@ export class PayrollService {
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0);
 
-    // Find attendance records on Sundays (day=0) with status PRESENT
-    const sundayRecords = await prisma.attendanceRecord.count({
-      where: {
-        employeeId,
-        date: { gte: startDate, lte: endDate },
-        status: 'PRESENT',
-      },
-    });
-
-    // Count which of those are actually Sundays
     const records = await prisma.attendanceRecord.findMany({
       where: {
         employeeId,
@@ -576,7 +566,10 @@ export class PayrollService {
   /**
    * Get salary history for an employee
    */
-  async getSalaryHistory(employeeId: string) {
+  async getSalaryHistory(employeeId: string, organizationId: string) {
+    // Verify employee belongs to org
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId } });
+    if (!employee) throw new NotFoundError('Employee');
     return prisma.salaryHistory.findMany({
       where: { employeeId },
       orderBy: { effectiveFrom: 'desc' },

@@ -30,7 +30,7 @@ export class EmployeeController {
       res.status(201).json({
         success: true,
         data: result.employee,
-        message: `Employee created. Temporary password: ${result.tempPassword}`,
+        message: 'Employee created. Temporary password has been sent via email.',
       });
     } catch (err) {
       next(err);

@@ -50,12 +50,12 @@ export default function EmployeeListPage() {
   const employees = data?.data || [];
   const meta = data?.meta;
 
-  // Debounced search
-  let searchTimer: ReturnType<typeof setTimeout>;
+  // Debounced search — use useRef to persist timer across renders
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const handleSearch = (value: string) => {
     setSearch(value);
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
+    clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
       setSearchDebounce(value);
       setPage(1);
     }, 300);

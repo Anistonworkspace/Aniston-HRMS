@@ -25,7 +25,7 @@ router.get('/jobs', authenticate, requirePermission('recruitment', 'read'), asyn
 
 router.get('/jobs/:id', authenticate, requirePermission('recruitment', 'read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const job = await recruitmentService.getJobById(req.params.id);
+    const job = await recruitmentService.getJobById(req.params.id, req.user!.organizationId);
     res.json({ success: true, data: job });
   } catch (err) { next(err); }
 });
@@ -41,14 +41,14 @@ router.post('/jobs', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.
 router.patch('/jobs/:id', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = updateJobSchema.parse(req.body);
-    const job = await recruitmentService.updateJob(req.params.id, data);
+    const job = await recruitmentService.updateJob(req.params.id, data, req.user!.organizationId);
     res.json({ success: true, data: job, message: 'Job updated' });
   } catch (err) { next(err); }
 });
 
 router.delete('/jobs/:id', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const result = await recruitmentService.deleteJob(req.params.id);
+    const result = await recruitmentService.deleteJob(req.params.id, req.user!.organizationId);
     res.json({ success: true, data: result, message: 'Job deleted' });
   } catch (err) { next(err); }
 });
@@ -60,14 +60,14 @@ router.delete('/jobs/:id', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN,
 router.get('/jobs/:jobId/applications', authenticate, requirePermission('recruitment', 'read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const status = req.query.status as string | undefined;
-    const apps = await recruitmentService.getApplications(req.params.jobId, status);
+    const apps = await recruitmentService.getApplications(req.params.jobId, req.user!.organizationId, status);
     res.json({ success: true, data: apps });
   } catch (err) { next(err); }
 });
 
 router.get('/applications/:id', authenticate, requirePermission('recruitment', 'read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const app = await recruitmentService.getApplicationById(req.params.id);
+    const app = await recruitmentService.getApplicationById(req.params.id, req.user!.organizationId);
     res.json({ success: true, data: app });
   } catch (err) { next(err); }
 });
@@ -84,7 +84,7 @@ router.post('/apply', async (req: Request, res: Response, next: NextFunction) =>
 router.patch('/applications/:id/stage', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { status } = moveStageSchema.parse(req.body);
-    const app = await recruitmentService.moveApplicationStage(req.params.id, status);
+    const app = await recruitmentService.moveApplicationStage(req.params.id, status, req.user!.organizationId);
     res.json({ success: true, data: app, message: `Application moved to ${status}` });
   } catch (err) { next(err); }
 });
@@ -93,7 +93,7 @@ router.patch('/applications/:id/stage', authenticate, authorize(Role.SUPER_ADMIN
 // INTERVIEW SCORES
 // =====================
 
-router.post('/scores', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/scores', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER, Role.GUEST_INTERVIEWER), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = interviewScoreSchema.parse(req.body);
     const score = await recruitmentService.addInterviewScore(data, req.user!.userId);

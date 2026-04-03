@@ -74,7 +74,7 @@ export default function EmployeeDetailPage() {
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'overview', label: 'Overview' },
     { key: 'attendance', label: 'Attendance & Leaves' },
-    { key: 'salary', label: 'Salary' },
+    ...(isManagement ? [{ key: 'salary' as TabKey, label: 'Salary' }] : []),
     { key: 'personal', label: 'Personal' },
     { key: 'documents', label: 'Documents' },
     ...(isIntern ? [{ key: 'intern' as TabKey, label: 'Intern Profile' }] : []),
@@ -218,7 +218,7 @@ export default function EmployeeDetailPage() {
                     <InfoRow label="Reports To" value={employee.manager ? `${employee.manager.firstName} ${employee.manager.lastName}` : '—'} />
                     <InfoRow label="Office" value={employee.officeLocation?.name || '—'} />
                     <InfoRow label="Joining Date" value={formatDate(employee.joiningDate, 'long')} />
-                    {employee.ctc && <InfoRow label="CTC" value={formatCurrency(Number(employee.ctc))} mono />}
+                    {isManagement && employee.ctc && <InfoRow label="CTC" value={formatCurrency(Number(employee.ctc))} mono />}
                   </dl>
                 </div>
                 <div className="layer-card p-5">

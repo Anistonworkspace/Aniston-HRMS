@@ -8,6 +8,7 @@ import {
   useGetMyPayslipsQuery,
   useGetPayrollRecordsQuery,
   useAmendPayrollRecordMutation,
+  useImportSalariesMutation,
 } from './payrollApi';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
@@ -34,6 +35,7 @@ function PayrollAdminView() {
   const { data: runsRes, isLoading } = useGetPayrollRunsQuery();
   const [createRun] = useCreatePayrollRunMutation();
   const [processPayroll] = useProcessPayrollMutation();
+  const [importSalaries] = useImportSalariesMutation();
   const [viewingRunId, setViewingRunId] = useState<string | null>(null);
   const runs = runsRes?.data || [];
 
@@ -81,18 +83,12 @@ function PayrollAdminView() {
               const formData = new FormData();
               formData.append('file', file);
               try {
-                const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
-                const res = await fetch(`${apiBase}/payroll/import`, {
-                  method: 'POST', body: formData,
-                  headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
-                });
-                const data = await res.json();
-                if (data.success) {
-                  toast.success(data.message || 'Import complete');
-                } else {
-                  toast.error(data.error?.message || 'Import failed');
-                }
-              } catch { toast.error('Import failed'); }
+                const result = await importSalaries(formData).unwrap();
+                toast.success(result.message || 'Import complete');
+              } catch (err: unknown) {
+                const message = (err as { data?: { error?: { message?: string } } })?.data?.error?.message;
+                toast.error(message || 'Import failed');
+              }
               e.target.value = '';
             }} />
           </label>

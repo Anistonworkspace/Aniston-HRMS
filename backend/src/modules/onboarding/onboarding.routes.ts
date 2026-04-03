@@ -143,6 +143,12 @@ router.post('/kyc/:employeeId/photo', authenticate,
         res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Employee ID is required' } });
         return;
       }
+      // Ownership check: only the employee themselves or HR/Admin can upload KYC
+      const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(req.user!.role);
+      if (!isManagement && req.user!.employeeId !== employeeId) {
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorized to upload KYC for this employee' } });
+        return;
+      }
       // Save photo in employee's KYC folder: uploads/employees/{employeeId}/kyc/
       const { createEmployeeKycUpload } = await import('../../middleware/upload.middleware.js');
       const kycUpload = createEmployeeKycUpload(employeeId);
@@ -175,6 +181,12 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
       // Validate employeeId exists
       if (!employeeId || employeeId === 'undefined' || employeeId === 'null') {
         res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Employee ID is required' } });
+        return;
+      }
+      // Ownership check
+      const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(req.user!.role);
+      if (!isManagement && req.user!.employeeId !== employeeId) {
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorized to upload KYC for this employee' } });
         return;
       }
 

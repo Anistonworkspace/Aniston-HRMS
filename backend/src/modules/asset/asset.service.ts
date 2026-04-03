@@ -56,9 +56,9 @@ export class AssetService {
     };
   }
 
-  async getById(id: string) {
-    const asset = await prisma.asset.findUnique({
-      where: { id },
+  async getById(id: string, organizationId: string) {
+    const asset = await prisma.asset.findFirst({
+      where: { id, organizationId },
       include: {
         assignments: {
           include: {
@@ -101,8 +101,8 @@ export class AssetService {
     });
   }
 
-  async update(id: string, data: UpdateAssetInput) {
-    const existing = await prisma.asset.findUnique({ where: { id } });
+  async update(id: string, data: UpdateAssetInput, organizationId: string) {
+    const existing = await prisma.asset.findFirst({ where: { id, organizationId } });
     if (!existing) throw new NotFoundError('Asset');
 
     if (data.assetCode && data.assetCode !== existing.assetCode) {
@@ -124,7 +124,7 @@ export class AssetService {
     if (asset.status === 'RETIRED') throw new BadRequestError('Cannot assign a retired asset.');
 
     const employee = await prisma.employee.findFirst({
-      where: { id: data.employeeId, deletedAt: null },
+      where: { id: data.employeeId, organizationId: asset.organizationId, deletedAt: null },
     });
     if (!employee) throw new NotFoundError('Employee');
 

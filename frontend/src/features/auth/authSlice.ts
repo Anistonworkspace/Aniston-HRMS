@@ -9,8 +9,8 @@ interface AuthState {
 
 const initialState: AuthState = {
   user: null,
-  accessToken: localStorage.getItem('accessToken'),
-  isAuthenticated: !!localStorage.getItem('accessToken'),
+  accessToken: null,
+  isAuthenticated: false,
 };
 
 const authSlice = createSlice({
@@ -21,11 +21,9 @@ const authSlice = createSlice({
       state.user = action.payload.user;
       state.accessToken = action.payload.accessToken;
       state.isAuthenticated = true;
-      localStorage.setItem('accessToken', action.payload.accessToken);
     },
     setAccessToken(state, action: PayloadAction<string>) {
       state.accessToken = action.payload;
-      localStorage.setItem('accessToken', action.payload);
     },
     setUser(state, action: PayloadAction<AuthUser>) {
       state.user = action.payload;
@@ -34,7 +32,6 @@ const authSlice = createSlice({
       state.user = null;
       state.accessToken = null;
       state.isAuthenticated = false;
-      localStorage.removeItem('accessToken');
     },
   },
 });

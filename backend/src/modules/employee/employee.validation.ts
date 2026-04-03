@@ -53,7 +53,7 @@ export const employeeQuerySchema = z.object({
   department: z.string().optional(),
   status: z.string().optional(),
   workMode: z.string().optional(),
-  sortBy: z.string().default('createdAt'),
+  sortBy: z.enum(['createdAt', 'firstName', 'lastName', 'employeeCode', 'joiningDate', 'updatedAt']).default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
 

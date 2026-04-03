@@ -7,6 +7,7 @@ import { env } from './config/env.js';
 import { swaggerSpec } from './config/swagger.js';
 import swaggerUi from 'swagger-ui-express';
 import { errorHandler } from './middleware/errorHandler.js';
+import { authenticate } from './middleware/auth.middleware.js';
 import { requestIdMiddleware, requestLogger } from './middleware/requestLogger.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
 import { authRouter } from './modules/auth/auth.routes.js';
@@ -161,12 +162,13 @@ app.use('/api/employee-permissions', employeePermissionsRouter);
 
 // Resolve uploads base — always relative to project root (handles both root + backend/ cwd)
 const uploadsBase = process.cwd().replace(/[/\\]backend[/\\]?$/, '');
-// Static file serving for uploads (KYC documents, photos, resumes, agent downloads)
-// Serve at both /uploads and /api/uploads so nginx proxy and direct access both work
-app.use('/uploads', express.static(path.join(uploadsBase, 'uploads')));
-app.use('/uploads', express.static(path.join(uploadsBase, 'backend', 'uploads')));
-app.use('/api/uploads', express.static(path.join(uploadsBase, 'uploads')));
-app.use('/api/uploads', express.static(path.join(uploadsBase, 'backend', 'uploads')));
+// Static file serving for uploads — requires authentication
+// Only agent downloads (public installer) are served without auth
+app.use('/uploads/agent', express.static(path.join(uploadsBase, 'uploads', 'agent')));
+app.use('/uploads', authenticate, express.static(path.join(uploadsBase, 'uploads')));
+app.use('/uploads', authenticate, express.static(path.join(uploadsBase, 'backend', 'uploads')));
+app.use('/api/uploads', authenticate, express.static(path.join(uploadsBase, 'uploads')));
+app.use('/api/uploads', authenticate, express.static(path.join(uploadsBase, 'backend', 'uploads')));
 
 // 404 handler
 app.use((_req, res) => {

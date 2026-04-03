@@ -36,7 +36,7 @@ export class PerformanceController {
   async updateCycle(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateReviewCycleSchema.parse(req.body);
-      const cycle = await performanceService.updateCycle(req.params.id, data);
+      const cycle = await performanceService.updateCycle(req.params.id, data, req.user!.organizationId);
       res.json({ success: true, data: cycle });
     } catch (err) {
       next(err);
@@ -84,7 +84,7 @@ export class PerformanceController {
   async listReviews(req: Request, res: Response, next: NextFunction) {
     try {
       const employeeId = (req.query.employeeId as string) || req.user!.employeeId;
-      const reviews = await performanceService.listReviews(employeeId!);
+      const reviews = await performanceService.listReviews(employeeId!, req.user!.organizationId);
       res.json({ success: true, data: reviews });
     } catch (err) {
       next(err);
@@ -94,7 +94,7 @@ export class PerformanceController {
   async createReview(req: Request, res: Response, next: NextFunction) {
     try {
       const data = createReviewSchema.parse(req.body);
-      const review = await performanceService.createReview(data, req.user!.userId);
+      const review = await performanceService.createReview(data, req.user!.userId, req.user!.organizationId);
       res.status(201).json({ success: true, data: review, message: 'Review submitted' });
     } catch (err) {
       next(err);
@@ -104,7 +104,7 @@ export class PerformanceController {
   async updateReview(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateReviewSchema.parse(req.body);
-      const review = await performanceService.updateReview(req.params.id, data);
+      const review = await performanceService.updateReview(req.params.id, data, req.user!.userId, req.user!.organizationId);
       res.json({ success: true, data: review });
     } catch (err) {
       next(err);

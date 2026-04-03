@@ -52,6 +52,12 @@ export class PayrollController {
   async downloadSalarySlip(req: Request, res: Response, next: NextFunction) {
     try {
       const record = await payrollService.getPayrollRecordById(req.params.id);
+      // Ownership check: only the employee themselves or management can download
+      const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(req.user!.role);
+      if (!isManagement && record.employeeId !== req.user!.employeeId) {
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorized to access this salary slip' } });
+        return;
+      }
       const pdfBuffer = await generateSalarySlipPDF(record);
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const filename = `salary-slip-${record.employee.employeeCode}-${monthNames[record.payrollRun.month - 1]}-${record.payrollRun.year}.pdf`;

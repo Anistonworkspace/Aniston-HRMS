@@ -7,6 +7,7 @@ import { redis } from '../../lib/redis.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { emitToOrg } from '../../sockets/index.js';
 import { enqueueEmail } from '../../jobs/queues.js';
+import { encrypt, decrypt, maskAadhaar, maskPAN } from '../../utils/encryption.js';
 import type { RegisterWalkInInput, WalkInQuery } from './walkIn.validation.js';
 
 export class WalkInService {
@@ -69,8 +70,8 @@ export class WalkInService {
         aadhaarBackUrl: data.aadhaarBackUrl,
         panCardUrl: data.panCardUrl,
         selfieUrl: data.selfieUrl,
-        aadhaarNumber: data.aadhaarNumber,
-        panNumber: data.panNumber,
+        aadhaarNumber: data.aadhaarNumber ? encrypt(data.aadhaarNumber) : null,
+        panNumber: data.panNumber ? encrypt(data.panNumber) : null,
         ocrVerifiedName: data.ocrVerifiedName,
         ocrVerifiedDob: data.ocrVerifiedDob ? new Date(data.ocrVerifiedDob) : null,
         ocrVerifiedAddress: data.ocrVerifiedAddress,

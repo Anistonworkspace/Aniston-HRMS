@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { BarChart3, Users, Calendar, DollarSign, Briefcase, PieChart, FileSpreadsheet } from 'lucide-react';
+import { BarChart3, Users, Calendar, DollarSign, Briefcase, PieChart, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { useGetHeadcountQuery, useGetAttendanceSummaryQuery, useGetPayrollSummaryQuery, useGetRecruitmentFunnelQuery } from './reportApi';
 import { formatCurrency } from '../../lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RPieChart, Pie, Cell } from 'recharts';
@@ -7,10 +7,33 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 const COLORS = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#64748b'];
 
 export default function ReportsPage() {
-  const { data: headcountRes } = useGetHeadcountQuery();
-  const { data: attendanceRes } = useGetAttendanceSummaryQuery({});
-  const { data: payrollRes } = useGetPayrollSummaryQuery();
-  const { data: recruitRes } = useGetRecruitmentFunnelQuery();
+  const { data: headcountRes, isLoading: headcountLoading, isError: headcountError } = useGetHeadcountQuery();
+  const { data: attendanceRes, isLoading: attendanceLoading } = useGetAttendanceSummaryQuery({});
+  const { data: payrollRes, isLoading: payrollLoading } = useGetPayrollSummaryQuery();
+  const { data: recruitRes, isLoading: recruitLoading } = useGetRecruitmentFunnelQuery();
+
+  const isLoading = headcountLoading || attendanceLoading || payrollLoading || recruitLoading;
+
+  if (isLoading) {
+    return (
+      <div className="page-container flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+          <p className="text-sm text-gray-400">Loading reports...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (headcountError) {
+    return (
+      <div className="page-container">
+        <div className="layer-card p-8 text-center">
+          <p className="text-red-500">Failed to load reports. Please try again.</p>
+        </div>
+      </div>
+    );
+  }
 
   const headcount = headcountRes?.data;
   const attendance = attendanceRes?.data;

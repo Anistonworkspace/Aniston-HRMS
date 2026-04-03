@@ -58,9 +58,9 @@ export class HelpdeskService {
     });
   }
 
-  async getById(id: string) {
-    const ticket = await prisma.ticket.findUnique({
-      where: { id },
+  async getById(id: string, organizationId: string) {
+    const ticket = await prisma.ticket.findFirst({
+      where: { id, organizationId },
       include: {
         employee: { select: { firstName: true, lastName: true, employeeCode: true, avatar: true } },
         comments: { orderBy: { createdAt: 'asc' } },
@@ -70,7 +70,11 @@ export class HelpdeskService {
     return ticket;
   }
 
-  async update(id: string, data: { status?: string; assignedTo?: string; resolution?: string }) {
+  async update(id: string, data: { status?: string; assignedTo?: string; resolution?: string }, organizationId: string) {
+    // Verify ticket belongs to this org
+    const ticket = await prisma.ticket.findFirst({ where: { id, organizationId } });
+    if (!ticket) throw new NotFoundError('Ticket');
+
     const updateData: any = {};
     if (data.status) updateData.status = data.status;
     if (data.assignedTo) updateData.assignedTo = data.assignedTo;

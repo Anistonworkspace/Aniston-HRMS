@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { randomBytes } from 'crypto';
+import crypto, { randomBytes } from 'crypto';
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { NotFoundError, ConflictError, BadRequestError } from '../../middleware/errorHandler.js';
@@ -507,9 +507,10 @@ export class EmployeeService {
 
   private generateTempPassword(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$';
+    const bytes = crypto.randomBytes(12);
     let password = '';
     for (let i = 0; i < 12; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
+      password += chars.charAt(bytes[i] % chars.length);
     }
     return password;
   }

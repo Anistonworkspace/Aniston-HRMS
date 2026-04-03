@@ -3,6 +3,7 @@ import { authenticate, requirePermission, authorize } from '../../middleware/aut
 import { Role } from '@aniston/shared';
 import { payrollController } from './payroll.controller.js';
 import { payrollService } from './payroll.service.js';
+import { amendPayrollRecordSchema } from './payroll.validation.js';
 
 const router = Router();
 router.use(authenticate);
@@ -52,8 +53,9 @@ router.patch('/records/:id/amend',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
     try {
+      const body = amendPayrollRecordSchema.parse(req.body);
       const result = await payrollService.amendPayrollRecord(
-        req.params.id as string, req.body, req.user!.userId, req.user!.organizationId
+        req.params.id as string, body, req.user!.userId, req.user!.organizationId
       );
       res.json({ success: true, data: result, message: 'Payroll record amended' });
     } catch (err) { next(err); }
@@ -65,7 +67,7 @@ router.get('/salary-history/:employeeId',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
     try {
-      const history = await payrollService.getSalaryHistory(req.params.employeeId as string);
+      const history = await payrollService.getSalaryHistory(req.params.employeeId as string, req.user!.organizationId);
       res.json({ success: true, data: history });
     } catch (err) { next(err); }
   }
@@ -142,13 +144,13 @@ router.post('/import',
           const { prisma } = await import('../../lib/prisma.js');
           let updated = 0, skipped = 0;
           const errors: string[] = [];
+          const rowPromises: Promise<void>[] = [];
 
           sheet.eachRow((row, rowNumber) => {
             if (rowNumber <= 2) return; // Skip header rows
             const empCode = String(row.getCell(1).value || '').trim();
             if (!empCode) return;
-            // Queue for processing
-            (async () => {
+            rowPromises.push((async () => {
               try {
                 const employee = await prisma.employee.findFirst({
                   where: { employeeCode: empCode, organizationId: req.user!.organizationId },
@@ -174,11 +176,10 @@ router.post('/import',
                 skipped++;
                 errors.push(`Row ${rowNumber}: ${e.message}`);
               }
-            })();
+            })());
           });
 
-          // Wait a bit for async processing
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await Promise.all(rowPromises);
 
           res.json({ success: true, data: { updated, skipped, errors: errors.slice(0, 20) }, message: `Imported ${updated} salary structures` });
         } catch (innerErr) { next(innerErr); }

@@ -30,8 +30,8 @@ export class LeaveService {
   /**
    * Update an existing leave type
    */
-  async updateLeaveType(id: string, data: UpdateLeaveTypeInput) {
-    const existing = await prisma.leaveType.findUnique({ where: { id } });
+  async updateLeaveType(id: string, data: UpdateLeaveTypeInput, organizationId: string) {
+    const existing = await prisma.leaveType.findFirst({ where: { id, organizationId } });
     if (!existing) throw new NotFoundError('Leave type');
 
     return prisma.leaveType.update({
@@ -43,8 +43,8 @@ export class LeaveService {
   /**
    * Delete (soft-deactivate) a leave type
    */
-  async deleteLeaveType(id: string) {
-    const existing = await prisma.leaveType.findUnique({ where: { id } });
+  async deleteLeaveType(id: string, organizationId: string) {
+    const existing = await prisma.leaveType.findFirst({ where: { id, organizationId } });
     if (!existing) throw new NotFoundError('Leave type');
 
     return prisma.leaveType.update({
@@ -80,46 +80,55 @@ export class LeaveService {
       return true;
     });
 
-    // Get or create balances
-    const balances = await Promise.all(
-      leaveTypes.map(async (lt) => {
-        let balance = await prisma.leaveBalance.findUnique({
-          where: {
-            employeeId_leaveTypeId_year: {
-              employeeId,
-              leaveTypeId: lt.id,
-              year: currentYear,
-            },
-          },
-        });
+    // Batch fetch all existing balances in one query (fixes N+1)
+    const existingBalances = await prisma.leaveBalance.findMany({
+      where: {
+        employeeId,
+        leaveTypeId: { in: leaveTypes.map((lt) => lt.id) },
+        year: currentYear,
+      },
+    });
+    const balanceMap = new Map(existingBalances.map((b) => [b.leaveTypeId, b]));
 
-        if (!balance) {
-          // Auto-create balance for the year
-          balance = await prisma.leaveBalance.create({
-            data: {
-              employeeId,
-              leaveTypeId: lt.id,
-              year: currentYear,
-              allocated: lt.defaultBalance,
-              used: 0,
-              pending: 0,
-              carriedForward: 0,
-            },
-          });
-        }
+    // Batch create any missing balances
+    const missingTypes = leaveTypes.filter((lt) => !balanceMap.has(lt.id));
+    if (missingTypes.length > 0) {
+      await prisma.leaveBalance.createMany({
+        data: missingTypes.map((lt) => ({
+          employeeId,
+          leaveTypeId: lt.id,
+          year: currentYear,
+          allocated: lt.defaultBalance,
+          used: 0,
+          pending: 0,
+          carriedForward: 0,
+        })),
+        skipDuplicates: true,
+      });
+      // Re-fetch newly created balances
+      const newBalances = await prisma.leaveBalance.findMany({
+        where: {
+          employeeId,
+          leaveTypeId: { in: missingTypes.map((lt) => lt.id) },
+          year: currentYear,
+        },
+      });
+      newBalances.forEach((b) => balanceMap.set(b.leaveTypeId, b));
+    }
 
-        return {
-          ...balance,
-          leaveType: {
-            id: lt.id,
-            name: lt.name,
-            code: lt.code,
-            isPaid: lt.isPaid,
-          },
-          remaining: Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending),
-        };
-      })
-    );
+    const balances = leaveTypes.map((lt) => {
+      const balance = balanceMap.get(lt.id)!;
+      return {
+        ...balance,
+        leaveType: {
+          id: lt.id,
+          name: lt.name,
+          code: lt.code,
+          isPaid: lt.isPaid,
+        },
+        remaining: Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending),
+      };
+    });
 
     return balances;
   }
@@ -166,18 +175,18 @@ export class LeaveService {
     // ===== POLICY ENFORCEMENT =====
 
     // 1. Min days check
-    if (leaveType.minDays && days < Number(leaveType.minDays)) {
-      throw new BadRequestError(`[Section 5] ${leaveType.name} requires a minimum of ${Number(leaveType.minDays)} day(s) per company policy.`);
+    if (leaveType.minDays && Number(leaveType.minDays) > 0.5 && days < Number(leaveType.minDays)) {
+      throw new BadRequestError(`${leaveType.name} requires a minimum of ${Number(leaveType.minDays)} day(s) per application.`);
     }
 
-    // 2. Max days check
+    // 2. Max days check (max consecutive days per single application)
     if (leaveType.maxDays && days > Number(leaveType.maxDays)) {
-      throw new BadRequestError(`[Section 5] Maximum ${Number(leaveType.maxDays)} consecutive day(s) allowed for ${leaveType.name}. For longer durations, use Privilege Leave (PL).`);
+      throw new BadRequestError(`Maximum ${Number(leaveType.maxDays)} consecutive day(s) allowed for ${leaveType.name}. For longer durations, please use Privilege Leave (PL).`);
     }
 
     // 3. Same-day check
     if (!leaveType.allowSameDay && startDateOnly.getTime() === today.getTime()) {
-      throw new BadRequestError(`[Section 5.1] ${leaveType.name} must be applied in advance. Same-day applications are not permitted.`);
+      throw new BadRequestError(`${leaveType.name} must be applied in advance. Same-day applications are not permitted.`);
     }
 
     // 4. Notice days check
@@ -185,11 +194,11 @@ export class LeaveService {
       const diffMs = startDateOnly.getTime() - today.getTime();
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
       if (diffDays < leaveType.noticeDays) {
-        throw new BadRequestError(`[Section 5] ${leaveType.name} requires at least ${leaveType.noticeDays} working day(s) advance notice per company policy.`);
+        throw new BadRequestError(`${leaveType.name} requires at least ${leaveType.noticeDays} working day(s) advance notice.`);
       }
     }
 
-    // 5. Max per month check
+    // 5. Max per month check (max number of leave requests per calendar month)
     if (leaveType.maxPerMonth && leaveType.maxPerMonth > 0) {
       const monthStart = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
       const monthEnd = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
@@ -202,13 +211,13 @@ export class LeaveService {
         },
       });
       if (monthCount >= leaveType.maxPerMonth) {
-        throw new BadRequestError(`[Section 4 — Monthly Cap] No employee shall take more than ${leaveType.maxPerMonth} paid leave(s) per calendar month across all categories. You have already used your monthly quota.`);
+        throw new BadRequestError(`You can apply for ${leaveType.name} a maximum of ${leaveType.maxPerMonth} time(s) per month. You have already used your monthly quota.`);
       }
     }
 
     // 6. Gender restriction
     if (leaveType.gender && employee.gender !== leaveType.gender) {
-      throw new BadRequestError(`[Section 5] ${leaveType.name} is restricted to ${leaveType.gender} employees only.`);
+      throw new BadRequestError(`${leaveType.name} is available for ${leaveType.gender.toLowerCase()} employees only.`);
     }
 
     // 7. Probation / Confirmed check
@@ -218,10 +227,10 @@ export class LeaveService {
       const isInProbation = today < probationEnd;
 
       if (leaveType.applicableTo === 'CONFIRMED' && isInProbation) {
-        throw new BadRequestError(`[Section 5.4] ${leaveType.name} is available only after ${leaveType.probationMonths || 3} months of confirmed service.`);
+        throw new BadRequestError(`${leaveType.name} is available only after ${leaveType.probationMonths || 3} months of confirmed service.`);
       }
       if (leaveType.applicableTo === 'PROBATION' && !isInProbation) {
-        throw new BadRequestError(`[Section 5] ${leaveType.name} is only available during probation period.`);
+        throw new BadRequestError(`${leaveType.name} is only available during probation period.`);
       }
     }
 
@@ -235,11 +244,11 @@ export class LeaveService {
       const afterDay = dayAfter.getDay();
       // Only Sunday (0) is weekend, Saturday (6) is a working day
       if (beforeDay === 0 || afterDay === 0) {
-        throw new BadRequestError(`[Section 6.2 — Sandwich Rule] ${leaveType.name} cannot be taken on days adjacent to weekends (Sunday). The intervening day(s) will also be counted as leave.`);
+        throw new BadRequestError(`${leaveType.name} cannot be taken on days adjacent to a Sunday. The intervening day(s) will also be counted as leave (sandwich rule).`);
       }
     }
 
-    // 10. Check leave policy acceptance
+    // 9. Check leave policy acceptance
     const leavePolicy = await prisma.policy.findFirst({
       where: { organizationId: employee.organizationId, category: 'LEAVE', isActive: true },
       orderBy: { createdAt: 'desc' },
@@ -249,7 +258,7 @@ export class LeaveService {
         where: { policyId_employeeId: { policyId: leavePolicy.id, employeeId } },
       });
       if (!acknowledged) {
-        throw new BadRequestError('[Policy Compliance] You must accept the Leave, Attendance & Professional Integrity Policy (v3.0) before applying for leave. Go to Leave Management to review and accept the policy.');
+        throw new BadRequestError('You must accept the Leave Policy before applying for leave. Go to Leave Management to review and accept the policy.');
       }
     }
 
@@ -270,8 +279,11 @@ export class LeaveService {
     if (balance) {
       const available = Number(balance.allocated) + Number(balance.carriedForward) - Number(balance.used) - Number(balance.pending);
       if (days > available && leaveType.isPaid) {
-        throw new BadRequestError(`[Section 6.3] Insufficient leave balance. Available: ${available} day(s), Requested: ${days} day(s). Additional absence will be marked as Leave Without Pay (LWP) with proportionate salary deduction.`);
+        throw new BadRequestError(`Insufficient ${leaveType.name} balance. Available: ${available} day(s), Requested: ${days} day(s). You may apply for Leave Without Pay (LWP) instead.`);
       }
+    } else if (leaveType.isPaid) {
+      // No balance row exists for this year — reject paid leave to prevent unlimited leave
+      throw new BadRequestError(`No ${leaveType.name} balance allocated for this year. Please contact HR.`);
     }
 
     // Check for overlapping leaves
@@ -286,7 +298,7 @@ export class LeaveService {
     });
 
     if (overlapping) {
-      throw new BadRequestError('[Section 6.1] You already have a leave request for these dates. Cancel the existing request first or choose different dates.');
+      throw new BadRequestError('You already have a leave request for these dates. Cancel the existing request first or choose different dates.');
     }
 
     // Create leave request
