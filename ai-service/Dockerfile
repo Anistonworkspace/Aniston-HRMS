@@ -2,9 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Install tesseract OCR + poppler for PDF conversion + OpenCV dependencies
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-eng \
+    tesseract-ocr-hin \
+    poppler-utils \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

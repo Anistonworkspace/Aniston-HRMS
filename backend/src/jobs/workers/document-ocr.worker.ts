@@ -18,19 +18,21 @@ const worker = new Worker<DocumentOcrJob>(
     logger.info(`[OCR Worker] Processing document ${documentId}`);
 
     try {
-      // 1. Run OCR extraction
+      // 1. Run Tesseract/PDF OCR extraction
       const ocrResult = await documentOcrService.triggerOcr(documentId, organizationId);
       logger.info(`[OCR Worker] OCR done for ${documentId} — confidence: ${ocrResult.confidence}`);
 
-      // 1b. Run LLM-based OCR extraction in parallel (non-blocking)
+      // 2. Run LLM-based extraction (uses DeepSeek/configured AI to intelligently parse)
+      // This fills gaps that Tesseract missed and applies OCR error corrections
       try {
         await documentOcrService.triggerLlmOcr(documentId, organizationId);
-        logger.info(`[OCR Worker] LLM OCR done for ${documentId}`);
+        logger.info(`[OCR Worker] LLM extraction done for ${documentId}`);
       } catch (llmErr: any) {
-        logger.warn(`[OCR Worker] LLM OCR failed for ${documentId}: ${llmErr.message}`);
+        // LLM is optional — if not configured or fails, we still have Tesseract data
+        logger.warn(`[OCR Worker] LLM extraction skipped for ${documentId}: ${llmErr.message}`);
       }
 
-      // 2. Get the document to find the employee
+      // 3. Get the document with employee info
       const doc = await prisma.document.findUnique({
         where: { id: documentId },
         include: {
@@ -43,7 +45,7 @@ const worker = new Worker<DocumentOcrJob>(
 
       const employee = doc.employee;
 
-      // 3. Auto cross-validate if employee has 2+ documents with OCR data
+      // 4. Auto cross-validate if employee has 2+ documents
       try {
         await documentOcrService.crossValidateEmployee(employee.id, organizationId);
         logger.info(`[OCR Worker] Cross-validation completed for employee ${employee.id}`);
@@ -51,7 +53,7 @@ const worker = new Worker<DocumentOcrJob>(
         logger.warn(`[OCR Worker] Cross-validation skipped: ${e.message}`);
       }
 
-      // 3b. Format validation (Aadhaar 12 digits, PAN ABCDE1234F, etc.)
+      // 5. Format validation (Aadhaar 12 digits, PAN ABCDE1234F, etc.)
       try {
         const ocrVerification = await prisma.documentOcrVerification.findUnique({
           where: { documentId },
@@ -67,50 +69,46 @@ const worker = new Worker<DocumentOcrJob>(
           });
 
           if (!formatResult.valid) {
-            // Flag the document
+            // Flag the document (NOT reject — let HR decide)
             await prisma.document.update({
               where: { id: documentId },
               data: {
                 status: 'FLAGGED',
-                rejectionReason: `Document number format invalid: ${formatResult.errors.join('; ')}`,
+                rejectionReason: `Document number format issue: ${formatResult.errors.join('; ')}. Please verify.`,
               },
             });
 
-            // Notify employee
             if (doc.employee.userId) {
               await enqueueNotification({
                 userId: doc.employee.userId,
                 organizationId,
-                title: 'Document Flagged',
-                message: `Your ${doc.type.replace(/_/g, ' ')} has been flagged: ${formatResult.errors[0]}. Please re-upload a valid document.`,
+                title: 'Document Needs Attention',
+                message: `Your ${doc.type.replace(/_/g, ' ')} has a format issue: ${formatResult.errors[0]}. HR will review it.`,
                 type: 'DOCUMENT_FLAGGED',
                 link: '/my-documents',
               });
             }
-            logger.warn(`[OCR Worker] Format validation failed for ${documentId}: ${formatResult.errors.join(', ')}`);
+            logger.warn(`[OCR Worker] Format validation issue for ${documentId}: ${formatResult.errors.join(', ')}`);
           }
         }
       } catch (e: any) {
         logger.warn(`[OCR Worker] Format validation error: ${e.message}`);
       }
 
-      // 4. Check for issues — fake/tampered/low quality
+      // 6. Check for tampering/fake indicators
       const isFake = doc.tamperDetected === true;
       const isScreenshot = ocrResult.isScreenshot === true;
-      const isLowQuality = ocrResult.resolutionQuality === 'LOW';
-      const lowConfidence = ocrResult.confidence < 0.4;
-      const tamperIndicators: string[] = Array.isArray(ocrResult.tamperingIndicators) ? ocrResult.tamperingIndicators : [];
+      const tamperIndicators: string[] = Array.isArray(ocrResult.tamperingIndicators) ? ocrResult.tamperingIndicators as string[] : [];
       const hasIssues = isFake || isScreenshot || tamperIndicators.length > 0;
-      const isInvalid = isLowQuality || lowConfidence;
 
-      // 5. If fake/tampered → alert HR via email + in-app notification
+      // 7. If suspicious → alert HR (but do NOT auto-reject)
       if (hasIssues) {
         const org = await prisma.organization.findUnique({
           where: { id: organizationId },
           select: { name: true, adminNotificationEmail: true },
         });
         const hrEmail = org?.adminNotificationEmail || 'hr@anistonav.com';
-        const frontendUrl = 'https://hr.anistonav.com';
+        const frontendUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
         const issues = [
           ...(isFake ? ['Document may be altered or fake'] : []),
           ...(isScreenshot ? ['Screenshot detected instead of original scan'] : []),
@@ -133,55 +131,46 @@ const worker = new Worker<DocumentOcrJob>(
           },
         });
 
-        // In-app notification to all HR/Admin users
+        // In-app notification to HR users
         const hrUsers = await prisma.user.findMany({
-          where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, deletedAt: null },
+          where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] } },
           select: { id: true },
         });
         for (const hrUser of hrUsers) {
           await enqueueNotification({
             userId: hrUser.id,
             organizationId,
-            title: 'Suspicious Document Detected',
-            message: `${employee.firstName} ${employee.lastName} (${employee.employeeCode}) uploaded a ${doc.type.replace(/_/g, ' ')} that appears suspicious: ${issues[0]}`,
+            title: 'Document Needs Review',
+            message: `${employee.firstName} ${employee.lastName} (${employee.employeeCode}) uploaded a ${doc.type.replace(/_/g, ' ')} with issues: ${issues[0]}`,
             type: 'DOCUMENT_ALERT',
             link: `/employees/${employee.id}`,
           });
         }
 
-        // Mark OCR status as FLAGGED
+        // Mark OCR status as FLAGGED (NOT document status — let HR decide)
         await prisma.documentOcrVerification.update({
           where: { documentId },
           data: { ocrStatus: 'FLAGGED' },
         });
 
-        logger.warn(`[OCR Worker] FAKE/TAMPER alert sent for document ${documentId}`);
-
-        // Notify employee about flagged document
-        if (doc.employee.userId) {
-          await enqueueNotification({
-            userId: doc.employee.userId,
-            organizationId,
-            title: 'Document Requires Attention',
-            message: `Your ${doc.type.replace(/_/g, ' ')} has been flagged for review: ${issues[0]}. Please check your documents page.`,
-            type: 'DOCUMENT_FLAGGED',
-            link: '/my-documents',
-          });
-        }
+        logger.warn(`[OCR Worker] Suspicious document alert sent for ${documentId}`);
       }
 
-      // 6. If invalid quality → mark document for re-upload
-      if (isInvalid && !hasIssues) {
-        await prisma.document.update({
-          where: { id: documentId },
+      // 8. NEVER auto-reject — mark as NEEDS_REVIEW for HR to decide
+      // (Previously auto-rejected low confidence docs — now HR always reviews)
+      const lowConfidence = ocrResult.confidence < 0.3;
+      const isLowQuality = ocrResult.resolutionQuality === 'LOW';
+      if ((lowConfidence || isLowQuality) && !hasIssues) {
+        await prisma.documentOcrVerification.update({
+          where: { documentId },
           data: {
-            status: 'REJECTED',
-            rejectionReason: lowConfidence
-              ? 'Document is unclear or unreadable. Please upload a clear, original scan.'
-              : 'Document image quality is too low. Please upload a higher resolution scan.',
+            ocrStatus: 'FLAGGED',
+            hrNotes: lowConfidence
+              ? 'Auto-flagged: Low OCR confidence. Document may be unclear — needs manual review.'
+              : 'Auto-flagged: Low resolution image. Please verify document quality.',
           },
         });
-        logger.info(`[OCR Worker] Document ${documentId} auto-rejected for low quality`);
+        logger.info(`[OCR Worker] Document ${documentId} flagged for HR review (low quality/confidence)`);
       }
 
       return ocrResult;

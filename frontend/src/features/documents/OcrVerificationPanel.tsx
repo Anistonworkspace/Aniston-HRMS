@@ -184,6 +184,52 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
                 <p className="text-sm font-medium text-gray-800">{ocr.detectedType?.replace(/_/g, ' ') || 'Unknown'}</p>
               </div>
 
+              {/* AI Extraction Results (from DeepSeek/configured AI) */}
+              {ocr.llmExtractedData && (
+                <div className="layer-card p-4 border border-blue-100 bg-blue-50/30">
+                  <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-1.5">
+                    <Shield size={12} /> AI-Assisted Verification
+                    {ocr.llmConfidence != null && (
+                      <span className={cn(
+                        'ml-2 px-2 py-0.5 rounded-full text-[10px] font-medium',
+                        ocr.llmConfidence >= 0.7 ? 'bg-emerald-100 text-emerald-700' : ocr.llmConfidence >= 0.4 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                      )}>
+                        AI Confidence: {Math.round(ocr.llmConfidence * 100)}%
+                      </span>
+                    )}
+                  </p>
+
+                  {/* Issues found by AI */}
+                  {(ocr.llmExtractedData as any).issues?.length > 0 && (
+                    <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg">
+                      <p className="text-xs font-medium text-red-700 mb-1">Issues Detected:</p>
+                      {((ocr.llmExtractedData as any).issues as string[]).map((issue: string, i: number) => (
+                        <p key={i} className="text-xs text-red-600 ml-3">• {issue}</p>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* OCR corrections applied */}
+                  {(ocr.llmExtractedData as any).corrections?.length > 0 && (
+                    <div className="mb-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-xs font-medium text-amber-700 mb-1">OCR Corrections Applied:</p>
+                      {((ocr.llmExtractedData as any).corrections as string[]).map((c: string, i: number) => (
+                        <p key={i} className="text-xs text-amber-600 ml-3">• {c}</p>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* No issues = all clear */}
+                  {!(ocr.llmExtractedData as any).issues?.length && !(ocr.llmExtractedData as any).corrections?.length && ocr.llmConfidence != null && ocr.llmConfidence >= 0.6 && (
+                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg">
+                      <p className="text-xs text-emerald-700 flex items-center gap-1">
+                        <CheckCircle2 size={12} /> AI verification passed — no issues found
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Extracted Fields */}
               <div className="layer-card p-4">
                 <div className="flex items-center justify-between mb-3">

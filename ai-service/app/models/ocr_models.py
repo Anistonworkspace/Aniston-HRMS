@@ -7,6 +7,7 @@ class OCRResult(BaseModel):
     document_type: Optional[str] = None
     extracted_fields: dict = {}
     confidence: float = 0.0
+    extraction_source: Optional[str] = None  # image_ocr, pdf_native, pdf_ocr, failed
 
 
 class AadhaarData(BaseModel):

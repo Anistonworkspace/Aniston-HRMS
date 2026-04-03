@@ -13,13 +13,18 @@ const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 export class DocumentOcrService {
   /**
    * Trigger OCR processing for a document by calling the AI service.
+   * Now supports PDFs + images via the upgraded Python AI service.
    */
   async triggerOcr(documentId: string, organizationId: string) {
     const doc = await prisma.document.findUnique({ where: { id: documentId } });
     if (!doc) throw new NotFoundError('Document');
 
     // Read the file from disk
-    const filePath = join(process.cwd(), doc.fileUrl);
+    let basePath = process.cwd();
+    if (basePath.endsWith('backend') || basePath.endsWith('backend/') || basePath.endsWith('backend\\')) {
+      basePath = join(basePath, '..');
+    }
+    const filePath = join(basePath, doc.fileUrl);
     let fileBuffer: Buffer;
     try {
       fileBuffer = readFileSync(filePath);
@@ -28,132 +33,127 @@ export class DocumentOcrService {
       return this.createFallbackOcr(documentId, organizationId, 'File not found on disk');
     }
 
-    // Check if it's an image (OCR only works on images)
     const ext = doc.fileUrl.split('.').pop()?.toLowerCase() || '';
-    const isImage = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff'].includes(ext);
-    if (!isImage) {
-      return this.createFallbackOcr(documentId, organizationId, 'Non-image file (PDF) — OCR requires image');
+    const supportedFormats = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'pdf'];
+    if (!supportedFormats.includes(ext)) {
+      return this.createFallbackOcr(documentId, organizationId, `Unsupported file format (.${ext}). Supported: images, PDF`);
     }
 
-    // Call AI service
+    // Call AI service (now handles both images AND PDFs)
+    let ocrResult: any = null;
     try {
       const FormData = (await import('form-data')).default;
       const formData = new FormData();
-      formData.append('file', fileBuffer, { filename: `document.${ext}`, contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}` });
+      const mimeType = ext === 'pdf' ? 'application/pdf' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+      formData.append('file', fileBuffer, { filename: `document.${ext}`, contentType: mimeType });
 
       const axios = (await import('axios')).default;
       const response = await axios.post(`${AI_SERVICE_URL}/ai/ocr/extract`, formData, {
         headers: formData.getHeaders(),
-        timeout: 30000,
+        timeout: 60000, // 60s for PDF processing
       });
 
-      const ocrResult = response.data?.data;
-      if (!ocrResult) {
-        return this.createFallbackOcr(documentId, organizationId, 'AI service returned empty result');
-      }
-
-      // Analyze image quality
-      const qualityReport = this.analyzeImageQuality(fileBuffer, ocrResult);
-
-      // Extract fields based on document type
-      const fields = ocrResult.extracted_fields || {};
-
-      // Upsert the OCR verification record
-      const ocrVerification = await prisma.documentOcrVerification.upsert({
-        where: { documentId },
-        create: {
-          documentId,
-          organizationId,
-          rawText: ocrResult.raw_text || '',
-          detectedType: ocrResult.document_type || doc.type,
-          confidence: ocrResult.confidence || 0,
-          extractedName: fields.name || null,
-          extractedDob: fields.date_of_birth || null,
-          extractedFatherName: fields.father_name || null,
-          extractedMotherName: fields.mother_name || null,
-          extractedDocNumber: fields.aadhaar_number || fields.pan_number || fields.passport_number || null,
-          extractedGender: fields.gender || null,
-          extractedAddress: fields.address || null,
-          isScreenshot: qualityReport.isScreenshot,
-          isOriginalScan: qualityReport.isOriginalScan,
-          resolutionQuality: qualityReport.resolutionQuality,
-          tamperingIndicators: qualityReport.tamperingIndicators,
-          ocrStatus: 'PENDING',
-        },
-        update: {
-          rawText: ocrResult.raw_text || '',
-          detectedType: ocrResult.document_type || doc.type,
-          confidence: ocrResult.confidence || 0,
-          extractedName: fields.name || null,
-          extractedDob: fields.date_of_birth || null,
-          extractedFatherName: fields.father_name || null,
-          extractedMotherName: fields.mother_name || null,
-          extractedDocNumber: fields.aadhaar_number || fields.pan_number || fields.passport_number || null,
-          extractedGender: fields.gender || null,
-          extractedAddress: fields.address || null,
-          isScreenshot: qualityReport.isScreenshot,
-          isOriginalScan: qualityReport.isOriginalScan,
-          resolutionQuality: qualityReport.resolutionQuality,
-          tamperingIndicators: qualityReport.tamperingIndicators,
-        },
-      });
-
-      // Update the Document record's existing ocrData / tamper fields
-      const hasTamperIssues = qualityReport.tamperingIndicators.length > 0 || qualityReport.isScreenshot;
-      await prisma.document.update({
-        where: { id: documentId },
-        data: {
-          ocrData: ocrResult,
-          tamperDetected: hasTamperIssues,
-          tamperDetails: hasTamperIssues
-            ? qualityReport.tamperingIndicators.join('; ') || 'Possible screenshot detected'
-            : null,
-        },
-      });
-
-      return ocrVerification;
+      ocrResult = response.data?.data;
     } catch (err: any) {
       logger.warn(`OCR: AI service call failed for document ${documentId}: ${err.message}`);
-      return this.createFallbackOcr(documentId, organizationId, `AI service unavailable: ${err.message}`);
     }
+
+    // If AI service failed, try LLM-only extraction as fallback
+    if (!ocrResult) {
+      return this.createFallbackOcr(documentId, organizationId, 'AI service unavailable — will attempt LLM extraction');
+    }
+
+    // Analyze image quality
+    const qualityReport = this.analyzeImageQuality(fileBuffer, ocrResult, ext);
+    const fields = ocrResult.extracted_fields || {};
+
+    // Upsert the OCR verification record
+    const ocrVerification = await prisma.documentOcrVerification.upsert({
+      where: { documentId },
+      create: {
+        documentId,
+        organizationId,
+        rawText: (ocrResult.raw_text || '').substring(0, 10000),
+        detectedType: ocrResult.document_type || doc.type,
+        confidence: ocrResult.confidence || 0,
+        extractedName: fields.name || null,
+        extractedDob: fields.date_of_birth || null,
+        extractedFatherName: fields.father_name || null,
+        extractedMotherName: fields.mother_name || null,
+        extractedDocNumber: fields.aadhaar_number || fields.pan_number || fields.passport_number || null,
+        extractedGender: fields.gender || null,
+        extractedAddress: fields.address || null,
+        isScreenshot: qualityReport.isScreenshot,
+        isOriginalScan: qualityReport.isOriginalScan,
+        resolutionQuality: qualityReport.resolutionQuality,
+        tamperingIndicators: qualityReport.tamperingIndicators,
+        ocrStatus: 'PENDING',
+      },
+      update: {
+        rawText: (ocrResult.raw_text || '').substring(0, 10000),
+        detectedType: ocrResult.document_type || doc.type,
+        confidence: ocrResult.confidence || 0,
+        extractedName: fields.name || null,
+        extractedDob: fields.date_of_birth || null,
+        extractedFatherName: fields.father_name || null,
+        extractedMotherName: fields.mother_name || null,
+        extractedDocNumber: fields.aadhaar_number || fields.pan_number || fields.passport_number || null,
+        extractedGender: fields.gender || null,
+        extractedAddress: fields.address || null,
+        isScreenshot: qualityReport.isScreenshot,
+        isOriginalScan: qualityReport.isOriginalScan,
+        resolutionQuality: qualityReport.resolutionQuality,
+        tamperingIndicators: qualityReport.tamperingIndicators,
+      },
+    });
+
+    // Update the Document record
+    const hasTamperIssues = qualityReport.tamperingIndicators.length > 0 || qualityReport.isScreenshot;
+    await prisma.document.update({
+      where: { id: documentId },
+      data: {
+        ocrData: ocrResult,
+        tamperDetected: hasTamperIssues,
+        tamperDetails: hasTamperIssues
+          ? qualityReport.tamperingIndicators.join('; ') || 'Possible screenshot detected'
+          : null,
+      },
+    });
+
+    return ocrVerification;
   }
 
   /**
-   * Basic image quality analysis (runs in Node.js without Python).
+   * Image/document quality analysis.
    */
-  private analyzeImageQuality(buffer: Buffer, ocrResult: any) {
+  private analyzeImageQuality(buffer: Buffer, ocrResult: any, ext: string) {
     const indicators: string[] = [];
     const fileSize = buffer.length;
+    const isPdf = ext === 'pdf';
 
-    // Very small file might be a screenshot crop
-    if (fileSize < 20_000) {
+    // Very small file might be a screenshot crop (but not for PDFs)
+    if (!isPdf && fileSize < 20_000) {
       indicators.push('Very small file size — may be a cropped screenshot');
     }
 
-    // Check for common screenshot dimensions by reading image header
-    // PNG header check
     const isPng = buffer[0] === 0x89 && buffer[1] === 0x50;
-    // JPEG header
     const isJpeg = buffer[0] === 0xFF && buffer[1] === 0xD8;
 
-    // If OCR confidence is very low, flag it
-    if (ocrResult.confidence < 0.4) {
-      indicators.push('Low OCR confidence — document may be unclear or altered');
+    if (ocrResult.confidence < 0.3) {
+      indicators.push('Very low OCR confidence — document may be unclear or heavily edited');
     }
 
-    // Check if raw text is suspiciously short for an ID document
     const rawLen = (ocrResult.raw_text || '').length;
-    if (rawLen < 20 && ocrResult.document_type !== 'OTHER') {
+    if (rawLen < 20 && ocrResult.document_type !== 'OTHER' && !isPdf) {
       indicators.push('Very little text extracted — may be a photo of a photo or heavily edited');
     }
 
-    // Heuristic: screenshots tend to be PNG with very uniform compression
-    const isScreenshot = isPng && fileSize > 500_000 && rawLen < 100;
+    const isScreenshot = !isPdf && isPng && fileSize > 500_000 && rawLen < 100;
 
     return {
       isScreenshot,
-      isOriginalScan: !isScreenshot && isJpeg && fileSize > 100_000,
-      resolutionQuality: fileSize > 500_000 ? 'HIGH' : fileSize > 100_000 ? 'MEDIUM' : 'LOW',
+      isOriginalScan: isPdf || (!isScreenshot && isJpeg && fileSize > 100_000),
+      resolutionQuality: isPdf ? 'HIGH' : (fileSize > 500_000 ? 'HIGH' : fileSize > 100_000 ? 'MEDIUM' : 'LOW'),
       tamperingIndicators: indicators,
     };
   }
@@ -179,8 +179,8 @@ export class DocumentOcrService {
   }
 
   /**
-   * Trigger LLM-based OCR extraction for a document (parallel to Python OCR).
-   * Uses the org's configured AI provider via aiService.prompt().
+   * Trigger LLM-based extraction using the org's configured AI provider (DeepSeek, etc.).
+   * This runs AFTER Tesseract/PDF extraction and uses the raw text to intelligently parse fields.
    */
   async triggerLlmOcr(documentId: string, organizationId: string) {
     const doc = await prisma.document.findUnique({
@@ -192,43 +192,114 @@ export class DocumentOcrService {
     const docType = doc.type;
     const existingOcrText = doc.ocrVerification?.rawText || '';
 
-    const systemPrompt = `You are a document verification expert. Extract key information from this document.
-Document type: ${docType}
-Return a JSON object with: { "extractedName": string|null, "extractedDocNumber": string|null, "extractedDob": string|null, "extractedAddress": string|null, "extractedGender": string|null, "confidence": number, "documentType": string }
-Only include fields that are clearly present. Set confidence 0.0-1.0 based on how certain you are.
-Return ONLY valid JSON, no markdown or extra text.`;
-
-    const userPrompt = `Document type: ${docType}
-${existingOcrText ? `Previously extracted OCR text:\n${existingOcrText}` : 'No prior OCR text available.'}
-Please extract and verify the key fields from this ${docType.replace(/_/g, ' ')} document.`;
-
-    const aiResponse = await aiService.prompt(organizationId, systemPrompt, userPrompt);
-
-    // Parse JSON from the AI response
-    let llmData: any;
-    try {
-      const content = aiResponse.content || '';
-      // Try to extract JSON from the response (handle markdown code blocks)
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      llmData = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
-    } catch (parseErr) {
-      logger.warn(`[LLM OCR] Failed to parse AI response for document ${documentId}: ${(parseErr as Error).message}`);
-      llmData = { confidence: 0, error: 'Failed to parse AI response' };
+    // Skip if no text to analyze
+    if (!existingOcrText || existingOcrText.length < 10 || existingOcrText.startsWith('[')) {
+      logger.info(`[LLM OCR] Skipped for document ${documentId} — no OCR text available`);
+      return doc.ocrVerification;
     }
 
-    const llmConfidence = typeof llmData.confidence === 'number' ? llmData.confidence : 0;
+    const systemPrompt = `You are an expert Indian document verification system. Your task is to extract key identity fields from OCR text of Indian documents (Aadhaar, PAN Card, Passport, Driving License, Voter ID, Education Certificates, etc.).
 
-    // Update the DocumentOcrVerification record with LLM data
-    const updated = await prisma.documentOcrVerification.update({
-      where: { documentId },
-      data: {
+IMPORTANT RULES:
+1. Extract ONLY fields that are clearly present in the text. Do NOT guess or hallucinate.
+2. For document numbers, apply common OCR error corrections: O→0, l→1, I→1, S→5, B→8
+3. Validate formats: Aadhaar=12 digits, PAN=ABCDE1234F, Passport=A1234567
+4. Normalize dates to DD/MM/YYYY format
+5. If name appears in ALL CAPS, convert to Title Case
+6. Look for discrepancies between the stated document type and detected content
+7. Rate your confidence 0.0-1.0 based on text clarity and field extraction success
+
+Return ONLY valid JSON with these fields:
+{
+  "extractedName": string|null,
+  "extractedDocNumber": string|null,
+  "extractedDob": string|null,
+  "extractedFatherName": string|null,
+  "extractedMotherName": string|null,
+  "extractedGender": string|null,
+  "extractedAddress": string|null,
+  "documentType": string,
+  "confidence": number,
+  "issues": string[],
+  "corrections": string[]
+}
+
+"issues" should list any problems found (e.g., "Name on Aadhaar doesn't match PAN").
+"corrections" should list any OCR corrections applied (e.g., "Changed PAN 'ABCDE1234O' to 'ABCDE12340'").`;
+
+    const userPrompt = `Document type: ${docType.replace(/_/g, ' ')}
+File: ${doc.fileUrl.split('/').pop()}
+
+OCR Extracted Text:
+---
+${existingOcrText.substring(0, 3000)}
+---
+
+Please extract all identity fields from the above OCR text. Apply OCR error corrections where needed.`;
+
+    try {
+      const aiResponse = await aiService.prompt(organizationId, systemPrompt, userPrompt);
+
+      let llmData: any;
+      try {
+        const content = aiResponse.content || '';
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        llmData = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+      } catch {
+        logger.warn(`[LLM OCR] Failed to parse AI response for document ${documentId}`);
+        llmData = { confidence: 0, error: 'Failed to parse AI response' };
+      }
+
+      const llmConfidence = typeof llmData.confidence === 'number' ? llmData.confidence : 0;
+
+      // If LLM extracted better data than Tesseract, merge it
+      const currentOcr = doc.ocrVerification;
+      const updateData: any = {
         llmExtractedData: llmData,
         llmConfidence,
-      },
-    });
+      };
 
-    logger.info(`[LLM OCR] Completed for document ${documentId} — confidence: ${llmConfidence}`);
-    return updated;
+      // Use LLM data to fill gaps in Tesseract extraction
+      if (llmData.extractedName && !currentOcr?.extractedName) {
+        updateData.extractedName = llmData.extractedName;
+      }
+      if (llmData.extractedDocNumber && !currentOcr?.extractedDocNumber) {
+        updateData.extractedDocNumber = llmData.extractedDocNumber;
+      }
+      if (llmData.extractedDob && !currentOcr?.extractedDob) {
+        updateData.extractedDob = llmData.extractedDob;
+      }
+      if (llmData.extractedFatherName && !currentOcr?.extractedFatherName) {
+        updateData.extractedFatherName = llmData.extractedFatherName;
+      }
+      if (llmData.extractedGender && !currentOcr?.extractedGender) {
+        updateData.extractedGender = llmData.extractedGender;
+      }
+      if (llmData.extractedAddress && !currentOcr?.extractedAddress) {
+        updateData.extractedAddress = llmData.extractedAddress;
+      }
+
+      // If LLM found a better document type
+      if (llmData.documentType && (!currentOcr?.detectedType || currentOcr.detectedType === 'OTHER')) {
+        updateData.detectedType = llmData.documentType;
+      }
+
+      // Update confidence to the higher of Tesseract vs LLM
+      if (llmConfidence > (currentOcr?.confidence || 0)) {
+        updateData.confidence = llmConfidence;
+      }
+
+      const updated = await prisma.documentOcrVerification.update({
+        where: { documentId },
+        data: updateData,
+      });
+
+      logger.info(`[LLM OCR] Completed for document ${documentId} — confidence: ${llmConfidence}, issues: ${(llmData.issues || []).length}`);
+      return updated;
+    } catch (err: any) {
+      logger.warn(`[LLM OCR] Failed for document ${documentId}: ${err.message}`);
+      return doc.ocrVerification;
+    }
   }
 
   /**
@@ -272,7 +343,6 @@ Please extract and verify the key fields from this ${docType.replace(/_/g, ' ')}
 
   /**
    * Cross-validate all documents for an employee.
-   * Compares name and DOB across Aadhaar, PAN, Passport, etc.
    */
   async crossValidateEmployee(employeeId: string, organizationId: string) {
     const docs = await prisma.document.findMany({
@@ -294,7 +364,7 @@ Please extract and verify the key fields from this ${docType.replace(/_/g, ' ')}
     })).filter(n => n.value);
 
     if (names.length >= 2) {
-      const normalized = names.map(n => n.value!.toLowerCase().trim());
+      const normalized = names.map(n => n.value!.toLowerCase().replace(/\s+/g, ' ').trim());
       const allMatch = normalized.every(n => n === normalized[0]);
       details.push({ field: 'Name', values: names, match: allMatch });
     }
@@ -306,7 +376,7 @@ Please extract and verify the key fields from this ${docType.replace(/_/g, ' ')}
     })).filter(n => n.value);
 
     if (dobs.length >= 2) {
-      const normalized = dobs.map(d => d.value!.replace(/[-\/]/g, ''));
+      const normalized = dobs.map(d => d.value!.replace(/[-\/\.]/g, ''));
       const allMatch = normalized.every(n => n === normalized[0]);
       details.push({ field: 'Date of Birth', values: dobs, match: allMatch });
     }
@@ -318,7 +388,7 @@ Please extract and verify the key fields from this ${docType.replace(/_/g, ' ')}
     })).filter(n => n.value);
 
     if (fatherNames.length >= 2) {
-      const normalized = fatherNames.map(n => n.value!.toLowerCase().trim());
+      const normalized = fatherNames.map(n => n.value!.toLowerCase().replace(/\s+/g, ' ').trim());
       const allMatch = normalized.every(n => n === normalized[0]);
       details.push({ field: 'Father Name', values: fatherNames, match: allMatch });
     }
@@ -327,7 +397,6 @@ Please extract and verify the key fields from this ${docType.replace(/_/g, ' ')}
     const anyFail = details.some(d => !d.match);
     const overallStatus = details.length === 0 ? 'PENDING' : allPass ? 'PASS' : anyFail ? 'FAIL' : 'PARTIAL';
 
-    // Update each OCR verification with cross-validation result
     for (const doc of ocrDocs) {
       await prisma.documentOcrVerification.update({
         where: { documentId: doc.id },
@@ -342,7 +411,7 @@ Please extract and verify the key fields from this ${docType.replace(/_/g, ' ')}
   }
 
   /**
-   * Get all OCR verifications for an employee with cross-validation summary.
+   * Get all OCR verifications for an employee.
    */
   async getEmployeeOcrSummary(employeeId: string) {
     const docs = await prisma.document.findMany({
