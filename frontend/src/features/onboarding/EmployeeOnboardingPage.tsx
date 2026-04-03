@@ -69,11 +69,12 @@ export default function EmployeeOnboardingPage() {
       await completeOnboarding().unwrap();
       setCompleted(true);
       toast.success('Onboarding complete! Welcome aboard!');
+      // Wait briefly for the success screen to show, then redirect to login
       setTimeout(() => {
-        // Force re-login to refresh user state
+        // Navigate first, then clear auth — prevents blank screen flash
         dispatch(logout());
-        navigate('/login', { replace: true });
-      }, 3000);
+        window.location.href = '/login';
+      }, 2000);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to complete onboarding');
     }
