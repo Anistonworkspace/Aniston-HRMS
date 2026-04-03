@@ -122,9 +122,20 @@ function makePendingInvitation(overrides: Record<string, any> = {}) {
 describe('InvitationService', () => {
   let service: InvitationService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     service = new InvitationService();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    // Re-set base mocks cleared by resetAllMocks
+    vi.mocked(prisma.auditLog.create).mockResolvedValue({ id: 'audit-id' } as any);
+    const empCodeModule = await import('../utils/employeeCode.js');
+    vi.mocked(empCodeModule.generateEmployeeCode).mockResolvedValue('EMP-001');
+    // Re-set enqueueEmail
+    const queuesModule = await import('../jobs/queues.js');
+    vi.mocked(queuesModule.enqueueEmail).mockResolvedValue(undefined);
+    // Re-set authService
+    const authModule = await import('../modules/auth/auth.service.js');
+    vi.mocked(authModule.authService.generateAccessToken).mockReturnValue('mock-access-token' as any);
+    vi.mocked(authModule.authService.generateRefreshToken).mockResolvedValue('mock-refresh-token');
   });
 
   // ── createInvitation ───────────────────────────────────────────────────
@@ -333,7 +344,7 @@ describe('InvitationService', () => {
         const txPrisma = {
           user: { create: vi.fn().mockResolvedValueOnce(mockUser) },
           employee: { create: vi.fn().mockResolvedValueOnce(mockEmployee) },
-          employeeInvitation: { update: vi.fn().mockResolvedValueOnce({}) },
+          employeeInvitation: { updateMany: vi.fn().mockResolvedValueOnce({ count: 1 }) },
         };
         return fn(txPrisma);
       });
@@ -370,7 +381,7 @@ describe('InvitationService', () => {
         const tx = {
           user: { create: vi.fn().mockResolvedValueOnce(mockUser) },
           employee: { create: vi.fn().mockResolvedValueOnce(mockEmployee) },
-          employeeInvitation: { update: vi.fn().mockResolvedValueOnce({}) },
+          employeeInvitation: { updateMany: vi.fn().mockResolvedValueOnce({ count: 1 }) },
         };
         return fn(tx);
       });
@@ -507,7 +518,14 @@ describe('/api/invitations (integration)', () => {
   const ORG_ID = 'org-test-001';
 
   beforeEach(async () => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    // Re-set base mocks cleared by resetAllMocks
+    vi.mocked(prisma.auditLog.create).mockResolvedValue({ id: 'audit-id' } as any);
+    const redisModule = await import('../lib/redis.js');
+    vi.mocked(redisModule.redis.incr).mockResolvedValue(1);
+    vi.mocked(redisModule.redis.expire).mockResolvedValue(1);
+    const queuesModule = await import('../jobs/queues.js');
+    vi.mocked(queuesModule.enqueueEmail).mockResolvedValue(undefined);
     const supertest = await import('supertest');
     jwtLib = await import('jsonwebtoken');
     const appModule = await import('../app.js');
@@ -549,6 +567,11 @@ describe('/api/invitations (integration)', () => {
       vi.mocked(prisma.organization.findUnique).mockResolvedValueOnce({
         id: ORG_ID,
         name: 'Aniston Technologies',
+      } as any);
+      // Inviter lookup (user.findUnique called for inviterName)
+      vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+        id: 'u-1', email: 'superadmin@aniston.com',
+        employee: { firstName: 'Admin', lastName: 'User' },
       } as any);
 
       const token = makeToken('SUPER_ADMIN');
