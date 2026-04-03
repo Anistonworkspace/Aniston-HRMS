@@ -105,7 +105,7 @@ export default function EmployeeAttendanceDetailPage() {
       const record = recordMap.get(dateStr);
       let status = '';
       if (record) status = record.status;
-      else if (dayOfWeek === 0 || dayOfWeek === 6) status = 'WEEKEND';
+      else if (dayOfWeek === 0) status = 'WEEKEND'; // Only Sunday is weekoff
       else if (new Date(dateStr) < new Date(todayStr)) status = 'ABSENT';
       days.push({ date: d, dateStr, status, record, isToday: dateStr === todayStr, isSelected: dateStr === selectedDate });
     }

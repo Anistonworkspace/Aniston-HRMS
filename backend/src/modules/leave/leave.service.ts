@@ -538,7 +538,7 @@ export class LeaveService {
           const current = new Date(leaveStart);
           while (current <= leaveEnd) {
             const dow = current.getDay();
-            if (dow !== 0 && dow !== 6) { // Skip weekends
+            if (dow !== 0) { // Skip Sundays only (company weekoff)
               const dateOnly = new Date(current);
               dateOnly.setHours(0, 0, 0, 0);
               await tx.attendanceRecord.upsert({
@@ -659,7 +659,7 @@ export class LeaveService {
     const current = new Date(start);
     while (current <= end) {
       const dayOfWeek = current.getDay();
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      if (dayOfWeek !== 0) { // Only Sunday is weekoff
         days++;
       }
       current.setDate(current.getDate() + 1);

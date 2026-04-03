@@ -412,7 +412,7 @@ export class PayrollService {
     let workingDays = 0;
     for (let d = 1; d <= daysInMonth; d++) {
       const day = new Date(year, month - 1, d).getDay();
-      if (day !== 0 && day !== 6) workingDays++;
+      if (day !== 0) workingDays++; // Only Sunday is weekoff
     }
     return workingDays;
   }

@@ -152,7 +152,7 @@ export async function generateMonthlyAttendanceExcel(
         }
       } else if (isHoliday) {
         cellValue = 'H'; holiday++;
-      } else if (dayOfWeek === 0 || dayOfWeek === 6) {
+      } else if (dayOfWeek === 0) {
         cellValue = 'W';
       } else if (!isFuture) {
         cellValue = 'A'; absent++;
@@ -257,7 +257,7 @@ export async function generateMonthlyAttendanceExcel(
         dept: emp.department?.name || '-',
         date: fmtDate(dt),
         day: dayName,
-        status: record?.status || (holidayDates.has(dateStr) ? 'HOLIDAY' : (dt.getDay() === 0 || dt.getDay() === 6) ? 'WEEKEND' : 'ABSENT'),
+        status: record?.status || (holidayDates.has(dateStr) ? 'HOLIDAY' : (dt.getDay() === 0) ? 'WEEKEND' : 'ABSENT'),
         checkIn: record?.checkIn ? fmtTime(record.checkIn) : '-',
         checkOut: record?.checkOut ? fmtTime(record.checkOut) : '-',
         hours: record?.totalHours ? Number(record.totalHours).toFixed(1) : '-',
@@ -337,7 +337,7 @@ export async function generateEmployeeAttendanceExcel(
     const dayName = dt.toLocaleString('en-IN', { weekday: 'short' });
 
     const breakMins = record?.breaks?.reduce((sum: number, b: any) => sum + (b.durationMinutes || 0), 0) || 0;
-    const status = record?.status || ((dt.getDay() === 0 || dt.getDay() === 6) ? 'WEEKEND' : 'ABSENT');
+    const status = record?.status || ((dt.getDay() === 0) ? 'WEEKEND' : 'ABSENT');
 
     if (status === 'PRESENT') { totalPresent++; totalHours += Number(record?.totalHours || 0); }
     if (status === 'ABSENT') totalAbsent++;

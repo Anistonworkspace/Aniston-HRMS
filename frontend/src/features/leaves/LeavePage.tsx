@@ -616,18 +616,14 @@ function HolidayManagementTab() {
                     </select>
                   )}
                 </div>
-                {form.type === 'EVENT' && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Start Time</label>
-                      <input type="time" value={form.startTime} onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))} className="input-glass w-full text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">End Time</label>
-                      <input type="time" value={form.endTime} onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))} className="input-glass w-full text-sm" />
-                    </div>
-                  </>
-                )}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Start Time <span className="text-gray-400">(optional)</span></label>
+                  <input type="time" value={form.startTime} onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))} className="input-glass w-full text-sm" placeholder="e.g. 09:30" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">End Time <span className="text-gray-400">(optional)</span></label>
+                  <input type="time" value={form.endTime} onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))} className="input-glass w-full text-sm" placeholder="e.g. 18:00" />
+                </div>
                 <div className="flex items-end gap-2">
                   <label className="flex items-center gap-2 text-xs">
                     <input type="checkbox" checked={form.notifyEmployees} onChange={e => setForm(f => ({ ...f, notifyEmployees: e.target.checked }))} className="rounded" />

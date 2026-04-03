@@ -166,7 +166,7 @@ async function autoMarkAbsent() {
       });
 
       // Check if yesterday was a weekend
-      const isWeekend = yesterday.getDay() === 0 || yesterday.getDay() === 6;
+      const isWeekend = yesterday.getDay() === 0; // Only Sunday is weekoff
 
       // Create records for employees without attendance
       const toCreate: any[] = [];

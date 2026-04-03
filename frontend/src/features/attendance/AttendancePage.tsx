@@ -551,7 +551,7 @@ function AttendancePersonalView() {
         status = record.status;
       } else if (isHoliday) {
         status = 'HOLIDAY';
-      } else if (dayOfWeek === 0 || dayOfWeek === 6) {
+      } else if (dayOfWeek === 0) { // Only Sunday is weekoff
         status = 'WEEKEND';
       } else if (new Date(dateStr) < new Date(todayStr)) {
         status = 'ABSENT';

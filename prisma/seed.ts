@@ -322,28 +322,9 @@ HR reviews attendance monthly. If habitual lateness/absences detected, leave ded
   });
   console.log('  ✅ Leave policy created');
 
-  // Create holidays for 2026
-  const holidays2026 = [
-    { name: 'Republic Day', date: new Date('2026-01-26') },
-    { name: 'Holi', date: new Date('2026-03-14') },
-    { name: 'Good Friday', date: new Date('2026-04-03') },
-    { name: 'Eid ul-Fitr', date: new Date('2026-03-20') },
-    { name: 'Independence Day', date: new Date('2026-08-15') },
-    { name: 'Ganesh Chaturthi', date: new Date('2026-08-27') },
-    { name: 'Mahatma Gandhi Jayanti', date: new Date('2026-10-02') },
-    { name: 'Dussehra', date: new Date('2026-10-02') },
-    { name: 'Diwali', date: new Date('2026-10-20') },
-    { name: 'Christmas', date: new Date('2026-12-25') },
-  ];
-
-  for (const holiday of holidays2026) {
-    await prisma.holiday.upsert({
-      where: { date_organizationId: { date: holiday.date, organizationId: org.id } },
-      update: {},
-      create: { ...holiday, organizationId: org.id },
-    });
-  }
-  console.log(`  ✅ Holidays 2026: ${holidays2026.length} created`);
+  // Holidays are NOT auto-seeded — HR adds them manually via Leave Management > Holidays & Events
+  // Only Sunday is a weekly off. HR can add Indian Holidays using the suggestions button.
+  console.log('  ℹ️  Holidays: None auto-created (HR adds via Leave Management)');
 
   console.log('\n🎉 Seed completed successfully!');
   console.log('\n┌──────────────────────────────────────────────────────────────────────┐');
