@@ -620,7 +620,7 @@ function AssignmentsPanel() {
                   {showEditing && (
                     <>
                       <td className="p-3">
-                        <select value={p.shiftId} onChange={e => setPending(prev => ({...prev, [emp.id]: { shiftId: e.target.value, locationId: '' }}))}
+                        <select value={p.shiftId} onChange={e => setPending(prev => ({...prev, [emp.id]: { ...prev[emp.id], shiftId: e.target.value }}))}
                           className="input-glass text-xs py-1.5 w-52">
                           <option value="">Select shift...</option>
                           {shifts.map((s: any) => {
