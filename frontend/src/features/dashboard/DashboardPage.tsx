@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Users, UserCheck, CalendarOff, Briefcase, TrendingUp, Clock, ClipboardCheck, DollarSign, MessageSquare, MapPin, Loader2, Award } from 'lucide-react';
+import { Users, UserCheck, CalendarOff, Briefcase, TrendingUp, Clock, MapPin, Loader2, Award, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Clock3, Sun, Coffee } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/store';
 import { useGetDashboardStatsQuery } from './dashboardApi';
-import { useGetTodayStatusQuery, useClockInMutation, useClockOutMutation } from '../attendance/attendanceApi';
+import { useGetTodayStatusQuery, useClockInMutation, useClockOutMutation, useGetMyAttendanceQuery } from '../attendance/attendanceApi';
 import { formatDate, getInitials } from '../../lib/utils';
+import { RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 import toast from 'react-hot-toast';
 
 const container = {
@@ -27,10 +28,26 @@ export default function DashboardPage() {
   const { data: statsResponse, isLoading } = useGetDashboardStatsQuery();
   const stats = statsResponse?.data;
   const isEmployee = !['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
-  const { data: todayRes } = useGetTodayStatusQuery(undefined, { skip: !isEmployee });
+  const { data: todayRes } = useGetTodayStatusQuery();
   const todayStatus = todayRes?.data;
   const [clockIn, { isLoading: clockingIn }] = useClockInMutation();
   const [clockOut, { isLoading: clockingOut }] = useClockOutMutation();
+
+  // Monthly attendance for employee
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date());
+  const monthStart = useMemo(() => {
+    const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
+    return d.toISOString().split('T')[0];
+  }, [selectedMonth]);
+  const monthEnd = useMemo(() => {
+    const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0);
+    return d.toISOString().split('T')[0];
+  }, [selectedMonth]);
+
+  const { data: myAttendanceRes } = useGetMyAttendanceQuery(
+    { startDate: monthStart, endDate: monthEnd },
+  );
+  const myAttendance = myAttendanceRes?.data;
 
   const handleQuickCheckIn = async () => {
     try {
@@ -47,7 +64,6 @@ export default function DashboardPage() {
         await clockOut(coords).unwrap();
         toast.success('Checked out successfully!');
       } else {
-        // Works for both first clock-in and re-clock-in after accidental clock-out
         await clockIn({ ...coords, source: 'MANUAL_APP' }).unwrap();
         toast.success(todayStatus?.isCheckedOut ? 'Re-checked in successfully!' : 'Checked in successfully!');
       }
@@ -63,6 +79,22 @@ export default function DashboardPage() {
     return 'Good Evening';
   };
 
+  // Shift-based expected hours calculation
+  const getExpectedHours = () => {
+    if (todayStatus?.shift?.startTime && todayStatus?.shift?.endTime) {
+      const [sh, sm] = todayStatus.shift.startTime.split(':').map(Number);
+      const [eh, em] = todayStatus.shift.endTime.split(':').map(Number);
+      let diff = (eh * 60 + em) - (sh * 60 + sm);
+      if (diff < 0) diff += 24 * 60;
+      return Math.round(diff / 60 * 10) / 10;
+    }
+    return 9; // default 9 hours
+  };
+
+  const expectedHours = getExpectedHours();
+  const completedHours = Number(todayStatus?.totalHours || 0);
+  const hoursPercent = Math.min((completedHours / expectedHours) * 100, 100);
+
   const statCards = [
     { label: 'Total Employees', value: stats?.totalEmployees ?? 0, icon: Users, color: 'bg-blue-500', change: '+3 this month' },
     { label: 'Present Today', value: stats?.presentToday ?? 0, icon: UserCheck, color: 'bg-emerald-500', change: 'of active' },
@@ -70,6 +102,12 @@ export default function DashboardPage() {
     { label: 'Open Positions', value: stats?.openPositions ?? 0, icon: Briefcase, color: 'bg-purple-500', change: 'hiring' },
     ...(stats?.hiringPassed ? [{ label: 'Hiring Passed', value: stats.hiringPassed, icon: Award, color: 'bg-emerald-500', change: 'ready to onboard' }] : []),
   ];
+
+  const navigateMonth = (dir: number) => {
+    setSelectedMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + dir, 1));
+  };
+
+  const monthLabel = selectedMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 
   return (
     <div className="page-container">
@@ -87,27 +125,110 @@ export default function DashboardPage() {
         </p>
       </motion.div>
 
-      {/* Stat cards */}
+      {/* Stat cards — admin/HR only, hidden on mobile */}
+      {!isEmployee && (
+        <motion.div
+          variants={container}
+          initial="hidden"
+          animate="show"
+          className="hidden md:grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8"
+        >
+          {statCards.map((card) => (
+            <motion.div key={card.label} variants={item} className="stat-card">
+              <div className="flex items-start justify-between mb-3">
+                <div className={`p-2.5 rounded-lg ${card.color}/10`}>
+                  <card.icon size={20} className={card.color.replace('bg-', 'text-')} />
+                </div>
+              </div>
+              <p className="text-2xl font-bold font-mono text-gray-900" data-mono>
+                {isLoading ? '—' : card.value}
+              </p>
+              <p className="text-sm text-gray-500 mt-0.5">{card.label}</p>
+              <p className="text-xs text-gray-400 mt-1">{card.change}</p>
+            </motion.div>
+          ))}
+        </motion.div>
+      )}
+
+      {/* Today's Hours Circular Chart — all users on mobile, employee-only on desktop */}
       <motion.div
         variants={container}
         initial="hidden"
         animate="show"
-        className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8"
+        className={`mb-8 ${!isEmployee ? 'md:hidden' : ''}`}
       >
-        {statCards.map((card) => (
-          <motion.div key={card.label} variants={item} className="stat-card">
-            <div className="flex items-start justify-between mb-3">
-              <div className={`p-2.5 rounded-lg ${card.color}/10`}>
-                <card.icon size={20} className={card.color.replace('bg-', 'text-')} />
+          <motion.div variants={item} className="layer-card p-6">
+            <div className="flex flex-col md:flex-row items-center gap-6">
+              {/* Radial chart */}
+              <div className="relative">
+                <RadialBarChart
+                  width={200}
+                  height={200}
+                  cx={100}
+                  cy={100}
+                  innerRadius={70}
+                  outerRadius={90}
+                  barSize={14}
+                  data={[{ value: hoursPercent, fill: hoursPercent >= 100 ? '#10b981' : hoursPercent >= 50 ? '#6366f1' : '#f59e0b' }]}
+                  startAngle={90}
+                  endAngle={-270}
+                >
+                  <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+                  <RadialBar
+                    background={{ fill: '#f1f5f9' }}
+                    dataKey="value"
+                    angleAxisId={0}
+                    cornerRadius={10}
+                  />
+                </RadialBarChart>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <p className="text-2xl font-bold font-mono text-gray-900" data-mono>
+                    {completedHours.toFixed(1)}h
+                  </p>
+                  <p className="text-xs text-gray-400">of {expectedHours}h</p>
+                </div>
+              </div>
+
+              {/* Status info */}
+              <div className="flex-1 space-y-3">
+                <h2 className="text-lg font-display font-semibold text-gray-800">Today&apos;s Progress</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-surface-2 rounded-xl">
+                    <p className="text-xs text-gray-400 mb-1">Status</p>
+                    <p className="text-sm font-semibold text-gray-700">
+                      {todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut
+                        ? 'Working'
+                        : todayStatus?.isCheckedOut
+                        ? 'Completed'
+                        : 'Not Started'}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-surface-2 rounded-xl">
+                    <p className="text-xs text-gray-400 mb-1">Check In</p>
+                    <p className="text-sm font-semibold text-gray-700" data-mono>
+                      {todayStatus?.record?.checkIn
+                        ? new Date(todayStatus.record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
+                        : '—'}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-surface-2 rounded-xl">
+                    <p className="text-xs text-gray-400 mb-1">Check Out</p>
+                    <p className="text-sm font-semibold text-gray-700" data-mono>
+                      {todayStatus?.record?.checkOut
+                        ? new Date(todayStatus.record.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
+                        : '—'}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-surface-2 rounded-xl">
+                    <p className="text-xs text-gray-400 mb-1">Shift</p>
+                    <p className="text-sm font-semibold text-gray-700">
+                      {todayStatus?.shift ? `${todayStatus.shift.startTime}–${todayStatus.shift.endTime}` : 'Default'}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
-            <p className="text-2xl font-bold font-mono text-gray-900" data-mono>
-              {isLoading ? '—' : card.value}
-            </p>
-            <p className="text-sm text-gray-500 mt-0.5">{card.label}</p>
-            <p className="text-xs text-gray-400 mt-1">{card.change}</p>
           </motion.div>
-        ))}
       </motion.div>
 
       {/* Two column layout */}
@@ -178,80 +299,189 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
-        {/* Pending approvals */}
-        <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6 cursor-pointer hover:ring-2 hover:ring-brand-200 transition-all" onClick={() => navigate('/pending-approvals')}>
-          <h2 className="text-lg font-display font-semibold text-gray-800 mb-4">
-            📋 Pending Approvals
-          </h2>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between py-2.5 px-3 bg-amber-50 rounded-lg border border-amber-100">
-              <div className="flex items-center gap-2">
-                <CalendarOff size={16} className="text-amber-600" />
-                <span className="text-sm text-amber-800">Leave Requests</span>
+        {/* Pending approvals — admin/HR only */}
+        {!isEmployee && (
+          <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6 cursor-pointer hover:ring-2 hover:ring-brand-200 transition-all" onClick={() => navigate('/pending-approvals')}>
+            <h2 className="text-lg font-display font-semibold text-gray-800 mb-4">
+              📋 Pending Approvals
+            </h2>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between py-2.5 px-3 bg-amber-50 rounded-lg border border-amber-100">
+                <div className="flex items-center gap-2">
+                  <CalendarOff size={16} className="text-amber-600" />
+                  <span className="text-sm text-amber-800">Leave Requests</span>
+                </div>
+                <span className="badge badge-warning font-mono" data-mono>
+                  {stats?.pendingLeaves ?? 0}
+                </span>
               </div>
-              <span className="badge badge-warning font-mono" data-mono>
-                {stats?.pendingLeaves ?? 0}
-              </span>
             </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        )}
 
-        {/* Upcoming birthdays */}
-        <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
-          <h2 className="text-lg font-display font-semibold text-gray-800 mb-4">
-            🎂 Upcoming Birthdays
-          </h2>
-          {stats?.upcomingBirthdays && stats.upcomingBirthdays.length > 0 ? (
-            <div className="space-y-3">
-              {stats.upcomingBirthdays.map((bday) => (
-                <div key={bday.id} className="flex items-center gap-3 py-2">
-                  <div className="w-9 h-9 rounded-lg bg-pink-100 flex items-center justify-center text-pink-700 font-semibold text-sm">
-                    {getInitials(bday.firstName, bday.lastName)}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">
-                      {bday.firstName} {bday.lastName}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {bday.dateOfBirth ? formatDate(bday.dateOfBirth, 'short') : ''}
-                    </p>
-                  </div>
-                </div>
-              ))}
+        {/* Employee: Monthly Attendance History */}
+        {isEmployee && (
+          <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-display font-semibold text-gray-800">
+                Attendance History
+              </h2>
+              <div className="flex items-center gap-2">
+                <button onClick={() => navigateMonth(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                  <ChevronLeft size={16} className="text-gray-500" />
+                </button>
+                <span className="text-sm font-medium text-gray-700 min-w-[140px] text-center">{monthLabel}</span>
+                <button onClick={() => navigateMonth(1)} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                  disabled={selectedMonth.getMonth() === new Date().getMonth() && selectedMonth.getFullYear() === new Date().getFullYear()}>
+                  <ChevronRight size={16} className={`${selectedMonth.getMonth() === new Date().getMonth() && selectedMonth.getFullYear() === new Date().getFullYear() ? 'text-gray-200' : 'text-gray-500'}`} />
+                </button>
+              </div>
             </div>
-          ) : (
-            <p className="text-sm text-gray-400 text-center py-8">No upcoming birthdays</p>
-          )}
-        </motion.div>
 
-        {/* Recent hires */}
-        <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
-          <h2 className="text-lg font-display font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <TrendingUp size={18} className="text-emerald-500" />
-            Recent Hires
-          </h2>
-          {stats?.recentHires && stats.recentHires.length > 0 ? (
-            <div className="space-y-3">
-              {stats.recentHires.map((hire) => (
-                <div key={hire.id} className="flex items-center gap-3 py-2">
-                  <div className="w-9 h-9 rounded-lg bg-brand-100 flex items-center justify-center text-brand-700 font-semibold text-sm">
-                    {getInitials(hire.firstName, hire.lastName)}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">
-                      {hire.firstName} {hire.lastName}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      Joined {formatDate(hire.joiningDate)}
-                    </p>
-                  </div>
+            {/* Summary cards */}
+            {myAttendance?.summary && (
+              <div className="grid grid-cols-4 gap-2 mb-4">
+                <div className="p-2.5 bg-emerald-50 rounded-lg text-center">
+                  <p className="text-lg font-bold text-emerald-700 font-mono" data-mono>{myAttendance.summary.present}</p>
+                  <p className="text-[10px] text-emerald-600">Present</p>
                 </div>
-              ))}
+                <div className="p-2.5 bg-red-50 rounded-lg text-center">
+                  <p className="text-lg font-bold text-red-700 font-mono" data-mono>{myAttendance.summary.absent}</p>
+                  <p className="text-[10px] text-red-600">Absent</p>
+                </div>
+                <div className="p-2.5 bg-amber-50 rounded-lg text-center">
+                  <p className="text-lg font-bold text-amber-700 font-mono" data-mono>{myAttendance.summary.halfDay}</p>
+                  <p className="text-[10px] text-amber-600">Half Day</p>
+                </div>
+                <div className="p-2.5 bg-purple-50 rounded-lg text-center">
+                  <p className="text-lg font-bold text-purple-700 font-mono" data-mono>{myAttendance.summary.onLeave}</p>
+                  <p className="text-[10px] text-purple-600">On Leave</p>
+                </div>
+              </div>
+            )}
+
+            {/* Daily records */}
+            <div className="space-y-1 max-h-[300px] overflow-y-auto pr-1">
+              {myAttendance?.records && myAttendance.records.length > 0 ? (
+                [...myAttendance.records].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((record: any) => {
+                  const statusConfig: Record<string, { bg: string; text: string; icon: any }> = {
+                    PRESENT: { bg: 'bg-emerald-50', text: 'text-emerald-700', icon: CheckCircle2 },
+                    ABSENT: { bg: 'bg-red-50', text: 'text-red-700', icon: XCircle },
+                    HALF_DAY: { bg: 'bg-amber-50', text: 'text-amber-700', icon: Clock3 },
+                    ON_LEAVE: { bg: 'bg-purple-50', text: 'text-purple-700', icon: Coffee },
+                    HOLIDAY: { bg: 'bg-blue-50', text: 'text-blue-700', icon: Sun },
+                    WEEKEND: { bg: 'bg-gray-50', text: 'text-gray-500', icon: Sun },
+                  };
+                  const cfg = statusConfig[record.status] || statusConfig.ABSENT;
+                  const StatusIcon = cfg.icon;
+                  return (
+                    <div key={record.id || record.date} className={`flex items-center justify-between py-2 px-3 rounded-lg ${cfg.bg} transition-colors`}>
+                      <div className="flex items-center gap-2.5">
+                        <StatusIcon size={14} className={cfg.text} />
+                        <div>
+                          <p className="text-xs font-medium text-gray-700">
+                            {new Date(record.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}
+                          </p>
+                          <p className="text-[10px] text-gray-400">
+                            {record.checkIn
+                              ? new Date(record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
+                              : '—'}
+                            {record.checkOut
+                              ? ` → ${new Date(record.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`
+                              : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.text}`}>
+                          {record.status?.replace('_', ' ')}
+                        </span>
+                        {record.totalHours != null && (
+                          <p className="text-[10px] text-gray-400 mt-0.5 font-mono" data-mono>
+                            {Number(record.totalHours).toFixed(1)}h
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-gray-400 text-center py-8">No records for this month</p>
+              )}
             </div>
-          ) : (
-            <p className="text-sm text-gray-400 text-center py-8">No recent hires</p>
-          )}
-        </motion.div>
+
+            {/* Avg hours footer */}
+            {myAttendance?.summary && (
+              <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+                <p className="text-xs text-gray-400">Average daily hours</p>
+                <p className="text-sm font-semibold text-gray-700 font-mono" data-mono>
+                  {Number(myAttendance.summary.averageHours || 0).toFixed(1)}h
+                </p>
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {/* Upcoming birthdays — admin/HR only */}
+        {!isEmployee && (
+          <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
+            <h2 className="text-lg font-display font-semibold text-gray-800 mb-4">
+              🎂 Upcoming Birthdays
+            </h2>
+            {stats?.upcomingBirthdays && stats.upcomingBirthdays.length > 0 ? (
+              <div className="space-y-3">
+                {stats.upcomingBirthdays.map((bday: any) => (
+                  <div key={bday.id} className="flex items-center gap-3 py-2">
+                    <div className="w-9 h-9 rounded-lg bg-pink-100 flex items-center justify-center text-pink-700 font-semibold text-sm">
+                      {getInitials(bday.firstName, bday.lastName)}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">
+                        {bday.firstName} {bday.lastName}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {bday.dateOfBirth ? formatDate(bday.dateOfBirth, 'short') : ''}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 text-center py-8">No upcoming birthdays</p>
+            )}
+          </motion.div>
+        )}
+
+        {/* Recent hires — admin/HR only */}
+        {!isEmployee && (
+          <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
+            <h2 className="text-lg font-display font-semibold text-gray-800 mb-4 flex items-center gap-2">
+              <TrendingUp size={18} className="text-emerald-500" />
+              Recent Hires
+            </h2>
+            {stats?.recentHires && stats.recentHires.length > 0 ? (
+              <div className="space-y-3">
+                {stats.recentHires.map((hire: any) => (
+                  <div key={hire.id} className="flex items-center gap-3 py-2">
+                    <div className="w-9 h-9 rounded-lg bg-brand-100 flex items-center justify-center text-brand-700 font-semibold text-sm">
+                      {getInitials(hire.firstName, hire.lastName)}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">
+                        {hire.firstName} {hire.lastName}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        Joined {formatDate(hire.joiningDate)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 text-center py-8">No recent hires</p>
+            )}
+          </motion.div>
+        )}
       </div>
     </div>
   );
