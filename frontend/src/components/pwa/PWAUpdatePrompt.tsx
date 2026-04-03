@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, X, Sparkles } from 'lucide-react';
+import { RefreshCw, X, Sparkles, Loader2 } from 'lucide-react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 export default function PWAUpdatePrompt() {
   const [dismissed, setDismissed] = useState(false);
+  const [updating, setUpdating] = useState(false);
 
   const {
     needRefresh: [needRefresh],
     updateServiceWorker,
   } = useRegisterSW({
-    onRegisteredSW(swUrl, registration) {
+    onRegisteredSW(_swUrl, registration) {
       // Check for updates every 60 seconds
       if (registration) {
         setInterval(() => {
@@ -25,7 +26,6 @@ export default function PWAUpdatePrompt() {
   // When a new SW is waiting, clear all old caches proactively
   useEffect(() => {
     if (needRefresh) {
-      // Clear all runtime caches so the user gets fresh content after reload
       caches.keys().then((names) => {
         names.forEach((name) => {
           if (name !== 'workbox-precache-v2') {
@@ -37,12 +37,20 @@ export default function PWAUpdatePrompt() {
   }, [needRefresh]);
 
   const handleUpdate = async () => {
-    // Clear ALL caches before activating new SW
-    const cacheNames = await caches.keys();
-    await Promise.all(cacheNames.map((name) => caches.delete(name)));
-
-    // Activate new service worker and reload
-    await updateServiceWorker(true);
+    if (updating) return;
+    setUpdating(true);
+    try {
+      // Clear ALL caches before activating new SW
+      const cacheNames = await caches.keys();
+      await Promise.all(cacheNames.map((name) => caches.delete(name)));
+      // Activate new service worker and reload
+      await updateServiceWorker(true);
+      // Fallback: if updateServiceWorker doesn't reload within 3s, force reload
+      setTimeout(() => { window.location.reload(); }, 3000);
+    } catch {
+      // If anything fails, just force reload
+      window.location.reload();
+    }
   };
 
   if (!needRefresh || dismissed) return null;
@@ -61,10 +69,11 @@ export default function PWAUpdatePrompt() {
           <div className="flex items-center gap-2 mt-3">
             <button
               onClick={handleUpdate}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+              disabled={updating}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm disabled:opacity-70"
             >
-              <RefreshCw size={14} />
-              Update Now
+              {updating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              {updating ? 'Updating...' : 'Update Now'}
             </button>
             <button
               onClick={() => setDismissed(true)}
