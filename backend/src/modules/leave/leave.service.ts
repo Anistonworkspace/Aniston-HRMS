@@ -130,7 +130,7 @@ export class LeaveService {
   async applyLeave(employeeId: string, data: ApplyLeaveInput) {
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { organizationId: true, gender: true, joiningDate: true, status: true },
+      select: { organizationId: true, firstName: true, lastName: true, gender: true, joiningDate: true, status: true },
     });
     if (!employee) throw new NotFoundError('Employee');
 
@@ -151,11 +151,16 @@ export class LeaveService {
       throw new BadRequestError('End date must be after start date');
     }
 
+    // Validate half-day is on a working day (Sunday = weekoff)
+    if (data.isHalfDay && startDate.getDay() === 0) {
+      throw new BadRequestError('Cannot apply half-day leave on a Sunday (non-working day). Please select a working day.');
+    }
+
     // Calculate business days
     const days = data.isHalfDay ? 0.5 : await this.calculateBusinessDays(startDate, endDate, employee.organizationId);
 
     if (days <= 0) {
-      throw new BadRequestError('Selected dates have no working days');
+      throw new BadRequestError('Selected dates have no working days. Sundays are non-working days and cannot be taken as leave.');
     }
 
     // ===== POLICY ENFORCEMENT =====
@@ -220,7 +225,7 @@ export class LeaveService {
       }
     }
 
-    // 8. Weekend adjacent check
+    // 8. Weekend adjacent check (sandwich rule — Sunday only is weekend)
     if (!leaveType.allowWeekendAdjacent) {
       const dayBefore = new Date(startDate);
       dayBefore.setDate(dayBefore.getDate() - 1);
@@ -228,26 +233,15 @@ export class LeaveService {
       dayAfter.setDate(dayAfter.getDate() + 1);
       const beforeDay = dayBefore.getDay();
       const afterDay = dayAfter.getDay();
-      if (beforeDay === 0 || beforeDay === 6 || afterDay === 0 || afterDay === 6) {
-        throw new BadRequestError(`[Section 6.2 — Sandwich Rule] ${leaveType.name} cannot be taken on days adjacent to weekends or holidays. The intervening holiday(s) will also be counted as leave.`);
-      }
-    }
-
-    // 9. Mandatory attendance period: 1st-10th of every month
-    const startDay = startDate.getDate();
-    const endDay = endDate.getDate();
-    const isInMandatoryPeriod = startDay <= 10 || endDay <= 10;
-    if (isInMandatoryPeriod && leaveType.code !== 'LWP') {
-      // Only allow SL with medical emergency documentation
-      const isMedicalEmergency = leaveType.code === 'SL' && data.reason?.toLowerCase().includes('hospital');
-      if (!isMedicalEmergency) {
-        throw new BadRequestError('[Section 2.5 — Mandatory Attendance Period] No leave is permitted during the 1st to 10th of any month. This is a critical business period. Only documented medical emergencies with hospital admission records are excepted.');
+      // Only Sunday (0) is weekend, Saturday (6) is a working day
+      if (beforeDay === 0 || afterDay === 0) {
+        throw new BadRequestError(`[Section 6.2 — Sandwich Rule] ${leaveType.name} cannot be taken on days adjacent to weekends (Sunday). The intervening day(s) will also be counted as leave.`);
       }
     }
 
     // 10. Check leave policy acceptance
     const leavePolicy = await prisma.policy.findFirst({
-      where: { organizationId, category: 'LEAVE', isActive: true },
+      where: { organizationId: employee.organizationId, category: 'LEAVE', isActive: true },
       orderBy: { createdAt: 'desc' },
     });
     if (leavePolicy) {
