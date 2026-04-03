@@ -532,6 +532,17 @@ function HolidayManagementTab() {
         <button onClick={() => setShowSuggestions(!showSuggestions)} className="btn-secondary text-sm flex items-center gap-2">
           <CalendarDays size={14} /> Indian Holidays ({suggestions.length})
         </button>
+        {holidays.length > 0 && (
+          <button onClick={async () => {
+            if (!confirm(`Delete ALL ${holidays.length} holidays/events? This cannot be undone.`)) return;
+            try {
+              for (const h of holidays) { await deleteHoliday(h.id).unwrap(); }
+              toast.success(`Deleted ${holidays.length} holidays`);
+            } catch { toast.error('Failed to delete some holidays'); }
+          }} className="text-xs text-red-500 hover:text-red-700 ml-auto">
+            Delete All ({holidays.length})
+          </button>
+        )}
       </div>
 
       {/* AI Suggestions Panel */}

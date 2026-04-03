@@ -120,8 +120,17 @@ jobs:
               echo "WARNING: Docker not available — AI service (OCR) will not run"
             fi
 
-            echo "=== [9/14] Cleaning up old employees ==="
+            echo "=== [9/14] Cleaning up old employees + auto-seeded holidays ==="
             npx tsx scripts/cleanup-employees.ts || echo "Cleanup completed (or already clean)"
+            # Remove auto-seeded holidays (HR adds manually now)
+            npx tsx -e "
+              const { PrismaClient } = require('@prisma/client');
+              const p = new PrismaClient();
+              p.holiday.deleteMany({ where: { createdBy: null } }).then(r => {
+                console.log('Deleted ' + r.count + ' auto-seeded holidays');
+                p.\$disconnect();
+              }).catch(() => p.\$disconnect());
+            " || echo "Holiday cleanup skipped"
 
             echo "=== [10/14] Seeding database ==="
             npx --no-install prisma db seed || echo "Seed completed (or already seeded)"
