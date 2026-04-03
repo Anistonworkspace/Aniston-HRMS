@@ -17,16 +17,51 @@ interface StatutoryResult {
   tds: number;
 }
 
+// Professional Tax slabs by Indian state (default: Maharashtra)
+const PT_SLABS_BY_STATE: Record<string, { min: number; max: number; amount: number }[]> = {
+  MAHARASHTRA: [
+    { min: 0, max: 7500, amount: 0 },
+    { min: 7501, max: 10000, amount: 175 },
+    { min: 10001, max: Infinity, amount: 200 },
+  ],
+  KARNATAKA: [
+    { min: 0, max: 15000, amount: 0 },
+    { min: 15001, max: Infinity, amount: 200 },
+  ],
+  TELANGANA: [
+    { min: 0, max: 15000, amount: 0 },
+    { min: 15001, max: 20000, amount: 150 },
+    { min: 20001, max: Infinity, amount: 200 },
+  ],
+  WEST_BENGAL: [
+    { min: 0, max: 10000, amount: 0 },
+    { min: 10001, max: 15000, amount: 110 },
+    { min: 15001, max: 25000, amount: 130 },
+    { min: 25001, max: 40000, amount: 150 },
+    { min: 40001, max: Infinity, amount: 200 },
+  ],
+  TAMIL_NADU: [
+    { min: 0, max: 21000, amount: 0 },
+    { min: 21001, max: 30000, amount: 100 },
+    { min: 30001, max: 45000, amount: 235 },
+    { min: 45001, max: 60000, amount: 510 },
+    { min: 60001, max: 75000, amount: 760 },
+    { min: 75001, max: Infinity, amount: 1095 },
+  ],
+  // States with NO professional tax
+  DELHI: [],
+  RAJASTHAN: [],
+  UTTAR_PRADESH: [],
+  HARYANA: [],
+  UTTARAKHAND: [],
+};
+
 const DEFAULT_STATUTORY: StatutoryConfig = {
   epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 },
   esi: { enabled: true, employeePercent: 0.75, employerPercent: 3.25, grossCap: 21000 },
   pt: {
     enabled: true,
-    slabs: [
-      { min: 0, max: 7500, amount: 0 },
-      { min: 7501, max: 10000, amount: 175 },
-      { min: 10001, max: Infinity, amount: 200 },
-    ],
+    slabs: PT_SLABS_BY_STATE.MAHARASHTRA,
   },
 };
 
@@ -787,6 +822,66 @@ export class PayrollService {
   /**
    * AI-powered payroll anomaly detection for a payroll run
    */
+  /**
+   * Unlock a locked payroll run for corrections (SUPER_ADMIN only)
+   */
+  async unlockPayrollRun(runId: string, organizationId: string, unlockedBy: string) {
+    const run = await prisma.payrollRun.findFirst({
+      where: { id: runId, organizationId },
+    });
+    if (!run) throw new NotFoundError('Payroll run');
+    if (run.status !== 'LOCKED') {
+      throw new BadRequestError('Only LOCKED payroll runs can be unlocked');
+    }
+
+    const updated = await prisma.payrollRun.update({
+      where: { id: runId },
+      data: { status: 'COMPLETED' },
+    });
+
+    await createAuditLog({
+      userId: unlockedBy,
+      organizationId,
+      entity: 'PayrollRun',
+      entityId: runId,
+      action: 'UPDATE',
+      oldValue: { status: 'LOCKED' },
+      newValue: { status: 'COMPLETED', unlockedBy, unlockedAt: new Date() },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Lock a completed payroll run (prevents further amendments)
+   */
+  async lockPayrollRun(runId: string, organizationId: string, lockedBy: string) {
+    const run = await prisma.payrollRun.findFirst({
+      where: { id: runId, organizationId },
+    });
+    if (!run) throw new NotFoundError('Payroll run');
+    if (run.status !== 'COMPLETED') {
+      throw new BadRequestError('Only COMPLETED payroll runs can be locked');
+    }
+
+    const updated = await prisma.payrollRun.update({
+      where: { id: runId },
+      data: { status: 'LOCKED' },
+    });
+
+    await createAuditLog({
+      userId: lockedBy,
+      organizationId,
+      entity: 'PayrollRun',
+      entityId: runId,
+      action: 'UPDATE',
+      oldValue: { status: 'COMPLETED' },
+      newValue: { status: 'LOCKED', lockedBy, lockedAt: new Date() },
+    });
+
+    return updated;
+  }
+
   async detectAnomalies(runId: string, organizationId: string) {
     const run = await prisma.payrollRun.findUnique({ where: { id: runId } });
     if (!run) throw new NotFoundError('Payroll run');

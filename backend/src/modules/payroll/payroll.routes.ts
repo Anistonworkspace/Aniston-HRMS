@@ -64,6 +64,28 @@ router.get('/runs/:id/records',
   (req, res, next) => payrollController.getPayrollRecords(req, res, next)
 );
 
+// Lock a completed payroll run
+router.post('/runs/:id/lock',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN),
+  async (req, res, next) => {
+    try {
+      const result = await payrollService.lockPayrollRun(req.params.id, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result, message: 'Payroll run locked' });
+    } catch (err) { next(err); }
+  }
+);
+
+// Unlock a locked payroll run (SUPER_ADMIN only)
+router.post('/runs/:id/unlock',
+  authorize(Role.SUPER_ADMIN),
+  async (req, res, next) => {
+    try {
+      const result = await payrollService.unlockPayrollRun(req.params.id, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result, message: 'Payroll run unlocked for corrections' });
+    } catch (err) { next(err); }
+  }
+);
+
 // Amend a payroll record
 router.patch('/records/:id/amend',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
