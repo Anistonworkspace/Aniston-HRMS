@@ -271,6 +271,52 @@ export class RecruitmentService {
       return updatedOffer;
     });
 
+    // Auto-trigger invite flow when offer is accepted
+    if (status === 'ACCEPTED' && offer.candidateEmail && offer.application) {
+      try {
+        const job = await prisma.jobOpening.findUnique({
+          where: { id: offer.application.jobOpeningId },
+          select: { organizationId: true, department: true },
+        });
+        if (job) {
+          // Find matching department
+          const dept = job.department ? await prisma.department.findFirst({
+            where: { organizationId: job.organizationId, name: job.department, deletedAt: null },
+            select: { id: true },
+          }) : null;
+
+          // Auto-create invitation for the accepted candidate
+          await prisma.employeeInvitation.create({
+            data: {
+              email: offer.candidateEmail,
+              role: offer.application.isIntern ? 'INTERN' : 'EMPLOYEE',
+              departmentId: dept?.id || null,
+              invitedBy: 'system',
+              organizationId: job.organizationId,
+              status: 'PENDING',
+              expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+            },
+          });
+
+          // Queue invite email
+          await enqueueEmail({
+            to: offer.candidateEmail,
+            subject: 'Welcome! Complete your onboarding',
+            template: 'onboarding-invite',
+            context: {
+              name: offer.application.candidateName || offer.candidateEmail.split('@')[0],
+              link: `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/onboarding/invite/${offer.candidateEmail}`,
+            },
+          });
+
+          logger.info(`[Recruitment] Auto-invite sent to ${offer.candidateEmail} after offer acceptance`);
+        }
+      } catch (err) {
+        // Non-blocking: invite failure should not rollback offer acceptance
+        logger.warn(`[Recruitment] Auto-invite failed for ${offer.candidateEmail}:`, err);
+      }
+    }
+
     return updated;
   }
 
