@@ -34,7 +34,7 @@ function getISTYesterday(): Date {
 
 export class AttendanceService {
   // ===================== EDGE CASE CONSTANTS =====================
-  private readonly MAX_RECLOCKIN_PER_DAY = 3;
+  private readonly MAX_RECLOCKIN_PER_DAY = 10;
   private readonly EARLY_CLOCKIN_WARNING_MINUTES = 120; // warn if >2h before shift
   private readonly LATE_CLOCKOUT_FLAG_MINUTES = 120;    // flag if >2h after shift
   private readonly MAX_BREAK_PERCENT = 50;              // breaks can't exceed 50% of shift
