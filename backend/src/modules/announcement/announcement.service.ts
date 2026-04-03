@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { emitToOrg } from '../../sockets/index.js';
+import { NotFoundError } from '../../middleware/errorHandler.js';
 import type { CreateAnnouncementInput, UpdateAnnouncementInput, CreateSocialPostInput, CreateSocialCommentInput } from './announcement.validation.js';
 
 // Helper to look up user display info
@@ -57,7 +58,9 @@ export class AnnouncementService {
     return announcement;
   }
 
-  async delete(id: string) {
+  async delete(id: string, organizationId: string) {
+    const existing = await prisma.announcement.findFirst({ where: { id, organizationId } });
+    if (!existing) throw new NotFoundError('Announcement');
     await prisma.announcement.delete({ where: { id } });
   }
 
@@ -147,7 +150,9 @@ export class AnnouncementService {
     await prisma.socialPost.update({ where: { id: postId }, data: { commentsCount: { decrement: 1 } } });
   }
 
-  async deleteSocialPost(postId: string) {
+  async deleteSocialPost(postId: string, organizationId: string) {
+    const existing = await prisma.socialPost.findFirst({ where: { id: postId, organizationId } });
+    if (!existing) throw new NotFoundError('Social post');
     await prisma.socialPost.delete({ where: { id: postId } });
   }
 }

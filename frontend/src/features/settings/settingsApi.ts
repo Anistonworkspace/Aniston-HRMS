@@ -2,21 +2,25 @@ import { api } from '../../app/api';
 
 export const settingsApi = api.injectEndpoints({
   endpoints: (builder) => ({
-    getOrgSettings: builder.query<any, void>({ query: () => '/settings/organization' }),
+    getOrgSettings: builder.query<any, void>({ query: () => '/settings/organization', providesTags: ['Settings'] }),
     updateOrg: builder.mutation<any, any>({
       query: (body) => ({ url: '/settings/organization', method: 'PATCH', body }),
+      invalidatesTags: ['Settings'],
     }),
-    getLocations: builder.query<any, void>({ query: () => '/settings/locations' }),
+    getLocations: builder.query<any, void>({ query: () => '/settings/locations', providesTags: ['Settings'] }),
     createLocation: builder.mutation<any, any>({
       query: (body) => ({ url: '/settings/locations', method: 'POST', body }),
+      invalidatesTags: ['Settings'],
     }),
     getAuditLogs: builder.query<any, { page?: number; entity?: string }>({
       query: (params) => ({ url: '/settings/audit-logs', params }),
+      providesTags: ['Settings'],
     }),
     getSystemInfo: builder.query<any, void>({ query: () => '/settings/system' }),
-    getEmailConfig: builder.query<any, void>({ query: () => '/settings/email' }),
+    getEmailConfig: builder.query<any, void>({ query: () => '/settings/email', providesTags: ['Settings'] }),
     saveEmailConfig: builder.mutation<any, any>({
       query: (body) => ({ url: '/settings/email', method: 'POST', body }),
+      invalidatesTags: ['Settings'],
     }),
     testEmailConnection: builder.mutation<any, void>({
       query: () => ({ url: '/settings/email/test', method: 'POST' }),

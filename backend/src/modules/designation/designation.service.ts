@@ -19,11 +19,10 @@ export class DesignationService {
     return desig;
   }
 
-  async update(id: string, data: UpdateDesignationInput) {
-    const desig = await prisma.designation.update({
-      where: { id },
-      data,
-    });
+  async update(id: string, data: UpdateDesignationInput, organizationId: string) {
+    const existing = await prisma.designation.findFirst({ where: { id, organizationId } });
+    if (!existing) throw new NotFoundError('Designation');
+    const desig = await prisma.designation.update({ where: { id }, data });
     return desig;
   }
 

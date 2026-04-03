@@ -108,7 +108,7 @@ export default function AppRouter() {
             <Route path="/attendance/employee/:employeeId" element={<EmployeeAttendanceDetailPage />} />
             <Route path="/activity-tracking" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER']}><ActivityTrackingPage /></ProtectedRoute>} />
             <Route path="/leaves" element={<LeavePage />} />
-            <Route path="/payroll" element={<PayrollPage />} />
+            <Route path="/payroll" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN']}><PayrollPage /></ProtectedRoute>} />
             <Route path="/recruitment" element={<RecruitmentPage />} />
             <Route path="/recruitment/:jobId" element={<JobDetailPage />} />
             <Route path="/recruitment/candidate/:id" element={<CandidateDetailPage />} />
@@ -124,13 +124,13 @@ export default function AppRouter() {
             <Route path="/roster" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><RosterPage /></ProtectedRoute>} />
             <Route path="/hiring-passed" element={<HiringPassedPage />} />
             <Route path="/interview-assignments" element={<InterviewAssignmentsPage />} />
-            <Route path="/assets" element={<AssetManagementPage />} />
+            <Route path="/assets" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN']}><AssetManagementPage /></ProtectedRoute>} />
             <Route path="/my-assets" element={<MyAssetsPage />} />
             <Route path="/my-documents" element={<MyDocumentsPage />} />
             <Route path="/walk-in-management" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><WalkInManagementPage /></ProtectedRoute>} />
             <Route path="/walk-in-management/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><WalkInDetailPage /></ProtectedRoute>} />
             <Route path="/send-bulk-email" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><SendBulkEmailPage /></ProtectedRoute>} />
-            <Route path="/whatsapp" element={<WhatsAppPage />} />
+            <Route path="/whatsapp" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><WhatsAppPage /></ProtectedRoute>} />
             <Route path="/exit-management" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><ExitManagementPage /></ProtectedRoute>} />
             <Route path="/exit-management/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><ExitDetailPage /></ProtectedRoute>} />
             <Route path="/more" element={<ProfilePage />} />

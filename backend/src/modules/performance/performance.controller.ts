@@ -70,7 +70,7 @@ export class PerformanceController {
   async updateGoal(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateGoalSchema.parse(req.body);
-      const goal = await performanceService.updateGoal(req.params.id, data);
+      const goal = await performanceService.updateGoal(req.params.id, data, req.user!.organizationId);
       res.json({ success: true, data: goal });
     } catch (err) {
       next(err);

@@ -97,8 +97,6 @@ export default function Sidebar() {
 
   const handleLogout = () => {
     dispatch({ type: 'auth/logout' });
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('user');
     navigate('/login');
   };
 

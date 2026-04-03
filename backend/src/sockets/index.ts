@@ -61,12 +61,15 @@ export function initSocketServer(httpServer: HttpServer) {
 
     // Admin requests to stop streaming
     socket.on('stream:stop-request', (data: { employeeUserId: string }) => {
+      if (!['SUPER_ADMIN', 'ADMIN'].includes(socket.data?.role)) return;
       io!.to(`agent:${data.employeeUserId}`).emit('stream:stop');
     });
 
     // WebRTC signaling relay — forward offer/answer/ICE between agent and admin
     socket.on('stream:signal', (data: { type: string; sdp?: any; candidate?: any; targetSocketId?: string }) => {
       if (data.targetSocketId) {
+        const targetSocket = io!.sockets.sockets.get(data.targetSocketId);
+        if (!targetSocket || targetSocket.data?.organizationId !== socket.data?.organizationId) return;
         // Direct to specific socket (agent → admin or admin → agent)
         io!.to(data.targetSocketId).emit('stream:signal', {
           ...data,

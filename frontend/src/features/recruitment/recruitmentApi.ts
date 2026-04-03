@@ -8,6 +8,7 @@ export const recruitmentApi = api.injectEndpoints({
     }),
     getJobById: builder.query<any, string>({
       query: (id) => `/recruitment/jobs/${id}`,
+      providesTags: (result, error, id) => [{ type: 'Recruitment' as const, id }, 'Recruitment'],
     }),
     createJob: builder.mutation<any, any>({
       query: (body) => ({ url: '/recruitment/jobs', method: 'POST', body }),
@@ -23,9 +24,11 @@ export const recruitmentApi = api.injectEndpoints({
     }),
     getApplications: builder.query<any, { jobId: string; status?: string }>({
       query: ({ jobId, status }) => ({ url: `/recruitment/jobs/${jobId}/applications`, params: status ? { status } : {} }),
+      providesTags: ['Recruitment'],
     }),
     getApplicationById: builder.query<any, string>({
       query: (id) => `/recruitment/applications/${id}`,
+      providesTags: ['Recruitment'],
     }),
     moveApplicationStage: builder.mutation<any, { id: string; status: string }>({
       query: ({ id, status }) => ({ url: `/recruitment/applications/${id}/stage`, method: 'PATCH', body: { status } }),
@@ -33,15 +36,19 @@ export const recruitmentApi = api.injectEndpoints({
     }),
     addInterviewScore: builder.mutation<any, any>({
       query: (body) => ({ url: '/recruitment/scores', method: 'POST', body }),
+      invalidatesTags: ['Recruitment'],
     }),
     triggerAIScoring: builder.mutation<any, string>({
       query: (id) => ({ url: `/recruitment/applications/${id}/ai-score`, method: 'POST' }),
+      invalidatesTags: ['Recruitment'],
     }),
     createOffer: builder.mutation<any, any>({
       query: (body) => ({ url: '/recruitment/offers', method: 'POST', body }),
+      invalidatesTags: ['Recruitment'],
     }),
     getPipelineStats: builder.query<any, void>({
       query: () => '/recruitment/pipeline/stats',
+      providesTags: ['Recruitment'],
     }),
     shareJobEmail: builder.mutation<any, { jobId: string; email: string; message?: string }>({
       query: ({ jobId, ...body }) => ({ url: `/recruitment/jobs/${jobId}/share-email`, method: 'POST', body }),

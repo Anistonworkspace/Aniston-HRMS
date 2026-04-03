@@ -34,7 +34,7 @@ export class AnnouncementController {
 
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
-      await announcementService.delete(req.params.id);
+      await announcementService.delete(req.params.id, req.user!.organizationId);
       res.json({ success: true, data: null, message: 'Announcement deleted' });
     } catch (err) {
       next(err);
@@ -85,7 +85,7 @@ export class AnnouncementController {
 
   async deleteSocialPost(req: Request, res: Response, next: NextFunction) {
     try {
-      await announcementService.deleteSocialPost(req.params.id);
+      await announcementService.deleteSocialPost(req.params.id, req.user!.organizationId);
       res.json({ success: true, data: null, message: 'Post deleted' });
     } catch (err) {
       next(err);

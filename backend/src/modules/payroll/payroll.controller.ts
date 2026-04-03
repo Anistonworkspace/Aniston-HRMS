@@ -7,7 +7,7 @@ import { generateSalarySlipPDF } from '../../utils/pdfGenerator.js';
 export class PayrollController {
   async getSalaryStructure(req: Request, res: Response, next: NextFunction) {
     try {
-      const structure = await payrollService.getSalaryStructure(req.params.employeeId);
+      const structure = await payrollService.getSalaryStructure(req.params.employeeId, req.user!.organizationId);
       res.json({ success: true, data: structure });
     } catch (err) { next(err); }
   }
@@ -15,7 +15,7 @@ export class PayrollController {
   async upsertSalaryStructure(req: Request, res: Response, next: NextFunction) {
     try {
       const data = salaryStructureSchema.parse(req.body);
-      const structure = await payrollService.upsertSalaryStructure(req.params.employeeId, data);
+      const structure = await payrollService.upsertSalaryStructure(req.params.employeeId, data, req.user!.organizationId);
       res.json({ success: true, data: structure, message: 'Salary structure saved' });
     } catch (err) { next(err); }
   }
@@ -44,14 +44,14 @@ export class PayrollController {
 
   async getPayrollRecords(req: Request, res: Response, next: NextFunction) {
     try {
-      const records = await payrollService.getPayrollRecords(req.params.id);
+      const records = await payrollService.getPayrollRecords(req.params.id, req.user!.organizationId);
       res.json({ success: true, data: records });
     } catch (err) { next(err); }
   }
 
   async downloadSalarySlip(req: Request, res: Response, next: NextFunction) {
     try {
-      const record = await payrollService.getPayrollRecordById(req.params.id);
+      const record = await payrollService.getPayrollRecordById(req.params.id, req.user!.organizationId);
       // Ownership check: only the employee themselves or management can download
       const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(req.user!.role);
       if (!isManagement && record.employeeId !== req.user!.employeeId) {

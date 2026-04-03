@@ -60,8 +60,8 @@ function calculateTDS(annualCTC: number, regime: string): number {
 
     // 4% health & education cess
     tax = Math.round(tax * 1.04);
-    // Section 87A rebate — gross income up to 7.5L (new regime FY 2025-26)
-    if (annualCTC <= 750000) tax = 0;
+    // Section 87A rebate — taxable income up to 7L (new regime FY 2025-26)
+    if (taxable <= 700000) tax = 0;
     return Math.round(tax / 12);
   }
 
@@ -93,9 +93,9 @@ export class PayrollService {
   /**
    * Get salary structure for an employee
    */
-  async getSalaryStructure(employeeId: string) {
-    const structure = await prisma.salaryStructure.findUnique({
-      where: { employeeId },
+  async getSalaryStructure(employeeId: string, organizationId: string) {
+    const structure = await prisma.salaryStructure.findFirst({
+      where: { employeeId, employee: { organizationId } },
       include: { employee: { select: { firstName: true, lastName: true, employeeCode: true } } },
     });
     if (!structure) throw new NotFoundError('Salary structure');
@@ -116,8 +116,9 @@ export class PayrollService {
     lta?: number;
     incomeTaxRegime?: string;
     enabledComponents?: Record<string, boolean>;
-  }) {
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  }, organizationId?: string) {
+    const where = organizationId ? { id: employeeId, organizationId } : { id: employeeId };
+    const employee = await prisma.employee.findFirst({ where });
     if (!employee) throw new NotFoundError('Employee');
 
     const { ctc, basic, hra } = data;
@@ -233,90 +234,113 @@ export class PayrollService {
     if (!run) throw new NotFoundError('Payroll run');
     if (run.status !== 'DRAFT') throw new BadRequestError('Payroll can only be processed from DRAFT status');
 
-    await prisma.payrollRun.update({ where: { id: runId }, data: { status: 'PROCESSING' } });
+    // Pre-fetch attendance data to avoid N+1 queries inside the loop
+    const employees = await prisma.employee.findMany({
+      where: { organizationId, status: 'ACTIVE', deletedAt: null, isSystemAccount: { not: true } },
+      include: { salaryStructure: true },
+    });
+
+    const totalWorkingDays = this.getWorkingDaysInMonth(run.month, run.year);
+
+    // Pre-fetch LOP and Sunday data for all employees in batch
+    const startDate = new Date(run.year, run.month - 1, 1);
+    const endDate = new Date(run.year, run.month, 0);
+    const empIds = employees.filter(e => e.salaryStructure).map(e => e.id);
+
+    const allAttendance = await prisma.attendanceRecord.findMany({
+      where: { employeeId: { in: empIds }, date: { gte: startDate, lte: endDate } },
+      select: { employeeId: true, date: true, status: true },
+    });
+
+    // Build per-employee attendance maps
+    const attendanceByEmp = new Map<string, typeof allAttendance>();
+    for (const rec of allAttendance) {
+      if (!attendanceByEmp.has(rec.employeeId)) attendanceByEmp.set(rec.employeeId, []);
+      attendanceByEmp.get(rec.employeeId)!.push(rec);
+    }
 
     try {
-      // Get all active employees with salary structures
-      const employees = await prisma.employee.findMany({
-        where: { organizationId, status: 'ACTIVE', deletedAt: null, isSystemAccount: { not: true } },
-        include: { salaryStructure: true },
-      });
+      const result = await prisma.$transaction(async (tx) => {
+        await tx.payrollRun.update({ where: { id: runId }, data: { status: 'PROCESSING' } });
 
-      // Get working days in month
-      const totalWorkingDays = this.getWorkingDaysInMonth(run.month, run.year);
+        let totalGross = 0;
+        let totalNet = 0;
+        let totalDeductions = 0;
 
-      let totalGross = 0;
-      let totalNet = 0;
-      let totalDeductions = 0;
+        for (const emp of employees) {
+          if (!emp.salaryStructure) continue;
+          const sal = emp.salaryStructure;
+          const empAttendance = attendanceByEmp.get(emp.id) || [];
 
-      for (const emp of employees) {
-        if (!emp.salaryStructure) continue;
-        const sal = emp.salaryStructure;
+          // Calculate LOP and Sundays worked from pre-fetched data
+          const presentRecords = empAttendance.filter(r => r.status === 'PRESENT');
+          const absentRecords = empAttendance.filter(r => r.status === 'ABSENT');
+          const lopDays = absentRecords.length;
+          const sundaysWorked = presentRecords.filter(r => new Date(r.date).getDay() === 0).length;
+          const presentDays = totalWorkingDays - lopDays;
 
-        // Count LOP days (absent days without leave)
-        const lopDays = await this.getLOPDays(emp.id, run.month, run.year);
-        const sundaysWorked = await this.getSundaysWorked(emp.id, run.month, run.year);
-        const presentDays = totalWorkingDays - lopDays;
+          // Calculate gross first so LOP uses the correct base
+          const gross = Number(sal.basic) + Number(sal.hra) +
+            Number(sal.da || 0) + Number(sal.ta || 0) +
+            Number(sal.medicalAllowance || 0) + Number(sal.specialAllowance || 0);
 
-        // Prorate salary for LOP and Sunday bonus
-        const dailyRate = Number(sal.ctc) / 12 / totalWorkingDays;
-        const lopDeduction = Math.round(dailyRate * lopDays);
-        const sundayBonus = Math.round(dailyRate * sundaysWorked);
+          const dailyRate = gross / totalWorkingDays;
+          const lopDeduction = Math.round(dailyRate * lopDays);
+          const sundayBonus = Math.round(dailyRate * sundaysWorked);
 
-        const gross = Number(sal.basic) + Number(sal.hra) +
-          Number(sal.da || 0) + Number(sal.ta || 0) +
-          Number(sal.medicalAllowance || 0) + Number(sal.specialAllowance || 0);
+          const deductions = Number(sal.pfEmployee || 0) + Number(sal.esiEmployee || 0) +
+            Number(sal.professionalTax || 0) + Number(sal.tds || 0);
 
-        const deductions = Number(sal.pfEmployee || 0) + Number(sal.esiEmployee || 0) +
-          Number(sal.professionalTax || 0) + Number(sal.tds || 0);
+          const adjustedGross = gross + sundayBonus;
+          const netSalary = adjustedGross - deductions - lopDeduction;
 
-        const adjustedGross = gross + sundayBonus;
-        const netSalary = adjustedGross - deductions - lopDeduction;
-
-        await prisma.payrollRecord.create({
-          data: {
-            payrollRunId: runId,
-            employeeId: emp.id,
-            grossSalary: adjustedGross,
-            netSalary: Math.max(netSalary, 0),
-            basic: Number(sal.basic),
-            hra: Number(sal.hra),
-            otherEarnings: {
-              da: Number(sal.da || 0),
-              ta: Number(sal.ta || 0),
-              medical: Number(sal.medicalAllowance || 0),
-              special: Number(sal.specialAllowance || 0),
-              sundayBonus,
-              sundaysWorked,
+          await tx.payrollRecord.create({
+            data: {
+              payrollRunId: runId,
+              employeeId: emp.id,
+              grossSalary: adjustedGross,
+              netSalary: Math.max(netSalary, 0),
+              basic: Number(sal.basic),
+              hra: Number(sal.hra),
+              otherEarnings: {
+                da: Number(sal.da || 0),
+                ta: Number(sal.ta || 0),
+                medical: Number(sal.medicalAllowance || 0),
+                special: Number(sal.specialAllowance || 0),
+                sundayBonus,
+                sundaysWorked,
+              },
+              epfEmployee: Number(sal.pfEmployee || 0),
+              epfEmployer: Number(sal.pfEmployer || 0),
+              esiEmployee: Number(sal.esiEmployee || 0),
+              esiEmployer: Number(sal.esiEmployer || 0),
+              professionalTax: Number(sal.professionalTax || 0),
+              tds: Number(sal.tds || 0),
+              lopDays,
+              lopDeduction,
+              workingDays: totalWorkingDays,
+              presentDays,
             },
-            epfEmployee: Number(sal.pfEmployee || 0),
-            epfEmployer: Number(sal.pfEmployer || 0),
-            esiEmployee: Number(sal.esiEmployee || 0),
-            esiEmployer: Number(sal.esiEmployer || 0),
-            professionalTax: Number(sal.professionalTax || 0),
-            tds: Number(sal.tds || 0),
-            lopDays,
-            lopDeduction,
-            workingDays: totalWorkingDays,
-            presentDays,
+          });
+
+          totalGross += adjustedGross;
+          totalNet += Math.max(netSalary, 0);
+          totalDeductions += deductions + lopDeduction;
+        }
+
+        await tx.payrollRun.update({
+          where: { id: runId },
+          data: {
+            status: 'COMPLETED',
+            processedAt: new Date(),
+            totalGross,
+            totalNet,
+            totalDeductions,
           },
         });
 
-        totalGross += adjustedGross;
-        totalNet += Math.max(netSalary, 0);
-        totalDeductions += deductions + lopDeduction;
-      }
-
-      await prisma.payrollRun.update({
-        where: { id: runId },
-        data: {
-          status: 'COMPLETED',
-          processedAt: new Date(),
-          totalGross,
-          totalNet,
-          totalDeductions,
-        },
-      });
+        return { processed: employees.filter((e) => e.salaryStructure).length, totalGross, totalNet, totalDeductions };
+      }, { timeout: 120000 }); // 2 minute timeout for large payrolls
 
       await createAuditLog({
         userId: run.processedBy || 'system',
@@ -325,12 +349,13 @@ export class PayrollService {
         entityId: runId,
         action: 'UPDATE',
         oldValue: { status: 'DRAFT' },
-        newValue: { status: 'COMPLETED', totalGross, totalNet, totalDeductions },
+        newValue: { status: 'COMPLETED', totalGross: result.totalGross, totalNet: result.totalNet, totalDeductions: result.totalDeductions },
       });
 
-      return { processed: employees.filter((e) => e.salaryStructure).length, totalGross, totalNet };
+      return result;
     } catch (err) {
-      await prisma.payrollRun.update({ where: { id: runId }, data: { status: 'DRAFT' } });
+      // Transaction auto-rolls back; reset status outside the tx
+      await prisma.payrollRun.update({ where: { id: runId }, data: { status: 'DRAFT' } }).catch(() => {});
       throw err;
     }
   }
@@ -358,7 +383,11 @@ export class PayrollService {
   /**
    * Get payroll records for a run
    */
-  async getPayrollRecords(runId: string) {
+  async getPayrollRecords(runId: string, organizationId?: string) {
+    if (organizationId) {
+      const run = await prisma.payrollRun.findFirst({ where: { id: runId, organizationId } });
+      if (!run) throw new NotFoundError('Payroll run');
+    }
     return prisma.payrollRecord.findMany({
       where: { payrollRunId: runId },
       include: {
@@ -373,9 +402,9 @@ export class PayrollService {
   /**
    * Get a single payroll record by ID (for PDF generation)
    */
-  async getPayrollRecordById(recordId: string) {
-    const record = await prisma.payrollRecord.findUnique({
-      where: { id: recordId },
+  async getPayrollRecordById(recordId: string, organizationId?: string) {
+    const record = await prisma.payrollRecord.findFirst({
+      where: { id: recordId, ...(organizationId ? { payrollRun: { organizationId } } : {}) },
       include: {
         employee: {
           select: {
@@ -510,8 +539,8 @@ export class PayrollService {
     lopDeduction?: number;
     reason: string;
   }, amendedBy: string, organizationId: string) {
-    const record = await prisma.payrollRecord.findUnique({
-      where: { id: recordId },
+    const record = await prisma.payrollRecord.findFirst({
+      where: { id: recordId, payrollRun: { organizationId } },
       include: { payrollRun: true },
     });
     if (!record) throw new NotFoundError('Payroll record');

@@ -81,6 +81,8 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
   return <>{children}</>;
 }
 
+const SKELETON_WIDTHS = [68, 82, 75, 60, 90, 72, 65, 78];
+
 /** Skeleton that mimics the real app layout — shows instantly on refresh */
 function AppLoadingSkeleton() {
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
@@ -153,7 +155,7 @@ function AppLoadingSkeleton() {
         {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
           <div key={i} className="flex items-center gap-3 py-2">
             <div className="w-5 h-5 bg-gray-100 rounded animate-pulse" />
-            <div className={`h-4 bg-gray-100 rounded animate-pulse`} style={{ width: `${60 + Math.random() * 40}%` }} />
+            <div className={`h-4 bg-gray-100 rounded animate-pulse`} style={{ width: `${SKELETON_WIDTHS[(i - 1) % SKELETON_WIDTHS.length]}%` }} />
           </div>
         ))}
       </div>

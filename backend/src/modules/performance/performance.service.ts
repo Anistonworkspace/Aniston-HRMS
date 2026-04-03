@@ -71,7 +71,10 @@ export class PerformanceService {
     return goal;
   }
 
-  async updateGoal(id: string, data: UpdateGoalInput) {
+  async updateGoal(id: string, data: UpdateGoalInput, organizationId: string) {
+    const existing = await prisma.goal.findFirst({ where: { id, organizationId } });
+    if (!existing) throw new NotFoundError('Goal');
+
     const updateData: any = {};
     if (data.status) updateData.status = data.status;
     if (data.currentValue !== undefined) updateData.currentValue = data.currentValue;
@@ -121,6 +124,9 @@ export class PerformanceService {
   }
 
   async updateReview(id: string, data: UpdateReviewInput, userId: string, organizationId: string) {
+    const existing = await prisma.performanceReview.findFirst({ where: { id, reviewCycle: { organizationId } } });
+    if (!existing) throw new NotFoundError('Performance review');
+
     const updateData: any = {};
     if (data.managerRating) updateData.managerRating = data.managerRating;
     if (data.managerComments) updateData.managerComments = data.managerComments;

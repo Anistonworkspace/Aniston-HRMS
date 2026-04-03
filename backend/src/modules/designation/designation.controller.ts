@@ -25,7 +25,7 @@ export class DesignationController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateDesignationSchema.parse(req.body);
-      const desig = await designationService.update(req.params.id, data);
+      const desig = await designationService.update(req.params.id, data, req.user!.organizationId);
       res.json({ success: true, data: desig, message: 'Designation updated' });
     } catch (err) {
       next(err);

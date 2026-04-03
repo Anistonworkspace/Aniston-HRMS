@@ -7,7 +7,7 @@ services:
       - "5432:5432"
     environment:
       POSTGRES_USER: aniston
-      POSTGRES_PASSWORD: aniston_hrms_2026
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aniston_hrms_2026}
       POSTGRES_DB: aniston_hrms
     volumes:
       - postgres_data:/var/lib/postgresql/data

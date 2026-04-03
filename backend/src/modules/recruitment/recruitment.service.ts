@@ -88,7 +88,7 @@ export class RecruitmentService {
     if (job._count.applications > 0) {
       throw new BadRequestError('Cannot delete job with existing applications. Close it instead.');
     }
-    await prisma.jobOpening.delete({ where: { id } });
+    await prisma.jobOpening.update({ where: { id }, data: { status: 'CLOSED', deletedAt: new Date() } });
     return { message: 'Job deleted successfully' };
   }
 

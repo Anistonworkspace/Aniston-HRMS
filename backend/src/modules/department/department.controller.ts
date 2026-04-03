@@ -25,7 +25,7 @@ export class DepartmentController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateDepartmentSchema.parse(req.body);
-      const dept = await departmentService.update(req.params.id, data);
+      const dept = await departmentService.update(req.params.id, data, req.user!.organizationId);
       res.json({ success: true, data: dept, message: 'Department updated' });
     } catch (err) {
       next(err);

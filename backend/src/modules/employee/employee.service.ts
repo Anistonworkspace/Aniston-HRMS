@@ -468,12 +468,12 @@ export class EmployeeService {
         data: { managerId: null },
       });
 
-      // Delete employee record permanently
-      await tx.employee.delete({ where: { id } });
+      // Soft-delete employee record (preserve for audit trail)
+      await tx.employee.update({ where: { id }, data: { deletedAt: new Date(), status: 'INACTIVE' } });
 
-      // Delete user record permanently
+      // Deactivate user account (preserve for audit trail)
       if (existing.userId) {
-        await tx.user.delete({ where: { id: existing.userId } });
+        await tx.user.update({ where: { id: existing.userId }, data: { status: 'INACTIVE' } });
       }
     });
 

@@ -46,6 +46,7 @@ export const leaveApi = api.injectEndpoints({
 
     getHolidays: builder.query<any, { year?: number }>({
       query: (params) => ({ url: '/leaves/holidays', params }),
+      providesTags: ['Leave'],
     }),
 
     createLeaveType: builder.mutation<any, any>({

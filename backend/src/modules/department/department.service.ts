@@ -22,11 +22,10 @@ export class DepartmentService {
     return dept;
   }
 
-  async update(id: string, data: UpdateDepartmentInput) {
-    const dept = await prisma.department.update({
-      where: { id },
-      data,
-    });
+  async update(id: string, data: UpdateDepartmentInput, organizationId: string) {
+    const existing = await prisma.department.findFirst({ where: { id, organizationId } });
+    if (!existing) throw new NotFoundError('Department');
+    const dept = await prisma.department.update({ where: { id }, data });
     return dept;
   }
 
