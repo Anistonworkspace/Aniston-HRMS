@@ -11,7 +11,7 @@ export default defineConfig({
       includeAssets: ['logo.png'],
       manifest: {
         name: 'Aniston HRMS',
-        short_name: 'Aniston',
+        short_name: 'Aniston HRMS',
         description: 'Enterprise Human Resource Management System',
         start_url: '/dashboard',
         display: 'standalone',
