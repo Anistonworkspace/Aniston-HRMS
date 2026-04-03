@@ -117,6 +117,44 @@ export default function DashboardPage() {
 
   const monthLabel = selectedMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 
+  // Show skeleton while initial data loads
+  if (isLoading && !stats) {
+    return (
+      <div className="page-container animate-pulse">
+        <div className="mb-8">
+          <div className="h-8 bg-gray-200 rounded-lg w-64 mb-2" />
+          <div className="h-4 bg-gray-100 rounded w-48" />
+        </div>
+        {/* Skeleton for circular chart */}
+        <div className="layer-card p-6 mb-8">
+          <div className="flex flex-col md:flex-row items-center gap-6">
+            <div className="w-[200px] h-[200px] rounded-full bg-gray-100" />
+            <div className="flex-1 space-y-3 w-full">
+              <div className="h-5 bg-gray-200 rounded w-40" />
+              <div className="grid grid-cols-2 gap-3">
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className="p-3 bg-gray-50 rounded-xl">
+                    <div className="h-3 bg-gray-200 rounded w-12 mb-2" />
+                    <div className="h-4 bg-gray-200 rounded w-16" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+        {/* Skeleton for quick actions */}
+        <div className="layer-card p-6">
+          <div className="h-5 bg-gray-200 rounded w-32 mb-4" />
+          <div className="grid grid-cols-2 gap-3">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="h-14 bg-gray-50 rounded-xl" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page-container">
       {/* Greeting */}
@@ -129,7 +167,7 @@ export default function DashboardPage() {
           {greeting()}, {user?.firstName || 'Admin'} 👋
         </h1>
         <p className="text-gray-500 mt-1">
-          Here&apos;s what&apos;s happening at Aniston today — {formatDate(new Date(), 'long')}
+          {isEmployee ? 'Manage your attendance, leaves & more' : `Here\u2019s what\u2019s happening at Aniston today \u2014 ${formatDate(new Date(), 'long')}`}
         </p>
       </motion.div>
 

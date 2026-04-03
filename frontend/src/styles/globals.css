@@ -39,15 +39,16 @@
       -webkit-tap-highlight-color: transparent;
     }
 
-    /* Prevent overscroll bounce (iOS rubber-band effect) */
+    /* Allow pull-to-refresh but prevent horizontal overscroll bounce */
     html, body {
-      overscroll-behavior: none;
+      overscroll-behavior-x: none;
       overflow: hidden;
       height: 100%;
     }
     #root {
       height: 100%;
       overflow-y: auto;
+      overscroll-behavior-y: auto; /* Enable pull-to-refresh */
       -webkit-overflow-scrolling: touch;
     }
 
