@@ -197,6 +197,7 @@ function PayrollAdminView() {
                     <div className="flex items-center justify-end gap-2">
                       {run.status === 'DRAFT' && (
                         <button
+                          aria-label="Process payroll"
                           onClick={() => handleProcess(run.id)}
                           className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
                         >
@@ -206,6 +207,7 @@ function PayrollAdminView() {
                       {(run.status === 'COMPLETED' || run.status === 'LOCKED') && (
                         <>
                           <button
+                            aria-label="Download salary slip"
                             onClick={() => {
                               const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
                               window.open(`${apiBase}/payroll/runs/${run.id}/export`, '_blank');
@@ -215,6 +217,7 @@ function PayrollAdminView() {
                             <Download size={14} /> Excel
                           </button>
                           <button
+                            aria-label="View details"
                             onClick={() => setViewingRunId(viewingRunId === run.id ? null : run.id)}
                             className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
                           >

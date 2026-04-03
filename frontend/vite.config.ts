@@ -25,12 +25,13 @@ export default defineConfig({
             src: '/logo.png',
             sizes: '192x192',
             type: 'image/png',
+            purpose: 'any',
           },
           {
             src: '/logo.png',
             sizes: '512x512',
             type: 'image/png',
-            purpose: 'any maskable',
+            purpose: 'maskable',
           },
         ],
       },
@@ -38,7 +39,7 @@ export default defineConfig({
         // Clean old precaches on every new SW activation
         cleanupOutdatedCaches: true,
         // Skip waiting so new SW activates immediately when user clicks update
-        skipWaiting: false,
+        skipWaiting: true,
         // Don't serve index.html for /uploads/ or /api/ — let the server handle these directly
         navigateFallbackDenylist: [/^\/uploads\//, /^\/api\//],
         // Clear all runtime caches on new SW activation

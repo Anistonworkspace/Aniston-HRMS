@@ -81,7 +81,7 @@ export default function AnnouncementsPage() {
 function AnnouncementsList() {
   const user = useAppSelector(s => s.auth.user);
   const isManagement = user?.role ? MANAGEMENT_ROLES.includes(user.role) : false;
-  const { data: res } = useGetAnnouncementsQuery();
+  const { data: res, isLoading, isError } = useGetAnnouncementsQuery();
   const [createAnnouncement, { isLoading: creating }] = useCreateAnnouncementMutation();
   const [updateAnnouncement] = useUpdateAnnouncementMutation();
   const [deleteAnnouncement] = useDeleteAnnouncementMutation();
@@ -128,6 +128,28 @@ function AnnouncementsList() {
       toast.success('Deleted');
     } catch { toast.error('Failed'); }
   };
+
+  if (isLoading) {
+    return (
+      <div className="max-w-3xl flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+          <p className="text-sm text-gray-400">Loading announcements...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="max-w-3xl flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-3">
+          <AlertTriangle className="w-8 h-8 text-red-400" />
+          <p className="text-sm text-gray-400">Failed to load announcements. Please try again.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl">

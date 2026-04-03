@@ -250,7 +250,7 @@ export class EmployeeService {
       template: 'onboarding-invite',
       context: {
         name: firstName || normalizedEmail.split('@')[0],
-        link: `https://hr.anistonav.com${onboardingUrl}`,
+        link: `${env.FRONTEND_URL}${onboardingUrl}`,
       },
     });
 
@@ -540,7 +540,11 @@ export class EmployeeService {
     });
   }
 
-  async deleteLifecycleEvent(eventId: string) {
+  async deleteLifecycleEvent(eventId: string, organizationId: string) {
+    const event = await prisma.employeeEvent.findFirst({
+      where: { id: eventId, employee: { organizationId } },
+    });
+    if (!event) throw new NotFoundError('Lifecycle event');
     await prisma.employeeEvent.delete({ where: { id: eventId } });
   }
 
@@ -573,7 +577,7 @@ export class EmployeeService {
 
     // Email HR users
     const hrUsers = await prisma.user.findMany({ where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' }, select: { email: true } });
-    const link = `https://hr.anistonav.com/exit-management`;
+    const link = `${env.FRONTEND_URL}/exit-management`;
     for (const hr of hrUsers) {
       await enqueueEmail({ to: hr.email, subject: `Resignation: ${employee.firstName} ${employee.lastName}`, template: 'resignation-submitted', context: { name: `${employee.firstName} ${employee.lastName}`, employeeCode: employee.employeeCode, department: employee.department?.name, lastWorkingDate: new Date(data.lastWorkingDate).toLocaleDateString('en-IN'), reason: data.reason, link } });
       const hrUser = await prisma.user.findUnique({ where: { email: hr.email }, select: { id: true } });
@@ -777,7 +781,7 @@ export class EmployeeService {
     });
 
     // Enqueue activation email
-    const activationUrl = `https://hr.anistonav.com/activate/${token}`;
+    const activationUrl = `${env.FRONTEND_URL}/activate/${token}`;
     await enqueueEmail({
       to: employee.email,
       subject: 'Activate your Aniston HRMS account',

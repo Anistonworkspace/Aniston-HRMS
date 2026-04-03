@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { aiService } from '../../services/ai.service.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
 import type { CreateTicketInput, TicketQuery } from './helpdesk.validation.js';
 
 export class HelpdeskService {
@@ -9,8 +10,8 @@ export class HelpdeskService {
     return `TKT-${String(count + 1).padStart(4, '0')}`;
   }
 
-  async getMyTickets(employeeId: string, status?: string) {
-    const where: any = { employeeId };
+  async getMyTickets(employeeId: string, organizationId: string, status?: string) {
+    const where: any = { employeeId, employee: { organizationId } };
     if (status) where.status = status;
 
     return prisma.ticket.findMany({
@@ -47,7 +48,7 @@ export class HelpdeskService {
 
   async create(data: CreateTicketInput, employeeId: string, organizationId: string) {
     const ticketCode = await this.generateTicketCode(organizationId);
-    return prisma.ticket.create({
+    const ticket = await prisma.ticket.create({
       data: {
         ...data,
         ticketCode,
@@ -56,6 +57,8 @@ export class HelpdeskService {
         organizationId,
       },
     });
+    await createAuditLog({ userId: employeeId, organizationId, entity: 'Ticket', entityId: ticket.id, action: 'CREATE', newValue: { subject: data.subject, category: data.category } });
+    return ticket;
   }
 
   async getById(id: string, organizationId: string) {
@@ -81,7 +84,9 @@ export class HelpdeskService {
     if (data.resolution) updateData.resolution = data.resolution;
     if (data.status === 'RESOLVED') updateData.resolvedAt = new Date();
 
-    return prisma.ticket.update({ where: { id }, data: updateData });
+    const updated = await prisma.ticket.update({ where: { id }, data: updateData });
+    await createAuditLog({ userId: id, organizationId, entity: 'Ticket', entityId: id, action: 'UPDATE', newValue: updateData });
+    return updated;
   }
 
   async addComment(ticketId: string, authorId: string, content: string, isInternal: boolean) {

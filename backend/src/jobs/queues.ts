@@ -98,6 +98,7 @@ export async function enqueueDocumentDigest(employeeId: string, organizationId: 
 // Helper to enqueue bulk resume processing
 export async function enqueueBulkResume(uploadId: string, organizationId: string, uploadedBy: string) {
   return bulkResumeQueue.add('process-bulk-resume', { uploadId, organizationId, uploadedBy }, {
-    attempts: 1,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 10000 },
   });
 }

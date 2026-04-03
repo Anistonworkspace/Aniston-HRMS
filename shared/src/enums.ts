@@ -314,3 +314,46 @@ export enum ExitAccessFeature {
   VIEW_ANNOUNCEMENTS = 'canViewAnnouncements',
   VIEW_PROFILE = 'canViewProfile',
 }
+
+export enum InterviewerType {
+  INTERNAL = 'INTERNAL',
+  EXTERNAL = 'EXTERNAL',
+  HR = 'HR',
+  DEPARTMENT_HEAD = 'DEPARTMENT_HEAD',
+}
+
+export enum InterviewRecommendation {
+  STRONG_YES = 'STRONG_YES',
+  YES = 'YES',
+  MAYBE = 'MAYBE',
+  NO = 'NO',
+  STRONG_NO = 'STRONG_NO',
+}
+
+export enum InterviewRoundStatus {
+  PENDING = 'PENDING',
+  SCHEDULED = 'SCHEDULED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum InterviewRoundResult {
+  PASSED = 'PASSED',
+  FAILED = 'FAILED',
+  ON_HOLD = 'ON_HOLD',
+}
+
+export enum BulkUploadStatus {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+}
+
+export enum ResumeItemStatus {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  SCORED = 'SCORED',
+  FAILED = 'FAILED',
+}

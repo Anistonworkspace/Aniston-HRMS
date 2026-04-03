@@ -148,7 +148,7 @@ export default function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto custom-scrollbar py-4 px-2 space-y-1">
         {filteredItems.map((item) => {
-          const isActive = location.pathname.startsWith(item.path);
+          const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
           return (
             <NavLink
               key={item.path}

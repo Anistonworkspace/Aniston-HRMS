@@ -171,7 +171,7 @@ async function main() {
         organizationId: org.id,
       },
     });
-    console.log(`  ✅ ${acct.role}: ${acct.email} / ${acct.password}`);
+    console.log(`  ✅ ${acct.role}: ${acct.email}`);
   }
 
   // ---------- Demo Employee (visible on dashboard, can be deleted by HR) ----------
@@ -214,7 +214,7 @@ async function main() {
       organizationId: org.id,
     },
   });
-  console.log('  ✅ Demo Employee: demo@anistonav.com / Demo@1234 (EMPLOYEE — can be deleted by HR)');
+  console.log('  ✅ Demo Employee: demo@anistonav.com (EMPLOYEE — can be deleted by HR)');
 
   // NOTE: All other users are created via the invitation flow.
   // HR/Admin/SuperAdmin sends an invite → user sets password → onboarding wizard.
@@ -335,13 +335,13 @@ HR reviews attendance monthly. If habitual lateness/absences detected, leave ded
   console.log('├──────────────┬──────────────────────────┬──────────────────────────┤');
   console.log('│ Role         │ Email                    │ Password                 │');
   console.log('├──────────────┼──────────────────────────┼──────────────────────────┤');
-  console.log('│ SUPER_ADMIN  │ superadmin@anistonav.com │ Superadmin@1234          │');
-  console.log('│ HR           │ hr@anistonav.com         │ Hr@1234                  │');
-  console.log('│ ADMIN        │ admin@anistonav.com      │ Admin@1234               │');
+  console.log('│ SUPER_ADMIN  │ superadmin@anistonav.com │ [set in seed]            │');
+  console.log('│ HR           │ hr@anistonav.com         │ [set in seed]            │');
+  console.log('│ ADMIN        │ admin@anistonav.com      │ [set in seed]            │');
   console.log('├──────────────┼──────────────────────────┼──────────────────────────┤');
   console.log('│  DEMO EMPLOYEE (visible on dashboard, HR can delete permanently)   │');
   console.log('├──────────────┼──────────────────────────┼──────────────────────────┤');
-  console.log('│ EMPLOYEE     │ demo@anistonav.com       │ Demo@1234                │');
+  console.log('│ EMPLOYEE     │ demo@anistonav.com       │ [set in seed]            │');
   console.log('├──────────────┴──────────────────────────┴──────────────────────────┤');
   console.log('│  All other users are created via the Invitation flow.              │');
   console.log('└──────────────────────────────────────────────────────────────────────┘');

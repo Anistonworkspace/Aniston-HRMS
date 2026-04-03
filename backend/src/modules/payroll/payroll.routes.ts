@@ -9,7 +9,7 @@ const router = Router();
 router.use(authenticate);
 
 // AI anomaly detection (must be before /:id routes)
-router.post('/ai-anomaly-check/:runId', authenticate, requirePermission('payroll', 'manage'), async (req, res, next) => {
+router.post('/ai-anomaly-check/:runId', requirePermission('payroll', 'manage'), async (req, res, next) => {
   try {
     const result = await payrollService.detectAnomalies(req.params.runId, req.user!.organizationId);
     res.json({ success: true, data: result });
@@ -75,7 +75,6 @@ router.get('/salary-history/:employeeId',
 
 // PDF salary slip download
 router.get('/records/:id/pdf',
-  authenticate,
   (req, res, next) => payrollController.downloadSalarySlip(req, res, next)
 );
 

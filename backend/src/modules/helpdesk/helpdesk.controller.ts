@@ -10,7 +10,7 @@ export class HelpdeskController {
         return;
       }
       const status = req.query.status as string | undefined;
-      const tickets = await helpdeskService.getMyTickets(req.user!.employeeId, status);
+      const tickets = await helpdeskService.getMyTickets(req.user!.employeeId, req.user!.organizationId, status);
       res.json({ success: true, data: tickets });
     } catch (err) { next(err); }
   }

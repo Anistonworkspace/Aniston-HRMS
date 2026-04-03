@@ -23,7 +23,7 @@ export default function PerformancePage() {
   const isAdmin = user && ADMIN_ROLES.includes(user.role);
 
   const queryParams = selectedEmployeeId ? { employeeId: selectedEmployeeId } : undefined;
-  const { data: goalsRes } = useGetGoalsQuery(queryParams);
+  const { data: goalsRes, isLoading, isError } = useGetGoalsQuery(queryParams);
   const { data: reviewsRes } = useGetReviewsQuery(queryParams);
   const { data: cyclesRes } = useGetCyclesQuery();
   const [updateGoal] = useUpdateGoalMutation();
@@ -51,6 +51,28 @@ export default function PerformancePage() {
       toast.success(`Goal marked as ${status.toLowerCase().replace('_', ' ')}`);
     } catch { toast.error('Failed to update'); }
   };
+
+  if (isLoading) {
+    return (
+      <div className="page-container flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+          <p className="text-sm text-gray-400">Loading performance data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="page-container flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-3">
+          <AlertCircle className="w-8 h-8 text-red-400" />
+          <p className="text-sm text-gray-400">Failed to load performance data. Please try again.</p>
+        </div>
+      </div>
+    );
+  }
 
   // Find selected employee name for display
   const selectedEmployee = employees.find((e: any) => e.id === selectedEmployeeId);

@@ -16,19 +16,24 @@ export function startNotificationWorker() {
   const worker = new Worker<NotificationJob>(
     'notification',
     async (job: Job<NotificationJob>) => {
-      const { userId, title, message, type, link } = job.data;
+      try {
+        const { userId, title, message, type, link } = job.data;
 
-      // Emit via Socket.io to the target user
-      emitToUser(userId, 'notification:new', {
-        id: job.id,
-        title,
-        message,
-        type,
-        link,
-        timestamp: new Date().toISOString(),
-      });
+        // Emit via Socket.io to the target user
+        emitToUser(userId, 'notification:new', {
+          id: job.id,
+          title,
+          message,
+          type,
+          link,
+          timestamp: new Date().toISOString(),
+        });
 
-      logger.info(`Notification sent to user ${userId}: ${title}`);
+        logger.info(`Notification sent to user ${userId}: ${title}`);
+      } catch (err) {
+        logger.error(`Notification worker failed for job ${job.id}:`, err);
+        throw err;
+      }
     },
     { connection: redis, concurrency: 10 }
   );

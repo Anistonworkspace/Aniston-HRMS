@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, ConflictError, BadRequestError } from '../../middleware/errorHandler.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
 import type { CreateAssetInput, UpdateAssetInput, AssignAssetInput, ReturnAssetInput, ExitChecklistItemInput, AssetQuery } from './asset.validation.js';
 
 export class AssetService {
@@ -75,13 +76,13 @@ export class AssetService {
     return asset;
   }
 
-  async create(data: CreateAssetInput, organizationId: string) {
+  async create(data: CreateAssetInput, organizationId: string, userId?: string) {
     const existing = await prisma.asset.findUnique({
       where: { assetCode: data.assetCode },
     });
     if (existing) throw new ConflictError('An asset with this code already exists');
 
-    return prisma.asset.create({
+    const asset = await prisma.asset.create({
       data: {
         name: data.name,
         assetCode: data.assetCode,
@@ -99,9 +100,11 @@ export class AssetService {
         organizationId,
       },
     });
+    await createAuditLog({ userId: userId || organizationId, organizationId, entity: 'Asset', entityId: asset.id, action: 'CREATE', newValue: { name: data.name, assetCode: data.assetCode, category: data.category } });
+    return asset;
   }
 
-  async update(id: string, data: UpdateAssetInput, organizationId: string) {
+  async update(id: string, data: UpdateAssetInput, organizationId: string, userId?: string) {
     const existing = await prisma.asset.findFirst({ where: { id, organizationId } });
     if (!existing) throw new NotFoundError('Asset');
 
@@ -114,7 +117,9 @@ export class AssetService {
     if (data.purchaseDate) updateData.purchaseDate = new Date(data.purchaseDate);
     if (data.warrantyExpiry) updateData.warrantyExpiry = new Date(data.warrantyExpiry);
 
-    return prisma.asset.update({ where: { id }, data: updateData });
+    const updated = await prisma.asset.update({ where: { id }, data: updateData });
+    await createAuditLog({ userId: userId || organizationId, organizationId, entity: 'Asset', entityId: id, action: 'UPDATE', newValue: updateData });
+    return updated;
   }
 
   async assign(data: AssignAssetInput, assignedBy: string) {

@@ -15,7 +15,7 @@ export class DepartmentController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const data = createDepartmentSchema.parse(req.body);
-      const dept = await departmentService.create(data, req.user!.organizationId);
+      const dept = await departmentService.create(data, req.user!.organizationId, req.user!.userId);
       res.status(201).json({ success: true, data: dept, message: 'Department created' });
     } catch (err) {
       next(err);
@@ -25,7 +25,7 @@ export class DepartmentController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateDepartmentSchema.parse(req.body);
-      const dept = await departmentService.update(req.params.id, data, req.user!.organizationId);
+      const dept = await departmentService.update(req.params.id, data, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: dept, message: 'Department updated' });
     } catch (err) {
       next(err);

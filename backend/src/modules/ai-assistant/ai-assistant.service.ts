@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { aiService } from '../../services/ai.service.js';
+import { NotFoundError } from '../../middleware/errorHandler.js';
 
 const CONVERSATION_PREFIX = 'ai-assistant:';
 const CONVERSATION_TTL = 86400; // 24 hours
@@ -114,7 +115,7 @@ export class AiAssistantService {
       where: { id, organizationId },
     });
     if (!doc) {
-      throw new Error('Knowledge document not found');
+      throw new NotFoundError('Knowledge document');
     }
     await prisma.aiKnowledgeBase.delete({ where: { id } });
     return { deleted: true };

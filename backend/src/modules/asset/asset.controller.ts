@@ -21,7 +21,7 @@ export class AssetController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const data = createAssetSchema.parse(req.body);
-      const asset = await assetService.create(data, req.user!.organizationId);
+      const asset = await assetService.create(data, req.user!.organizationId, req.user!.userId);
       res.status(201).json({ success: true, data: asset, message: 'Asset created' });
     } catch (err) { next(err); }
   }
@@ -29,7 +29,7 @@ export class AssetController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateAssetSchema.parse(req.body);
-      const asset = await assetService.update(req.params.id, data);
+      const asset = await assetService.update(req.params.id, data, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: asset, message: 'Asset updated' });
     } catch (err) { next(err); }
   }

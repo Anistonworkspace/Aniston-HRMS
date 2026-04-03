@@ -306,6 +306,7 @@ function LeaveManagementView() {
                       {leave.status === 'PENDING' && (
                         <>
                           <motion.button
+                            aria-label="Approve leave"
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                             onClick={() => handleApprove(leave.id)}
@@ -315,6 +316,7 @@ function LeaveManagementView() {
                             Approve
                           </motion.button>
                           <motion.button
+                            aria-label="Reject leave"
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                             onClick={() => handleReject(leave.id)}
@@ -888,7 +890,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
           <h2 className="text-lg font-display font-semibold text-gray-800">
             {isEditing ? 'Edit Leave Type' : 'Create Leave Type'}
           </h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+          <button aria-label="Close" onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
             <X size={18} className="text-gray-400" />
           </button>
         </div>
@@ -1438,7 +1440,7 @@ function ApplyLeaveModal({ leaveTypes, onClose }: { leaveTypes: any[]; onClose: 
       >
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-display font-semibold text-gray-800">Apply Leave</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+          <button aria-label="Close" onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
             <X size={18} className="text-gray-400" />
           </button>
         </div>

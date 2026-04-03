@@ -3,6 +3,7 @@ import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js
 import { enqueueEmail } from '../../jobs/queues.js';
 import { aiService } from '../../services/ai.service.js';
 import { logger } from '../../lib/logger.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
 import type { CreateJobInput, CreateApplicationInput, InterviewScoreInput, CreateOfferInput, JobQuery } from './recruitment.validation.js';
 
 export class RecruitmentService {
@@ -60,7 +61,7 @@ export class RecruitmentService {
   }
 
   async createJob(data: CreateJobInput, organizationId: string, postedBy: string) {
-    return prisma.jobOpening.create({
+    const job = await prisma.jobOpening.create({
       data: {
         ...data,
         status: 'DRAFT',
@@ -68,15 +69,19 @@ export class RecruitmentService {
         organizationId,
       },
     });
+    await createAuditLog({ userId: postedBy, organizationId, entity: 'JobOpening', entityId: job.id, action: 'CREATE', newValue: { title: data.title, department: data.department } });
+    return job;
   }
 
-  async updateJob(id: string, data: any, organizationId: string) {
+  async updateJob(id: string, data: any, organizationId: string, updatedBy?: string) {
     const existing = await prisma.jobOpening.findFirst({ where: { id, organizationId } });
     if (!existing) throw new NotFoundError('Job opening');
     // Remove fields that should not be overwritable
     delete data.organizationId;
     delete data.postedBy;
-    return prisma.jobOpening.update({ where: { id }, data });
+    const updated = await prisma.jobOpening.update({ where: { id }, data });
+    await createAuditLog({ userId: updatedBy || organizationId, organizationId, entity: 'JobOpening', entityId: id, action: 'UPDATE', newValue: data });
+    return updated;
   }
 
   async deleteJob(id: string, organizationId: string) {

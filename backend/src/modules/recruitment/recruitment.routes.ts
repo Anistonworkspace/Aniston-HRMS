@@ -41,7 +41,7 @@ router.post('/jobs', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.
 router.patch('/jobs/:id', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = updateJobSchema.parse(req.body);
-    const job = await recruitmentService.updateJob(req.params.id, data, req.user!.organizationId);
+    const job = await recruitmentService.updateJob(req.params.id, data, req.user!.organizationId, req.user!.userId);
     res.json({ success: true, data: job, message: 'Job updated' });
   } catch (err) { next(err); }
 });

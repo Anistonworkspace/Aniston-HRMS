@@ -115,18 +115,22 @@ export const attendanceApi = api.injectEndpoints({
 
     getAgentStatus: builder.query<any, void>({
       query: () => '/agent/status',
+      providesTags: ['Attendance'],
     }),
 
     generateAgentPairCode: builder.mutation<any, void>({
       query: () => ({ url: '/agent/pair/generate', method: 'POST' }),
+      invalidatesTags: ['Attendance'],
     }),
 
     setAgentLiveMode: builder.mutation<any, { employeeId: string; enabled: boolean; intervalSeconds?: number }>({
       query: (body) => ({ url: '/agent/live-mode', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
     }),
 
     getAgentLiveMode: builder.query<any, string>({
       query: (employeeId) => `/agent/live-mode/${employeeId}`,
+      providesTags: ['Attendance'],
     }),
 
     // Pending regularizations (HR view)

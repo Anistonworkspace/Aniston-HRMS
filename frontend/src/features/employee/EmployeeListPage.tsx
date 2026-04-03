@@ -219,6 +219,7 @@ export default function EmployeeListPage() {
                   </td>
                   <td className="px-4 py-3.5">
                     <button
+                      aria-label="More actions"
                       onClick={(e) => {
                         e.stopPropagation();
                         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -278,6 +279,7 @@ export default function EmployeeListPage() {
             </p>
             <div className="flex items-center gap-2">
               <button
+                aria-label="Previous page"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={!meta.hasPrev}
                 className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
@@ -288,6 +290,7 @@ export default function EmployeeListPage() {
                 {meta.page} / {meta.totalPages}
               </span>
               <button
+                aria-label="Next page"
                 onClick={() => setPage((p) => p + 1)}
                 disabled={!meta.hasNext}
                 className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
@@ -406,7 +409,7 @@ function InviteEmployeeSlideOver({ onClose }: { onClose: () => void }) {
         <div className="p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-display font-bold text-gray-900">Invite Employee</h2>
-            <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100"><X size={20} /></button>
+            <button aria-label="Close" onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100"><X size={20} /></button>
           </div>
 
           {result ? (
@@ -603,9 +606,9 @@ function InvitationsTab() {
         <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
           <p className="text-sm text-gray-500">Page {meta.page} of {meta.totalPages}</p>
           <div className="flex items-center gap-2">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={!meta.hasPrev}
+            <button aria-label="Previous page" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={!meta.hasPrev}
               className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-30"><ChevronLeft size={16} /></button>
-            <button onClick={() => setPage(p => p + 1)} disabled={!meta.hasNext}
+            <button aria-label="Next page" onClick={() => setPage(p => p + 1)} disabled={!meta.hasNext}
               className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-30"><ChevronRight size={16} /></button>
           </div>
         </div>

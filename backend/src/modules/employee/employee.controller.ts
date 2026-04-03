@@ -179,7 +179,7 @@ export class EmployeeController {
 
   async deleteLifecycleEvent(req: Request, res: Response, next: NextFunction) {
     try {
-      await employeeService.deleteLifecycleEvent(req.params.eventId as string);
+      await employeeService.deleteLifecycleEvent(req.params.eventId as string, req.user!.organizationId);
       res.json({ success: true, data: null, message: 'Event deleted' });
     } catch (err) {
       next(err);
