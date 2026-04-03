@@ -758,8 +758,8 @@ function RegularizationApprovalTab() {
                       {att?.notes && <p className="text-[10px] text-amber-600 mb-1">{att.notes}</p>}
                       <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
                         <p className="text-xs text-amber-800"><strong>Reason:</strong> {reg.reason}</p>
-                        {reg.requestedCheckIn && <p className="text-[10px] text-amber-700">Requested Check-in: {new Date(reg.requestedCheckIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>}
-                        {reg.requestedCheckOut && <p className="text-[10px] text-amber-700">Requested Check-out: {new Date(reg.requestedCheckOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>}
+                        {reg.requestedCheckIn && <p className="text-[10px] text-amber-700">Requested Check-in: {new Date(reg.requestedCheckIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}</p>}
+                        {reg.requestedCheckOut && <p className="text-[10px] text-amber-700">Requested Check-out: {new Date(reg.requestedCheckOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}</p>}
                       </div>
                       <div className="flex items-center gap-2">
                         <input value={remarks[reg.id] || ''} onChange={e => setRemarks(r => ({ ...r, [reg.id]: e.target.value }))}

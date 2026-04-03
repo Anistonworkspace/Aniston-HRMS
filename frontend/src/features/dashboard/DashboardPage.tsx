@@ -124,7 +124,7 @@ export default function DashboardPage() {
               <div>
                 <p className="text-sm font-medium text-gray-700">
                   {todayStatus.isCheckedIn && !todayStatus.isCheckedOut
-                    ? `Checked in at ${new Date(todayStatus.record?.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                    ? `Checked in at ${new Date(todayStatus.record?.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`
                     : todayStatus.isCheckedOut
                     ? `Done for today (${Number(todayStatus.totalHours || 0).toFixed(1)}h)`
                     : 'Not checked in yet'}

@@ -162,13 +162,13 @@ export default function EmployeeAttendanceDetailPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-400">Check In</span>
                   <span className="text-sm font-mono text-gray-700" data-mono>
-                    {selectedRecord.checkIn ? new Date(selectedRecord.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
+                    {selectedRecord.checkIn ? new Date(selectedRecord.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '--'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-400">Check Out</span>
                   <span className="text-sm font-mono text-gray-700" data-mono>
-                    {selectedRecord.checkOut ? new Date(selectedRecord.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
+                    {selectedRecord.checkOut ? new Date(selectedRecord.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '--'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -243,7 +243,7 @@ export default function EmployeeAttendanceDetailPage() {
                         <div className="flex items-center justify-between">
                           <p className="text-xs font-medium text-gray-700">{actionLabels[log.action] || log.action}</p>
                           <span className="text-[10px] font-mono text-gray-400" data-mono>
-                            {new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            {new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' })}
                           </span>
                         </div>
                         {log.geofenceStatus === 'OUTSIDE' && (
@@ -475,7 +475,7 @@ export default function EmployeeAttendanceDetailPage() {
                     <img src={s.imageUrl} alt={s.activeApp || 'Screenshot'} className="w-full h-24 object-cover rounded-lg border border-gray-200 group-hover:border-brand-300 transition-colors" />
                     <div className="absolute bottom-0 left-0 right-0 bg-black/60 rounded-b-lg px-2 py-1">
                       <p className="text-[9px] text-white truncate">{s.activeApp || 'Desktop'}</p>
-                      <p className="text-[8px] text-gray-300">{new Date(s.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
+                      <p className="text-[8px] text-gray-300">{new Date(s.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}</p>
                     </div>
                   </div>
                 ))}
@@ -508,10 +508,10 @@ export default function EmployeeAttendanceDetailPage() {
                       new Date(r.date).toISOString().split('T')[0] === selectedDate && 'bg-brand-50')}>
                     <td className="px-5 py-2 text-xs text-gray-600">{formatDate(r.date)}</td>
                     <td className="px-5 py-2 text-xs font-mono text-gray-600" data-mono>
-                      {r.checkIn ? new Date(r.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
+                      {r.checkIn ? new Date(r.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '--'}
                     </td>
                     <td className="px-5 py-2 text-xs font-mono text-gray-600" data-mono>
-                      {r.checkOut ? new Date(r.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--'}
+                      {r.checkOut ? new Date(r.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '--'}
                     </td>
                     <td className="px-5 py-2 text-xs font-mono text-gray-600" data-mono>
                       {r.totalHours ? `${Number(r.totalHours).toFixed(1)}h` : '--'}

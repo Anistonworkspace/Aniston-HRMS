@@ -53,7 +53,7 @@ export class AttendanceService {
     if (!employee) throw new NotFoundError('Employee');
 
     const today = getISTToday();
-    const now = getISTNow();
+    const now = new Date();
 
     // ===== PHASE 3: Block clock-in on approved leave =====
     const leaveToday = await prisma.leaveRequest.findFirst({
@@ -122,6 +122,14 @@ export class AttendanceService {
 
     const currentShiftType = shift?.shiftType || 'OFFICE';
 
+    // ===== Location enforcement: OFFICE shift requires assigned location =====
+    const assignedLocation = shiftAssignment?.location || employee.officeLocation;
+    if (currentShiftType === 'OFFICE' && !assignedLocation?.geofence) {
+      throw new BadRequestError(
+        'No office location assigned. Please ask your HR/Admin to assign an office location to your profile before marking attendance.'
+      );
+    }
+
     // ===== PHASE 1.4: GPS spoofing detection =====
     if (data.latitude && data.longitude) {
       const spoofResult = await this.detectGPSSpoofing(employeeId, data.latitude, data.longitude);
@@ -186,7 +194,8 @@ export class AttendanceService {
       ? { lat: data.latitude, lng: data.longitude, accuracy: data.accuracy }
       : null;
 
-    // Shift-aware late detection
+    // Shift-aware late detection (use IST for comparison since shift times are IST)
+    const istNow = getISTNow(); // Only for time comparisons, NOT for storage
     let isLate = false;
     let lateMinutes = 0;
     let shiftInfo: any = null;
@@ -194,7 +203,7 @@ export class AttendanceService {
     if (shift) {
       const [shiftHour, shiftMin] = shift.startTime.split(':').map(Number);
       const graceMinutes = shift.graceMinutes || 15;
-      const shiftStart = new Date(now);
+      const shiftStart = new Date(istNow);
       shiftStart.setHours(shiftHour, shiftMin, 0, 0);
       const graceEnd = new Date(shiftStart);
       graceEnd.setMinutes(graceEnd.getMinutes() + graceMinutes);
@@ -203,23 +212,23 @@ export class AttendanceService {
       if (!isReClockIn) {
         const earlyThreshold = new Date(shiftStart);
         earlyThreshold.setMinutes(earlyThreshold.getMinutes() - this.EARLY_CLOCKIN_WARNING_MINUTES);
-        if (now < earlyThreshold) {
-          const earlyMin = Math.round((shiftStart.getTime() - now.getTime()) / 60000);
+        if (istNow < earlyThreshold) {
+          const earlyMin = Math.round((shiftStart.getTime() - istNow.getTime()) / 60000);
           data.notes = `${data.notes || ''} [Early clock-in: ${earlyMin} min before shift start ${shift.startTime}]`.trim();
         }
       }
 
       // Only check late on first clock-in, not re-clock-in
-      if (!isReClockIn && now > graceEnd) {
+      if (!isReClockIn && istNow > graceEnd) {
         isLate = true;
-        lateMinutes = Math.round((now.getTime() - shiftStart.getTime()) / (1000 * 60));
+        lateMinutes = Math.round((istNow.getTime() - shiftStart.getTime()) / (1000 * 60));
         data.notes = `${data.notes || ''} [Late by ${lateMinutes} min — shift ${shift.name} starts at ${shift.startTime}]`.trim();
       }
 
       // Auto-mark HALF_DAY if late beyond grace + 30 min (only first clock-in)
       if (!isReClockIn) {
         const halfDayThreshold = graceMinutes + 30;
-        const minutesLate = Math.round((now.getTime() - shiftStart.getTime()) / (1000 * 60));
+        const minutesLate = Math.round((istNow.getTime() - shiftStart.getTime()) / (1000 * 60));
         if (minutesLate > halfDayThreshold) {
           data.notes = `${data.notes || ''} [Auto-marked HALF_DAY: ${minutesLate} min late, threshold ${halfDayThreshold} min]`.trim();
         }
@@ -351,7 +360,7 @@ export class AttendanceService {
    */
   async clockOut(employeeId: string, data: ClockOutInput) {
     const today = getISTToday();
-    const now = getISTNow();
+    const now = new Date();
 
     // ===== PHASE 1: Check today first, then yesterday (forgot to clock out / night shift) =====
     let record = await prisma.attendanceRecord.findUnique({
@@ -413,18 +422,19 @@ export class AttendanceService {
     let overtimeFlag = false;
 
     if (shift) {
+      const istNow = getISTNow(); // IST for comparison with shift times
       const [endHour, endMin] = shift.endTime.split(':').map(Number);
-      const shiftEnd = new Date(now);
+      const shiftEnd = new Date(istNow);
       shiftEnd.setHours(endHour, endMin, 0, 0);
       // Handle overnight shifts (e.g., night shift 22:00–06:00)
       if (endHour < parseInt(shift.startTime.split(':')[0])) {
         shiftEnd.setDate(shiftEnd.getDate() + 1);
       }
-      if (now < shiftEnd) {
+      if (istNow < shiftEnd) {
         isEarlyCheckout = true;
-        earlyMinutes = Math.round((shiftEnd.getTime() - now.getTime()) / (1000 * 60));
+        earlyMinutes = Math.round((shiftEnd.getTime() - istNow.getTime()) / (1000 * 60));
       } else {
-        lateClockoutMinutes = Math.round((now.getTime() - shiftEnd.getTime()) / (1000 * 60));
+        lateClockoutMinutes = Math.round((istNow.getTime() - shiftEnd.getTime()) / (1000 * 60));
         if (lateClockoutMinutes > this.LATE_CLOCKOUT_FLAG_MINUTES) {
           isLateClockout = true;
         }
@@ -829,7 +839,7 @@ export class AttendanceService {
       throw new BadRequestError(`Total break time (${totalBreakMinutes} min) has reached the maximum (${maxBreakMinutes} min). Cannot start another break.`);
     }
 
-    const now = getISTNow();
+    const now = new Date();
     const breakRecord = await prisma.break.create({
       data: {
         attendanceId: record.id,
@@ -869,7 +879,7 @@ export class AttendanceService {
       throw new BadRequestError('No active break to end.');
     }
 
-    const now = getISTNow();
+    const now = new Date();
     const duration = Math.round(
       (now.getTime() - new Date(activeBreak.startTime).getTime()) / (1000 * 60)
     );

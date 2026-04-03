@@ -233,7 +233,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
               {currentPos.lat.toFixed(6)}, {currentPos.lng.toFixed(6)}
             </span>
             <span className="text-gray-400 ml-auto">
-              {new Date(currentPos.timestamp).toLocaleTimeString('en-IN')}
+              {new Date(currentPos.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
             </span>
           </div>
         </div>

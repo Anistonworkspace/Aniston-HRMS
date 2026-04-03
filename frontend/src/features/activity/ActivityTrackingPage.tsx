@@ -255,7 +255,7 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
                 {logs.slice(-30).reverse().map((log: any, i: number) => (
                   <div key={i} className="flex items-center gap-3 text-xs py-1.5 border-b border-gray-50 last:border-0">
                     <span className="text-gray-400 font-mono w-16 flex-shrink-0" data-mono>
-                      {new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      {new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' })}
                     </span>
                     <div className={cn('w-2 h-2 rounded-full flex-shrink-0',
                       log.category === 'PRODUCTIVE' ? 'bg-emerald-500' :
@@ -288,7 +288,7 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
                     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
                       <p className="text-[9px] text-white truncate">{s.activeApp || 'Desktop'}</p>
                       <p className="text-[8px] text-gray-300">
-                        {new Date(s.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(s.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
                       </p>
                     </div>
                   </div>
@@ -370,7 +370,7 @@ function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
             {liveData && (
               <>
                 <span>·</span>
-                <span>Last data: {new Date(liveData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                <span>Last data: {new Date(liveData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' })}</span>
               </>
             )}
           </div>
@@ -422,7 +422,7 @@ function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
             <img src={`${API_BASE}${latestScreenshot.imageUrl}`} alt="Latest screenshot"
               className="w-full h-auto max-h-[400px] object-contain bg-gray-900" />
             <div className="absolute top-2 right-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded">
-              {new Date(latestScreenshot.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              {new Date(latestScreenshot.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' })}
               {' · '}{latestScreenshot.activeApp || 'Desktop'}
             </div>
           </div>
@@ -444,7 +444,7 @@ function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
               <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
                 className="flex items-center gap-3 text-xs py-1.5 border-b border-gray-50 last:border-0">
                 <span className="text-gray-400 font-mono w-16 flex-shrink-0" data-mono>
-                  {new Date(entry.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  {new Date(entry.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' })}
                 </span>
                 <div className={cn('w-2 h-2 rounded-full flex-shrink-0',
                   entry.category === 'PRODUCTIVE' ? 'bg-emerald-500' :
@@ -691,7 +691,7 @@ function AppDrilldown({ topApps, logs }: { topApps: any[]; logs: any[] }) {
                       ) : appLogs.slice(0, 30).map((log: any, j: number) => (
                         <div key={j} className="flex items-start gap-2 text-[11px]">
                           <span className="text-gray-400 font-mono flex-shrink-0 w-14" data-mono>
-                            {new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            {new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
                           </span>
                           <div className="flex-1 min-w-0">
                             <p className="text-gray-700 truncate">{log.activeWindow || 'Unknown window'}</p>

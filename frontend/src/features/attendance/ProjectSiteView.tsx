@@ -156,7 +156,7 @@ export default function ProjectSiteView() {
                   {ci.notes && <p className="text-xs text-gray-500 mt-0.5">{ci.notes}</p>}
                   <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
                     <Clock className="w-3 h-3" />
-                    {new Date(ci.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(ci.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
                     {ci.checkInLat && (
                       <span className="font-mono" data-mono>
                         ({Number(ci.checkInLat).toFixed(4)}, {Number(ci.checkInLng).toFixed(4)})

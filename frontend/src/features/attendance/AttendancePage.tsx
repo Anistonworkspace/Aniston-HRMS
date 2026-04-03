@@ -103,7 +103,7 @@ function AttendanceManagementView() {
 
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return '--';
-    return new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    return new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
   };
 
   return (
@@ -751,7 +751,7 @@ function AttendancePersonalView() {
           >
             {/* Live time */}
             <p className="text-4xl font-mono font-bold text-gray-900 mb-1" data-mono>
-              {liveTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              {liveTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' })}
             </p>
             <p className="text-sm text-gray-400 mb-6">{formatDate(new Date(), 'long')}</p>
 

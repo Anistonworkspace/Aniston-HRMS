@@ -743,12 +743,12 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
               <div className="bg-gray-50 rounded-lg px-2.5 py-2 mb-2 text-xs">
                 <div className="flex justify-between">
                   <span className="text-gray-500">Check-in</span>
-                  <span className="font-medium text-gray-700">{new Date(popupCell.record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span className="font-medium text-gray-700">{new Date(popupCell.record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}</span>
                 </div>
                 {popupCell.record.checkOut && (
                   <div className="flex justify-between mt-0.5">
                     <span className="text-gray-500">Check-out</span>
-                    <span className="font-medium text-gray-700">{new Date(popupCell.record.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="font-medium text-gray-700">{new Date(popupCell.record.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}</span>
                   </div>
                 )}
                 {popupCell.record.totalHours && (
@@ -1944,8 +1944,8 @@ function AttendanceMapModal({ employeeId, records, onClose }: { employeeId: stri
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium text-gray-700">{new Date(r.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', weekday: 'short' })}</p>
                       <p className="text-[10px] text-gray-400">
-                        {r.checkIn ? new Date(r.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}
-                        {r.checkOut ? ` → ${new Date(r.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                        {r.checkIn ? new Date(r.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '—'}
+                        {r.checkOut ? ` → ${new Date(r.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}` : ''}
                         {r.totalHours ? ` (${Number(r.totalHours).toFixed(1)}h)` : ''}
                       </p>
                     </div>
@@ -1985,10 +1985,10 @@ function AttendanceMapModal({ employeeId, records, onClose }: { employeeId: stri
                     </p>
                     <div className="flex items-center gap-4 mt-1">
                       <span className="text-xs text-gray-500">
-                        Check-in: <strong>{selectedRecord.checkIn ? new Date(selectedRecord.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}</strong>
+                        Check-in: <strong>{selectedRecord.checkIn ? new Date(selectedRecord.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '—'}</strong>
                       </span>
                       <span className="text-xs text-gray-500">
-                        Check-out: <strong>{selectedRecord.checkOut ? new Date(selectedRecord.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}</strong>
+                        Check-out: <strong>{selectedRecord.checkOut ? new Date(selectedRecord.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '—'}</strong>
                       </span>
                       <span className="text-xs text-gray-500">
                         Hours: <strong>{selectedRecord.totalHours ? `${Number(selectedRecord.totalHours).toFixed(1)}h` : '—'}</strong>
@@ -2070,8 +2070,8 @@ function AttendanceLeafletMap({ markers, center, selectedRecord }: { markers: an
               <div className="text-xs">
                 <p className="font-semibold">{isCheckIn ? 'Check-In' : 'Check-Out'}</p>
                 <p>{new Date(m.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
-                <p>{isCheckIn && m.checkIn ? new Date(m.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}</p>
-                <p>{!isCheckIn && m.checkOut ? new Date(m.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}</p>
+                <p>{isCheckIn && m.checkIn ? new Date(m.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : ''}</p>
+                <p>{!isCheckIn && m.checkOut ? new Date(m.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : ''}</p>
                 {m.accuracy && <p className="text-gray-400">Accuracy: {Math.round(m.accuracy)}m</p>}
               </div>
             </Popup>
