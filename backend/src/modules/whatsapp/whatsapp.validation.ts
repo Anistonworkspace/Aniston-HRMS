@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const sendMessageSchema = z.object({
   to: z.string().min(10, 'Phone number required'),
   message: z.string().min(1, 'Message required').max(4096),
+  quotedMessageId: z.string().optional(),
 });
 
 export const sendJobLinkSchema = z.object({
@@ -12,5 +13,11 @@ export const sendJobLinkSchema = z.object({
   jobUrl: z.string().url().optional(),
 });
 
+export const sendMediaSchema = z.object({
+  chatId: z.string().min(1, 'Chat ID required'),
+  caption: z.string().max(1024).optional(),
+});
+
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 export type SendJobLinkInput = z.infer<typeof sendJobLinkSchema>;
+export type SendMediaInput = z.infer<typeof sendMediaSchema>;

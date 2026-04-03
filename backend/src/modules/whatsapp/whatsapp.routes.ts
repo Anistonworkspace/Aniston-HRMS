@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { whatsAppController } from './whatsapp.controller.js';
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
+import { uploadDocument } from '../../middleware/upload.middleware.js';
 
 const router = Router();
 
@@ -41,6 +42,27 @@ router.get('/chats', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =
 router.get('/chats/:chatId/messages', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
   whatsAppController.getChatMessages(req, res, next)
 );
+
+// NEW: Mark chat as read
+router.post('/chats/:chatId/read', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
+  whatsAppController.markAsRead(req, res, next)
+);
+
+// NEW: Search messages in a chat
+router.get('/chats/:chatId/search', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
+  whatsAppController.searchMessages(req, res, next)
+);
+
+// NEW: Download media on demand (lazy loading)
+router.get('/media/:messageId', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
+  whatsAppController.downloadMedia(req, res, next)
+);
+
+// NEW: Send media (image/document/video)
+router.post('/send-media', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), uploadDocument.single('file'), (req, res, next) =>
+  whatsAppController.sendMedia(req, res, next)
+);
+
 router.post('/send-to-number', authorize('SUPER_ADMIN', 'ADMIN', 'HR'), (req, res, next) =>
   whatsAppController.sendToNumber(req, res, next)
 );

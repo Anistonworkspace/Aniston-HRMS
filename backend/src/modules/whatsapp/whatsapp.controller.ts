@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { whatsAppService } from './whatsapp.service.js';
-import { sendMessageSchema, sendJobLinkSchema } from './whatsapp.validation.js';
+import { sendMessageSchema, sendJobLinkSchema, sendMediaSchema } from './whatsapp.validation.js';
 
 export class WhatsAppController {
   async initialize(req: Request, res: Response, next: NextFunction) {
@@ -41,6 +41,18 @@ export class WhatsAppController {
     } catch (err) { next(err); }
   }
 
+  async sendMedia(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { chatId, caption } = sendMediaSchema.parse(req.body);
+      if (!req.file) {
+        res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'No file uploaded' } });
+        return;
+      }
+      const result = await whatsAppService.sendMedia(chatId, req.file.path, caption, req.user!.organizationId);
+      res.json({ success: true, data: result, message: 'Media sent' });
+    } catch (err) { next(err); }
+  }
+
   async getMessages(req: Request, res: Response, next: NextFunction) {
     try {
       const page = Number(req.query.page) || 1;
@@ -60,8 +72,42 @@ export class WhatsAppController {
   async getChatMessages(req: Request, res: Response, next: NextFunction) {
     try {
       const limit = Number(req.query.limit) || 50;
-      const messages = await whatsAppService.getChatMessages(req.params.chatId, limit);
+      const before = req.query.before as string | undefined;
+      const messages = await whatsAppService.getChatMessages(req.params.chatId, limit, before);
       res.json({ success: true, data: messages });
+    } catch (err) { next(err); }
+  }
+
+  async markAsRead(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await whatsAppService.markChatAsRead(req.params.chatId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async searchMessages(req: Request, res: Response, next: NextFunction) {
+    try {
+      const query = req.query.q as string;
+      if (!query || query.length < 2) {
+        res.status(400).json({ success: false, error: { message: 'Search query must be at least 2 characters' } });
+        return;
+      }
+      const limit = Number(req.query.limit) || 50;
+      const results = await whatsAppService.searchMessages(req.params.chatId, query, limit);
+      res.json({ success: true, data: results });
+    } catch (err) { next(err); }
+  }
+
+  async downloadMedia(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { messageId } = req.params;
+      const chatId = req.query.chatId as string;
+      if (!chatId) {
+        res.status(400).json({ success: false, error: { message: 'chatId query param required' } });
+        return;
+      }
+      const result = await whatsAppService.downloadMedia(messageId, chatId);
+      res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
 
@@ -78,7 +124,7 @@ export class WhatsAppController {
 
   async getContacts(req: Request, res: Response, next: NextFunction) {
     try {
-      const contacts = await whatsAppService.getContacts();
+      const contacts = await whatsAppService.getContacts(req.user!.organizationId);
       res.json({ success: true, data: contacts });
     } catch (err) { next(err); }
   }
