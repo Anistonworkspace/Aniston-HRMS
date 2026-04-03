@@ -104,6 +104,27 @@ export function emitToOrg(organizationId: string, event: string, data: any) {
 }
 
 /**
+ * Invalidate dashboard cache for an org and notify connected clients to refetch.
+ * Call this after attendance, leave, or payroll changes.
+ */
+export async function invalidateDashboardCache(organizationId: string) {
+  try {
+    const { redis } = await import('../lib/redis.js');
+    const keys = [
+      `dashboard:employee:${organizationId}`,
+      `dashboard:hr:${organizationId}`,
+      `dashboard:superadmin:${organizationId}`,
+    ];
+    await Promise.all(keys.map((k) => redis.del(k)));
+  } catch { /* Redis unavailable */ }
+
+  // Notify all org users to refetch dashboard data
+  if (io) {
+    io.to(`org:${organizationId}`).emit('dashboard:refresh');
+  }
+}
+
+/**
  * Get the Socket.io instance
  */
 export function getIO(): SocketServer | null {

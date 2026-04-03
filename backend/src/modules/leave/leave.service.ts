@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
-import { emitToOrg, emitToUser } from '../../sockets/index.js';
+import { emitToOrg, emitToUser, invalidateDashboardCache } from '../../sockets/index.js';
 import type { ApplyLeaveInput, LeaveQuery, CreateLeaveTypeInput, UpdateLeaveTypeInput } from './leave.validation.js';
 
 export class LeaveService {
@@ -332,11 +332,12 @@ export class LeaveService {
       return leaveRequest;
     });
 
-    // Emit real-time event for HR
+    // Emit real-time event for HR + invalidate dashboard cache
     emitToOrg(employee.organizationId, 'leave:applied', {
       employeeId, employeeName: `${employee.firstName} ${employee.lastName}`,
       leaveType: request.leaveType?.name, days: request.days, startDate: request.startDate,
     });
+    invalidateDashboardCache(employee.organizationId).catch(() => {});
 
     return request;
   }
@@ -539,12 +540,24 @@ export class LeaveService {
           });
 
           // Create ON_LEAVE attendance records for the approved leave dates
+          // Exclude Sundays and org holidays
           const leaveStart = new Date(request.startDate);
           const leaveEnd = new Date(request.endDate);
+          const orgHolidays = await tx.holiday.findMany({
+            where: {
+              organizationId: organizationId!,
+              date: { gte: leaveStart, lte: leaveEnd },
+              type: { in: ['PUBLIC', 'CUSTOM'] },
+            },
+            select: { date: true },
+          });
+          const holidayDateSet = new Set(orgHolidays.map(h => new Date(h.date).toISOString().split('T')[0]));
+
           const current = new Date(leaveStart);
           while (current <= leaveEnd) {
             const dow = current.getDay();
-            if (dow !== 0) { // Skip Sundays only (company weekoff)
+            const dateStr = current.toISOString().split('T')[0];
+            if (dow !== 0 && !holidayDateSet.has(dateStr)) { // Skip Sundays + holidays
               const dateOnly = new Date(current);
               dateOnly.setHours(0, 0, 0, 0);
               await tx.attendanceRecord.upsert({
@@ -587,12 +600,15 @@ export class LeaveService {
       });
     }
 
-    // Emit real-time event to the employee
-    const emp = await prisma.employee.findUnique({ where: { id: request.employeeId }, select: { userId: true } });
+    // Emit real-time event to the employee + invalidate dashboard cache
+    const emp = await prisma.employee.findUnique({ where: { id: request.employeeId }, select: { userId: true, organizationId: true } });
     if (emp?.userId) {
       emitToUser(emp.userId, 'leave:actioned', {
         requestId, action, leaveType: updated.leaveType?.name, remarks,
       });
+    }
+    if (emp?.organizationId) {
+      invalidateDashboardCache(emp.organizationId).catch(() => {});
     }
 
     return updated;

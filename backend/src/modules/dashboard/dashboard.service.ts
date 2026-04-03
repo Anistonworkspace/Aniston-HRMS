@@ -1,11 +1,36 @@
 import { prisma } from '../../lib/prisma.js';
+import { redis } from '../../lib/redis.js';
 import type { DashboardAlert, AttentionItem } from '@aniston/shared';
 
+const CACHE_TTL = 60; // 60 seconds cache for dashboard data
+
 export class DashboardService {
+  /**
+   * Cache wrapper — check Redis first, compute on miss
+   */
+  private async cached<T>(key: string, ttl: number, compute: () => Promise<T>): Promise<T> {
+    try {
+      const cached = await redis.get(key);
+      if (cached) return JSON.parse(cached);
+    } catch { /* Redis down — compute fresh */ }
+
+    const result = await compute();
+
+    try {
+      await redis.setex(key, ttl, JSON.stringify(result));
+    } catch { /* Redis down — skip cache */ }
+
+    return result;
+  }
+
   /**
    * Original stats endpoint — kept for backward compat (employee dashboard uses it)
    */
   async getStats(organizationId: string) {
+    return this.cached(`dashboard:employee:${organizationId}`, CACHE_TTL, () => this._getStats(organizationId));
+  }
+
+  private async _getStats(organizationId: string) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -98,6 +123,10 @@ export class DashboardService {
    * SUPER ADMIN DASHBOARD — company-level analytics
    */
   async getSuperAdminStats(organizationId: string) {
+    return this.cached(`dashboard:superadmin:${organizationId}`, CACHE_TTL, () => this._getSuperAdminStats(organizationId));
+  }
+
+  private async _getSuperAdminStats(organizationId: string) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const now = new Date();
@@ -323,6 +352,10 @@ export class DashboardService {
    * HR DASHBOARD — daily operations
    */
   async getHRStats(organizationId: string) {
+    return this.cached(`dashboard:hr:${organizationId}`, CACHE_TTL, () => this._getHRStats(organizationId));
+  }
+
+  private async _getHRStats(organizationId: string) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const now = new Date();
@@ -374,15 +407,14 @@ export class DashboardService {
         checkIn: { not: null },
         employee: { organizationId },
       },
-      select: {
-        checkIn: true,
+      include: {
         employee: {
           select: {
             id: true,
             firstName: true,
             lastName: true,
             shiftAssignments: {
-              where: { isActive: true },
+              where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
               select: { shift: { select: { startTime: true, graceMinutes: true } } },
               take: 1,
             },
@@ -610,6 +642,20 @@ export class DashboardService {
       pendingLeaves: { data: pendingLeaves, total: pendingLeavesCount },
       openTickets: { data: openTickets, total: openTicketsCount },
     };
+  }
+
+  /**
+   * UNIFIED SUMMARY — returns role-appropriate data in a single call
+   */
+  async getSummary(organizationId: string, role: string) {
+    if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
+      return { role: 'SUPER_ADMIN', data: await this.getSuperAdminStats(organizationId) };
+    }
+    if (role === 'HR') {
+      return { role: 'HR', data: await this.getHRStats(organizationId) };
+    }
+    // MANAGER / EMPLOYEE / others
+    return { role: 'EMPLOYEE', data: await this.getStats(organizationId) };
   }
 }
 

@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
-import { emitToOrg } from '../../sockets/index.js';
+import { emitToOrg, invalidateDashboardCache } from '../../sockets/index.js';
 import { enqueueEmail } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { logger } from '../../lib/logger.js';
@@ -333,12 +333,13 @@ export class AttendanceService {
       });
     }
 
-    // Emit real-time event
+    // Emit real-time event + invalidate dashboard cache
     emitToOrg(organizationId, 'attendance:checkin', {
       employeeId, employeeName: `${employee.firstName} ${employee.lastName}`,
       checkIn: now.toISOString(), status: 'PRESENT', isLate, lateMinutes,
       isReClockIn, geofenceViolation,
     });
+    invalidateDashboardCache(organizationId).catch(() => {});
 
     // ===== Audit log =====
     try {
@@ -499,6 +500,7 @@ export class AttendanceService {
         checkOut: now.toISOString(), totalHours: Math.round(totalHours * 100) / 100,
         status, isEarlyCheckout, earlyMinutes, isPreviousDayClockOut,
       });
+      invalidateDashboardCache(emp.organizationId).catch(() => {});
 
       // ===== Audit log =====
       try {

@@ -7,9 +7,10 @@ import MobileBottomNav from './MobileBottomNav';
 import ActivityCheckInPrompt from '../ActivityCheckInPrompt';
 // AgentDownloadBanner removed — agent setup is now admin-only via Settings > Agent Setup
 import useActivityTracker from '../../hooks/useActivityTracker';
-import { useAppSelector } from '../../app/store';
+import { useAppSelector, useAppDispatch } from '../../app/store';
+import { api } from '../../app/api';
 import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
-import { connectSocket, disconnectSocket } from '../../lib/socket';
+import { connectSocket, disconnectSocket, onSocketEvent, offSocketEvent } from '../../lib/socket';
 
 export default function AppShell() {
   // Activity tracking — runs globally for all logged-in users
@@ -18,12 +19,22 @@ export default function AppShell() {
 
   // Connect Socket.io when user is logged in
   const accessToken = useAppSelector(s => s.auth.accessToken);
+  const dispatch = useAppDispatch();
   useEffect(() => {
     if (accessToken) {
       connectSocket(accessToken);
     }
     return () => { disconnectSocket(); };
   }, [accessToken]);
+
+  // Real-time dashboard refresh — invalidate RTK Query cache on server events
+  useEffect(() => {
+    const handleDashboardRefresh = () => {
+      dispatch(api.util.invalidateTags(['Dashboard']));
+    };
+    onSocketEvent('dashboard:refresh', handleDashboardRefresh);
+    return () => { offSocketEvent('dashboard:refresh', handleDashboardRefresh); };
+  }, [dispatch]);
   const location = useLocation();
   const isAdminOrHR = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const aiContext = location.pathname.startsWith('/recruitment') ? 'hr-recruitment' as const
