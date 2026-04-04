@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showForgot, setShowForgot] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loginError, setLoginError] = useState('');
   const [login, { isLoading }] = useLoginMutation();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -22,8 +23,22 @@ export default function LoginPage() {
     if (isAuthenticated) navigate('/dashboard', { replace: true });
   }, [isAuthenticated, navigate]);
 
+  // Show reason if redirected from timeout/session expiry
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reason = params.get('reason');
+    if (reason === 'inactivity') {
+      setLoginError('Your session expired due to inactivity. Please sign in again.');
+    } else if (reason === 'session_expired') {
+      setLoginError('Your session has expired. Please sign in again.');
+    } else if (reason === 'unauthorized') {
+      setLoginError('You need to sign in to access that page.');
+    }
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoginError('');
     try {
       const result = await login({ email, password }).unwrap();
       if (result.success && result.data) {
@@ -34,9 +49,29 @@ export default function LoginPage() {
         toast.success('Welcome back!');
         navigate('/dashboard');
       }
-    } catch (err: any) {
-      const message = err?.data?.error?.message || 'Login failed. Please try again.';
-      toast.error(message);
+    } catch (err: unknown) {
+      const apiErr = err as { status?: number; data?: { error?: { message?: string; code?: string } } };
+      const status = apiErr?.status;
+      const serverMsg = apiErr?.data?.error?.message;
+      const code = apiErr?.data?.error?.code;
+
+      let displayMessage: string;
+
+      if (status === 429 || code === 'RATE_LIMIT_EXCEEDED') {
+        displayMessage = 'Too many login attempts. Please wait 15 minutes and try again.';
+      } else if (status === 401 && serverMsg) {
+        displayMessage = serverMsg; // "Invalid email or password" / "Account is inactive" / etc.
+      } else if (status === 500) {
+        displayMessage = 'Server error. Please try again in a few moments or contact your administrator.';
+      } else if (status === 0 || !status) {
+        displayMessage = 'Unable to connect to the server. Please check your internet connection and try again.';
+      } else if (serverMsg) {
+        displayMessage = serverMsg;
+      } else {
+        displayMessage = 'Login failed. Please check your credentials and try again.';
+      }
+
+      setLoginError(displayMessage);
     }
   };
 
@@ -67,11 +102,24 @@ export default function LoginPage() {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
+            {loginError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex items-start gap-3">
+                <Shield size={16} className="text-red-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-red-800">Login Failed</p>
+                  <p className="text-sm text-red-600 mt-0.5">{loginError}</p>
+                </div>
+                <button onClick={() => setLoginError('')} className="ml-auto text-red-400 hover:text-red-600 shrink-0" aria-label="Dismiss">
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
             <div>
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); setLoginError(''); }}
                 placeholder="Email address or mobile number"
                 className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all"
                 required
@@ -82,7 +130,7 @@ export default function LoginPage() {
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => { setPassword(e.target.value); setLoginError(''); }}
                 placeholder="Password"
                 className="w-full border border-gray-300 rounded-lg px-4 py-3 pr-12 text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all"
                 required
