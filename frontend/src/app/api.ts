@@ -85,6 +85,7 @@ export const api = createApi({
     'MyPermissions',
     'AgentSetup',
     'SalaryTemplate',
+    'OfficeLocation',
   ],
   endpoints: () => ({}),
 });

@@ -14,6 +14,15 @@ export class EmployeeController {
     }
   }
 
+  async stats(req: Request, res: Response, next: NextFunction) {
+    try {
+      const stats = await employeeService.getStats(req.user!.organizationId);
+      res.json({ success: true, data: stats });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
       const employee = await employeeService.getById(req.params.id, req.user!.organizationId);

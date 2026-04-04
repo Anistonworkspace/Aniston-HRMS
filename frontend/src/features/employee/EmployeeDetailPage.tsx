@@ -10,7 +10,7 @@ import {
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery } from './employeeApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery } from '../attendance/attendanceApi';
 import { useGetHolidaysQuery } from '../leaves/leaveApi';
-import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation } from '../payroll/payrollApi';
+import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation, useGetSalaryHistoryQuery } from '../payroll/payrollApi';
 import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documents/documentApi';
 import { useGetInternProfileQuery, useGetAchievementLettersQuery, useIssueAchievementLetterMutation } from '../intern/internApi';
 import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } from '../workforce/workforceApi';
@@ -257,6 +257,39 @@ export default function EmployeeDetailPage() {
                     </dl>
                   </div>
                 )}
+
+                {/* Profile Completion */}
+                <div className="layer-card p-5">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Profile Completion</h3>
+                  <div className="space-y-2">
+                    {[
+                      { label: 'Personal Details', done: !!(employee.dateOfBirth && employee.gender) },
+                      { label: 'Emergency Contact', done: !!employee.emergencyContact },
+                      { label: 'Department & Designation', done: !!(employee.department && employee.designation) },
+                      { label: 'Documents', done: (employee.documents?.length || 0) >= 3 },
+                      { label: 'Bank Details', done: !!employee.bankAccountNumber },
+                    ].map((item, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600">{item.label}</span>
+                        <span className={item.done ? 'text-emerald-600' : 'text-amber-500'}>
+                          {item.done ? '✓ Complete' : '○ Pending'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 rounded-full transition-all"
+                      style={{ width: `${[
+                        !!(employee.dateOfBirth && employee.gender),
+                        !!employee.emergencyContact,
+                        !!(employee.department && employee.designation),
+                        (employee.documents?.length || 0) >= 3,
+                        !!employee.bankAccountNumber,
+                      ].filter(Boolean).length * 20}%` }}
+                    />
+                  </div>
+                </div>
               </div>
             )}
 
@@ -982,6 +1015,8 @@ let componentCounter = 0;
 
 function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: string; ctc: any; workMode: string; isManagement: boolean }) {
   const { data: salRes } = useGetSalaryStructureQuery(employeeId);
+  const { data: historyRes } = useGetSalaryHistoryQuery(employeeId);
+  const salaryHistory = historyRes?.data || [];
   const [saveSalary, { isLoading: saving }] = useSaveSalaryStructureMutation();
   const structure = salRes?.data;
   const [editing, setEditing] = useState(false);
@@ -1386,6 +1421,92 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
               <DollarSign size={14} /> Edit Salary Structure
             </button>
           )}
+        </div>
+      )}
+
+      {/* Salary Revision History */}
+      {isManagement && salaryHistory.length > 0 && (
+        <div className="layer-card p-5 mt-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Salary Revision History</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-left text-gray-500">
+                  <th className="pb-2 font-medium">Date</th>
+                  <th className="pb-2 font-medium">Type</th>
+                  <th className="pb-2 font-medium text-right">Previous CTC</th>
+                  <th className="pb-2 font-medium text-right">New CTC</th>
+                  <th className="pb-2 font-medium">Changed By</th>
+                  <th className="pb-2 font-medium">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salaryHistory.slice(0, 10).map((rev: any, i: number) => (
+                  <tr key={rev.id || i} className="border-b border-gray-50 hover:bg-gray-25">
+                    <td className="py-2 text-gray-700 font-mono text-xs" data-mono>
+                      {new Date(rev.effectiveFrom || rev.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </td>
+                    <td className="py-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        rev.changeType === 'PROMOTION' ? 'bg-emerald-50 text-emerald-700' :
+                        rev.changeType === 'REVISION' ? 'bg-blue-50 text-blue-700' :
+                        rev.changeType === 'CORRECTION' ? 'bg-amber-50 text-amber-700' :
+                        rev.changeType === 'TEMPLATE_APPLIED' ? 'bg-purple-50 text-purple-700' :
+                        'bg-gray-50 text-gray-700'
+                      }`}>
+                        {rev.changeType?.replace(/_/g, ' ') || 'INITIAL'}
+                      </span>
+                    </td>
+                    <td className="py-2 text-right font-mono text-gray-500 text-xs" data-mono>
+                      {rev.previousCtc ? `₹${Number(rev.previousCtc).toLocaleString('en-IN')}` : '—'}
+                    </td>
+                    <td className="py-2 text-right font-mono text-gray-900 font-medium text-xs" data-mono>
+                      ₹{Number(rev.ctc).toLocaleString('en-IN')}
+                    </td>
+                    <td className="py-2 text-gray-600 text-xs">{rev.changedByName || '—'}</td>
+                    <td className="py-2 text-gray-500 text-xs truncate max-w-[120px]">{rev.reason || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Statutory & Compliance */}
+      {isManagement && (
+        <div className="layer-card p-5 mt-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Statutory & Compliance</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <p className="text-gray-500 text-xs">EPF Status</p>
+              <p className="text-gray-800 font-medium">
+                {earnings.find(e => e.name === 'Basic Salary')?.amount > 0 ? '✓ Enrolled' : '— Not applicable'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500 text-xs">ESI Status</p>
+              <p className="text-gray-800 font-medium">
+                {(() => { const gross = earnings.reduce((s, e) => s + e.amount, 0); return gross <= 21000 ? '✓ Applicable' : '— Gross exceeds ₹21,000'; })()}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500 text-xs">Tax Regime</p>
+              <p className="text-gray-800 font-medium">{taxRegime === 'NEW_REGIME' ? 'New Regime' : 'Old Regime'}</p>
+            </div>
+            <div>
+              <p className="text-gray-500 text-xs">PAN Status</p>
+              <p className="text-gray-800 font-medium">{(structure as any)?.pan ? '✓ On file' : '⚠ Missing'}</p>
+            </div>
+            <div>
+              <p className="text-gray-500 text-xs">Bank Details</p>
+              <p className="text-gray-800 font-medium">{(structure as any)?.bankAccountNumber ? '✓ Verified' : '⚠ Not provided'}</p>
+            </div>
+            <div>
+              <p className="text-gray-500 text-xs">Salary Version</p>
+              <p className="text-gray-800 font-medium font-mono" data-mono>v{(structure as any)?.version || 1}</p>
+            </div>
+          </div>
         </div>
       )}
     </div>

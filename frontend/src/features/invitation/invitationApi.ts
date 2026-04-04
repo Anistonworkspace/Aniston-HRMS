@@ -1,14 +1,23 @@
 import { api } from '../../app/api';
 
+export interface CreateInvitationInput {
+  email?: string;
+  mobileNumber?: string;
+  role?: string;
+  departmentId?: string;
+  designationId?: string;
+  managerId?: string;
+  officeLocationId?: string;
+  workMode?: string;
+  employmentType?: string;
+  proposedJoiningDate?: string;
+  notes?: string;
+  sendWelcomeEmail?: boolean;
+}
+
 export const invitationApi = api.injectEndpoints({
   endpoints: (builder) => ({
-    createInvitation: builder.mutation<any, {
-      email?: string;
-      mobileNumber?: string;
-      role?: string;
-      departmentId?: string;
-      designationId?: string;
-    }>({
+    createInvitation: builder.mutation<any, CreateInvitationInput>({
       query: (body) => ({ url: '/invitations', method: 'POST', body }),
       invalidatesTags: ['Invitation', 'EmployeeList'],
     }),

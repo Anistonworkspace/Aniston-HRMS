@@ -28,7 +28,7 @@ export class InvitationService {
    * Create a new employee invitation and send the invite email.
    */
   async createInvitation(input: CreateInvitationInput, organizationId: string, invitedBy: string) {
-    const { email, mobileNumber, role, departmentId, designationId } = input;
+    const { email, mobileNumber, role, departmentId, designationId, managerId, officeLocationId, workMode, employmentType, proposedJoiningDate, notes, sendWelcomeEmail } = input;
 
     // Check for existing pending invitation
     if (email) {
@@ -72,6 +72,13 @@ export class InvitationService {
         role: role || 'EMPLOYEE',
         departmentId: departmentId || null,
         designationId: designationId || null,
+        managerId: managerId || null,
+        officeLocationId: officeLocationId || null,
+        workMode: workMode || null,
+        employmentType: employmentType || null,
+        proposedJoiningDate: proposedJoiningDate ? new Date(proposedJoiningDate) : null,
+        notes: notes || null,
+        sendWelcomeEmail: sendWelcomeEmail ?? true,
         invitedBy,
         expiresAt,
       },

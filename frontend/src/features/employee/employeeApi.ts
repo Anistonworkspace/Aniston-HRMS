@@ -12,10 +12,28 @@ interface EmployeeQuery {
   limit?: number;
   search?: string;
   department?: string;
+  designation?: string;
+  role?: string;
   status?: string;
   workMode?: string;
+  onboardingStatus?: string;
+  managerId?: string;
+  officeLocationId?: string;
+  joiningDateFrom?: string;
+  joiningDateTo?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+}
+
+interface EmployeeStats {
+  total: number;
+  active: number;
+  probation: number;
+  inactive: number;
+  onboarding: number;
+  noticePeriod: number;
+  terminated: number;
+  invited: number;
 }
 
 export const employeeApi = api.injectEndpoints({
@@ -25,6 +43,11 @@ export const employeeApi = api.injectEndpoints({
         url: '/employees',
         params,
       }),
+      providesTags: ['EmployeeList'],
+    }),
+
+    getEmployeeStats: builder.query<{ success: boolean; data: EmployeeStats }, void>({
+      query: () => '/employees/stats',
       providesTags: ['EmployeeList'],
     }),
 
@@ -123,6 +146,7 @@ export const employeeApi = api.injectEndpoints({
 
 export const {
   useGetEmployeesQuery,
+  useGetEmployeeStatsQuery,
   useGetEmployeeQuery,
   useCreateEmployeeMutation,
   useUpdateEmployeeMutation,

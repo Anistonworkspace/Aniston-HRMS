@@ -235,36 +235,59 @@ enum PoliceVerificationStatus {
 // =====================
 
 model Department {
-  id             String   @id @default(uuid())
-  name           String
-  description    String?
-  headId         String?
-  organizationId String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  deletedAt      DateTime?
+  id               String   @id @default(uuid())
+  name             String
+  slug             String?
+  code             String?
+  description      String?
+  headId           String?
+  parentDepartmentId String?
+  isActive         Boolean  @default(true)
+  createdById      String?
+  updatedById      String?
+  organizationId   String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  deletedAt        DateTime?
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  head         Employee?    @relation(fields: [headId], references: [id], name: "DepartmentHead")
-  employees    Employee[]
+  organization     Organization  @relation(fields: [organizationId], references: [id])
+  head             Employee?     @relation(fields: [headId], references: [id], name: "DepartmentHead")
+  parentDepartment Department?   @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id])
+  childDepartments Department[]  @relation("DepartmentHierarchy")
+  employees        Employee[]
+  designations     Designation[]
 
   @@unique([name, organizationId])
+  @@unique([code, organizationId])
+  @@index([organizationId, isActive])
+  @@index([slug, organizationId])
 }
 
 model Designation {
   id             String   @id @default(uuid())
   name           String
+  slug           String?
+  code           String?
   level          Int?
+  levelBand      String?
   description    String?
+  departmentId   String?
+  isActive       Boolean  @default(true)
+  createdById    String?
+  updatedById    String?
   organizationId String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   deletedAt      DateTime?
 
   organization Organization @relation(fields: [organizationId], references: [id])
+  department   Department?  @relation(fields: [departmentId], references: [id])
   employees    Employee[]
 
   @@unique([name, organizationId])
+  @@unique([code, organizationId])
+  @@index([organizationId, isActive])
+  @@index([departmentId])
 }
 
 model OfficeLocation {
@@ -1836,24 +1859,32 @@ enum InvitationStatus {
 }
 
 model EmployeeInvitation {
-  id              String           @id @default(uuid())
-  organizationId  String
-  email           String?
-  mobileNumber    String?
-  role            String           @default("EMPLOYEE") // Role to assign on accept
-  departmentId    String?          // Pre-assign department
-  designationId   String?          // Pre-assign designation
-  inviteToken     String           @unique @default(uuid())
-  status          InvitationStatus @default(PENDING)
-  invitedBy       String           // userId FK
-  expiresAt       DateTime
-  acceptedAt      DateTime?
-  employeeId      String?          // Set when onboarding is completed
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id                String           @id @default(uuid())
+  organizationId    String
+  email             String?
+  mobileNumber      String?
+  role              String           @default("EMPLOYEE") // Role to assign on accept
+  departmentId      String?          // Pre-assign department
+  designationId     String?          // Pre-assign designation
+  managerId         String?          // Pre-assign reporting manager
+  officeLocationId  String?          // Pre-assign office/location
+  workMode          String?          // Pre-assign work mode
+  employmentType    String?          // FULL_TIME, PART_TIME, CONTRACT, INTERN
+  proposedJoiningDate DateTime?      // Proposed joining date
+  notes             String?          // Internal notes
+  sendWelcomeEmail  Boolean          @default(true)
+  inviteToken       String           @unique @default(uuid())
+  status            InvitationStatus @default(PENDING)
+  invitedBy         String           // userId FK
+  expiresAt         DateTime
+  acceptedAt        DateTime?
+  employeeId        String?          // Set when onboarding is completed
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   @@index([organizationId])
   @@index([inviteToken])
+  @@index([email, organizationId])
 }
 
 // =====================

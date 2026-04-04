@@ -11,7 +11,7 @@ import type { CreateEmployeeInput, UpdateEmployeeInput, EmployeeQuery, SubmitRes
 
 export class EmployeeService {
   async list(query: EmployeeQuery, organizationId: string) {
-    const { page, limit, search, department, status, workMode, sortBy, sortOrder } = query;
+    const { page, limit, search, department, designation, role, status, workMode, onboardingStatus, managerId, officeLocationId, joiningDateFrom, joiningDateTo, sortBy, sortOrder } = query;
     const skip = (page - 1) * limit;
 
     const where: any = {
@@ -31,8 +31,19 @@ export class EmployeeService {
     }
 
     if (department) where.departmentId = department;
+    if (designation) where.designationId = designation;
     if (status) where.status = status;
     if (workMode) where.workMode = workMode;
+    if (managerId) where.managerId = managerId;
+    if (officeLocationId) where.officeLocationId = officeLocationId;
+    if (role) where.user = { role };
+    if (onboardingStatus === 'complete') where.onboardingComplete = true;
+    if (onboardingStatus === 'pending') where.onboardingComplete = false;
+    if (joiningDateFrom || joiningDateTo) {
+      where.joiningDate = {};
+      if (joiningDateFrom) where.joiningDate.gte = new Date(joiningDateFrom);
+      if (joiningDateTo) where.joiningDate.lte = new Date(joiningDateTo);
+    }
 
     const [employees, total] = await Promise.all([
       prisma.employee.findMany({
@@ -43,8 +54,9 @@ export class EmployeeService {
         include: {
           department: { select: { id: true, name: true } },
           designation: { select: { id: true, name: true } },
-          user: { select: { id: true, role: true, status: true } },
+          user: { select: { id: true, role: true, status: true, lastLoginAt: true } },
           manager: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
+          officeLocation: { select: { id: true, name: true } },
         },
       }),
       prisma.employee.count({ where }),
@@ -61,6 +73,23 @@ export class EmployeeService {
         hasPrev: page > 1,
       },
     };
+  }
+
+  async getStats(organizationId: string) {
+    const base = { organizationId, deletedAt: null, isSystemAccount: { not: true as const } };
+
+    const [total, active, probation, inactive, onboarding, noticePeriod, terminated, invited] = await Promise.all([
+      prisma.employee.count({ where: base }),
+      prisma.employee.count({ where: { ...base, status: 'ACTIVE' } }),
+      prisma.employee.count({ where: { ...base, status: 'PROBATION' } }),
+      prisma.employee.count({ where: { ...base, status: 'INACTIVE' } }),
+      prisma.employee.count({ where: { ...base, status: 'ONBOARDING' } }),
+      prisma.employee.count({ where: { ...base, status: 'NOTICE_PERIOD' } }),
+      prisma.employee.count({ where: { ...base, status: 'TERMINATED' } }),
+      prisma.employeeInvitation.count({ where: { organizationId, status: 'PENDING' } }),
+    ]);
+
+    return { total, active, probation, inactive, onboarding, noticePeriod, terminated, invited };
   }
 
   async getById(id: string, organizationId: string) {

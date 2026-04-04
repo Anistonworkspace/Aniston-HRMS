@@ -18,6 +18,14 @@ router.patch('/:id', requirePermission('department', 'update'), (req, res, next)
   departmentController.update(req, res, next)
 );
 
+router.post('/:id/archive', requirePermission('department', 'update'), (req, res, next) =>
+  departmentController.archive(req, res, next)
+);
+
+router.post('/:id/reactivate', requirePermission('department', 'update'), (req, res, next) =>
+  departmentController.reactivate(req, res, next)
+);
+
 router.delete('/:id', requirePermission('department', 'delete'), (req, res, next) =>
   departmentController.delete(req, res, next)
 );

@@ -1,11 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import { departmentService } from './department.service.js';
-import { createDepartmentSchema, updateDepartmentSchema } from './department.validation.js';
+import { createDepartmentSchema, updateDepartmentSchema, searchDepartmentSchema } from './department.validation.js';
 
 export class DepartmentController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const departments = await departmentService.list(req.user!.organizationId);
+      const query = searchDepartmentSchema.parse(req.query);
+      const departments = await departmentService.list(req.user!.organizationId, query);
       res.json({ success: true, data: departments });
     } catch (err) {
       next(err);
@@ -32,9 +33,27 @@ export class DepartmentController {
     }
   }
 
+  async archive(req: Request, res: Response, next: NextFunction) {
+    try {
+      const dept = await departmentService.archive(req.params.id, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: dept, message: 'Department archived' });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async reactivate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const dept = await departmentService.reactivate(req.params.id, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: dept, message: 'Department reactivated' });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
-      await departmentService.softDelete(req.params.id, req.user!.organizationId);
+      await departmentService.softDelete(req.params.id, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: null, message: 'Department deleted' });
     } catch (err) {
       next(err);

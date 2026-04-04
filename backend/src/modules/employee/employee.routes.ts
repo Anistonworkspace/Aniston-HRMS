@@ -10,6 +10,10 @@ router.get('/', requirePermission('employee', 'read'), (req, res, next) =>
   employeeController.list(req, res, next)
 );
 
+router.get('/stats', requirePermission('employee', 'read'), (req, res, next) =>
+  employeeController.stats(req, res, next)
+);
+
 // Exit / Offboarding (must be before /:id to avoid param capture)
 router.get('/exit-requests', requirePermission('employee', 'manage'), (req, res, next) =>
   employeeController.getExitRequests(req, res, next)

@@ -18,6 +18,14 @@ router.patch('/:id', requirePermission('designation', 'update'), (req, res, next
   designationController.update(req, res, next)
 );
 
+router.post('/:id/archive', requirePermission('designation', 'update'), (req, res, next) =>
+  designationController.archive(req, res, next)
+);
+
+router.post('/:id/reactivate', requirePermission('designation', 'update'), (req, res, next) =>
+  designationController.reactivate(req, res, next)
+);
+
 router.delete('/:id', requirePermission('designation', 'delete'), (req, res, next) =>
   designationController.delete(req, res, next)
 );
