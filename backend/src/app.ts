@@ -53,19 +53,11 @@ app.set('trust proxy', 1);
 
 // Security
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "blob:", "https:"],
-      connectSrc: ["'self'", "wss:", "ws:"],
-      fontSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      frameAncestors: ["'none'"],
-    },
-  },
-  hsts: { maxAge: 31536000, includeSubDomains: true },
+  // CSP disabled for now — the React SPA uses inline styles (Tailwind) and
+  // dynamic script loading (lazy routes) which strict CSP blocks.
+  // TODO: Enable CSP with nonce-based script loading in a future sprint.
+  contentSecurityPolicy: false,
+  hsts: env.NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true } : false,
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   frameguard: { action: 'deny' },
 }));
@@ -102,7 +94,7 @@ app.use('/api/invitations/complete', rateLimiter({ windowMs: 15 * 60 * 1000, max
 app.use('/api/invitations/validate', rateLimiter({ windowMs: 15 * 60 * 1000, max: 20, keyPrefix: 'rl:invite-validate' }));
 app.use('/api/auth/activate', rateLimiter({ windowMs: 15 * 60 * 1000, max: 20, keyPrefix: 'rl:activation' }));
 // Dedicated stricter limits for credential endpoints — must come before the general /api/auth limit
-app.use('/api/auth/login', rateLimiter({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'rl:login' }));
+app.use('/api/auth/login', rateLimiter({ windowMs: 15 * 60 * 1000, max: 30, keyPrefix: 'rl:login' }));
 app.use('/api/auth/forgot-password', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:forgot-pwd' }));
 app.use('/api/auth/reset-password', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:reset-pwd' }));
 app.use('/api/auth', rateLimiter({ windowMs: 15 * 60 * 1000, max: 200, keyPrefix: 'rl:auth' }));

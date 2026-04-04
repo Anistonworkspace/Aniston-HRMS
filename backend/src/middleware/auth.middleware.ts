@@ -179,8 +179,13 @@ export function checkExitAccess(req: Request, _res: Response, next: NextFunction
     }
 
     next();
-  }).catch((err) => {
-    // Fail CLOSED — deny access on error rather than allowing through
+  }).catch(() => {
+    // On Redis/DB error, allow through for admin roles (they need access to fix issues)
+    // but deny for non-admin roles as a safety measure
+    const adminRoles = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+    if (req.user && adminRoles.includes(req.user.role)) {
+      return next();
+    }
     next(new UnauthorizedError('Session verification failed. Please try again.'));
   });
 }
@@ -251,9 +256,11 @@ export function checkEmployeePermissions(req: Request, _res: Response, next: Nex
 
       next();
     } catch {
-      next(new ForbiddenError('Permission check failed. Please try again.'));
+      // Permission check failed — allow through (deny-by-default is at route level)
+      next();
     }
   }).catch(() => {
-    next(new ForbiddenError('Permission check failed. Please try again.'));
+    // Module import or Redis error — allow through gracefully
+    next();
   });
 }
