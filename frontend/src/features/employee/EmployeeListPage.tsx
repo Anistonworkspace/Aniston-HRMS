@@ -25,6 +25,7 @@ import {
   useCreateDepartmentMutation,
   useCreateDesignationMutation,
   useGetOfficeLocationsQuery,
+  useGetManagersQuery,
 } from './employeeDepsApi';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, cn } from '../../lib/utils';

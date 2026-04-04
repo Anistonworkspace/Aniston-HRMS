@@ -2130,3 +2130,99 @@ model PermissionOverride {
   @@index([employeeId])
   @@index([organizationId])
 }
+
+// =====================
+// TASK MANAGER INTEGRATION
+// =====================
+
+enum TaskProvider {
+  JIRA
+  ASANA
+  CLICKUP
+  MONDAY_COM
+  TRELLO
+  CUSTOM
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model TaskManagerConfig {
+  id              String       @id @default(uuid())
+  organizationId  String
+  provider        TaskProvider
+  apiKeyEncrypted String
+  baseUrl         String?
+  workspaceId     String?
+  projectMapping  Json?
+  employeeMapping Json?
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  updatedBy       String
+
+  @@unique([organizationId, provider])
+  @@index([organizationId, isActive])
+}
+
+model LeaveTaskAudit {
+  id                String    @id @default(uuid())
+  leaveRequestId    String
+  integrationStatus String    @default("PENDING")
+  totalOpenTasks    Int       @default(0)
+  overdueTasks      Int       @default(0)
+  dueWithinLeave    Int       @default(0)
+  criticalTasks     Int       @default(0)
+  blockedTasks      Int       @default(0)
+  noBackupTasks     Int       @default(0)
+  riskScore         Int       @default(0)
+  riskLevel         RiskLevel @default(LOW)
+  auditPayload      Json?
+  auditedAt         DateTime  @default(now())
+  provider          String?
+  errorMessage      String?
+
+  items LeaveTaskAuditItem[]
+
+  @@index([leaveRequestId])
+}
+
+model LeaveTaskAuditItem {
+  id               String    @id @default(uuid())
+  auditId          String
+  externalTaskId   String
+  taskTitle        String
+  projectName      String?
+  priority         String?
+  dueDate          DateTime?
+  currentStatus    String?
+  blockerFlag      Boolean   @default(false)
+  backupAssigned   Boolean   @default(false)
+  handoverNote     String?
+  riskLevel        RiskLevel @default(LOW)
+  rawPayload       Json?
+
+  audit LeaveTaskAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@index([auditId])
+}
+
+model TaskIntegrationHealthLog {
+  id               String   @id @default(uuid())
+  organizationId   String
+  provider         String
+  status           String
+  tokenValid       Boolean  @default(true)
+  mappingErrors    Int      @default(0)
+  staleSyncFlag    Boolean  @default(false)
+  failedCallsCount Int      @default(0)
+  responseTimeMs   Int?
+  notes            String?
+  checkedAt        DateTime @default(now())
+
+  @@index([organizationId, checkedAt])
+}

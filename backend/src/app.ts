@@ -43,6 +43,7 @@ import { publicApplyRouter } from './modules/public-apply/public-apply.routes.js
 import { exitAccessRouter } from './modules/exit-access/exit-access.routes.js';
 import { employeePermissionsRouter } from './modules/employee-permissions/employee-permissions.routes.js';
 import { documentOcrRouter } from './modules/document-ocr/document-ocr.routes.js';
+import { taskIntegrationRouter } from './modules/task-integration/task-integration.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 
@@ -184,6 +185,7 @@ app.use('/api/ai-assistant', aiAssistantRouter);
 app.use('/api/jobs', publicApplyRouter);
 app.use('/api/exit-access', exitAccessRouter);
 app.use('/api/employee-permissions', employeePermissionsRouter);
+app.use('/api/task-integration', taskIntegrationRouter);
 
 // Resolve uploads base — always relative to project root (handles both root + backend/ cwd)
 const uploadsBase = process.cwd().replace(/[/\\]backend[/\\]?$/, '');

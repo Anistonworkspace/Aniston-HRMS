@@ -26,6 +26,7 @@ import { useGetPendingRegularizationsQuery, useHandleRegularizationMutation } fr
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
 import { useGetPoliciesQuery, useAcknowledgePolicyMutation } from '../policies/policyApi';
+import { useAuditTasksForLeaveMutation } from '../task-integration/taskIntegrationApi';
 import toast from 'react-hot-toast';
 
 const LEAVE_ICONS: Record<string, string> = {
@@ -1437,6 +1438,8 @@ function ApplyLeaveModal({ leaveTypes, balances, onClose }: { leaveTypes: any[];
   const [previewLoading, setPreviewLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [previewTimer, setPreviewTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [auditTasks, { isLoading: taskAuditLoading }] = useAuditTasksForLeaveMutation();
+  const [taskAudit, setTaskAudit] = useState<any>(null);
 
   const isHalfDay = leaveMode === 'half';
   const effectiveEndDate = leaveMode === 'single' || leaveMode === 'half'
@@ -1783,6 +1786,64 @@ function ApplyLeaveModal({ leaveTypes, balances, onClose }: { leaveTypes: any[];
                 minLength={5}
               />
             </motion.div>
+          )}
+
+          {/* Task Impact Assessment */}
+          {formData.startDate && formData.leaveTypeId && (
+            <div className="border border-gray-200 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-gray-700">Task Impact Assessment</h4>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const leaveType = leaveTypes.find((lt: any) => lt.id === formData.leaveTypeId);
+                    try {
+                      const result = await auditTasks({
+                        startDate: formData.startDate,
+                        endDate: formData.endDate || formData.startDate,
+                        leaveType: leaveType?.code || 'CL',
+                      }).unwrap();
+                      setTaskAudit(result.data);
+                    } catch {
+                      setTaskAudit(null);
+                    }
+                  }}
+                  className="text-xs text-brand-600 hover:text-brand-700 font-medium"
+                >
+                  {taskAuditLoading ? 'Checking...' : 'Check Tasks'}
+                </button>
+              </div>
+              {taskAudit && (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="bg-gray-50 rounded-lg p-2">
+                      <p className="text-lg font-bold font-mono text-gray-900" data-mono>{taskAudit.totalOpenTasks}</p>
+                      <p className="text-[10px] text-gray-500">Open Tasks</p>
+                    </div>
+                    <div className={`rounded-lg p-2 ${taskAudit.dueWithinLeave > 0 ? 'bg-amber-50' : 'bg-gray-50'}`}>
+                      <p className="text-lg font-bold font-mono text-gray-900" data-mono>{taskAudit.dueWithinLeave}</p>
+                      <p className="text-[10px] text-gray-500">Due in Leave</p>
+                    </div>
+                    <div className={`rounded-lg p-2 ${taskAudit.criticalTasks > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
+                      <p className="text-lg font-bold font-mono text-gray-900" data-mono>{taskAudit.criticalTasks}</p>
+                      <p className="text-[10px] text-gray-500">Critical</p>
+                    </div>
+                  </div>
+                  {taskAudit.riskLevel !== 'LOW' && (
+                    <div className={`text-xs px-3 py-2 rounded-lg ${
+                      taskAudit.riskLevel === 'CRITICAL' ? 'bg-red-50 text-red-700 border border-red-200' :
+                      taskAudit.riskLevel === 'HIGH' ? 'bg-orange-50 text-orange-700 border border-orange-200' :
+                      'bg-amber-50 text-amber-700 border border-amber-200'
+                    }`}>
+                      <strong>Risk: {taskAudit.riskLevel}</strong> — {taskAudit.riskExplanation}
+                    </div>
+                  )}
+                  {taskAudit.integrationStatus === 'NOT_CONFIGURED' && (
+                    <p className="text-xs text-gray-400 italic">Task manager not configured. Contact admin to enable task impact assessment.</p>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
