@@ -48,8 +48,27 @@ import { redis } from './lib/redis.js';
 
 const app = express();
 
+// Trust reverse proxy (Nginx) — required for accurate IP-based rate limiting
+app.set('trust proxy', 1);
+
 // Security
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:", "https:"],
+      connectSrc: ["'self'", "wss:", "ws:"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+  hsts: { maxAge: 31536000, includeSubDomains: true },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  frameguard: { action: 'deny' },
+}));
 app.use(cors({
   origin: env.NODE_ENV === 'development'
     ? [env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:5174']
@@ -58,6 +77,13 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
 }));
+
+// Prevent caching of all API responses
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  next();
+});
 
 // Parsing
 app.use(express.json({ limit: '10mb' }));
@@ -75,6 +101,10 @@ app.use('/api/jobs/form', rateLimiter({ windowMs: 60 * 1000, max: 10, keyPrefix:
 app.use('/api/invitations/complete', rateLimiter({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'rl:invite-complete' }));
 app.use('/api/invitations/validate', rateLimiter({ windowMs: 15 * 60 * 1000, max: 20, keyPrefix: 'rl:invite-validate' }));
 app.use('/api/auth/activate', rateLimiter({ windowMs: 15 * 60 * 1000, max: 20, keyPrefix: 'rl:activation' }));
+// Dedicated stricter limits for credential endpoints — must come before the general /api/auth limit
+app.use('/api/auth/login', rateLimiter({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'rl:login' }));
+app.use('/api/auth/forgot-password', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:forgot-pwd' }));
+app.use('/api/auth/reset-password', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:reset-pwd' }));
 app.use('/api/auth', rateLimiter({ windowMs: 15 * 60 * 1000, max: 200, keyPrefix: 'rl:auth' }));
 app.use('/api', rateLimiter({ windowMs: 60 * 1000, max: 100, keyPrefix: 'rl:api' }));
 

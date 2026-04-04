@@ -32,6 +32,7 @@ const authSlice = createSlice({
       state.user = null;
       state.accessToken = null;
       state.isAuthenticated = false;
+      try { new BroadcastChannel('auth').postMessage('logout'); } catch {}
     },
   },
 });

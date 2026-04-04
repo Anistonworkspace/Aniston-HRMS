@@ -229,6 +229,15 @@ export class AuthService {
       data: { passwordHash },
     });
 
+    // Invalidate all existing refresh token sessions for this user
+    const keys = await redis.keys(`${REFRESH_TOKEN_PREFIX}*`);
+    for (const key of keys) {
+      const storedUserId = await redis.get(key);
+      if (storedUserId === userId) {
+        await redis.del(key);
+      }
+    }
+
     return { message: 'Password changed successfully' };
   }
 

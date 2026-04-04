@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Sidebar from './Sidebar';
@@ -7,6 +7,7 @@ import MobileBottomNav from './MobileBottomNav';
 import ActivityCheckInPrompt from '../ActivityCheckInPrompt';
 // AgentDownloadBanner removed — agent setup is now admin-only via Settings > Agent Setup
 import useActivityTracker from '../../hooks/useActivityTracker';
+import { useInactivityTimeout } from '../../hooks/useInactivityTimeout';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { api } from '../../app/api';
 import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
@@ -16,6 +17,8 @@ export default function AppShell() {
   // Activity tracking — runs globally for all logged-in users
   useActivityTracker();
   const user = useAppSelector(s => s.auth.user);
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
+  const { resetTimer } = useInactivityTimeout(() => setShowTimeoutWarning(true));
 
   // Connect Socket.io when user is logged in
   const accessToken = useAppSelector(s => s.auth.accessToken);
@@ -80,6 +83,29 @@ export default function AppShell() {
 
       {/* AI Assistant FAB — visible to Admin/HR */}
       {isAdminOrHR && <AiAssistantFab context={aiContext} label={aiLabel} />}
+
+      {/* Inactivity timeout warning modal */}
+      {showTimeoutWarning && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="layer-card mx-4 w-full max-w-sm rounded-2xl p-6 shadow-xl">
+            <h2 className="font-sora text-lg font-semibold text-gray-900">Session Expiring Soon</h2>
+            <p className="mt-2 text-sm text-gray-600">
+              Your session will expire in 60 seconds due to inactivity. Do you want to stay logged in?
+            </p>
+            <div className="mt-5 flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowTimeoutWarning(false);
+                  resetTimer();
+                }}
+                className="btn-primary px-5 py-2 text-sm"
+              >
+                Stay Logged In
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

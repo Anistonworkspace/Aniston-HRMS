@@ -179,7 +179,10 @@ export function checkExitAccess(req: Request, _res: Response, next: NextFunction
     }
 
     next();
-  }).catch(() => next()); // On error, allow through (fail-open for exit check)
+  }).catch((err) => {
+    // Fail CLOSED — deny access on error rather than allowing through
+    next(new UnauthorizedError('Session verification failed. Please try again.'));
+  });
 }
 
 /**
@@ -248,7 +251,9 @@ export function checkEmployeePermissions(req: Request, _res: Response, next: Nex
 
       next();
     } catch {
-      next();
+      next(new ForbiddenError('Permission check failed. Please try again.'));
     }
-  }).catch(() => next());
+  }).catch(() => {
+    next(new ForbiddenError('Permission check failed. Please try again.'));
+  });
 }
