@@ -98,12 +98,14 @@ jobs:
             echo "=== [3/14] Pulling latest code ==="
             git pull origin main
 
-            echo "=== [4/14] Setting production domain in .env ==="
+            echo "=== [4/14] Setting production domain + encryption key in .env ==="
             sed -i '/FRONTEND_URL/d' .env 2>/dev/null || true
             sed -i '/API_URL/d' .env 2>/dev/null || true
             sed -i -e '$a\' .env 2>/dev/null || true
             echo 'FRONTEND_URL=https://hr.anistonav.com' >> .env
             echo 'API_URL=https://hr.anistonav.com' >> .env
+            # Add ENCRYPTION_KEY if not already present
+            grep -q 'ENCRYPTION_KEY=' .env || echo 'ENCRYPTION_KEY=30f3a3cf6ce04631c122256f5656c70c69429d380ae91c8de9d5f8e05c4a0cf2' >> .env
 
             echo "=== [5/14] Installing Node.js dependencies ==="
             export SCARF_ANALYTICS=false
