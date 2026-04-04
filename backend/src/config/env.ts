@@ -13,7 +13,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().default('redis://localhost:6379'),
   JWT_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
-  ENCRYPTION_KEY: z.string().min(32, 'ENCRYPTION_KEY must be at least 32 characters'), // Required for AES-256-GCM encryption of sensitive fields (Aadhaar, PAN, bank accounts)
+  ENCRYPTION_KEY: z.string().min(32).optional(), // Required for production; falls back to JWT_SECRET in dev/test via encryption.ts
   JWT_ACCESS_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
   FRONTEND_URL: z.string().default('http://localhost:5173'),
