@@ -8,6 +8,10 @@
   * {
     @apply border-surface-3;
   }
+  html, body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
   body {
     @apply bg-surface-1 text-gray-900 font-body antialiased;
     overscroll-behavior-x: none; /* Prevent horizontal bounce only — allow vertical pull-to-refresh */

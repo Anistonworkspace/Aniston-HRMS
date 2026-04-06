@@ -39,6 +39,7 @@ model Organization {
   auditLogs    AuditLog[]
   geofences    Geofence[]
   shifts       Shift[]
+  leavePolicies LeavePolicy[]
 }
 
 model User {
@@ -59,6 +60,9 @@ model User {
   employee     Employee?
   auditLogs    AuditLog[]
   walkInInterviews WalkInInterviewRound[]
+  // Phase 2B
+  deviceSessions DeviceSession[]
+  mfa            UserMFA?
 }
 
 enum Role {
@@ -172,6 +176,13 @@ model Employee {
   permissionOverride     PermissionOverride?
   headOfDepartments      Department[]          @relation("DepartmentHead")
   hybridSchedule         HybridSchedule?
+  // Phase 2B
+  isPhoneVerified        Boolean               @default(false)
+  leavePolicyId          String?
+  leavePolicy            LeavePolicy?          @relation(fields: [leavePolicyId], references: [id])
+  whatsAppOtps           WhatsAppOtp[]
+  attendanceAnomalies    AttendanceAnomaly[]
+  attendanceRegularizations AttendanceRegularization[]
 
   @@index([organizationId, status])
   @@index([departmentId])
@@ -453,6 +464,8 @@ model AttendanceRecord {
   breaks   Break[]
   regularization AttendanceRegularization?
   logs     AttendanceLog[]
+  locationVisits LocationVisit[]
+  anomalies      AttendanceAnomaly[]
 
   @@unique([employeeId, date])
   @@index([date])
@@ -515,16 +528,99 @@ model AttendanceLog {
 model AttendanceRegularization {
   id           String   @id @default(uuid())
   attendanceId String   @unique
+  employeeId   String
   reason       String
   requestedCheckIn  DateTime?
   requestedCheckOut DateTime?
-  status       LeaveRequestStatus @default(PENDING)
+  attachment   String?
+  status       RegularizationStatus @default(PENDING)
+  managerReviewedBy String?
+  managerRemarks    String?
+  managerReviewedAt DateTime?
+  hrReviewedBy      String?
+  hrRemarks         String?
+  hrReviewedAt      DateTime?
   approvedBy   String?
   approverRemarks String?
+  originalCheckIn   DateTime?
+  originalCheckOut  DateTime?
+  finalCheckIn      DateTime?
+  finalCheckOut     DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   attendance AttendanceRecord @relation(fields: [attendanceId], references: [id])
+  employee   Employee         @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@index([status])
+}
+
+enum RegularizationStatus {
+  PENDING
+  MANAGER_REVIEWED
+  HR_REVIEWED
+  APPROVED
+  REJECTED
+}
+
+model AttendanceAnomaly {
+  id             String            @id @default(uuid())
+  attendanceId   String
+  employeeId     String
+  date           DateTime          @db.Date
+  type           AnomalyType
+  severity       AnomalySeverity   @default(MEDIUM)
+  description    String
+  metadata       Json?
+  resolution     AnomalyResolution @default(PENDING)
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  resolverRemarks String?
+  autoDetected   Boolean           @default(true)
+  organizationId String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  attendance AttendanceRecord @relation(fields: [attendanceId], references: [id])
+  employee   Employee         @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, date])
+  @@index([organizationId, date])
+  @@index([type])
+  @@index([resolution])
+}
+
+enum AnomalyType {
+  LATE_ARRIVAL
+  EARLY_EXIT
+  MISSING_PUNCH
+  INSUFFICIENT_HOURS
+  OUTSIDE_GEOFENCE
+  DUPLICATE_PUNCH
+  SUSPICIOUS_GAP
+  LEAVE_OVERLAP
+  HOLIDAY_ATTENDANCE
+  LOCATION_MISMATCH
+  UNAPPROVED_REMOTE
+  POLICY_BREACH
+  GPS_SPOOF
+}
+
+enum AnomalySeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AnomalyResolution {
+  PENDING
+  AUTO_RESOLVED
+  MANAGER_APPROVED
+  HR_APPROVED
+  REJECTED
+  DISMISSED
 }
 
 model GPSTrailPoint {
@@ -624,6 +720,7 @@ model LeaveType {
   organization Organization @relation(fields: [organizationId], references: [id])
   leaveBalances LeaveBalance[]
   leaveRequests LeaveRequest[]
+  policyRules   LeavePolicyRule[]
 
   @@unique([code, organizationId])
   @@index([organizationId])
@@ -661,11 +758,22 @@ model LeaveRequest {
   managerApprovedAt  DateTime?
   managerRemarks     String?
   attachmentUrl      String?
+  // Leave-impact fields
+  noticeHours        Int?               // hours between application and leave start
+  backupEmployeeId   String?            // primary backup assignee
+  handoverNotes      String?            // general handover notes
+  acknowledgements   Json?              // { reviewedTasks, assignedHandover, acceptedVisibility }
+  riskLevel          RiskLevel?         // cached from task audit
+  riskScore          Int?               // cached from task audit
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
-  employee  Employee  @relation(fields: [employeeId], references: [id])
-  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+  employee           Employee  @relation(fields: [employeeId], references: [id])
+  leaveType          LeaveType @relation(fields: [leaveTypeId], references: [id])
+  taskAudits         LeaveTaskAudit[]
+  handovers          LeaveHandover[]
+  approvalDecisions  LeaveApprovalDecision[]
+  notificationLogs   LeaveNotificationLog[]
 
   @@index([employeeId, status])
   @@index([startDate, endDate])
@@ -673,9 +781,11 @@ model LeaveRequest {
 }
 
 enum LeaveRequestStatus {
+  DRAFT
   PENDING
   MANAGER_APPROVED
   APPROVED
+  APPROVED_WITH_CONDITION
   REJECTED
   CANCELLED
 }
@@ -2186,7 +2296,8 @@ model LeaveTaskAudit {
   provider          String?
   errorMessage      String?
 
-  items LeaveTaskAuditItem[]
+  leaveRequest LeaveRequest @relation(fields: [leaveRequestId], references: [id])
+  items        LeaveTaskAuditItem[]
 
   @@index([leaveRequestId])
 }
@@ -2225,4 +2336,151 @@ model TaskIntegrationHealthLog {
   checkedAt        DateTime @default(now())
 
   @@index([organizationId, checkedAt])
+}
+
+// =====================
+// LEAVE HANDOVER & AUDIT TRAIL
+// =====================
+
+model LeaveHandover {
+  id               String   @id @default(uuid())
+  leaveRequestId   String
+  backupEmployeeId String
+  taskExternalId   String?
+  taskTitle        String?
+  handoverNote     String
+  organizationId   String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  leaveRequest     LeaveRequest @relation(fields: [leaveRequestId], references: [id])
+
+  @@index([leaveRequestId])
+  @@index([backupEmployeeId])
+  @@index([organizationId])
+}
+
+model LeaveApprovalDecision {
+  id               String     @id @default(uuid())
+  leaveRequestId   String
+  actorId          String
+  actorRole        String
+  action           String
+  comment          String?
+  conditionNote    String?
+  riskLevelAtTime  RiskLevel?
+  organizationId   String
+  createdAt        DateTime   @default(now())
+
+  leaveRequest     LeaveRequest @relation(fields: [leaveRequestId], references: [id])
+
+  @@index([leaveRequestId])
+  @@index([actorId])
+  @@index([organizationId])
+}
+
+model LeaveNotificationLog {
+  id               String   @id @default(uuid())
+  leaveRequestId   String
+  recipientId      String
+  channel          String   @default("BOTH")
+  templateName     String
+  payload          Json?
+  status           String   @default("SENT")
+  errorMessage     String?
+  organizationId   String
+  sentAt           DateTime @default(now())
+
+  leaveRequest     LeaveRequest @relation(fields: [leaveRequestId], references: [id])
+
+  @@index([leaveRequestId])
+  @@index([recipientId])
+  @@index([organizationId])
+}
+
+// ══════════════════════════════════════════════════════════
+// Phase 2B Models
+// ══════════════════════════════════════════════════════════
+
+model DeviceSession {
+  id           String   @id @default(uuid())
+  userId       String
+  deviceId     String
+  deviceType   String   // 'mobile' or 'desktop'
+  userAgent    String?
+  lastActiveAt DateTime @default(now())
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceType])
+  @@index([userId])
+}
+
+model UserMFA {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  secret      String    // TOTP secret (AES-256 encrypted)
+  isEnabled   Boolean   @default(false)
+  backupCodes String[]  // one-time backup codes
+  enabledAt   DateTime?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WhatsAppOtp {
+  id         String   @id @default(uuid())
+  employeeId String
+  phone      String
+  otp        String
+  expiresAt  DateTime
+  verified   Boolean  @default(false)
+  attempts   Int      @default(0)
+  createdAt  DateTime @default(now())
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+}
+
+model LocationVisit {
+  id              String           @id @default(uuid())
+  attendanceId    String
+  latitude        Float
+  longitude       Float
+  arrivalTime     DateTime
+  departureTime   DateTime
+  durationMinutes Int
+  pointCount      Int              @default(1)
+  createdAt       DateTime         @default(now())
+  attendance      AttendanceRecord @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  @@index([attendanceId])
+}
+
+model LeavePolicy {
+  id             String            @id @default(uuid())
+  name           String
+  description    String?
+  organizationId String
+  isDefault      Boolean           @default(false)
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  rules          LeavePolicyRule[]
+  employees      Employee[]
+
+  @@index([organizationId])
+}
+
+model LeavePolicyRule {
+  id          String      @id @default(uuid())
+  policyId    String
+  leaveTypeId String
+  daysAllowed Float
+  isAllowed   Boolean     @default(true)
+  policy      LeavePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  leaveType   LeaveType   @relation(fields: [leaveTypeId], references: [id])
+
+  @@unique([policyId, leaveTypeId])
 }

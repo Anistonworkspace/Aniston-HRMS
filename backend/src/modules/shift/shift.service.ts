@@ -88,6 +88,43 @@ export class ShiftService {
     });
     const types = existing.map(s => s.shiftType);
 
+    if (!types.includes('OFFICE')) {
+      // Check for a soft-deleted OFFICE shift to reactivate
+      const deletedOffice = await prisma.shift.findFirst({
+        where: { organizationId, shiftType: 'OFFICE', isActive: false },
+      });
+      if (deletedOffice) {
+        await prisma.shift.update({
+          where: { id: deletedOffice.id },
+          data: {
+            isActive: true,
+            code: 'GENERAL-SHIFT',
+            name: 'General Shift',
+            startTime: '09:00',
+            endTime: '18:00',
+            graceMinutes: 15,
+            isDefault: true,
+          },
+        });
+      } else {
+        await prisma.shift.create({
+          data: {
+            organizationId,
+            name: 'General Shift',
+            code: 'GENERAL-SHIFT',
+            shiftType: 'OFFICE',
+            startTime: '09:00',
+            endTime: '18:00',
+            graceMinutes: 15,
+            fullDayHours: 8,
+            halfDayHours: 4,
+            isDefault: true,
+            isActive: true,
+          },
+        });
+      }
+    }
+
     if (!types.includes('FIELD')) {
       // Check for a soft-deleted FIELD shift to reactivate
       const deleted = await prisma.shift.findFirst({
@@ -306,12 +343,19 @@ export class ShiftService {
 
     if (employeesWithoutShift.length === 0) return { assigned: 0, message: 'All employees already have shifts' };
 
+    // Find the default office location for auto-assignment
+    const defaultLocation = await prisma.officeLocation.findFirst({
+      where: { organizationId },
+      orderBy: { createdAt: 'asc' },
+    });
+
     // Bulk create assignments and update workMode
     await prisma.$transaction(async (tx) => {
       await tx.shiftAssignment.createMany({
         data: employeesWithoutShift.map(emp => ({
           employeeId: emp.id,
           shiftId: defaultShift.id,
+          locationId: defaultLocation?.id || null,
           startDate: today,
           endDate: null,
           assignedBy,

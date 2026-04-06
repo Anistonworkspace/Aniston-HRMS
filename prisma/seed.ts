@@ -152,7 +152,7 @@ async function main() {
 
     await prisma.employee.upsert({
       where: { employeeCode: acct.employeeCode },
-      update: { isSystemAccount: true, userId: user.id, status: 'ACTIVE', deletedAt: null },
+      update: { isSystemAccount: true, userId: user.id, status: 'ACTIVE', deletedAt: null, onboardingComplete: true },
       create: {
         employeeCode: acct.employeeCode,
         userId: user.id,

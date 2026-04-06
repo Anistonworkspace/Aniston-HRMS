@@ -56,7 +56,7 @@ export default function AppShell() {
       {/* Main area */}
       <div className="flex-1 flex flex-col min-h-screen">
         <Topbar />
-        <main className="flex-1 pb-20 md:pb-0">
+        <main className="flex-1 pb-20 md:pb-0 overflow-x-hidden min-w-0">
           {/* Limited access banner for exiting employees */}
           {exitAccess && (
             <div className="mx-4 mt-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">

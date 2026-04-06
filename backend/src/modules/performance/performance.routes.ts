@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { performanceController } from './performance.controller.js';
-import { authenticate, requirePermission } from '../../middleware/auth.middleware.js';
+import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
 import { performanceService } from './performance.service.js';
+import { getLeavePerformanceSummary } from '../../utils/leavePerformance.js';
+import { Role } from '@aniston/shared';
 
 const router = Router();
 
@@ -59,6 +61,22 @@ router.post('/reviews', requirePermission('performance', 'create'), (req, res, n
 
 router.patch('/reviews/:id', requirePermission('performance', 'update'), (req, res, next) =>
   performanceController.updateReview(req, res, next)
+);
+
+// Leave Performance Score
+router.get('/leave-score/:employeeId',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
+  async (req, res, next) => {
+    try {
+      const { employeeId } = req.params;
+      const months = Number(req.query.months) || 6;
+      const end = new Date();
+      const start = new Date();
+      start.setMonth(start.getMonth() - months);
+      const summary = await getLeavePerformanceSummary(employeeId, { start, end });
+      res.json({ success: true, data: summary });
+    } catch (err) { next(err); }
+  }
 );
 
 export { router as performanceRouter };

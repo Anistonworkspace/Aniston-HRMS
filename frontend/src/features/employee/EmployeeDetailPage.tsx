@@ -226,6 +226,7 @@ export default function EmployeeDetailPage() {
                     <InfoRow label="Work Mode" value={employee.workMode?.replace(/_/g, ' ')} />
                     <InfoRow label="Reports To" value={employee.manager ? `${employee.manager.firstName} ${employee.manager.lastName}` : '—'} />
                     <InfoRow label="Office" value={employee.officeLocation?.name || '—'} />
+                    <InfoRow label="Current Shift" value={employee.currentShift ? `${employee.currentShift.name} (${employee.currentShift.startTime}–${employee.currentShift.endTime})` : 'No shift assigned'} />
                     <InfoRow label="Joining Date" value={formatDate(employee.joiningDate, 'long')} />
                     {isManagement && employee.ctc && <InfoRow label="CTC" value={formatCurrency(Number(employee.ctc))} mono />}
                   </dl>

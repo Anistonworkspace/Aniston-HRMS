@@ -57,13 +57,29 @@ export class EmployeeService {
           user: { select: { id: true, role: true, status: true, lastLoginAt: true } },
           manager: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
           officeLocation: { select: { id: true, name: true } },
+          shiftAssignments: {
+            where: { endDate: null },
+            take: 1,
+            orderBy: { startDate: 'desc' as const },
+            include: { shift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } } },
+          },
         },
       }),
       prisma.employee.count({ where }),
     ]);
 
+    const enriched = employees.map((emp: any) => {
+      const activeAssignment = emp.shiftAssignments?.[0];
+      return {
+        ...emp,
+        hasShift: !!activeAssignment,
+        currentShift: activeAssignment?.shift || null,
+        shiftAssignments: undefined, // remove raw assignments from response
+      };
+    });
+
     return {
-      data: employees,
+      data: enriched,
       meta: {
         page,
         limit,
@@ -113,6 +129,12 @@ export class EmployeeService {
           orderBy: { eventDate: 'desc' },
           take: 50,
         },
+        shiftAssignments: {
+          where: { endDate: null },
+          take: 1,
+          orderBy: { startDate: 'desc' as const },
+          include: { shift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } } },
+        },
       },
     });
 
@@ -120,7 +142,13 @@ export class EmployeeService {
       throw new NotFoundError('Employee');
     }
 
-    return employee;
+    const activeAssignment = (employee as any).shiftAssignments?.[0];
+    return {
+      ...employee,
+      hasShift: !!activeAssignment,
+      currentShift: activeAssignment?.shift || null,
+      shiftAssignments: undefined,
+    };
   }
 
   async create(data: CreateEmployeeInput, organizationId: string, createdBy: string) {

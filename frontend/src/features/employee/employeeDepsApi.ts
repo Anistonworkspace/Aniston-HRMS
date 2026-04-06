@@ -81,7 +81,7 @@ export const employeeDepsApi = api.injectEndpoints({
     }),
 
     getOfficeLocations: builder.query<any, void>({
-      query: () => '/office-locations',
+      query: () => '/workforce/locations',
       providesTags: ['OfficeLocation'],
     }),
 

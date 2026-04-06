@@ -27,6 +27,9 @@ import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
 import { useGetPoliciesQuery, useAcknowledgePolicyMutation } from '../policies/policyApi';
 import { useAuditTasksForLeaveMutation } from '../task-integration/taskIntegrationApi';
+import LeaveApplyWizard from './components/LeaveApplyWizard';
+import ManagerReviewPanel from './components/ManagerReviewPanel';
+import HRReviewPanel from './components/HRReviewPanel';
 import toast from 'react-hot-toast';
 
 const LEAVE_ICONS: Record<string, string> = {
@@ -36,8 +39,31 @@ const LEAVE_ICONS: Record<string, string> = {
 export default function LeavePage() {
   const user = useAppSelector((state) => state.auth.user);
   const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
+  const [view, setView] = useState<'management' | 'personal'>(isManagement ? 'management' : 'personal');
 
-  return isManagement ? <LeaveManagementView /> : <LeavePersonalView />;
+  if (!isManagement) return <LeavePersonalView />;
+
+  return (
+    <>
+      <div className="px-6 pt-6 pb-2 flex gap-2">
+        <button
+          onClick={() => setView('management')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            view === 'management' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}>
+          Leave Management
+        </button>
+        <button
+          onClick={() => setView('personal')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            view === 'personal' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}>
+          My Leaves
+        </button>
+      </div>
+      {view === 'management' ? <LeaveManagementView /> : <LeavePersonalView />}
+    </>
+  );
 }
 
 /* =============================================================================
@@ -50,7 +76,9 @@ function LeaveManagementView() {
   const [page, setPage] = useState(1);
   const [showLeaveTypeModal, setShowLeaveTypeModal] = useState(false);
   const [editingLeaveType, setEditingLeaveType] = useState<any>(null);
+  const [reviewLeaveId, setReviewLeaveId] = useState<string | null>(null);
 
+  const user = useAppSelector((state) => state.auth.user);
   const { data: approvalsRes, isLoading: approvalsLoading } = useGetPendingApprovalsQuery({ page, limit: 20 });
   const { data: typesRes } = useGetLeaveTypesQuery();
   const { data: holidaysRes } = useGetHolidaysQuery({});
@@ -311,6 +339,16 @@ function LeaveManagementView() {
                       </span>
                       {leave.status === 'PENDING' && (
                         <>
+                          <motion.button
+                            aria-label="Review leave with task impact"
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => setReviewLeaveId(leave.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-50 text-brand-700 rounded-lg text-sm font-medium hover:bg-brand-100 transition-colors"
+                          >
+                            <FileText size={14} />
+                            Review
+                          </motion.button>
                           <motion.button
                             aria-label="Approve leave"
                             whileHover={{ scale: 1.05 }}
@@ -796,6 +834,13 @@ function RegularizationApprovalTab() {
           </div>
         )}
       </div>
+
+      {/* Review Panel */}
+      {reviewLeaveId && (
+        user?.role === 'MANAGER'
+          ? <ManagerReviewPanel leaveId={reviewLeaveId} onClose={() => setReviewLeaveId(null)} />
+          : <HRReviewPanel leaveId={reviewLeaveId} onClose={() => setReviewLeaveId(null)} />
+      )}
     </motion.div>
   );
 }
@@ -1350,16 +1395,14 @@ function LeavePersonalView() {
         </div>
       </div>
 
-      {/* Apply Leave Modal */}
-      <AnimatePresence>
-        {showApplyModal && (
-          <ApplyLeaveModal
-            leaveTypes={leaveTypes}
-            balances={balances}
-            onClose={() => setShowApplyModal(false)}
-          />
-        )}
-      </AnimatePresence>
+      {/* Apply Leave Wizard */}
+      {showApplyModal && (
+        <LeaveApplyWizard
+          leaveTypes={leaveTypes}
+          balances={balances}
+          onClose={() => setShowApplyModal(false)}
+        />
+      )}
     </div>
   );
 }

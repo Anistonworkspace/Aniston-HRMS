@@ -17,6 +17,11 @@ router.post('/config/test', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, 
   taskIntegrationController.testConnection(req, res, next)
 );
 
+// Integration health status
+router.get('/health', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) =>
+  taskIntegrationController.getHealthStatus(req, res, next)
+);
+
 // Leave task audit — any authenticated employee
 router.post('/audit-for-leave', (req, res, next) =>
   taskIntegrationController.auditTasksForLeave(req, res, next)

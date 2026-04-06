@@ -390,6 +390,93 @@ export class TaskIntegrationService {
     if (!res.ok) throw new Error(`ClickUp fetch failed: ${res.status}`);
     return []; // Would need team-specific implementation
   }
+
+  // ── Persist Audit to DB ──
+
+  async persistAudit(
+    leaveRequestId: string,
+    auditResult: any,
+    provider?: string
+  ) {
+    const audit = await prisma.leaveTaskAudit.create({
+      data: {
+        leaveRequestId,
+        integrationStatus: auditResult.integrationStatus || 'SUCCESS',
+        totalOpenTasks: auditResult.totalOpenTasks || 0,
+        overdueTasks: auditResult.overdueTasks || 0,
+        dueWithinLeave: auditResult.dueWithinLeave || 0,
+        criticalTasks: auditResult.criticalTasks || 0,
+        blockedTasks: auditResult.blockedTasks || 0,
+        noBackupTasks: auditResult.noBackupTasks || 0,
+        riskScore: auditResult.riskScore || 0,
+        riskLevel: auditResult.riskLevel || 'LOW',
+        auditPayload: auditResult,
+        provider: provider || null,
+        errorMessage: auditResult.errorMessage || null,
+        auditedAt: new Date(),
+      },
+    });
+
+    // Create audit items
+    if (auditResult.items?.length > 0) {
+      await prisma.leaveTaskAuditItem.createMany({
+        data: auditResult.items.map((item: any) => ({
+          auditId: audit.id,
+          externalTaskId: item.externalTaskId,
+          taskTitle: item.taskTitle,
+          projectName: item.projectName || null,
+          priority: item.priority || null,
+          dueDate: item.dueDate ? new Date(item.dueDate) : null,
+          currentStatus: item.currentStatus || null,
+          blockerFlag: item.blockerFlag || false,
+          backupAssigned: item.backupAssigned || false,
+          handoverNote: item.handoverNote || null,
+          riskLevel: item.riskLevel || 'LOW',
+          rawPayload: item,
+        })),
+      });
+    }
+
+    return audit;
+  }
+
+  // ── Integration Health Status ──
+
+  async getHealthStatus(organizationId: string) {
+    const config = await prisma.taskManagerConfig.findFirst({
+      where: { organizationId, isActive: true },
+    });
+
+    if (!config) {
+      return {
+        configured: false,
+        provider: null,
+        lastCheck: null,
+        status: 'NOT_CONFIGURED',
+      };
+    }
+
+    const lastLog = await prisma.taskIntegrationHealthLog.findFirst({
+      where: { organizationId },
+      orderBy: { checkedAt: 'desc' },
+    });
+
+    return {
+      configured: true,
+      provider: config.provider,
+      lastCheck: lastLog ? {
+        status: lastLog.status,
+        tokenValid: lastLog.tokenValid,
+        responseTimeMs: lastLog.responseTimeMs,
+        checkedAt: lastLog.checkedAt,
+        mappingErrors: lastLog.mappingErrors,
+        staleSyncFlag: lastLog.staleSyncFlag,
+        failedCallsCount: lastLog.failedCallsCount,
+        notes: lastLog.notes,
+      } : null,
+      status: lastLog?.status || 'UNKNOWN',
+    };
+  }
 }
 
 export const taskIntegrationService = new TaskIntegrationService();

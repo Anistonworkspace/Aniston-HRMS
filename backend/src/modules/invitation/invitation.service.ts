@@ -15,7 +15,7 @@ import type { CreateInvitationInput } from './invitation.validation.js';
  *
  * Lifecycle:
  * 1. HR/Admin calls `createInvitation` → generates a UUID token, stores `EmployeeInvitation`
- *    with PENDING status and 72-hour expiry, sends an email via BullMQ.
+ *    with PENDING status and 24-hour expiry, sends an email via BullMQ.
  * 2. Candidate opens `/onboarding/invite/:token` → `validateToken` is called to check
  *    validity and return org info.
  * 3. Candidate sets password → `completeInvitation` creates `User` + `Employee`
@@ -62,7 +62,7 @@ export class InvitationService {
       if (!desig) throw new BadRequestError('Designation not found');
     }
 
-    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72 hours
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 72 hours
 
     const invitation = await prisma.employeeInvitation.create({
       data: {
@@ -123,7 +123,7 @@ export class InvitationService {
       try {
         await whatsAppService.sendMessage({
           to: invitation.mobileNumber,
-          message: `Hi! You're invited to join ${org?.name || 'Aniston HRMS'} on Aniston HRMS.\n\nClick here to accept: ${inviteUrl}\n\nThis link expires in 72 hours.`,
+          message: `Hi! You're invited to join ${org?.name || 'Aniston HRMS'} on Aniston HRMS.\n\nClick here to accept: ${inviteUrl}\n\nThis link expires in 24 hours.`,
         }, organizationId);
       } catch (err) {
         logger.error('Failed to send WhatsApp invite:', err);
@@ -417,7 +417,7 @@ export class InvitationService {
       ? `${inviter.employee.firstName} ${inviter.employee.lastName}`
       : inviter?.email || 'HR Team';
 
-    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     let sentCount = 0;
     let skippedCount = 0;
@@ -555,7 +555,7 @@ export class InvitationService {
     if (!invitation) throw new NotFoundError('Invitation not found');
     if (invitation.status === 'ACCEPTED') throw new BadRequestError('Invitation already accepted');
 
-    const newExpiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+    const newExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     const updated = await prisma.employeeInvitation.update({
       where: { id: invitationId },
@@ -594,7 +594,7 @@ export class InvitationService {
       try {
         await whatsAppService.sendMessage({
           to: invitation.mobileNumber,
-          message: `Hi! Reminder: You're invited to join ${org?.name || 'Aniston HRMS'} on Aniston HRMS.\n\nClick here to accept: ${inviteUrl}\n\nThis link expires in 72 hours.`,
+          message: `Hi! Reminder: You're invited to join ${org?.name || 'Aniston HRMS'} on Aniston HRMS.\n\nClick here to accept: ${inviteUrl}\n\nThis link expires in 24 hours.`,
         }, organizationId);
       } catch (err) {
         logger.error('Failed to send WhatsApp invite on resend:', err);

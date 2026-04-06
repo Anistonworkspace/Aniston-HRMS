@@ -34,7 +34,7 @@ function getISTYesterday(): Date {
 
 export class AttendanceService {
   // ===================== EDGE CASE CONSTANTS =====================
-  private readonly MAX_RECLOCKIN_PER_DAY = 10;
+  private readonly MAX_RECLOCKIN_PER_DAY = 0; // Strict: no re-check-in allowed
   private readonly EARLY_CLOCKIN_WARNING_MINUTES = 120; // warn if >2h before shift
   private readonly LATE_CLOCKOUT_FLAG_MINUTES = 120;    // flag if >2h after shift
   private readonly MAX_BREAK_PERCENT = 50;              // breaks can't exceed 50% of shift
@@ -51,6 +51,14 @@ export class AttendanceService {
       include: { officeLocation: { include: { geofence: true } } },
     });
     if (!employee) throw new NotFoundError('Employee');
+    if (employee.status === 'INACTIVE' || employee.status === 'TERMINATED') {
+      throw new BadRequestError('Your account is inactive. Contact HR to reactivate.');
+    }
+
+    // Mobile-only attendance enforcement (HR manual mark bypasses this)
+    if (data.deviceType === 'desktop' && data.source !== 'MANUAL_HR') {
+      throw new BadRequestError('Attendance can only be marked from a mobile device. Please use the Aniston HRMS mobile app.');
+    }
 
     const today = getISTToday();
     const now = new Date();
@@ -360,6 +368,11 @@ export class AttendanceService {
    * Clock out — with previous-day and night shift support
    */
   async clockOut(employeeId: string, data: ClockOutInput) {
+    const empStatus = await prisma.employee.findUnique({ where: { id: employeeId }, select: { status: true } });
+    if (empStatus?.status === 'INACTIVE' || empStatus?.status === 'TERMINATED') {
+      throw new BadRequestError('Your account is inactive. Contact HR to reactivate.');
+    }
+
     const today = getISTToday();
     const now = new Date();
 
@@ -974,9 +987,12 @@ export class AttendanceService {
     const reg = await prisma.attendanceRegularization.create({
       data: {
         attendanceId,
+        employeeId,
         reason,
         requestedCheckIn: requestedCheckIn ? new Date(requestedCheckIn) : null,
         requestedCheckOut: requestedCheckOut ? new Date(requestedCheckOut) : null,
+        originalCheckIn: attendance.checkIn,
+        originalCheckOut: attendance.checkOut,
         status: 'PENDING',
       },
     });
@@ -1396,6 +1412,617 @@ export class AttendanceService {
 
     if (!record) return { record: null, logs: [] };
     return { record, logs: record.logs };
+  }
+
+  async projectSiteCheckIn(employeeId: string, data: {
+    siteName: string; siteAddress?: string; notes?: string;
+    latitude?: number; longitude?: number; checkInPhoto?: string;
+  }) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return prisma.projectSiteCheckIn.create({
+      data: {
+        employeeId,
+        date: today,
+        siteName: data.siteName,
+        siteAddress: data.siteAddress || null,
+        checkInPhoto: data.checkInPhoto || null,
+        checkInLat: data.latitude || null,
+        checkInLng: data.longitude || null,
+        notes: data.notes || null,
+      },
+    });
+  }
+
+  async getProjectSiteCheckIns(employeeId: string, date?: string) {
+    const targetDate = date ? new Date(date) : new Date();
+    targetDate.setHours(0, 0, 0, 0);
+
+    return prisma.projectSiteCheckIn.findMany({
+      where: { employeeId, date: targetDate },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // =====================================================================
+  // ENTERPRISE COMMAND CENTER — Stats, Anomalies, Live Board
+  // =====================================================================
+
+  /**
+   * Command center KPI stats — 13 dense enterprise metrics for a given date
+   */
+  async getCommandCenterStats(organizationId: string, date: string) {
+    const queryDate = new Date(date);
+    queryDate.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(queryDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const dayOfWeek = queryDate.getDay();
+    const isWeekend = dayOfWeek === 0; // Sunday
+
+    // Parallel queries for all KPI data
+    const [
+      totalActive,
+      records,
+      leaveCount,
+      pendingRegularizations,
+      anomalyCount,
+      fieldActive,
+      wfhActive,
+    ] = await Promise.all([
+      // Total active (non-system) employees
+      prisma.employee.count({
+        where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION'] } },
+      }),
+      // All attendance records for the date
+      prisma.attendanceRecord.findMany({
+        where: { date: queryDate, employee: { organizationId, deletedAt: null, isSystemAccount: { not: true } } },
+        include: {
+          employee: {
+            select: {
+              id: true, firstName: true, lastName: true, employeeCode: true, workMode: true,
+              department: { select: { id: true, name: true } },
+              designation: { select: { id: true, name: true } },
+              managerId: true,
+            },
+          },
+          breaks: true,
+          regularization: true,
+          logs: { orderBy: { timestamp: 'asc' } },
+        },
+      }),
+      // On leave (approved leave requests covering the date)
+      prisma.leaveRequest.count({
+        where: {
+          employee: { organizationId, deletedAt: null },
+          status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] },
+          startDate: { lte: endOfDay },
+          endDate: { gte: queryDate },
+        },
+      }),
+      // Pending regularizations
+      prisma.attendanceRegularization.count({
+        where: { status: 'PENDING', attendance: { employee: { organizationId } } },
+      }),
+      // Anomaly count for the date
+      prisma.attendanceAnomaly.count({
+        where: { organizationId, date: queryDate, resolution: 'PENDING' },
+      }),
+      // Field sales active today
+      prisma.attendanceRecord.count({
+        where: { date: queryDate, workMode: 'FIELD_SALES', status: 'PRESENT', employee: { organizationId, deletedAt: null } },
+      }),
+      // WFH active today
+      prisma.attendanceRecord.count({
+        where: { date: queryDate, workMode: { in: ['REMOTE', 'HYBRID'] }, status: { in: ['PRESENT', 'WORK_FROM_HOME'] }, employee: { organizationId, deletedAt: null } },
+      }),
+    ]);
+
+    // Derived stats from records
+    const present = records.filter(r => r.status === 'PRESENT' || r.status === 'WORK_FROM_HOME').length;
+    const absent = records.filter(r => r.status === 'ABSENT').length;
+    const halfDay = records.filter(r => r.status === 'HALF_DAY').length;
+    const lateArrivals = records.filter(r => {
+      if (!r.checkIn) return false;
+      const log = r.logs?.find((l: any) => l.action === 'CLOCK_IN');
+      return log?.notes?.includes('Late') || log?.notes?.includes('late');
+    }).length;
+    const earlyExits = records.filter(r => {
+      if (!r.checkOut || !r.checkIn) return false;
+      const hours = Number(r.totalHours || 0);
+      return hours > 0 && hours < 4;
+    }).length;
+    const missingPunch = records.filter(r => r.checkIn && !r.checkOut && r.status === 'PRESENT').length;
+    const notCheckedIn = Math.max(0, totalActive - records.length);
+
+    return {
+      expectedToday: isWeekend ? 0 : totalActive,
+      present,
+      absent,
+      onLeave: leaveCount,
+      weeklyOff: isWeekend ? totalActive : 0,
+      notCheckedIn,
+      lateArrivals,
+      earlyExits,
+      missingPunch,
+      halfDay,
+      attendanceExceptions: anomalyCount,
+      fieldActive,
+      wfhActive,
+      pendingRegularizations,
+    };
+  }
+
+  /**
+   * Enhanced getAllAttendance with enterprise-grade includes
+   */
+  async getAllAttendanceEnhanced(query: AttendanceQuery & {
+    designation?: string;
+    managerId?: string;
+    shiftType?: string;
+    anomalyType?: string;
+    regularizationStatus?: string;
+    employeeType?: string;
+    search?: string;
+    sortBy?: string;
+    sortOrder?: string;
+  }, organizationId: string) {
+    const { page, limit, startDate, endDate, employeeId, department, status, workMode,
+      designation, managerId, shiftType, anomalyType, regularizationStatus, employeeType,
+      search, sortBy, sortOrder } = query;
+    const skip = (page - 1) * limit;
+
+    let queryDate = startDate ? new Date(startDate) : new Date();
+    queryDate.setHours(0, 0, 0, 0);
+    const endQueryDate = endDate ? new Date(endDate) : new Date(queryDate);
+    endQueryDate.setHours(23, 59, 59, 999);
+
+    // Build employee filter
+    const empWhere: any = {
+      organizationId, deletedAt: null,
+      isSystemAccount: { not: true },
+      status: employeeType
+        ? { in: employeeType === 'PROBATION' ? ['PROBATION'] : employeeType === 'INTERN' ? ['ACTIVE'] : ['ACTIVE', 'PROBATION'] }
+        : { in: ['ACTIVE', 'PROBATION'] },
+    };
+    if (department) empWhere.departmentId = department;
+    if (designation) empWhere.designationId = designation;
+    if (managerId) empWhere.managerId = managerId;
+    if (employeeId) empWhere.id = employeeId;
+    if (workMode) empWhere.workMode = workMode;
+    if (search) {
+      empWhere.OR = [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { employeeCode: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search } },
+      ];
+    }
+
+    // Fetch employees + records with enterprise includes
+    const [allEmployees, records, totalEmployees] = await Promise.all([
+      prisma.employee.findMany({
+        where: empWhere,
+        select: {
+          id: true, firstName: true, lastName: true, employeeCode: true, email: true,
+          workMode: true, avatar: true, phone: true, status: true,
+          department: { select: { id: true, name: true } },
+          designation: { select: { id: true, name: true } },
+          manager: { select: { id: true, firstName: true, lastName: true } },
+          shiftAssignments: {
+            where: { endDate: null },
+            take: 1,
+            include: { shift: true, location: { include: { geofence: true } } },
+          },
+        },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      }),
+      prisma.attendanceRecord.findMany({
+        where: {
+          date: { gte: queryDate, lte: endQueryDate },
+          employee: { ...empWhere },
+        },
+        include: {
+          employee: {
+            select: {
+              id: true, firstName: true, lastName: true, employeeCode: true, email: true,
+              workMode: true, avatar: true, phone: true, status: true,
+              department: { select: { id: true, name: true } },
+              designation: { select: { id: true, name: true } },
+              manager: { select: { id: true, firstName: true, lastName: true } },
+              shiftAssignments: {
+                where: { endDate: null },
+                take: 1,
+                include: { shift: true, location: { include: { geofence: true } } },
+              },
+            },
+          },
+          breaks: true,
+          regularization: true,
+          logs: { orderBy: { timestamp: 'asc' }, take: 1 },
+          anomalies: { where: { resolution: 'PENDING' } },
+        },
+      }),
+      prisma.employee.count({
+        where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION'] } },
+      }),
+    ]);
+
+    // Build map
+    const recordMap = new Map<string, any>();
+    records.forEach(r => recordMap.set(r.employeeId, r));
+
+    // Merge
+    let mergedData = allEmployees.map(emp => {
+      const record = recordMap.get(emp.id);
+      const shiftAssign = emp.shiftAssignments?.[0];
+      const shift = shiftAssign?.shift;
+
+      if (record) {
+        const recShift = record.employee?.shiftAssignments?.[0];
+        return {
+          ...record,
+          shift: recShift?.shift || shift || null,
+          shiftLocation: recShift?.location || shiftAssign?.location || null,
+          breakDuration: record.breaks?.reduce((sum: number, b: any) => sum + (b.durationMinutes || 0), 0) || 0,
+          anomalyCount: record.anomalies?.length || 0,
+          anomalyTypes: record.anomalies?.map((a: any) => a.type) || [],
+          regularizationStatus: record.regularization?.status || null,
+          locationCompliance: this.getLocationCompliance(record),
+        };
+      }
+
+      return {
+        id: `placeholder-${emp.id}`,
+        employeeId: emp.id,
+        date: queryDate,
+        checkIn: null,
+        checkOut: null,
+        totalHours: null,
+        status: 'NOT_CHECKED_IN',
+        workMode: emp.workMode || 'OFFICE',
+        source: null,
+        geofenceViolation: false,
+        employee: emp,
+        breaks: [],
+        shift: shift || null,
+        shiftLocation: shiftAssign?.location || null,
+        breakDuration: 0,
+        anomalyCount: 0,
+        anomalyTypes: [],
+        regularizationStatus: null,
+        locationCompliance: 'UNKNOWN',
+      };
+    });
+
+    // Apply filters
+    if (status) mergedData = mergedData.filter(r => r.status === status);
+    if (anomalyType) mergedData = mergedData.filter(r => r.anomalyTypes?.includes(anomalyType));
+    if (regularizationStatus) mergedData = mergedData.filter(r => r.regularizationStatus === regularizationStatus);
+    if (shiftType) mergedData = mergedData.filter(r => r.shift?.shiftType === shiftType);
+
+    // Sort
+    if (sortBy) {
+      mergedData.sort((a, b) => {
+        let valA: any, valB: any;
+        switch (sortBy) {
+          case 'checkIn': valA = a.checkIn; valB = b.checkIn; break;
+          case 'checkOut': valA = a.checkOut; valB = b.checkOut; break;
+          case 'totalHours': valA = Number(a.totalHours || 0); valB = Number(b.totalHours || 0); break;
+          case 'name': valA = a.employee?.firstName; valB = b.employee?.firstName; break;
+          default: valA = a.checkIn; valB = b.checkIn;
+        }
+        if (valA == null) return 1;
+        if (valB == null) return -1;
+        return sortOrder === 'desc' ? (valB > valA ? 1 : -1) : (valA > valB ? 1 : -1);
+      });
+    }
+
+    const total = mergedData.length;
+    const paginatedData = mergedData.slice(skip, skip + limit);
+
+    // Summary
+    const present = mergedData.filter(r => r.status === 'PRESENT' || r.status === 'WORK_FROM_HOME').length;
+    const absent = mergedData.filter(r => r.status === 'ABSENT').length;
+    const onLeave = mergedData.filter(r => r.status === 'ON_LEAVE').length;
+    const notCheckedIn = mergedData.filter(r => r.status === 'NOT_CHECKED_IN').length;
+
+    return {
+      data: paginatedData,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit), hasNext: page * limit < total, hasPrev: page > 1 },
+      summary: { totalEmployees, present, absent, onLeave, notCheckedIn },
+    };
+  }
+
+  /**
+   * Get anomalies for command center exceptions tab
+   */
+  async getAnomalies(organizationId: string, query: {
+    date?: string; type?: string; severity?: string; resolution?: string;
+    employeeId?: string; page?: number; limit?: number;
+  }) {
+    const { date, type, severity, resolution, employeeId, page = 1, limit = 25 } = query;
+    const where: any = { organizationId };
+    if (date) { const d = new Date(date); d.setHours(0, 0, 0, 0); where.date = d; }
+    if (type) where.type = type;
+    if (severity) where.severity = severity;
+    if (resolution) where.resolution = resolution;
+    if (employeeId) where.employeeId = employeeId;
+
+    const [anomalies, total] = await Promise.all([
+      prisma.attendanceAnomaly.findMany({
+        where,
+        include: {
+          employee: {
+            select: { id: true, firstName: true, lastName: true, employeeCode: true, department: { select: { name: true } } },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.attendanceAnomaly.count({ where }),
+    ]);
+
+    return {
+      data: anomalies,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit), hasNext: page * limit < total, hasPrev: page > 1 },
+    };
+  }
+
+  /**
+   * Resolve an anomaly
+   */
+  async resolveAnomaly(anomalyId: string, resolution: string, resolvedBy: string, remarks?: string) {
+    return prisma.attendanceAnomaly.update({
+      where: { id: anomalyId },
+      data: { resolution: resolution as any, resolvedBy, resolvedAt: new Date(), resolverRemarks: remarks },
+    });
+  }
+
+  /**
+   * Live attendance board — who is where right now
+   */
+  async getLiveBoard(organizationId: string) {
+    const today = getISTToday();
+
+    const records = await prisma.attendanceRecord.findMany({
+      where: { date: today, employee: { organizationId, deletedAt: null, isSystemAccount: { not: true } } },
+      include: {
+        employee: {
+          select: {
+            id: true, firstName: true, lastName: true, employeeCode: true, avatar: true, workMode: true,
+            department: { select: { name: true } },
+          },
+        },
+        breaks: { where: { endTime: null } },
+        logs: { orderBy: { timestamp: 'desc' }, take: 1 },
+      },
+    });
+
+    const allEmployees = await prisma.employee.findMany({
+      where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION'] } },
+      select: { id: true, firstName: true, lastName: true, employeeCode: true, avatar: true, workMode: true, department: { select: { name: true } } },
+    });
+
+    const checkedInIds = new Set(records.map(r => r.employeeId));
+
+    const inOffice = records.filter(r => !r.checkOut && r.workMode === 'OFFICE' && !r.breaks?.length);
+    const onBreak = records.filter(r => !r.checkOut && r.breaks?.length);
+    const onField = records.filter(r => !r.checkOut && r.workMode === 'FIELD_SALES');
+    const wfh = records.filter(r => !r.checkOut && (r.workMode === 'REMOTE' || r.workMode === 'HYBRID' || r.status === 'WORK_FROM_HOME'));
+    const late = records.filter(r => {
+      const log = r.logs?.[0];
+      return log?.notes?.includes('Late') || log?.notes?.includes('late');
+    });
+    const checkedOut = records.filter(r => r.checkOut);
+    const notCheckedIn = allEmployees.filter(e => !checkedInIds.has(e.id));
+    const anomalies = records.filter(r => r.geofenceViolation);
+
+    return {
+      inOffice: inOffice.map(r => ({ ...r.employee, checkIn: r.checkIn, totalHours: r.totalHours })),
+      onBreak: onBreak.map(r => ({ ...r.employee, checkIn: r.checkIn })),
+      onField: onField.map(r => ({ ...r.employee, checkIn: r.checkIn })),
+      wfh: wfh.map(r => ({ ...r.employee, checkIn: r.checkIn, totalHours: r.totalHours })),
+      late: late.map(r => ({ ...r.employee, checkIn: r.checkIn })),
+      checkedOut: checkedOut.map(r => ({ ...r.employee, checkOut: r.checkOut, totalHours: r.totalHours })),
+      notCheckedIn,
+      anomalies: anomalies.map(r => ({ ...r.employee, checkIn: r.checkIn })),
+      totals: {
+        inOffice: inOffice.length,
+        onBreak: onBreak.length,
+        onField: onField.length,
+        wfh: wfh.length,
+        late: late.length,
+        checkedOut: checkedOut.length,
+        notCheckedIn: notCheckedIn.length,
+        anomalies: anomalies.length,
+      },
+    };
+  }
+
+  /**
+   * Smart anomaly detection engine — scan a date and create anomaly records
+   */
+  async detectAnomalies(organizationId: string, date: string) {
+    const queryDate = new Date(date);
+    queryDate.setHours(0, 0, 0, 0);
+
+    const records = await prisma.attendanceRecord.findMany({
+      where: { date: queryDate, employee: { organizationId, deletedAt: null } },
+      include: {
+        employee: {
+          select: { id: true, shiftAssignments: { where: { endDate: null }, take: 1, include: { shift: true } } },
+        },
+        logs: { orderBy: { timestamp: 'asc' } },
+      },
+    });
+
+    const anomalies: any[] = [];
+
+    for (const record of records) {
+      const shift = record.employee?.shiftAssignments?.[0]?.shift;
+      const empId = record.employeeId;
+
+      // Late arrival
+      if (record.checkIn && shift) {
+        const [shiftH, shiftM] = shift.startTime.split(':').map(Number);
+        const shiftStart = new Date(queryDate);
+        shiftStart.setHours(shiftH, shiftM, 0, 0);
+        const grace = new Date(shiftStart.getTime() + (shift.graceMinutes || 15) * 60000);
+        if (record.checkIn > grace) {
+          const lateMinutes = Math.round((record.checkIn.getTime() - shiftStart.getTime()) / 60000);
+          anomalies.push({
+            attendanceId: record.id, employeeId: empId, date: queryDate,
+            type: 'LATE_ARRIVAL', severity: lateMinutes > 60 ? 'HIGH' : lateMinutes > 30 ? 'MEDIUM' : 'LOW',
+            description: `Late by ${lateMinutes} minutes (shift starts ${shift.startTime}, grace ${shift.graceMinutes}min)`,
+            metadata: { lateMinutes, shiftStart: shift.startTime, grace: shift.graceMinutes },
+            organizationId, autoDetected: true,
+          });
+        }
+      }
+
+      // Missing punch (checked in but not out, and it's past shift end)
+      if (record.checkIn && !record.checkOut && shift) {
+        const now = getISTNow();
+        const [endH, endM] = shift.endTime.split(':').map(Number);
+        const shiftEnd = new Date(queryDate);
+        shiftEnd.setHours(endH, endM, 0, 0);
+        if (now > new Date(shiftEnd.getTime() + 60 * 60000)) {
+          anomalies.push({
+            attendanceId: record.id, employeeId: empId, date: queryDate,
+            type: 'MISSING_PUNCH', severity: 'HIGH',
+            description: `Checked in at ${record.checkIn.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} but no checkout recorded`,
+            metadata: { checkIn: record.checkIn },
+            organizationId, autoDetected: true,
+          });
+        }
+      }
+
+      // Insufficient hours
+      if (record.checkOut && shift) {
+        const totalHours = Number(record.totalHours || 0);
+        const halfDayHours = Number(shift.halfDayHours || 4);
+        if (totalHours > 0 && totalHours < halfDayHours) {
+          anomalies.push({
+            attendanceId: record.id, employeeId: empId, date: queryDate,
+            type: 'INSUFFICIENT_HOURS', severity: 'MEDIUM',
+            description: `Only ${totalHours.toFixed(1)}h worked (minimum ${halfDayHours}h for half day)`,
+            metadata: { totalHours, halfDayHours },
+            organizationId, autoDetected: true,
+          });
+        }
+      }
+
+      // Geofence violation
+      if (record.geofenceViolation) {
+        anomalies.push({
+          attendanceId: record.id, employeeId: empId, date: queryDate,
+          type: 'OUTSIDE_GEOFENCE', severity: 'HIGH',
+          description: 'Check-in recorded outside approved geofence area',
+          metadata: { checkInLocation: record.checkInLocation },
+          organizationId, autoDetected: true,
+        });
+      }
+
+      // Early exit
+      if (record.checkOut && shift) {
+        const [endH, endM] = shift.endTime.split(':').map(Number);
+        const shiftEnd = new Date(queryDate);
+        shiftEnd.setHours(endH, endM, 0, 0);
+        const earlyMinutes = Math.round((shiftEnd.getTime() - record.checkOut.getTime()) / 60000);
+        if (earlyMinutes > 30) {
+          anomalies.push({
+            attendanceId: record.id, employeeId: empId, date: queryDate,
+            type: 'EARLY_EXIT', severity: earlyMinutes > 120 ? 'HIGH' : 'MEDIUM',
+            description: `Left ${earlyMinutes} minutes early (shift ends ${shift.endTime})`,
+            metadata: { earlyMinutes, shiftEnd: shift.endTime },
+            organizationId, autoDetected: true,
+          });
+        }
+      }
+    }
+
+    // Bulk upsert anomalies (skip duplicates)
+    let created = 0;
+    for (const anomaly of anomalies) {
+      const existing = await prisma.attendanceAnomaly.findFirst({
+        where: { attendanceId: anomaly.attendanceId, type: anomaly.type, date: anomaly.date },
+      });
+      if (!existing) {
+        await prisma.attendanceAnomaly.create({ data: anomaly });
+        created++;
+      }
+    }
+
+    return { detected: anomalies.length, created, date };
+  }
+
+  /**
+   * Employee attendance detail — enriched for the detail page
+   */
+  async getEmployeeAttendanceDetail(employeeId: string, date: string) {
+    const queryDate = new Date(date);
+    queryDate.setHours(0, 0, 0, 0);
+
+    const [record, regularizations, anomalies, leaveRequests, shiftAssignment] = await Promise.all([
+      prisma.attendanceRecord.findUnique({
+        where: { employeeId_date: { employeeId, date: queryDate } },
+        include: {
+          breaks: true,
+          logs: { orderBy: { timestamp: 'asc' } },
+          regularization: true,
+          anomalies: true,
+          locationVisits: { orderBy: { arrivalTime: 'asc' } },
+        },
+      }),
+      prisma.attendanceRegularization.findMany({
+        where: { employeeId },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        include: { attendance: { select: { date: true, checkIn: true, checkOut: true } } },
+      }),
+      prisma.attendanceAnomaly.findMany({
+        where: { employeeId, date: queryDate },
+      }),
+      prisma.leaveRequest.findMany({
+        where: {
+          employeeId,
+          startDate: { lte: new Date(queryDate.getTime() + 86400000) },
+          endDate: { gte: queryDate },
+        },
+        include: { leaveType: { select: { name: true } } },
+      }),
+      prisma.shiftAssignment.findFirst({
+        where: { employeeId, endDate: null },
+        include: { shift: true, location: { include: { geofence: true } } },
+      }),
+    ]);
+
+    return {
+      record,
+      regularizations,
+      anomalies,
+      leaveRequests,
+      shiftAssignment,
+      shift: shiftAssignment?.shift || null,
+      location: shiftAssignment?.location || null,
+    };
+  }
+
+  /**
+   * Determine location compliance string
+   */
+  private getLocationCompliance(record: any): string {
+    if (record.workMode === 'REMOTE' || record.workMode === 'HYBRID') return 'REMOTE_APPROVED';
+    if (record.workMode === 'FIELD_SALES') return 'APPROVED_FIELD_SITE';
+    if (record.geofenceViolation) return 'OUTSIDE_GEOFENCE';
+    const log = record.logs?.[0];
+    if (log?.geofenceStatus === 'INSIDE') return 'INSIDE_GEOFENCE';
+    if (log?.geofenceStatus === 'OUTSIDE') return 'OUTSIDE_GEOFENCE';
+    return 'UNKNOWN';
   }
 
   private haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {

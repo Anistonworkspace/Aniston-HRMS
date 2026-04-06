@@ -41,6 +41,13 @@ export class TaskIntegrationController {
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
+
+  async getHealthStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await taskIntegrationService.getHealthStatus(req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
 }
 
 export const taskIntegrationController = new TaskIntegrationController();

@@ -13,6 +13,8 @@ export default function LoginPage() {
   const [showForgot, setShowForgot] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [showForceLogin, setShowForceLogin] = useState(false);
+  const [isForceLogging, setIsForceLogging] = useState(false);
   const [login, { isLoading }] = useLoginMutation();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -36,16 +38,23 @@ export default function LoginPage() {
     }
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const doLogin = async (forceLogin = false) => {
     setLoginError('');
     try {
-      const result = await login({ email, password }).unwrap();
+      let deviceId = localStorage.getItem('aniston_device_id');
+      if (!deviceId) {
+        deviceId = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+        localStorage.setItem('aniston_device_id', deviceId);
+      }
+      const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+
+      const result = await login({ email, password, deviceId, deviceType, userAgent: navigator.userAgent, forceLogin }).unwrap();
       if (result.success && result.data) {
         dispatch(setCredentials({
           user: result.data.user,
           accessToken: result.data.accessToken,
         }));
+        setShowForceLogin(false);
         toast.success('Welcome back!');
         navigate('/dashboard');
       }
@@ -55,12 +64,21 @@ export default function LoginPage() {
       const serverMsg = apiErr?.data?.error?.message;
       const code = apiErr?.data?.error?.code;
 
-      let displayMessage: string;
+      // Detect device conflict
+      if (
+        code === 'DEVICE_CONFLICT' ||
+        (status === 401 && serverMsg?.includes('already active'))
+      ) {
+        setShowForceLogin(true);
+        setLoginError(serverMsg || 'Your account is already active on another device.');
+        return;
+      }
 
+      let displayMessage: string;
       if (status === 429 || code === 'RATE_LIMIT_EXCEEDED') {
         displayMessage = 'Too many login attempts. Please wait 15 minutes and try again.';
       } else if (status === 401 && serverMsg) {
-        displayMessage = serverMsg; // "Invalid email or password" / "Account is inactive" / etc.
+        displayMessage = serverMsg;
       } else if (status === 500) {
         displayMessage = 'Server error. Please try again in a few moments or contact your administrator.';
       } else if (status === 0 || !status) {
@@ -72,6 +90,24 @@ export default function LoginPage() {
       }
 
       setLoginError(displayMessage);
+      setShowForceLogin(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await doLogin(false);
+  };
+
+  const handleForceLogin = async () => {
+    setIsForceLogging(true);
+    try {
+      await doLogin(true);
+    } catch {
+      toast.error('Failed to force login. Please try again.');
+      setShowForceLogin(true);
+    } finally {
+      setIsForceLogging(false);
     }
   };
 
@@ -81,7 +117,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex overflow-x-hidden">
       {/* Left — Form Side */}
       <motion.div
         initial={{ opacity: 0, x: -20 }}
@@ -115,11 +151,30 @@ export default function LoginPage() {
               </div>
             )}
 
+            {showForceLogin && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-medium text-amber-800">
+                  Already logged in on another device?
+                </p>
+                <p className="text-xs text-amber-600 mt-1">
+                  Click below to log out that device and sign in here. Your data will not be affected.
+                </p>
+                <button
+                  type="button"
+                  disabled={isForceLogging}
+                  onClick={handleForceLogin}
+                  className="mt-3 w-full rounded-xl bg-amber-600 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:bg-gray-300 transition-colors"
+                >
+                  {isForceLogging ? 'Signing in...' : 'Login on this device (log out other device)'}
+                </button>
+              </div>
+            )}
+
             <div>
               <input
                 type="email"
                 value={email}
-                onChange={(e) => { setEmail(e.target.value); setLoginError(''); }}
+                onChange={(e) => { setEmail(e.target.value); setLoginError(''); setShowForceLogin(false); }}
                 placeholder="Email address or mobile number"
                 className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all"
                 required
@@ -130,7 +185,7 @@ export default function LoginPage() {
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => { setPassword(e.target.value); setLoginError(''); }}
+                onChange={(e) => { setPassword(e.target.value); setLoginError(''); setShowForceLogin(false); }}
                 placeholder="Password"
                 className="w-full border border-gray-300 rounded-lg px-4 py-3 pr-12 text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all"
                 required

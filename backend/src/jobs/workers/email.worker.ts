@@ -498,6 +498,76 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     <p style="color:#6B7280;font-size:13px;margin:16px 0 0;">Please review this attendance record and take appropriate action if needed.</p>`,
     standardFooter(ctx.orgName || 'Aniston Technologies')
   ),
+
+  // ── Leave Notification Templates ──
+
+  'leave-submitted': (ctx) => emailLayout(
+    '#4F46E5', '📋', 'Leave Request Submitted', `${ctx.employeeName} has applied for leave`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">A new leave request requires your attention.</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;padding:0;">
+      <tr><td style="padding:16px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Employee</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.employeeName}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Type</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.leaveType}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Duration</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.days} day(s)</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Dates</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${new Date(ctx.startDate).toLocaleDateString('en-IN')} — ${new Date(ctx.endDate).toLocaleDateString('en-IN')}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Risk Level</td><td style="padding:4px 0;font-size:13px;font-weight:600;color:${ctx.riskLevel === 'CRITICAL' ? '#DC2626' : ctx.riskLevel === 'HIGH' ? '#EA580C' : ctx.riskLevel === 'MEDIUM' ? '#D97706' : '#16A34A'};">${ctx.riskLevel || 'LOW'}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Reason</td><td style="padding:4px 0;color:#111827;font-size:13px;">${ctx.reason || '—'}</td></tr>
+        </table>
+      </td></tr>
+    </table>
+    ${ctaButton(`${ctx.appUrl || 'https://hrms.anistonav.com'}/leaves`, 'Review Leave Request')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
+
+  'leave-approved': (ctx) => emailLayout(
+    '#16A34A', '✅', 'Leave Approved', `Your ${ctx.leaveType} has been approved`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Your leave request has been <strong style="color:#16A34A;">approved</strong>.</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0FDF4;padding:0;">
+      <tr><td style="padding:16px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Type</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.leaveType}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Duration</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.days} day(s)</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Dates</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${new Date(ctx.startDate).toLocaleDateString('en-IN')} — ${new Date(ctx.endDate).toLocaleDateString('en-IN')}</td></tr>
+          ${ctx.remarks ? `<tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Remarks</td><td style="padding:4px 0;color:#111827;font-size:13px;">${ctx.remarks}</td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
+
+  'leave-rejected': (ctx) => emailLayout(
+    '#DC2626', '❌', 'Leave Rejected', `Your ${ctx.leaveType} request was not approved`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Your leave request has been <strong style="color:#DC2626;">rejected</strong>.</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF2F2;padding:0;">
+      <tr><td style="padding:16px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Type</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.leaveType}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Dates</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${new Date(ctx.startDate).toLocaleDateString('en-IN')} — ${new Date(ctx.endDate).toLocaleDateString('en-IN')}</td></tr>
+          ${ctx.remarks ? `<tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Reason</td><td style="padding:4px 0;color:#111827;font-size:13px;">${ctx.remarks}</td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+    <p style="color:#6B7280;font-size:13px;margin:16px 0 0;">You may reapply with different dates or contact your manager for clarification.</p>`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
+
+  'leave-backup-assigned': (ctx) => emailLayout(
+    '#7C3AED', '🔄', 'Backup Assignment', `You've been assigned as backup`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;"><strong>${ctx.employeeName}</strong> has assigned you as backup during their upcoming leave.</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F3FF;padding:0;">
+      <tr><td style="padding:16px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Employee</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.employeeName}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Dates</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${new Date(ctx.startDate).toLocaleDateString('en-IN')} — ${new Date(ctx.endDate).toLocaleDateString('en-IN')}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Duration</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.days} day(s)</td></tr>
+        </table>
+      </td></tr>
+    </table>
+    <p style="color:#6B7280;font-size:13px;margin:16px 0 0;">Please review the handover notes and ensure continuity of work during this period.</p>
+    ${ctaButton(`${ctx.appUrl || 'https://hrms.anistonav.com'}/leaves`, 'View Details')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
 };
 
 /**

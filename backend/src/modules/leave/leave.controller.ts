@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { leaveService } from './leave.service.js';
-import { applyLeaveSchema, leaveActionSchema, leaveQuerySchema, createLeaveTypeSchema, updateLeaveTypeSchema, previewLeaveSchema } from './leave.validation.js';
+import { applyLeaveSchema, leaveActionSchema, leaveQuerySchema, createLeaveTypeSchema, updateLeaveTypeSchema, previewLeaveSchema, saveDraftSchema, submitDraftSchema, updateHandoverSchema } from './leave.validation.js';
+import { prisma } from '../../lib/prisma.js';
 import { Role } from '@aniston/shared';
 
 export class LeaveController {
@@ -74,9 +75,9 @@ export class LeaveController {
   async handleLeaveAction(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { action, remarks } = leaveActionSchema.parse(req.body);
-      const result = await leaveService.handleLeaveAction(id, action, req.user!.userId, remarks, req.user!.organizationId);
-      res.json({ success: true, data: result, message: `Leave ${action.toLowerCase()}` });
+      const { action, remarks, conditionNote } = leaveActionSchema.parse(req.body);
+      const result = await leaveService.handleLeaveAction(id, action, req.user!.userId, remarks, req.user!.organizationId, conditionNote);
+      res.json({ success: true, data: result, message: `Leave ${action.toLowerCase().replace(/_/g, ' ')}` });
     } catch (err) { next(err); }
   }
 
@@ -127,6 +128,93 @@ export class LeaveController {
       const year = req.query.year ? Number(req.query.year) : undefined;
       const holidays = await leaveService.getHolidays(req.user!.organizationId, year);
       res.json({ success: true, data: holidays });
+    } catch (err) { next(err); }
+  }
+
+  // ── Draft Flow ──
+
+  async saveDraft(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = saveDraftSchema.parse(req.body);
+      if (!req.user!.employeeId) {
+        res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
+        return;
+      }
+      const draft = await leaveService.saveAsDraft(req.user!.employeeId, data);
+      res.status(201).json({ success: true, data: draft, message: 'Draft saved' });
+    } catch (err) { next(err); }
+  }
+
+  async submitDraft(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { acknowledgements } = submitDraftSchema.parse(req.body);
+      if (!req.user!.employeeId) {
+        res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
+        return;
+      }
+      const result = await leaveService.submitDraft(req.params.id, req.user!.employeeId, acknowledgements);
+      res.json({ success: true, data: result, message: 'Leave request submitted' });
+    } catch (err) { next(err); }
+  }
+
+  // ── Detail & Review ──
+
+  async getLeaveDetail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const detail = await leaveService.getLeaveDetail(req.params.id);
+      res.json({ success: true, data: detail });
+    } catch (err) { next(err); }
+  }
+
+  async getManagerReview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await leaveService.getManagerReviewData(req.params.id, req.user!.organizationId);
+      res.json({ success: true, data });
+    } catch (err) { next(err); }
+  }
+
+  async getHrReview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await leaveService.getHrReviewData(req.params.id, req.user!.organizationId);
+      res.json({ success: true, data });
+    } catch (err) { next(err); }
+  }
+
+  // ── Handover ──
+
+  async updateHandover(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = updateHandoverSchema.parse(req.body);
+      if (!req.user!.employeeId) {
+        res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
+        return;
+      }
+      const result = await leaveService.updateHandover(req.params.id, req.user!.employeeId, data);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  // ── Audit & Notifications ──
+
+  async getLeaveAudit(req: Request, res: Response, next: NextFunction) {
+    try {
+      const audits = await prisma.leaveTaskAudit.findMany({
+        where: { leaveRequestId: req.params.id },
+        orderBy: { auditedAt: 'desc' },
+        take: 1,
+        include: { items: { orderBy: { riskLevel: 'desc' }, take: 20 } },
+      });
+      res.json({ success: true, data: audits[0] || null });
+    } catch (err) { next(err); }
+  }
+
+  async getNotificationLog(req: Request, res: Response, next: NextFunction) {
+    try {
+      const logs = await prisma.leaveNotificationLog.findMany({
+        where: { leaveRequestId: req.params.id },
+        orderBy: { sentAt: 'desc' },
+      });
+      res.json({ success: true, data: logs });
     } catch (err) { next(err); }
   }
 }

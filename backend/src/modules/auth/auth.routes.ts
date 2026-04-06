@@ -12,6 +12,13 @@ router.post('/reset-password', (req, res, next) => authController.resetPassword(
 router.post('/change-password', authenticate, (req, res, next) => authController.changePassword(req, res, next));
 router.get('/me', authenticate, (req, res, next) => authController.me(req, res, next));
 
+// MFA (TOTP Authenticator App)
+router.get('/mfa/status', authenticate, (req, res, next) => authController.getMFAStatus(req, res, next));
+router.post('/mfa/setup', authenticate, (req, res, next) => authController.setupMFA(req, res, next));
+router.post('/mfa/verify-setup', authenticate, (req, res, next) => authController.verifyMFASetup(req, res, next));
+router.post('/mfa/verify', (req, res, next) => authController.verifyMFA(req, res, next)); // no auth — mid-login
+router.post('/mfa/disable', authenticate, (req, res, next) => authController.disableMFA(req, res, next));
+
 // Employee Activation (public, no auth)
 router.get('/activate/:token', (req, res, next) => authController.validateActivation(req, res, next));
 router.patch('/activate/:token/complete', (req, res, next) => authController.completeActivation(req, res, next));

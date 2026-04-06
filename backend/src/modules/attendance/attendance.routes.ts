@@ -97,11 +97,66 @@ router.get(
   }
 );
 
+// Project site check-ins (standalone, separate from clock-in)
+router.post('/project-site/check-in', (req, res, next) => attendanceController.projectSiteCheckIn(req, res, next));
+router.get('/project-site/my', (req, res, next) => attendanceController.getMyProjectSiteCheckIns(req, res, next));
+
 // Admin/HR view — all employees
 router.get(
   '/all',
   requirePermission('attendance', 'read'),
   (req, res, next) => attendanceController.getAllAttendance(req, res, next)
+);
+
+// =====================================================================
+// ENTERPRISE COMMAND CENTER ROUTES
+// =====================================================================
+
+// Command center KPI stats
+router.get(
+  '/command-center/stats',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => attendanceController.getCommandCenterStats(req, res, next)
+);
+
+// Enhanced attendance list with enterprise filters
+router.get(
+  '/command-center/records',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => attendanceController.getAllAttendanceEnhanced(req, res, next)
+);
+
+// Anomaly management
+router.get(
+  '/command-center/anomalies',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => attendanceController.getAnomalies(req, res, next)
+);
+router.patch(
+  '/command-center/anomalies/:id/resolve',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => attendanceController.resolveAnomaly(req, res, next)
+);
+
+// Live attendance board
+router.get(
+  '/command-center/live',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => attendanceController.getLiveBoard(req, res, next)
+);
+
+// Anomaly detection trigger
+router.post(
+  '/command-center/detect-anomalies',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => attendanceController.detectAnomalies(req, res, next)
+);
+
+// Employee attendance detail (enriched)
+router.get(
+  '/command-center/employee/:employeeId/:date',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
+  (req, res, next) => attendanceController.getEmployeeAttendanceDetail(req, res, next)
 );
 
 export { router as attendanceRouter };

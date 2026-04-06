@@ -64,6 +64,10 @@ export interface PaginationQuery {
 export interface LoginRequest {
   email: string;
   password: string;
+  deviceId?: string;
+  deviceType?: string;
+  userAgent?: string;
+  forceLogin?: boolean;
 }
 
 export interface LoginResponse {

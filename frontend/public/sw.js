@@ -24,6 +24,9 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (request.method !== 'GET') return;
 
+  // Only cache http/https requests — skip chrome-extension://, data:, etc.
+  if (!request.url.startsWith('http')) return;
+
   // API calls — network only
   if (request.url.includes('/api/')) return;
 

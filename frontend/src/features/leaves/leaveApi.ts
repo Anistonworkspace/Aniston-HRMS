@@ -49,7 +49,7 @@ export const leaveApi = api.injectEndpoints({
       providesTags: ['Leave'],
     }),
 
-    handleLeaveAction: builder.mutation<any, { id: string; action: string; remarks?: string }>({
+    handleLeaveAction: builder.mutation<any, { id: string; action: string; remarks?: string; conditionNote?: string }>({
       query: ({ id, ...body }) => ({ url: `/leaves/${id}/action`, method: 'PATCH', body }),
       invalidatesTags: ['Leave', 'LeaveBalance', 'Dashboard'],
     }),
@@ -94,6 +94,46 @@ export const leaveApi = api.injectEndpoints({
     getHolidaySuggestions: builder.query<any, { year?: number }>({
       query: (params) => ({ url: '/holidays/suggestions', params }),
     }),
+
+    // ── Leave Impact Flow ──
+
+    saveDraft: builder.mutation<any, {
+      leaveTypeId: string; startDate: string; endDate: string;
+      isHalfDay?: boolean; halfDaySession?: string; reason?: string; attachmentUrl?: string;
+    }>({
+      query: (body) => ({ url: '/leaves/draft', method: 'POST', body }),
+      invalidatesTags: ['Leave'],
+    }),
+
+    submitDraft: builder.mutation<any, { id: string; acknowledgements?: { reviewedTasks: boolean; assignedHandover: boolean; acceptedVisibility: boolean } }>({
+      query: ({ id, ...body }) => ({ url: `/leaves/${id}/submit`, method: 'POST', body }),
+      invalidatesTags: ['Leave', 'LeaveBalance', 'Dashboard'],
+    }),
+
+    getLeaveDetail: builder.query<any, string>({
+      query: (id) => `/leaves/${id}/detail`,
+      providesTags: (result, error, id) => [{ type: 'Leave' as const, id }],
+    }),
+
+    getManagerReview: builder.query<any, string>({
+      query: (id) => `/leaves/${id}/manager-review`,
+      providesTags: ['Leave'],
+    }),
+
+    getHrReview: builder.query<any, string>({
+      query: (id) => `/leaves/${id}/hr-review`,
+      providesTags: ['Leave'],
+    }),
+
+    updateHandover: builder.mutation<any, { id: string; backupEmployeeId: string; handoverNotes?: string; taskHandovers?: any[] }>({
+      query: ({ id, ...body }) => ({ url: `/leaves/${id}/handover`, method: 'PATCH', body }),
+      invalidatesTags: ['Leave'],
+    }),
+
+    getLeaveAudit: builder.query<any, string>({
+      query: (id) => `/leaves/${id}/audit`,
+      providesTags: ['Leave'],
+    }),
   }),
 });
 
@@ -115,4 +155,12 @@ export const {
   useUpdateHolidayMutation,
   useDeleteHolidayMutation,
   useGetHolidaySuggestionsQuery,
+  // Leave Impact Flow
+  useSaveDraftMutation,
+  useSubmitDraftMutation,
+  useGetLeaveDetailQuery,
+  useGetManagerReviewQuery,
+  useGetHrReviewQuery,
+  useUpdateHandoverMutation,
+  useGetLeaveAuditQuery,
 } = leaveApi;

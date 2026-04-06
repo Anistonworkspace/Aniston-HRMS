@@ -8,11 +8,21 @@ import {
 import { useGetEmployeesQuery } from '../employee/employeeApi';
 import LocationPickerMap from '../../components/map/LocationPickerMap';
 import LocationSearch from '../../components/map/LocationSearch';
-import { MapContainer, TileLayer, Marker, Circle } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Circle, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
+
+// Auto-fit map to show all markers
+function FitBounds({ coords }: { coords: [number, number][] }) {
+  const map = useMap();
+  if (coords.length > 0) {
+    const bounds = L.latLngBounds(coords);
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13 });
+  }
+  return null;
+}
 
 // Fix Leaflet default icon
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -422,6 +432,7 @@ function LocationsPanel() {
         <div className="layer-card overflow-hidden" style={{ height: 300 }}>
           <MapContainer center={[(locations[0]?.geofence?.coordinates as any)?.lat || 28.6, (locations[0]?.geofence?.coordinates as any)?.lng || 77.2]} zoom={11} style={{ height: '100%', width: '100%' }}>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
+            <FitBounds coords={locations.filter((l: any) => l.geofence?.coordinates?.lat).map((l: any) => [l.geofence.coordinates.lat, l.geofence.coordinates.lng] as [number, number])} />
             {locations.map((l: any) => {
               const c = l.geofence?.coordinates as any;
               if (!c?.lat) return null;

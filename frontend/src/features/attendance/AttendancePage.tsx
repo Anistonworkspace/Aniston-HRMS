@@ -22,6 +22,7 @@ import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
 import FieldSalesView from './FieldSalesView';
 import ProjectSiteView from './ProjectSiteView';
+import CommandCenter from './components/CommandCenter';
 
 const STATUS_COLORS: Record<string, string> = {
   PRESENT: 'bg-emerald-500',
@@ -36,9 +37,15 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function AttendancePage() {
   const user = useAppSelector((state) => state.auth.user);
-  const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
+  const role = user?.role || '';
+  const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(role);
+  const isEmployeeOnly = role === 'EMPLOYEE' || role === 'INTERN';
 
-  return isManagement ? <AttendanceManagementView /> : <AttendancePersonalView />;
+  // Non-management roles go straight to personal view
+  if (!isManagement) return <AttendancePersonalView />;
+
+  // Management roles see Command Center only — no "My Attendance" tab
+  return <CommandCenter />;
 }
 
 /* =============================================================================
@@ -468,7 +475,8 @@ function AttendancePersonalView() {
           // Location not available, proceed without
         }
       }
-      await clockIn({ ...coords, source: 'MANUAL_APP' }).unwrap();
+      const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+      await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
       toast.success('Checked in successfully!');
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to clock in');
@@ -486,7 +494,8 @@ function AttendancePersonalView() {
           coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
         } catch { /* proceed without */ }
       }
-      await clockOut(coords).unwrap();
+      const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+      await clockOut({ ...coords, deviceType }).unwrap();
       toast.success('Checked out successfully!');
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to clock out');
@@ -721,6 +730,36 @@ function AttendancePersonalView() {
                 <p className="text-xs text-gray-400 mt-1">Total hours</p>
               </div>
             )}
+
+            {/* Holiday banner */}
+            {(() => {
+              const todayStr = new Date().toISOString().split('T')[0];
+              const todayHoliday = monthData?.holidays?.find((h: any) => new Date(h.date).toISOString().split('T')[0] === todayStr);
+              if (todayHoliday) {
+                const nextWorkday = (() => {
+                  const d = new Date();
+                  for (let i = 1; i <= 7; i++) {
+                    const next = new Date(d);
+                    next.setDate(d.getDate() + i);
+                    const key = next.toISOString().split('T')[0];
+                    const isHoliday = monthData?.holidays?.some((h: any) => new Date(h.date).toISOString().split('T')[0] === key);
+                    if (next.getDay() !== 0 && !isHoliday) return next;
+                  }
+                  return null;
+                })();
+                return (
+                  <div className="mb-4 p-3 bg-violet-50 rounded-xl border border-violet-200 text-center">
+                    <p className="text-sm font-semibold text-violet-800">
+                      Today is {todayHoliday.name} — Holiday
+                    </p>
+                    <p className="text-xs text-violet-500 mt-1">
+                      Enjoy your day off!{nextWorkday && ` Next working day: ${nextWorkday.toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}`}
+                    </p>
+                  </div>
+                );
+              }
+              return null;
+            })()}
 
             {/* Shift info banner */}
             {today?.shift && (

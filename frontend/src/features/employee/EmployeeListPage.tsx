@@ -314,6 +314,7 @@ export default function EmployeeListPage() {
                   <Th className="hidden md:table-cell">Department</Th>
                   <Th className="hidden lg:table-cell">Reporting Manager</Th>
                   <Th className="hidden xl:table-cell">Work Mode</Th>
+                  <Th className="hidden xl:table-cell">Shift</Th>
                   <Th className="hidden sm:table-cell">Joined</Th>
                   <Th>Status</Th>
                   <Th className="hidden lg:table-cell">Role</Th>
@@ -381,6 +382,21 @@ export default function EmployeeListPage() {
                         <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-600">
                           {emp.workMode?.replace(/_/g, ' ')}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 hidden xl:table-cell">
+                        {emp.hasShift ? (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${
+                            emp.currentShift?.shiftType === 'FIELD' ? 'bg-orange-100 text-orange-700' :
+                            emp.currentShift?.shiftType === 'PROJECT_SITE' ? 'bg-green-100 text-green-700' :
+                            'bg-blue-100 text-blue-700'
+                          }`}>
+                            {emp.currentShift?.name || 'Assigned'}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-yellow-100 text-yellow-700">
+                            No Shift
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 hidden sm:table-cell">
                         <span className="text-sm text-gray-500">{formatDate(emp.joiningDate)}</span>

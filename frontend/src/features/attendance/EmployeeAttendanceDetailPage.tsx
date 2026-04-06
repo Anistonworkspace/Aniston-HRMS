@@ -1,45 +1,75 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowLeft, Clock, MapPin, Calendar, ChevronLeft, ChevronRight, User, Activity, Flag, LogIn, LogOut, Coffee, Play } from 'lucide-react';
+import {
+  ArrowLeft, Clock, MapPin, Calendar, ChevronLeft, ChevronRight, Activity,
+  Flag, LogIn, LogOut, Coffee, Play, Shield, FileText, AlertTriangle,
+  Download, PenSquare, ClipboardList, User, Briefcase, Building,
+} from 'lucide-react';
 import { useGetEmployeeQuery } from '../employee/employeeApi';
-import { useGetEmployeeAttendanceQuery, useGetEmployeeGPSTrailQuery, useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery, useGetAttendanceLogsQuery } from './attendanceApi';
+import {
+  useGetEmployeeAttendanceQuery, useGetEmployeeGPSTrailQuery,
+  useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery,
+  useGetAttendanceLogsQuery, useGetEmployeeAttendanceDetailQuery,
+} from './attendanceApi';
 import { useGetEmployeeShiftQuery } from '../workforce/workforceApi';
-import { MapContainer, TileLayer, Marker, Circle, Polyline } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import { cn, formatDate, getInitials, getStatusColor } from '../../lib/utils';
 
-// Fix Leaflet icons
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-});
+// Lazy load map component
+const MapSection = lazy(() => import('./components/MapSection'));
 
-const STATUS_COLORS: Record<string, string> = {
+// ==========================================
+// Constants
+// ==========================================
+const STATUS_BG: Record<string, string> = {
   PRESENT: 'bg-emerald-50', ABSENT: 'bg-red-50', HALF_DAY: 'bg-amber-50',
   HOLIDAY: 'bg-blue-50', WEEKEND: 'bg-gray-50', ON_LEAVE: 'bg-purple-50',
   WORK_FROM_HOME: 'bg-teal-50', NOT_CHECKED_IN: 'bg-gray-50',
 };
+
+const STATUS_LABEL: Record<string, string> = {
+  PRESENT: 'P', ABSENT: 'A', HALF_DAY: 'HD', HOLIDAY: 'H',
+  WEEKEND: 'WO', ON_LEAVE: 'L', WORK_FROM_HOME: 'WFH',
+};
+
 const DOT_COLORS: Record<string, string> = {
   PRESENT: 'bg-emerald-500', ABSENT: 'bg-red-400', HALF_DAY: 'bg-amber-400',
   HOLIDAY: 'bg-blue-400', WEEKEND: 'bg-gray-300', ON_LEAVE: 'bg-purple-400',
   WORK_FROM_HOME: 'bg-teal-400',
 };
-const SHIFT_TYPE_BADGE: Record<string, string> = {
-  OFFICE: 'bg-blue-50 text-blue-600',
-  FIELD: 'bg-green-50 text-green-600',
-  HYBRID: 'bg-purple-50 text-purple-600',
+
+const TIMELINE_COLORS: Record<string, { bg: string; icon: string; border: string }> = {
+  CLOCK_IN: { bg: 'bg-emerald-50', icon: 'text-emerald-500', border: 'border-emerald-200' },
+  RE_CLOCK_IN: { bg: 'bg-amber-50', icon: 'text-amber-500', border: 'border-amber-200' },
+  CLOCK_OUT: { bg: 'bg-red-50', icon: 'text-red-500', border: 'border-red-200' },
+  BREAK_START: { bg: 'bg-amber-50', icon: 'text-amber-500', border: 'border-amber-200' },
+  BREAK_END: { bg: 'bg-blue-50', icon: 'text-blue-500', border: 'border-blue-200' },
 };
 
+const ANOMALY_COLORS: Record<string, string> = {
+  LATE_ARRIVAL: 'bg-amber-50 text-amber-700',
+  EARLY_EXIT: 'bg-orange-50 text-orange-700',
+  MISSING_PUNCH: 'bg-red-50 text-red-700',
+  INSUFFICIENT_HOURS: 'bg-rose-50 text-rose-700',
+  OUTSIDE_GEOFENCE: 'bg-red-50 text-red-700',
+  GPS_SPOOF: 'bg-red-50 text-red-700',
+};
+
+const SHIFT_BADGE: Record<string, string> = {
+  OFFICE: 'bg-blue-50 text-blue-600 border-blue-200',
+  FIELD: 'bg-green-50 text-green-600 border-green-200',
+  HYBRID: 'bg-purple-50 text-purple-600 border-purple-200',
+};
+
+// ==========================================
+// Component
+// ==========================================
 export default function EmployeeAttendanceDetailPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
   const navigate = useNavigate();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
+  // Data fetching
   const { data: empRes } = useGetEmployeeQuery(employeeId || '');
   const employee = empRes?.data;
 
@@ -54,14 +84,28 @@ export default function EmployeeAttendanceDetailPage() {
   const records = attRes?.data?.records || attRes?.data?.data || [];
   const summary = attRes?.data?.summary;
 
-  // GPS trail for FIELD employees
+  // Enriched detail for selected date
+  const { data: detailRes } = useGetEmployeeAttendanceDetailQuery(
+    { employeeId: employeeId || '', date: selectedDate },
+    { skip: !employeeId }
+  );
+  const detail = detailRes?.data;
+
+  // GPS trail for FIELD
   const { data: gpsRes } = useGetEmployeeGPSTrailQuery(
     { employeeId: employeeId || '', date: selectedDate },
     { skip: shiftType !== 'FIELD' }
   );
   const gpsTrail = gpsRes?.data || [];
 
-  // Desktop agent data
+  // Attendance logs
+  const { data: logsRes } = useGetAttendanceLogsQuery(
+    { employeeId: employeeId || '', date: selectedDate },
+    { skip: !employeeId }
+  );
+  const attendanceLogs = logsRes?.data?.logs || [];
+
+  // Desktop activity
   const { data: activityRes } = useGetEmployeeActivityLogsQuery(
     { employeeId: employeeId || '', date: selectedDate },
     { skip: !employeeId }
@@ -74,28 +118,19 @@ export default function EmployeeAttendanceDetailPage() {
   );
   const screenshots = screenshotRes?.data || [];
 
-  // Attendance event logs
-  const { data: logsRes } = useGetAttendanceLogsQuery(
-    { employeeId: employeeId || '', date: selectedDate },
-    { skip: !employeeId }
-  );
-  const attendanceLogs = logsRes?.data?.logs || [];
-
-  // Find selected date record
+  // Selected record
   const selectedRecord = useMemo(() => {
     return records.find((r: any) => new Date(r.date).toISOString().split('T')[0] === selectedDate);
   }, [records, selectedDate]);
 
-  // Build calendar
+  // Calendar
   const calendarDays = useMemo(() => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const recordMap = new Map<string, any>();
-    records.forEach((r: any) => {
-      recordMap.set(new Date(r.date).toISOString().split('T')[0], r);
-    });
+    records.forEach((r: any) => { recordMap.set(new Date(r.date).toISOString().split('T')[0], r); });
     const todayStr = new Date().toISOString().split('T')[0];
     const days: any[] = [];
     for (let i = 0; i < firstDay; i++) days.push({ date: 0, status: '' });
@@ -105,12 +140,25 @@ export default function EmployeeAttendanceDetailPage() {
       const record = recordMap.get(dateStr);
       let status = '';
       if (record) status = record.status;
-      else if (dayOfWeek === 0) status = 'WEEKEND'; // Only Sunday is weekoff
+      else if (dayOfWeek === 0) status = 'WEEKEND';
       else if (new Date(dateStr) < new Date(todayStr)) status = 'ABSENT';
-      days.push({ date: d, dateStr, status, record, isToday: dateStr === todayStr, isSelected: dateStr === selectedDate });
+      const hasAnomaly = record?.geofenceViolation || (record?.clockInCount || 0) > 1;
+      const isMissingPunch = record?.checkIn && !record?.checkOut && record?.status === 'PRESENT';
+      days.push({ date: d, dateStr, status, record, isToday: dateStr === todayStr, isSelected: dateStr === selectedDate, hasAnomaly, isMissingPunch });
     }
     return days;
   }, [currentMonth, records, selectedDate]);
+
+  // Helpers
+  const formatTime = (d: string | null) => {
+    if (!d) return '--';
+    return new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+  };
+
+  const formatTimeFull = (d: string | null) => {
+    if (!d) return '--';
+    return new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' });
+  };
 
   if (!employee) {
     return <div className="page-container flex items-center justify-center min-h-[60vh]">
@@ -123,140 +171,205 @@ export default function EmployeeAttendanceDetailPage() {
   const geofence = shiftAssignment?.location?.geofence;
   const geofenceCoords = geofence?.coordinates as any;
 
+  // Break duration
+  const breakDuration = selectedRecord?.breaks?.reduce((sum: number, b: any) => sum + (b.durationMinutes || 0), 0) || 0;
+  const totalHours = Number(selectedRecord?.totalHours || 0);
+  const activeHours = Math.max(0, totalHours - breakDuration / 60);
+
+  // Late/early calculations
+  const lateBy = (() => {
+    if (!selectedRecord?.checkIn || !shift) return 0;
+    const [h, m] = shift.startTime.split(':').map(Number);
+    const shiftStart = new Date(selectedRecord.checkIn);
+    shiftStart.setHours(h, m, 0, 0);
+    const diff = Math.round((new Date(selectedRecord.checkIn).getTime() - shiftStart.getTime()) / 60000);
+    return Math.max(0, diff);
+  })();
+
+  const earlyExitBy = (() => {
+    if (!selectedRecord?.checkOut || !shift) return 0;
+    const [h, m] = shift.endTime.split(':').map(Number);
+    const shiftEnd = new Date(selectedRecord.checkOut);
+    shiftEnd.setHours(h, m, 0, 0);
+    const diff = Math.round((shiftEnd.getTime() - new Date(selectedRecord.checkOut).getTime()) / 60000);
+    return Math.max(0, diff);
+  })();
+
+  const overtime = totalHours > Number(shift?.fullDayHours || 8) ? totalHours - Number(shift?.fullDayHours || 8) : 0;
+
   return (
     <div className="page-container">
-      {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <button onClick={() => navigate('/attendance')} className="p-2 rounded-lg hover:bg-surface-2"><ArrowLeft size={20} /></button>
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-lg">
+      {/* ========== ENHANCED HEADER ========== */}
+      <div className="layer-card p-4 mb-4">
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate('/attendance')} className="p-2 rounded-lg hover:bg-surface-2 flex-shrink-0">
+            <ArrowLeft size={18} />
+          </button>
+          <div className="w-11 h-11 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-base flex-shrink-0">
             {getInitials(employee.firstName, employee.lastName)}
           </div>
-          <div>
-            <h1 className="text-xl font-display font-bold text-gray-900">{employee.firstName} {employee.lastName}</h1>
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <span className="font-mono text-xs" data-mono>{employee.employeeCode}</span>
-              {employee.department?.name && <span>· {employee.department.name}</span>}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg font-display font-bold text-gray-900">{employee.firstName} {employee.lastName}</h1>
+              <span className="text-[10px] font-mono text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded" data-mono>{employee.employeeCode}</span>
               {shift && (
-                <span className={cn('badge text-[10px] ml-1', SHIFT_TYPE_BADGE[shiftType] || SHIFT_TYPE_BADGE.OFFICE)}>
-                  {shiftType} — {shift.name}
+                <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-medium', SHIFT_BADGE[shiftType] || SHIFT_BADGE.OFFICE)}>
+                  {shift.name} ({shift.startTime}–{shift.endTime})
                 </span>
               )}
             </div>
+            <div className="flex items-center gap-3 text-[11px] text-gray-500 mt-0.5">
+              {employee.department?.name && <span className="flex items-center gap-1"><Building size={10} /> {employee.department.name}</span>}
+              {employee.designation?.name && <span className="flex items-center gap-1"><Briefcase size={10} /> {employee.designation.name}</span>}
+              {employee.manager && <span className="flex items-center gap-1"><User size={10} /> {employee.manager.firstName} {employee.manager.lastName}</span>}
+              <span className="flex items-center gap-1"><MapPin size={10} /> {employee.workMode?.replace(/_/g, ' ') || 'Office'}</span>
+            </div>
+          </div>
+          {/* Header actions */}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <button className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
+              <PenSquare size={11} /> Regularize
+            </button>
+            <button className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
+              <Download size={11} /> Export
+            </button>
+            <button className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
+              <ClipboardList size={11} /> Audit
+            </button>
           </div>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Left: Selected Date Detail */}
-        <div className="lg:col-span-1 space-y-4">
-          {/* Date status */}
-          <div className="layer-card p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">{formatDate(selectedDate, 'long')}</h3>
+      <div className="grid lg:grid-cols-3 gap-4">
+        {/* ========== LEFT COLUMN ========== */}
+        <div className="lg:col-span-1 space-y-3">
+          {/* Daily Summary (enriched) */}
+          <div className="layer-card p-4">
+            <h3 className="text-xs font-semibold text-gray-700 mb-2.5">{formatDate(selectedDate, 'long')}</h3>
             {selectedRecord ? (
-              <div className="space-y-3">
+              <div className="space-y-2">
+                {/* Status */}
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">Status</span>
-                  <span className={cn('badge text-xs', getStatusColor(selectedRecord.status))}>{selectedRecord.status?.replace(/_/g, ' ')}</span>
+                  <span className="text-[10px] text-gray-400">Status</span>
+                  <span className={cn('badge text-[10px]', getStatusColor(selectedRecord.status))}>{selectedRecord.status?.replace(/_/g, ' ')}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">Check In</span>
-                  <span className="text-sm font-mono text-gray-700" data-mono>
-                    {selectedRecord.checkIn ? new Date(selectedRecord.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '--'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">Check Out</span>
-                  <span className="text-sm font-mono text-gray-700" data-mono>
-                    {selectedRecord.checkOut ? new Date(selectedRecord.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '--'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">Total Hours</span>
-                  <span className="text-sm font-mono font-bold text-gray-800" data-mono>
-                    {selectedRecord.totalHours ? `${Number(selectedRecord.totalHours).toFixed(1)}h` : '--'}
-                  </span>
-                </div>
-                {(selectedRecord.activeMinutes > 0 || selectedRecord.activityPulses > 0) && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400">Active Time</span>
-                    <span className="text-sm font-mono text-brand-600 font-bold" data-mono>
-                      {Math.floor((selectedRecord.activeMinutes || 0) / 60)}h {(selectedRecord.activeMinutes || 0) % 60}m
-                    </span>
+                {/* Check-in / Check-out */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-emerald-50 rounded-lg p-2 text-center">
+                    <p className="text-[9px] text-emerald-600 font-medium">Check In</p>
+                    <p className="text-sm font-mono font-bold text-emerald-700" data-mono>{formatTime(selectedRecord.checkIn)}</p>
                   </div>
-                )}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">Work Mode</span>
-                  <span className="text-xs text-gray-600">{selectedRecord.workMode || 'OFFICE'}</span>
+                  <div className="bg-red-50 rounded-lg p-2 text-center">
+                    <p className="text-[9px] text-red-500 font-medium">Check Out</p>
+                    <p className="text-sm font-mono font-bold text-red-600" data-mono>{formatTime(selectedRecord.checkOut)}</p>
+                  </div>
                 </div>
+                {/* Hours grid */}
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div className="bg-surface-2 rounded-lg p-1.5 text-center">
+                    <p className="text-[9px] text-gray-400">Total</p>
+                    <p className="text-xs font-mono font-bold text-gray-700" data-mono>{totalHours ? `${totalHours.toFixed(1)}h` : '--'}</p>
+                  </div>
+                  <div className="bg-surface-2 rounded-lg p-1.5 text-center">
+                    <p className="text-[9px] text-gray-400">Active</p>
+                    <p className="text-xs font-mono font-bold text-blue-600" data-mono>{totalHours ? `${activeHours.toFixed(1)}h` : '--'}</p>
+                  </div>
+                  <div className="bg-surface-2 rounded-lg p-1.5 text-center">
+                    <p className="text-[9px] text-gray-400">Break</p>
+                    <p className="text-xs font-mono font-bold text-amber-600" data-mono>{breakDuration > 0 ? `${breakDuration}m` : '--'}</p>
+                  </div>
+                </div>
+                {/* Late / Early / Overtime */}
+                <div className="flex gap-2">
+                  {lateBy > 0 && (
+                    <span className="text-[9px] px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-full border border-amber-200 font-medium">
+                      Late by {lateBy}m
+                    </span>
+                  )}
+                  {earlyExitBy > 0 && (
+                    <span className="text-[9px] px-1.5 py-0.5 bg-orange-50 text-orange-700 rounded-full border border-orange-200 font-medium">
+                      Early exit {earlyExitBy}m
+                    </span>
+                  )}
+                  {overtime > 0 && (
+                    <span className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded-full border border-blue-200 font-medium">
+                      OT {overtime.toFixed(1)}h
+                    </span>
+                  )}
+                </div>
+                {/* Source + Mode */}
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-gray-400">Source: <span className="text-gray-600">{selectedRecord.source || 'MANUAL_APP'}</span></span>
+                  <span className="text-gray-400">Mode: <span className="text-gray-600">{selectedRecord.workMode || 'OFFICE'}</span></span>
+                </div>
+                {/* Anomalies */}
                 {selectedRecord.geofenceViolation && (
-                  <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-100">
-                    <p className="text-xs font-medium text-red-600 flex items-center gap-1">
-                      <Flag size={10} /> Marked outside geofence area
-                    </p>
+                  <div className="p-2 bg-red-50 rounded-lg border border-red-100">
+                    <p className="text-[10px] font-medium text-red-600 flex items-center gap-1"><Flag size={10} /> Outside geofence area</p>
                   </div>
                 )}
                 {selectedRecord.clockInCount > 1 && (
-                  <div className="mt-2 p-2 bg-amber-50 rounded-lg border border-amber-100">
-                    <p className="text-xs font-medium text-amber-600">
-                      Re-clocked in {selectedRecord.clockInCount - 1} time(s)
-                    </p>
+                  <div className="p-2 bg-amber-50 rounded-lg border border-amber-100">
+                    <p className="text-[10px] font-medium text-amber-600">Re-clocked in {selectedRecord.clockInCount - 1} time(s)</p>
+                  </div>
+                )}
+                {/* Detail anomalies from API */}
+                {detail?.anomalies?.length > 0 && (
+                  <div className="space-y-1">
+                    {detail.anomalies.map((a: any) => (
+                      <div key={a.id} className={cn('p-1.5 rounded-lg text-[10px] font-medium', ANOMALY_COLORS[a.type] || 'bg-gray-50 text-gray-600')}>
+                        <AlertTriangle size={9} className="inline mr-1" />{a.description}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
             ) : (
-              <p className="text-sm text-gray-400 text-center py-4">No record for this date</p>
+              <p className="text-xs text-gray-400 text-center py-4">No record for this date</p>
             )}
           </div>
 
-          {/* Attendance Event Logs */}
+          {/* Attendance Timeline (enriched) */}
           {attendanceLogs.length > 0 && (
-            <div className="layer-card p-5">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                <Clock size={14} className="text-brand-500" /> Attendance Timeline
+            <div className="layer-card p-4">
+              <h3 className="text-xs font-semibold text-gray-700 mb-2.5 flex items-center gap-1.5">
+                <Clock size={12} className="text-brand-500" /> Attendance Timeline
               </h3>
               <div className="space-y-0">
                 {attendanceLogs.map((log: any, idx: number) => {
-                  const actionIcons: Record<string, any> = {
-                    CLOCK_IN: <LogIn size={12} className="text-emerald-500" />,
-                    RE_CLOCK_IN: <LogIn size={12} className="text-amber-500" />,
-                    CLOCK_OUT: <LogOut size={12} className="text-red-500" />,
-                    BREAK_START: <Coffee size={12} className="text-amber-500" />,
-                    BREAK_END: <Play size={12} className="text-blue-500" />,
+                  const colors = TIMELINE_COLORS[log.action] || { bg: 'bg-gray-50', icon: 'text-gray-400', border: 'border-gray-200' };
+                  const icons: Record<string, any> = {
+                    CLOCK_IN: <LogIn size={11} className={colors.icon} />,
+                    RE_CLOCK_IN: <LogIn size={11} className={colors.icon} />,
+                    CLOCK_OUT: <LogOut size={11} className={colors.icon} />,
+                    BREAK_START: <Coffee size={11} className={colors.icon} />,
+                    BREAK_END: <Play size={11} className={colors.icon} />,
                   };
-                  const actionLabels: Record<string, string> = {
-                    CLOCK_IN: 'Checked In',
-                    RE_CLOCK_IN: 'Re-Checked In',
-                    CLOCK_OUT: 'Checked Out',
-                    BREAK_START: 'Break Started',
-                    BREAK_END: 'Break Ended',
+                  const labels: Record<string, string> = {
+                    CLOCK_IN: 'Checked In', RE_CLOCK_IN: 'Re-Checked In',
+                    CLOCK_OUT: 'Checked Out', BREAK_START: 'Break Started', BREAK_END: 'Break Ended',
                   };
+                  const isViolation = log.geofenceStatus === 'OUTSIDE';
                   return (
-                    <div key={log.id || idx} className="flex items-start gap-3 py-2 relative">
-                      {idx < attendanceLogs.length - 1 && (
-                        <div className="absolute left-[11px] top-8 bottom-0 w-px bg-gray-200" />
-                      )}
-                      <div className="w-6 h-6 rounded-full bg-surface-2 flex items-center justify-center flex-shrink-0 z-10">
-                        {actionIcons[log.action] || <Clock size={12} className="text-gray-400" />}
+                    <div key={log.id || idx} className="flex items-start gap-2.5 py-1.5 relative">
+                      {idx < attendanceLogs.length - 1 && <div className="absolute left-[10px] top-7 bottom-0 w-px bg-gray-200" />}
+                      <div className={cn('w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 z-10 border', colors.bg, colors.border)}>
+                        {icons[log.action] || <Clock size={11} className="text-gray-400" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
-                          <p className="text-xs font-medium text-gray-700">{actionLabels[log.action] || log.action}</p>
-                          <span className="text-[10px] font-mono text-gray-400" data-mono>
-                            {new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' })}
-                          </span>
+                          <p className={cn('text-[11px] font-medium', isViolation ? 'text-red-600' : 'text-gray-700')}>
+                            {labels[log.action] || log.action}
+                          </p>
+                          <span className="text-[9px] font-mono text-gray-400" data-mono>{formatTimeFull(log.timestamp)}</span>
                         </div>
-                        {log.geofenceStatus === 'OUTSIDE' && (
-                          <p className="text-[10px] text-red-500 flex items-center gap-0.5 mt-0.5">
-                            <Flag size={8} /> Outside geofence ({log.distanceMeters}m)
+                        {isViolation && (
+                          <p className="text-[9px] text-red-500 flex items-center gap-0.5 mt-0.5">
+                            <Flag size={8} /> Outside geofence ({log.distanceMeters}m away)
                           </p>
                         )}
-                        {log.notes && (
-                          <p className="text-[10px] text-gray-400 mt-0.5 truncate">{log.notes}</p>
-                        )}
-                        {log.shiftName && (
-                          <p className="text-[10px] text-blue-400 mt-0.5">Shift: {log.shiftName}</p>
-                        )}
+                        {log.notes && <p className="text-[9px] text-gray-400 mt-0.5 truncate">{log.notes}</p>}
+                        {log.shiftName && <p className="text-[9px] text-blue-400 mt-0.5">Shift: {log.shiftName}</p>}
                       </div>
                     </div>
                   );
@@ -265,28 +378,50 @@ export default function EmployeeAttendanceDetailPage() {
             </div>
           )}
 
-          {/* Check-in location map (for OFFICE/HYBRID) */}
-          {checkInLoc?.lat && (
-            <div className="layer-card overflow-hidden">
-              <div className="px-4 pt-3 pb-1"><p className="text-xs font-semibold text-gray-600">Check-in Location</p></div>
-              <div style={{ height: 200 }}>
-                <MapContainer center={[checkInLoc.lat, checkInLoc.lng]} zoom={15} style={{ height: '100%', width: '100%' }} scrollWheelZoom={false}>
-                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OSM" />
-                  <Marker position={[checkInLoc.lat, checkInLoc.lng]} />
-                  {geofenceCoords?.lat && (
-                    <Circle center={[geofenceCoords.lat, geofenceCoords.lng]} radius={geofence?.radiusMeters || 200}
-                      pathOptions={{ color: '#4f46e5', fillOpacity: 0.1 }} />
-                  )}
-                </MapContainer>
+          {/* Shift & Policy Block */}
+          {shift && (
+            <div className="layer-card p-4">
+              <h3 className="text-xs font-semibold text-gray-700 mb-2.5 flex items-center gap-1.5">
+                <Shield size={12} className="text-brand-500" /> Shift & Policy
+              </h3>
+              <div className="space-y-1.5 text-[11px]">
+                <div className="flex justify-between"><span className="text-gray-400">Assigned Shift</span><span className="text-gray-700 font-medium">{shift.name}</span></div>
+                <div className="flex justify-between"><span className="text-gray-400">Shift Window</span><span className="text-gray-700 font-mono" data-mono>{shift.startTime} – {shift.endTime}</span></div>
+                <div className="flex justify-between"><span className="text-gray-400">Grace Period</span><span className="text-gray-700">{shift.graceMinutes || 15} min</span></div>
+                <div className="flex justify-between"><span className="text-gray-400">Expected Hours</span><span className="text-gray-700">{Number(shift.fullDayHours || 8)}h full / {Number(shift.halfDayHours || 4)}h half</span></div>
+                <div className="flex justify-between"><span className="text-gray-400">Shift Type</span><span className="text-gray-700">{shiftType}</span></div>
+                {shiftAssignment?.location && (
+                  <div className="flex justify-between"><span className="text-gray-400">Office Location</span><span className="text-gray-700">{shiftAssignment.location.name}</span></div>
+                )}
               </div>
             </div>
           )}
 
-          {/* Monthly summary */}
+          {/* Leave/Payroll Impact */}
+          {detail?.leaveRequests?.length > 0 && (
+            <div className="layer-card p-4">
+              <h3 className="text-xs font-semibold text-gray-700 mb-2.5 flex items-center gap-1.5">
+                <FileText size={12} className="text-purple-500" /> Leave Impact
+              </h3>
+              {detail.leaveRequests.map((lr: any) => (
+                <div key={lr.id} className="bg-purple-50 rounded-lg p-2.5 mb-1.5 text-[11px]">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-purple-700">{lr.leaveType?.name}</span>
+                    <span className={cn('badge text-[9px]', getStatusColor(lr.status))}>{lr.status}</span>
+                  </div>
+                  <p className="text-purple-500 text-[10px] mt-0.5">
+                    {formatDate(lr.startDate)} – {formatDate(lr.endDate)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Monthly Summary */}
           {summary && (
-            <div className="layer-card p-5">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Monthly Summary</h3>
-              <div className="grid grid-cols-2 gap-2">
+            <div className="layer-card p-4">
+              <h3 className="text-xs font-semibold text-gray-700 mb-2.5">Monthly Summary</h3>
+              <div className="grid grid-cols-3 gap-1.5">
                 {[
                   { l: 'Present', v: summary.present, c: 'text-emerald-600' },
                   { l: 'Absent', v: summary.absent, c: 'text-red-500' },
@@ -295,9 +430,9 @@ export default function EmployeeAttendanceDetailPage() {
                   { l: 'Avg Hours', v: `${summary.averageHours || 0}h`, c: 'text-blue-600' },
                   { l: 'WFH', v: summary.workFromHome, c: 'text-teal-500' },
                 ].map(s => (
-                  <div key={s.l} className="text-center py-2 bg-surface-2 rounded-lg">
-                    <p className={cn('text-lg font-bold font-mono', s.c)} data-mono>{s.v}</p>
-                    <p className="text-[10px] text-gray-400">{s.l}</p>
+                  <div key={s.l} className="text-center py-1.5 bg-surface-2 rounded-lg">
+                    <p className={cn('text-sm font-bold font-mono', s.c)} data-mono>{s.v}</p>
+                    <p className="text-[9px] text-gray-400">{s.l}</p>
                   </div>
                 ))}
               </div>
@@ -305,26 +440,28 @@ export default function EmployeeAttendanceDetailPage() {
           )}
         </div>
 
-        {/* Right: Calendar + Activity */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Calendar */}
-          <div className="layer-card p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-display font-semibold text-gray-800 flex items-center gap-2">
-                <Calendar size={18} className="text-brand-500" /> {monthName}
+        {/* ========== RIGHT COLUMN (2 cols) ========== */}
+        <div className="lg:col-span-2 space-y-4">
+          {/* Calendar with compact status indicators */}
+          <div className="layer-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-display font-semibold text-gray-800 flex items-center gap-1.5">
+                <Calendar size={14} className="text-brand-500" /> {monthName}
               </h2>
-              <div className="flex gap-2">
-                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
-                  className="p-2 rounded-lg hover:bg-surface-2"><ChevronLeft size={16} /></button>
-                <button onClick={() => { setCurrentMonth(new Date()); setSelectedDate(new Date().toISOString().split('T')[0]); }}
-                  className="text-sm text-brand-600 px-3 py-1.5 rounded-lg hover:bg-brand-50 font-medium">Today</button>
-                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
-                  className="p-2 rounded-lg hover:bg-surface-2"><ChevronRight size={16} /></button>
+              <div className="flex gap-1.5">
+                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))} className="p-1.5 rounded-lg hover:bg-surface-2">
+                  <ChevronLeft size={14} />
+                </button>
+                <button onClick={() => { setCurrentMonth(new Date()); setSelectedDate(new Date().toISOString().split('T')[0]); }} className="text-[10px] text-brand-600 px-2.5 py-1 rounded-lg hover:bg-brand-50 font-medium">Today</button>
+                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))} className="p-1.5 rounded-lg hover:bg-surface-2">
+                  <ChevronRight size={14} />
+                </button>
               </div>
             </div>
-            <div className="grid grid-cols-7 gap-1 mb-1">
+
+            <div className="grid grid-cols-7 gap-1 mb-0.5">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                <div key={d} className="text-center text-xs font-semibold text-gray-400 py-2">{d}</div>
+                <div key={d} className="text-center text-[9px] font-semibold text-gray-400 py-1">{d}</div>
               ))}
             </div>
             <div className="grid grid-cols-7 gap-1">
@@ -332,130 +469,151 @@ export default function EmployeeAttendanceDetailPage() {
                 <button key={idx} disabled={day.date === 0}
                   onClick={() => day.dateStr && setSelectedDate(day.dateStr)}
                   className={cn(
-                    'aspect-square rounded-lg flex flex-col items-center justify-center text-sm transition-all relative',
+                    'aspect-square rounded-lg flex flex-col items-center justify-center text-[10px] transition-all relative p-0.5',
                     day.date === 0 && 'invisible',
                     day.isSelected && 'ring-2 ring-brand-500 ring-offset-1',
                     day.isToday && !day.isSelected && 'ring-1 ring-brand-300',
-                    STATUS_COLORS[day.status] || (day.date > 0 ? 'bg-white hover:bg-gray-50' : ''),
+                    STATUS_BG[day.status] || (day.date > 0 ? 'bg-white hover:bg-gray-50' : ''),
                   )}>
-                  <span className={cn('font-medium text-xs', day.isToday ? 'text-brand-600' : 'text-gray-700', day.status === 'WEEKEND' && 'text-gray-400')}>
+                  <span className={cn('font-medium leading-none', day.isToday ? 'text-brand-600' : 'text-gray-700', day.status === 'WEEKEND' && 'text-gray-400')}>
                     {day.date > 0 ? day.date : ''}
                   </span>
                   {day.status && day.date > 0 && (
                     <div className="flex items-center gap-0.5 mt-0.5">
-                      <div className={cn('w-1.5 h-1.5 rounded-full', DOT_COLORS[day.status])} />
-                      {day.record?.geofenceViolation && <Flag size={7} className="text-red-500" />}
+                      <span className={cn('text-[7px] font-bold leading-none',
+                        day.status === 'PRESENT' ? 'text-emerald-600' :
+                        day.status === 'ABSENT' ? 'text-red-500' :
+                        day.status === 'HALF_DAY' ? 'text-amber-600' :
+                        day.status === 'ON_LEAVE' ? 'text-purple-500' :
+                        day.status === 'WORK_FROM_HOME' ? 'text-teal-500' :
+                        day.status === 'HOLIDAY' ? 'text-blue-500' :
+                        'text-gray-400'
+                      )}>
+                        {STATUS_LABEL[day.status] || ''}
+                      </span>
+                      {day.hasAnomaly && <Flag size={6} className="text-red-500" />}
+                      {day.isMissingPunch && <AlertTriangle size={6} className="text-amber-500" />}
                     </div>
+                  )}
+                  {day.record?.totalHours && (
+                    <span className="text-[7px] font-mono text-gray-400 leading-none" data-mono>
+                      {Number(day.record.totalHours).toFixed(1)}h
+                    </span>
                   )}
                 </button>
               ))}
             </div>
-            <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t border-gray-100">
+
+            {/* Legend */}
+            <div className="flex flex-wrap gap-2.5 mt-3 pt-2.5 border-t border-gray-100">
               {[
-                { l: 'Present', c: 'bg-emerald-500' }, { l: 'Absent', c: 'bg-red-400' },
-                { l: 'Half Day', c: 'bg-amber-400' }, { l: 'Leave', c: 'bg-purple-400' },
-                { l: 'WFH', c: 'bg-teal-400' }, { l: 'Weekend', c: 'bg-gray-300' },
+                { l: 'P', desc: 'Present', c: 'text-emerald-600 bg-emerald-50' },
+                { l: 'A', desc: 'Absent', c: 'text-red-500 bg-red-50' },
+                { l: 'HD', desc: 'Half Day', c: 'text-amber-600 bg-amber-50' },
+                { l: 'L', desc: 'Leave', c: 'text-purple-500 bg-purple-50' },
+                { l: 'WFH', desc: 'WFH', c: 'text-teal-500 bg-teal-50' },
+                { l: 'WO', desc: 'Week Off', c: 'text-gray-400 bg-gray-50' },
+                { l: 'H', desc: 'Holiday', c: 'text-blue-500 bg-blue-50' },
               ].map(i => (
-                <div key={i.l} className="flex items-center gap-1.5">
-                  <div className={cn('w-2 h-2 rounded-full', i.c)} />
-                  <span className="text-[10px] text-gray-500">{i.l}</span>
+                <div key={i.l} className="flex items-center gap-1">
+                  <span className={cn('text-[8px] font-bold px-1 rounded', i.c)}>{i.l}</span>
+                  <span className="text-[9px] text-gray-400">{i.desc}</span>
                 </div>
               ))}
+              <div className="flex items-center gap-1">
+                <Flag size={8} className="text-red-500" />
+                <span className="text-[9px] text-gray-400">Anomaly</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <AlertTriangle size={8} className="text-amber-500" />
+                <span className="text-[9px] text-gray-400">Missing Punch</span>
+              </div>
             </div>
           </div>
 
-          {/* GPS Trail for FIELD employees */}
-          {shiftType === 'FIELD' && gpsTrail.length > 0 && (
-            <div className="layer-card overflow-hidden">
-              <div className="px-5 pt-4 pb-2">
-                <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <Activity size={14} className="text-green-500" /> GPS Trail — {formatDate(selectedDate, 'long')}
-                </h3>
-                <p className="text-xs text-gray-400">{gpsTrail.length} points recorded</p>
-              </div>
-              <div style={{ height: 300 }}>
-                <MapContainer center={[gpsTrail[0]?.lat || gpsTrail[0]?.latitude || 28.6, gpsTrail[0]?.lng || gpsTrail[0]?.longitude || 77.2]} zoom={13}
-                  style={{ height: '100%', width: '100%' }}>
-                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OSM" />
-                  <Polyline positions={gpsTrail.map((p: any) => [p.lat || p.latitude, p.lng || p.longitude])}
-                    pathOptions={{ color: '#10b981', weight: 3 }} />
-                  <Marker position={[gpsTrail[0]?.lat || gpsTrail[0]?.latitude, gpsTrail[0]?.lng || gpsTrail[0]?.longitude]} />
-                  {gpsTrail.length > 1 && (
-                    <Marker position={[gpsTrail[gpsTrail.length - 1]?.lat || gpsTrail[gpsTrail.length - 1]?.latitude, gpsTrail[gpsTrail.length - 1]?.lng || gpsTrail[gpsTrail.length - 1]?.longitude]} />
-                  )}
-                </MapContainer>
-              </div>
-            </div>
+          {/* Map Section (lazy loaded) */}
+          {(checkInLoc?.lat || (shiftType === 'FIELD' && gpsTrail.length > 0)) && (
+            <Suspense fallback={<div className="layer-card p-6 text-center"><div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" /></div>}>
+              <MapSection
+                checkInLoc={checkInLoc}
+                geofenceCoords={geofenceCoords}
+                geofence={geofence}
+                shiftType={shiftType}
+                gpsTrail={gpsTrail}
+                selectedDate={selectedDate}
+                geofenceViolation={selectedRecord?.geofenceViolation}
+              />
+            </Suspense>
           )}
 
-          {/* Hybrid tracking stats */}
-          {shiftType === 'HYBRID' && (
-            <div className="layer-card p-5">
-              <h3 className="text-sm font-semibold text-purple-700 mb-3">Hybrid Tracking — {monthName}</h3>
-              <div className="grid grid-cols-3 gap-3 mb-3">
-                {(() => {
-                  const officeDays = records.filter((r: any) => r.workMode === 'OFFICE' && r.status === 'PRESENT').length;
-                  const wfhDays = records.filter((r: any) => ['HYBRID', 'REMOTE', 'WORK_FROM_HOME'].includes(r.workMode) && r.status === 'PRESENT').length;
-                  const totalActive = records.reduce((sum: number, r: any) => sum + (r.activeMinutes || 0), 0);
-                  return [
-                    { l: 'Office Days', v: officeDays, c: 'text-blue-600', bg: 'bg-blue-50' },
-                    { l: 'WFH Days', v: wfhDays, c: 'text-teal-600', bg: 'bg-teal-50' },
-                    { l: 'Avg Active/Day', v: `${Math.round(totalActive / Math.max(officeDays + wfhDays, 1))}m`, c: 'text-purple-600', bg: 'bg-purple-50' },
-                  ].map(s => (
-                    <div key={s.l} className={cn('text-center py-3 rounded-lg', s.bg)}>
-                      <p className={cn('text-lg font-bold font-mono', s.c)} data-mono>{s.v}</p>
-                      <p className="text-[10px] text-gray-500">{s.l}</p>
-                    </div>
-                  ));
-                })()}
-              </div>
-              <div className="text-[10px] text-gray-400 space-y-0.5">
-                <p>Office days: Geofence check-in/out + location verified</p>
-                <p>WFH days: Browser activity tracked via Page Visibility API + periodic check-ins</p>
-                <p>Active time measures how long the HRMS tab was active in the browser</p>
-              </div>
-            </div>
-          )}
-
-          {/* Desktop Agent — App Usage & Screenshots */}
-          {activityData?.summary && activityData.summary.logCount > 0 && (
-            <div className="layer-card p-5">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                <Activity size={14} className="text-brand-500" /> Desktop Activity — {formatDate(selectedDate)}
+          {/* Regularization History */}
+          {detail?.regularizations?.length > 0 && (
+            <div className="layer-card p-4">
+              <h3 className="text-xs font-semibold text-gray-700 mb-2.5 flex items-center gap-1.5">
+                <FileText size={12} className="text-indigo-500" /> Regularization History
               </h3>
-              <div className="grid grid-cols-4 gap-3 mb-4">
-                <div className="text-center py-2 bg-emerald-50 rounded-lg">
-                  <p className="text-lg font-bold font-mono text-emerald-600" data-mono>{activityData.summary.totalActiveMinutes}m</p>
-                  <p className="text-[10px] text-gray-500">Active</p>
+              <div className="space-y-2">
+                {detail.regularizations.map((r: any) => (
+                  <div key={r.id} className="bg-surface-2 rounded-lg p-2.5 text-[11px]">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-gray-500">Date: {formatDate(r.attendance?.date)}</span>
+                      <span className={cn('badge text-[9px]',
+                        r.status === 'PENDING' ? 'badge-warning' :
+                        r.status === 'APPROVED' ? 'badge-success' : 'badge-error'
+                      )}>{r.status}</span>
+                    </div>
+                    <p className="text-gray-600">{r.reason}</p>
+                    {r.requestedCheckIn && (
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        Requested: {formatTime(r.requestedCheckIn)} → {formatTime(r.requestedCheckOut)}
+                      </p>
+                    )}
+                    {r.approverRemarks && (
+                      <p className="text-[10px] text-gray-400 mt-0.5 italic">Remarks: {r.approverRemarks}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Desktop Activity */}
+          {activityData?.summary && activityData.summary.logCount > 0 && (
+            <div className="layer-card p-4">
+              <h3 className="text-xs font-semibold text-gray-700 mb-2.5 flex items-center gap-1.5">
+                <Activity size={12} className="text-brand-500" /> Desktop Activity — {formatDate(selectedDate)}
+              </h3>
+              <div className="grid grid-cols-4 gap-2 mb-3">
+                <div className="text-center py-1.5 bg-emerald-50 rounded-lg">
+                  <p className="text-sm font-bold font-mono text-emerald-600" data-mono>{activityData.summary.totalActiveMinutes}m</p>
+                  <p className="text-[9px] text-gray-500">Active</p>
                 </div>
-                <div className="text-center py-2 bg-gray-50 rounded-lg">
-                  <p className="text-lg font-bold font-mono text-gray-500" data-mono>{activityData.summary.totalIdleMinutes}m</p>
-                  <p className="text-[10px] text-gray-500">Idle</p>
+                <div className="text-center py-1.5 bg-gray-50 rounded-lg">
+                  <p className="text-sm font-bold font-mono text-gray-500" data-mono>{activityData.summary.totalIdleMinutes}m</p>
+                  <p className="text-[9px] text-gray-500">Idle</p>
                 </div>
-                <div className="text-center py-2 bg-blue-50 rounded-lg">
-                  <p className="text-lg font-bold font-mono text-blue-600" data-mono>{activityData.summary.totalKeystrokes}</p>
-                  <p className="text-[10px] text-gray-500">Keystrokes</p>
+                <div className="text-center py-1.5 bg-blue-50 rounded-lg">
+                  <p className="text-sm font-bold font-mono text-blue-600" data-mono>{activityData.summary.totalKeystrokes}</p>
+                  <p className="text-[9px] text-gray-500">Keystrokes</p>
                 </div>
-                <div className="text-center py-2 bg-purple-50 rounded-lg">
-                  <p className="text-lg font-bold font-mono text-purple-600" data-mono>{activityData.summary.totalClicks}</p>
-                  <p className="text-[10px] text-gray-500">Clicks</p>
+                <div className="text-center py-1.5 bg-purple-50 rounded-lg">
+                  <p className="text-sm font-bold font-mono text-purple-600" data-mono>{activityData.summary.totalClicks}</p>
+                  <p className="text-[9px] text-gray-500">Clicks</p>
                 </div>
               </div>
-
-              {/* Top Apps */}
               {activityData.summary.topApps?.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs font-semibold text-gray-600 mb-2">Top Applications</p>
-                  <div className="space-y-1.5">
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-600 mb-1.5">Top Applications</p>
+                  <div className="space-y-1">
                     {activityData.summary.topApps.slice(0, 5).map((app: any, i: number) => {
-                      const maxMinutes = activityData.summary.topApps[0].minutes || 1;
+                      const max = activityData.summary.topApps[0].minutes || 1;
                       return (
                         <div key={i} className="flex items-center gap-2">
-                          <span className="text-xs text-gray-600 w-28 truncate">{app.app}</span>
-                          <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-brand-400 rounded-full" style={{ width: `${Math.max((app.minutes / maxMinutes) * 100, 5)}%` }} />
+                          <span className="text-[10px] text-gray-600 w-24 truncate">{app.app}</span>
+                          <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-brand-400 rounded-full" style={{ width: `${Math.max((app.minutes / max) * 100, 5)}%` }} />
                           </div>
-                          <span className="text-[10px] font-mono text-gray-500 w-10 text-right" data-mono>{app.minutes}m</span>
+                          <span className="text-[9px] font-mono text-gray-500 w-8 text-right" data-mono>{app.minutes}m</span>
                         </div>
                       );
                     })}
@@ -465,17 +623,17 @@ export default function EmployeeAttendanceDetailPage() {
             </div>
           )}
 
-          {/* Screenshots Gallery */}
+          {/* Screenshots */}
           {screenshots.length > 0 && (
-            <div className="layer-card p-5">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Screenshots ({screenshots.length})</h3>
-              <div className="grid grid-cols-3 gap-3">
+            <div className="layer-card p-4">
+              <h3 className="text-xs font-semibold text-gray-700 mb-2.5">Screenshots ({screenshots.length})</h3>
+              <div className="grid grid-cols-4 gap-2">
                 {screenshots.map((s: any) => (
                   <div key={s.id} className="group relative cursor-pointer" onClick={() => window.open(s.imageUrl, '_blank')}>
-                    <img src={s.imageUrl} alt={s.activeApp || 'Screenshot'} className="w-full h-24 object-cover rounded-lg border border-gray-200 group-hover:border-brand-300 transition-colors" />
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 rounded-b-lg px-2 py-1">
-                      <p className="text-[9px] text-white truncate">{s.activeApp || 'Desktop'}</p>
-                      <p className="text-[8px] text-gray-300">{new Date(s.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}</p>
+                    <img src={s.imageUrl} alt={s.activeApp || 'Screenshot'} className="w-full h-20 object-cover rounded-lg border border-gray-200 group-hover:border-brand-300" />
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 rounded-b-lg px-1.5 py-0.5">
+                      <p className="text-[8px] text-white truncate">{s.activeApp || 'Desktop'}</p>
+                      <p className="text-[7px] text-gray-300">{formatTime(s.timestamp)}</p>
                     </div>
                   </div>
                 ))}
@@ -483,52 +641,44 @@ export default function EmployeeAttendanceDetailPage() {
             </div>
           )}
 
-          {/* Daily records table */}
+          {/* Daily Records Table */}
           <div className="layer-card overflow-hidden">
-            <div className="px-5 pt-4 pb-2">
-              <h3 className="text-sm font-semibold text-gray-700">Daily Records</h3>
+            <div className="px-4 pt-3 pb-1.5">
+              <h3 className="text-xs font-semibold text-gray-700">Daily Records</h3>
             </div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left text-xs text-gray-500 px-5 py-2">Date</th>
-                  <th className="text-left text-xs text-gray-500 px-5 py-2">Check In</th>
-                  <th className="text-left text-xs text-gray-500 px-5 py-2">Check Out</th>
-                  <th className="text-left text-xs text-gray-500 px-5 py-2">Hours</th>
-                  <th className="text-left text-xs text-gray-500 px-5 py-2">Status</th>
-                  <th className="text-left text-xs text-gray-500 px-5 py-2 hidden md:table-cell">Active</th>
-                  <th className="text-left text-xs text-gray-500 px-5 py-2 hidden md:table-cell">Mode</th>
-                  <th className="text-left text-xs text-gray-500 px-5 py-2 hidden md:table-cell">Flags</th>
-                </tr>
-              </thead>
-              <tbody>
-                {records.slice(0, 31).map((r: any, i: number) => (
-                  <tr key={i} onClick={() => setSelectedDate(new Date(r.date).toISOString().split('T')[0])}
-                    className={cn('border-b border-gray-50 hover:bg-surface-2 cursor-pointer',
-                      new Date(r.date).toISOString().split('T')[0] === selectedDate && 'bg-brand-50')}>
-                    <td className="px-5 py-2 text-xs text-gray-600">{formatDate(r.date)}</td>
-                    <td className="px-5 py-2 text-xs font-mono text-gray-600" data-mono>
-                      {r.checkIn ? new Date(r.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '--'}
-                    </td>
-                    <td className="px-5 py-2 text-xs font-mono text-gray-600" data-mono>
-                      {r.checkOut ? new Date(r.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '--'}
-                    </td>
-                    <td className="px-5 py-2 text-xs font-mono text-gray-600" data-mono>
-                      {r.totalHours ? `${Number(r.totalHours).toFixed(1)}h` : '--'}
-                    </td>
-                    <td className="px-5 py-2"><span className={cn('badge text-[10px]', getStatusColor(r.status))}>{r.status?.replace(/_/g, ' ')}</span></td>
-                    <td className="px-5 py-2 text-xs font-mono text-gray-500 hidden md:table-cell" data-mono>
-                      {r.activeMinutes ? `${Math.floor(r.activeMinutes / 60)}h${r.activeMinutes % 60}m` : '--'}
-                    </td>
-                    <td className="px-5 py-2 text-xs text-gray-400 hidden md:table-cell">{r.workMode || 'OFFICE'}</td>
-                    <td className="px-5 py-2 hidden md:table-cell">
-                      {r.geofenceViolation && <Flag size={12} className="text-red-500" title="Outside geofence" />}
-                      {r.clockInCount > 1 && <span className="text-[10px] text-amber-500 ml-1">×{r.clockInCount}</span>}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="text-left text-[10px] text-gray-500 px-4 py-1.5">Date</th>
+                    <th className="text-left text-[10px] text-gray-500 px-4 py-1.5">In</th>
+                    <th className="text-left text-[10px] text-gray-500 px-4 py-1.5">Out</th>
+                    <th className="text-left text-[10px] text-gray-500 px-4 py-1.5">Hours</th>
+                    <th className="text-left text-[10px] text-gray-500 px-4 py-1.5">Status</th>
+                    <th className="text-left text-[10px] text-gray-500 px-4 py-1.5 hidden md:table-cell">Mode</th>
+                    <th className="text-left text-[10px] text-gray-500 px-4 py-1.5 hidden md:table-cell">Flags</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {records.slice(0, 31).map((r: any, i: number) => (
+                    <tr key={i} onClick={() => setSelectedDate(new Date(r.date).toISOString().split('T')[0])}
+                      className={cn('border-b border-gray-50 hover:bg-surface-2 cursor-pointer',
+                        new Date(r.date).toISOString().split('T')[0] === selectedDate && 'bg-brand-50/50')}>
+                      <td className="px-4 py-1.5 text-gray-600">{formatDate(r.date)}</td>
+                      <td className="px-4 py-1.5 font-mono text-gray-600" data-mono>{formatTime(r.checkIn)}</td>
+                      <td className="px-4 py-1.5 font-mono text-gray-600" data-mono>{formatTime(r.checkOut)}</td>
+                      <td className="px-4 py-1.5 font-mono text-gray-600" data-mono>{r.totalHours ? `${Number(r.totalHours).toFixed(1)}h` : '--'}</td>
+                      <td className="px-4 py-1.5"><span className={cn('badge text-[9px]', getStatusColor(r.status))}>{r.status?.replace(/_/g, ' ')}</span></td>
+                      <td className="px-4 py-1.5 text-gray-400 hidden md:table-cell">{r.workMode || 'OFFICE'}</td>
+                      <td className="px-4 py-1.5 hidden md:table-cell">
+                        {r.geofenceViolation && <Flag size={10} className="text-red-500 inline" />}
+                        {r.clockInCount > 1 && <span className="text-[9px] text-amber-500 ml-1">x{r.clockInCount}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

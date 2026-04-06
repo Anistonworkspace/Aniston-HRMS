@@ -36,6 +36,9 @@ export default {
           },
         },
       },
+      gridTemplateColumns: {
+        '13': 'repeat(13, minmax(0, 1fr))',
+      },
       borderRadius: {
         lg: '0.75rem',
         md: '0.5rem',

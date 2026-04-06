@@ -12,7 +12,7 @@ const REFRESH_TOKEN_PREFIX = 'refresh_token:';
 const RESET_TOKEN_PREFIX = 'reset_token:';
 
 export class AuthService {
-  async login(email: string, password: string) {
+  async login(email: string, password: string, deviceInfo?: { deviceId?: string; deviceType?: string; userAgent?: string; forceLogin?: boolean }) {
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase() },
       include: {
@@ -54,6 +54,32 @@ export class AuthService {
       throw new UnauthorizedError('Invalid email or password');
     }
 
+    // Device binding check (1 mobile + 1 desktop per user)
+    if (deviceInfo?.deviceId && deviceInfo?.deviceType && ['mobile', 'desktop'].includes(deviceInfo.deviceType)) {
+      const { deviceId, deviceType } = deviceInfo;
+      const existingSession = await prisma.deviceSession.findUnique({
+        where: { userId_deviceType: { userId: user.id, deviceType } },
+      });
+      if (existingSession?.isActive && existingSession.deviceId !== deviceId) {
+        if (!deviceInfo.forceLogin) {
+          throw new UnauthorizedError(
+            `Your account is already active on another ${deviceType}. ` +
+            `Click "Login on this device" to log out the other device automatically.`
+          );
+        }
+        // forceLogin=true — deactivate old session silently
+        await prisma.deviceSession.update({
+          where: { userId_deviceType: { userId: user.id, deviceType } },
+          data: { isActive: false },
+        });
+      }
+      await prisma.deviceSession.upsert({
+        where: { userId_deviceType: { userId: user.id, deviceType } },
+        create: { userId: user.id, deviceId, deviceType, userAgent: (deviceInfo.userAgent || '').slice(0, 200), isActive: true },
+        update: { deviceId, userAgent: (deviceInfo.userAgent || '').slice(0, 200), lastActiveAt: new Date(), isActive: true },
+      });
+    }
+
     // Generate tokens
     const accessToken = this.generateAccessToken(user);
     const refreshToken = await this.generateRefreshToken(user.id);
@@ -64,9 +90,11 @@ export class AuthService {
       data: { lastLoginAt: new Date() },
     });
 
-    const kycCompleted = user.employee?.documentGate?.kycStatus === 'VERIFIED';
     const exitAccess = user.employee?.exitAccessConfig;
-    const onboardingComplete = user.employee?.onboardingComplete ?? true;
+    // Admin roles always bypass onboarding/KYC gates
+    const isAdminRole = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(user.role);
+    const kycCompleted = isAdminRole ? true : (user.employee?.documentGate?.kycStatus === 'VERIFIED');
+    const onboardingComplete = isAdminRole ? true : (user.employee?.onboardingComplete ?? true);
 
     // Get feature permissions for non-admin active employees
     let featurePermissions = null;
@@ -260,9 +288,11 @@ export class AuthService {
       throw new NotFoundError('User');
     }
 
-    const kycCompleted = user.employee?.documentGate?.kycStatus === 'VERIFIED';
     const exitAccess = user.employee?.exitAccessConfig;
-    const onboardingComplete = user.employee?.onboardingComplete ?? true;
+    // Admin roles always bypass onboarding/KYC gates
+    const isAdminRole = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(user.role);
+    const kycCompleted = isAdminRole ? true : (user.employee?.documentGate?.kycStatus === 'VERIFIED');
+    const onboardingComplete = isAdminRole ? true : (user.employee?.onboardingComplete ?? true);
 
     let featurePermissions = null;
     const adminRoles = ['SUPER_ADMIN', 'ADMIN', 'HR'];
@@ -288,6 +318,7 @@ export class AuthService {
       department: user.employee?.department?.name,
       designation: user.employee?.designation?.name,
       workMode: user.employee?.workMode,
+      profileCompletion: this.calculateProfileCompletion(user.employee),
       kycCompleted,
       onboardingComplete,
       featurePermissions,
@@ -308,6 +339,23 @@ export class AuthService {
         accessExpiresAt: exitAccess.accessExpiresAt?.toISOString(),
       } : null,
     };
+  }
+
+  private calculateProfileCompletion(employee: any): number {
+    if (!employee) return 0;
+    const fields = [
+      employee.firstName && employee.lastName,
+      employee.phone,
+      employee.dateOfBirth,
+      employee.gender && employee.gender !== 'PREFER_NOT_TO_SAY',
+      employee.emergencyContact,
+      employee.department,
+      employee.designation,
+      employee.bankAccountNumber || employee.bankAccount,
+      (employee.documents?.length || 0) >= 1,
+      employee.avatar,
+    ];
+    return Math.round((fields.filter(Boolean).length / fields.length) * 100);
   }
 
   /** Generate tokens for a user (used by login + invitation accept) */

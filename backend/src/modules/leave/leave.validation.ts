@@ -11,8 +11,9 @@ export const applyLeaveSchema = z.object({
 });
 
 export const leaveActionSchema = z.object({
-  action: z.enum(['APPROVED', 'REJECTED', 'MANAGER_APPROVED']),
+  action: z.enum(['APPROVED', 'REJECTED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION']),
   remarks: z.string().optional(),
+  conditionNote: z.string().optional(),
 });
 
 export const leaveQuerySchema = z.object({
@@ -53,9 +54,42 @@ export const previewLeaveSchema = z.object({
   halfDaySession: z.enum(['FIRST_HALF', 'SECOND_HALF']).optional(),
 });
 
+// Draft flow schemas
+export const saveDraftSchema = z.object({
+  leaveTypeId: z.string().uuid(),
+  startDate: z.string().min(1, 'Start date is required'),
+  endDate: z.string().min(1, 'End date is required'),
+  isHalfDay: z.boolean().default(false),
+  halfDaySession: z.enum(['FIRST_HALF', 'SECOND_HALF']).optional(),
+  reason: z.string().optional().default(''),
+  attachmentUrl: z.string().optional(),
+});
+
+export const submitDraftSchema = z.object({
+  acknowledgements: z.object({
+    reviewedTasks: z.boolean(),
+    assignedHandover: z.boolean(),
+    acceptedVisibility: z.boolean(),
+  }).optional(),
+});
+
+export const updateHandoverSchema = z.object({
+  backupEmployeeId: z.string().uuid(),
+  handoverNotes: z.string().optional(),
+  taskHandovers: z.array(z.object({
+    taskExternalId: z.string().optional(),
+    taskTitle: z.string().optional(),
+    handoverNote: z.string().min(3),
+    backupEmployeeId: z.string().uuid(),
+  })).optional(),
+});
+
 export type PreviewLeaveInput = z.infer<typeof previewLeaveSchema>;
 export type ApplyLeaveInput = z.infer<typeof applyLeaveSchema>;
 export type LeaveActionInput = z.infer<typeof leaveActionSchema>;
 export type LeaveQuery = z.infer<typeof leaveQuerySchema>;
 export type CreateLeaveTypeInput = z.infer<typeof createLeaveTypeSchema>;
 export type UpdateLeaveTypeInput = z.infer<typeof updateLeaveTypeSchema>;
+export type SaveDraftInput = z.infer<typeof saveDraftSchema>;
+export type SubmitDraftInput = z.infer<typeof submitDraftSchema>;
+export type UpdateHandoverInput = z.infer<typeof updateHandoverSchema>;

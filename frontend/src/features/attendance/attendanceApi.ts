@@ -152,6 +152,54 @@ export const attendanceApi = api.injectEndpoints({
       query: ({ employeeId, ...body }) => ({ url: `/attendance/hybrid-schedule/${employeeId}`, method: 'PUT', body }),
       invalidatesTags: ['Attendance'],
     }),
+
+    // =========================================================================
+    // ENTERPRISE COMMAND CENTER
+    // =========================================================================
+
+    getCommandCenterStats: builder.query<any, { date?: string }>({
+      query: (params) => ({ url: '/attendance/command-center/stats', params }),
+      providesTags: ['Attendance'],
+    }),
+
+    getEnhancedAttendance: builder.query<any, {
+      page?: number; limit?: number; startDate?: string; endDate?: string;
+      department?: string; status?: string; workMode?: string; search?: string;
+      designation?: string; managerId?: string; shiftType?: string;
+      anomalyType?: string; regularizationStatus?: string; employeeType?: string;
+      sortBy?: string; sortOrder?: string;
+    }>({
+      query: (params) => ({ url: '/attendance/command-center/records', params }),
+      providesTags: ['Attendance'],
+    }),
+
+    getAnomalies: builder.query<any, {
+      date?: string; type?: string; severity?: string; resolution?: string;
+      employeeId?: string; page?: number; limit?: number;
+    }>({
+      query: (params) => ({ url: '/attendance/command-center/anomalies', params }),
+      providesTags: ['Attendance'],
+    }),
+
+    resolveAnomaly: builder.mutation<any, { id: string; resolution: string; remarks?: string }>({
+      query: ({ id, ...body }) => ({ url: `/attendance/command-center/anomalies/${id}/resolve`, method: 'PATCH', body }),
+      invalidatesTags: ['Attendance'],
+    }),
+
+    getLiveBoard: builder.query<any, void>({
+      query: () => '/attendance/command-center/live',
+      providesTags: ['Attendance'],
+    }),
+
+    detectAnomalies: builder.mutation<any, { date?: string }>({
+      query: (params) => ({ url: '/attendance/command-center/detect-anomalies', method: 'POST', params }),
+      invalidatesTags: ['Attendance'],
+    }),
+
+    getEmployeeAttendanceDetail: builder.query<any, { employeeId: string; date: string }>({
+      query: ({ employeeId, date }) => `/attendance/command-center/employee/${employeeId}/${date}`,
+      providesTags: ['Attendance'],
+    }),
   }),
 });
 
@@ -182,4 +230,12 @@ export const {
   useHandleRegularizationMutation,
   useGetHybridScheduleQuery,
   useSetHybridScheduleMutation,
+  // Enterprise Command Center
+  useGetCommandCenterStatsQuery,
+  useGetEnhancedAttendanceQuery,
+  useGetAnomaliesQuery,
+  useResolveAnomalyMutation,
+  useGetLiveBoardQuery,
+  useDetectAnomaliesMutation,
+  useGetEmployeeAttendanceDetailQuery,
 } = attendanceApi;

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAppSelector, useAppDispatch } from '../app/store';
 import { useGetMeQuery } from '../features/auth/authApi';
@@ -34,6 +34,20 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
       dispatch(logout());
     }
   }, [isError, shouldFetchUser, dispatch]);
+
+  // Safety timeout: if token verification takes >10s, force logout (stale token)
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    if (!shouldFetchUser) return;
+    const t = setTimeout(() => setTimedOut(true), 10000);
+    return () => clearTimeout(t);
+  }, [shouldFetchUser]);
+
+  useEffect(() => {
+    if (timedOut && shouldFetchUser) {
+      dispatch(logout());
+    }
+  }, [timedOut, shouldFetchUser, dispatch]);
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;

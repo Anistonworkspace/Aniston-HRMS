@@ -210,6 +210,116 @@ export class AttendanceController {
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
+  async projectSiteCheckIn(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employeeId = req.user!.employeeId;
+      if (!employeeId) {
+        res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
+        return;
+      }
+      const { siteName, siteAddress, notes, latitude, longitude, photoUrl } = req.body;
+      if (!siteName) {
+        res.status(400).json({ success: false, data: null, error: { code: 'VALIDATION', message: 'siteName is required' } });
+        return;
+      }
+      const result = await attendanceService.projectSiteCheckIn(employeeId, {
+        siteName, siteAddress, notes, latitude, longitude, checkInPhoto: photoUrl,
+      });
+      res.status(201).json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async getMyProjectSiteCheckIns(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employeeId = req.user!.employeeId;
+      if (!employeeId) {
+        res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
+        return;
+      }
+      const date = req.query.date as string | undefined;
+      const result = await attendanceService.getProjectSiteCheckIns(employeeId, date);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+  // =====================================================================
+  // ENTERPRISE COMMAND CENTER ENDPOINTS
+  // =====================================================================
+
+  async getCommandCenterStats(req: Request, res: Response, next: NextFunction) {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
+      const stats = await attendanceService.getCommandCenterStats(req.user!.organizationId, date);
+      res.json({ success: true, data: stats });
+    } catch (err) { next(err); }
+  }
+
+  async getAllAttendanceEnhanced(req: Request, res: Response, next: NextFunction) {
+    try {
+      const query = attendanceQuerySchema.parse(req.query);
+      const enhanced = {
+        ...query,
+        designation: req.query.designation as string,
+        managerId: req.query.managerId as string,
+        shiftType: req.query.shiftType as string,
+        anomalyType: req.query.anomalyType as string,
+        regularizationStatus: req.query.regularizationStatus as string,
+        employeeType: req.query.employeeType as string,
+        search: req.query.search as string,
+        sortBy: req.query.sortBy as string,
+        sortOrder: req.query.sortOrder as string,
+      };
+      const result = await attendanceService.getAllAttendanceEnhanced(enhanced, req.user!.organizationId);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  }
+
+  async getAnomalies(req: Request, res: Response, next: NextFunction) {
+    try {
+      const query = {
+        date: req.query.date as string,
+        type: req.query.type as string,
+        severity: req.query.severity as string,
+        resolution: req.query.resolution as string,
+        employeeId: req.query.employeeId as string,
+        page: parseInt(req.query.page as string) || 1,
+        limit: parseInt(req.query.limit as string) || 25,
+      };
+      const result = await attendanceService.getAnomalies(req.user!.organizationId, query);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  }
+
+  async resolveAnomaly(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { resolution, remarks } = req.body;
+      const result = await attendanceService.resolveAnomaly(id, resolution, req.user!.id, remarks);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async getLiveBoard(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await attendanceService.getLiveBoard(req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async detectAnomalies(req: Request, res: Response, next: NextFunction) {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
+      const result = await attendanceService.detectAnomalies(req.user!.organizationId, date);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async getEmployeeAttendanceDetail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId, date } = req.params;
+      const result = await attendanceService.getEmployeeAttendanceDetail(employeeId, date);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
 }
 
 export const attendanceController = new AttendanceController();
