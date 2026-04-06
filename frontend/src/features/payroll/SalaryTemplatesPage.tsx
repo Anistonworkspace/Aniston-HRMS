@@ -11,7 +11,7 @@ import {
   useDeleteSalaryTemplateMutation,
   useApplyTemplateMutation,
 } from './salaryTemplateApi';
-import { useGetEmployeeListQuery } from '../employee/employeeApi';
+import { useGetEmployeesQuery } from '../employee/employeeApi';
 import { formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -541,7 +541,7 @@ function ApplyTemplateModal({ templateId, onApply, applyForm, setApplyForm, onCl
   onClose: () => void;
 }) {
   const [empSearch, setEmpSearch] = useState('');
-  const { data: empRes } = useGetEmployeeListQuery({ limit: 500, status: 'ACTIVE' });
+  const { data: empRes } = useGetEmployeesQuery({ limit: 500, status: 'ACTIVE' });
   const employees = empRes?.data || [];
 
   const filteredEmployees = useMemo(() => {
