@@ -1,54 +1,107 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { MapPin, Camera, Check, Loader2, FileText, Clock } from 'lucide-react';
+import { MapPin, Camera, Check, Loader2, FileText, Clock, X } from 'lucide-react';
 import { useProjectSiteCheckInMutation, useGetProjectSiteCheckInsQuery } from './attendanceApi';
+import { useGetLocationsQuery } from '../workforce/workforceApi';
 import toast from 'react-hot-toast';
-
-const SAMPLE_SITES = [
-  'Construction Site A — Noida Sector 62',
-  'Client Office — Gurgaon',
-  'Warehouse — Manesar',
-  'Branch Office — Dwarka',
-  'Event Venue — CP',
-];
 
 export default function ProjectSiteView() {
   const [siteName, setSiteName] = useState('');
   const [notes, setNotes] = useState('');
-  const [photoUrl, setPhotoUrl] = useState('');
-  const [isCapturing, setIsCapturing] = useState(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [checkIn, { isLoading }] = useProjectSiteCheckInMutation();
   const { data: checkInsData } = useGetProjectSiteCheckInsQuery({});
+  const { data: locationsData } = useGetLocationsQuery();
 
+  const locations = locationsData?.data || [];
   const todayCheckIns = checkInsData?.data || [];
 
-  const handleCapture = () => {
-    // In production, use <input type="file" accept="image/*" capture="environment">
-    // For now, simulate
-    setPhotoUrl(`https://storage.aniston.in/uploads/site-photo-${Date.now()}.jpg`);
-    toast.success('Photo captured (simulated)');
+  const handleCapture = async () => {
+    // Check camera permission on mobile and provide feedback
+    if (navigator.permissions) {
+      try {
+        const result = await navigator.permissions.query({ name: 'camera' as PermissionName });
+        if (result.state === 'denied') {
+          toast.error('Camera permission denied. Please enable it in browser settings to capture site photos.');
+          return;
+        }
+      } catch { /* Permissions API may not support camera query — proceed anyway */ }
+    }
+    fileInputRef.current?.click();
   };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('Photo must be under 5MB');
+        return;
+      }
+      setPhotoFile(file);
+      const reader = new FileReader();
+      reader.onload = () => setPhotoPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const clearPhoto = () => {
+    setPhotoFile(null);
+    setPhotoPreview('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleCheckIn = async () => {
     if (!siteName) {
       toast.error('Please select a site');
       return;
     }
+    if (isSubmitting) return; // debounce double-tap
+    setIsSubmitting(true);
 
     try {
       let latitude: number | undefined;
       let longitude: number | undefined;
+      let accuracy: number | undefined;
 
-      // Try to get GPS
       try {
         const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
           navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
         );
         latitude = pos.coords.latitude;
         longitude = pos.coords.longitude;
-      } catch {
-        // GPS optional for project sites
+        accuracy = pos.coords.accuracy;
+      } catch (gpsErr: any) {
+        // Notify user GPS is unavailable but allow check-in
+        if (gpsErr?.code === 1) {
+          toast('Location denied — check-in without GPS', { icon: '\u26A0\uFE0F' });
+        }
+      }
+
+      // If photo exists, upload via FormData for efficiency (avoid base64 overhead on mobile)
+      let photoUrl: string | undefined;
+      if (photoFile) {
+        const formData = new FormData();
+        formData.append('file', photoFile);
+        try {
+          const apiBase = import.meta.env.VITE_API_URL || '/api';
+          const uploadRes = await fetch(`${apiBase}/uploads/image`, {
+            method: 'POST',
+            body: formData,
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken') || ''}` },
+          });
+          if (uploadRes.ok) {
+            const uploadData = await uploadRes.json();
+            photoUrl = uploadData.data?.url || uploadData.url;
+          }
+        } catch {
+          // Fall back to base64 if upload endpoint unavailable
+          photoUrl = photoPreview || undefined;
+        }
       }
 
       await checkIn({
@@ -56,15 +109,17 @@ export default function ProjectSiteView() {
         notes: notes || undefined,
         latitude,
         longitude,
-        photoUrl: photoUrl || undefined,
+        photoUrl,
       }).unwrap();
 
       toast.success('Site check-in recorded!');
       setSiteName('');
       setNotes('');
-      setPhotoUrl('');
+      clearPhoto();
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Check-in failed');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -74,8 +129,8 @@ export default function ProjectSiteView() {
         <h3 className="text-lg font-display font-bold text-gray-900 mb-1">Project Site Attendance</h3>
         <p className="text-sm text-gray-400 mb-4">Check in at each project site you visit today.</p>
 
-        {/* Site Selection */}
         <div className="space-y-3">
+          {/* Site Selection — from real API locations */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Select Site *</label>
             <select
@@ -84,32 +139,49 @@ export default function ProjectSiteView() {
               className="input-glass w-full"
             >
               <option value="">Choose a project site...</option>
-              {SAMPLE_SITES.map(site => (
-                <option key={site} value={site}>{site}</option>
+              {locations.map((loc: any) => (
+                <option key={loc.id} value={loc.name}>
+                  {loc.name}{loc.address ? ` — ${loc.address}` : ''}
+                </option>
               ))}
             </select>
+            {locations.length === 0 && (
+              <p className="text-xs text-amber-500 mt-1">No sites configured. Ask HR to add locations in Roster → Office Locations.</p>
+            )}
           </div>
 
-          {/* Photo Capture */}
+          {/* Real Photo Capture */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Site Photo</label>
-            <div
-              onClick={handleCapture}
-              className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all
-                ${photoUrl ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 hover:border-brand-300'}`}
-            >
-              {photoUrl ? (
-                <div className="flex items-center justify-center gap-2 text-emerald-600">
-                  <Check className="w-5 h-5" />
-                  <span className="font-medium">Photo captured</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            {photoPreview ? (
+              <div className="relative rounded-xl overflow-hidden border-2 border-emerald-300">
+                <img src={photoPreview} alt="Site photo" className="w-full h-32 object-cover" />
+                <button onClick={clearPhoto}
+                  className="absolute top-2 right-2 w-7 h-7 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70">
+                  <X size={14} />
+                </button>
+                <div className="absolute bottom-0 left-0 right-0 bg-emerald-600 text-white text-xs py-1 text-center font-medium">
+                  Photo captured
                 </div>
-              ) : (
-                <>
-                  <Camera className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                  <p className="text-sm text-gray-500">Tap to capture site photo</p>
-                </>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div
+                onClick={handleCapture}
+                className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all border-gray-200 hover:border-brand-300"
+              >
+                <Camera className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                <p className="text-sm text-gray-500">Tap to capture site photo</p>
+                <p className="text-xs text-gray-400 mt-0.5">Opens camera on mobile</p>
+              </div>
+            )}
           </div>
 
           {/* Notes */}
@@ -125,11 +197,11 @@ export default function ProjectSiteView() {
 
           <button
             onClick={handleCheckIn}
-            disabled={isLoading || !siteName}
+            disabled={isLoading || isSubmitting || !siteName}
             className={`w-full py-3 rounded-xl font-medium text-lg flex items-center justify-center gap-2 transition-colors
               ${siteName ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
           >
-            {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <MapPin className="w-5 h-5" />}
+            {(isLoading || isSubmitting) ? <Loader2 className="w-5 h-5 animate-spin" /> : <MapPin className="w-5 h-5" />}
             Check In at Site
           </button>
         </div>
@@ -164,9 +236,6 @@ export default function ProjectSiteView() {
                     )}
                   </div>
                 </div>
-                {ci.checkInPhoto && (
-                  <div className="w-10 h-10 rounded-lg bg-gray-200 shrink-0" />
-                )}
               </motion.div>
             ))}
           </div>

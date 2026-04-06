@@ -26,6 +26,62 @@ interface AttendanceData {
   };
 }
 
+// ===== Agent / Activity Tracking Types =====
+interface ActivityLogEntry {
+  id: string;
+  employeeId: string;
+  date: string;
+  timestamp: string;
+  activeApp: string | null;
+  activeWindow: string | null;
+  activeUrl: string | null;
+  category: 'PRODUCTIVE' | 'NEUTRAL' | 'UNPRODUCTIVE' | null;
+  durationSeconds: number;
+  idleSeconds: number;
+  keystrokes: number;
+  mouseClicks: number;
+  mouseDistance: number;
+}
+
+interface ActivitySummary {
+  logCount: number;
+  totalActiveMinutes: number;
+  totalIdleMinutes: number;
+  totalKeystrokes: number;
+  totalClicks: number;
+  topApps: Array<{ app: string; minutes: number }>;
+}
+
+interface ActivityLogResponse {
+  logs: ActivityLogEntry[];
+  summary: ActivitySummary;
+}
+
+interface AgentScreenshot {
+  id: string;
+  employeeId: string;
+  date: string;
+  timestamp: string;
+  imageUrl: string;
+  activeApp: string | null;
+  activeWindow: string | null;
+}
+
+interface AgentStatusResponse {
+  isActive: boolean;
+  lastHeartbeat: string | null;
+}
+
+interface AgentPairCodeResponse {
+  code: string;
+  expiresAt?: string;
+}
+
+interface AgentLiveModeResponse {
+  enabled: boolean;
+  intervalSeconds?: number;
+}
+
 export const attendanceApi = api.injectEndpoints({
   endpoints: (builder) => ({
     getTodayStatus: builder.query<{ success: boolean; data: TodayStatus }, void>({
@@ -33,12 +89,12 @@ export const attendanceApi = api.injectEndpoints({
       providesTags: ['Attendance'],
     }),
 
-    clockIn: builder.mutation<any, { latitude?: number; longitude?: number; source?: string; siteName?: string; notes?: string }>({
+    clockIn: builder.mutation<any, { latitude?: number; longitude?: number; source?: string; siteName?: string; notes?: string; deviceType?: 'mobile' | 'desktop' }>({
       query: (body) => ({ url: '/attendance/clock-in', method: 'POST', body }),
       invalidatesTags: ['Attendance', 'Dashboard'],
     }),
 
-    clockOut: builder.mutation<any, { latitude?: number; longitude?: number }>({
+    clockOut: builder.mutation<any, { latitude?: number; longitude?: number; deviceType?: 'mobile' | 'desktop' }>({
       query: (body) => ({ url: '/attendance/clock-out', method: 'POST', body }),
       invalidatesTags: ['Attendance', 'Dashboard'],
     }),
@@ -105,30 +161,30 @@ export const attendanceApi = api.injectEndpoints({
       query: (body) => ({ url: '/attendance/activity-pulse', method: 'POST', body }),
     }),
 
-    getEmployeeActivityLogs: builder.query<any, { employeeId: string; date: string }>({
+    getEmployeeActivityLogs: builder.query<{ success: boolean; data: ActivityLogResponse }, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => `/agent/activity/${employeeId}/${date}`,
     }),
 
-    getEmployeeScreenshots: builder.query<any, { employeeId: string; date: string }>({
+    getEmployeeScreenshots: builder.query<{ success: boolean; data: AgentScreenshot[] }, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => `/agent/screenshots/${employeeId}/${date}`,
     }),
 
-    getAgentStatus: builder.query<any, void>({
+    getAgentStatus: builder.query<{ success: boolean; data: AgentStatusResponse }, void>({
       query: () => '/agent/status',
       providesTags: ['Attendance'],
     }),
 
-    generateAgentPairCode: builder.mutation<any, void>({
+    generateAgentPairCode: builder.mutation<{ success: boolean; data: AgentPairCodeResponse }, void>({
       query: () => ({ url: '/agent/pair/generate', method: 'POST' }),
       invalidatesTags: ['Attendance'],
     }),
 
-    setAgentLiveMode: builder.mutation<any, { employeeId: string; enabled: boolean; intervalSeconds?: number }>({
+    setAgentLiveMode: builder.mutation<{ success: boolean; data: AgentLiveModeResponse }, { employeeId: string; enabled: boolean; intervalSeconds?: number }>({
       query: (body) => ({ url: '/agent/live-mode', method: 'POST', body }),
       invalidatesTags: ['Attendance'],
     }),
 
-    getAgentLiveMode: builder.query<any, string>({
+    getAgentLiveMode: builder.query<{ success: boolean; data: AgentLiveModeResponse }, string>({
       query: (employeeId) => `/agent/live-mode/${employeeId}`,
       providesTags: ['Attendance'],
     }),
@@ -200,6 +256,55 @@ export const attendanceApi = api.injectEndpoints({
       query: ({ employeeId, date }) => `/attendance/command-center/employee/${employeeId}/${date}`,
       providesTags: ['Attendance'],
     }),
+
+    // ===== P1.1: Attendance Policy =====
+    getAttendancePolicy: builder.query<any, void>({
+      query: () => '/attendance/policy',
+      providesTags: ['Attendance'],
+    }),
+    updateAttendancePolicy: builder.mutation<any, any>({
+      query: (body) => ({ url: '/attendance/policy', method: 'PUT', body }),
+      invalidatesTags: ['Attendance'],
+    }),
+
+    // ===== P1.2: Bulk Upload =====
+    bulkUploadAttendance: builder.mutation<any, { rows: any[] }>({
+      query: (body) => ({ url: '/attendance/bulk/upload', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
+    }),
+
+    // ===== P1.3: Monthly Report =====
+    getMonthlyReport: builder.query<any, { month: number; year: number }>({
+      query: ({ month, year }) => `/attendance/monthly-report?month=${month}&year=${year}`,
+    }),
+
+    // ===== P2.7: Self-Service Report =====
+    getMyReport: builder.query<any, { month: number; year: number }>({
+      query: ({ month, year }) => `/attendance/my/report?month=${month}&year=${year}`,
+    }),
+
+    // ===== P2.9: Geofence Map =====
+    getCheckInMapData: builder.query<any, string>({
+      query: (attendanceId) => `/attendance/check-in-map/${attendanceId}`,
+    }),
+
+    // ===== P2.10: Overtime =====
+    submitOvertimeRequest: builder.mutation<any, { date: string; plannedHours: number; reason: string }>({
+      query: (body) => ({ url: '/attendance/overtime', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
+    }),
+    getMyOvertimeRequests: builder.query<any, void>({
+      query: () => '/attendance/overtime/my',
+      providesTags: ['Attendance'],
+    }),
+    getAllOvertimeRequests: builder.query<any, void>({
+      query: () => '/attendance/overtime',
+      providesTags: ['Attendance'],
+    }),
+    handleOvertimeRequest: builder.mutation<any, { id: string; action: string; remarks?: string }>({
+      query: ({ id, ...body }) => ({ url: `/attendance/overtime/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Attendance'],
+    }),
   }),
 });
 
@@ -238,4 +343,20 @@ export const {
   useGetLiveBoardQuery,
   useDetectAnomaliesMutation,
   useGetEmployeeAttendanceDetailQuery,
+  // P1.1
+  useGetAttendancePolicyQuery,
+  useUpdateAttendancePolicyMutation,
+  // P1.2
+  useBulkUploadAttendanceMutation,
+  // P1.3
+  useGetMonthlyReportQuery,
+  // P2.7
+  useGetMyReportQuery,
+  // P2.9
+  useGetCheckInMapDataQuery,
+  // P2.10
+  useSubmitOvertimeRequestMutation,
+  useGetMyOvertimeRequestsQuery,
+  useGetAllOvertimeRequestsQuery,
+  useHandleOvertimeRequestMutation,
 } = attendanceApi;

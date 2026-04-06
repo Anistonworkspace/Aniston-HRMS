@@ -2,9 +2,9 @@ import { useState, useMemo, useEffect, useCallback, memo, lazy, Suspense } from 
 import { motion } from 'framer-motion';
 import {
   Clock, MapPin, Loader2, ChevronLeft, ChevronRight,
-  CheckCircle2, XCircle, Clock3, Sun, Coffee, CalendarOff,
-  IndianRupee, Ticket,
+  CheckCircle2, XCircle, Clock3, Sun, Coffee,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/store';
 import { useGetDashboardStatsQuery } from './dashboardApi';
@@ -12,7 +12,7 @@ import { useGetTodayStatusQuery, useClockInMutation, useClockOutMutation, useGet
 import { useGetLeaveBalancesQuery, useGetHolidaysQuery } from '../leaves/leaveApi';
 import { formatDate } from '../../lib/utils';
 import { RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
-import { SkeletonLoader, QuickActionGrid, MobileStickyActions } from './components';
+import { SkeletonLoader, QuickActionGrid } from './components';
 import toast from 'react-hot-toast';
 
 // Lazy-load role-specific dashboards
@@ -36,14 +36,7 @@ const EMP_QUICK_ACTIONS = [
   { label: 'Raise Ticket', icon: '🎫', path: '/helpdesk' },
 ];
 
-const EMP_MOBILE_STICKY = [
-  { label: 'Attendance', path: '/attendance', icon: Clock, color: 'text-blue-600' },
-  { label: 'Leave', path: '/leaves', icon: CalendarOff, color: 'text-purple-600' },
-  { label: 'Payslip', path: '/payroll', icon: IndianRupee, color: 'text-emerald-600' },
-  { label: 'Helpdesk', path: '/helpdesk', icon: Ticket, color: 'text-amber-600' },
-];
-
-const STATUS_CONFIG: Record<string, { bg: string; text: string; icon: any }> = {
+const STATUS_CONFIG: Record<string, { bg: string; text: string; icon: LucideIcon }> = {
   PRESENT: { bg: 'bg-emerald-50', text: 'text-emerald-700', icon: CheckCircle2 },
   ABSENT: { bg: 'bg-red-50', text: 'text-red-700', icon: XCircle },
   HALF_DAY: { bg: 'bg-amber-50', text: 'text-amber-700', icon: Clock3 },
@@ -106,8 +99,8 @@ const LeaveBalanceWidget = memo(function LeaveBalanceWidget() {
         </button>
       </div>
       <div className="grid grid-cols-3 gap-2">
-        {balances.slice(0, 6).map((b: any) => {
-          const remaining = b.remaining ?? (Number(b.allocated) + Number(b.carriedForward) - Number(b.used) - Number(b.pending));
+        {balances.slice(0, 6).map((b: { id: string; remaining?: number; allocated?: number; carriedForward?: number; used?: number; pending?: number; leaveType?: { code?: string; name?: string } }) => {
+          const remaining = b.remaining ?? (Number(b.allocated || 0) + Number(b.carriedForward || 0) - Number(b.used || 0) - Number(b.pending || 0));
           return (
             <div key={b.id} className="text-center p-2 bg-gray-50 rounded-lg">
               <p className="text-lg font-bold font-mono text-gray-900" data-mono>{remaining}</p>
@@ -125,8 +118,8 @@ const UpcomingHolidaysWidget = memo(function UpcomingHolidaysWidget() {
   const { data: holRes } = useGetHolidaysQuery({});
   const holidays = useMemo(() =>
     (holRes?.data || [])
-      .filter((h: any) => new Date(h.date) >= new Date())
-      .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .filter((h: { date: string }) => new Date(h.date) >= new Date())
+      .sort((a: { date: string }, b: { date: string }) => new Date(a.date).getTime() - new Date(b.date).getTime())
       .slice(0, 3),
     [holRes]
   );
@@ -137,7 +130,7 @@ const UpcomingHolidaysWidget = memo(function UpcomingHolidaysWidget() {
     <div className="layer-card p-4">
       <h3 className="text-sm font-semibold text-gray-600 mb-3">Upcoming Holidays</h3>
       <div className="space-y-2">
-        {holidays.map((h: any) => (
+        {holidays.map((h: { id: string; name: string; date: string }) => (
           <div key={h.id} className="flex items-center justify-between text-sm">
             <span className="text-gray-700">{h.name}</span>
             <span className="text-xs text-gray-400 font-mono" data-mono>
@@ -151,7 +144,16 @@ const UpcomingHolidaysWidget = memo(function UpcomingHolidaysWidget() {
 });
 
 // ─── ATTENDANCE RECORD ROW ─────────────────────────────────────
-const AttendanceRow = memo(function AttendanceRow({ record }: { record: any }) {
+interface AttendanceRecord {
+  id?: string;
+  date: string;
+  status: string;
+  checkIn?: string | null;
+  checkOut?: string | null;
+  totalHours?: number | null;
+}
+
+const AttendanceRow = memo(function AttendanceRow({ record }: { record: AttendanceRecord }) {
   const cfg = STATUS_CONFIG[record.status] || STATUS_CONFIG.ABSENT;
   const StatusIcon = cfg.icon;
 
@@ -174,7 +176,7 @@ const AttendanceRow = memo(function AttendanceRow({ record }: { record: any }) {
         </div>
       </div>
       <div className="text-right">
-        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.text}`}>
+        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded bg-white/80 ${cfg.text}`}>
           {record.status?.replace('_', ' ')}
         </span>
         {record.totalHours != null && (
@@ -191,10 +193,14 @@ const AttendanceRow = memo(function AttendanceRow({ record }: { record: any }) {
 function EmployeeDashboard() {
   const navigate = useNavigate();
   const user = useAppSelector((state) => state.auth.user);
+  const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const canCheckIn = !isManagement && isMobile;
   const { data: statsResponse, isLoading, isError } = useGetDashboardStatsQuery();
   const stats = statsResponse?.data;
   const { data: todayRes } = useGetTodayStatusQuery(undefined, {
     pollingInterval: 60000,
+    skip: isManagement,
   });
   const todayStatus = todayRes?.data;
   const [clockIn, { isLoading: clockingIn }] = useClockInMutation();
@@ -259,12 +265,8 @@ function EmployeeDashboard() {
 
   const isCheckingInOut = gettingGps || clockingIn || clockingOut;
 
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  }, []);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
 
   const expectedHours = useMemo(() => {
     if (todayStatus?.shift?.startTime && todayStatus?.shift?.endTime) {
@@ -282,7 +284,7 @@ function EmployeeDashboard() {
 
   const sortedRecords = useMemo(() => {
     if (!myAttendance?.records) return [];
-    return [...myAttendance.records].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return [...myAttendance.records].sort((a: AttendanceRecord, b: AttendanceRecord) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [myAttendance?.records]);
 
   const navigateMonth = useCallback((dir: number) => {
@@ -330,7 +332,7 @@ function EmployeeDashboard() {
   }
 
   return (
-    <div className="page-container pb-20 md:pb-6">
+    <div className="page-container pb-6">
       {/* Greeting */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
         <h1 className="text-2xl md:text-3xl font-display font-bold text-gray-900">
@@ -339,8 +341,8 @@ function EmployeeDashboard() {
         <p className="text-gray-500 mt-1">Manage your attendance, leaves & more</p>
       </motion.div>
 
-      {/* Today's Hours Circular Chart */}
-      <motion.div variants={container} initial="hidden" animate="show" className="mb-8">
+      {/* Today's Hours Circular Chart — only for non-management */}
+      {!isManagement && <motion.div variants={container} initial="hidden" animate="show" className="mb-8">
         <motion.div variants={item} className="layer-card p-6">
           <div className="flex flex-col md:flex-row items-center gap-6">
             <div className="relative">
@@ -401,7 +403,7 @@ function EmployeeDashboard() {
             </div>
           </div>
         </motion.div>
-      </motion.div>
+      </motion.div>}
 
       {/* Two column layout */}
       <div className="grid lg:grid-cols-2 gap-6">
@@ -411,37 +413,41 @@ function EmployeeDashboard() {
             <Clock size={18} className="text-brand-500" />
             Quick Actions
           </h2>
-          {todayStatus && (
+          {!isManagement && todayStatus && (
             <div className="mb-4 p-4 bg-surface-2 rounded-xl flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-700">
-                  {todayStatus.isCheckedIn && !todayStatus.isCheckedOut
-                    ? `Checked in at ${new Date(todayStatus.record?.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`
+                  {todayStatus.isCheckedIn && !todayStatus.isCheckedOut && todayStatus.record?.checkIn
+                    ? `Checked in at ${new Date(todayStatus.record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`
                     : todayStatus.isCheckedOut
                     ? `Done for today (${Number(todayStatus.totalHours || 0).toFixed(1)}h)`
                     : 'Not checked in yet'}
                 </p>
                 <p className="text-xs text-gray-400 flex items-center gap-1">
                   <MapPin size={10} />
-                  {todayStatus.shift ? `${todayStatus.shift.name} (${todayStatus.shift.startTime}–${todayStatus.shift.endTime})` : 'GPS-based attendance'}
+                  {todayStatus.shift ? `${todayStatus.shift.name || 'Shift'} (${todayStatus.shift.startTime}–${todayStatus.shift.endTime})` : 'GPS-based attendance'}
                 </p>
               </div>
-              <button
-                onClick={handleQuickCheckIn}
-                disabled={isCheckingInOut}
-                className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-all active:scale-95 ${
-                  isCheckingInOut ? 'bg-brand-500 text-white animate-pulse'
-                    : todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'bg-red-500 hover:bg-red-600 text-white'
-                    : todayStatus.isCheckedOut ? 'bg-amber-500 hover:bg-amber-600 text-white'
-                    : 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                }`}
-              >
-                {isCheckingInOut ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
-                {isCheckingInOut
-                  ? (gettingGps ? 'Getting GPS...' : 'Marking...')
-                  : todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'Check Out'
-                  : todayStatus.isCheckedOut ? 'Re-Check In' : 'Check In'}
-              </button>
+              {canCheckIn ? (
+                <button
+                  onClick={handleQuickCheckIn}
+                  disabled={isCheckingInOut}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-all active:scale-95 ${
+                    isCheckingInOut ? 'bg-brand-500 text-white animate-pulse'
+                      : todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'bg-red-500 hover:bg-red-600 text-white'
+                      : todayStatus.isCheckedOut ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                      : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                  }`}
+                >
+                  {isCheckingInOut ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
+                  {isCheckingInOut
+                    ? (gettingGps ? 'Getting GPS...' : 'Marking...')
+                    : todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'Check Out'
+                    : todayStatus.isCheckedOut ? 'Re-Check In' : 'Check In'}
+                </button>
+              ) : (
+                <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg">Mobile only</span>
+              )}
             </div>
           )}
           <QuickActionGrid actions={EMP_QUICK_ACTIONS} columns="grid-cols-2" />
@@ -463,7 +469,7 @@ function EmployeeDashboard() {
           </div>
 
           {myAttendance?.summary && (
-            <div className="grid grid-cols-4 gap-2 mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
               {[
                 { label: 'Present', value: myAttendance.summary.present, bg: 'bg-emerald-50', text: 'text-emerald-700', sub: 'text-emerald-600' },
                 { label: 'Absent', value: myAttendance.summary.absent, bg: 'bg-red-50', text: 'text-red-700', sub: 'text-red-600' },
@@ -480,7 +486,7 @@ function EmployeeDashboard() {
 
           <div className="space-y-1 max-h-[300px] overflow-y-auto pr-1">
             {sortedRecords.length > 0 ? (
-              sortedRecords.map((record: any) => (
+              sortedRecords.map((record: AttendanceRecord) => (
                 <AttendanceRow key={record.id || record.date} record={record} />
               ))
             ) : (
@@ -505,8 +511,6 @@ function EmployeeDashboard() {
         <UpcomingHolidaysWidget />
       </div>
 
-      {/* Mobile Sticky Actions */}
-      <MobileStickyActions actions={EMP_MOBILE_STICKY} />
     </div>
   );
 }

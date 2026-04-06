@@ -163,7 +163,7 @@ export default function AgentDownloadBanner() {
               <p className="text-[10px] text-gray-400 mb-1">Enter this code in the agent app:</p>
               <div className="flex items-center justify-center gap-2">
                 <span className="text-2xl font-mono font-bold text-brand-700 tracking-widest" data-mono>{pairCode}</span>
-                <button onClick={() => { navigator.clipboard.writeText(pairCode); }}
+                <button onClick={() => { navigator.clipboard.writeText(pairCode).catch(() => {}); }}
                   className="text-xs text-brand-600 hover:text-brand-700 underline">Copy</button>
               </div>
               <p className="text-[10px] text-gray-400 mt-1">Expires in 5 minutes</p>

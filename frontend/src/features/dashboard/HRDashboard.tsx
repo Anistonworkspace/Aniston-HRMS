@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import {
   Users, UserCheck, UserX, Clock, CalendarOff, Home,
   AlertTriangle, FileCheck, Ticket, UserPlus, ShieldAlert,
-  Cake, ChevronRight, ClipboardList,
+  Cake, ChevronRight,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/store';
@@ -11,7 +11,7 @@ import { useGetHRStatsQuery } from './dashboardApi';
 import { formatDate } from '../../lib/utils';
 import {
   StatusCard, DashboardSection, ActionCard, QuickActionGrid,
-  EmployeeListWidget, SkeletonLoader, MobileStickyActions,
+  EmployeeListWidget, SkeletonLoader,
 } from './components';
 import type { AttentionItem } from '@aniston/shared';
 
@@ -19,13 +19,6 @@ const container = {
   hidden: { opacity: 0 },
   show: { opacity: 1, transition: { staggerChildren: 0.06 } },
 };
-
-const MOBILE_STICKY_ACTIONS = [
-  { label: 'Approvals', path: '/pending-approvals', icon: ClipboardList, color: 'text-amber-600' },
-  { label: 'Attendance', path: '/attendance', icon: Clock, color: 'text-blue-600' },
-  { label: 'Helpdesk', path: '/helpdesk', icon: Ticket, color: 'text-purple-600' },
-  { label: 'Employees', path: '/employees', icon: Users, color: 'text-gray-600' },
-];
 
 const QUICK_ACTIONS = [
   { label: 'Approve Leaves', path: '/pending-approvals', icon: '✅' },
@@ -54,12 +47,8 @@ function HRDashboard() {
   });
   const stats = response?.data;
 
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  }, []);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
 
   const attendanceCards = useMemo(() => {
     if (!stats) return [];
@@ -126,7 +115,7 @@ function HRDashboard() {
   const presentPct = att.totalActive > 0 ? Math.round(((att.present + att.workFromHome) / att.totalActive) * 100) : 0;
 
   return (
-    <div className="page-container pb-20 md:pb-6">
+    <div className="page-container pb-6">
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
         <h1 className="text-2xl md:text-3xl font-display font-bold text-gray-900">
@@ -268,19 +257,17 @@ function HRDashboard() {
         </DashboardSection>
       </motion.div>
 
-      {/* Quick Actions — hidden on mobile (replaced by sticky bar) */}
+      {/* Quick Actions */}
       <motion.div
         variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
         initial="hidden"
         animate="show"
-        className="layer-card p-5 hidden md:block"
+        className="layer-card p-5"
       >
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
-        <QuickActionGrid actions={QUICK_ACTIONS} />
+        <QuickActionGrid actions={QUICK_ACTIONS} columns="grid-cols-4 md:grid-cols-4" />
       </motion.div>
 
-      {/* Mobile Sticky Actions */}
-      <MobileStickyActions actions={MOBILE_STICKY_ACTIONS} />
     </div>
   );
 }

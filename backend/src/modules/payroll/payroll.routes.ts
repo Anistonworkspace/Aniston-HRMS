@@ -225,6 +225,53 @@ router.post('/import',
   }
 );
 
+// Bank transfer file (NEFT/RTGS format CSV)
+router.get('/runs/:id/bank-file',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const records = await payrollService.getPayrollRecords(req.params.id, req.user!.organizationId);
+      const run = await payrollService.getPayrollRunById(req.params.id);
+      const { prisma } = await import('../../lib/prisma.js');
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+      // Fetch bank details for employees
+      const empIds = records.map((r: any) => r.employeeId);
+      const bankDetails = await prisma.employee.findMany({
+        where: { id: { in: empIds } },
+        select: { id: true, firstName: true, lastName: true, employeeCode: true, bankAccountNumber: true, ifscCode: true, bankName: true },
+      });
+      const bankMap = new Map(bankDetails.map(b => [b.id, b]));
+
+      // Generate CSV
+      const lines: string[] = [];
+      lines.push('Txn Type,Beneficiary Code,Beneficiary Name,Bank Account No,IFSC Code,Amount,Narration');
+
+      for (const rec of records as any[]) {
+        const bank = bankMap.get(rec.employeeId);
+        const name = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim();
+        const netPay = Number(rec.netSalary || 0);
+        if (netPay <= 0) continue;
+
+        lines.push([
+          'NEFT',
+          rec.employee?.employeeCode || '',
+          `"${name}"`,
+          bank?.bankAccountNumber || '',
+          bank?.ifscCode || '',
+          netPay.toFixed(2),
+          `"Salary ${monthNames[run.month - 1]} ${run.year}"`,
+        ].join(','));
+      }
+
+      const csv = lines.join('\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="bank-transfer-${monthNames[run.month - 1]}-${run.year}.csv"`);
+      res.send(csv);
+    } catch (err) { next(err); }
+  }
+);
+
 // Employee's own payslips
 router.get('/my-payslips',
   (req, res, next) => payrollController.getMyPayslips(req, res, next)

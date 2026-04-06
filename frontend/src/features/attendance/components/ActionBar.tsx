@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Download, CheckSquare, FileCheck, PenSquare, AlertTriangle,
-  RefreshCw, Radio, ClipboardList, MoreHorizontal,
+  RefreshCw, Radio, ClipboardList, MoreHorizontal, Upload,
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 
@@ -11,9 +11,10 @@ interface ActionBarProps {
   onDetectAnomalies: () => void;
   onTabChange: (tab: string) => void;
   isDetecting?: boolean;
+  onBulkUpload?: () => void;
 }
 
-export default function ActionBar({ selectedDate, onExport, onDetectAnomalies, onTabChange, isDetecting }: ActionBarProps) {
+export default function ActionBar({ selectedDate, onExport, onDetectAnomalies, onTabChange, isDetecting, onBulkUpload }: ActionBarProps) {
   const [showMore, setShowMore] = useState(false);
 
   const primaryActions = [
@@ -25,9 +26,10 @@ export default function ActionBar({ selectedDate, onExport, onDetectAnomalies, o
   ];
 
   const secondaryActions = [
-    { key: 'recalculate', label: 'Recalculate', icon: RefreshCw, onClick: onDetectAnomalies, loading: isDetecting },
+    { key: 'bulk', label: 'Bulk Upload', icon: Upload, onClick: () => onBulkUpload?.() },
+    { key: 'recalculate', label: 'Detect Anomalies', icon: RefreshCw, onClick: onDetectAnomalies, loading: isDetecting },
     { key: 'live', label: 'Live Board', icon: Radio, onClick: () => onTabChange('live') },
-    { key: 'audit', label: 'Audit Logs', icon: ClipboardList, onClick: () => onTabChange('audit') },
+    { key: 'audit', label: 'AI Anomalies', icon: ClipboardList, onClick: () => onTabChange('anomalies') },
   ];
 
   return (

@@ -1,21 +1,37 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import { WifiOff } from 'lucide-react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import MobileBottomNav from './MobileBottomNav';
 import ActivityCheckInPrompt from '../ActivityCheckInPrompt';
-// AgentDownloadBanner removed — agent setup is now admin-only via Settings > Agent Setup
 import useActivityTracker from '../../hooks/useActivityTracker';
 import { useInactivityTimeout } from '../../hooks/useInactivityTimeout';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import { useOfflineSync } from '../../hooks/useOfflineSync';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { api } from '../../app/api';
 import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
 import { connectSocket, disconnectSocket, onSocketEvent, offSocketEvent } from '../../lib/socket';
+import toast from 'react-hot-toast';
 
 export default function AppShell() {
   // Activity tracking — runs globally for all logged-in users
   useActivityTracker();
+
+  // Network status + offline action sync
+  const { isOnline } = useNetworkStatus();
+  useOfflineSync();
+  const wasOffline = useRef(false);
+  useEffect(() => {
+    if (!isOnline) {
+      wasOffline.current = true;
+    } else if (wasOffline.current) {
+      wasOffline.current = false;
+      toast.success('Back online');
+    }
+  }, [isOnline]);
   const user = useAppSelector(s => s.auth.user);
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
   const { resetTimer } = useInactivityTimeout(() => setShowTimeoutWarning(true));
@@ -49,14 +65,31 @@ export default function AppShell() {
   const exitAccess = user?.exitAccess;
 
   return (
-    <div className="flex min-h-screen bg-surface-1">
+    <div className="flex h-[100dvh] bg-surface-1 overflow-hidden">
       {/* Sidebar — desktop only */}
       <Sidebar />
 
       {/* Main area */}
-      <div className="flex-1 flex flex-col min-h-screen">
+      <div className="flex-1 flex flex-col h-[100dvh] min-w-0">
         <Topbar />
-        <main className="flex-1 pb-20 md:pb-0 overflow-x-hidden min-w-0">
+        <main className="flex-1 pb-20 md:pb-0 overflow-y-auto overflow-x-hidden min-w-0 overscroll-y-contain">
+          {/* Offline banner */}
+          <AnimatePresence>
+            {!isOnline && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2">
+                  <WifiOff size={14} className="text-red-500 flex-shrink-0" />
+                  <p className="text-xs text-red-700 font-medium">You are offline. Some features may not work until you reconnect.</p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
           {/* Limited access banner for exiting employees */}
           {exitAccess && (
             <div className="mx-4 mt-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">

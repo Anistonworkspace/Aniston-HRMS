@@ -70,6 +70,25 @@ export const payrollApi = api.injectEndpoints({
       }),
       invalidatesTags: ['Payroll'],
     }),
+
+    lockPayrollRun: builder.mutation<any, string>({
+      query: (id) => ({ url: `/payroll/runs/${id}/lock`, method: 'POST' }),
+      invalidatesTags: ['Payroll'],
+    }),
+
+    unlockPayrollRun: builder.mutation<any, string>({
+      query: (id) => ({ url: `/payroll/runs/${id}/unlock`, method: 'POST' }),
+      invalidatesTags: ['Payroll'],
+    }),
+
+    saveSalaryStructureDynamic: builder.mutation<any, { employeeId: string; data: any }>({
+      query: ({ employeeId, data }) => ({
+        url: `/payroll/employee/${employeeId}/salary`,
+        method: 'PUT',
+        body: data,
+      }),
+      invalidatesTags: ['Payroll', 'Employee'],
+    }),
   }),
 });
 
@@ -85,4 +104,7 @@ export const {
   useGetSalaryHistoryQuery,
   useDetectAnomaliesMutation,
   useImportSalariesMutation,
+  useLockPayrollRunMutation,
+  useUnlockPayrollRunMutation,
+  useSaveSalaryStructureDynamicMutation,
 } = payrollApi;

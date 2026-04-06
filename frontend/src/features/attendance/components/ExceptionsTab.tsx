@@ -76,8 +76,17 @@ export default function ExceptionsTab({ selectedDate }: ExceptionsTabProps) {
 
       {/* List */}
       {isLoading ? (
-        <div className="text-center py-8">
-          <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
+        <div className="space-y-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="layer-card p-3 flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full bg-gray-100 animate-pulse flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center gap-2"><div className="w-28 h-3 bg-gray-100 rounded animate-pulse" /><div className="w-12 h-4 bg-gray-100 rounded-full animate-pulse" /></div>
+                <div className="w-20 h-3 bg-gray-50 rounded animate-pulse" />
+                <div className="w-full h-3 bg-gray-50 rounded animate-pulse" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : anomalies.length === 0 ? (
         <div className="layer-card p-8 text-center">

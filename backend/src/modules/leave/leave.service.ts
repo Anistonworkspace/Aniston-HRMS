@@ -5,6 +5,7 @@ import { emitToOrg, emitToUser, invalidateDashboardCache } from '../../sockets/i
 import { taskIntegrationService } from '../task-integration/task-integration.service.js';
 import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { logger } from '../../lib/logger.js';
+import { env } from '../../config/env.js';
 import type { ApplyLeaveInput, LeaveQuery, CreateLeaveTypeInput, UpdateLeaveTypeInput, SaveDraftInput, SubmitDraftInput, UpdateHandoverInput } from './leave.validation.js';
 
 export class LeaveService {
@@ -293,7 +294,7 @@ export class LeaveService {
     const overlapping = await prisma.leaveRequest.findFirst({
       where: {
         employeeId,
-        status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED'] },
+        status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] },
         OR: [
           { startDate: { lte: endDate }, endDate: { gte: startDate } },
         ],
@@ -1188,10 +1189,13 @@ export class LeaveService {
           riskScore: leaveRequest.riskScore || 0,
           status: leaveRequest.status,
           remarks: leaveRequest.approverRemarks || '',
+          appUrl: env.FRONTEND_URL,
         };
 
         // Enqueue email
-        await enqueueEmail({ to: recipient.email, subject, template: templateName, context }).catch(() => {});
+        await enqueueEmail({ to: recipient.email, subject, template: templateName, context }).catch((err) =>
+          logger.error(`[LeaveNotifications] Failed to enqueue email to ${recipient.email}:`, err)
+        );
 
         // Socket notification
         await enqueueNotification({
@@ -1201,7 +1205,9 @@ export class LeaveService {
           message: `${empName} — ${leaveTypeName} (${new Date(leaveRequest.startDate).toLocaleDateString('en-IN')} to ${new Date(leaveRequest.endDate).toLocaleDateString('en-IN')})`,
           type: 'LEAVE',
           link: '/leaves',
-        }).catch(() => {});
+        }).catch((err) =>
+          logger.error(`[LeaveNotifications] Failed to enqueue notification for ${recipient.userId}:`, err)
+        );
 
         // Log notification
         await prisma.leaveNotificationLog.create({
@@ -1213,7 +1219,9 @@ export class LeaveService {
             payload: context,
             organizationId,
           },
-        }).catch(() => {});
+        }).catch((err) =>
+          logger.error(`[LeaveNotifications] Failed to log notification:`, err)
+        );
       }
     } catch (err: any) {
       logger.warn(`[LeaveNotifications] Error: ${err.message}`);
@@ -1233,17 +1241,31 @@ export class LeaveService {
       },
       select: { date: true, isHalfDay: true },
     });
-    const holidayDates = new Set(
-      holidays.map(h => new Date(h.date).toISOString().split('T')[0])
-    );
+    const fullDayHolidays = new Set<string>();
+    const halfDayHolidays = new Set<string>();
+    holidays.forEach(h => {
+      const dateStr = new Date(h.date).toISOString().split('T')[0];
+      if (h.isHalfDay) {
+        halfDayHolidays.add(dateStr);
+      } else {
+        fullDayHolidays.add(dateStr);
+      }
+    });
 
     let days = 0;
     const current = new Date(start);
     while (current <= end) {
       const dayOfWeek = current.getDay();
       const dateStr = current.toISOString().split('T')[0];
-      if (dayOfWeek !== 0 && !holidayDates.has(dateStr)) { // Exclude Sundays + holidays
-        days++;
+      if (dayOfWeek !== 0) { // Exclude Sundays
+        if (fullDayHolidays.has(dateStr)) {
+          // Full-day holiday — exclude entirely
+        } else if (halfDayHolidays.has(dateStr)) {
+          // Half-day holiday — only count 0.5 working day
+          days += 0.5;
+        } else {
+          days++;
+        }
       }
       current.setDate(current.getDate() + 1);
     }

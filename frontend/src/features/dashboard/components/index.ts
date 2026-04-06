@@ -6,4 +6,3 @@ export { ActionCard } from './ActionCard';
 export { QuickActionGrid } from './QuickActionGrid';
 export { SkeletonLoader } from './SkeletonLoader';
 export { EmployeeListWidget } from './EmployeeListWidget';
-export { MobileStickyActions } from './MobileStickyActions';

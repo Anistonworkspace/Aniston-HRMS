@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
@@ -23,6 +23,8 @@ import toast from 'react-hot-toast';
 import FieldSalesView from './FieldSalesView';
 import ProjectSiteView from './ProjectSiteView';
 import CommandCenter from './components/CommandCenter';
+import SelfServiceReport from './components/SelfServiceReport';
+import { enqueueAction } from '../../lib/offlineQueue';
 
 const STATUS_COLORS: Record<string, string> = {
   PRESENT: 'bg-emerald-500',
@@ -39,13 +41,26 @@ export default function AttendancePage() {
   const user = useAppSelector((state) => state.auth.user);
   const role = user?.role || '';
   const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(role);
-  const isEmployeeOnly = role === 'EMPLOYEE' || role === 'INTERN';
+  const [view, setView] = useState<'team' | 'personal'>(isManagement ? 'team' : 'personal');
 
   // Non-management roles go straight to personal view
   if (!isManagement) return <AttendancePersonalView />;
 
-  // Management roles see Command Center only — no "My Attendance" tab
-  return <CommandCenter />;
+  return (
+    <>
+      <div className="px-6 pt-5 pb-1 flex gap-2">
+        <button onClick={() => setView('team')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            view === 'team' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}>Team Attendance</button>
+        <button onClick={() => setView('personal')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            view === 'personal' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}>My Attendance</button>
+      </div>
+      {view === 'team' ? <CommandCenter /> : <AttendancePersonalView />}
+    </>
+  );
 }
 
 /* =============================================================================
@@ -67,16 +82,18 @@ function AttendanceManagementView() {
     limit: 25,
   });
 
-  // WebSocket: auto-refresh on attendance events
+  // WebSocket: auto-refresh — use ref to avoid listener re-registration on every refetch change
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
   useEffect(() => {
-    const handler = () => refetch();
+    const handler = () => refetchRef.current();
     onSocketEvent('attendance:checkin', handler);
     onSocketEvent('attendance:checkout', handler);
     return () => {
       offSocketEvent('attendance:checkin', handler);
       offSocketEvent('attendance:checkout', handler);
     };
-  }, [refetch]);
+  }, []);
 
   const records = response?.data?.data || response?.data || [];
   const meta = response?.data?.meta || response?.meta || {};
@@ -274,12 +291,19 @@ function AttendanceManagementView() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={7} className="text-center py-12">
-                    <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
-                    <p className="text-sm text-gray-400 mt-2">Loading attendance data...</p>
-                  </td>
-                </tr>
+                <>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i} className="border-b border-gray-50">
+                      <td className="px-5 py-3.5"><div className="flex items-center gap-3"><div className="w-8 h-8 bg-gray-100 rounded-full animate-pulse" /><div className="space-y-1"><div className="w-24 h-3 bg-gray-100 rounded animate-pulse" /><div className="w-16 h-2 bg-gray-50 rounded animate-pulse" /></div></div></td>
+                      <td className="px-5 py-3.5"><div className="w-12 h-3 bg-gray-100 rounded animate-pulse" /></td>
+                      <td className="px-5 py-3.5"><div className="w-12 h-3 bg-gray-100 rounded animate-pulse" /></td>
+                      <td className="px-5 py-3.5"><div className="w-10 h-3 bg-gray-100 rounded animate-pulse" /></td>
+                      <td className="px-5 py-3.5"><div className="w-16 h-5 bg-gray-100 rounded-full animate-pulse" /></td>
+                      <td className="px-5 py-3.5"><div className="w-14 h-3 bg-gray-50 rounded animate-pulse" /></td>
+                      <td className="px-5 py-3.5"><div className="w-16 h-6 bg-gray-50 rounded-lg animate-pulse" /></td>
+                    </tr>
+                  ))}
+                </>
               ) : filteredRecords.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="text-center py-12">
@@ -393,16 +417,25 @@ function AttendancePersonalView() {
   const [requestingNotification, setRequestingNotification] = useState(false);
   const [dismissedNotifBanner, setDismissedNotifBanner] = useState(false);
 
-  // Check location permission on mount
+  // Check location permission on mount with timeout fallback
   useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    // Fallback: if still 'checking' after 5s, assume 'prompt' so UI is never stuck
+    timeoutId = setTimeout(() => {
+      setLocationStatus(prev => prev === 'checking' ? 'prompt' : prev);
+    }, 5000);
+
     if (navigator.permissions) {
       navigator.permissions.query({ name: 'geolocation' }).then(result => {
+        clearTimeout(timeoutId);
         setLocationStatus(result.state as any);
         result.onchange = () => setLocationStatus(result.state as any);
-      }).catch(() => setLocationStatus('prompt'));
+      }).catch(() => { clearTimeout(timeoutId); setLocationStatus('prompt'); });
     } else {
+      clearTimeout(timeoutId);
       setLocationStatus('prompt');
     }
+    return () => clearTimeout(timeoutId);
   }, []);
 
   // Check notification permission on mount
@@ -422,7 +455,8 @@ function AttendancePersonalView() {
         setRequestingLocation(false);
       },
       (err) => {
-        if (err.code === err.PERMISSION_DENIED) {
+        // GeolocationPositionError.PERMISSION_DENIED = 1
+        if (err.code === 1) {
           setLocationStatus('denied');
         }
         setRequestingLocation(false);
@@ -442,18 +476,35 @@ function AttendancePersonalView() {
     setRequestingNotification(false);
   };
 
-  const { data: todayResponse, isLoading: statusLoading } = useGetTodayStatusQuery();
+  const { data: todayResponse, isLoading: statusLoading, refetch: refetchToday } = useGetTodayStatusQuery();
   const today = todayResponse?.data;
 
   const startDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0];
   const endDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0];
-  const { data: monthResponse } = useGetMyAttendanceQuery({ startDate, endDate });
+  const { data: monthResponse, refetch: refetchMonth } = useGetMyAttendanceQuery({ startDate, endDate });
   const monthData = monthResponse?.data;
+
+  // WebSocket: auto-refresh personal calendar + today status on attendance events
+  const personalRefetchRef = useRef({ refetchToday, refetchMonth });
+  personalRefetchRef.current = { refetchToday, refetchMonth };
+  useEffect(() => {
+    const handler = () => {
+      personalRefetchRef.current.refetchToday();
+      personalRefetchRef.current.refetchMonth();
+    };
+    onSocketEvent('attendance:checkin', handler);
+    onSocketEvent('attendance:checkout', handler);
+    return () => {
+      offSocketEvent('attendance:checkin', handler);
+      offSocketEvent('attendance:checkout', handler);
+    };
+  }, []);
 
   const [clockIn, { isLoading: clockingIn }] = useClockInMutation();
   const [clockOut, { isLoading: clockingOut }] = useClockOutMutation();
   const [startBreak] = useStartBreakMutation();
   const [endBreak] = useEndBreakMutation();
+  const actionLockRef = useRef(false); // debounce guard for clock-in/out
 
   // Live clock
   useEffect(() => {
@@ -461,44 +512,61 @@ function AttendancePersonalView() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleClockIn = async () => {
+  const getGPS = async () => {
+    if (!navigator.geolocation) return {};
     try {
-      // Try to get location
-      let coords: { latitude?: number; longitude?: number } = {};
-      if (navigator.geolocation) {
-        try {
-          const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
-          );
-          coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-        } catch {
-          // Location not available, proceed without
-        }
-      }
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 30000,
+        })
+      );
+      return { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
+    } catch {
+      return {};
+    }
+  };
+
+  const handleClockIn = async () => {
+    if (actionLockRef.current) return; // prevent double-tap
+    actionLockRef.current = true;
+    try {
+      const coords = await getGPS();
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
-      toast.success('Checked in successfully!');
+      toast.success('Checked in!');
     } catch (err: any) {
+      if (!navigator.onLine) {
+        const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+        enqueueAction('CLOCK_IN', { source: 'MANUAL_APP', deviceType });
+        toast('Check-in queued \u2014 will sync when online', { icon: '\uD83D\uDCE1' });
+        return;
+      }
       toast.error(err?.data?.error?.message || 'Failed to clock in');
+    } finally {
+      setTimeout(() => { actionLockRef.current = false; }, 2000); // 2s cooldown
     }
   };
 
   const handleClockOut = async () => {
+    if (actionLockRef.current) return; // prevent double-tap
+    actionLockRef.current = true;
     try {
-      let coords: { latitude?: number; longitude?: number } = {};
-      if (navigator.geolocation) {
-        try {
-          const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
-          );
-          coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-        } catch { /* proceed without */ }
-      }
+      const coords = await getGPS();
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockOut({ ...coords, deviceType }).unwrap();
-      toast.success('Checked out successfully!');
+      toast.success('Checked out!');
     } catch (err: any) {
+      if (!navigator.onLine) {
+        const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+        enqueueAction('CLOCK_OUT', { deviceType });
+        toast('Check-out queued \u2014 will sync when online', { icon: '\uD83D\uDCE1' });
+        return;
+      }
       toast.error(err?.data?.error?.message || 'Failed to clock out');
+    } finally {
+      setTimeout(() => { actionLockRef.current = false; }, 2000); // 2s cooldown
     }
   };
 
@@ -997,6 +1065,16 @@ function AttendancePersonalView() {
           </div>
         </motion.div>
       </div>
+
+      {/* My Report Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className="layer-card p-6 mt-6"
+      >
+        <SelfServiceReport />
+      </motion.div>
     </div>
   );
 }

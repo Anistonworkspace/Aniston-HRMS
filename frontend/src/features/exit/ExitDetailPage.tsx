@@ -27,7 +27,20 @@ export default function ExitDetailPage() {
   const [approveNotes, setApproveNotes] = useState('');
   const [showApproveForm, setShowApproveForm] = useState(false);
 
-  if (isLoading) return <div className="page-container"><div className="layer-card p-12 text-center text-sm text-gray-400">Loading...</div></div>;
+  if (isLoading) return (
+    <div className="page-container animate-pulse">
+      <div className="h-7 bg-gray-200 rounded w-48 mb-6" />
+      <div className="layer-card p-6 space-y-4">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-gray-200 rounded-full" />
+          <div className="space-y-2 flex-1"><div className="h-5 bg-gray-200 rounded w-36" /><div className="h-3 bg-gray-100 rounded w-24" /></div>
+        </div>
+        <div className="h-4 bg-gray-100 rounded w-full" />
+        <div className="h-4 bg-gray-100 rounded w-3/4" />
+        <div className="grid grid-cols-2 gap-3">{[1,2,3,4].map(i => <div key={i} className="h-16 bg-gray-50 rounded-lg" />)}</div>
+      </div>
+    </div>
+  );
 
   const data = res?.data;
   if (!data) return <div className="page-container"><div className="layer-card p-12 text-center text-sm text-gray-400">Exit details not found</div></div>;

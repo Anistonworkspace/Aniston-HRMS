@@ -1,5 +1,30 @@
 import { api } from '../../app/api';
 
+// ===== Agent Setup Types =====
+interface AgentSetupEmployee {
+  id: string;
+  firstName: string;
+  lastName: string;
+  employeeCode: string;
+  email: string | null;
+  avatar: string | null;
+  workMode: string | null;
+  department: string | null;
+  agentPairingCode: string | null;
+  agentPairedAt: string | null;
+  agentStatus: { isActive: boolean; lastHeartbeat: string | null };
+}
+
+interface GenerateCodeResponse {
+  code: string;
+  isNew: boolean;
+}
+
+interface BulkGenerateResponse {
+  generated: number;
+  total: number;
+}
+
 export const settingsApi = api.injectEndpoints({
   endpoints: (builder) => ({
     getOrgSettings: builder.query<any, void>({ query: () => '/settings/organization', providesTags: ['Settings'] }),
@@ -69,19 +94,19 @@ export const settingsApi = api.injectEndpoints({
       query: () => ({ url: '/settings/organization/test-admin-email', method: 'POST' }),
     }),
     // Agent Setup
-    getAgentSetupList: builder.query<any, void>({
+    getAgentSetupList: builder.query<{ success: boolean; data: AgentSetupEmployee[] }, void>({
       query: () => '/agent/setup/employees',
       providesTags: ['AgentSetup'],
     }),
-    generateAgentCode: builder.mutation<any, { employeeId: string }>({
+    generateAgentCode: builder.mutation<{ success: boolean; data: GenerateCodeResponse }, { employeeId: string }>({
       query: (body) => ({ url: '/agent/setup/generate-code', method: 'POST', body }),
       invalidatesTags: ['AgentSetup'],
     }),
-    regenerateAgentCode: builder.mutation<any, { employeeId: string }>({
+    regenerateAgentCode: builder.mutation<{ success: boolean; data: GenerateCodeResponse }, { employeeId: string }>({
       query: (body) => ({ url: '/agent/setup/regenerate-code', method: 'POST', body }),
       invalidatesTags: ['AgentSetup'],
     }),
-    bulkGenerateAgentCodes: builder.mutation<any, void>({
+    bulkGenerateAgentCodes: builder.mutation<{ success: boolean; data: BulkGenerateResponse }, void>({
       query: () => ({ url: '/agent/setup/bulk-generate', method: 'POST' }),
       invalidatesTags: ['AgentSetup'],
     }),

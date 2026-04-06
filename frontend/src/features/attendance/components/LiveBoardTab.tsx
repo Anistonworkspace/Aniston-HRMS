@@ -1,5 +1,7 @@
+import { useEffect, useRef } from 'react';
 import { useGetLiveBoardQuery } from '../attendanceApi';
 import { cn, getInitials } from '../../../lib/utils';
+import { onSocketEvent, offSocketEvent } from '../../../lib/socket';
 import { Users, MapPin, Wifi, Clock, Coffee, LogOut, AlertTriangle, Timer } from 'lucide-react';
 
 const SECTION_CONFIG = [
@@ -14,14 +16,39 @@ const SECTION_CONFIG = [
 ] as const;
 
 export default function LiveBoardTab() {
-  const { data: res, isLoading } = useGetLiveBoardQuery(undefined, { pollingInterval: 30000 });
+  // Poll every 60s as fallback; socket events trigger immediate refetch
+  const { data: res, isLoading, refetch } = useGetLiveBoardQuery(undefined, { pollingInterval: 60000 });
   const board = res?.data;
+
+  // Socket-driven live refresh (stable ref to avoid listener leak)
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  useEffect(() => {
+    const handler = () => refetchRef.current();
+    onSocketEvent('attendance:checkin', handler);
+    onSocketEvent('attendance:checkout', handler);
+    return () => { offSocketEvent('attendance:checkin', handler); offSocketEvent('attendance:checkout', handler); };
+  }, []);
 
   if (isLoading) {
     return (
-      <div className="text-center py-8">
-        <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
-        <p className="text-xs text-gray-400 mt-2">Loading live board...</p>
+      <div className="space-y-4">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 bg-white min-w-[120px]">
+              <div className="w-4 h-4 bg-gray-100 rounded animate-pulse" />
+              <div className="space-y-1"><div className="w-8 h-4 bg-gray-100 rounded animate-pulse" /><div className="w-12 h-2 bg-gray-50 rounded animate-pulse" /></div>
+            </div>
+          ))}
+        </div>
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="layer-card overflow-hidden">
+              <div className="px-3 py-2 bg-gray-50 border-b border-gray-100"><div className="w-20 h-3 bg-gray-200 rounded animate-pulse" /></div>
+              <div className="p-3 space-y-2">{Array.from({ length: 3 }).map((_, j) => (<div key={j} className="flex items-center gap-2"><div className="w-6 h-6 bg-gray-100 rounded-full animate-pulse" /><div className="flex-1 h-3 bg-gray-100 rounded animate-pulse" /></div>))}</div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

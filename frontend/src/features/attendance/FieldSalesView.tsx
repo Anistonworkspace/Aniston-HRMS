@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { MapPin, Play, Square, Clock, Navigation, Wifi, WifiOff, Upload } from 'lucide-react';
+import { MapPin, Play, Square, Clock, Navigation, Wifi, WifiOff, Upload, Smartphone } from 'lucide-react';
 import { useClockInMutation, useClockOutMutation, useStoreGPSTrailMutation } from './attendanceApi';
+import { useWakeLock } from '../../hooks/useWakeLock';
 import toast from 'react-hot-toast';
+
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+const isPWA = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
 
 interface GPSPoint {
   lat: number;
@@ -14,6 +18,19 @@ interface GPSPoint {
 
 const GPS_INTERVAL = 60000; // 60 seconds
 const SYNC_BATCH_SIZE = 30;
+const GPS_BUFFER_KEY = 'aniston_gps_buffer';
+const MAX_SYNC_RETRIES = 3;
+
+// Persist/restore GPS buffer to survive crashes
+function loadPersistedBuffer(): GPSPoint[] {
+  try { const raw = localStorage.getItem(GPS_BUFFER_KEY); return raw ? JSON.parse(raw) : []; } catch { return []; }
+}
+function persistBuffer(buffer: GPSPoint[]) {
+  try { localStorage.setItem(GPS_BUFFER_KEY, JSON.stringify(buffer)); } catch { /* full */ }
+}
+function clearPersistedBuffer() {
+  try { localStorage.removeItem(GPS_BUFFER_KEY); } catch { /* ok */ }
+}
 
 export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [isTracking, setIsTracking] = useState(false);
@@ -21,7 +38,9 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [currentPos, setCurrentPos] = useState<GPSPoint | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const watchIdRef = useRef<number | null>(null);
-  const bufferRef = useRef<GPSPoint[]>([]);
+  const bufferRef = useRef<GPSPoint[]>(loadPersistedBuffer());
+  const syncRetryRef = useRef(0);
+  const wakeLock = useWakeLock();
 
   const [clockIn, { isLoading: isClockingIn }] = useClockInMutation();
   const [clockOut, { isLoading: isClockingOut }] = useClockOutMutation();
@@ -41,7 +60,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     };
   }, []);
 
-  // Sync buffered points when online
+  // Sync buffered points when online — with retry limit and localStorage persistence
   const syncPoints = useCallback(async () => {
     if (bufferRef.current.length === 0) return;
     const batch = bufferRef.current.splice(0, SYNC_BATCH_SIZE);
@@ -55,9 +74,18 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           timestamp: new Date(p.timestamp).toISOString(),
         })),
       }).unwrap();
+      syncRetryRef.current = 0; // reset on success
+      persistBuffer(bufferRef.current);
+      if (bufferRef.current.length === 0) clearPersistedBuffer();
     } catch {
       // Put back on failure
       bufferRef.current.unshift(...batch);
+      syncRetryRef.current++;
+      persistBuffer(bufferRef.current);
+      if (syncRetryRef.current >= MAX_SYNC_RETRIES) {
+        toast.error('GPS sync failed after multiple attempts. Data saved locally.');
+        syncRetryRef.current = 0;
+      }
     }
   }, [storeTrail]);
 
@@ -74,6 +102,9 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     }
 
     try {
+      // Activate wake lock to keep GPS alive in background (iOS fix)
+      await wakeLock.request();
+
       // Clock in first
       const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
         navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true })
@@ -103,6 +134,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           setCurrentPos(point);
           setPoints(prev => [...prev, point]);
           bufferRef.current.push(point);
+          persistBuffer(bufferRef.current); // survive crash
 
           // Auto-sync when buffer is full
           if (bufferRef.current.length >= SYNC_BATCH_SIZE && isOnline) {
@@ -125,6 +157,9 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       watchIdRef.current = null;
     }
 
+    // Release wake lock
+    wakeLock.release();
+
     // Sync remaining points
     await syncPoints();
 
@@ -135,6 +170,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       }).unwrap();
       toast.success('Field day ended!');
       setIsTracking(false);
+      clearPersistedBuffer();
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to end tracking');
     }
@@ -148,6 +184,36 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       }
     };
   }, []);
+
+  // iOS foreground recovery: when user returns to app, grab fresh GPS to fill gap
+  useEffect(() => {
+    if (!isTracking) return;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && isTracking) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const point: GPSPoint = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+              speed: position.coords.speed || undefined,
+              timestamp: Date.now(),
+            };
+            setCurrentPos(point);
+            setPoints(prev => [...prev, point]);
+            bufferRef.current.push(point);
+            persistBuffer(bufferRef.current);
+          },
+          () => {},
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+        // Also try syncing any buffered points
+        if (isOnline && bufferRef.current.length > 0) syncPoints();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [isTracking, isOnline, syncPoints]);
 
   // Calculate distance and visits
   const totalDistance = points.length > 1
@@ -164,6 +230,19 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
 
   return (
     <div className="space-y-4">
+      {/* iOS PWA install prompt for background GPS + notifications */}
+      {isIOS && !isPWA && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-start gap-3">
+          <Smartphone className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-blue-800">Install for best experience</p>
+            <p className="text-xs text-blue-600 mt-0.5">
+              For reliable background GPS tracking and push notifications on iPhone, tap the Share button and "Add to Home Screen".
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="layer-card p-5">
         <h3 className="text-lg font-display font-bold text-gray-900 mb-1">Field Sales Tracking</h3>
         <p className="text-sm text-gray-400 mb-4">GPS trail is recorded every 60 seconds while active.</p>
@@ -222,6 +301,56 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
             <p className="text-xs text-gray-400">Accuracy</p>
           </div>
         </motion.div>
+      )}
+
+      {/* Live Trail Map */}
+      {points.length > 0 && (
+        <div className="layer-card overflow-hidden" style={{ height: 200 }}>
+          <div className="w-full h-full bg-gray-100 flex items-center justify-center relative">
+            {/* Simple canvas-based trail visualization */}
+            <canvas
+              ref={(canvas) => {
+                if (!canvas || points.length < 2) return;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return;
+                canvas.width = canvas.offsetWidth;
+                canvas.height = canvas.offsetHeight;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                const lats = points.map(p => p.lat);
+                const lngs = points.map(p => p.lng);
+                const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+                const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+                const pad = 20;
+                const w = canvas.width - pad * 2, h = canvas.height - pad * 2;
+                const latRange = maxLat - minLat || 0.001, lngRange = maxLng - minLng || 0.001;
+
+                ctx.strokeStyle = '#4f46e5';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                points.forEach((p, i) => {
+                  const x = pad + ((p.lng - minLng) / lngRange) * w;
+                  const y = pad + ((maxLat - p.lat) / latRange) * h;
+                  i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+
+                // Draw current position dot
+                const last = points[points.length - 1];
+                const cx = pad + ((last.lng - minLng) / lngRange) * w;
+                const cy = pad + ((maxLat - last.lat) / latRange) * h;
+                ctx.fillStyle = '#ef4444';
+                ctx.beginPath();
+                ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+                ctx.fill();
+              }}
+              className="w-full h-full"
+            />
+            <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm rounded-lg px-2 py-1 text-[10px] text-gray-500 font-medium">
+              Live Trail — {points.length} points
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Current Location */}

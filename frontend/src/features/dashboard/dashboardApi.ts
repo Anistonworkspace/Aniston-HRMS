@@ -7,6 +7,37 @@ export interface DashboardSummaryResponse {
   data: SuperAdminDashboardStats | HRDashboardStats | DashboardStats;
 }
 
+export interface PendingApprovalsResponse {
+  success: boolean;
+  data: {
+    pendingLeaves: {
+      data: Array<{
+        id: string;
+        startDate: string;
+        endDate: string;
+        days: number;
+        status: string;
+        reason?: string;
+        employee?: { id: string; firstName: string; lastName: string; employeeCode: string; department?: { name: string } };
+        leaveType?: { id: string; name: string; code: string };
+      }>;
+      total: number;
+    };
+    openTickets: {
+      data: Array<{
+        id: string;
+        subject: string;
+        priority: string;
+        status: string;
+        ticketCode?: string;
+        createdAt: string;
+        employee?: { id: string; firstName: string; lastName: string; employeeCode: string };
+      }>;
+      total: number;
+    };
+  };
+}
+
 export const dashboardApi = api.injectEndpoints({
   endpoints: (builder) => ({
     // Unified summary — returns role-appropriate data
@@ -27,7 +58,7 @@ export const dashboardApi = api.injectEndpoints({
       query: () => '/dashboard/hr-stats',
       providesTags: ['Dashboard'],
     }),
-    getPendingApprovalsAll: builder.query<any, { search?: string; page?: number; limit?: number }>({
+    getPendingApprovalsAll: builder.query<PendingApprovalsResponse, { search?: string; page?: number; limit?: number }>({
       query: (params) => ({ url: '/dashboard/pending-approvals', params }),
       providesTags: ['Dashboard'],
     }),

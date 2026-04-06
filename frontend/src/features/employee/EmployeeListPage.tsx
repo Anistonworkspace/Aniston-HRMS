@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight, UserPlus,
@@ -137,6 +137,11 @@ export default function EmployeeListPage() {
       setPage(1);
     }, 300);
   };
+
+  // Cleanup search timer on unmount
+  useEffect(() => {
+    return () => clearTimeout(searchTimerRef.current);
+  }, []);
 
   return (
     <div className="page-container">
@@ -417,7 +422,10 @@ export default function EmployeeListPage() {
                           onClick={(e) => {
                             e.stopPropagation();
                             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                            setMenuPos({ top: rect.bottom + 4, left: rect.right - 200 });
+                            setMenuPos({
+                              top: Math.min(rect.bottom + 4, window.innerHeight - 220),
+                              left: Math.max(8, Math.min(rect.right - 200, window.innerWidth - 232)),
+                            });
                             setOpenMenuId(openMenuId === emp.id ? null : emp.id);
                           }}
                           className="p-1 rounded hover:bg-gray-100 transition-colors"
@@ -747,6 +755,7 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
                 <select value={role} onChange={e => setRole(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
                   <option value="EMPLOYEE">Employee</option>
+                  <option value="INTERN">Intern</option>
                   <option value="MANAGER">Manager</option>
                   <option value="HR">HR</option>
                   <option value="ADMIN">Admin</option>
@@ -1103,7 +1112,8 @@ function InvitationsTab() {
 
   const statusBadge = (inv: any) => {
     if (inv.status === 'ACCEPTED') return <span className="badge bg-green-50 text-green-700 border-green-200">Accepted</span>;
-    if (inv.isExpired || inv.status === 'EXPIRED') return <span className="badge bg-red-50 text-red-600 border-red-200">Expired</span>;
+    const isExpired = inv.isExpired || inv.status === 'EXPIRED' || (inv.expiresAt && new Date(inv.expiresAt) < new Date());
+    if (isExpired) return <span className="badge bg-red-50 text-red-600 border-red-200">Expired</span>;
     return <span className="badge bg-amber-50 text-amber-700 border-amber-200">Pending</span>;
   };
 
@@ -1148,11 +1158,12 @@ function InvitationsTab() {
                         Resend
                       </button>
                       {confirmDeleteId === inv.id ? (
-                        <span className="flex items-center gap-1">
+                        <span className="inline-flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-lg px-2 py-0.5">
+                          <span className="text-[10px] text-red-600">Delete?</span>
                           <button onClick={() => handleDelete(inv.id)} disabled={deletingInv}
-                            className="text-xs text-red-600 hover:text-red-700 font-medium">Yes</button>
+                            className="text-xs text-white bg-red-600 hover:bg-red-700 font-medium px-1.5 py-0.5 rounded">Yes</button>
                           <button onClick={() => setConfirmDeleteId(null)}
-                            className="text-xs text-gray-400 hover:text-gray-600 font-medium">No</button>
+                            className="text-xs text-gray-500 hover:text-gray-700 font-medium px-1 py-0.5">No</button>
                         </span>
                       ) : (
                         <button onClick={() => setConfirmDeleteId(inv.id)}

@@ -126,7 +126,7 @@ export default function ActivityTrackingPage() {
 function EmployeeRow({ employee, isSelected, date, onClick }: {
   employee: any; isSelected: boolean; date: string; onClick: () => void;
 }) {
-  const { data: activityRes } = useGetEmployeeActivityLogsQuery(
+  const { data: activityRes, isError } = useGetEmployeeActivityLogsQuery(
     { employeeId: employee.id, date },
     { pollingInterval: 60000 } // refresh every minute
   );
@@ -148,7 +148,9 @@ function EmployeeRow({ employee, isSelected, date, onClick }: {
         <p className="text-[10px] text-gray-400">{employee.employeeCode} · {employee.workMode}</p>
       </div>
       <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-        {hasActivity ? (
+        {isError ? (
+          <span className="text-[9px] text-red-400">Error</span>
+        ) : hasActivity ? (
           <>
             <div className="flex items-center gap-1">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -169,7 +171,7 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
   employee: any; date: string; onScreenshotClick: (url: string) => void;
 }) {
   const [viewMode, setViewMode] = useState<'activity' | 'live'>('activity');
-  const { data: activityRes, isLoading: loadingActivity } = useGetEmployeeActivityLogsQuery(
+  const { data: activityRes, isLoading: loadingActivity, isError: activityError } = useGetEmployeeActivityLogsQuery(
     { employeeId: employee.id, date },
     { pollingInterval: viewMode === 'live' ? 10000 : 30000 } // faster poll in live mode
   );
@@ -225,6 +227,12 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
         <div className="layer-card p-12 text-center">
           <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-sm text-gray-400 mt-2">Loading activity data...</p>
+        </div>
+      ) : activityError ? (
+        <div className="layer-card p-12 text-center">
+          <WifiOff size={40} className="mx-auto text-red-300 mb-3" />
+          <p className="text-sm text-red-500 mb-1">Failed to load activity data</p>
+          <p className="text-xs text-gray-400">Check your connection or try again later</p>
         </div>
       ) : !summary || summary.logCount === 0 ? (
         <div className="layer-card p-12 text-center">
@@ -311,7 +319,6 @@ function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
   const [liveData, setLiveData] = useState<any>(null);
   const [feedLog, setFeedLog] = useState<any[]>([]);
   const [interval, setInterval_] = useState(30);
-  const [countdown, setCountdown] = useState(0);
   const [setLiveMode] = useSetAgentLiveModeMutation();
   const { data: liveModeRes } = useGetAgentLiveModeQuery(employeeId, { pollingInterval: 10000 });
   const isLive = liveModeRes?.data?.enabled || false;
@@ -467,6 +474,7 @@ function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
 function LiveVideoStream({ employeeId }: { employeeId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const agentSocketIdRef = useRef<string | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -515,7 +523,7 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
         socket.emit('stream:signal', {
           type: 'ice-candidate',
           candidate: event.candidate,
-          targetSocketId: (window as any).__agentSocketId,
+          targetSocketId: agentSocketIdRef.current,
         });
       }
     };
@@ -531,7 +539,7 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
     const handleSignal = (data: any) => {
       if (data.type === 'offer' && data.sdp) {
         // Save agent's socket ID for sending signals back
-        (window as any).__agentSocketId = data.fromSocketId;
+        agentSocketIdRef.current = data.fromSocketId;
         pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
           .then(() => pc.createAnswer())
           .then((answer) => pc.setLocalDescription(answer))

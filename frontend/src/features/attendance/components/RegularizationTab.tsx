@@ -28,8 +28,23 @@ export default function RegularizationTab() {
 
   if (isLoading) {
     return (
-      <div className="text-center py-8">
-        <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
+      <div className="space-y-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="layer-card p-3 space-y-2">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full bg-gray-100 animate-pulse flex-shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <div className="w-32 h-3 bg-gray-100 rounded animate-pulse" />
+                <div className="w-48 h-2.5 bg-gray-50 rounded animate-pulse" />
+              </div>
+              <div className="w-16 h-5 bg-amber-100 rounded-full animate-pulse" />
+            </div>
+            <div className="bg-gray-50 rounded-lg p-2.5 space-y-1.5">
+              <div className="w-full h-3 bg-gray-100 rounded animate-pulse" />
+              <div className="w-2/3 h-3 bg-gray-100 rounded animate-pulse" />
+            </div>
+          </div>
+        ))}
       </div>
     );
   }

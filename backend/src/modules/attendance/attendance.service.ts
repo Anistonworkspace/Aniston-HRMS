@@ -56,7 +56,7 @@ export class AttendanceService {
     }
 
     // Mobile-only attendance enforcement (HR manual mark bypasses this)
-    if (data.deviceType === 'desktop' && data.source !== 'MANUAL_HR') {
+    if (data.source !== 'MANUAL_HR' && data.deviceType !== 'mobile') {
       throw new BadRequestError('Attendance can only be marked from a mobile device. Please use the Aniston HRMS mobile app.');
     }
 
@@ -93,14 +93,17 @@ export class AttendanceService {
       data.notes = `${data.notes || ''} [Weekend clock-in: Sunday]`.trim();
     }
 
-    // Check if already clocked in today
-    const existing = await prisma.attendanceRecord.findUnique({
-      where: { employeeId_date: { employeeId, date: today } },
+    // Atomic check-and-validate to prevent race conditions (double-tap / concurrent requests)
+    const existing = await prisma.$transaction(async (tx) => {
+      // Use findUnique inside transaction for row-level lock
+      const rec = await tx.attendanceRecord.findUnique({
+        where: { employeeId_date: { employeeId, date: today } },
+      });
+      if (rec?.checkIn && !rec.checkOut) {
+        throw new BadRequestError('Already clocked in. Please clock out first.');
+      }
+      return rec;
     });
-
-    if (existing?.checkIn && !existing.checkOut) {
-      throw new BadRequestError('Already clocked in. Please clock out first.');
-    }
 
     // Allow re-clock-in after clock-out (e.g., accidental clock-out or returning after break)
     const isReClockIn = !!(existing?.checkOut);
@@ -156,8 +159,13 @@ export class AttendanceService {
     let geofenceStatus = 'NO_GEOFENCE';
 
     if (currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude && data.longitude) {
+      // GPS accuracy check — reject unreliable readings (>150m) for geofence decisions
+      if (data.accuracy && data.accuracy > 150) {
+        data.notes = `${data.notes || ''} [GPS accuracy poor: ±${Math.round(data.accuracy)}m — geofence check skipped]`.trim();
+        logger.warn(`Poor GPS accuracy (${data.accuracy}m) for employee ${employeeId} — skipping geofence check`);
+      }
       const coords = geofence.coordinates as any;
-      if (coords?.lat && coords?.lng) {
+      if (coords?.lat && coords?.lng && !(data.accuracy && data.accuracy > 150)) {
         const distance = this.haversineDistance(data.latitude, data.longitude, coords.lat, coords.lng);
         geofenceDistance = Math.round(distance);
 
@@ -190,7 +198,7 @@ export class AttendanceService {
                 checkInTime: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
                 orgName: org.name,
               },
-            }).catch(() => {}); // fire & forget
+            }).catch((err) => logger.error(`[Geofence] Failed to enqueue violation alert email:`, err));
           }
         } else {
           geofenceStatus = 'INSIDE';
@@ -640,11 +648,14 @@ export class AttendanceService {
     };
 
     let totalWorkedHours = 0;
+    const holidayDates = new Set(holidays.map(h => h.date.toISOString().split('T')[0]));
     const current = new Date(start);
     while (current <= end) {
       summary.totalDays++;
       const day = current.getDay();
-      if (day === 0) { // Sunday only — Saturday is working day
+      const dateStr = current.toISOString().split('T')[0];
+      // Count Sunday as weekend ONLY if it's not already a holiday (avoid double-count)
+      if (day === 0 && !holidayDates.has(dateStr)) {
         summary.weekends++;
       }
       current.setDate(current.getDate() + 1);
@@ -773,8 +784,9 @@ export class AttendanceService {
     const total = mergedData.length;
     const paginatedData = mergedData.slice(skip, skip + limit);
 
-    // Count NOT_CHECKED_IN
-    const notCheckedIn = totalEmployees - presentCount - absentCount - onLeaveCount;
+    // Count NOT_CHECKED_IN — subtract all employees who have ANY attendance record
+    const employeesWithRecords = records.length;
+    const notCheckedIn = Math.max(0, totalEmployees - employeesWithRecords);
 
     return {
       data: paginatedData,
@@ -937,6 +949,19 @@ export class AttendanceService {
     }));
 
     const result = await prisma.gPSTrailPoint.createMany({ data: points });
+
+    // Audit log for GPS trail upload (compliance)
+    try {
+      await createAuditLog({
+        userId: employeeId,
+        organizationId: (await prisma.employee.findUnique({ where: { id: employeeId }, select: { organizationId: true } }))?.organizationId || '',
+        entity: 'GPSTrailPoint',
+        entityId: employeeId,
+        action: 'GPS_TRAIL_UPLOAD',
+        newValue: { pointCount: result.count, date: today.toISOString() },
+      });
+    } catch { /* non-blocking */ }
+
     return { stored: result.count };
   }
 
@@ -991,8 +1016,8 @@ export class AttendanceService {
         reason,
         requestedCheckIn: requestedCheckIn ? new Date(requestedCheckIn) : null,
         requestedCheckOut: requestedCheckOut ? new Date(requestedCheckOut) : null,
-        originalCheckIn: attendance.checkIn,
-        originalCheckOut: attendance.checkOut,
+        originalCheckIn: record.checkIn,
+        originalCheckOut: record.checkOut,
         status: 'PENDING',
       },
     });
@@ -1320,8 +1345,9 @@ export class AttendanceService {
         return { spoofing: true, distance: Math.round(distance), timeDiff: Math.round(timeDiffMin) };
       }
       return { spoofing: false };
-    } catch {
-      return { spoofing: false }; // fail open
+    } catch (err) {
+      logger.error(`[GPS Spoofing] Detection failed for employee ${employeeId}:`, err);
+      return { spoofing: false }; // fail open but log error
     }
   }
 
@@ -1333,16 +1359,17 @@ export class AttendanceService {
 
     const visits: any[] = [];
     let clusterStart = 0;
-    const RADIUS_THRESHOLD = 0.002; // ~200m in degrees
+    const RADIUS_THRESHOLD_M = 200; // 200 meters
     const MIN_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 
     for (let i = 1; i < points.length; i++) {
-      const distance = Math.sqrt(
-        Math.pow(Number(points[i].lat) - Number(points[clusterStart].lat), 2) +
-        Math.pow(Number(points[i].lng) - Number(points[clusterStart].lng), 2)
+      // Use haversine for accurate geo-distance instead of Euclidean in degrees
+      const distance = this.haversineDistance(
+        Number(points[i].lat), Number(points[i].lng),
+        Number(points[clusterStart].lat), Number(points[clusterStart].lng)
       );
 
-      if (distance > RADIUS_THRESHOLD) {
+      if (distance > RADIUS_THRESHOLD_M) {
         // Check if the cluster lasted long enough
         const startTime = new Date(points[clusterStart].timestamp).getTime();
         const endTime = new Date(points[i - 1].timestamp).getTime();
@@ -1775,7 +1802,10 @@ export class AttendanceService {
   /**
    * Resolve an anomaly
    */
-  async resolveAnomaly(anomalyId: string, resolution: string, resolvedBy: string, remarks?: string) {
+  async resolveAnomaly(anomalyId: string, organizationId: string, resolution: string, resolvedBy: string, remarks?: string) {
+    // Multi-tenant: verify anomaly belongs to this organization
+    const anomaly = await prisma.attendanceAnomaly.findFirst({ where: { id: anomalyId, organizationId } });
+    if (!anomaly) throw new NotFoundError('Anomaly');
     return prisma.attendanceAnomaly.update({
       where: { id: anomalyId },
       data: { resolution: resolution as any, resolvedBy, resolvedAt: new Date(), resolverRemarks: remarks },

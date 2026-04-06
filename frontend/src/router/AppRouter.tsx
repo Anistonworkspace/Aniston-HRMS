@@ -52,12 +52,78 @@ const EmployeeOnboardingPage = lazy(() => import('../features/onboarding/Employe
 const SendBulkEmailPage = lazy(() => import('../features/employee/SendBulkEmailPage'));
 
 function PageLoader() {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
-      <div className="flex flex-col items-center gap-3">
-        <div className="w-8 h-8 border-3 border-brand-600 border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-gray-400">Loading...</p>
-      </div>
+    <div className="h-[100dvh] bg-surface-1 overflow-hidden">
+      {isMobile ? (
+        <>
+          {/* Mobile skeleton */}
+          <div className="h-14 bg-white border-b border-gray-100 flex items-center justify-between px-4">
+            <div className="w-24 h-5 bg-gray-100 rounded animate-pulse" />
+            <div className="flex gap-3">
+              <div className="w-8 h-8 bg-gray-100 rounded-full animate-pulse" />
+              <div className="w-8 h-8 bg-gray-100 rounded-full animate-pulse" />
+            </div>
+          </div>
+          <div className="p-4 space-y-4">
+            <div className="space-y-2">
+              <div className="w-48 h-6 bg-gray-100 rounded animate-pulse" />
+              <div className="w-64 h-4 bg-gray-50 rounded animate-pulse" />
+            </div>
+            <div className="bg-white rounded-xl border border-gray-100 p-6 flex items-center justify-center">
+              <div className="w-40 h-40 rounded-full bg-gray-100 animate-pulse" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 space-y-2">
+                  <div className="w-16 h-3 bg-gray-50 rounded animate-pulse" />
+                  <div className="w-12 h-5 bg-gray-100 rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-gray-100 flex items-center justify-around px-4">
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="flex flex-col items-center gap-1">
+                <div className="w-6 h-6 bg-gray-100 rounded animate-pulse" />
+                <div className="w-8 h-2 bg-gray-50 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="flex h-full">
+          <div className="w-60 bg-white border-r border-gray-200 p-4 space-y-4 hidden md:block">
+            <div className="flex items-center gap-2 mb-6">
+              <div className="w-8 h-8 bg-brand-100 rounded-lg animate-pulse" />
+              <div className="w-20 h-5 bg-gray-100 rounded animate-pulse" />
+            </div>
+            {[1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} className="flex items-center gap-3 py-2">
+                <div className="w-5 h-5 bg-gray-100 rounded animate-pulse" />
+                <div className="h-4 bg-gray-100 rounded animate-pulse" style={{ width: `${50 + i * 8}%` }} />
+              </div>
+            ))}
+          </div>
+          <div className="flex-1">
+            <div className="h-16 bg-white border-b border-gray-100 flex items-center justify-between px-6">
+              <div className="w-64 h-9 bg-gray-50 rounded-lg animate-pulse" />
+              <div className="w-32 h-8 bg-gray-100 rounded-lg animate-pulse" />
+            </div>
+            <div className="p-6 space-y-6">
+              <div className="w-56 h-7 bg-gray-100 rounded animate-pulse" />
+              <div className="grid grid-cols-4 gap-4">
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
+                    <div className="w-10 h-10 bg-gray-100 rounded-lg animate-pulse" />
+                    <div className="w-16 h-7 bg-gray-100 rounded animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

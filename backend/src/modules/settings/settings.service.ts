@@ -1,5 +1,6 @@
+import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError } from '../../middleware/errorHandler.js';
+import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { encrypt, decrypt } from '../../utils/encryption.js';
 import { validateConnection, getClientCredentialsToken, getOrganizationUsers } from '../../lib/microsoftGraph.js';
@@ -137,25 +138,57 @@ export class SettingsService {
   }
 
   async saveEmailConfig(organizationId: string, config: any, userId: string) {
+    // Validate email config fields before saving
+    const emailConfigSchema = z.object({
+      authMethod: z.enum(['smtp', 'oauth2']).default('smtp'),
+      host: z.string().optional().default(''),
+      port: z.coerce.number().min(1).max(65535).optional().default(587),
+      user: z.string().optional().default(''),
+      pass: z.string().optional().default(''),
+      fromAddress: z.string().email('Invalid "From" email address').optional().or(z.literal('')).default(''),
+      fromName: z.string().max(100).optional().default(''),
+      emailDomain: z.string().optional().default(''),
+      tenantId: z.string().optional().default(''),
+      clientId: z.string().optional().default(''),
+      clientSecret: z.string().optional().default(''),
+      senderEmail: z.string().email('Invalid sender email address').optional().or(z.literal('')).default(''),
+    }).superRefine((data, ctx) => {
+      if (data.authMethod === 'smtp') {
+        if (data.host && !data.user) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'SMTP username is required when host is provided', path: ['user'] });
+        if (data.host && !data.pass) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'SMTP password is required when host is provided', path: ['pass'] });
+      } else if (data.authMethod === 'oauth2') {
+        if (!data.tenantId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Tenant ID is required for OAuth2', path: ['tenantId'] });
+        if (!data.clientId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Client ID is required for OAuth2', path: ['clientId'] });
+        if (!data.clientSecret) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Client Secret is required for OAuth2', path: ['clientSecret'] });
+        if (!data.senderEmail) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Sender email is required for OAuth2', path: ['senderEmail'] });
+      }
+    });
+
+    const parsed = emailConfigSchema.safeParse(config);
+    if (!parsed.success) {
+      const messages = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
+      throw new BadRequestError(`Invalid email configuration: ${messages}`);
+    }
+
     const org = await prisma.organization.findFirst({ where: { id: organizationId }, select: { settings: true } });
     const existingSettings = (org?.settings as any) || {};
     const existingEmail = existingSettings.email || {};
 
     const emailConfig: any = {
-      authMethod: config.authMethod || 'smtp',
+      authMethod: parsed.data.authMethod,
       // SMTP fields
-      host: config.host || existingEmail.host || '',
-      port: config.port || existingEmail.port || 587,
-      user: config.user || existingEmail.user || '',
-      pass: config.pass || existingEmail.pass || '',
-      fromAddress: config.fromAddress || existingEmail.fromAddress || '',
-      fromName: config.fromName || existingEmail.fromName || '',
-      emailDomain: config.emailDomain || existingEmail.emailDomain || '',
+      host: parsed.data.host || existingEmail.host || '',
+      port: parsed.data.port || existingEmail.port || 587,
+      user: parsed.data.user || existingEmail.user || '',
+      pass: parsed.data.pass || existingEmail.pass || '',
+      fromAddress: parsed.data.fromAddress || existingEmail.fromAddress || '',
+      fromName: parsed.data.fromName || existingEmail.fromName || '',
+      emailDomain: parsed.data.emailDomain || existingEmail.emailDomain || '',
       // OAuth2 fields
-      tenantId: config.tenantId || existingEmail.tenantId || '',
-      clientId: config.clientId || existingEmail.clientId || '',
-      clientSecret: config.clientSecret || existingEmail.clientSecret || '',
-      senderEmail: config.senderEmail || existingEmail.senderEmail || '',
+      tenantId: parsed.data.tenantId || existingEmail.tenantId || '',
+      clientId: parsed.data.clientId || existingEmail.clientId || '',
+      clientSecret: parsed.data.clientSecret || existingEmail.clientSecret || '',
+      senderEmail: parsed.data.senderEmail || existingEmail.senderEmail || '',
     };
 
     await prisma.organization.update({

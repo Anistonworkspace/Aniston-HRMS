@@ -1,14 +1,35 @@
 import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Search, CalendarOff, MessageSquare, Check, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useGetPendingApprovalsAllQuery } from './dashboardApi';
 import { useHandleLeaveActionMutation } from '../leaves/leaveApi';
-import { useUpdateTicketMutation } from '../helpdesk/helpdeskApi';
 import { formatDate, getInitials } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 type Tab = 'leaves' | 'tickets';
+
+interface PendingLeave {
+  id: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  status: string;
+  reason?: string;
+  employee?: { firstName: string; lastName: string; employeeCode: string; department?: { name: string } };
+  leaveType?: { id: string; name: string; code: string };
+}
+
+interface OpenTicket {
+  id: string;
+  subject: string;
+  priority: string;
+  status: string;
+  ticketCode?: string;
+  createdAt: string;
+  employee?: { firstName: string; lastName: string; employeeCode: string };
+}
 
 export default function PendingApprovalsPage() {
   const navigate = useNavigate();
@@ -17,7 +38,6 @@ export default function PendingApprovalsPage() {
   const [searchDebounce, setSearchDebounce] = useState('');
   const { data: response, isLoading } = useGetPendingApprovalsAllQuery({ search: searchDebounce });
   const [handleLeaveAction] = useHandleLeaveActionMutation();
-  const [updateTicket] = useUpdateTicketMutation();
 
   const pendingLeaves = response?.data?.pendingLeaves?.data || [];
   const openTickets = response?.data?.openTickets?.data || [];
@@ -38,14 +58,7 @@ export default function PendingApprovalsPage() {
     } catch { toast.error('Action failed'); }
   };
 
-  const onTicketAction = async (id: string, status: string) => {
-    try {
-      await updateTicket({ id, data: { status } }).unwrap();
-      toast.success(`Ticket ${status.toLowerCase()}`);
-    } catch { toast.error('Action failed'); }
-  };
-
-  const tabs: { key: Tab; label: string; count: number; icon: any }[] = [
+  const tabs: { key: Tab; label: string; count: number; icon: LucideIcon }[] = [
     { key: 'leaves', label: 'Leave Requests', count: leavesCount, icon: CalendarOff },
     { key: 'tickets', label: 'Helpdesk Tickets', count: ticketsCount, icon: MessageSquare },
   ];
@@ -95,7 +108,7 @@ export default function PendingApprovalsPage() {
       {/* Content */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-3 border-brand-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-[3px] border-brand-600 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : activeTab === 'leaves' ? (
         <div className="space-y-3">
@@ -105,7 +118,7 @@ export default function PendingApprovalsPage() {
               <p className="text-sm text-gray-400">No pending leave requests</p>
             </div>
           ) : (
-            pendingLeaves.map((leave: any) => (
+            pendingLeaves.map((leave: PendingLeave) => (
               <motion.div
                 key={leave.id}
                 initial={{ opacity: 0, y: 8 }}
@@ -149,7 +162,7 @@ export default function PendingApprovalsPage() {
                   </div>
                 </div>
                 {leave.reason && (
-                  <p className="text-xs text-gray-500 mt-2 pl-13">Reason: {leave.reason}</p>
+                  <p className="text-xs text-gray-500 mt-2 pl-[52px]">Reason: {leave.reason}</p>
                 )}
               </motion.div>
             ))
@@ -163,7 +176,7 @@ export default function PendingApprovalsPage() {
               <p className="text-sm text-gray-400">No open helpdesk tickets</p>
             </div>
           ) : (
-            openTickets.map((ticket: any) => (
+            openTickets.map((ticket: OpenTicket) => (
               <motion.div
                 key={ticket.id}
                 initial={{ opacity: 0, y: 8 }}

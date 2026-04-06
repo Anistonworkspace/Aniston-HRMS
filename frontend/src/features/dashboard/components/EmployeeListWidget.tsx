@@ -51,7 +51,7 @@ function EmployeeListWidgetInner({ items, type, emptyText = 'No items', clickabl
               {type === 'birthday' && item.dateOfBirth
                 ? new Date(item.dateOfBirth).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
                 : type === 'exit' && item.lastWorkingDate
-                ? `${item.department || 'No dept'}`
+                ? `${item.department || 'No dept'} · Exited ${formatDate(item.lastWorkingDate)}`
                 : `${item.department || 'No dept'}${item.joiningDate ? ` · Joined ${formatDate(item.joiningDate)}` : ''}`}
             </p>
           </div>

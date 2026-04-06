@@ -1,9 +1,10 @@
 import { useState, useMemo, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowLeft, Clock, MapPin, Calendar, ChevronLeft, ChevronRight, Activity,
   Flag, LogIn, LogOut, Coffee, Play, Shield, FileText, AlertTriangle,
-  Download, PenSquare, ClipboardList, User, Briefcase, Building,
+  Download, PenSquare, ClipboardList, User, Briefcase, Building, Maximize2, X,
 } from 'lucide-react';
 import { useGetEmployeeQuery } from '../employee/employeeApi';
 import {
@@ -68,6 +69,7 @@ export default function EmployeeAttendanceDetailPage() {
   const navigate = useNavigate();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
 
   // Data fetching
   const { data: empRes } = useGetEmployeeQuery(employeeId || '');
@@ -82,6 +84,7 @@ export default function EmployeeAttendanceDetailPage() {
   const endDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0];
   const { data: attRes } = useGetEmployeeAttendanceQuery({ employeeId: employeeId || '', startDate, endDate });
   const records = attRes?.data?.records || attRes?.data?.data || [];
+  const holidays = attRes?.data?.holidays || [];
   const summary = attRes?.data?.summary;
 
   // Enriched detail for selected date
@@ -131,6 +134,9 @@ export default function EmployeeAttendanceDetailPage() {
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const recordMap = new Map<string, any>();
     records.forEach((r: any) => { recordMap.set(new Date(r.date).toISOString().split('T')[0], r); });
+    const holidayDates = new Set(
+      holidays.map((h: any) => new Date(h.date).toISOString().split('T')[0])
+    );
     const todayStr = new Date().toISOString().split('T')[0];
     const days: any[] = [];
     for (let i = 0; i < firstDay; i++) days.push({ date: 0, status: '' });
@@ -140,6 +146,7 @@ export default function EmployeeAttendanceDetailPage() {
       const record = recordMap.get(dateStr);
       let status = '';
       if (record) status = record.status;
+      else if (holidayDates.has(dateStr)) status = 'HOLIDAY';
       else if (dayOfWeek === 0) status = 'WEEKEND';
       else if (new Date(dateStr) < new Date(todayStr)) status = 'ABSENT';
       const hasAnomaly = record?.geofenceViolation || (record?.clockInCount || 0) > 1;
@@ -147,7 +154,7 @@ export default function EmployeeAttendanceDetailPage() {
       days.push({ date: d, dateStr, status, record, isToday: dateStr === todayStr, isSelected: dateStr === selectedDate, hasAnomaly, isMissingPunch });
     }
     return days;
-  }, [currentMonth, records, selectedDate]);
+  }, [currentMonth, records, holidays, selectedDate]);
 
   // Helpers
   const formatTime = (d: string | null) => {
@@ -161,9 +168,37 @@ export default function EmployeeAttendanceDetailPage() {
   };
 
   if (!employee) {
-    return <div className="page-container flex items-center justify-center min-h-[60vh]">
-      <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-    </div>;
+    return (
+      <div className="page-container">
+        {/* Header skeleton */}
+        <div className="layer-card p-4 mb-4">
+          <div className="flex items-center gap-4">
+            <div className="w-9 h-9 bg-gray-100 rounded-lg animate-pulse" />
+            <div className="w-11 h-11 rounded-xl bg-gray-100 animate-pulse" />
+            <div className="flex-1 space-y-2">
+              <div className="w-40 h-5 bg-gray-100 rounded animate-pulse" />
+              <div className="flex gap-2"><div className="w-16 h-3 bg-gray-50 rounded animate-pulse" /><div className="w-20 h-3 bg-gray-50 rounded animate-pulse" /></div>
+            </div>
+          </div>
+        </div>
+        <div className="grid lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-1 space-y-3">
+            <div className="layer-card p-4 space-y-3">
+              <div className="w-32 h-4 bg-gray-100 rounded animate-pulse" />
+              <div className="grid grid-cols-2 gap-2">{[1,2].map(i => <div key={i} className="h-16 bg-gray-50 rounded-lg animate-pulse" />)}</div>
+              <div className="grid grid-cols-3 gap-1.5">{[1,2,3].map(i => <div key={i} className="h-12 bg-gray-50 rounded-lg animate-pulse" />)}</div>
+            </div>
+            <div className="layer-card p-4 space-y-2">{[1,2,3].map(i => <div key={i} className="h-6 bg-gray-50 rounded animate-pulse" />)}</div>
+          </div>
+          <div className="lg:col-span-2 space-y-4">
+            <div className="layer-card p-4">
+              <div className="w-32 h-4 bg-gray-100 rounded animate-pulse mb-3" />
+              <div className="grid grid-cols-7 gap-1">{Array.from({length:35}).map((_,i) => <div key={i} className="aspect-square bg-gray-50 rounded-lg animate-pulse" />)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const monthName = currentMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
@@ -227,13 +262,36 @@ export default function EmployeeAttendanceDetailPage() {
           </div>
           {/* Header actions */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            <button className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
+            <button
+              onClick={() => navigate(`/attendance?regularize=${employeeId}&date=${selectedDate}`)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
               <PenSquare size={11} /> Regularize
             </button>
-            <button className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
+            <button
+              onClick={async () => {
+                try {
+                  const token = localStorage.getItem('accessToken');
+                  const apiUrl = import.meta.env.VITE_API_URL || '/api';
+                  const res = await fetch(
+                    `${apiUrl}/attendance/export?employeeId=${employeeId}&month=${currentMonth.getMonth() + 1}&year=${currentMonth.getFullYear()}`,
+                    { headers: { Authorization: `Bearer ${token}` } }
+                  );
+                  if (!res.ok) throw new Error('Export failed');
+                  const blob = await res.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `attendance-${employeeId}-${currentMonth.getMonth() + 1}-${currentMonth.getFullYear()}.xlsx`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                } catch { /* toast handled below */ }
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
               <Download size={11} /> Export
             </button>
-            <button className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
+            <button
+              onClick={() => navigate(`/attendance/employee/${employeeId}`)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-200">
               <ClipboardList size={11} /> Audit
             </button>
           </div>
@@ -442,45 +500,48 @@ export default function EmployeeAttendanceDetailPage() {
 
         {/* ========== RIGHT COLUMN (2 cols) ========== */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Calendar with compact status indicators */}
-          <div className="layer-card p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-display font-semibold text-gray-800 flex items-center gap-1.5">
-                <Calendar size={14} className="text-brand-500" /> {monthName}
+          {/* Compact Calendar */}
+          <div className="layer-card p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xs font-display font-semibold text-gray-800 flex items-center gap-1.5">
+                <Calendar size={12} className="text-brand-500" /> {monthName}
               </h2>
-              <div className="flex gap-1.5">
-                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))} className="p-1.5 rounded-lg hover:bg-surface-2">
-                  <ChevronLeft size={14} />
+              <div className="flex items-center gap-1">
+                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))} className="p-1 rounded-md hover:bg-surface-2">
+                  <ChevronLeft size={12} />
                 </button>
-                <button onClick={() => { setCurrentMonth(new Date()); setSelectedDate(new Date().toISOString().split('T')[0]); }} className="text-[10px] text-brand-600 px-2.5 py-1 rounded-lg hover:bg-brand-50 font-medium">Today</button>
-                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))} className="p-1.5 rounded-lg hover:bg-surface-2">
-                  <ChevronRight size={14} />
+                <button onClick={() => { setCurrentMonth(new Date()); setSelectedDate(new Date().toISOString().split('T')[0]); }} className="text-[9px] text-brand-600 px-2 py-0.5 rounded-md hover:bg-brand-50 font-medium">Today</button>
+                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))} className="p-1 rounded-md hover:bg-surface-2">
+                  <ChevronRight size={12} />
+                </button>
+                <button onClick={() => setShowCalendarModal(true)} className="p-1 rounded-md hover:bg-surface-2 ml-1" title="Expand calendar">
+                  <Maximize2 size={12} className="text-gray-400" />
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-7 gap-1 mb-0.5">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                <div key={d} className="text-center text-[9px] font-semibold text-gray-400 py-1">{d}</div>
-              ))}
-            </div>
-            <div className="grid grid-cols-7 gap-1">
-              {calendarDays.map((day: any, idx: number) => (
-                <button key={idx} disabled={day.date === 0}
-                  onClick={() => day.dateStr && setSelectedDate(day.dateStr)}
-                  className={cn(
-                    'aspect-square rounded-lg flex flex-col items-center justify-center text-[10px] transition-all relative p-0.5',
-                    day.date === 0 && 'invisible',
-                    day.isSelected && 'ring-2 ring-brand-500 ring-offset-1',
-                    day.isToday && !day.isSelected && 'ring-1 ring-brand-300',
-                    STATUS_BG[day.status] || (day.date > 0 ? 'bg-white hover:bg-gray-50' : ''),
-                  )}>
-                  <span className={cn('font-medium leading-none', day.isToday ? 'text-brand-600' : 'text-gray-700', day.status === 'WEEKEND' && 'text-gray-400')}>
-                    {day.date > 0 ? day.date : ''}
-                  </span>
-                  {day.status && day.date > 0 && (
-                    <div className="flex items-center gap-0.5 mt-0.5">
-                      <span className={cn('text-[7px] font-bold leading-none',
+            <div className="max-w-xs mx-auto">
+              <div className="grid grid-cols-7 gap-0.5 mb-0.5">
+                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                  <div key={i} className="text-center text-[8px] font-semibold text-gray-400 py-0.5">{d}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-0.5">
+                {calendarDays.map((day: any, idx: number) => (
+                  <button key={idx} disabled={day.date === 0}
+                    onClick={() => day.dateStr && setSelectedDate(day.dateStr)}
+                    className={cn(
+                      'rounded-md flex flex-col items-center justify-center text-[9px] transition-all py-1.5 px-0.5',
+                      day.date === 0 && 'invisible',
+                      day.isSelected && 'ring-1.5 ring-brand-500 ring-offset-1',
+                      day.isToday && !day.isSelected && 'ring-1 ring-brand-300',
+                      STATUS_BG[day.status] || (day.date > 0 ? 'bg-white hover:bg-gray-50' : ''),
+                    )}>
+                    <span className={cn('font-medium leading-none text-[10px]', day.isToday ? 'text-brand-600' : 'text-gray-700', day.status === 'WEEKEND' && 'text-gray-400')}>
+                      {day.date > 0 ? day.date : ''}
+                    </span>
+                    {day.status && day.date > 0 && (
+                      <span className={cn('text-[6px] font-bold leading-none mt-0.5',
                         day.status === 'PRESENT' ? 'text-emerald-600' :
                         day.status === 'ABSENT' ? 'text-red-500' :
                         day.status === 'HALF_DAY' ? 'text-amber-600' :
@@ -491,49 +552,105 @@ export default function EmployeeAttendanceDetailPage() {
                       )}>
                         {STATUS_LABEL[day.status] || ''}
                       </span>
-                      {day.hasAnomaly && <Flag size={6} className="text-red-500" />}
-                      {day.isMissingPunch && <AlertTriangle size={6} className="text-amber-500" />}
-                    </div>
-                  )}
-                  {day.record?.totalHours && (
-                    <span className="text-[7px] font-mono text-gray-400 leading-none" data-mono>
-                      {Number(day.record.totalHours).toFixed(1)}h
-                    </span>
-                  )}
-                </button>
-              ))}
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Legend */}
-            <div className="flex flex-wrap gap-2.5 mt-3 pt-2.5 border-t border-gray-100">
+            {/* Compact Legend with descriptions */}
+            <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-gray-100 justify-center">
               {[
-                { l: 'P', desc: 'Present', c: 'text-emerald-600 bg-emerald-50' },
-                { l: 'A', desc: 'Absent', c: 'text-red-500 bg-red-50' },
-                { l: 'HD', desc: 'Half Day', c: 'text-amber-600 bg-amber-50' },
-                { l: 'L', desc: 'Leave', c: 'text-purple-500 bg-purple-50' },
-                { l: 'WFH', desc: 'WFH', c: 'text-teal-500 bg-teal-50' },
-                { l: 'WO', desc: 'Week Off', c: 'text-gray-400 bg-gray-50' },
-                { l: 'H', desc: 'Holiday', c: 'text-blue-500 bg-blue-50' },
+                { l: 'P', d: 'Present', c: 'text-emerald-600 bg-emerald-50' },
+                { l: 'A', d: 'Absent', c: 'text-red-500 bg-red-50' },
+                { l: 'HD', d: 'Half Day', c: 'text-amber-600 bg-amber-50' },
+                { l: 'L', d: 'Leave', c: 'text-purple-500 bg-purple-50' },
+                { l: 'WFH', d: 'WFH', c: 'text-teal-500 bg-teal-50' },
+                { l: 'WO', d: 'Week Off', c: 'text-gray-400 bg-gray-50' },
+                { l: 'H', d: 'Holiday', c: 'text-blue-500 bg-blue-50' },
               ].map(i => (
-                <div key={i.l} className="flex items-center gap-1">
-                  <span className={cn('text-[8px] font-bold px-1 rounded', i.c)}>{i.l}</span>
-                  <span className="text-[9px] text-gray-400">{i.desc}</span>
-                </div>
+                <span key={i.l} className={cn('text-[7px] font-bold px-1 py-0.5 rounded cursor-default', i.c)} title={i.d}>{i.l}</span>
               ))}
-              <div className="flex items-center gap-1">
-                <Flag size={8} className="text-red-500" />
-                <span className="text-[9px] text-gray-400">Anomaly</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <AlertTriangle size={8} className="text-amber-500" />
-                <span className="text-[9px] text-gray-400">Missing Punch</span>
-              </div>
             </div>
           </div>
 
+          {/* Calendar Expand Modal */}
+          <AnimatePresence>
+            {showCalendarModal && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                onClick={(e) => e.target === e.currentTarget && setShowCalendarModal(false)}>
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+                  className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-base font-display font-semibold text-gray-900 flex items-center gap-2">
+                      <Calendar size={18} className="text-brand-500" /> {monthName}
+                    </h2>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))} className="p-1.5 rounded-lg hover:bg-gray-100"><ChevronLeft size={16} /></button>
+                      <button onClick={() => { setCurrentMonth(new Date()); setSelectedDate(new Date().toISOString().split('T')[0]); }} className="text-xs text-brand-600 px-3 py-1 rounded-lg hover:bg-brand-50 font-medium">Today</button>
+                      <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))} className="p-1.5 rounded-lg hover:bg-gray-100"><ChevronRight size={16} /></button>
+                      <button onClick={() => setShowCalendarModal(false)} className="p-1.5 rounded-lg hover:bg-gray-100 ml-2"><X size={16} /></button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1 mb-1">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                      <div key={d} className="text-center text-xs font-semibold text-gray-400 py-1">{d}</div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {calendarDays.map((day: any, idx: number) => (
+                      <button key={idx} disabled={day.date === 0}
+                        onClick={() => { day.dateStr && setSelectedDate(day.dateStr); setShowCalendarModal(false); }}
+                        className={cn(
+                          'aspect-square rounded-xl flex flex-col items-center justify-center text-sm transition-all',
+                          day.date === 0 && 'invisible',
+                          day.isSelected && 'ring-2 ring-brand-500 ring-offset-2',
+                          day.isToday && !day.isSelected && 'ring-1 ring-brand-300',
+                          STATUS_BG[day.status] || (day.date > 0 ? 'bg-white hover:bg-gray-50 border border-gray-100' : ''),
+                        )}>
+                        <span className={cn('font-semibold', day.isToday ? 'text-brand-600' : 'text-gray-800', day.status === 'WEEKEND' && 'text-gray-400')}>
+                          {day.date > 0 ? day.date : ''}
+                        </span>
+                        {day.status && day.date > 0 && (
+                          <span className={cn('text-[9px] font-bold mt-0.5',
+                            day.status === 'PRESENT' ? 'text-emerald-600' :
+                            day.status === 'ABSENT' ? 'text-red-500' :
+                            day.status === 'HALF_DAY' ? 'text-amber-600' :
+                            day.status === 'ON_LEAVE' ? 'text-purple-500' :
+                            day.status === 'HOLIDAY' ? 'text-blue-500' :
+                            'text-gray-400'
+                          )}>{STATUS_LABEL[day.status] || ''}</span>
+                        )}
+                        {day.record?.totalHours && (
+                          <span className="text-[8px] font-mono text-gray-400" data-mono>{Number(day.record.totalHours).toFixed(1)}h</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t border-gray-100 justify-center">
+                    {[
+                      { l: 'P', desc: 'Present', c: 'text-emerald-600 bg-emerald-50' },
+                      { l: 'A', desc: 'Absent', c: 'text-red-500 bg-red-50' },
+                      { l: 'HD', desc: 'Half Day', c: 'text-amber-600 bg-amber-50' },
+                      { l: 'L', desc: 'Leave', c: 'text-purple-500 bg-purple-50' },
+                      { l: 'WO', desc: 'Week Off', c: 'text-gray-400 bg-gray-50' },
+                      { l: 'H', desc: 'Holiday', c: 'text-blue-500 bg-blue-50' },
+                    ].map(i => (
+                      <div key={i.l} className="flex items-center gap-1">
+                        <span className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded', i.c)}>{i.l}</span>
+                        <span className="text-xs text-gray-500">{i.desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Map Section (lazy loaded) */}
           {(checkInLoc?.lat || (shiftType === 'FIELD' && gpsTrail.length > 0)) && (
-            <Suspense fallback={<div className="layer-card p-6 text-center"><div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" /></div>}>
+            <Suspense fallback={<div className="layer-card overflow-hidden"><div className="px-4 pt-3 pb-1.5"><div className="w-28 h-3 bg-gray-100 rounded animate-pulse" /></div><div className="h-[200px] bg-gray-50 animate-pulse" /></div>}>
               <MapSection
                 checkInLoc={checkInLoc}
                 geofenceCoords={geofenceCoords}

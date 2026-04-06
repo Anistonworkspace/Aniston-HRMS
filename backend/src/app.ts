@@ -44,8 +44,11 @@ import { exitAccessRouter } from './modules/exit-access/exit-access.routes.js';
 import { employeePermissionsRouter } from './modules/employee-permissions/employee-permissions.routes.js';
 import { documentOcrRouter } from './modules/document-ocr/document-ocr.routes.js';
 import { taskIntegrationRouter } from './modules/task-integration/task-integration.routes.js';
+import { componentMasterRouter } from './modules/component-master/component-master.routes.js';
+import { payrollAdjustmentRouter } from './modules/payroll-adjustment/payroll-adjustment.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
+import { getEmailWorkerHealth } from './jobs/workers/email.worker.js';
 
 const app = express();
 
@@ -125,6 +128,9 @@ app.get('/api/health', async (_req, res) => {
     redisStatus = 'down';
   }
 
+  // Email worker health
+  const emailWorker = await getEmailWorkerHealth();
+
   const overallStatus = dbStatus === 'ok' && redisStatus === 'ok' ? 'ok' : 'degraded';
 
   res.status(overallStatus === 'ok' ? 200 : 503).json({
@@ -137,6 +143,13 @@ app.get('/api/health', async (_req, res) => {
       dependencies: {
         database: dbStatus,
         redis: redisStatus,
+        emailWorker: emailWorker.status,
+      },
+      emailQueue: {
+        waiting: emailWorker.waiting,
+        active: emailWorker.active,
+        completed: emailWorker.completed,
+        failed: emailWorker.failed,
       },
     },
   });
@@ -160,7 +173,9 @@ app.use('/api/dashboard', dashboardRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/leaves', leaveRouter);
 app.use('/api/payroll', payrollRouter);
+app.use('/api/payroll-adjustments', payrollAdjustmentRouter);
 app.use('/api/salary-templates', salaryTemplateRouter);
+app.use('/api/salary-components', componentMasterRouter);
 app.use('/api/recruitment', recruitmentRouter);
 app.use('/api/onboarding', onboardingRouter);
 app.use('/api/performance', performanceRouter);

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -28,11 +28,13 @@ import {
   FileCheck,
   Send,
   FileCog,
+  CheckCircle2,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { cn } from '../../lib/utils';
 import { useGetWhatsAppStatusQuery, useGetWhatsAppChatsQuery } from '../../features/whatsapp/whatsappApi';
+import { useGetEmployeeQuery } from '../../features/employee/employeeApi';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
@@ -50,7 +52,7 @@ const navItems: NavItem[] = [
   { name: 'Dashboard', path: '/dashboard', icon: Home, exitAccessKey: 'canViewDashboard', permissionKey: 'canViewDashboardStats' },
   { name: 'Employees', managementName: 'Manage Employees', path: '/employees', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Attendance', managementName: 'Attendance Management', path: '/attendance', icon: Clock, exitAccessKey: 'canViewAttendance', permissionKey: 'canViewAttendanceHistory' },
-  { name: 'Activity Tracking', path: '/activity-tracking', icon: Activity, roles: ['SUPER_ADMIN', 'ADMIN'] },
+  { name: 'Activity Tracking', path: '/activity-tracking', icon: Activity, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { name: 'Leave', managementName: 'Leave Management', path: '/leaves', icon: CalendarDays, exitAccessKey: 'canViewLeaveBalance', permissionKey: 'canViewLeaveBalance' },
   { name: 'Payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'], exitAccessKey: 'canViewPayslips' },
   { name: 'Salary Templates', path: '/salary-templates', icon: FileCog, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
@@ -194,6 +196,9 @@ export default function Sidebar() {
         })}
       </nav>
 
+      {/* Profile Completion */}
+      <ProfileCompletionBar collapsed={collapsed} />
+
       {/* Logout + Collapse */}
       <div className="px-2 py-3 border-t border-gray-100 space-y-1">
         <button
@@ -226,5 +231,65 @@ export default function Sidebar() {
     </motion.aside>
 
     </>
+  );
+}
+
+function ProfileCompletionBar({ collapsed }: { collapsed: boolean }) {
+  const user = useAppSelector((state) => state.auth.user);
+  const { data: empRes } = useGetEmployeeQuery(user?.employeeId || '', {
+    skip: !user?.employeeId,
+  });
+  const employee = empRes?.data;
+  const navigate = useNavigate();
+
+  const { completionPct, completedCount, totalCount } = useMemo(() => {
+    if (!employee) return { completionPct: 0, completedCount: 0, totalCount: 5 };
+    const items = [
+      !!(employee.phone && employee.phone !== '0000000000' && employee.dateOfBirth),
+      !!(employee.emergencyContact && (employee.emergencyContact as any)?.name),
+      !!(employee.department && employee.designation),
+      (employee.documents?.length || 0) >= 3,
+      !!employee.bankAccountNumber,
+    ];
+    const done = items.filter(Boolean).length;
+    return { completionPct: Math.round((done / items.length) * 100), completedCount: done, totalCount: items.length };
+  }, [employee]);
+
+  if (!employee || completionPct === 100) return null;
+
+  const barColor = completionPct >= 60 ? 'bg-emerald-500' : completionPct >= 40 ? 'bg-amber-500' : 'bg-red-500';
+
+  return (
+    <div
+      className="mx-2 mb-1 px-3 py-2.5 rounded-lg bg-gray-50 border border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors"
+      onClick={() => navigate('/profile')}
+      title="Complete your profile"
+    >
+      {collapsed ? (
+        <div className="flex items-center justify-center">
+          <div className="relative w-8 h-8">
+            <svg className="w-8 h-8 -rotate-90" viewBox="0 0 32 32">
+              <circle cx="16" cy="16" r="13" fill="none" stroke="#e5e7eb" strokeWidth="3" />
+              <circle
+                cx="16" cy="16" r="13" fill="none" stroke={completionPct >= 60 ? '#22c55e' : completionPct >= 40 ? '#f59e0b' : '#ef4444'}
+                strokeWidth="3" strokeDasharray={`${(completionPct / 100) * 81.68} 81.68`} strokeLinecap="round"
+              />
+            </svg>
+            <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold text-gray-600">{completionPct}%</span>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-semibold text-gray-600">Profile Completion</span>
+            <span className="text-[10px] font-mono text-gray-400" data-mono>{completedCount}/{totalCount}</span>
+          </div>
+          <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <div className={`h-full ${barColor} rounded-full transition-all duration-500`} style={{ width: `${completionPct}%` }} />
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1">{completionPct}% complete</p>
+        </>
+      )}
+    </div>
   );
 }

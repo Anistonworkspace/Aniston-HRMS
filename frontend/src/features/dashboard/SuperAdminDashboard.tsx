@@ -2,8 +2,8 @@ import { memo, useMemo, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
 import {
   Users, TrendingDown, IndianRupee, Briefcase, UserPlus,
-  AlertTriangle, Building2, Cake, UserCheck, ClipboardList,
-  BarChart3, Settings,
+  AlertTriangle, Building2, Cake, UserCheck,
+  Settings,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/store';
@@ -11,24 +11,18 @@ import { useGetSuperAdminStatsQuery } from './dashboardApi';
 import { formatDate, formatCurrency } from '../../lib/utils';
 import {
   KPICard, AlertBanner, DashboardSection, QuickActionGrid,
-  EmployeeListWidget, SkeletonLoader, MobileStickyActions,
+  EmployeeListWidget, SkeletonLoader,
 } from './components';
 import type { SuperAdminDashboardStats } from '@aniston/shared';
 
 // Lazy-load chart components to improve initial render
 const TrendCharts = lazy(() => import('./sections/TrendCharts'));
+const LiveAttendanceWidget = lazy(() => import('../attendance/components/LiveAttendanceWidget'));
 
 const container = {
   hidden: { opacity: 0 },
   show: { opacity: 1, transition: { staggerChildren: 0.06 } },
 };
-
-const MOBILE_STICKY_ACTIONS = [
-  { label: 'Approvals', path: '/pending-approvals', icon: ClipboardList, color: 'text-amber-600' },
-  { label: 'Employees', path: '/employees', icon: Users, color: 'text-blue-600' },
-  { label: 'Payroll', path: '/payroll', icon: IndianRupee, color: 'text-purple-600' },
-  { label: 'Settings', path: '/settings', icon: Settings, color: 'text-gray-600' },
-];
 
 const QUICK_NAV = [
   { label: 'Employees', path: '/employees', icon: '👥' },
@@ -49,24 +43,20 @@ function SuperAdminDashboard() {
   });
   const stats = response?.data;
 
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  }, []);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
 
   const kpis = useMemo(() => {
     if (!stats) return [];
     return [
-      { label: 'Total Employees', value: stats.totalEmployees, icon: Users, color: 'bg-blue-500', sub: `${stats.activeEmployees} active`, onClick: () => navigate('/employees') },
-      { label: 'New Hires', value: stats.newHiresThisMonth, icon: UserPlus, color: 'bg-emerald-500', sub: 'this month', onClick: () => navigate('/employees?status=ACTIVE&sortBy=joiningDate') },
-      { label: 'Attrition Rate', value: `${stats.attritionRate}%`, icon: TrendingDown, color: stats.attritionRate > 15 ? 'bg-red-500' : 'bg-amber-500', sub: 'last 12 months', onClick: () => navigate('/exit-management') },
-      { label: 'Payroll Cost', value: formatCurrency(stats.monthlyPayrollCost), icon: IndianRupee, color: 'bg-purple-500', sub: 'last month net', onClick: () => navigate('/payroll') },
-      { label: 'Open Positions', value: stats.openPositions, icon: Briefcase, color: 'bg-indigo-500', sub: 'hiring', onClick: () => navigate('/recruitment') },
-      { label: 'Active Employees', value: stats.activeEmployees, icon: UserCheck, color: 'bg-teal-500', sub: 'currently working', onClick: () => navigate('/employees?status=ACTIVE') },
+      { label: 'Total Employees', value: stats.totalEmployees, icon: Users, color: 'bg-blue-500', iconBg: 'bg-blue-100', iconText: 'text-blue-600', sub: `${stats.activeEmployees} active`, onClick: () => navigate('/employees') },
+      { label: 'New Hires', value: stats.newHiresThisMonth, icon: UserPlus, color: 'bg-emerald-500', iconBg: 'bg-emerald-100', iconText: 'text-emerald-600', sub: 'this month', onClick: () => navigate('/employees?status=ACTIVE&sortBy=joiningDate') },
+      { label: 'Attrition Rate', value: `${stats.attritionRate}%`, icon: TrendingDown, color: stats.attritionRate > 15 ? 'bg-red-500' : 'bg-amber-500', iconBg: stats.attritionRate > 15 ? 'bg-red-100' : 'bg-amber-100', iconText: stats.attritionRate > 15 ? 'text-red-600' : 'text-amber-600', sub: 'last 12 months', onClick: () => navigate('/exit-management') },
+      { label: 'Payroll Cost', value: formatCurrency(stats.monthlyPayrollCost), icon: IndianRupee, color: 'bg-purple-500', iconBg: 'bg-purple-100', iconText: 'text-purple-600', sub: 'last month net', onClick: () => navigate('/payroll') },
+      { label: 'Open Positions', value: stats.openPositions, icon: Briefcase, color: 'bg-indigo-500', iconBg: 'bg-indigo-100', iconText: 'text-indigo-600', sub: 'hiring', onClick: () => navigate('/recruitment') },
+      { label: 'Active Employees', value: stats.activeEmployees, icon: UserCheck, color: 'bg-teal-500', iconBg: 'bg-teal-100', iconText: 'text-teal-600', sub: 'currently working', onClick: () => navigate('/employees?status=ACTIVE') },
     ];
-  }, [stats]);
+  }, [stats, navigate]);
 
   // === LOADING ===
   if (isLoading) return <SkeletonLoader variant="full-page" />;
@@ -85,7 +75,7 @@ function SuperAdminDashboard() {
   }
 
   return (
-    <div className="page-container pb-20 md:pb-6">
+    <div className="page-container pb-6">
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
         <h1 className="text-2xl md:text-3xl font-display font-bold text-gray-900">
@@ -124,6 +114,13 @@ function SuperAdminDashboard() {
         />
       </Suspense>
 
+      {/* Live Attendance Widget */}
+      <div className="mb-6 max-w-md">
+        <Suspense fallback={<div className="layer-card p-6 h-48 animate-pulse"><div className="h-5 bg-gray-200 rounded w-32 mb-4" /></div>}>
+          <LiveAttendanceWidget />
+        </Suspense>
+      </div>
+
       {/* Bottom Row: Department + Recent Activity + Birthdays */}
       <motion.div variants={container} initial="hidden" animate="show" className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Department Breakdown */}
@@ -159,14 +156,12 @@ function SuperAdminDashboard() {
         variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
         initial="hidden"
         animate="show"
-        className="mt-6 layer-card p-5 hidden md:block"
+        className="mt-6 layer-card p-5"
       >
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Navigation</h3>
-        <QuickActionGrid actions={QUICK_NAV} columns="grid-cols-2 md:grid-cols-4 lg:grid-cols-6" />
+        <QuickActionGrid actions={QUICK_NAV} columns="grid-cols-4 md:grid-cols-4" />
       </motion.div>
 
-      {/* Mobile Sticky Actions */}
-      <MobileStickyActions actions={MOBILE_STICKY_ACTIONS} />
     </div>
   );
 }

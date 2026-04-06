@@ -17,6 +17,11 @@ interface PayrollRecordForPDF {
   lopDeduction: any;
   workingDays: number;
   presentDays: number;
+  overtimeHours?: any;
+  overtimeAmount?: any;
+  adjustments?: any;
+  earningsBreakdown?: any;
+  deductionsBreakdown?: any;
   createdAt: Date;
   employee: {
     firstName: string;
@@ -119,24 +124,53 @@ export function generateSalarySlipPDF(record: PayrollRecordForPDF): Promise<Buff
       .text('DEDUCTIONS', deductCol + 10, tableTop + 6);
     doc.text('Amount', deductCol + colWidth - 80, tableTop + 6);
 
-    // Earnings rows
+    // Earnings rows — use detailed breakdown if available, else fallback to legacy
+    const earningsBreakdown = record.earningsBreakdown as Record<string, number> | null;
     const otherEarnings = record.otherEarnings as Record<string, number> | null;
-    const earnings = [
-      ['Basic Salary', Number(record.basic)],
-      ['House Rent Allowance', Number(record.hra)],
-      ['Dearness Allowance', Number(otherEarnings?.da || 0)],
-      ['Transport Allowance', Number(otherEarnings?.ta || 0)],
-      ['Medical Allowance', Number(otherEarnings?.medical || 0)],
-      ['Special Allowance', Number(otherEarnings?.special || 0)],
-    ].filter(([_, val]) => (val as number) > 0);
+    let earnings: [string, number][];
+    if (earningsBreakdown && Object.keys(earningsBreakdown).length > 0) {
+      earnings = Object.entries(earningsBreakdown)
+        .filter(([_, val]) => val > 0)
+        .map(([name, val]) => [name, val]);
+    } else {
+      earnings = [
+        ['Basic Salary', Number(record.basic)],
+        ['House Rent Allowance', Number(record.hra)],
+        ['Dearness Allowance', Number(otherEarnings?.da || 0)],
+        ['Transport Allowance', Number(otherEarnings?.ta || 0)],
+        ['Medical Allowance', Number(otherEarnings?.medical || 0)],
+        ['Special Allowance', Number(otherEarnings?.special || 0)],
+      ].filter(([_, val]) => (val as number) > 0) as [string, number][];
+    }
 
-    const deductions = [
+    // Deductions — use detailed breakdown if available, then add statutory
+    const deductionsBreakdown = record.deductionsBreakdown as Record<string, number> | null;
+    let deductions: [string, number][];
+    if (deductionsBreakdown && Object.keys(deductionsBreakdown).length > 0) {
+      deductions = Object.entries(deductionsBreakdown)
+        .filter(([_, val]) => val > 0)
+        .map(([name, val]) => [name, val]);
+    } else {
+      deductions = [];
+    }
+    // Always add statutory deductions
+    const statutoryItems: [string, number][] = [
       ['EPF (Employee)', Number(record.epfEmployee || 0)],
       ['ESI (Employee)', Number(record.esiEmployee || 0)],
       ['Professional Tax', Number(record.professionalTax || 0)],
       ['TDS', Number(record.tds || 0)],
       ['LOP Deduction', Number(record.lopDeduction || 0)],
-    ].filter(([_, val]) => (val as number) > 0);
+    ].filter(([_, val]) => val > 0) as [string, number][];
+    // Merge statutory into deductions (avoid duplicates)
+    const existingNames = new Set(deductions.map(([name]) => name));
+    for (const item of statutoryItems) {
+      if (!existingNames.has(item[0])) deductions.push(item);
+    }
+
+    // Add overtime if present
+    if (Number(record.overtimeAmount || 0) > 0) {
+      earnings.push(['Overtime', Number(record.overtimeAmount)]);
+    }
 
     let ey = tableTop + 28;
     let totalEarnings = 0;

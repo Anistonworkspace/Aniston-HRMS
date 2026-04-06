@@ -293,7 +293,7 @@ export class AttendanceController {
     try {
       const { id } = req.params;
       const { resolution, remarks } = req.body;
-      const result = await attendanceService.resolveAnomaly(id, resolution, req.user!.id, remarks);
+      const result = await attendanceService.resolveAnomaly(id, req.user!.organizationId, resolution, req.user!.id, remarks);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }

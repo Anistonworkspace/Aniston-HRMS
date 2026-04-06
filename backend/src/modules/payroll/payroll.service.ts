@@ -451,8 +451,9 @@ export class PayrollService {
     if (!run) throw new NotFoundError('Payroll run');
     if (run.status !== 'DRAFT') throw new BadRequestError('Payroll can only be processed from DRAFT status');
 
+    // Include PROBATION employees along with ACTIVE
     const employees = await prisma.employee.findMany({
-      where: { organizationId, status: 'ACTIVE', deletedAt: null, isSystemAccount: { not: true } },
+      where: { organizationId, status: { in: ['ACTIVE', 'PROBATION'] }, deletedAt: null, isSystemAccount: { not: true } },
       include: { salaryStructure: true },
     });
 
@@ -474,6 +475,47 @@ export class PayrollService {
       attendanceByEmp.get(rec.employeeId)!.push(rec);
     }
 
+    // Pre-fetch approved leave requests for LOP calculation
+    const allLeaves = await prisma.leaveRequest.findMany({
+      where: {
+        employeeId: { in: empIds },
+        status: 'APPROVED',
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+      },
+      select: { employeeId: true, startDate: true, endDate: true, leaveType: { select: { isPaid: true } } },
+    });
+
+    const paidLeaveDatesByEmp = new Map<string, Set<string>>();
+    for (const leave of allLeaves) {
+      if (!leave.leaveType?.isPaid) continue;
+      if (!paidLeaveDatesByEmp.has(leave.employeeId)) paidLeaveDatesByEmp.set(leave.employeeId, new Set());
+      const dates = paidLeaveDatesByEmp.get(leave.employeeId)!;
+      const current = new Date(leave.startDate);
+      const end = new Date(leave.endDate);
+      while (current <= end) {
+        dates.add(current.toISOString().split('T')[0]);
+        current.setDate(current.getDate() + 1);
+      }
+    }
+
+    // Pre-fetch APPROVED adjustments for this run
+    const allAdjustments = await prisma.payrollAdjustment.findMany({
+      where: { payrollRunId: runId, approvalStatus: 'APPROVED' },
+    });
+    const adjustmentsByEmp = new Map<string, typeof allAdjustments>();
+    for (const adj of allAdjustments) {
+      if (!adjustmentsByEmp.has(adj.employeeId)) adjustmentsByEmp.set(adj.employeeId, []);
+      adjustmentsByEmp.get(adj.employeeId)!.push(adj);
+    }
+
+    // Pre-fetch holidays for the month
+    const holidays = await prisma.holiday.findMany({
+      where: { organizationId, date: { gte: startDate, lte: endDate } },
+      select: { date: true },
+    }).catch(() => []);
+    const holidayDates = new Set(holidays.map(h => new Date(h.date).toISOString().split('T')[0]));
+
     try {
       const result = await prisma.$transaction(async (tx) => {
         await tx.payrollRun.update({ where: { id: runId }, data: { status: 'PROCESSING' } });
@@ -486,10 +528,26 @@ export class PayrollService {
           if (!emp.salaryStructure) continue;
           const sal = emp.salaryStructure;
           const empAttendance = attendanceByEmp.get(emp.id) || [];
+          const paidLeaveDates = paidLeaveDatesByEmp.get(emp.id) || new Set<string>();
+          const empAdjustments = adjustmentsByEmp.get(emp.id) || [];
 
           const presentRecords = empAttendance.filter(r => r.status === 'PRESENT');
           const absentRecords = empAttendance.filter(r => r.status === 'ABSENT');
-          const lopDays = absentRecords.length;
+
+          // Calculate LOP: absent days minus approved paid leave days minus holidays
+          let lopDays = 0;
+          for (const rec of absentRecords) {
+            const dateStr = new Date(rec.date).toISOString().split('T')[0];
+            if (!paidLeaveDates.has(dateStr) && !holidayDates.has(dateStr)) {
+              lopDays++;
+            }
+          }
+
+          // Half-day support
+          const halfDayRecords = empAttendance.filter(r => r.status === 'HALF_DAY');
+          const halfDayLop = halfDayRecords.length * 0.5;
+          lopDays += halfDayLop;
+
           const sundaysWorked = presentRecords.filter(r => new Date(r.date).getDay() === 0).length;
           const presentDays = totalWorkingDays - lopDays;
 
@@ -506,17 +564,54 @@ export class PayrollService {
           const statutoryDeductions = Number(sal.pfEmployee || 0) + Number(sal.esiEmployee || 0) +
             Number(sal.professionalTax || 0) + Number(sal.tds || 0);
 
-          const adjustedGross = earningsTotal + sundayBonus;
-          const deductions = componentDeductions + statutoryDeductions;
+          // Calculate adjustments (additions and deductions)
+          let adjustmentAdditions = 0;
+          let adjustmentDeductions = 0;
+          const adjustmentSnapshot: any[] = [];
+          for (const adj of empAdjustments) {
+            const amount = Number(adj.amount);
+            if (adj.isDeduction) {
+              adjustmentDeductions += amount;
+            } else {
+              adjustmentAdditions += amount;
+            }
+            adjustmentSnapshot.push({
+              type: adj.type,
+              componentName: adj.componentName,
+              amount,
+              isDeduction: adj.isDeduction,
+              reason: adj.reason,
+            });
+          }
+
+          const adjustedGross = earningsTotal + sundayBonus + adjustmentAdditions;
+          const deductions = componentDeductions + statutoryDeductions + adjustmentDeductions;
           const netSalary = adjustedGross - deductions - lopDeduction;
 
-          // Build otherEarnings from non-basic/hra components
+          // Build detailed earnings breakdown
+          const earningsBreakdown: Record<string, number> = {};
+          const deductionsBreakdown: Record<string, number> = {};
+          for (const comp of components) {
+            if (comp.type === 'earning') {
+              earningsBreakdown[comp.name] = comp.value;
+            } else {
+              deductionsBreakdown[comp.name] = comp.value;
+            }
+          }
+          if (sundayBonus > 0) earningsBreakdown['Sunday Bonus'] = sundayBonus;
+          for (const adj of empAdjustments) {
+            if (!adj.isDeduction) earningsBreakdown[`Adj: ${adj.componentName}`] = Number(adj.amount);
+            else deductionsBreakdown[`Adj: ${adj.componentName}`] = Number(adj.amount);
+          }
+
+          // Build otherEarnings from non-basic/hra components (backward compat)
           const otherEarnings: Record<string, number> = { sundayBonus, sundaysWorked };
           for (const comp of components) {
             if (comp.type === 'earning' && !['Basic', 'HRA'].includes(comp.name)) {
               otherEarnings[comp.name.toLowerCase().replace(/\s+/g, '_')] = comp.value;
             }
           }
+          if (adjustmentAdditions > 0) otherEarnings.adjustmentAdditions = adjustmentAdditions;
 
           const basicComp = findComponent(components, 'Basic');
           const hraComp = findComponent(components, 'HRA');
@@ -536,11 +631,16 @@ export class PayrollService {
               esiEmployer: Number(sal.esiEmployer || 0),
               professionalTax: Number(sal.professionalTax || 0),
               tds: Number(sal.tds || 0),
-              otherDeductions: componentDeductions > 0 ? { customDeductions: componentDeductions } : undefined,
-              lopDays,
+              otherDeductions: componentDeductions + adjustmentDeductions > 0
+                ? { customDeductions: componentDeductions, adjustmentDeductions }
+                : undefined,
+              lopDays: Math.ceil(lopDays), // round up half-days
               lopDeduction,
               workingDays: totalWorkingDays,
-              presentDays,
+              presentDays: Math.floor(presentDays),
+              adjustments: adjustmentSnapshot.length > 0 ? adjustmentSnapshot : undefined,
+              earningsBreakdown,
+              deductionsBreakdown,
             },
           });
 

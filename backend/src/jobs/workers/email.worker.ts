@@ -203,17 +203,6 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     standardFooter('Aniston Technologies', ctx.link)
   ),
 
-  'leave-approved': (ctx) => emailLayout(
-    ctx.status === 'Approved' ? '#059669' : '#DC2626',
-    ctx.status === 'Approved' ? '&#10003;' : '&#10007;',
-    `Leave ${ctx.status}`,
-    'Leave request update',
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${ctx.name}</strong>,</p>
-    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">Your leave request from <strong>${ctx.startDate}</strong> to <strong>${ctx.endDate}</strong> has been <strong>${ctx.status.toLowerCase()}</strong>.</p>
-    ${ctx.remarks ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;margin:16px 0;"><tr><td style="padding:16px;"><p style="color:#6B7280;font-size:14px;margin:0;"><strong>Remarks:</strong> ${ctx.remarks}</p></td></tr></table>` : ''}`,
-    standardFooter('Aniston Technologies')
-  ),
-
   'resignation-submitted': (ctx) => emailLayout(
     '#DC2626', '!', 'Resignation Notice', 'Employee resignation submitted',
     `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;"><strong>${ctx.name}</strong> (${ctx.employeeCode}) has submitted their resignation.</p>
@@ -434,12 +423,36 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     standardFooter(ctx.orgName || 'Aniston Technologies', ctx.reviewUrl)
   ),
 
+  'activation-invite': (ctx) => emailLayout(
+    '#4F46E5', 'A', 'Activate Your Account', `Welcome to ${ctx.organizationName}`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${ctx.name}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      Your account on <strong>${ctx.organizationName}</strong>'s Aniston HRMS has been created. Please activate your account by setting a password.
+    </p>
+    ${ctaButton(ctx.link, 'Activate Account & Set Password')}
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0F0FF;margin:24px 0;">
+      <tr><td style="padding:20px;">
+        <p style="color:#4338CA;font-weight:600;margin:0 0 10px;font-size:14px;">What happens next?</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:13px;vertical-align:top;width:24px;">1.</td><td style="padding:6px 0;color:#4B5563;font-size:13px;">Click the button above to set your password</td></tr>
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:13px;vertical-align:top;">2.</td><td style="padding:6px 0;color:#4B5563;font-size:13px;">Log in with your email and new password</td></tr>
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:13px;vertical-align:top;">3.</td><td style="padding:6px 0;color:#4B5563;font-size:13px;">Complete your profile and start using Aniston HRMS</td></tr>
+        </table>
+      </td></tr>
+    </table>
+
+    <p style="color:#EF4444;font-size:13px;margin:16px 0 0;">
+      <strong>Expires:</strong> This link is valid for ${ctx.expiresIn || '72 hours'}.
+    </p>`,
+    standardFooter(ctx.organizationName || 'Aniston Technologies', ctx.link)
+  ),
+
   'holiday-notification': (ctx) => emailLayout(
-    ctx.isEvent ? 'Company Event' : 'Holiday Announcement',
-    ctx.isEvent
-      ? `<p style="font-size:40px;margin:0 0 4px;">📅</p>`
-      : `<p style="font-size:40px;margin:0 0 4px;">🎉</p>`,
     ctx.color || '#4F46E5',
+    ctx.isEvent ? '&#128197;' : '&#127881;',
+    ctx.isEvent ? 'Company Event' : 'Holiday Announcement',
+    ctx.holidayName || '',
     `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 12px;">Hello <strong>${ctx.employeeName || 'there'}</strong>,</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
       ${ctx.isEvent ? 'A new company event has been scheduled' : 'A holiday has been announced'}:
@@ -738,6 +751,8 @@ async function sendEmail(to: string, subject: string, html: string) {
   }
 }
 
+let emailWorkerInstance: Worker<EmailJob> | null = null;
+
 export function startEmailWorker() {
   const worker = new Worker<EmailJob>(
     'email',
@@ -754,10 +769,76 @@ export function startEmailWorker() {
     logger.info(`Email job ${job.id} completed`);
   });
 
-  worker.on('failed', (job, err) => {
-    logger.error(`Email job ${job?.id} failed:`, err);
+  worker.on('failed', async (job, err) => {
+    const attempts = job?.attemptsMade ?? 0;
+    const maxAttempts = (job?.opts?.attempts ?? 3);
+    logger.error(`Email job ${job?.id} failed (attempt ${attempts}/${maxAttempts}):`, err);
+
+    // Persist failed email record to Redis when all retries are exhausted
+    if (job && attempts >= maxAttempts) {
+      try {
+        const failedRecord = JSON.stringify({
+          jobId: job.id,
+          to: job.data.to,
+          subject: job.data.subject,
+          template: job.data.template,
+          error: err?.message || 'Unknown error',
+          attempts,
+          failedAt: new Date().toISOString(),
+        });
+        // Store in a Redis list (capped at 500 most recent failures)
+        await redis.lpush('email:failed-log', failedRecord);
+        await redis.ltrim('email:failed-log', 0, 499);
+        logger.warn(`[EmailAudit] Permanently failed email logged: to=${job.data.to}, template=${job.data.template}`);
+      } catch (auditErr) {
+        logger.error(`[EmailAudit] Failed to persist email failure log:`, auditErr);
+      }
+    }
   });
 
+  emailWorkerInstance = worker;
   logger.info('✅ Email worker started');
   return worker;
+}
+
+/**
+ * Get email worker health status (for /api/health endpoint)
+ */
+export async function getEmailWorkerHealth(): Promise<{
+  status: 'running' | 'stopped' | 'unknown';
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+}> {
+  try {
+    const { emailQueue } = await import('../../jobs/queues.js');
+    const [waiting, active, completed, failed] = await Promise.all([
+      emailQueue.getWaitingCount(),
+      emailQueue.getActiveCount(),
+      emailQueue.getCompletedCount(),
+      emailQueue.getFailedCount(),
+    ]);
+    return {
+      status: emailWorkerInstance?.isRunning() ? 'running' : 'stopped',
+      waiting,
+      active,
+      completed,
+      failed,
+    };
+  } catch {
+    return { status: 'unknown', waiting: 0, active: 0, completed: 0, failed: 0 };
+  }
+}
+
+/**
+ * Retrieve recent permanently failed email logs from Redis
+ */
+export async function getRecentFailedEmails(limit: number = 20): Promise<any[]> {
+  try {
+    const raw = await redis.lrange('email:failed-log', 0, limit - 1);
+    return raw.map(r => JSON.parse(r));
+  } catch {
+    return [];
+  }
 }

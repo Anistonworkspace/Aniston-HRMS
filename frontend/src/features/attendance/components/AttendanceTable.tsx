@@ -62,9 +62,26 @@ function AttendanceTable({ records, isLoading, meta, page, onPageChange, sortBy,
   if (isLoading) {
     return (
       <div className="layer-card overflow-hidden">
-        <div className="p-8 text-center">
-          <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-xs text-gray-400 mt-2">Loading attendance data...</p>
+        <div className="p-3">
+          {/* Table skeleton */}
+          <div className="flex gap-3 mb-3 px-2.5">
+            {[180, 80, 70, 72, 72, 50, 55, 80, 65].map((w, i) => (
+              <div key={i} className="h-3 bg-gray-100 rounded animate-pulse flex-shrink-0" style={{ width: w }} />
+            ))}
+          </div>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-2.5 py-2.5 border-b border-gray-50">
+              <div className="w-7 h-7 bg-gray-100 rounded-full animate-pulse flex-shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-3 bg-gray-100 rounded animate-pulse w-28" />
+                <div className="h-2 bg-gray-50 rounded animate-pulse w-16" />
+              </div>
+              <div className="h-3 bg-gray-50 rounded animate-pulse w-12" />
+              <div className="h-3 bg-gray-50 rounded animate-pulse w-12" />
+              <div className="h-3 bg-gray-100 rounded animate-pulse w-10" />
+              <div className="h-5 bg-gray-100 rounded-full animate-pulse w-16" />
+            </div>
+          ))}
         </div>
       </div>
     );

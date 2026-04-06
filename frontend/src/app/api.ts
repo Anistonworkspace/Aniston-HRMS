@@ -15,8 +15,18 @@ const baseQuery = fetchBaseQuery({
   },
 });
 
-// Auto-refresh on 401
+// Auto-refresh on 401, with offline detection
 const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
+  // Fail fast if offline — no point waiting for network timeout
+  if (!navigator.onLine) {
+    return {
+      error: {
+        status: 'FETCH_ERROR',
+        error: 'You are offline. Please connect to the network and try again.',
+      },
+    };
+  }
+
   let result = await baseQuery(args, api, extraOptions);
 
   if (result.error && result.error.status === 401) {
@@ -86,6 +96,7 @@ export const api = createApi({
     'AgentSetup',
     'SalaryTemplate',
     'OfficeLocation',
+    'Settings',
   ],
   endpoints: () => ({}),
 });

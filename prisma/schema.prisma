@@ -40,6 +40,8 @@ model Organization {
   geofences    Geofence[]
   shifts       Shift[]
   leavePolicies LeavePolicy[]
+  attendancePolicy AttendancePolicy?
+  shiftRotationPatterns ShiftRotationPattern[]
 }
 
 model User {
@@ -181,8 +183,10 @@ model Employee {
   leavePolicyId          String?
   leavePolicy            LeavePolicy?          @relation(fields: [leavePolicyId], references: [id])
   whatsAppOtps           WhatsAppOtp[]
+  overtimeRequests       OvertimeRequest[]
   attendanceAnomalies    AttendanceAnomaly[]
   attendanceRegularizations AttendanceRegularization[]
+  payrollAdjustments        PayrollAdjustment[]
 
   @@index([organizationId, status])
   @@index([departmentId])
@@ -464,8 +468,9 @@ model AttendanceRecord {
   breaks   Break[]
   regularization AttendanceRegularization?
   logs     AttendanceLog[]
-  locationVisits LocationVisit[]
-  anomalies      AttendanceAnomaly[]
+  locationVisits   LocationVisit[]
+  anomalies        AttendanceAnomaly[]
+  overtimeRequests OvertimeRequest[]
 
   @@unique([employeeId, date])
   @@index([date])
@@ -837,6 +842,53 @@ model HybridSchedule {
 // PAYROLL
 // =====================
 
+model SalaryComponentMaster {
+  id               String   @id @default(uuid())
+  name             String
+  code             String   // e.g. BASIC, HRA, SHIFT_ALLOW
+  type             ComponentType
+  category         ComponentCategory @default(STANDARD)
+  calculationRule  CalculationRule @default(FIXED)
+  percentageOf     String?  // e.g. "BASIC" or "CTC" — which component or CTC to calculate % of
+  defaultValue     Decimal? @db.Decimal(12, 2)
+  defaultPercentage Decimal? @db.Decimal(5, 2)
+  isTaxable        Boolean  @default(true)
+  isStatutory      Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  sortOrder        Int      @default(0)
+  description      String?
+  organizationId   String
+  createdBy        String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  deletedAt        DateTime?
+
+  @@unique([code, organizationId])
+  @@index([organizationId, type])
+}
+
+enum ComponentType {
+  EARNING
+  DEDUCTION
+}
+
+enum ComponentCategory {
+  STANDARD     // Basic, HRA, DA etc.
+  ALLOWANCE    // Shift, Night, City Compensatory
+  BONUS        // Performance, Festival, Retention
+  REIMBURSEMENT // Travel, Internet, Phone
+  STATUTORY    // EPF, ESI, PT, TDS
+  CUSTOM       // Any custom component
+}
+
+enum CalculationRule {
+  FIXED          // Fixed amount
+  PERCENTAGE_CTC // Percentage of CTC
+  PERCENTAGE_BASIC // Percentage of Basic
+  SLAB           // Slab-based (like PT)
+  FORMULA        // Custom formula (future)
+}
+
 model SalaryTemplate {
   id               String             @id @default(uuid())
   name             String
@@ -965,11 +1017,16 @@ model PayrollRun {
   totalGross  Decimal?        @db.Decimal(14, 2)
   totalNet    Decimal?        @db.Decimal(14, 2)
   totalDeductions Decimal?    @db.Decimal(14, 2)
+  approvedBy  String?
+  approvedAt  DateTime?
+  remarks     String?
+  payDate     DateTime?       // scheduled pay date
   organizationId String
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  records PayrollRecord[]
+  records     PayrollRecord[]
+  adjustments PayrollAdjustment[]
 
   @@unique([month, year, organizationId])
 }
@@ -977,6 +1034,8 @@ model PayrollRun {
 enum PayrollRunStatus {
   DRAFT
   PROCESSING
+  REVIEW
+  APPROVED
   COMPLETED
   LOCKED
 }
@@ -1004,11 +1063,54 @@ model PayrollRecord {
   amendedBy      String?
   amendedAt      DateTime?
   amendmentReason String?
+  overtimeHours   Decimal?  @db.Decimal(6, 2)
+  overtimeAmount  Decimal?  @db.Decimal(12, 2)
+  adjustments     Json?     // snapshot of applied adjustments
+  earningsBreakdown Json?   // detailed component-wise earnings
+  deductionsBreakdown Json? // detailed component-wise deductions
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id])
   employee   Employee   @relation(fields: [employeeId], references: [id])
+}
+
+model PayrollAdjustment {
+  id             String          @id @default(uuid())
+  payrollRunId   String
+  employeeId     String
+  type           AdjustmentType
+  componentName  String          // e.g. "Arrears - Basic", "Reimbursement", "Bonus"
+  amount         Decimal         @db.Decimal(12, 2)
+  isDeduction    Boolean         @default(false) // false = addition, true = deduction
+  reason         String
+  addedBy        String          // userId
+  addedByName    String?
+  approvedBy     String?         // userId
+  approvalStatus AdjustmentApproval @default(PENDING)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id])
+  employee   Employee   @relation(fields: [employeeId], references: [id])
+
+  @@index([payrollRunId, employeeId])
+}
+
+enum AdjustmentType {
+  ARREARS
+  REIMBURSEMENT
+  BONUS
+  INCENTIVE
+  ADVANCE_DEDUCTION
+  LOAN_RECOVERY
+  OTHER
+}
+
+enum AdjustmentApproval {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 // =====================
@@ -2483,4 +2585,85 @@ model LeavePolicyRule {
   leaveType   LeaveType   @relation(fields: [leaveTypeId], references: [id])
 
   @@unique([policyId, leaveTypeId])
+}
+
+// ══════════════════════════════════════════════════════════
+// Attendance Enhancement Models (Priority 1 + Priority 2)
+// ══════════════════════════════════════════════════════════
+
+model AttendancePolicy {
+  id                    String   @id @default(uuid())
+  organizationId        String   @unique
+  // Late penalty
+  lateGraceMinutes      Int      @default(15)
+  lateHalfDayAfterMins  Int      @default(120)
+  latePenaltyEnabled    Boolean  @default(false)
+  latePenaltyPerCount   Int      @default(3)
+  // Half-day cutoff
+  halfDayMinHours       Decimal  @db.Decimal(4, 2) @default(4)
+  fullDayMinHours       Decimal  @db.Decimal(4, 2) @default(8)
+  // Overtime
+  otEnabled             Boolean  @default(false)
+  otThresholdMinutes    Int      @default(30)
+  otRateMultiplier      Decimal  @db.Decimal(3, 2) @default(1.5)
+  otMaxHoursPerDay      Decimal  @db.Decimal(4, 2) @default(4)
+  // Comp-off
+  compOffEnabled        Boolean  @default(false)
+  compOffMinOTHours     Decimal  @db.Decimal(4, 2) @default(4)
+  compOffExpiryDays     Int      @default(30)
+  // Week off days (0=Sun, 1=Mon, ..., 6=Sat)
+  weekOffDays           Int[]    @default([0])
+  // Auto-absent
+  autoAbsentAfterHours  Int      @default(4)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+}
+
+model OvertimeRequest {
+  id              String         @id @default(uuid())
+  employeeId      String
+  date            DateTime       @db.Date
+  plannedHours    Decimal        @db.Decimal(4, 2)
+  actualHours     Decimal?       @db.Decimal(4, 2)
+  reason          String
+  status          OvertimeStatus @default(PENDING)
+  approvedBy      String?
+  approverRemarks String?
+  approvedAt      DateTime?
+  attendanceId    String?
+  organizationId  String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  deletedAt       DateTime?
+
+  employee   Employee          @relation(fields: [employeeId], references: [id])
+  attendance AttendanceRecord? @relation(fields: [attendanceId], references: [id])
+
+  @@unique([employeeId, date])
+  @@index([organizationId, date])
+  @@index([status])
+}
+
+enum OvertimeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+model ShiftRotationPattern {
+  id             String    @id @default(uuid())
+  name           String
+  rotationWeeks  Int       @default(1)
+  pattern        Json
+  organizationId String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
 }

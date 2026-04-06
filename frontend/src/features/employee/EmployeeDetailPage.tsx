@@ -1,23 +1,27 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import 'leaflet/dist/leaflet.css';
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
-  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle,
+  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye,
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery } from './employeeApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery } from '../attendance/attendanceApi';
 import { useGetHolidaysQuery } from '../leaves/leaveApi';
-import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation, useGetSalaryHistoryQuery } from '../payroll/payrollApi';
+import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation, useGetSalaryHistoryQuery, useSaveSalaryStructureDynamicMutation } from '../payroll/payrollApi';
+import { useGetComponentsQuery } from '../payroll/componentMasterApi';
 import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documents/documentApi';
+import { useIssueLetterDocumentMutation } from '../my-documents/myDocumentsApi';
 import { useGetInternProfileQuery, useGetAchievementLettersQuery, useIssueAchievementLetterMutation } from '../intern/internApi';
 import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import PermissionOverridePanel from '../permissions/PermissionOverridePanel';
 import OcrVerificationPanel from '../documents/OcrVerificationPanel';
 import { useGetEmployeeOcrSummaryQuery } from '../documents/documentOcrApi';
 import { useVerifyKycMutation } from '../kyc/kycApi';
+import { useGetDepartmentsQuery, useGetDesignationsQuery, useGetManagersQuery, useGetOfficeLocationsQuery } from './employeeDepsApi';
+import SearchableSelect from '../../components/ui/SearchableSelect';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -36,12 +40,43 @@ export default function EmployeeDetailPage() {
   const [updateEmployee] = useUpdateEmployeeMutation();
   const [sendActivationInvite, { isLoading: sendingInvite }] = useSendActivationInviteMutation();
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const [avatarError, setAvatarError] = useState(false);
+  const [showAttachmentsPopup, setShowAttachmentsPopup] = useState(false);
+  const [showTagsPopup, setShowTagsPopup] = useState(false);
 
   const isManagement = MANAGEMENT_ROLES.includes(user?.role || '');
   const isTeamsSynced = !!(employee?.user as any)?.microsoftId;
   const hasNotLoggedIn = !employee?.user?.lastLoginAt;
   const showActivationButton = isManagement && isTeamsSynced && hasNotLoggedIn;
+
+  // Auto-open edit modal when navigated with ?edit=true
+  useEffect(() => {
+    if (searchParams.get('edit') === 'true' && employee && isManagement) {
+      setShowEditModal(true);
+      searchParams.delete('edit');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [employee, searchParams, isManagement, setSearchParams]);
+
+  // Profile completion for sidebar
+  const profileCompletion = useMemo(() => {
+    if (!employee) return { items: [], pct: 0 };
+    const items = [
+      { label: 'Personal Details', done: !!(employee.dateOfBirth && employee.gender) },
+      { label: 'Emergency Contact', done: !!employee.emergencyContact },
+      { label: 'Dept & Designation', done: !!(employee.department && employee.designation) },
+      { label: 'Documents', done: (employee.documents?.length || 0) >= 3 },
+      { label: 'Bank Details', done: !!employee.bankAccountNumber },
+    ];
+    const pct = Math.round((items.filter(i => i.done).length / items.length) * 100);
+    return { items, pct };
+  }, [employee]);
+
+  const handleShareProfile = () => {
+    navigator.clipboard.writeText(window.location.href);
+    toast.success('Profile link copied to clipboard');
+  };
 
   const handleSendActivationInvite = async () => {
     if (!id) return;
@@ -98,7 +133,7 @@ export default function EmployeeDetailPage() {
       </div>
 
       {/* Main content — 2-column layout */}
-      <div className="flex gap-0 min-h-[calc(100vh-49px)]">
+      <div className="flex gap-0 h-[calc(100vh-49px)]">
         {/* Left sidebar — Profile card */}
         <div className="w-64 shrink-0 border-r border-gray-100 bg-white p-5 overflow-y-auto hidden lg:block">
           <div className="flex flex-col items-center mb-5">
@@ -151,11 +186,104 @@ export default function EmployeeDetailPage() {
             )}
           </div>
 
-          <div className="mt-6 border-t border-gray-100 pt-4 space-y-2">
-            <SidebarMeta icon={Paperclip} label="Attachments" count={employee.documents?.length || 0} />
-            <SidebarMeta icon={Tag} label="Tags" />
-            <SidebarMeta icon={Share2} label="Share" />
+          {/* Profile Completion Bar */}
+          {profileCompletion.pct < 100 && (
+            <div className="mt-5 border-t border-gray-100 pt-4">
+              <h4 className="text-[11px] font-semibold text-gray-600 mb-2">Profile Completion</h4>
+              <div className="space-y-1.5">
+                {profileCompletion.items.map((item, i) => (
+                  <div key={i} className="flex items-center justify-between text-[11px]">
+                    <span className="text-gray-500">{item.label}</span>
+                    <span className={item.done ? 'text-emerald-600 font-medium' : 'text-amber-500'}>
+                      {item.done ? '✓ Complete' : '○ Pending'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${profileCompletion.pct >= 60 ? 'bg-emerald-500' : profileCompletion.pct >= 40 ? 'bg-amber-500' : 'bg-red-500'}`}
+                  style={{ width: `${profileCompletion.pct}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">{profileCompletion.pct}% complete</p>
+            </div>
+          )}
+
+          <div className="mt-5 border-t border-gray-100 pt-4 space-y-2">
+            <SidebarMeta icon={Paperclip} label="Attachments" count={employee.documents?.length || 0} onClick={() => setShowAttachmentsPopup(true)} />
+            <SidebarMeta icon={Tag} label="Tags" onClick={() => setShowTagsPopup(true)} />
+            <SidebarMeta icon={Share2} label="Share" onClick={handleShareProfile} />
           </div>
+
+          {/* Attachments Popup */}
+          <AnimatePresence>
+            {showAttachmentsPopup && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                onClick={() => setShowAttachmentsPopup(false)}>
+                <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+                  onClick={e => e.stopPropagation()}
+                  className="bg-white rounded-xl shadow-glass-lg w-full max-w-md p-5 max-h-[70vh] overflow-y-auto">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2"><Paperclip size={15} /> Attachments</h3>
+                    <button onClick={() => setShowAttachmentsPopup(false)} className="p-1 hover:bg-gray-100 rounded-lg"><X size={16} className="text-gray-400" /></button>
+                  </div>
+                  {(employee.documents?.length || 0) === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-6">No documents uploaded yet</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {employee.documents?.map((doc: any) => (
+                        <div key={doc.id} className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <FileText size={16} className="text-brand-500 flex-shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-gray-700 truncate">{doc.name || doc.type?.replace(/_/g, ' ')}</p>
+                              <p className="text-[10px] text-gray-400">{doc.createdAt ? formatDate(doc.createdAt) : ''}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {doc.status === 'VERIFIED' && <Check size={14} className="text-emerald-500" />}
+                            {doc.fileUrl && (
+                              <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="p-1 hover:bg-gray-200 rounded">
+                                <Eye size={14} className="text-gray-500" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Tags Popup */}
+          <AnimatePresence>
+            {showTagsPopup && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                onClick={() => setShowTagsPopup(false)}>
+                <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+                  onClick={e => e.stopPropagation()}
+                  className="bg-white rounded-xl shadow-glass-lg w-full max-w-sm p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2"><Tag size={15} /> Tags</h3>
+                    <button onClick={() => setShowTagsPopup(false)} className="p-1 hover:bg-gray-100 rounded-lg"><X size={16} className="text-gray-400" /></button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {employee.department && <span className="badge bg-purple-50 text-purple-700 border-purple-200">{employee.department.name}</span>}
+                    {employee.designation && <span className="badge bg-blue-50 text-blue-700 border-blue-200">{employee.designation.name}</span>}
+                    <span className="badge bg-gray-50 text-gray-600 border-gray-200">{employee.workMode?.replace(/_/g, ' ')}</span>
+                    <span className={`badge ${getStatusColor(employee.status)}`}>{employee.status}</span>
+                    {employee.user?.role && <span className="badge bg-indigo-50 text-indigo-700 border-indigo-200">{employee.user.role.replace(/_/g, ' ')}</span>}
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-3">Tags are auto-generated from employee attributes</p>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div className="mt-5 flex items-center gap-3 text-xs text-gray-400">
             <span className="flex items-center gap-1"><Heart size={12} /> 0</span>
@@ -205,7 +333,7 @@ export default function EmployeeDetailPage() {
               <div className="space-y-4">
                 {/* Shift Assignment */}
                 <ShiftAssignmentCard employeeId={id!} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} />
-                <EmployeeAttendanceTab employeeId={id!} employeeName={`${employee.firstName} ${employee.lastName}`} />
+                <EmployeeAttendanceTab employeeId={id!} employeeName={`${employee.firstName} ${employee.lastName}`} isManagement={isManagement} />
               </div>
             )}
 
@@ -372,9 +500,9 @@ export default function EmployeeDetailPage() {
   );
 }
 
-function SidebarMeta({ icon: Icon, label, count }: { icon: any; label: string; count?: number }) {
+function SidebarMeta({ icon: Icon, label, count, onClick }: { icon: any; label: string; count?: number; onClick?: () => void }) {
   return (
-    <div className="flex items-center justify-between text-xs text-gray-500 hover:text-gray-700 cursor-pointer py-1">
+    <div onClick={onClick} className="flex items-center justify-between text-xs text-gray-500 hover:text-gray-700 cursor-pointer py-1 hover:bg-gray-50 rounded px-1 -mx-1 transition-colors">
       <div className="flex items-center gap-2"><Icon size={13} className="text-gray-400" /> {label}</div>
       {count !== undefined ? <span className="text-gray-400 font-mono" data-mono>{count}</span> : <Plus size={12} className="text-gray-400" />}
     </div>
@@ -400,7 +528,25 @@ function EditEmployeeModal({ employee, onSave, onClose }: { employee: any; onSav
     joiningDate: employee.joiningDate ? employee.joiningDate.split('T')[0] : '',
     status: employee.status || 'ACTIVE',
     ctc: employee.ctc ? Number(employee.ctc) : '',
+    departmentId: employee.department?.id || '',
+    designationId: employee.designation?.id || '',
+    managerId: employee.manager?.id || '',
   });
+
+  const { data: deptData } = useGetDepartmentsQuery();
+  const { data: desigData } = useGetDesignationsQuery();
+  const { data: mgrData } = useGetManagersQuery();
+  const departments = deptData?.data || [];
+  const designations = desigData?.data || [];
+  const managers = mgrData?.data || [];
+
+  const deptOptions = departments.map((d: any) => ({ value: d.id, label: d.name }));
+  const desigOptions = designations
+    .filter((d: any) => !form.departmentId || !d.departmentId || d.departmentId === form.departmentId)
+    .map((d: any) => ({ value: d.id, label: d.name }));
+  const mgrOptions = managers
+    .filter((m: any) => m.id !== employee.id)
+    .map((m: any) => ({ value: m.id, label: `${m.firstName} ${m.lastName}`, sublabel: m.employeeCode }));
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -425,6 +571,30 @@ function EditEmployeeModal({ employee, onSave, onClose }: { employee: any; onSav
               <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="input-glass w-full text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">Phone</label>
               <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="input-glass w-full text-sm" /></div>
+          </div>
+          {/* Department, Designation, Manager */}
+          <div className="grid grid-cols-3 gap-3">
+            <SearchableSelect
+              label="Department"
+              placeholder="Select..."
+              options={deptOptions}
+              value={form.departmentId}
+              onChange={(v) => setForm({ ...form, departmentId: v, designationId: '' })}
+            />
+            <SearchableSelect
+              label="Designation"
+              placeholder="Select..."
+              options={desigOptions}
+              value={form.designationId}
+              onChange={(v) => setForm({ ...form, designationId: v })}
+            />
+            <SearchableSelect
+              label="Reporting Manager"
+              placeholder="Select..."
+              options={mgrOptions}
+              value={form.managerId}
+              onChange={(v) => setForm({ ...form, managerId: v })}
+            />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Gender</label>
@@ -521,7 +691,7 @@ function buildMonthGroups(year: number) {
   return groups;
 }
 
-function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: string; employeeName: string }) {
+function EmployeeAttendanceTab({ employeeId, employeeName, isManagement }: { employeeId: string; employeeName: string; isManagement: boolean }) {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [popupCell, setPopupCell] = useState<{ date: string; x: number; y: number; record?: any } | null>(null);
@@ -854,8 +1024,8 @@ function EmployeeAttendanceTab({ employeeId, employeeName }: { employeeId: strin
               </div>
             )}
 
-            {/* HR Mark Attendance options */}
-            {popupCell.date <= todayStr && (
+            {/* HR Mark Attendance options — only visible to management */}
+            {isManagement && popupCell.date <= todayStr && (
               <>
                 <div className="border-t border-gray-100 pt-1.5 mt-1">
                   <p className="text-[10px] text-gray-400 px-1 mb-1">HR: Mark as</p>
@@ -986,10 +1156,9 @@ function buildComponentsFromStructure(structure: any, annualCtc: number): Salary
 
   for (const c of stdComponents) {
     const amt = structure?.[c.field] ? Number(structure[c.field]) : 0;
-    if (amt > 0 || c.defaultPct > 0) {
-      const pct = monthly > 0 ? (amt / monthly) * 100 : c.defaultPct;
-      earnings.push({ id: c.id, name: c.name, amount: amt, mode: amt > 0 ? 'fixed' : 'percent', percentValue: Math.round(pct * 100) / 100, type: 'earning' });
-    }
+    // Always include standard components (even with 0) so they show in edit mode
+    const pct = monthly > 0 ? (amt / monthly) * 100 : c.defaultPct;
+    earnings.push({ id: c.id, name: c.name, amount: amt, mode: amt > 0 ? 'fixed' : (c.defaultPct > 0 ? 'percent' : 'fixed'), percentValue: Math.round(pct * 100) / 100, type: 'earning' });
   }
 
   // Custom components from enabledComponents JSON
@@ -1017,8 +1186,10 @@ let componentCounter = 0;
 function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: string; ctc: any; workMode: string; isManagement: boolean }) {
   const { data: salRes } = useGetSalaryStructureQuery(employeeId);
   const { data: historyRes } = useGetSalaryHistoryQuery(employeeId);
+  const { data: compMasterRes } = useGetComponentsQuery();
   const salaryHistory = historyRes?.data || [];
-  const [saveSalary, { isLoading: saving }] = useSaveSalaryStructureMutation();
+  const componentMaster = compMasterRes?.data || [];
+  const [saveSalaryDynamic, { isLoading: saving }] = useSaveSalaryStructureDynamicMutation();
   const structure = salRes?.data;
   const [editing, setEditing] = useState(false);
   const [annualCtc, setAnnualCtc] = useState(ctc ? Number(ctc) : 0);
@@ -1026,6 +1197,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
   const [earnings, setEarnings] = useState<SalaryComponent[]>([]);
   const [customDeductions, setCustomDeductions] = useState<SalaryComponent[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showComponentPicker, setShowComponentPicker] = useState(false);
 
   // Sync from server data
   useEffect(() => {
@@ -1036,12 +1208,14 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
       const builtEarnings = buildComponentsFromStructure(structure, annual);
       setEarnings(builtEarnings.length > 0 ? builtEarnings : DEFAULT_EARNINGS);
       setCustomDeductions(buildDeductionsFromStructure(structure, annual));
-    } else if (!structure && ctc) {
-      // No structure yet — initialize defaults from CTC
-      const monthly = Number(ctc) / 12;
+    } else if (!structure) {
+      // No structure yet — initialize defaults from CTC (or 0)
+      const annual = ctc ? Number(ctc) : 0;
+      const monthly = annual / 12;
+      setAnnualCtc(annual);
       setEarnings(DEFAULT_EARNINGS.map(e => ({
         ...e,
-        amount: e.mode === 'percent' ? Math.round(monthly * e.percentValue / 100) : 0,
+        amount: e.mode === 'percent' && monthly > 0 ? Math.round(monthly * e.percentValue / 100) : 0,
       })));
     }
   }, [structure, ctc]);
@@ -1171,38 +1345,39 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
       return;
     }
 
-    // Map earnings to backend fields
-    const earningMap: Record<string, number> = {};
-    const customEarnings: { id: string; name: string; amount: number; mode: string; percentValue: number }[] = [];
-    const customDeds: { id: string; name: string; amount: number; mode: string; percentValue: number }[] = [];
+    // Build dynamic components array for the new endpoint
+    const components: { name: string; type: 'earning' | 'deduction'; value: number; isPercentage: boolean; percentage?: number }[] = [];
 
     for (const e of earnings) {
-      const backendField = ['basic', 'hra', 'da', 'ta', 'specialAllowance', 'medicalAllowance', 'lta'].find(f => f === e.id);
-      if (backendField) {
-        earningMap[backendField] = Math.round(e.amount);
-      } else {
-        customEarnings.push({ id: e.id, name: e.name, amount: Math.round(e.amount), mode: e.mode, percentValue: e.percentValue });
-      }
+      components.push({
+        name: e.name,
+        type: 'earning',
+        value: Math.round(e.amount),
+        isPercentage: e.mode === 'percent',
+        ...(e.mode === 'percent' ? { percentage: e.percentValue } : {}),
+      });
     }
 
     for (const d of customDeductions) {
-      customDeds.push({ id: d.id, name: d.name, amount: Math.round(d.amount), mode: d.mode, percentValue: d.percentValue });
+      components.push({
+        name: d.name,
+        type: 'deduction',
+        value: Math.round(d.amount),
+        isPercentage: d.mode === 'percent',
+        ...(d.mode === 'percent' ? { percentage: d.percentValue } : {}),
+      });
     }
 
     try {
-      await saveSalary({
+      await saveSalaryDynamic({
         employeeId,
         data: {
-          ctc: annualCtc,
-          basic: earningMap.basic || Math.round(basicAmount),
-          hra: earningMap.hra || 0,
-          da: earningMap.da,
-          ta: earningMap.ta,
-          specialAllowance: earningMap.specialAllowance,
-          medicalAllowance: earningMap.medicalAllowance,
-          lta: earningMap.lta,
+          ctcAnnual: annualCtc,
+          components,
           incomeTaxRegime: taxRegime,
-          enabledComponents: { customEarnings, customDeductions: customDeds },
+          confirmOverwrite: true,
+          changeType: structure ? 'REVISION' : 'INITIAL',
+          reason: 'Updated from employee detail page',
         },
       }).unwrap();
       toast.success('Salary structure saved successfully');
@@ -1314,11 +1489,91 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-800">Earnings (Monthly)</h3>
           {editing && (
-            <button onClick={addEarning} className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
-              <Plus size={14} /> Add Component
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowComponentPicker(true)} className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1">
+                <Plus size={14} /> Add from Library
+              </button>
+              <button onClick={addEarning} className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                <Plus size={14} /> Custom
+              </button>
+            </div>
           )}
         </div>
+
+        {/* Component Picker from Master Library */}
+        {showComponentPicker && editing && (
+          <div className="mb-4 p-3 bg-blue-50/50 border border-blue-100 rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-blue-700">Select from Component Library</p>
+              <button onClick={() => setShowComponentPicker(false)} className="text-xs text-gray-400 hover:text-gray-600">Close</button>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+              {componentMaster
+                .filter((mc: any) => mc.type === 'EARNING' && mc.isActive && !earnings.find(e => e.name === mc.name))
+                .map((mc: any) => (
+                  <button
+                    key={mc.id}
+                    onClick={() => {
+                      componentCounter++;
+                      const defaultAmt = mc.defaultValue ? Number(mc.defaultValue) : 0;
+                      const defaultPct = mc.defaultPercentage ? Number(mc.defaultPercentage) : 0;
+                      const monthly2 = annualCtc / 12;
+                      const isPercent = mc.calculationRule === 'PERCENTAGE_CTC' || mc.calculationRule === 'PERCENTAGE_BASIC';
+                      const calcAmt = isPercent ? Math.round(monthly2 * defaultPct / 100) : defaultAmt;
+                      setEarnings(prev => [...prev, {
+                        id: `master_${mc.code}_${componentCounter}`,
+                        name: mc.name,
+                        amount: calcAmt,
+                        mode: isPercent ? 'percent' as const : 'fixed' as const,
+                        percentValue: defaultPct,
+                        type: 'earning' as const,
+                      }]);
+                      setShowComponentPicker(false);
+                    }}
+                    className="text-left p-2 rounded-lg border border-blue-200 bg-white hover:bg-blue-50 transition-colors"
+                  >
+                    <p className="text-xs font-medium text-gray-800">{mc.name}</p>
+                    <p className="text-[10px] text-gray-500">{mc.code} · {mc.calculationRule?.replace(/_/g, ' ')} {mc.defaultPercentage ? `(${Number(mc.defaultPercentage)}%)` : mc.defaultValue ? `(₹${Number(mc.defaultValue)})` : ''}</p>
+                  </button>
+                ))
+              }
+              {componentMaster.filter((mc: any) => mc.type === 'DEDUCTION' && mc.isActive && !mc.isStatutory && !customDeductions.find(d => d.name === mc.name)).length > 0 && (
+                <div className="col-span-full mt-2 pt-2 border-t border-blue-200">
+                  <p className="text-[10px] font-semibold text-blue-600 mb-1 uppercase">Deductions</p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {componentMaster
+                      .filter((mc: any) => mc.type === 'DEDUCTION' && mc.isActive && !mc.isStatutory && !customDeductions.find(d => d.name === mc.name))
+                      .map((mc: any) => (
+                        <button
+                          key={mc.id}
+                          onClick={() => {
+                            componentCounter++;
+                            setCustomDeductions(prev => [...prev, {
+                              id: `master_${mc.code}_${componentCounter}`,
+                              name: mc.name,
+                              amount: mc.defaultValue ? Number(mc.defaultValue) : 0,
+                              mode: 'fixed',
+                              percentValue: 0,
+                              type: 'deduction',
+                            }]);
+                            setShowComponentPicker(false);
+                          }}
+                          className="text-left p-2 rounded-lg border border-red-200 bg-white hover:bg-red-50 transition-colors"
+                        >
+                          <p className="text-xs font-medium text-gray-800">{mc.name}</p>
+                          <p className="text-[10px] text-gray-500">{mc.code}</p>
+                        </button>
+                      ))
+                    }
+                  </div>
+                </div>
+              )}
+              {componentMaster.filter((mc: any) => mc.isActive && !mc.isStatutory).length === 0 && (
+                <p className="col-span-full text-xs text-gray-500 text-center py-4">No components in library yet. Add them in Settings → Salary Components.</p>
+              )}
+            </div>
+          </div>
+        )}
         <div className="space-y-2">
           {earnings.map(comp => (
             <SalaryComponentRow
@@ -1646,8 +1901,11 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
   const [uploadDoc, { isLoading: uploading }] = useUploadDocumentMutation();
   const [verifyDoc] = useVerifyDocumentMutation();
   const [verifyKyc, { isLoading: verifyingAll }] = useVerifyKycMutation();
+  const [issueLetter, { isLoading: issuingLetter }] = useIssueLetterDocumentMutation();
   const { data: ocrSummaryRes } = useGetEmployeeOcrSummaryQuery(employeeId, { skip: !isManagement });
   const [showUpload, setShowUpload] = useState(false);
+  const [showIssueLetter, setShowIssueLetter] = useState(false);
+  const [letterType, setLetterType] = useState('JOINING_LETTER');
   const [ocrDocId, setOcrDocId] = useState<string | null>(null);
   const [ocrDocName, setOcrDocName] = useState('');
   const [ocrDocType, setOcrDocType] = useState('');
@@ -1656,6 +1914,24 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
   const [docName, setDocName] = useState('');
   const [docType, setDocType] = useState('OTHER');
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const LETTER_TYPES = [
+    { value: 'OFFER_LETTER_DOC', label: 'Offer Letter', description: 'Formal job offer with compensation details' },
+    { value: 'JOINING_LETTER', label: 'Joining Letter', description: 'Confirmation of employment start date and terms' },
+    { value: 'EXPERIENCE_LETTER', label: 'Experience Letter', description: 'Employment tenure and role verification' },
+    { value: 'RELIEVING_LETTER', label: 'Relieving Letter', description: 'Confirmation of resignation acceptance and relieving' },
+  ];
+
+  const handleIssueLetter = async () => {
+    try {
+      await issueLetter({ employeeId, type: letterType }).unwrap();
+      toast.success(`${LETTER_TYPES.find(l => l.value === letterType)?.label || 'Letter'} issued successfully`);
+      setShowIssueLetter(false);
+      setLetterType('JOINING_LETTER');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to issue letter');
+    }
+  };
 
   // Build OCR lookup by documentId for inline display
   const ocrByDocId: Record<string, any> = {};
@@ -1722,11 +1998,71 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
               Verify All & Approve KYC
             </button>
           )}
+          {isManagement && (
+            <button onClick={() => setShowIssueLetter(!showIssueLetter)} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors">
+              <Award size={14} /> Issue Letter
+            </button>
+          )}
           <button onClick={() => setShowUpload(!showUpload)} className="btn-primary text-xs flex items-center gap-1.5">
             <Plus size={14} /> Upload Document
           </button>
         </div>
       </div>
+
+      {/* Issue Letter Modal */}
+      {showIssueLetter && isManagement && (
+        <div className="layer-card p-5 space-y-4 border-l-4 border-indigo-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                <Award size={16} className="text-indigo-600" /> Issue Employment Letter
+              </h4>
+              <p className="text-xs text-gray-500 mt-0.5">Generate and issue an official letter as a PDF document</p>
+            </div>
+            <button onClick={() => setShowIssueLetter(false)} className="text-gray-400 hover:text-gray-600">
+              <XCircle size={18} />
+            </button>
+          </div>
+
+          <div className="grid gap-2">
+            {LETTER_TYPES.map((lt) => (
+              <label
+                key={lt.value}
+                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                  letterType === lt.value
+                    ? 'border-indigo-300 bg-indigo-50/50 ring-1 ring-indigo-200'
+                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="letterType"
+                  value={lt.value}
+                  checked={letterType === lt.value}
+                  onChange={(e) => setLetterType(e.target.value)}
+                  className="accent-indigo-600"
+                />
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{lt.label}</p>
+                  <p className="text-xs text-gray-500">{lt.description}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleIssueLetter}
+              disabled={issuingLetter}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            >
+              {issuingLetter ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              {issuingLetter ? 'Generating...' : 'Generate & Issue'}
+            </button>
+            <button onClick={() => setShowIssueLetter(false)} className="btn-secondary text-sm">Cancel</button>
+          </div>
+        </div>
+      )}
 
       {/* Upload form */}
       {showUpload && (

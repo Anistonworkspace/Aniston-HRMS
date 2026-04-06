@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { onSocketEvent, offSocketEvent } from '../../../lib/socket';
@@ -15,6 +15,11 @@ import AttendanceTable from './AttendanceTable';
 import ExceptionsTab from './ExceptionsTab';
 import RegularizationTab from './RegularizationTab';
 import LiveBoardTab from './LiveBoardTab';
+import MonthlyReportTab from './MonthlyReportTab';
+import OvertimeTab from './OvertimeTab';
+import ShiftRotationCalendar from './ShiftRotationCalendar';
+import AnomalyDetectionPanel from './AnomalyDetectionPanel';
+import BulkUploadModal from './BulkUploadModal';
 import toast from 'react-hot-toast';
 
 const TABS = [
@@ -23,8 +28,10 @@ const TABS = [
   { key: 'exceptions', label: 'Exceptions' },
   { key: 'regularization', label: 'Regularization' },
   { key: 'live', label: 'Live Board' },
-  { key: 'monthly', label: 'Monthly' },
-  { key: 'audit', label: 'Audit' },
+  { key: 'monthly', label: 'Monthly Report' },
+  { key: 'overtime', label: 'Overtime' },
+  { key: 'roster', label: 'Shift Roster' },
+  { key: 'anomalies', label: 'AI Anomalies' },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -35,6 +42,7 @@ export default function CommandCenter() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   const [activeTab, setActiveTab] = useState<TabKey>('today');
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState('');
   const [sortOrder, setSortOrder] = useState('asc');
@@ -77,13 +85,15 @@ export default function CommandCenter() {
   // Detect anomalies
   const [detectAnomalies, { isLoading: isDetecting }] = useDetectAnomaliesMutation();
 
-  // WebSocket refresh
+  // WebSocket refresh — use ref to avoid listener re-registration on every refetch change
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
   useEffect(() => {
-    const handler = () => refetch();
+    const handler = () => refetchRef.current();
     onSocketEvent('attendance:checkin', handler);
     onSocketEvent('attendance:checkout', handler);
     return () => { offSocketEvent('attendance:checkin', handler); offSocketEvent('attendance:checkout', handler); };
-  }, [refetch]);
+  }, []);
 
   const handleFiltersChange = useCallback((newFilters: AttendanceFilters) => {
     setFilters(newFilters);
@@ -129,6 +139,7 @@ export default function CommandCenter() {
           onDetectAnomalies={handleDetectAnomalies}
           onTabChange={(tab) => setActiveTab(tab as TabKey)}
           isDetecting={isDetecting}
+          onBulkUpload={() => setShowBulkUpload(true)}
         />
       </div>
 
@@ -198,19 +209,16 @@ export default function CommandCenter() {
         <LiveBoardTab />
       )}
 
-      {activeTab === 'monthly' && (
-        <div className="layer-card p-6 text-center">
-          <p className="text-sm text-gray-400">Monthly summary view — aggregated attendance report for the selected period.</p>
-          <p className="text-xs text-gray-300 mt-1">Data driven by the same filters above. Switch to daily view for individual records.</p>
-        </div>
-      )}
+      {activeTab === 'monthly' && <MonthlyReportTab />}
 
-      {activeTab === 'audit' && (
-        <div className="layer-card p-6 text-center">
-          <p className="text-sm text-gray-400">Attendance audit logs — all attendance modifications, overrides, and system events.</p>
-          <p className="text-xs text-gray-300 mt-1">Filter by date, employee, or action type to review attendance changes.</p>
-        </div>
-      )}
+      {activeTab === 'overtime' && <OvertimeTab />}
+
+      {activeTab === 'roster' && <ShiftRotationCalendar />}
+
+      {activeTab === 'anomalies' && <AnomalyDetectionPanel />}
+
+      {/* Bulk Upload Modal */}
+      <BulkUploadModal isOpen={showBulkUpload} onClose={() => setShowBulkUpload(false)} />
     </div>
   );
 }

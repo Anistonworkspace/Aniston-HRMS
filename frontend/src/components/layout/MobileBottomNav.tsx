@@ -4,6 +4,7 @@ import { Home, CalendarDays, MapPin, Calendar, User, Loader2 } from 'lucide-reac
 import { cn } from '../../lib/utils';
 import { useGetTodayStatusQuery, useClockInMutation, useClockOutMutation } from '../../features/attendance/attendanceApi';
 import { useAppSelector } from '../../app/store';
+import { enqueueAction } from '../../lib/offlineQueue';
 import toast from 'react-hot-toast';
 
 const navItems = [
@@ -28,26 +29,42 @@ export default function MobileBottomNav() {
     if (gettingLocation || clockingIn || clockingOut) return;
     setGettingLocation(true);
     try {
-      let coords: { latitude?: number; longitude?: number } = {};
+      let coords: { latitude?: number; longitude?: number; accuracy?: number } = {};
       if (navigator.geolocation) {
         try {
           const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 10000,
+              maximumAge: 30000,
+            })
           );
-          coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-        } catch { /* proceed without GPS */ }
+          coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
+        } catch {
+          // GPS unavailable — proceed without (backend handles this gracefully)
+        }
       }
       setGettingLocation(false);
+      const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       if (todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut) {
-        await clockOut(coords).unwrap();
-        toast.success('Checked out successfully!');
+        await clockOut({ ...coords, deviceType }).unwrap();
+        toast.success('Checked out!');
       } else {
-        await clockIn({ ...coords, source: 'MANUAL_APP' }).unwrap();
-        toast.success(todayStatus?.isCheckedOut ? 'Re-checked in!' : 'Checked in successfully!');
+        await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
+        toast.success(todayStatus?.isCheckedOut ? 'Re-checked in!' : 'Checked in!');
       }
     } catch (err: any) {
       setGettingLocation(false);
-      toast.error(err?.data?.error?.message || 'Failed');
+      // If offline, queue the action for later sync
+      if (!navigator.onLine) {
+        const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+        const isCheckOut = todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut;
+        const coords: Record<string, any> = {};
+        enqueueAction(isCheckOut ? 'CLOCK_OUT' : 'CLOCK_IN', { ...coords, source: 'MANUAL_APP', deviceType });
+        toast('Queued — will sync when you\u2019re back online', { icon: '\uD83D\uDCE1' });
+        return;
+      }
+      toast.error(err?.data?.error?.message || 'Failed. Please try again.');
     }
   };
 

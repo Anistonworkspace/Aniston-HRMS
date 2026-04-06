@@ -193,61 +193,87 @@ export class DashboardService {
 
     const monthlyPayrollCost = lastPayrollRun ? Number(lastPayrollRun.totalNet || 0) : 0;
 
-    // === TRENDS (last 6 months) ===
+    // === TRENDS (last 6 months) — bulk queries instead of per-month loop ===
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const sixMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    // Build month boundaries for bucketing
+    const monthBuckets: { start: Date; end: Date; label: string }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const mStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+      const label = mStart.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+      monthBuckets.push({ start: mStart, end: mEnd, label });
+    }
+
+    // 5 bulk queries covering the full 6-month range (instead of 30 per-month queries)
+    const [allHires, allExits, allPresentRecords, allWorkingRecords, allLeaveAggs] = await Promise.all([
+      prisma.employee.findMany({
+        where: {
+          organizationId, deletedAt: null, isSystemAccount: { not: true },
+          joiningDate: { gte: sixMonthsAgo, lte: sixMonthEnd },
+        },
+        select: { joiningDate: true },
+      }),
+      prisma.employee.findMany({
+        where: {
+          organizationId, deletedAt: null, isSystemAccount: { not: true },
+          lastWorkingDate: { gte: sixMonthsAgo, lte: sixMonthEnd },
+        },
+        select: { lastWorkingDate: true },
+      }),
+      prisma.attendanceRecord.findMany({
+        where: {
+          date: { gte: sixMonthsAgo, lte: sixMonthEnd },
+          status: { in: ['PRESENT', 'WORK_FROM_HOME', 'HALF_DAY'] },
+          employee: { organizationId },
+        },
+        select: { date: true },
+      }),
+      prisma.attendanceRecord.findMany({
+        where: {
+          date: { gte: sixMonthsAgo, lte: sixMonthEnd },
+          status: { notIn: ['HOLIDAY', 'WEEKEND'] },
+          employee: { organizationId },
+        },
+        select: { date: true },
+      }),
+      prisma.leaveRequest.findMany({
+        where: {
+          status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
+          startDate: { lte: sixMonthEnd },
+          endDate: { gte: sixMonthsAgo },
+          employee: { organizationId },
+        },
+        select: { startDate: true, endDate: true, days: true },
+      }),
+    ]);
+
+    // Bucket results by month in JS
+    const isInMonth = (date: Date | null, bucket: { start: Date; end: Date }) =>
+      date != null && date >= bucket.start && date <= bucket.end;
+    const overlapsMonth = (start: Date, end: Date, bucket: { start: Date; end: Date }) =>
+      start <= bucket.end && end >= bucket.start;
+
     const hiringTrend: { month: string; hires: number; exits: number }[] = [];
     const attendanceTrend: { month: string; avgPercentage: number }[] = [];
     const leaveTrend: { month: string; totalDays: number }[] = [];
 
-    for (let i = 5; i >= 0; i--) {
-      const mStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const mEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-      const monthLabel = mStart.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+    for (const bucket of monthBuckets) {
+      const hires = allHires.filter(e => isInMonth(e.joiningDate, bucket)).length;
+      const exits = allExits.filter(e => isInMonth(e.lastWorkingDate, bucket)).length;
+      const presentDays = allPresentRecords.filter(r => isInMonth(r.date, bucket)).length;
+      const totalWorkingDays = allWorkingRecords.filter(r => isInMonth(r.date, bucket)).length;
+      const totalLeaveDays = allLeaveAggs
+        .filter(l => overlapsMonth(l.startDate, l.endDate, bucket))
+        .reduce((sum, l) => sum + Number(l.days || 0), 0);
 
-      const [hires, exits, presentDays, totalWorkingDays, leaveDays] = await Promise.all([
-        prisma.employee.count({
-          where: {
-            organizationId, deletedAt: null, isSystemAccount: { not: true },
-            joiningDate: { gte: mStart, lte: mEnd },
-          },
-        }),
-        prisma.employee.count({
-          where: {
-            organizationId, deletedAt: null, isSystemAccount: { not: true },
-            lastWorkingDate: { gte: mStart, lte: mEnd },
-          },
-        }),
-        prisma.attendanceRecord.count({
-          where: {
-            date: { gte: mStart, lte: mEnd },
-            status: { in: ['PRESENT', 'WORK_FROM_HOME', 'HALF_DAY'] },
-            employee: { organizationId },
-          },
-        }),
-        prisma.attendanceRecord.count({
-          where: {
-            date: { gte: mStart, lte: mEnd },
-            status: { notIn: ['HOLIDAY', 'WEEKEND'] },
-            employee: { organizationId },
-          },
-        }),
-        prisma.leaveRequest.aggregate({
-          where: {
-            status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
-            startDate: { lte: mEnd },
-            endDate: { gte: mStart },
-            employee: { organizationId },
-          },
-          _sum: { days: true },
-        }),
-      ]);
-
-      hiringTrend.push({ month: monthLabel, hires, exits });
+      hiringTrend.push({ month: bucket.label, hires, exits });
       attendanceTrend.push({
-        month: monthLabel,
+        month: bucket.label,
         avgPercentage: totalWorkingDays > 0 ? Math.round((presentDays / totalWorkingDays) * 100) : 0,
       });
-      leaveTrend.push({ month: monthLabel, totalDays: Number(leaveDays._sum.days || 0) });
+      leaveTrend.push({ month: bucket.label, totalDays: totalLeaveDays });
     }
 
     // === ALERTS ===
@@ -442,9 +468,11 @@ export class DashboardService {
       }
     }
 
+    // absent = finalized count (only after 7 PM when day is done); notCheckedIn = real-time count
+    const isEndOfDay = now.getHours() >= 19;
     const todayAttendance = {
       present: presentCount,
-      absent: Math.max(activeCount - totalCheckedIn - onLeaveCount, 0),
+      absent: isEndOfDay ? Math.max(activeCount - totalCheckedIn - onLeaveCount, 0) : 0,
       late: lateCount,
       onLeave: onLeaveCount,
       notCheckedIn,

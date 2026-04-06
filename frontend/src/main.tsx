@@ -7,11 +7,19 @@ import './styles/globals.css';
 const isStandalone = window.matchMedia('(display-mode: standalone)').matches
   || (navigator as any).standalone === true;
 
-if (isStandalone) {
-  // Prevent pinch-to-zoom (CSS touch-action alone isn't enough on all devices)
+// Always prevent zoom on mobile (browser + standalone)
+const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+if (isMobile || isStandalone) {
+  // Prevent pinch-to-zoom
   document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
   document.addEventListener('gesturechange', (e) => e.preventDefault(), { passive: false });
   document.addEventListener('gestureend', (e) => e.preventDefault(), { passive: false });
+
+  // Prevent multi-touch zoom
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
 
   // Prevent double-tap zoom on iOS
   let lastTouchEnd = 0;
@@ -22,11 +30,12 @@ if (isStandalone) {
     }
     lastTouchEnd = now;
   }, { passive: false });
+}
 
-  // Prevent long-press context menu
+if (isStandalone) {
+  // Prevent long-press context menu in PWA mode
   document.addEventListener('contextmenu', (e) => {
     const target = e.target as HTMLElement;
-    // Allow context menu on inputs and textareas
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
     e.preventDefault();
   });

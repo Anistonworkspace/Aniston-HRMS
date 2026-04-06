@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, FileText, Pencil, Trash2, Users, Lock, Loader2,
-  ChevronDown, ChevronUp, Copy, CheckCircle2, AlertTriangle,
+  ChevronDown, ChevronUp, Copy, CheckCircle2, AlertTriangle, Search, X,
 } from 'lucide-react';
 import {
   useGetSalaryTemplatesQuery,
@@ -11,6 +11,7 @@ import {
   useDeleteSalaryTemplateMutation,
   useApplyTemplateMutation,
 } from './salaryTemplateApi';
+import { useGetEmployeeListQuery } from '../employee/employeeApi';
 import { formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -68,7 +69,7 @@ export default function SalaryTemplatesPage() {
   const [form, setForm] = useState<TemplateForm>(emptyForm);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showApplyModal, setShowApplyModal] = useState<string | null>(null);
-  const [applyForm, setApplyForm] = useState({ employeeIds: '', effectiveFrom: '', reason: '' });
+  const [applyForm, setApplyForm] = useState({ selectedEmployees: [] as string[], effectiveFrom: '', reason: '' });
   const [saving, setSaving] = useState(false);
 
   const templates = res?.data || [];
@@ -146,22 +147,21 @@ export default function SalaryTemplatesPage() {
   };
 
   const handleApply = async () => {
-    const ids = applyForm.employeeIds.split(',').map(s => s.trim()).filter(Boolean);
-    if (ids.length === 0 || !applyForm.effectiveFrom || !applyForm.reason) {
-      toast.error('Employee IDs, effective date, and reason are required');
+    if (applyForm.selectedEmployees.length === 0 || !applyForm.effectiveFrom || !applyForm.reason) {
+      toast.error('Select employees, effective date, and reason');
       return;
     }
     try {
       const result = await applyTemplate({
         templateId: showApplyModal!,
-        employeeIds: ids,
+        employeeIds: applyForm.selectedEmployees,
         effectiveFrom: applyForm.effectiveFrom,
         reason: applyForm.reason,
         confirmOverwrite: true,
       }).unwrap();
       toast.success(result.message || `Applied to ${result.data?.applied} employees`);
       setShowApplyModal(null);
-      setApplyForm({ employeeIds: '', effectiveFrom: '', reason: '' });
+      setApplyForm({ selectedEmployees: [], effectiveFrom: '', reason: '' });
     } catch (err: any) {
       const data = err?.data?.data;
       if (data?.requiresConfirmation) {
@@ -517,69 +517,192 @@ export default function SalaryTemplatesPage() {
         </div>
       )}
 
-      {/* Apply Template Modal */}
+      {/* Apply Template Modal with Employee Picker */}
       <AnimatePresence>
         {showApplyModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-            onClick={() => setShowApplyModal(null)}
-          >
-            <motion.div
-              initial={{ scale: 0.95 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.95 }}
-              onClick={e => e.stopPropagation()}
-              className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6"
-            >
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Apply Template to Employees</h3>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1 block">Employee IDs (comma-separated) *</label>
-                  <textarea
-                    className="input-glass w-full text-sm"
-                    rows={3}
-                    placeholder="uuid-1, uuid-2, uuid-3"
-                    value={applyForm.employeeIds}
-                    onChange={e => setApplyForm({ ...applyForm, employeeIds: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1 block">Effective From *</label>
-                  <input
-                    type="date"
-                    className="input-glass w-full text-sm"
-                    value={applyForm.effectiveFrom}
-                    onChange={e => setApplyForm({ ...applyForm, effectiveFrom: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1 block">Reason *</label>
-                  <input
-                    className="input-glass w-full text-sm"
-                    placeholder="e.g. Annual revision, New hire onboarding"
-                    value={applyForm.reason}
-                    onChange={e => setApplyForm({ ...applyForm, reason: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="flex items-center gap-3 mt-5">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleApply}
-                  className="btn-primary flex items-center gap-2"
-                >
-                  <Users size={16} /> Apply
-                </motion.button>
-                <button onClick={() => setShowApplyModal(null)} className="btn-secondary text-sm">Cancel</button>
-              </div>
-            </motion.div>
-          </motion.div>
+          <ApplyTemplateModal
+            templateId={showApplyModal}
+            onApply={handleApply}
+            applyForm={applyForm}
+            setApplyForm={setApplyForm}
+            onClose={() => setShowApplyModal(null)}
+          />
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function ApplyTemplateModal({ templateId, onApply, applyForm, setApplyForm, onClose }: {
+  templateId: string;
+  onApply: () => void;
+  applyForm: { selectedEmployees: string[]; effectiveFrom: string; reason: string };
+  setApplyForm: (v: any) => void;
+  onClose: () => void;
+}) {
+  const [empSearch, setEmpSearch] = useState('');
+  const { data: empRes } = useGetEmployeeListQuery({ limit: 500, status: 'ACTIVE' });
+  const employees = empRes?.data || [];
+
+  const filteredEmployees = useMemo(() => {
+    if (!empSearch) return employees;
+    const term = empSearch.toLowerCase();
+    return employees.filter((e: any) =>
+      `${e.firstName} ${e.lastName}`.toLowerCase().includes(term) ||
+      e.employeeCode?.toLowerCase().includes(term) ||
+      e.department?.name?.toLowerCase().includes(term)
+    );
+  }, [employees, empSearch]);
+
+  const toggleEmployee = (id: string) => {
+    const selected = applyForm.selectedEmployees;
+    setApplyForm({
+      ...applyForm,
+      selectedEmployees: selected.includes(id)
+        ? selected.filter((eid: string) => eid !== id)
+        : [...selected, id],
+    });
+  };
+
+  const selectAll = () => {
+    const ids = filteredEmployees.map((e: any) => e.id);
+    setApplyForm({ ...applyForm, selectedEmployees: ids });
+  };
+
+  const clearAll = () => {
+    setApplyForm({ ...applyForm, selectedEmployees: [] });
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.95 }}
+        animate={{ scale: 1 }}
+        exit={{ scale: 0.95 }}
+        onClick={e => e.stopPropagation()}
+        className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[85vh] flex flex-col"
+      >
+        <div className="p-5 border-b border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-800">Apply Template to Employees</h3>
+          <p className="text-xs text-gray-500 mt-1">Select employees to receive this salary structure</p>
+        </div>
+
+        <div className="p-5 flex-1 overflow-y-auto space-y-4">
+          {/* Employee search & selection */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-medium text-gray-600">
+                Select Employees * ({applyForm.selectedEmployees.length} selected)
+              </label>
+              <div className="flex gap-2">
+                <button onClick={selectAll} className="text-[10px] text-brand-600 font-medium hover:underline">Select All</button>
+                <button onClick={clearAll} className="text-[10px] text-gray-500 font-medium hover:underline">Clear</button>
+              </div>
+            </div>
+            <div className="relative mb-2">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={empSearch}
+                onChange={e => setEmpSearch(e.target.value)}
+                placeholder="Search by name, code, department..."
+                className="input-glass text-xs py-2 pl-8 pr-3 w-full"
+              />
+            </div>
+
+            {/* Selected chips */}
+            {applyForm.selectedEmployees.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {applyForm.selectedEmployees.slice(0, 10).map((id: string) => {
+                  const emp = employees.find((e: any) => e.id === id);
+                  return (
+                    <span key={id} className="inline-flex items-center gap-1 bg-brand-50 text-brand-700 px-2 py-1 rounded-full text-[10px] font-medium">
+                      {emp ? `${emp.employeeCode}` : id.slice(0, 8)}
+                      <button onClick={() => toggleEmployee(id)} className="hover:text-red-500"><X size={10} /></button>
+                    </span>
+                  );
+                })}
+                {applyForm.selectedEmployees.length > 10 && (
+                  <span className="text-[10px] text-gray-500 self-center">+{applyForm.selectedEmployees.length - 10} more</span>
+                )}
+              </div>
+            )}
+
+            {/* Employee list */}
+            <div className="border border-gray-200 rounded-lg max-h-48 overflow-y-auto divide-y divide-gray-50">
+              {filteredEmployees.length === 0 ? (
+                <p className="text-xs text-gray-500 p-3 text-center">No employees found</p>
+              ) : (
+                filteredEmployees.map((emp: any) => {
+                  const isSelected = applyForm.selectedEmployees.includes(emp.id);
+                  return (
+                    <label
+                      key={emp.id}
+                      className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-2/50 transition-colors ${isSelected ? 'bg-brand-50/50' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleEmployee(emp.id)}
+                        className="rounded border-gray-300 text-brand-600"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-800 truncate">{emp.firstName} {emp.lastName}</p>
+                        <p className="text-[10px] text-gray-500">{emp.employeeCode} · {emp.department?.name || '-'}</p>
+                      </div>
+                      {emp.ctc && (
+                        <span className="text-[10px] font-mono text-gray-400" data-mono>
+                          {formatCurrency(Number(emp.ctc))}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Effective From */}
+          <div>
+            <label className="text-xs font-medium text-gray-600 mb-1 block">Effective From *</label>
+            <input
+              type="date"
+              className="input-glass w-full text-sm"
+              value={applyForm.effectiveFrom}
+              onChange={e => setApplyForm({ ...applyForm, effectiveFrom: e.target.value })}
+            />
+          </div>
+
+          {/* Reason */}
+          <div>
+            <label className="text-xs font-medium text-gray-600 mb-1 block">Reason *</label>
+            <input
+              className="input-glass w-full text-sm"
+              placeholder="e.g. Annual revision, New hire onboarding"
+              value={applyForm.reason}
+              onChange={e => setApplyForm({ ...applyForm, reason: e.target.value })}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 p-5 border-t border-gray-100">
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={onApply}
+            disabled={applyForm.selectedEmployees.length === 0}
+            className="btn-primary flex items-center gap-2 disabled:opacity-50"
+          >
+            <Users size={16} /> Apply to {applyForm.selectedEmployees.length} Employee{applyForm.selectedEmployees.length !== 1 ? 's' : ''}
+          </motion.button>
+          <button onClick={onClose} className="btn-secondary text-sm">Cancel</button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }

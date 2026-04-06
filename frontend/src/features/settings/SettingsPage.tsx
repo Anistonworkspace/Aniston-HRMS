@@ -22,7 +22,10 @@ import toast from 'react-hot-toast';
 import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
 import { useGetKnowledgeBaseQuery, useAddKnowledgeDocMutation, useDeleteKnowledgeDocMutation } from '../ai-assistant/aiAssistantApi';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system';
+import AttendancePolicyTab from './AttendancePolicyTab';
+import SalaryComponentsTab from './SalaryComponentsTab';
+
+type Tab = 'organization' | 'locations' | 'shifts' | 'attendance-policy' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>(() => {
@@ -38,6 +41,8 @@ export default function SettingsPage() {
     { key: 'organization', label: 'Organization', icon: Building2 },
     { key: 'locations', label: 'Office Locations', icon: MapPin },
     { key: 'shifts', label: 'Shifts & Rosters', icon: Clock },
+    { key: 'attendance-policy', label: 'Attendance Policy', icon: Shield },
+    { key: 'salary-components', label: 'Salary Components', icon: DollarSign },
     { key: 'email', label: 'Email Configuration', icon: Mail },
     { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
     { key: 'roles', label: 'User Roles', icon: Users },
@@ -79,6 +84,8 @@ export default function SettingsPage() {
             {activeTab === 'organization' && <OrgSettings />}
             {activeTab === 'locations' && <LocationSettings />}
             {activeTab === 'shifts' && <ShiftSettings />}
+            {activeTab === 'attendance-policy' && <AttendancePolicyTab />}
+            {activeTab === 'salary-components' && <SalaryComponentsTab />}
             {activeTab === 'email' && <EmailConfig />}
             {activeTab === 'whatsapp' && <WhatsAppConfig />}
             {activeTab === 'roles' && <UserRolesTab />}
@@ -999,7 +1006,14 @@ function SystemInfo() {
           <InfoBox label="Heap Used" value={`${Math.round(sys.memoryUsage.heapUsed / 1024 / 1024)} MB`} />
         </div>
       ) : (
-        <p className="text-sm text-gray-400">Loading...</p>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 animate-pulse">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="bg-surface-2 rounded-lg p-3">
+              <div className="h-3 bg-gray-100 rounded w-14 mb-2" />
+              <div className="h-4 bg-gray-200 rounded w-20" />
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -2025,6 +2039,8 @@ function KnowledgeBaseSection() {
 }
 
 /* ===== AGENT SETUP TAB ===== */
+const AGENT_HEARTBEAT_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes — agent considered disconnected after this
+
 function AgentSetupTab() {
   const { data: res, isLoading } = useGetAgentSetupListQuery();
   const [generateCode, { isLoading: generating }] = useGenerateAgentCodeMutation();
@@ -2055,7 +2071,7 @@ function AgentSetupTab() {
   // Auto-fade: mark as disconnected if no heartbeat in 2 min
   useEffect(() => {
     const interval = setInterval(() => {
-      const twoMinAgo = Date.now() - 2 * 60 * 1000;
+      const twoMinAgo = Date.now() - AGENT_HEARTBEAT_TIMEOUT_MS;
       setLiveStatuses(prev => {
         const next = { ...prev };
         for (const [id, status] of Object.entries(next)) {
@@ -2088,8 +2104,9 @@ function AgentSetupTab() {
       const result = await generateCode({ employeeId }).unwrap();
       const code = result?.data?.code;
       if (code) {
-        navigator.clipboard.writeText(code).catch(() => {});
-        toast.success(`Code generated: ${code} (copied to clipboard)`);
+        navigator.clipboard.writeText(code)
+          .then(() => toast.success(`Code generated: ${code} (copied to clipboard)`))
+          .catch(() => toast.success(`Code generated: ${code} — copy it manually`));
       }
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
   };
@@ -2100,8 +2117,9 @@ function AgentSetupTab() {
       const result = await regenerateCode({ employeeId }).unwrap();
       const code = result?.data?.code;
       if (code) {
-        navigator.clipboard.writeText(code).catch(() => {});
-        toast.success(`New code: ${code} (copied to clipboard)`);
+        navigator.clipboard.writeText(code)
+          .then(() => toast.success(`New code: ${code} (copied to clipboard)`))
+          .catch(() => toast.success(`New code: ${code} — copy it manually`));
       }
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
   };
@@ -2115,8 +2133,9 @@ function AgentSetupTab() {
   };
 
   const copyCode = (code: string) => {
-    navigator.clipboard.writeText(code);
-    toast.success('Code copied to clipboard');
+    navigator.clipboard.writeText(code)
+      .then(() => toast.success('Code copied to clipboard'))
+      .catch(() => toast.error('Failed to copy — please copy manually'));
   };
 
   const relativeTime = (dateStr: string | null) => {
@@ -2204,6 +2223,7 @@ function AgentSetupTab() {
                     {emp.agentPairingCode ? (
                       <div className="flex items-center gap-1.5">
                         <code className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-700 select-all" data-mono>{emp.agentPairingCode}</code>
+                        <span className="text-[9px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded font-medium">Permanent</span>
                         <button onClick={() => copyCode(emp.agentPairingCode)} className="text-gray-400 hover:text-brand-600 p-0.5" title="Copy code">
                           <Copy size={12} />
                         </button>
