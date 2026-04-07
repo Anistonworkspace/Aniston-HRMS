@@ -65,6 +65,18 @@ export const markAttendanceSchema = z.object({
   workMode: z.enum(['OFFICE', 'FIELD_SALES', 'PROJECT_SITE', 'WORK_FROM_HOME']).optional(),
 });
 
+export const attendancePolicySchema = z.object({
+  lateGraceMinutes: z.number().min(0).max(120).optional(),
+  fullDayMinHours: z.number().min(1).max(24).optional(),
+  halfDayMinHours: z.number().min(0.5).max(12).optional(),
+  weekOffDays: z.array(z.number().min(0).max(6)).optional(),
+  latePenaltyEnabled: z.boolean().optional(),
+  latePenaltyPerCount: z.number().min(1).max(31).optional(),
+  otEnabled: z.boolean().optional(),
+  otMultiplier: z.number().min(1).max(5).optional(),
+  maxReClockIns: z.number().min(0).max(10).optional(),
+}).passthrough(); // allow additional policy fields
+
 export type MarkAttendanceInput = z.infer<typeof markAttendanceSchema>;
 export type ClockInInput = z.infer<typeof clockInSchema>;
 export type ClockOutInput = z.infer<typeof clockOutSchema>;

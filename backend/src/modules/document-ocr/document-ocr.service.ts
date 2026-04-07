@@ -58,9 +58,54 @@ export class DocumentOcrService {
       logger.warn(`OCR: AI service call failed for document ${documentId}: ${err.message}`);
     }
 
-    // If AI service failed, try LLM-only extraction as fallback
+    // If AI service failed, use local Node.js OCR fallback (tesseract.js + pdf-parse)
     if (!ocrResult) {
-      return this.createFallbackOcr(documentId, organizationId, 'AI service unavailable — will attempt LLM extraction');
+      logger.info(`OCR: Falling back to local Node.js OCR for document ${documentId}`);
+      try {
+        const { processDocumentLocally } = await import('../../services/document-processor.service.js');
+        const localResult = await processDocumentLocally(filePath, doc.type);
+
+        const ocrVerification = await prisma.documentOcrVerification.upsert({
+          where: { documentId },
+          create: {
+            documentId,
+            organizationId,
+            rawText: localResult.rawText,
+            detectedType: localResult.detectedType,
+            confidence: localResult.confidence / 100, // normalize to 0-1
+            extractedName: localResult.extractedFields.extractedName || null,
+            extractedDob: localResult.extractedFields.extractedDob || null,
+            extractedDocNumber: localResult.extractedFields.extractedDocNumber || null,
+            extractedGender: localResult.extractedFields.extractedGender || null,
+            isScreenshot: localResult.isScreenshot,
+            isOriginalScan: localResult.isOriginalScan,
+            resolutionQuality: localResult.resolutionQuality,
+            formatValid: localResult.formatValid,
+            formatErrors: localResult.formatErrors as any,
+            ocrStatus: localResult.warnings.length > 0 ? 'FLAGGED' : 'PENDING',
+            hrNotes: localResult.warnings.length > 0 ? `Local OCR: ${localResult.warnings.join('; ')}` : null,
+          },
+          update: {
+            rawText: localResult.rawText,
+            detectedType: localResult.detectedType,
+            confidence: localResult.confidence / 100,
+            extractedName: localResult.extractedFields.extractedName || null,
+            extractedDob: localResult.extractedFields.extractedDob || null,
+            extractedDocNumber: localResult.extractedFields.extractedDocNumber || null,
+            extractedGender: localResult.extractedFields.extractedGender || null,
+            isScreenshot: localResult.isScreenshot,
+            isOriginalScan: localResult.isOriginalScan,
+            resolutionQuality: localResult.resolutionQuality,
+            formatValid: localResult.formatValid,
+            formatErrors: localResult.formatErrors as any,
+          },
+        });
+        logger.info(`OCR: Local fallback completed for ${documentId} — confidence: ${localResult.confidence}%`);
+        return ocrVerification;
+      } catch (localErr: any) {
+        logger.warn(`OCR: Local fallback also failed for ${documentId}: ${localErr.message}`);
+        return this.createFallbackOcr(documentId, organizationId, `AI service unavailable, local OCR failed: ${localErr.message}`);
+      }
     }
 
     // Analyze image quality

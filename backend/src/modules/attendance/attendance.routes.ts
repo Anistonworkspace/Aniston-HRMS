@@ -176,8 +176,9 @@ router.get('/policy', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (r
 router.put('/policy', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
-    const data = req.body;
-    delete data.id; delete data.organizationId; delete data.createdAt; delete data.updatedAt;
+    const { attendancePolicySchema } = await import('./attendance.validation.js');
+    const data = attendancePolicySchema.parse(req.body);
+    delete (data as any).id; delete (data as any).organizationId; delete (data as any).createdAt; delete (data as any).updatedAt;
     const policy = await prisma.attendancePolicy.upsert({
       where: { organizationId: req.user!.organizationId },
       create: { ...data, organizationId: req.user!.organizationId },
@@ -221,7 +222,7 @@ router.get('/bulk/template', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), a
 router.post('/bulk/upload', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
-    const rows = req.body.rows as Array<{ employeeCode: string; date: string; checkIn?: string; checkOut?: string; status: string; notes?: string }>;
+    const rows = req.body.rows as Array<{ employeeCode: string; date: string; checkIn?: string; checkOut?: string; status: string; notes?: string; remarks?: string }>;
     if (!rows?.length) { res.status(400).json({ success: false, error: { message: 'No rows provided' } }); return; }
 
     const employees = await prisma.employee.findMany({
@@ -230,8 +231,16 @@ router.post('/bulk/upload', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), as
     });
     const empMap = new Map(employees.map(e => [e.employeeCode, e]));
 
+    // Sanitize text fields to prevent CSV formula injection
+    const sanitize = (val: string | undefined) => {
+      if (!val) return val;
+      return val.replace(/^[=+\-@\t\r]+/, '');
+    };
+
     let created = 0, updated = 0, errors: string[] = [];
     for (const row of rows) {
+      const noteValue = sanitize(row.notes || row.remarks);
+      row.notes = noteValue;
       const emp = empMap.get(row.employeeCode);
       if (!emp) { errors.push(`Row ${row.employeeCode}: Employee not found`); continue; }
       if (!row.date) { errors.push(`Row ${row.employeeCode}: Date is required`); continue; }
@@ -254,119 +263,112 @@ router.post('/bulk/upload', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), as
 });
 
 // =====================================================================
-// P1.3: MONTHLY REPORT
+// P1.3: MONTHLY REPORT — shared logic extracted for reuse by export
 // =====================================================================
-router.get('/monthly-report', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
-  try {
-    const { prisma } = await import('../../lib/prisma.js');
-    const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
-    const year = parseInt(req.query.year as string) || new Date().getFullYear();
-    const start = new Date(year, month - 1, 1); start.setHours(0, 0, 0, 0);
-    const end = new Date(year, month, 0); end.setHours(23, 59, 59, 999);
+async function generateMonthlyReportData(organizationId: string, month: number, year: number) {
+  const { prisma } = await import('../../lib/prisma.js');
+  const start = new Date(year, month - 1, 1); start.setHours(0, 0, 0, 0);
+  const end = new Date(year, month, 0); end.setHours(23, 59, 59, 999);
 
-    const employees = await prisma.employee.findMany({
-      where: { organizationId: req.user!.organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION'] } },
-      select: { id: true, firstName: true, lastName: true, employeeCode: true, department: { select: { name: true } } },
-    });
+  const employees = await prisma.employee.findMany({
+    where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, status: { in: ['ACTIVE', 'PROBATION'] } },
+    select: { id: true, firstName: true, lastName: true, employeeCode: true, department: { select: { name: true } } },
+  });
 
-    const records = await prisma.attendanceRecord.findMany({
-      where: { employee: { organizationId: req.user!.organizationId }, date: { gte: start, lte: end } },
-      select: { employeeId: true, status: true, totalHours: true, checkIn: true },
-    });
+  const records = await prisma.attendanceRecord.findMany({
+    where: { employee: { organizationId }, date: { gte: start, lte: end } },
+    select: { employeeId: true, status: true, totalHours: true, checkIn: true },
+  });
 
-    const holidays = await prisma.holiday.findMany({ where: { organizationId: req.user!.organizationId, date: { gte: start, lte: end } } });
-    const policy = await prisma.attendancePolicy.findUnique({ where: { organizationId: req.user!.organizationId } });
-    const weekOffDays = new Set(policy?.weekOffDays || [0]);
+  const holidays = await prisma.holiday.findMany({ where: { organizationId, date: { gte: start, lte: end } } });
+  const policy = await prisma.attendancePolicy.findUnique({ where: { organizationId } });
+  const weekOffDays = new Set(policy?.weekOffDays || [0]);
 
-    // Count working days (excluding weekoffs and holidays)
-    const holidayDates = new Set(holidays.map(h => h.date.toISOString().split('T')[0]));
-    let totalWorkingDays = 0;
-    const d = new Date(start);
-    while (d <= end) {
-      const dayStr = d.toISOString().split('T')[0];
-      if (!weekOffDays.has(d.getDay()) && !holidayDates.has(dayStr)) totalWorkingDays++;
-      d.setDate(d.getDate() + 1);
+  const holidayDates = new Set(holidays.map(h => h.date.toISOString().split('T')[0]));
+  let totalWorkingDays = 0;
+  const d = new Date(start);
+  while (d <= end) {
+    const dayStr = d.toISOString().split('T')[0];
+    if (!weekOffDays.has(d.getDay()) && !holidayDates.has(dayStr)) totalWorkingDays++;
+    d.setDate(d.getDate() + 1);
+  }
+
+  const empRecordMap = new Map<string, any[]>();
+  records.forEach(r => { if (!empRecordMap.has(r.employeeId)) empRecordMap.set(r.employeeId, []); empRecordMap.get(r.employeeId)!.push(r); });
+
+  const shiftAssignments = await prisma.shiftAssignment.findMany({
+    where: { employee: { organizationId }, endDate: null },
+    include: { shift: true },
+  });
+  const empShiftMap = new Map<string, any>();
+  shiftAssignments.forEach(a => empShiftMap.set(a.employeeId, a.shift));
+
+  const report = employees.map(emp => {
+    const recs = empRecordMap.get(emp.id) || [];
+    const empShift = empShiftMap.get(emp.id);
+    const present = recs.filter(r => r.status === 'PRESENT').length;
+    const absent = recs.filter(r => r.status === 'ABSENT').length;
+    const halfDay = recs.filter(r => r.status === 'HALF_DAY').length;
+    const onLeave = recs.filter(r => r.status === 'ON_LEAVE').length;
+    const wfh = recs.filter(r => r.status === 'WORK_FROM_HOME').length;
+    const totalHours = recs.reduce((s, r) => s + (Number(r.totalHours) || 0), 0);
+    const [shiftStartH, shiftStartM] = (empShift?.startTime || '09:00').split(':').map(Number);
+    const shiftStartMinutes = shiftStartH * 60 + shiftStartM;
+    const graceMinutes = empShift?.graceMinutes || policy?.lateGraceMinutes || 15;
+    const lateCount = recs.filter(r => {
+      if (!r.checkIn) return false;
+      const ci = new Date(r.checkIn);
+      const ciMinutes = ci.getHours() * 60 + ci.getMinutes();
+      return ciMinutes > (shiftStartMinutes + graceMinutes);
+    }).length;
+    const effectivePresent = present + wfh + (halfDay * 0.5);
+    let lopDays = Math.max(0, totalWorkingDays - effectivePresent - onLeave);
+
+    let latePenaltyLOP = 0;
+    if (policy?.latePenaltyEnabled && (policy?.latePenaltyPerCount || 0) > 0) {
+      latePenaltyLOP = Math.floor(lateCount / policy.latePenaltyPerCount);
+      lopDays += latePenaltyLOP;
     }
 
-    const empRecordMap = new Map<string, any[]>();
-    records.forEach(r => { if (!empRecordMap.has(r.employeeId)) empRecordMap.set(r.employeeId, []); empRecordMap.get(r.employeeId)!.push(r); });
+    const fullDayHrsForOT = Number(empShift?.fullDayHours || policy?.fullDayMinHours || 8);
+    const otHours = policy?.otEnabled
+      ? Math.max(0, totalHours - (present + wfh) * fullDayHrsForOT)
+      : 0;
 
-    // Get shift assignments for accurate late detection per employee
-    const shiftAssignments = await prisma.shiftAssignment.findMany({
-      where: { employee: { organizationId: req.user!.organizationId }, endDate: null },
-      include: { shift: true },
-    });
-    const empShiftMap = new Map<string, any>();
-    shiftAssignments.forEach(a => empShiftMap.set(a.employeeId, a.shift));
+    return {
+      employeeId: emp.id, employeeCode: emp.employeeCode, name: `${emp.firstName} ${emp.lastName}`,
+      department: emp.department?.name || '—',
+      totalWorkingDays, present, absent, halfDay, onLeave, wfh, lateCount,
+      totalHours: Math.round(totalHours * 10) / 10,
+      lopDays: Math.round(lopDays * 10) / 10,
+      latePenaltyLOP,
+      otHours: Math.round(otHours * 10) / 10,
+      effectivePresent: Math.round(effectivePresent * 10) / 10,
+    };
+  });
 
-    const report = employees.map(emp => {
-      const recs = empRecordMap.get(emp.id) || [];
-      const empShift = empShiftMap.get(emp.id);
-      const present = recs.filter(r => r.status === 'PRESENT').length;
-      const absent = recs.filter(r => r.status === 'ABSENT').length;
-      const halfDay = recs.filter(r => r.status === 'HALF_DAY').length;
-      const onLeave = recs.filter(r => r.status === 'ON_LEAVE').length;
-      const wfh = recs.filter(r => r.status === 'WORK_FROM_HOME').length;
-      const totalHours = recs.reduce((s, r) => s + (Number(r.totalHours) || 0), 0);
-      // Use employee's actual shift start time for late detection, not hardcoded 9:00
-      const [shiftStartH, shiftStartM] = (empShift?.startTime || '09:00').split(':').map(Number);
-      const shiftStartMinutes = shiftStartH * 60 + shiftStartM;
-      const graceMinutes = empShift?.graceMinutes || policy?.lateGraceMinutes || 15;
-      const lateCount = recs.filter(r => {
-        if (!r.checkIn) return false;
-        const ci = new Date(r.checkIn);
-        const ciMinutes = ci.getHours() * 60 + ci.getMinutes();
-        return ciMinutes > (shiftStartMinutes + graceMinutes);
-      }).length;
-      const effectivePresent = present + wfh + (halfDay * 0.5);
-      let lopDays = Math.max(0, totalWorkingDays - effectivePresent - onLeave);
+  return { month, year, totalWorkingDays, holidays: holidays.length, employees: report };
+}
 
-      // Late penalty LOP: if policy.latePenaltyEnabled, every N lates = 1 LOP day
-      let latePenaltyLOP = 0;
-      if (policy?.latePenaltyEnabled && (policy?.latePenaltyPerCount || 0) > 0) {
-        latePenaltyLOP = Math.floor(lateCount / policy.latePenaltyPerCount);
-        lopDays += latePenaltyLOP;
-      }
-
-      // OT calculation: only if policy.otEnabled, use fullDayMinHours from policy
-      const fullDayHrsForOT = Number(empShift?.fullDayHours || policy?.fullDayMinHours || 8);
-      const otHours = policy?.otEnabled
-        ? Math.max(0, totalHours - (present + wfh) * fullDayHrsForOT)
-        : 0;
-
-      return {
-        employeeId: emp.id, employeeCode: emp.employeeCode, name: `${emp.firstName} ${emp.lastName}`,
-        department: emp.department?.name || '—',
-        totalWorkingDays, present, absent, halfDay, onLeave, wfh, lateCount,
-        totalHours: Math.round(totalHours * 10) / 10,
-        lopDays: Math.round(lopDays * 10) / 10,
-        latePenaltyLOP,
-        otHours: Math.round(otHours * 10) / 10,
-        effectivePresent: Math.round(effectivePresent * 10) / 10,
-      };
-    });
-
-    res.json({ success: true, data: { month, year, totalWorkingDays, holidays: holidays.length, employees: report } });
+router.get('/monthly-report', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
+  try {
+    const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
+    const year = parseInt(req.query.year as string) || new Date().getFullYear();
+    const data = await generateMonthlyReportData(req.user!.organizationId, month, year);
+    res.json({ success: true, data });
   } catch (err) { next(err); }
 });
 
 router.get('/monthly-report/export', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
   try {
-    const { prisma } = await import('../../lib/prisma.js');
     const ExcelJS = await import('exceljs');
-    // Re-use the monthly-report logic above by making an internal call
     const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
     const year = parseInt(req.query.year as string) || new Date().getFullYear();
 
-    // Simplified: just call the report endpoint logic inline
-    const reportRes = await fetch(`http://localhost:${process.env.PORT || 4000}/api/attendance/monthly-report?month=${month}&year=${year}`, {
-      headers: { Authorization: req.headers.authorization || '' },
-    });
-    const reportData = await reportRes.json();
-    if (!reportData.success) { res.status(500).json(reportData); return; }
+    const reportData = await generateMonthlyReportData(req.user!.organizationId, month, year);
 
     const wb = new ExcelJS.default.Workbook();
-    const ws = wb.addWorksheet(`Attendance ${month}/${year}`);
+    const ws = wb.addWorksheet(`Attendance ${month}-${year}`);
     ws.columns = [
       { header: 'Employee Code', key: 'employeeCode', width: 15 },
       { header: 'Name', key: 'name', width: 25 },
@@ -382,7 +384,7 @@ router.get('/monthly-report/export', authorize(Role.SUPER_ADMIN, Role.ADMIN, Rol
       { header: 'LOP Days', key: 'lopDays', width: 10 },
       { header: 'OT Hours', key: 'otHours', width: 10 },
     ];
-    reportData.data.employees.forEach((e: any) => ws.addRow(e));
+    reportData.employees.forEach((e: any) => ws.addRow(e));
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="monthly-report-${month}-${year}.xlsx"`);
     await wb.xlsx.write(res);
@@ -408,6 +410,13 @@ router.get('/my/report', async (req, res, next) => {
     });
     const holidays = await prisma.holiday.findMany({ where: { organizationId: req.user!.organizationId, date: { gte: start, lte: end } } });
     const policy = await prisma.attendancePolicy.findUnique({ where: { organizationId: req.user!.organizationId } });
+
+    // Get employee's shift for accurate late detection
+    const shiftAssignment = await prisma.shiftAssignment.findFirst({
+      where: { employeeId, endDate: null },
+      include: { shift: true },
+    });
+    const empShift = shiftAssignment?.shift;
     const weekOffDays = new Set(policy?.weekOffDays || [0]);
 
     let totalWorkingDays = 0;
@@ -448,10 +457,13 @@ router.get('/my/report', async (req, res, next) => {
       return s + ci.getHours() * 60 + ci.getMinutes();
     }, 0) / (records.filter(r => r.checkIn).length || 1);
 
+    const [shiftStartH, shiftStartM] = (empShift?.startTime || '09:00').split(':').map(Number);
+    const shiftStartMinutes = shiftStartH * 60 + shiftStartM;
+    const graceMinutes = empShift?.graceMinutes || policy?.lateGraceMinutes || 15;
     const lateCount = records.filter(r => {
       if (!r.checkIn) return false;
       const ci = new Date(r.checkIn);
-      return ci.getHours() * 60 + ci.getMinutes() > (9 * 60 + (policy?.lateGraceMinutes || 15));
+      return ci.getHours() * 60 + ci.getMinutes() > (shiftStartMinutes + graceMinutes);
     }).length;
 
     res.json({

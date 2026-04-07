@@ -4,6 +4,7 @@ import { createDocumentSchema, verifyDocumentSchema, documentQuerySchema } from 
 import { enqueueDocumentOcr } from '../../jobs/queues.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
+import { emitToUser } from '../../sockets/index.js';
 
 export class DocumentController {
   async list(req: Request, res: Response, next: NextFunction) {
@@ -119,6 +120,22 @@ export class DocumentController {
           );
           if (autoFilledFields.length > 0) {
             logger.info(`OCR auto-filled [${autoFilledFields.join(', ')}] for employee ${doc.employeeId} from document ${doc.id}`);
+
+            // Notify the employee via Socket.io that fields were auto-filled
+            try {
+              const emp = await prisma.employee.findUnique({ where: { id: doc.employeeId }, select: { userId: true } });
+              if (emp?.userId) {
+                emitToUser(emp.userId, 'document:verified', {
+                  documentId: doc.id,
+                  documentType: doc.type,
+                  status: 'VERIFIED',
+                  autoFilledFields,
+                  message: `Your ${(doc.type || '').replace(/_/g, ' ')} was approved. ${autoFilledFields.join(', ')} auto-filled in your profile.`,
+                });
+              }
+            } catch (socketErr) {
+              logger.warn('Failed to emit document:verified event:', socketErr);
+            }
           }
         } catch (err) {
           logger.warn('Failed to auto-fill from OCR:', err);

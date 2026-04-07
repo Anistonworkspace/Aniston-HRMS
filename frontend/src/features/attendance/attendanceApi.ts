@@ -74,7 +74,7 @@ interface AgentStatusResponse {
 
 interface AgentPairCodeResponse {
   code: string;
-  expiresAt?: string;
+  expiresIn?: number; // seconds until code expires (300 = 5 min)
 }
 
 interface AgentLiveModeResponse {

@@ -61,9 +61,9 @@ export function onSocketEvent(event: string, callback: (data: any) => void) {
   if (socket?.connected) {
     socket.on(event, callback);
   } else if (socket) {
-    // Socket exists but not yet connected — queue the listener
+    // Socket exists but not yet connected — only queue, do NOT also register directly
+    // (registering both here + flushing from pendingListeners causes duplicate handlers)
     pendingListeners.push({ event, callback });
-    socket.on(event, callback); // also register directly so it fires after reconnect
   } else {
     // Socket not initialized yet — queue for when connectSocket() is called
     pendingListeners.push({ event, callback });

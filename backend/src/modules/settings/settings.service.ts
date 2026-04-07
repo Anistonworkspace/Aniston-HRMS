@@ -182,14 +182,14 @@ export class SettingsService {
       host: parsed.data.host || existingEmail.host || '',
       port: parsed.data.port || existingEmail.port || 587,
       user: parsed.data.user || existingEmail.user || '',
-      pass: parsed.data.pass || existingEmail.pass || '',
+      pass: parsed.data.pass ? encrypt(parsed.data.pass) : existingEmail.pass || '',
       fromAddress: parsed.data.fromAddress || existingEmail.fromAddress || '',
       fromName: parsed.data.fromName || existingEmail.fromName || '',
       emailDomain: parsed.data.emailDomain || existingEmail.emailDomain || '',
       // OAuth2 fields
       tenantId: parsed.data.tenantId || existingEmail.tenantId || '',
       clientId: parsed.data.clientId || existingEmail.clientId || '',
-      clientSecret: parsed.data.clientSecret || existingEmail.clientSecret || '',
+      clientSecret: parsed.data.clientSecret ? encrypt(parsed.data.clientSecret) : existingEmail.clientSecret || '',
       senderEmail: parsed.data.senderEmail || existingEmail.senderEmail || '',
     };
 
@@ -264,11 +264,13 @@ export class SettingsService {
 
     try {
       const nodemailer = await import('nodemailer');
+      let smtpPass = email.pass;
+      try { smtpPass = decrypt(email.pass); } catch { /* already plaintext (legacy) */ }
       const transporter = nodemailer.createTransport({
         host: email.host,
         port: email.port || 587,
         secure: email.port === 465,
-        auth: { user: email.user, pass: email.pass },
+        auth: { user: email.user, pass: smtpPass },
       });
       await transporter.verify();
       return { success: true, message: 'SMTP connection successful! Server is reachable.' };
@@ -412,15 +414,22 @@ export class SettingsService {
     const existingCount = await prisma.employee.count({ where: { organizationId } });
     let nextCode = existingCount + 1;
 
+    // Batch-fetch existing users to avoid N+1 queries
+    const azEmails = azureUsers.map(u => (u.mail || u.userPrincipalName || '').toLowerCase()).filter(Boolean);
+    const azMsIds = azureUsers.map(u => u.id).filter(Boolean);
+    const existingUsers = await prisma.user.findMany({
+      where: { OR: [{ email: { in: azEmails } }, { microsoftId: { in: azMsIds } }] },
+      select: { email: true, microsoftId: true },
+    });
+    const existingEmailSet = new Set(existingUsers.map(u => u.email.toLowerCase()));
+    const existingMsIdSet = new Set(existingUsers.filter(u => u.microsoftId).map(u => u.microsoftId!));
+
     for (const azUser of azureUsers) {
       const email = (azUser.mail || azUser.userPrincipalName || '').toLowerCase();
       if (!email || email.includes('#EXT#')) { skipped++; continue; } // Skip external/guest users
 
-      // Check if user already exists
-      const existingUser = await prisma.user.findFirst({
-        where: { OR: [{ email }, { microsoftId: azUser.id }] },
-      });
-      if (existingUser) { skipped++; continue; }
+      // Check if user already exists (using pre-fetched sets)
+      if (existingEmailSet.has(email) || existingMsIdSet.has(azUser.id)) { skipped++; continue; }
 
       try {
         // Split displayName into first/last
@@ -432,8 +441,9 @@ export class SettingsService {
         const employeeCode = `EMP-${String(nextCode).padStart(3, '0')}`;
         nextCode++;
 
-        // Generate temp password
-        const tempPassword = await bcrypt.hash(`Welcome@${new Date().getFullYear()}`, 12);
+        // Generate cryptographically random temp password
+        const { randomBytes } = await import('crypto');
+        const tempPassword = await bcrypt.hash(randomBytes(20).toString('hex'), 12);
 
         // Find matching department if Azure AD has one
         let departmentId: string | null = null;

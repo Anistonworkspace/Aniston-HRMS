@@ -295,6 +295,9 @@ export class TaskIntegrationService {
         return this.asanaHealth(apiKey);
       case 'CLICKUP':
         return this.clickupHealth(apiKey);
+      case 'CUSTOM':
+      case 'MONDAY_COM':
+        return this.customHealth(apiKey, baseUrl!);
       default:
         throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -314,6 +317,9 @@ export class TaskIntegrationService {
         return this.asanaFetchTasks(apiKey, externalUserId);
       case 'CLICKUP':
         return this.clickupFetchTasks(apiKey, externalUserId);
+      case 'CUSTOM':
+      case 'MONDAY_COM':
+        return this.customFetchTasks(apiKey, baseUrl!, externalUserId);
       default:
         return [];
     }
@@ -389,6 +395,41 @@ export class TaskIntegrationService {
     });
     if (!res.ok) throw new Error(`ClickUp fetch failed: ${res.status}`);
     return []; // Would need team-specific implementation
+  }
+
+  // ── Custom / Monday.com Provider ──
+
+  private async customHealth(apiKey: string, baseUrl: string): Promise<boolean> {
+    const res = await fetch(`${baseUrl}/api/external/employees?limit=1`, {
+      headers: { 'X-API-Key': apiKey, 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`Custom API returned ${res.status}`);
+    return true;
+  }
+
+  private async customFetchTasks(apiKey: string, baseUrl: string, userId: string): Promise<TaskItem[]> {
+    const res = await fetch(`${baseUrl}/api/external/employees/${userId}`, {
+      headers: { 'X-API-Key': apiKey, 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) throw new Error(`Custom API fetch failed: ${res.status}`);
+
+    const data = await res.json();
+    const employee = data.data || data;
+
+    const activeTasks: any[] = employee.activeTasks || [];
+
+    return activeTasks.map((task: any) => ({
+      externalTaskId: task.id || task._id || '',
+      taskTitle: task.name || task.title || '',
+      projectName: task.board?.name || task.project?.name || task.projectName || undefined,
+      priority: task.priority || undefined,
+      dueDate: task.dueDate ? new Date(task.dueDate) : null,
+      currentStatus: task.status || undefined,
+      blockerFlag: task.status === 'stuck' || task.status === 'blocked',
+      backupAssigned: false,
+    }));
   }
 
   // ── Persist Audit to DB ──

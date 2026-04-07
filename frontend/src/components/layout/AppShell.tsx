@@ -57,6 +57,22 @@ export default function AppShell() {
     onSocketEvent('dashboard:refresh', handleDashboardRefresh);
     return () => { offSocketEvent('dashboard:refresh', handleDashboardRefresh); };
   }, [dispatch]);
+
+  // Real-time document verification notification — auto-fill feedback
+  useEffect(() => {
+    const handleDocVerified = (data: { documentType?: string; autoFilledFields?: string[]; message?: string }) => {
+      if (data.autoFilledFields && data.autoFilledFields.length > 0) {
+        toast.success(data.message || `Document verified! Auto-filled: ${data.autoFilledFields.join(', ')}`, { duration: 6000 });
+        // Refresh employee data
+        dispatch(api.util.invalidateTags(['Employee', 'Document']));
+      } else {
+        toast.success(`Your ${(data.documentType || 'document').replace(/_/g, ' ')} was approved by HR`);
+        dispatch(api.util.invalidateTags(['Document']));
+      }
+    };
+    onSocketEvent('document:verified', handleDocVerified);
+    return () => { offSocketEvent('document:verified', handleDocVerified); };
+  }, [dispatch]);
   const location = useLocation();
   const isAdminOrHR = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const aiContext = location.pathname.startsWith('/recruitment') ? 'hr-recruitment' as const
@@ -97,7 +113,7 @@ export default function AppShell() {
           {exitAccess && (
             <div className="mx-4 mt-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-600 flex-shrink-0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-              <p className="text-xs text-amber-700" dangerouslySetInnerHTML={{ __html: t('appShell.limitedAccess') }} />
+              <p className="text-xs text-amber-700">{t('appShell.limitedAccess')}</p>
             </div>
           )}
           <motion.div
@@ -122,9 +138,9 @@ export default function AppShell() {
 
       {/* Inactivity timeout warning modal */}
       {showTimeoutWarning && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="timeout-title">
           <div className="layer-card mx-4 w-full max-w-sm rounded-2xl p-6 shadow-xl">
-            <h2 className="font-sora text-lg font-semibold text-gray-900">{t('appShell.sessionExpiring')}</h2>
+            <h2 id="timeout-title" className="font-sora text-lg font-semibold text-gray-900">{t('appShell.sessionExpiring')}</h2>
             <p className="mt-2 text-sm text-gray-600">
               {t('appShell.sessionExpiryMessage')}
             </p>

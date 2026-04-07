@@ -262,13 +262,16 @@ router.post('/runs/:id/send-email',
       const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
       const filename = `payroll-report-${monthNames[run.month - 1]}-${run.year}.xlsx`;
 
-      // Send email via nodemailer
+      // Send email via nodemailer — decrypt SMTP password
       const nodemailer = await import('nodemailer');
+      const { decrypt } = await import('../../utils/encryption.js');
+      let smtpPass = emailSettings.pass;
+      try { smtpPass = decrypt(emailSettings.pass); } catch { /* already plaintext (legacy) */ }
       const transporter = nodemailer.default.createTransport({
         host: emailSettings.host,
         port: emailSettings.port || 587,
         secure: emailSettings.port === 465,
-        auth: { user: emailSettings.user, pass: emailSettings.pass },
+        auth: { user: emailSettings.user, pass: smtpPass },
       });
 
       await transporter.sendMail({
@@ -289,8 +292,7 @@ router.post('/runs/:id/send-email',
                 <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Deductions</td><td style="text-align: right; font-weight: bold; color: #dc2626; border-top: 1px solid #f1f5f9;">₹${Number(run.totalDeductions || 0).toLocaleString('en-IN')}</td></tr>
                 <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Net Payable</td><td style="text-align: right; font-weight: bold; color: #059669; font-size: 16px; border-top: 1px solid #f1f5f9;">₹${Number(run.totalNet || 0).toLocaleString('en-IN')}</td></tr>
               </table>
-              <p style="color: #6b7280; font-size: 13px;">The detailed payroll report is attached as a password-protected Excel file.</p>
-              <p style="color: #9ca3af; font-size: 12px; margin-top: 16px;">Sheet password: <strong>aniston@payroll</strong></p>
+              <p style="color: #6b7280; font-size: 13px;">The detailed payroll report is attached as an Excel file. Please handle this document with appropriate confidentiality.</p>
               <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 16px 0;">
               <p style="color: #9ca3af; font-size: 11px;">This is an automated email from Aniston HRMS. Do not reply to this email.</p>
             </div>

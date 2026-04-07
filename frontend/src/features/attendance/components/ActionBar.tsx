@@ -12,16 +12,17 @@ interface ActionBarProps {
   onTabChange: (tab: string) => void;
   isDetecting?: boolean;
   onBulkUpload?: () => void;
+  onMarkManual?: () => void;
 }
 
-export default function ActionBar({ selectedDate, onExport, onDetectAnomalies, onTabChange, isDetecting, onBulkUpload }: ActionBarProps) {
+export default function ActionBar({ selectedDate, onExport, onDetectAnomalies, onTabChange, isDetecting, onBulkUpload, onMarkManual }: ActionBarProps) {
   const [showMore, setShowMore] = useState(false);
 
   const primaryActions = [
     { key: 'export', label: 'Export', icon: Download, onClick: onExport },
     { key: 'regularize', label: 'Bulk Regularize', icon: CheckSquare, onClick: () => onTabChange('regularization') },
     { key: 'corrections', label: 'Approve Corrections', icon: FileCheck, onClick: () => onTabChange('regularization') },
-    { key: 'manual', label: 'Mark Manual', icon: PenSquare, onClick: () => {} },
+    { key: 'manual', label: 'Mark Manual', icon: PenSquare, onClick: () => onMarkManual?.() },
     { key: 'exceptions', label: 'Exceptions Queue', icon: AlertTriangle, onClick: () => onTabChange('exceptions') },
   ];
 

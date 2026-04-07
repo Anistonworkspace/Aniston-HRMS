@@ -7,7 +7,7 @@ import {
   Clock, LogIn, LogOut, Coffee, Play, Square, MapPin,
   ChevronLeft, ChevronRight, Calendar as CalendarIcon,
   Users, Search, Filter, UserCheck, UserX, UserMinus, Eye, Monitor,
-  Shield, Bell, RefreshCw, Flag, AlertTriangle, Download, X,
+  Shield, Bell, RefreshCw, Flag, AlertTriangle, Download, X, Loader2,
 } from 'lucide-react';
 import {
   useGetTodayStatusQuery,
@@ -26,6 +26,7 @@ import ProjectSiteView from './ProjectSiteView';
 import CommandCenter from './components/CommandCenter';
 import SelfServiceReport from './components/SelfServiceReport';
 import { enqueueAction } from '../../lib/offlineQueue';
+import { useAuthDownload } from '../../hooks/useAuthDownload';
 
 const STATUS_COLORS: Record<string, string> = {
   PRESENT: 'bg-emerald-500',
@@ -43,10 +44,16 @@ export default function AttendancePage() {
   const user = useAppSelector((state) => state.auth.user);
   const role = user?.role || '';
   const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(role);
+  const isSuperAdmin = role === 'SUPER_ADMIN';
+  // SuperAdmin is a system account — no personal attendance. Only real employees can view personal.
+  const canViewPersonal = !isSuperAdmin && ['ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'].includes(role);
   const [view, setView] = useState<'team' | 'personal'>(isManagement ? 'team' : 'personal');
 
   // Non-management roles go straight to personal view
   if (!isManagement) return <AttendancePersonalView />;
+
+  // SuperAdmin: show only team view, no toggle
+  if (isSuperAdmin) return <CommandCenter />;
 
   return (
     <>
@@ -55,10 +62,12 @@ export default function AttendancePage() {
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
             view === 'team' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}>{t('attendance.teamAttendance')}</button>
-        <button onClick={() => setView('personal')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            view === 'personal' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}>{t('attendance.myAttendance')}</button>
+        {canViewPersonal && (
+          <button onClick={() => setView('personal')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              view === 'personal' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}>{t('attendance.myAttendance')}</button>
+        )}
       </div>
       {view === 'team' ? <CommandCenter /> : <AttendancePersonalView />}
     </>
@@ -141,18 +150,7 @@ function AttendanceManagementView() {
           <h1 className="text-2xl font-display font-bold text-gray-900">{t('attendance.title')}</h1>
           <p className="text-gray-500 text-sm mt-0.5">{t('attendance.subtitle')}</p>
         </div>
-        <button
-          onClick={() => {
-            const date = new Date(selectedDate);
-            const month = date.getMonth() + 1;
-            const year = date.getFullYear();
-            const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
-            window.open(`${apiBase}/attendance/export?month=${month}&year=${year}`, '_blank');
-          }}
-          className="btn-primary text-sm flex items-center gap-1.5"
-        >
-          <Download size={14} /> {t('common.exportExcel')}
-        </button>
+        <ExportButton selectedDate={selectedDate} />
       </div>
 
       {/* Summary Stats */}
@@ -405,6 +403,26 @@ function AttendanceManagementView() {
         )}
       </motion.div>
     </div>
+  );
+}
+
+/* =============================================================================
+   EXPORT BUTTON — uses authenticated fetch instead of window.open
+   ============================================================================= */
+
+function ExportButton({ selectedDate }: { selectedDate: string }) {
+  const { t } = useTranslation();
+  const { download, downloading } = useAuthDownload();
+  const handleExport = () => {
+    const date = new Date(selectedDate);
+    const month = date.getMonth() + 1;
+    const year = date.getFullYear();
+    download(`/attendance/export?month=${month}&year=${year}`, `attendance-${month}-${year}.xlsx`);
+  };
+  return (
+    <button onClick={handleExport} disabled={!!downloading} className="btn-primary text-sm flex items-center gap-1.5">
+      {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} {t('common.exportExcel')}
+    </button>
   );
 }
 

@@ -23,6 +23,7 @@ import toast from 'react-hot-toast';
 import { useAppSelector } from '../../app/store';
 import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
 import { useGetKnowledgeBaseQuery, useAddKnowledgeDocMutation, useDeleteKnowledgeDocMutation } from '../ai-assistant/aiAssistantApi';
+import { useGetTaskConfigQuery, useUpsertTaskConfigMutation, useTestTaskConnectionMutation } from '../task-integration/taskIntegrationApi';
 
 import AttendancePolicyTab from './AttendancePolicyTab';
 import SalaryComponentsTab from './SalaryComponentsTab';
@@ -1598,6 +1599,10 @@ const PROVIDER_DEFAULTS: Record<string, { modelName: string; placeholder: string
 };
 
 function ExternalApiIntegrationTab() {
+  const { data: taskConfigRes } = useGetTaskConfigQuery();
+  const [upsertTaskConfig, { isLoading: savingTask }] = useUpsertTaskConfigMutation();
+  const [testTaskConnection, { isLoading: testingTask }] = useTestTaskConnectionMutation();
+
   const [integrations, setIntegrations] = useState<{ name: string; baseUrl: string; apiKey: string; description: string; enabled: boolean }[]>([
     { name: 'Task Manager', baseUrl: '', apiKey: '', description: 'Connect your task management tool (Jira, ClickUp, Asana, etc.) to sync employee tasks with performance reviews.', enabled: false },
     { name: 'Naukri / Job Board', baseUrl: '', apiKey: '', description: 'Connect job board APIs to auto-post job openings and receive applications.', enabled: false },
@@ -1605,14 +1610,60 @@ function ExternalApiIntegrationTab() {
   ]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
-  const handleSaveIntegration = (index: number) => {
-    toast.success(`${integrations[index].name} configuration saved`);
-    setEditingIndex(null);
-    // TODO: persist to backend when endpoint is ready
+  // Pre-fill Task Manager config from backend
+  useEffect(() => {
+    if (taskConfigRes?.data) {
+      const cfg = taskConfigRes.data;
+      setIntegrations(prev => {
+        const updated = [...prev];
+        updated[0] = {
+          ...updated[0],
+          baseUrl: cfg.baseUrl || '',
+          apiKey: '', // Never pre-fill encrypted key — show placeholder
+          enabled: cfg.isActive || false,
+        };
+        return updated;
+      });
+    }
+  }, [taskConfigRes]);
+
+  const handleSaveIntegration = async (index: number) => {
+    const intg = integrations[index];
+    if (index === 0) {
+      // Task Manager — persist to backend
+      if (!intg.baseUrl) {
+        toast.error('Please enter a Base URL');
+        return;
+      }
+      try {
+        await upsertTaskConfig({
+          provider: 'CUSTOM',
+          apiKey: intg.apiKey,
+          baseUrl: intg.baseUrl,
+        }).unwrap();
+        toast.success('Task Manager configuration saved');
+        setEditingIndex(null);
+      } catch (err: any) {
+        toast.error(err.data?.error?.message || 'Failed to save configuration');
+      }
+    } else {
+      toast.success(`${intg.name} configuration saved`);
+      setEditingIndex(null);
+    }
   };
 
   const handleTestIntegration = async (index: number) => {
     const intg = integrations[index];
+    if (index === 0) {
+      // Task Manager — use backend test endpoint
+      try {
+        const res = await testTaskConnection().unwrap();
+        toast.success(`Task Manager connection successful! (${res.data?.responseTimeMs}ms)`);
+      } catch (err: any) {
+        toast.error(err.data?.error?.message || 'Connection test failed');
+      }
+      return;
+    }
     if (!intg.baseUrl) {
       toast.error('Please enter a Base URL first');
       return;
@@ -1655,7 +1706,7 @@ function ExternalApiIntegrationTab() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {intg.baseUrl && (
+                  {(i === 0 ? taskConfigRes?.data?.isActive : intg.baseUrl) && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">Connected</span>
                   )}
                   <button onClick={() => setEditingIndex(editingIndex === i ? null : i)}
@@ -1680,14 +1731,16 @@ function ExternalApiIntegrationTab() {
                         <input type="password" value={intg.apiKey}
                           onChange={e => { const n = [...integrations]; n[i].apiKey = e.target.value; setIntegrations(n); }}
                           placeholder="Leave blank if not required" className="input-glass w-full text-sm" />
-                        <p className="text-[10px] text-gray-400 mt-1">Leave empty if the service doesn't require authentication</p>
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          {i === 0 && taskConfigRes?.data ? 'Key is encrypted on server. Enter a new key to update, or leave blank to keep existing.' : 'Leave empty if the service doesn\'t require authentication'}
+                        </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button onClick={() => handleSaveIntegration(i)} className="btn-primary text-xs flex items-center gap-1.5">
-                          <Save size={14} /> Save
+                        <button onClick={() => handleSaveIntegration(i)} disabled={i === 0 && savingTask} className="btn-primary text-xs flex items-center gap-1.5 disabled:opacity-50">
+                          {i === 0 && savingTask ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save
                         </button>
-                        <button onClick={() => handleTestIntegration(i)} className="btn-secondary text-xs flex items-center gap-1.5">
-                          <Zap size={14} /> Test Connection
+                        <button onClick={() => handleTestIntegration(i)} disabled={i === 0 && testingTask} className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50">
+                          {i === 0 && testingTask ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />} Test Connection
                         </button>
                       </div>
                     </div>
@@ -1762,17 +1815,27 @@ function ApiIntegrationsTab() {
   const handleProviderChange = (p: string) => {
     if (p === provider) return; // Don't reset if clicking same provider
     setProvider(p);
-    const defaults = PROVIDER_DEFAULTS[p];
-    if (defaults) setModelName(defaults.modelName);
-    setBaseUrl('');
-    setApiKey(''); // Clear for new provider — user must enter key for new provider
     setTestResult(null);
+
+    // If switching back to the saved provider, restore saved values
+    if (config && p === config.provider) {
+      setModelName(config.modelName || PROVIDER_DEFAULTS[p]?.modelName || '');
+      setBaseUrl(config.baseUrl || '');
+      setApiKey(''); // Keep empty — saved key is still in backend
+    } else {
+      // New provider — show defaults, user must enter a new key
+      const defaults = PROVIDER_DEFAULTS[p];
+      if (defaults) setModelName(defaults.modelName);
+      setBaseUrl('');
+      setApiKey('');
+    }
   };
 
   const handleSave = async () => {
-    // Require API key for first-time setup or if decrypt error
-    if ((!config?.hasApiKey || config?.decryptError) && !apiKey) {
-      toast.error('Please enter an API key');
+    const isSameProvider = provider === config?.provider;
+    // Require API key: first-time setup, decrypt error, or switching to a different provider without a key
+    if (!apiKey && (!config?.hasApiKey || config?.decryptError || !isSameProvider)) {
+      toast.error(isSameProvider ? 'Please enter an API key' : 'Please enter an API key for the new provider');
       return;
     }
     try {
@@ -1862,19 +1925,22 @@ function ApiIntegrationsTab() {
               />
               <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
             </div>
-            {config?.hasApiKey && !apiKey && (
+            {config?.hasApiKey && provider === config.provider && !apiKey && (
               <div className="flex items-center gap-1.5 mt-1.5">
                 <CheckCircle2 size={12} className="text-green-500" />
                 <p className="text-xs text-green-600 font-medium">API key is saved and encrypted. Leave blank to keep it, or enter a new key to replace.</p>
               </div>
             )}
-            {config?.decryptError && (
+            {config?.decryptError && provider === config.provider && (
               <div className="flex items-center gap-1.5 mt-1.5">
                 <AlertTriangle size={12} className="text-red-500" />
                 <p className="text-xs text-red-600 font-medium">Saved key could not be read. Please re-enter your API key.</p>
               </div>
             )}
-            {!config?.hasApiKey && !config?.decryptError && (
+            {provider !== config?.provider && !apiKey && (
+              <p className="text-xs text-amber-500 mt-1">You are switching providers. Enter a new API key for this provider.</p>
+            )}
+            {!config?.hasApiKey && !config?.decryptError && provider === config?.provider && (
               <p className="text-xs text-gray-400 mt-1">Your key is encrypted with AES-256-GCM before storage.</p>
             )}
           </div>
@@ -1911,9 +1977,9 @@ function ApiIntegrationsTab() {
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
               Save Configuration
             </button>
-            <button onClick={handleTest} disabled={testing || !config?.hasApiKey}
+            <button onClick={handleTest} disabled={testing || (!apiKey && (!config?.hasApiKey || provider !== config?.provider))}
               className="btn-secondary flex items-center gap-2 text-sm"
-              title={!config?.hasApiKey ? 'Save an API key first to test the connection' : 'Test the AI provider connection'}>
+              title={!config?.hasApiKey && !apiKey ? 'Save an API key first to test the connection' : 'Test the AI provider connection'}>
               {testing ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
               Test Connection
             </button>

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import multer from 'multer';
 import { logger } from '../lib/logger.js';
+import { env } from '../config/env.js';
 
 export class AppError extends Error {
   public readonly statusCode: number;
@@ -180,7 +181,7 @@ export function errorHandler(
     data: null,
     error: {
       code: 'INTERNAL_ERROR',
-      message: process.env.NODE_ENV === 'production'
+      message: env.NODE_ENV === 'production'
         ? 'An unexpected error occurred'
         : err.message,
     },

@@ -20,6 +20,7 @@ import {
   useLazySearchWhatsAppMessagesQuery,
 } from './whatsappApi';
 import type { WhatsAppChat, WhatsAppMessage, WhatsAppContact, HrmsMessage } from './whatsappApi';
+import { Link } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -54,7 +55,7 @@ export default function WhatsAppPage() {
               <WifiOff size={48} className="text-gray-300 mb-4" />
               <h2 className="text-lg font-semibold text-gray-700 mb-2">WhatsApp Not Connected</h2>
               <p className="text-sm text-gray-500 mb-4">Go to Settings &rarr; WhatsApp to connect your WhatsApp account.</p>
-              <a href="/settings" className="btn-primary text-sm">Open Settings</a>
+              <Link to="/settings" className="btn-primary text-sm">Open Settings</Link>
             </>
           )}
         </div>

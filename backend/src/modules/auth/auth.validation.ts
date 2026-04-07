@@ -2,7 +2,11 @@ import { z } from 'zod';
 
 export const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
-  password: z.string().min(1, 'Password is required'),
+  password: z.string().min(1, 'Password is required').max(128, 'Password too long'),
+  deviceId: z.string().max(255).optional(),
+  deviceType: z.enum(['mobile', 'desktop']).optional(),
+  userAgent: z.string().max(500).optional(),
+  forceLogin: z.boolean().optional(),
 });
 
 export const forgotPasswordSchema = z.object({

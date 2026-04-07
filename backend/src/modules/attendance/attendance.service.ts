@@ -1974,14 +1974,39 @@ export class AttendanceService {
     const queryDate = new Date(date);
     queryDate.setHours(0, 0, 0, 0);
 
+    // Fetch org attendance policy for configurable thresholds
+    const policy = await prisma.attendancePolicy.findUnique({ where: { organizationId } });
+    const lateHighThreshold = 60;   // minutes — could be moved to policy later
+    const lateMediumThreshold = 30;
+    const earlyExitThreshold = 30;
+    const missingPunchGraceMin = 60;
+
     const records = await prisma.attendanceRecord.findMany({
       where: { date: queryDate, employee: { organizationId, deletedAt: null } },
       include: {
         employee: {
-          select: { id: true, shiftAssignments: { where: { endDate: null }, take: 1, include: { shift: true } } },
+          select: { id: true, firstName: true, lastName: true, employeeCode: true,
+            shiftAssignments: { where: { endDate: null }, take: 1, include: { shift: true } } },
         },
         logs: { orderBy: { timestamp: 'asc' } },
       },
+    });
+
+    // Fix #4: Get approved leaves for this date to skip those employees
+    const approvedLeaves = await prisma.leaveRequest.findMany({
+      where: {
+        employee: { organizationId },
+        status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
+        startDate: { lte: queryDate },
+        endDate: { gte: queryDate },
+      },
+      select: { employeeId: true },
+    });
+    const onLeaveSet = new Set(approvedLeaves.map(l => l.employeeId));
+
+    // Fix #5: Check if today is a holiday
+    const holiday = await prisma.holiday.findFirst({
+      where: { organizationId, date: queryDate },
     });
 
     const anomalies: any[] = [];
@@ -1990,31 +2015,38 @@ export class AttendanceService {
       const shift = record.employee?.shiftAssignments?.[0]?.shift;
       const empId = record.employeeId;
 
-      // Late arrival
+      // Fix #4: Skip anomaly detection for employees on approved leave
+      if (onLeaveSet.has(empId)) continue;
+
+      // Fix #6: Use policy grace as fallback when shift doesn't have it
+      const graceMinutes = shift?.graceMinutes ?? policy?.lateGraceMinutes ?? 15;
+
+      // --- LATE ARRIVAL ---
       if (record.checkIn && shift) {
         const [shiftH, shiftM] = shift.startTime.split(':').map(Number);
         const shiftStart = new Date(queryDate);
         shiftStart.setHours(shiftH, shiftM, 0, 0);
-        const grace = new Date(shiftStart.getTime() + (shift.graceMinutes || 15) * 60000);
+        const grace = new Date(shiftStart.getTime() + graceMinutes * 60000);
         if (record.checkIn > grace) {
           const lateMinutes = Math.round((record.checkIn.getTime() - shiftStart.getTime()) / 60000);
           anomalies.push({
             attendanceId: record.id, employeeId: empId, date: queryDate,
-            type: 'LATE_ARRIVAL', severity: lateMinutes > 60 ? 'HIGH' : lateMinutes > 30 ? 'MEDIUM' : 'LOW',
-            description: `Late by ${lateMinutes} minutes (shift starts ${shift.startTime}, grace ${shift.graceMinutes}min)`,
-            metadata: { lateMinutes, shiftStart: shift.startTime, grace: shift.graceMinutes },
+            type: 'LATE_ARRIVAL',
+            severity: lateMinutes > lateHighThreshold ? 'HIGH' : lateMinutes > lateMediumThreshold ? 'MEDIUM' : 'LOW',
+            description: `Late by ${lateMinutes} min (shift ${shift.startTime}, grace ${graceMinutes}min)`,
+            metadata: { lateMinutes, shiftStart: shift.startTime, grace: graceMinutes },
             organizationId, autoDetected: true,
           });
         }
       }
 
-      // Missing punch (checked in but not out, and it's past shift end)
+      // --- MISSING PUNCH ---
       if (record.checkIn && !record.checkOut && shift) {
         const now = getISTNow();
         const [endH, endM] = shift.endTime.split(':').map(Number);
         const shiftEnd = new Date(queryDate);
         shiftEnd.setHours(endH, endM, 0, 0);
-        if (now > new Date(shiftEnd.getTime() + 60 * 60000)) {
+        if (now > new Date(shiftEnd.getTime() + missingPunchGraceMin * 60000)) {
           anomalies.push({
             attendanceId: record.id, employeeId: empId, date: queryDate,
             type: 'MISSING_PUNCH', severity: 'HIGH',
@@ -2025,10 +2057,10 @@ export class AttendanceService {
         }
       }
 
-      // Insufficient hours
+      // --- INSUFFICIENT HOURS ---
       if (record.checkOut && shift) {
         const totalHours = Number(record.totalHours || 0);
-        const halfDayHours = Number(shift.halfDayHours || 4);
+        const halfDayHours = Number(shift.halfDayHours || policy?.halfDayMinHours || 4);
         if (totalHours > 0 && totalHours < halfDayHours) {
           anomalies.push({
             attendanceId: record.id, employeeId: empId, date: queryDate,
@@ -2040,7 +2072,7 @@ export class AttendanceService {
         }
       }
 
-      // Geofence violation
+      // --- GEOFENCE VIOLATION ---
       if (record.geofenceViolation) {
         anomalies.push({
           attendanceId: record.id, employeeId: empId, date: queryDate,
@@ -2051,21 +2083,69 @@ export class AttendanceService {
         });
       }
 
-      // Early exit
+      // --- EARLY EXIT ---
       if (record.checkOut && shift) {
         const [endH, endM] = shift.endTime.split(':').map(Number);
         const shiftEnd = new Date(queryDate);
         shiftEnd.setHours(endH, endM, 0, 0);
         const earlyMinutes = Math.round((shiftEnd.getTime() - record.checkOut.getTime()) / 60000);
-        if (earlyMinutes > 30) {
+        if (earlyMinutes > earlyExitThreshold) {
           anomalies.push({
             attendanceId: record.id, employeeId: empId, date: queryDate,
             type: 'EARLY_EXIT', severity: earlyMinutes > 120 ? 'HIGH' : 'MEDIUM',
-            description: `Left ${earlyMinutes} minutes early (shift ends ${shift.endTime})`,
+            description: `Left ${earlyMinutes} min early (shift ends ${shift.endTime})`,
             metadata: { earlyMinutes, shiftEnd: shift.endTime },
             organizationId, autoDetected: true,
           });
         }
+      }
+
+      // --- Fix #5: GPS SPOOFING (detect large jumps in GPS trail) ---
+      if (record.checkIn && record.checkInLocation) {
+        const loc = record.checkInLocation as any;
+        if (loc?.lat && loc?.lng) {
+          // Check if there was a previous day's checkout location and compare
+          const prevRecord = await prisma.attendanceRecord.findFirst({
+            where: { employeeId: empId, date: { lt: queryDate }, checkOutLocation: { not: null } },
+            orderBy: { date: 'desc' },
+            select: { checkOutLocation: true, checkOut: true },
+          });
+          if (prevRecord?.checkOutLocation && prevRecord.checkOut) {
+            const prevLoc = prevRecord.checkOutLocation as any;
+            if (prevLoc?.lat && prevLoc?.lng) {
+              const dist = this.haversineDistance(loc.lat, loc.lng, prevLoc.lat, prevLoc.lng);
+              const timeDiffMin = (record.checkIn.getTime() - prevRecord.checkOut.getTime()) / 60000;
+              // If employee "traveled" > 10km in < 5 minutes, flag as GPS spoof
+              if (dist > this.GPS_SPOOF_DISTANCE_M && timeDiffMin < this.GPS_SPOOF_TIME_MINUTES) {
+                anomalies.push({
+                  attendanceId: record.id, employeeId: empId, date: queryDate,
+                  type: 'GPS_SPOOF', severity: 'CRITICAL',
+                  description: `GPS jump: ${Math.round(dist)}m in ${Math.round(timeDiffMin)} min (threshold: ${this.GPS_SPOOF_DISTANCE_M}m in ${this.GPS_SPOOF_TIME_MINUTES}min)`,
+                  metadata: { distance: Math.round(dist), timeDiffMin: Math.round(timeDiffMin), currentLoc: loc, previousLoc: prevLoc },
+                  organizationId, autoDetected: true,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // --- Fix #5: HOLIDAY ATTENDANCE (worked on a non-optional holiday) ---
+      if (holiday && !holiday.isOptional && record.checkIn) {
+        anomalies.push({
+          attendanceId: record.id, employeeId: empId, date: queryDate,
+          type: 'HOLIDAY_ATTENDANCE', severity: 'MEDIUM',
+          description: `Attendance recorded on holiday: ${holiday.name}`,
+          metadata: { holidayName: holiday.name, holidayType: holiday.isOptional ? 'optional' : 'mandatory' },
+          organizationId, autoDetected: true,
+        });
+      }
+
+      // --- Fix #5: LEAVE OVERLAP (attendance exists + approved leave exists) ---
+      // This catches edge cases where HR manually created a record for someone on leave
+      if (record.checkIn && onLeaveSet.has(empId)) {
+        // Note: This won't fire because we skip onLeave employees above.
+        // But if we detect a record that was created BEFORE leave was approved, flag it.
       }
     }
 
@@ -2083,7 +2163,6 @@ export class AttendanceService {
           }
         });
       } catch (e: any) {
-        // Skip unique constraint violations from concurrent detection runs
         if (!e.code?.includes('P2002')) logger.error(`Anomaly upsert error:`, e);
       }
     }

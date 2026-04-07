@@ -30,8 +30,8 @@ export default function MobileBottomNav() {
   const handleCheckInOut = async () => {
     if (gettingLocation || clockingIn || clockingOut) return;
     setGettingLocation(true);
+    let coords: { latitude?: number; longitude?: number; accuracy?: number } = {};
     try {
-      let coords: { latitude?: number; longitude?: number; accuracy?: number } = {};
       if (navigator.geolocation) {
         try {
           const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
@@ -57,13 +57,12 @@ export default function MobileBottomNav() {
       }
     } catch (err: any) {
       setGettingLocation(false);
-      // If offline, queue the action for later sync
+      // If offline, queue the action for later sync — reuse GPS coords from above
       if (!navigator.onLine) {
-        const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+        const deviceType = /Android|iPhone|iPad|IPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
         const isCheckOut = todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut;
-        const coords: Record<string, any> = {};
         enqueueAction(isCheckOut ? 'CLOCK_OUT' : 'CLOCK_IN', { ...coords, source: 'MANUAL_APP', deviceType });
-        toast('Queued — will sync when you\u2019re back online', { icon: '\uD83D\uDCE1' });
+        toast(t('attendance.queuedOffline', 'Queued \u2014 will sync when you\u2019re back online'), { icon: '\uD83D\uDCE1' });
         return;
       }
       toast.error(err?.data?.error?.message || t('common.failed'));

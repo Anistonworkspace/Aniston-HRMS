@@ -35,6 +35,7 @@ import { useAppSelector, useAppDispatch } from '../../app/store';
 import { cn } from '../../lib/utils';
 import { useGetWhatsAppStatusQuery, useGetWhatsAppChatsQuery } from '../../features/whatsapp/whatsappApi';
 import { useGetEmployeeQuery } from '../../features/employee/employeeApi';
+import { useLogoutMutation } from '../../features/auth/authApi';
 import { useTranslation } from 'react-i18next';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
@@ -101,7 +102,9 @@ export default function Sidebar() {
     0
   );
 
-  const handleLogout = () => {
+  const [logoutApi] = useLogoutMutation();
+  const handleLogout = async () => {
+    try { await logoutApi().unwrap(); } catch { /* proceed with client logout even if API fails */ }
     dispatch({ type: 'auth/logout' });
     navigate('/login');
   };

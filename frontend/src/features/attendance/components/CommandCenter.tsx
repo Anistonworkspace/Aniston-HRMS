@@ -20,7 +20,9 @@ import OvertimeTab from './OvertimeTab';
 import ShiftRotationCalendar from './ShiftRotationCalendar';
 import AnomalyDetectionPanel from './AnomalyDetectionPanel';
 import BulkUploadModal from './BulkUploadModal';
+import MarkManualModal from './MarkManualModal';
 import toast from 'react-hot-toast';
+import { useAuthDownload } from '../../../hooks/useAuthDownload';
 
 const TABS = [
   { key: 'today', label: 'Today' },
@@ -40,9 +42,11 @@ export default function CommandCenter() {
   const navigate = useNavigate();
   const user = useAppSelector((s) => s.auth.user);
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const { download: authDownload, downloading: exportDownloading } = useAuthDownload();
 
   const [activeTab, setActiveTab] = useState<TabKey>('today');
   const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [showMarkManual, setShowMarkManual] = useState(false);
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState('');
   const [sortOrder, setSortOrder] = useState('asc');
@@ -114,8 +118,7 @@ export default function CommandCenter() {
     const date = new Date(filters.date);
     const month = date.getMonth() + 1;
     const year = date.getFullYear();
-    const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
-    window.open(`${apiBase}/attendance/export?month=${month}&year=${year}`, '_blank');
+    authDownload(`/attendance/export?month=${month}&year=${year}`, `attendance-${month}-${year}.xlsx`);
   };
 
   const handleDetectAnomalies = async () => {
@@ -140,6 +143,7 @@ export default function CommandCenter() {
           onTabChange={(tab) => setActiveTab(tab as TabKey)}
           isDetecting={isDetecting}
           onBulkUpload={() => setShowBulkUpload(true)}
+          onMarkManual={() => setShowMarkManual(true)}
         />
       </div>
 
@@ -215,10 +219,11 @@ export default function CommandCenter() {
 
       {activeTab === 'roster' && <ShiftRotationCalendar />}
 
-      {activeTab === 'anomalies' && <AnomalyDetectionPanel />}
+      {activeTab === 'anomalies' && <AnomalyDetectionPanel selectedDate={filters.date} />}
 
       {/* Bulk Upload Modal */}
       <BulkUploadModal isOpen={showBulkUpload} onClose={() => setShowBulkUpload(false)} />
+      <MarkManualModal isOpen={showMarkManual} onClose={() => setShowMarkManual(false)} defaultDate={filters.date} />
     </div>
   );
 }

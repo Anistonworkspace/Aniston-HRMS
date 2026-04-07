@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, ChevronRight, ChevronLeft, Loader2, PartyPopper, Eye, EyeOff } from 'lucide-react';
+import { Check, ChevronRight, ChevronLeft, Loader2, PartyPopper, Eye, EyeOff, Upload, FileText, CheckCircle2, AlertTriangle, X, RefreshCw } from 'lucide-react';
 import { useGetOnboardingStatusQuery, useSaveOnboardingStepMutation, useCompleteOnboardingMutation } from './onboardingApi';
+import { useUploadDocumentMutation } from '../documents/documentApi';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -234,8 +235,11 @@ function Step2Personal({ onSave, saving, employee }: { onSave: (data: any) => vo
 }
 
 function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; saving: boolean }) {
+  const [uploadDocument] = useUploadDocumentMutation();
+  const [uploads, setUploads] = useState<Record<string, { status: 'idle' | 'uploading' | 'done' | 'error'; fileName?: string; docId?: string; error?: string }>>({});
   const [otherCerts, setOtherCerts] = useState<{ id: number; name: string }[]>([]);
   const [nextId, setNextId] = useState(1);
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const docSections = [
     {
@@ -250,7 +254,7 @@ function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; savin
     {
       title: 'Identity & Address Proof',
       docs: [
-        { name: 'Aadhaar Card / Passport / Driving License / Voter ID', type: 'AADHAAR', required: true },
+        { name: 'Aadhaar Card / Passport / DL / Voter ID', type: 'AADHAAR', required: true },
         { name: 'PAN Card', type: 'PAN', required: true },
         { name: 'Residence Proof (Utility Bill / Rent Agreement)', type: 'RESIDENCE_PROOF', required: true },
       ],
@@ -258,7 +262,7 @@ function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; savin
     {
       title: 'Photographs',
       docs: [
-        { name: 'Passport Size Photographs (2 nos)', type: 'PHOTO', required: true },
+        { name: 'Passport Size Photograph', type: 'PHOTO', required: true },
       ],
     },
     {
@@ -278,6 +282,39 @@ function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; savin
     },
   ];
 
+  const allDocs = docSections.flatMap(s => s.docs);
+  const requiredDocs = allDocs.filter(d => d.required);
+  const uploadedRequiredCount = requiredDocs.filter(d => uploads[d.type]?.status === 'done').length;
+
+  const handleFileUpload = useCallback(async (file: File, docType: string, docName: string) => {
+    setUploads(prev => ({ ...prev, [docType]: { status: 'uploading', fileName: file.name } }));
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('type', docType);
+      formData.append('name', docName);
+      const result = await uploadDocument(formData).unwrap();
+      setUploads(prev => ({ ...prev, [docType]: { status: 'done', fileName: file.name, docId: result.data?.id } }));
+      toast.success(`${docName} uploaded successfully`);
+    } catch (err: any) {
+      const msg = err?.data?.error?.message || 'Upload failed';
+      setUploads(prev => ({ ...prev, [docType]: { status: 'error', fileName: file.name, error: msg } }));
+      toast.error(msg);
+    }
+  }, [uploadDocument]);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>, docType: string, docName: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Validate file size (10MB max)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File size must be under 10MB');
+      return;
+    }
+    handleFileUpload(file, docType, docName);
+    e.target.value = '';
+  }, [handleFileUpload]);
+
   const addOtherCert = () => {
     setOtherCerts([...otherCerts, { id: nextId, name: '' }]);
     setNextId(nextId + 1);
@@ -291,13 +328,79 @@ function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; savin
     setOtherCerts(otherCerts.map((c) => (c.id === id ? { ...c, name } : c)));
   };
 
+  const renderDocRow = (doc: { name: string; type: string; required?: boolean }) => {
+    const state = uploads[doc.type] || { status: 'idle' };
+    return (
+      <div key={doc.type} className={cn(
+        'flex items-center justify-between py-3 px-4 rounded-lg transition-colors',
+        state.status === 'done' ? 'bg-emerald-50 border border-emerald-200' :
+        state.status === 'error' ? 'bg-red-50 border border-red-200' :
+        'bg-surface-2'
+      )}>
+        <div className="min-w-0 flex-1 mr-3">
+          <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+            {doc.name} {doc.required && <span className="text-red-400">*</span>}
+            {state.status === 'done' && <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0" />}
+          </p>
+          {state.fileName && (
+            <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1">
+              <FileText size={10} /> {state.fileName}
+              {state.status === 'done' && <span className="text-emerald-600 ml-1">Uploaded — pending HR review</span>}
+            </p>
+          )}
+          {state.error && <p className="text-[11px] text-red-500 mt-0.5">{state.error}</p>}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {state.status === 'uploading' && <Loader2 size={16} className="animate-spin text-brand-500" />}
+          {state.status === 'error' && (
+            <button onClick={() => fileInputRefs.current[doc.type]?.click()} className="p-1 text-red-500 hover:bg-red-100 rounded" title="Retry">
+              <RefreshCw size={14} />
+            </button>
+          )}
+          <label className={cn(
+            'text-xs cursor-pointer shrink-0 px-3 py-1.5 rounded-lg font-medium transition-colors',
+            state.status === 'done'
+              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+              : 'btn-secondary',
+            state.status === 'uploading' && 'opacity-50 pointer-events-none'
+          )}>
+            <input
+              ref={el => { fileInputRefs.current[doc.type] = el; }}
+              type="file"
+              className="hidden"
+              accept="image/*,.pdf,.doc,.docx"
+              onChange={(e) => handleFileChange(e, doc.type, doc.name)}
+              disabled={state.status === 'uploading'}
+            />
+            {state.status === 'done' ? 'Replace' : state.status === 'uploading' ? 'Uploading...' : 'Upload'}
+          </label>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-5">
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
         <p className="text-sm text-amber-800 font-medium">Pre-Joining Documents</p>
         <p className="text-xs text-amber-700 mt-1">
-          Upload all required documents. Combine into one PDF named <strong>YourName_PreJoiningDocs.pdf</strong> if possible. Required documents are marked with <span className="text-red-500 font-bold">*</span>
+          Upload all required documents. Documents marked with <span className="text-red-500 font-bold">*</span> are required.
+          OCR will automatically extract data from identity documents (PAN, Aadhaar).
         </p>
+      </div>
+
+      {/* Progress bar */}
+      <div className="bg-white border border-gray-200 rounded-lg p-3">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs font-semibold text-gray-600">Upload Progress</span>
+          <span className="text-xs text-gray-400 font-mono" data-mono>{uploadedRequiredCount}/{requiredDocs.length} required</span>
+        </div>
+        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className={cn('h-full rounded-full transition-all duration-500', uploadedRequiredCount === requiredDocs.length ? 'bg-emerald-500' : 'bg-brand-500')}
+            style={{ width: `${requiredDocs.length > 0 ? (uploadedRequiredCount / requiredDocs.length) * 100 : 0}%` }}
+          />
+        </div>
       </div>
 
       {docSections.map((section) => (
@@ -307,19 +410,7 @@ function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; savin
             {section.title}
           </h4>
           <div className="space-y-2">
-            {section.docs.map((doc) => (
-              <div key={doc.type} className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
-                <div className="min-w-0 flex-1 mr-3">
-                  <p className="text-sm font-medium text-gray-700">
-                    {doc.name} {doc.required && <span className="text-red-400">*</span>}
-                  </p>
-                </div>
-                <label className="btn-secondary text-xs cursor-pointer shrink-0">
-                  <input type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" />
-                  Upload
-                </label>
-              </div>
-            ))}
+            {section.docs.map(renderDocRow)}
           </div>
         </div>
       ))}
@@ -330,46 +421,58 @@ function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; savin
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
           Additional Certificates (Optional)
         </h4>
-        <p className="text-xs text-gray-400 mb-2">
-          Upload any other professional certifications, PF/ESIC details, or additional documents.
-        </p>
 
-        {otherCerts.map((cert) => (
-          <div key={cert.id} className="flex items-center gap-2 py-2 px-4 bg-surface-2 rounded-lg mb-2">
-            <input
-              type="text"
-              value={cert.name}
-              onChange={(e) => updateOtherCertName(cert.id, e.target.value)}
-              placeholder="Certificate name (e.g., AWS Certified, PF Number)"
-              className="input-glass flex-1 text-sm py-2"
-            />
-            <label className="btn-secondary text-xs cursor-pointer shrink-0">
-              <input type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" />
-              Upload
-            </label>
-            <button
-              type="button"
-              onClick={() => removeOtherCert(cert.id)}
-              className="text-red-400 hover:text-red-600 text-lg font-bold px-1"
-              title="Remove"
-            >
-              &times;
-            </button>
-          </div>
-        ))}
+        {otherCerts.map((cert) => {
+          const certType = `OTHER_${cert.id}`;
+          const state = uploads[certType] || { status: 'idle' };
+          return (
+            <div key={cert.id} className="flex items-center gap-2 py-2 px-4 bg-surface-2 rounded-lg mb-2">
+              <input
+                type="text"
+                value={cert.name}
+                onChange={(e) => updateOtherCertName(cert.id, e.target.value)}
+                placeholder="Certificate name (e.g., AWS Certified)"
+                className="input-glass flex-1 text-sm py-2"
+              />
+              {state.status === 'done' ? (
+                <span className="text-[10px] text-emerald-600 flex items-center gap-1"><CheckCircle2 size={12} /> Done</span>
+              ) : state.status === 'uploading' ? (
+                <Loader2 size={14} className="animate-spin text-brand-500" />
+              ) : null}
+              <label className="btn-secondary text-xs cursor-pointer shrink-0">
+                <input
+                  type="file" className="hidden" accept="image/*,.pdf,.doc,.docx"
+                  onChange={(e) => handleFileChange(e, certType, cert.name || 'Other Certificate')}
+                  disabled={state.status === 'uploading'}
+                />
+                {state.status === 'done' ? 'Replace' : 'Upload'}
+              </label>
+              <button type="button" onClick={() => removeOtherCert(cert.id)}
+                className="text-red-400 hover:text-red-600 text-lg font-bold px-1" title="Remove">&times;</button>
+            </div>
+          );
+        })}
 
-        <button
-          type="button"
-          onClick={addOtherCert}
-          className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-brand-400 hover:text-brand-600 transition-colors"
-        >
+        <button type="button" onClick={addOtherCert}
+          className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-brand-400 hover:text-brand-600 transition-colors">
           + Add Other Certificate
         </button>
       </div>
 
-      <button onClick={() => onSave({ documentsAcknowledged: true })} className="btn-primary w-full mt-4" disabled={saving}>
-        Continue
+      <button
+        onClick={() => onSave({ documentsAcknowledged: true, uploadedTypes: Object.keys(uploads).filter(k => uploads[k].status === 'done') })}
+        className="btn-primary w-full mt-4"
+        disabled={saving || uploadedRequiredCount < requiredDocs.length}
+      >
+        {uploadedRequiredCount < requiredDocs.length
+          ? `Upload ${requiredDocs.length - uploadedRequiredCount} more required document${requiredDocs.length - uploadedRequiredCount > 1 ? 's' : ''}`
+          : 'Continue'}
       </button>
+      {uploadedRequiredCount < requiredDocs.length && (
+        <button onClick={() => onSave({ documentsAcknowledged: true, partial: true })} className="w-full text-xs text-gray-400 hover:text-gray-600 py-1">
+          Skip for now — upload later
+        </button>
+      )}
     </div>
   );
 }

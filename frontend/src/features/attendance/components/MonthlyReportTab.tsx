@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet } from 'lucide-react';
+import { Download, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useGetMonthlyReportQuery } from '../attendanceApi';
+import { useAuthDownload } from '../../../hooks/useAuthDownload';
 
 export default function MonthlyReportTab() {
   const now = new Date();
@@ -8,27 +9,15 @@ export default function MonthlyReportTab() {
   const [year, setYear] = useState(now.getFullYear());
   const { data: res, isLoading } = useGetMonthlyReportQuery({ month, year });
   const report = res?.data;
-  const [exporting, setExporting] = useState(false);
+  const { download, downloading } = useAuthDownload();
+  const exporting = !!downloading;
 
   const prevMonth = () => { if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1); };
   const nextMonth = () => { if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1); };
   const monthName = new Date(year, month - 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
 
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      const token = localStorage.getItem('accessToken');
-      const apiUrl = import.meta.env.VITE_API_URL || '/api';
-      const res = await fetch(`${apiUrl}/attendance/monthly-report/export?month=${month}&year=${year}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error('Export failed');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `attendance-report-${month}-${year}.xlsx`; a.click();
-      URL.revokeObjectURL(url);
-    } catch { /* silently fail */ }
-    setExporting(false);
+  const handleExport = () => {
+    download(`/attendance/monthly-report/export?month=${month}&year=${year}`, `attendance-report-${month}-${year}.xlsx`);
   };
 
   return (

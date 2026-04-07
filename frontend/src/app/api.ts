@@ -15,6 +15,9 @@ const baseQuery = fetchBaseQuery({
   },
 });
 
+// Mutex to prevent concurrent token refresh requests
+let refreshPromise: Promise<boolean> | null = null;
+
 // Auto-refresh on 401, with offline detection
 const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
   // Fail fast if offline — no point waiting for network timeout
@@ -30,23 +33,32 @@ const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
   let result = await baseQuery(args, api, extraOptions);
 
   if (result.error && result.error.status === 401) {
-    // Try to refresh
-    const refreshResult = await baseQuery(
-      { url: '/auth/refresh', method: 'POST' },
-      api,
-      extraOptions
-    );
+    // Use mutex to prevent parallel refresh requests
+    if (!refreshPromise) {
+      refreshPromise = (async () => {
+        const refreshResult = await baseQuery(
+          { url: '/auth/refresh', method: 'POST' },
+          api,
+          extraOptions
+        );
+        if (refreshResult.data) {
+          const data = refreshResult.data as { data: { accessToken: string } };
+          api.dispatch({
+            type: 'auth/setAccessToken',
+            payload: data.data.accessToken,
+          });
+          return true;
+        } else {
+          api.dispatch({ type: 'auth/logout' });
+          return false;
+        }
+      })().finally(() => { refreshPromise = null; });
+    }
 
-    if (refreshResult.data) {
-      const data = refreshResult.data as { data: { accessToken: string } };
-      api.dispatch({
-        type: 'auth/setAccessToken',
-        payload: data.data.accessToken,
-      });
-      // Retry original request
+    const refreshed = await refreshPromise;
+    if (refreshed) {
+      // Retry original request with new token
       result = await baseQuery(args, api, extraOptions);
-    } else {
-      api.dispatch({ type: 'auth/logout' });
     }
   }
 

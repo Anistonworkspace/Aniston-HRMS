@@ -7,8 +7,12 @@ export class AuthController {
   async login(req: Request, res: Response, next: NextFunction) {
     try {
       const data = loginSchema.parse(req.body);
-      const { deviceId, deviceType, userAgent, forceLogin } = req.body;
-      const result = await authService.login(data.email, data.password, { deviceId, deviceType, userAgent, forceLogin });
+      const result = await authService.login(data.email, data.password, {
+        deviceId: data.deviceId,
+        deviceType: data.deviceType,
+        userAgent: data.userAgent,
+        forceLogin: data.forceLogin,
+      });
 
       // Set refresh token as httpOnly cookie
       res.cookie('refreshToken', result.refreshToken, {
@@ -170,7 +174,7 @@ export class AuthController {
         update: { secret: encSecret, isEnabled: false, backupCodes },
       });
 
-      res.json({ success: true, data: { qrCode, backupCodes, secret } });
+      res.json({ success: true, data: { qrCode, backupCodes } });
     } catch (err) { next(err); }
   }
 
@@ -199,10 +203,11 @@ export class AuthController {
       const { prisma } = await import('../../lib/prisma.js');
       const otplib = await import('otplib');
       const jwt = await import('jsonwebtoken');
+      const { env } = await import('../../config/env.js');
       const { tempToken, code } = req.body;
 
       let payload: any;
-      try { payload = jwt.default.verify(tempToken, process.env.JWT_SECRET!); }
+      try { payload = jwt.default.verify(tempToken, env.JWT_SECRET); }
       catch { res.status(401).json({ success: false, error: { message: 'Session expired. Please login again.' } }); return; }
 
       if (!payload.mfaPending) { res.status(401).json({ success: false, error: { message: 'Invalid token' } }); return; }
@@ -241,7 +246,7 @@ export class AuthController {
       res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000, path: '/api/auth' });
 
       const userData = await authService.getMe(user.id);
-      res.json({ success: true, data: { accessToken, refreshToken, user: userData } });
+      res.json({ success: true, data: { accessToken, user: userData } });
     } catch (err) { next(err); }
   }
 

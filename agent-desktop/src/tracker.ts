@@ -1,6 +1,7 @@
 import { powerMonitor } from 'electron';
 import { execSync } from 'child_process';
 import { CONFIG, categorizeApp } from './config';
+import { getAndResetInputCounts, startInputTracking, stopInputTracking } from './inputTracker';
 
 export interface ActivityEntry {
   activeApp: string;
@@ -70,6 +71,7 @@ export function startTracking() {
   if (trackingInterval) return;
 
   console.log('[Tracker] Starting activity tracking...');
+  startInputTracking();
 
   trackingInterval = setInterval(() => {
     if (isPaused) return;
@@ -79,6 +81,9 @@ export function startTracking() {
       const idleTime = powerMonitor.getSystemIdleTime();
       const isIdle = idleTime >= CONFIG.IDLE_THRESHOLD_S;
 
+      // Get actual input counts accumulated since last poll
+      const inputCounts = getAndResetInputCounts();
+
       const entry: ActivityEntry = {
         activeApp: app,
         activeWindow: title,
@@ -86,9 +91,9 @@ export function startTracking() {
         category: isIdle ? 'NEUTRAL' : categorizeApp(app),
         durationSeconds: CONFIG.TRACKING_INTERVAL_MS / 1000,
         idleSeconds: idleTime,
-        keystrokes: 0,
-        mouseClicks: 0,
-        mouseDistance: 0,
+        keystrokes: inputCounts.keystrokes,
+        mouseClicks: inputCounts.mouseClicks,
+        mouseDistance: inputCounts.mouseDistance,
         timestamp: new Date().toISOString(),
       };
 
@@ -107,4 +112,5 @@ export function stopTracking() {
     clearInterval(trackingInterval);
     trackingInterval = null;
   }
+  stopInputTracking();
 }

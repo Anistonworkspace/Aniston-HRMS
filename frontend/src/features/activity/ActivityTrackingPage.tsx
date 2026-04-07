@@ -271,6 +271,16 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
                     )} />
                     <span className="text-gray-700 truncate flex-1">{log.activeApp || 'Unknown'}</span>
                     <span className="text-gray-400 truncate max-w-[200px]">{log.activeWindow || ''}</span>
+                    {log.keystrokes > 0 && (
+                      <span className="text-blue-400 flex items-center gap-0.5 flex-shrink-0" title="Keystrokes">
+                        <Keyboard size={9} /> <span className="font-mono" data-mono>{log.keystrokes}</span>
+                      </span>
+                    )}
+                    {log.mouseClicks > 0 && (
+                      <span className="text-purple-400 flex items-center gap-0.5 flex-shrink-0" title="Clicks">
+                        <Mouse size={9} /> <span className="font-mono" data-mono>{log.mouseClicks}</span>
+                      </span>
+                    )}
                     <span className="text-gray-300 font-mono flex-shrink-0" data-mono>{log.idleSeconds}s idle</span>
                   </div>
                 ))}
@@ -393,11 +403,21 @@ function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
             </h4>
             <p className="text-lg font-semibold text-gray-800">{liveData.activeApp || 'Unknown'}</p>
             <p className="text-xs text-gray-500 truncate mt-1">{liveData.activeWindow || 'No window title'}</p>
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               <span className={cn('text-[10px] px-2 py-0.5 rounded-full font-medium',
                 liveData.category === 'PRODUCTIVE' ? 'bg-emerald-100 text-emerald-700' :
                 liveData.category === 'UNPRODUCTIVE' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600'
               )}>{liveData.category || 'NEUTRAL'}</span>
+              {liveData.keystrokes > 0 && (
+                <span className="text-[10px] text-blue-600 flex items-center gap-0.5">
+                  <Keyboard size={10} /> {liveData.keystrokes.toLocaleString()}
+                </span>
+              )}
+              {liveData.mouseClicks > 0 && (
+                <span className="text-[10px] text-purple-600 flex items-center gap-0.5">
+                  <Mouse size={10} /> {liveData.mouseClicks.toLocaleString()}
+                </span>
+              )}
               {liveData.idleSeconds > 60 && (
                 <span className="text-[10px] text-amber-600">Idle: {Math.floor(liveData.idleSeconds / 60)}m</span>
               )}
@@ -459,6 +479,16 @@ function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
                 )} />
                 <span className="text-gray-700 font-medium">{entry.activeApp}</span>
                 <span className="text-gray-400 truncate flex-1">{entry.activeWindow}</span>
+                {entry.keystrokes > 0 && (
+                  <span className="text-blue-500 flex items-center gap-0.5 flex-shrink-0" title="Keystrokes">
+                    <Keyboard size={9} /> <span className="font-mono" data-mono>{entry.keystrokes}</span>
+                  </span>
+                )}
+                {entry.mouseClicks > 0 && (
+                  <span className="text-purple-500 flex items-center gap-0.5 flex-shrink-0" title="Clicks">
+                    <Mouse size={9} /> <span className="font-mono" data-mono>{entry.mouseClicks}</span>
+                  </span>
+                )}
               </motion.div>
             ))}
           </div>
@@ -738,6 +768,11 @@ function AppDrilldown({ topApps, logs }: { topApps: any[]; logs: any[] }) {
                               <p className="text-blue-500 truncate text-[10px]">{log.activeUrl}</p>
                             )}
                           </div>
+                          {log.keystrokes > 0 && (
+                            <span className="text-blue-400 flex items-center gap-0.5 flex-shrink-0">
+                              <Keyboard size={8} /> {log.keystrokes}
+                            </span>
+                          )}
                           <span className="text-gray-300 flex-shrink-0">{log.durationSeconds}s</span>
                         </div>
                       ))}

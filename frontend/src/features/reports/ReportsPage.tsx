@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { BarChart3, Users, Calendar, DollarSign, Briefcase, PieChart, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { useGetHeadcountQuery, useGetAttendanceSummaryQuery, useGetPayrollSummaryQuery, useGetRecruitmentFunnelQuery } from './reportApi';
 import { formatCurrency } from '../../lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RPieChart, Pie, Cell } from 'recharts';
+import { useAuthDownload } from '../../hooks/useAuthDownload';
 
 const COLORS = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#64748b'];
 
@@ -11,6 +13,7 @@ export default function ReportsPage() {
   const { data: attendanceRes, isLoading: attendanceLoading } = useGetAttendanceSummaryQuery({});
   const { data: payrollRes, isLoading: payrollLoading } = useGetPayrollSummaryQuery();
   const { data: recruitRes, isLoading: recruitLoading } = useGetRecruitmentFunnelQuery();
+  const { download: authDownload, downloading } = useAuthDownload();
 
   const isLoading = headcountLoading || attendanceLoading || payrollLoading || recruitLoading;
 
@@ -47,10 +50,11 @@ export default function ReportsPage() {
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
-          onClick={() => window.open('/api/reports/headcount?format=xlsx', '_blank')}
+          onClick={() => authDownload('/reports/headcount?format=xlsx', 'employee-directory.xlsx')}
+          disabled={!!downloading}
           className="btn-secondary flex items-center gap-2 text-sm"
         >
-          <FileSpreadsheet size={16} />
+          {downloading ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
           Export Excel
         </motion.button>
       </div>

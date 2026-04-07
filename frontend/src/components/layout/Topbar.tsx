@@ -41,7 +41,7 @@ export default function Topbar() {
       // Logout anyway
     }
     dispatch(logout());
-    toast.success(t('login.welcomeBack'));
+    toast.success(t('common.loggedOut', 'Signed out successfully'));
     navigate('/login');
   };
 
@@ -58,7 +58,9 @@ export default function Topbar() {
       <div className="flex items-center gap-4 flex-1">
         <div className="relative max-w-md w-full hidden sm:block">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <label htmlFor="topbar-search" className="sr-only">{t('common.searchPlaceholder')}</label>
           <input
+            id="topbar-search"
             type="text"
             placeholder={t('common.searchPlaceholder')}
             className="w-full pl-10 pr-4 py-2 bg-surface-2 border-0 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 transition-all placeholder:text-gray-400"
@@ -77,6 +79,9 @@ export default function Topbar() {
             onClick={() => setLangOpen(!langOpen)}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-surface-2 transition-colors text-gray-500 hover:text-gray-700"
             title={t('language.label')}
+            aria-expanded={langOpen}
+            aria-haspopup="true"
+            aria-label={t('language.label')}
           >
             <Globe size={18} />
             <span className="text-xs font-semibold hidden sm:inline">
@@ -151,7 +156,7 @@ export default function Topbar() {
               <p className="text-sm font-medium text-gray-800 leading-tight">
                 {user?.firstName} {user?.lastName}
               </p>
-              <p className="text-xs text-gray-400 leading-tight">{user?.role?.replace('_', ' ')}</p>
+              <p className="text-xs text-gray-400 leading-tight">{user?.role?.replace(/_/g, ' ')}</p>
             </div>
             <ChevronDown size={14} className="text-gray-400 hidden md:block" />
           </button>

@@ -67,6 +67,10 @@ export class AgentService {
 
     // Emit real-time agent status to org (so admin dashboard + live feed updates)
     const lastActivity = activities[activities.length - 1];
+    // Aggregate keystrokes/clicks from the entire batch for this heartbeat
+    const batchKeystrokes = activities.reduce((sum, a) => sum + a.keystrokes, 0);
+    const batchClicks = activities.reduce((sum, a) => sum + a.mouseClicks, 0);
+
     emitToOrg(organizationId, 'agent:heartbeat', {
       employeeId,
       activeApp: lastActivity?.activeApp || 'Unknown',
@@ -74,6 +78,9 @@ export class AgentService {
       activeUrl: lastActivity?.activeUrl || '',
       category: lastActivity?.category || 'NEUTRAL',
       idleSeconds: lastActivity?.idleSeconds || 0,
+      keystrokes: batchKeystrokes,
+      mouseClicks: batchClicks,
+      durationSeconds: lastActivity?.durationSeconds || 0,
       timestamp: new Date().toISOString(),
     });
     // Emit to the employee's own session (so their browser widget updates)
@@ -229,7 +236,7 @@ export class AgentService {
 
     return {
       isActive,
-      lastHeartbeat: lastLog?.timestamp || null,
+      lastHeartbeat: lastLog?.timestamp?.toISOString() || null,
     };
   }
   // ===================== ENTERPRISE AGENT SETUP =====================
@@ -308,7 +315,7 @@ export class AgentService {
       action: 'UPDATE', newValue: { agentPairingCode: code, action: 'regenerate_agent_code' },
     });
 
-    return { code };
+    return { code, isNew: false };
   }
 
   /**
@@ -345,7 +352,7 @@ export class AgentService {
         ...emp,
         email: emp.user?.email || null,
         department: emp.department?.name || null,
-        agentStatus: { isActive, lastHeartbeat },
+        agentStatus: { isActive, lastHeartbeat: lastHeartbeat?.toISOString() || null },
       };
     });
   }

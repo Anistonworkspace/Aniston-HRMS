@@ -18,7 +18,7 @@ export class AgentController {
   async uploadScreenshot(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.file) {
-        res.status(400).json({ success: false, error: { message: 'No file uploaded' } });
+        res.status(400).json({ success: false, error: { code: 'FILE_REQUIRED', message: 'No file uploaded' } });
         return;
       }
 
@@ -103,7 +103,7 @@ export class AgentController {
   async verifyPairCode(req: Request, res: Response, next: NextFunction) {
     try {
       const { code } = req.body;
-      if (!code) return res.status(400).json({ success: false, error: { message: 'Pairing code is required' } });
+      if (!code) return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Pairing code is required' } });
       const result = await agentService.verifyPairCode(code);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }

@@ -218,7 +218,7 @@ export class DocumentService {
     const doc = await prisma.document.findUnique({ where: { id: documentId } });
     if (!doc) return [];
 
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId } }) as any;
     if (!employee) return [];
 
     const updates: Record<string, any> = {};
@@ -255,6 +255,21 @@ export class DocumentService {
       filledFields.push('Address');
     }
 
+    // Auto-fill name from identity documents (if name fields are empty)
+    if (ocrData.extractedName && (!employee.firstName || !employee.lastName)) {
+      const nameParts = ocrData.extractedName.trim().split(/\s+/);
+      if (nameParts.length >= 2) {
+        if (!employee.firstName) {
+          updates.firstName = nameParts[0];
+          filledFields.push('First Name');
+        }
+        if (!employee.lastName) {
+          updates.lastName = nameParts.slice(1).join(' ');
+          filledFields.push('Last Name');
+        }
+      }
+    }
+
     // Document-type-specific fields
     if (doc.type === 'PAN' && !employee.panNumber && ocrData.extractedDocNumber) {
       const pan = ocrData.extractedDocNumber.toUpperCase().replace(/[\s\-]/g, '');
@@ -269,6 +284,29 @@ export class DocumentService {
       if (/^\d{12}$/.test(aadhaar)) {
         updates.aadhaarEncrypted = encrypt(aadhaar);
         filledFields.push('Aadhaar Number');
+      }
+    }
+
+    // Bank details from cancelled cheque OCR (LLM extracts IFSC, account number)
+    if ((doc.type === 'CANCELLED_CHEQUE' || doc.type === 'BANK_STATEMENT') && ocrData.llmExtractedData) {
+      const llmData = typeof ocrData.llmExtractedData === 'string' ? JSON.parse(ocrData.llmExtractedData) : ocrData.llmExtractedData;
+      if (!employee.bankAccountNumber && llmData.accountNumber) {
+        const accNo = llmData.accountNumber.replace(/[\s\-]/g, '');
+        if (/^\d{9,18}$/.test(accNo)) {
+          updates.bankAccountNumber = accNo;
+          filledFields.push('Bank Account Number');
+        }
+      }
+      if (!employee.bankIfsc && llmData.ifscCode) {
+        const ifsc = llmData.ifscCode.toUpperCase().replace(/[\s\-]/g, '');
+        if (/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) {
+          updates.bankIfsc = ifsc;
+          filledFields.push('Bank IFSC Code');
+        }
+      }
+      if (!employee.bankName && llmData.bankName) {
+        updates.bankName = llmData.bankName;
+        filledFields.push('Bank Name');
       }
     }
 

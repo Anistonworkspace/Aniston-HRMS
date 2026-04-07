@@ -37,7 +37,7 @@ router.post('/invite-whatsapp', requirePermission('employee', 'create'), async (
     if (cleanPhone.length !== 10) { res.status(400).json({ success: false, error: { message: 'Phone must be 10 digits' } }); return; }
 
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
 
     const invitation = await prisma.employeeInvitation.create({
       data: {
@@ -55,7 +55,7 @@ router.post('/invite-whatsapp', requirePermission('employee', 'create'), async (
 
     const org = await prisma.organization.findUnique({ where: { id: req.user!.organizationId } });
     const inviteUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/onboarding/invite/${token}`;
-    const message = `🎉 *You're invited to join ${org?.name || 'the team'}!*\n\nHi ${firstName}! Your HR has set up your account.\n\n📱 *Set up your account:*\n${inviteUrl}\n\n⏰ Link expires in *24 hours*\n🎯 *Role:* ${role}`;
+    const message = `🎉 *You're invited to join ${org?.name || 'the team'}!*\n\nHi ${firstName}! Your HR has set up your account.\n\n📱 *Set up your account:*\n${inviteUrl}\n\n⏰ Link expires in *72 hours*\n🎯 *Role:* ${role}`;
 
     let whatsappSent = false;
     try {
@@ -63,7 +63,8 @@ router.post('/invite-whatsapp', requirePermission('employee', 'create'), async (
       await whatsAppService.sendToNumber('91' + cleanPhone, message, req.user!.organizationId);
       whatsappSent = true;
     } catch (e: any) {
-      console.warn('[WhatsApp invite] Not sent:', e.message);
+      const { logger } = await import('../../lib/logger.js');
+      logger.warn('[WhatsApp invite] Not sent:', e.message);
     }
 
     res.status(201).json({

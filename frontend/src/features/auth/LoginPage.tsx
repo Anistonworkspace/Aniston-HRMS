@@ -120,8 +120,10 @@ export default function LoginPage() {
   };
 
   const handleDemoLogin = () => {
-    setEmail('superadmin@anistonav.com');
-    setPassword('Superadmin@1234');
+    if (import.meta.env.DEV) {
+      setEmail('superadmin@anistonav.com');
+      setPassword('Superadmin@1234');
+    }
   };
 
   return (

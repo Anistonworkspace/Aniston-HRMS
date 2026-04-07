@@ -267,14 +267,8 @@ export class AuthService {
 
     await redis.del(`${RESET_TOKEN_PREFIX}${token}`);
 
-    // Invalidate all refresh tokens for this user
-    const keys = await redis.keys(`${REFRESH_TOKEN_PREFIX}*`);
-    for (const key of keys) {
-      const storedUserId = await redis.get(key);
-      if (storedUserId === userId) {
-        await redis.del(key);
-      }
-    }
+    // Invalidate all refresh tokens for this user using SCAN (non-blocking)
+    await this.revokeAllUserTokens(userId);
 
     return { message: 'Password reset successfully' };
   }
@@ -296,14 +290,8 @@ export class AuthService {
       data: { passwordHash },
     });
 
-    // Invalidate all existing refresh token sessions for this user
-    const keys = await redis.keys(`${REFRESH_TOKEN_PREFIX}*`);
-    for (const key of keys) {
-      const storedUserId = await redis.get(key);
-      if (storedUserId === userId) {
-        await redis.del(key);
-      }
-    }
+    // Invalidate all existing refresh token sessions for this user using SCAN (non-blocking)
+    await this.revokeAllUserTokens(userId);
 
     return { message: 'Password changed successfully' };
   }
@@ -316,6 +304,7 @@ export class AuthService {
           include: {
             department: true,
             designation: true,
+            documents: { select: { id: true }, take: 1 },
             documentGate: { select: { kycStatus: true } },
             exitAccessConfig: true,
           },
@@ -410,6 +399,21 @@ export class AuthService {
     return jwt.sign(payload, env.JWT_SECRET, {
       expiresIn: env.JWT_ACCESS_EXPIRY,
     });
+  }
+
+  /** Revoke all refresh tokens for a user using SCAN (non-blocking, unlike KEYS) */
+  private async revokeAllUserTokens(userId: string): Promise<void> {
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', `${REFRESH_TOKEN_PREFIX}*`, 'COUNT', '100');
+      cursor = nextCursor;
+      for (const key of keys) {
+        const storedUserId = await redis.get(key);
+        if (storedUserId === userId) {
+          await redis.del(key);
+        }
+      }
+    } while (cursor !== '0');
   }
 
   public async generateRefreshToken(userId: string): Promise<string> {
