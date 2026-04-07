@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { agentService } from './agent.service.js';
-import { heartbeatSchema, screenshotMetadataSchema, generateCodeSchema } from './agent.validation.js';
+import { heartbeatSchema, screenshotMetadataSchema, generateCodeSchema, setLiveModeSchema, dateParamSchema } from './agent.validation.js';
 
 export class AgentController {
   async submitHeartbeat(req: Request, res: Response, next: NextFunction) {
@@ -37,7 +37,7 @@ export class AgentController {
 
   async getConfig(req: Request, res: Response, next: NextFunction) {
     try {
-      const config = await agentService.getConfig(req.user!.employeeId!);
+      const config = await agentService.getConfig(req.user!.employeeId!, req.user!.organizationId);
       res.json({ success: true, data: config });
     } catch (err) { next(err); }
   }
@@ -45,6 +45,7 @@ export class AgentController {
   async getActivityLogs(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId, date } = req.params;
+      dateParamSchema.parse(date);
       const result = await agentService.getActivityLogs(
         employeeId as string,
         date as string,
@@ -57,6 +58,7 @@ export class AgentController {
   async getScreenshots(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId, date } = req.params;
+      dateParamSchema.parse(date);
       const screenshots = await agentService.getScreenshots(
         employeeId as string,
         date as string,
@@ -68,7 +70,7 @@ export class AgentController {
 
   async getStatus(req: Request, res: Response, next: NextFunction) {
     try {
-      const status = await agentService.getAgentStatus(req.user!.employeeId!);
+      const status = await agentService.getAgentStatus(req.user!.employeeId!, req.user!.organizationId);
       res.json({ success: true, data: status });
     } catch (err) { next(err); }
   }
@@ -85,9 +87,8 @@ export class AgentController {
 
   async setLiveMode(req: Request, res: Response, next: NextFunction) {
     try {
-      const { employeeId, enabled, intervalSeconds } = req.body;
-      if (!employeeId) return res.status(400).json({ success: false, error: { message: 'employeeId required' } });
-      const result = await agentService.setLiveMode(employeeId, enabled !== false, intervalSeconds || 30);
+      const { employeeId, enabled, intervalSeconds } = setLiveModeSchema.parse(req.body);
+      const result = await agentService.setLiveMode(employeeId, enabled, intervalSeconds);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }

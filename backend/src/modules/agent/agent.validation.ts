@@ -23,6 +23,16 @@ export const screenshotMetadataSchema = z.object({
   timestamp: z.string().optional(),
 });
 
+// Live mode control (admin)
+export const setLiveModeSchema = z.object({
+  employeeId: z.string().uuid(),
+  enabled: z.boolean(),
+  intervalSeconds: z.number().int().min(5).max(300).optional().default(30),
+});
+
+// Date URL param validation
+export const dateParamSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD format');
+
 // Agent setup (admin)
 export const generateCodeSchema = z.object({
   employeeId: z.string().uuid(),

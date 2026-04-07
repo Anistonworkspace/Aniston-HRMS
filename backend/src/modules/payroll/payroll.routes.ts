@@ -225,6 +225,100 @@ router.post('/import',
   }
 );
 
+// Send payroll report to accounts email
+router.post('/runs/:id/send-email',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+      const run = await payrollService.getPayrollRunById(req.params.id);
+      if (!['COMPLETED', 'LOCKED'].includes(run.status)) {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Payroll must be completed or locked to send email' } });
+        return;
+      }
+
+      const org = await prisma.organization.findUnique({
+        where: { id: req.user!.organizationId },
+        select: { name: true, payrollEmail: true, settings: true },
+      });
+
+      if (!org?.payrollEmail) {
+        res.status(400).json({ success: false, error: { code: 'NO_PAYROLL_EMAIL', message: 'Payroll email not configured. Go to Settings → Email Configuration to add an accounts email.' } });
+        return;
+      }
+
+      const emailSettings = (org.settings as any)?.email;
+      if (!emailSettings?.host || !emailSettings?.user || !emailSettings?.pass) {
+        res.status(400).json({ success: false, error: { code: 'EMAIL_NOT_CONFIGURED', message: 'SMTP email not configured. Go to Settings → Email Configuration.' } });
+        return;
+      }
+
+      // Generate Excel
+      const records = await payrollService.getPayrollRecords(req.params.id, req.user!.organizationId);
+      const { generatePayrollExcel } = await import('../../utils/payrollExcelExporter.js');
+      const excelBuffer = await generatePayrollExcel(run, records, org.name || 'Aniston Technologies LLP');
+
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
+      const filename = `payroll-report-${monthNames[run.month - 1]}-${run.year}.xlsx`;
+
+      // Send email via nodemailer
+      const nodemailer = await import('nodemailer');
+      const transporter = nodemailer.default.createTransport({
+        host: emailSettings.host,
+        port: emailSettings.port || 587,
+        secure: emailSettings.port === 465,
+        auth: { user: emailSettings.user, pass: emailSettings.pass },
+      });
+
+      await transporter.sendMail({
+        from: `"${emailSettings.fromName || 'Aniston HRMS'}" <${emailSettings.fromAddress || emailSettings.user}>`,
+        to: org.payrollEmail,
+        subject: `Payroll Report — ${periodLabel} | ${org.name}`,
+        html: `
+          <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #4F46E5; padding: 24px; border-radius: 12px 12px 0 0;">
+              <h1 style="color: white; margin: 0; font-size: 20px;">${org.name}</h1>
+              <p style="color: rgba(255,255,255,0.8); margin: 4px 0 0;">Payroll Report</p>
+            </div>
+            <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
+              <h2 style="color: #1e293b; font-size: 18px; margin-top: 0;">Payroll for ${periodLabel}</h2>
+              <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+                <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Employees Processed</td><td style="text-align: right; font-weight: bold; color: #1e293b;">${records.length}</td></tr>
+                <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Gross</td><td style="text-align: right; font-weight: bold; color: #1e293b; border-top: 1px solid #f1f5f9;">₹${Number(run.totalGross || 0).toLocaleString('en-IN')}</td></tr>
+                <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Deductions</td><td style="text-align: right; font-weight: bold; color: #dc2626; border-top: 1px solid #f1f5f9;">₹${Number(run.totalDeductions || 0).toLocaleString('en-IN')}</td></tr>
+                <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Net Payable</td><td style="text-align: right; font-weight: bold; color: #059669; font-size: 16px; border-top: 1px solid #f1f5f9;">₹${Number(run.totalNet || 0).toLocaleString('en-IN')}</td></tr>
+              </table>
+              <p style="color: #6b7280; font-size: 13px;">The detailed payroll report is attached as a password-protected Excel file.</p>
+              <p style="color: #9ca3af; font-size: 12px; margin-top: 16px;">Sheet password: <strong>aniston@payroll</strong></p>
+              <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 16px 0;">
+              <p style="color: #9ca3af; font-size: 11px;">This is an automated email from Aniston HRMS. Do not reply to this email.</p>
+            </div>
+          </div>
+        `,
+        attachments: [{
+          filename,
+          content: excelBuffer,
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        }],
+      });
+
+      // Audit log
+      const { createAuditLog } = await import('../../utils/auditLogger.js');
+      await createAuditLog({
+        userId: req.user!.userId,
+        organizationId: req.user!.organizationId,
+        entity: 'PayrollRun',
+        entityId: req.params.id,
+        action: 'UPDATE',
+        newValue: { action: 'SENT_EMAIL', to: org.payrollEmail, period: periodLabel },
+      });
+
+      res.json({ success: true, data: { sentTo: org.payrollEmail, period: periodLabel }, message: `Payroll report sent to ${org.payrollEmail}` });
+    } catch (err) { next(err); }
+  }
+);
+
 // Bank transfer file (NEFT/RTGS format CSV)
 router.get('/runs/:id/bank-file',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
@@ -235,30 +329,30 @@ router.get('/runs/:id/bank-file',
       const { prisma } = await import('../../lib/prisma.js');
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-      // Fetch bank details for employees
+      // Fetch employee details — bank fields may not exist in schema yet
       const empIds = records.map((r: any) => r.employeeId);
-      const bankDetails = await prisma.employee.findMany({
+      const employees = await prisma.employee.findMany({
         where: { id: { in: empIds } },
-        select: { id: true, firstName: true, lastName: true, employeeCode: true, bankAccountNumber: true, ifscCode: true, bankName: true },
+        select: { id: true, firstName: true, lastName: true, employeeCode: true },
       });
-      const bankMap = new Map(bankDetails.map(b => [b.id, b]));
+      const empMap = new Map(employees.map(e => [e.id, e]));
 
       // Generate CSV
       const lines: string[] = [];
       lines.push('Txn Type,Beneficiary Code,Beneficiary Name,Bank Account No,IFSC Code,Amount,Narration');
 
       for (const rec of records as any[]) {
-        const bank = bankMap.get(rec.employeeId);
-        const name = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim();
+        const emp = empMap.get(rec.employeeId);
+        const name = `${rec.employee?.firstName || emp?.firstName || ''} ${rec.employee?.lastName || emp?.lastName || ''}`.trim();
         const netPay = Number(rec.netSalary || 0);
         if (netPay <= 0) continue;
 
         lines.push([
           'NEFT',
-          rec.employee?.employeeCode || '',
+          rec.employee?.employeeCode || emp?.employeeCode || '',
           `"${name}"`,
-          bank?.bankAccountNumber || '',
-          bank?.ifscCode || '',
+          '', // Bank Account — to be filled by HR
+          '', // IFSC Code — to be filled by HR
           netPay.toFixed(2),
           `"Salary ${monthNames[run.month - 1]} ${run.year}"`,
         ].join(','));

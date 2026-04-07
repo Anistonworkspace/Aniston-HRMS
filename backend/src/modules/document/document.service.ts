@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
+import { encrypt } from '../../utils/encryption.js';
 import { generateOfferLetterPDF, generateJoiningLetterPDF, generateExperienceLetterPDF, generateRelievingLetterPDF } from '../../utils/letterTemplates.js';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -202,6 +203,92 @@ export class DocumentService {
     });
 
     return document;
+  }
+
+  /**
+   * Auto-fill employee profile fields from OCR-extracted data when HR approves a document.
+   * Only fills fields that are currently null/empty — never overwrites existing data.
+   */
+  async autoFillFromOcr(documentId: string, employeeId: string, verifierId: string, organizationId: string): Promise<string[]> {
+    const ocrData = await prisma.documentOcrVerification.findUnique({
+      where: { documentId },
+    });
+    if (!ocrData) return [];
+
+    const doc = await prisma.document.findUnique({ where: { id: documentId } });
+    if (!doc) return [];
+
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!employee) return [];
+
+    const updates: Record<string, any> = {};
+    const filledFields: string[] = [];
+
+    // Auto-fill DOB (from any identity document)
+    if (!employee.dateOfBirth && ocrData.extractedDob) {
+      const parsed = new Date(ocrData.extractedDob);
+      if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1940 && parsed.getFullYear() < 2010) {
+        updates.dateOfBirth = parsed;
+        filledFields.push('Date of Birth');
+      }
+    }
+
+    // Auto-fill gender
+    if (ocrData.extractedGender) {
+      const genderMap: Record<string, string> = { MALE: 'MALE', FEMALE: 'FEMALE', M: 'MALE', F: 'FEMALE', TRANSGENDER: 'OTHER' };
+      const mapped = genderMap[ocrData.extractedGender.toUpperCase()];
+      if (mapped && employee.gender !== mapped) {
+        updates.gender = mapped;
+        filledFields.push('Gender');
+      }
+    }
+
+    // Auto-fill father's name
+    if (!employee.fatherName && ocrData.extractedFatherName) {
+      updates.fatherName = ocrData.extractedFatherName;
+      filledFields.push('Father\'s Name');
+    }
+
+    // Auto-fill address (JSON)
+    if (!employee.address && ocrData.extractedAddress) {
+      updates.address = { line1: ocrData.extractedAddress };
+      filledFields.push('Address');
+    }
+
+    // Document-type-specific fields
+    if (doc.type === 'PAN' && !employee.panNumber && ocrData.extractedDocNumber) {
+      const pan = ocrData.extractedDocNumber.toUpperCase().replace(/[\s\-]/g, '');
+      if (/^[A-Z]{5}\d{4}[A-Z]$/.test(pan)) {
+        updates.panNumber = pan;
+        filledFields.push('PAN Number');
+      }
+    }
+
+    if (doc.type === 'AADHAAR' && !employee.aadhaarEncrypted && ocrData.extractedDocNumber) {
+      const aadhaar = ocrData.extractedDocNumber.replace(/[\s\-X]/gi, '');
+      if (/^\d{12}$/.test(aadhaar)) {
+        updates.aadhaarEncrypted = encrypt(aadhaar);
+        filledFields.push('Aadhaar Number');
+      }
+    }
+
+    if (filledFields.length > 0) {
+      await prisma.employee.update({
+        where: { id: employeeId },
+        data: updates,
+      });
+
+      await createAuditLog({
+        userId: verifierId,
+        organizationId,
+        entity: 'Employee',
+        entityId: employeeId,
+        action: 'UPDATE',
+        newValue: { source: 'OCR_AUTO_FILL', documentId, filledFields },
+      });
+    }
+
+    return filledFields;
   }
 }
 

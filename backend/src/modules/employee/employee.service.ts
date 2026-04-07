@@ -55,7 +55,7 @@ export class EmployeeService {
           department: { select: { id: true, name: true } },
           designation: { select: { id: true, name: true } },
           user: { select: { id: true, role: true, status: true, lastLoginAt: true } },
-          manager: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
+          manager: { select: { id: true, firstName: true, lastName: true, employeeCode: true, deletedAt: true } },
           officeLocation: { select: { id: true, name: true } },
           shiftAssignments: {
             where: { endDate: null },
@@ -70,8 +70,11 @@ export class EmployeeService {
 
     const enriched = employees.map((emp: any) => {
       const activeAssignment = emp.shiftAssignments?.[0];
+      // Filter out soft-deleted manager from response
+      const manager = (emp.manager && !emp.manager.deletedAt) ? emp.manager : null;
       return {
         ...emp,
+        manager,
         hasShift: !!activeAssignment,
         currentShift: activeAssignment?.shift || null,
         shiftAssignments: undefined, // remove raw assignments from response
@@ -115,7 +118,7 @@ export class EmployeeService {
         department: true,
         designation: true,
         manager: {
-          select: { id: true, firstName: true, lastName: true, employeeCode: true },
+          select: { id: true, firstName: true, lastName: true, employeeCode: true, deletedAt: true },
         },
         officeLocation: true,
         documents: {
@@ -143,8 +146,11 @@ export class EmployeeService {
     }
 
     const activeAssignment = (employee as any).shiftAssignments?.[0];
+    // Filter out soft-deleted manager from response
+    const manager = (employee.manager && !(employee.manager as any).deletedAt) ? employee.manager : null;
     return {
       ...employee,
+      manager,
       hasShift: !!activeAssignment,
       currentShift: activeAssignment?.shift || null,
       shiftAssignments: undefined,
@@ -341,6 +347,38 @@ export class EmployeeService {
       }
     }
 
+    // --- Manager validation (org chart integrity) ---
+    if (data.managerId !== undefined) {
+      if (data.managerId !== null) {
+        // Cannot assign self as manager
+        if (data.managerId === id) {
+          throw new BadRequestError('An employee cannot be their own manager');
+        }
+        // Validate manager exists, same org, active, and not deleted
+        const manager = await prisma.employee.findFirst({
+          where: { id: data.managerId, organizationId, deletedAt: null },
+        });
+        if (!manager) {
+          throw new BadRequestError('Manager not found or is not active in this organization');
+        }
+        // Circular reference detection — walk up the chain from the proposed manager
+        const visited = new Set<string>();
+        let currentId: string | null = data.managerId;
+        while (currentId) {
+          if (currentId === id) {
+            throw new BadRequestError('Cannot assign this manager — it would create a circular reporting structure');
+          }
+          if (visited.has(currentId)) break; // already-existing cycle safeguard
+          visited.add(currentId);
+          const parent = await prisma.employee.findFirst({
+            where: { id: currentId, organizationId, deletedAt: null },
+            select: { managerId: true },
+          });
+          currentId = parent?.managerId || null;
+        }
+      }
+    }
+
     // Check email uniqueness if changed
     if (data.email && data.email.toLowerCase() !== existing.email) {
       const duplicate = await prisma.employee.findFirst({
@@ -461,6 +499,31 @@ export class EmployeeService {
           description: `Joining date changed from ${existing.joiningDate?.toLocaleDateString()} to ${new Date(data.joiningDate).toLocaleDateString()}`,
           eventDate: new Date(),
           metadata: { oldJoiningDate: existing.joiningDate, newJoiningDate: data.joiningDate },
+          createdBy: updatedBy,
+        },
+      });
+    }
+
+    // Manager change lifecycle event (org chart audit trail)
+    if (data.managerId !== undefined && data.managerId !== existing.managerId) {
+      let oldManagerName = 'None';
+      let newManagerName = 'None (Root)';
+      if (existing.managerId) {
+        const oldMgr = await prisma.employee.findFirst({ where: { id: existing.managerId }, select: { firstName: true, lastName: true } });
+        if (oldMgr) oldManagerName = `${oldMgr.firstName} ${oldMgr.lastName}`;
+      }
+      if (data.managerId) {
+        const newMgr = await prisma.employee.findFirst({ where: { id: data.managerId }, select: { firstName: true, lastName: true } });
+        if (newMgr) newManagerName = `${newMgr.firstName} ${newMgr.lastName}`;
+      }
+      await prisma.employeeEvent.create({
+        data: {
+          employeeId: id,
+          eventType: 'TRANSFER',
+          title: 'Reporting manager changed',
+          description: `Manager changed from ${oldManagerName} to ${newManagerName}`,
+          eventDate: new Date(),
+          metadata: { oldManagerId: existing.managerId, newManagerId: data.managerId, oldManagerName, newManagerName },
           createdBy: updatedBy,
         },
       });
@@ -935,7 +998,7 @@ export class EmployeeService {
       template: 'activation-invite',
       context: {
         name: employee.firstName,
-        organizationName: employee.organization.name,
+        organizationName: employee.organization?.name || 'Aniston Technologies',
         link: activationUrl,
         expiresIn: '72 hours',
       },

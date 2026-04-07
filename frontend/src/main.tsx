@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './styles/globals.css';
+import './i18n'; // Initialize i18n before app renders
 
 // ===== PWA Native App Behaviors =====
 const isStandalone = window.matchMedia('(display-mode: standalone)').matches

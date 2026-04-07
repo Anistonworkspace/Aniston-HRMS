@@ -110,7 +110,27 @@ export class DocumentController {
         }
       }
 
-      res.json({ success: true, data: doc, message: `Document ${status.toLowerCase()}` });
+      // Auto-fill employee profile from OCR data when document is verified
+      let autoFilledFields: string[] = [];
+      if (status === 'VERIFIED' && doc.employeeId) {
+        try {
+          autoFilledFields = await documentService.autoFillFromOcr(
+            doc.id, doc.employeeId, req.user!.userId, req.user!.organizationId
+          );
+          if (autoFilledFields.length > 0) {
+            logger.info(`OCR auto-filled [${autoFilledFields.join(', ')}] for employee ${doc.employeeId} from document ${doc.id}`);
+          }
+        } catch (err) {
+          logger.warn('Failed to auto-fill from OCR:', err);
+        }
+      }
+
+      res.json({
+        success: true,
+        data: doc,
+        message: `Document ${status.toLowerCase()}`,
+        autoFilledFields,
+      });
     } catch (err) { next(err); }
   }
 

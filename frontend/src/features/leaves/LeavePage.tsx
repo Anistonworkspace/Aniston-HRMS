@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CalendarDays, Plus, X, Clock, CheckCircle, XCircle, AlertCircle,
@@ -34,6 +35,7 @@ const LEAVE_ICONS: Record<string, string> = {
 };
 
 export default function LeavePage() {
+  const { t } = useTranslation();
   const user = useAppSelector((state) => state.auth.user);
   const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const [view, setView] = useState<'management' | 'personal'>(isManagement ? 'management' : 'personal');
@@ -48,14 +50,14 @@ export default function LeavePage() {
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
             view === 'management' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}>
-          Leave Management
+          {t('leaves.title')}
         </button>
         <button
           onClick={() => setView('personal')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
             view === 'personal' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}>
-          My Leaves
+          {t('leaves.myLeaves')}
         </button>
       </div>
       {view === 'management' ? <LeaveManagementView /> : <LeavePersonalView />}
@@ -68,6 +70,7 @@ export default function LeavePage() {
    ============================================================================= */
 
 function LeaveManagementView() {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'regularizations'>('approvals');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -97,18 +100,18 @@ function LeaveManagementView() {
   const handleApprove = async (id: string) => {
     try {
       await handleAction({ id, action: 'APPROVED' }).unwrap();
-      toast.success('Leave approved');
+      toast.success(t('leaves.leaveApproved'));
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to approve');
+      toast.error(err?.data?.error?.message || t('leaves.failedToApprove'));
     }
   };
 
   const handleReject = async (id: string) => {
     try {
       await handleAction({ id, action: 'REJECTED' }).unwrap();
-      toast.success('Leave rejected');
+      toast.success(t('leaves.leaveRejected'));
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to reject');
+      toast.error(err?.data?.error?.message || t('leaves.failedToReject'));
     }
   };
 
@@ -116,9 +119,9 @@ function LeaveManagementView() {
     if (!confirm(`Delete leave type "${name}"? This cannot be undone.`)) return;
     try {
       await deleteLeaveType(id).unwrap();
-      toast.success('Leave type deleted');
+      toast.success(t('leaves.leaveTypeDeleted'));
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to delete leave type');
+      toast.error(err?.data?.error?.message || t('leaves.failedToDeleteType'));
     }
   };
 
@@ -139,8 +142,8 @@ function LeaveManagementView() {
     <div className="page-container">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">Leave Management</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Review and manage employee leave requests</p>
+          <h1 className="text-2xl font-display font-bold text-gray-900">{t('leaves.title')}</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{t('leaves.subtitle')}</p>
         </div>
       </div>
 
@@ -207,7 +210,7 @@ function LeaveManagementView() {
               : 'text-gray-500 hover:text-gray-700'
           )}
         >
-          Pending Approvals
+          {t('leaves.approvals')}
           {pendingCount > 0 && (
             <span className="ml-2 bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">
               {pendingCount}
@@ -224,7 +227,7 @@ function LeaveManagementView() {
               : 'text-gray-500 hover:text-gray-700'
           )}
         >
-          Leave Types
+          {t('leaves.types')}
         </button>
         <button
           role="tab" aria-selected={activeTab === 'holidays'}
@@ -236,7 +239,7 @@ function LeaveManagementView() {
               : 'text-gray-500 hover:text-gray-700'
           )}
         >
-          Holidays & Events
+          {t('leaves.holidays')}
           {holidays.length > 0 && (
             <span className="ml-2 bg-purple-100 text-purple-700 text-xs font-bold px-2 py-0.5 rounded-full">
               {holidays.length}
@@ -253,7 +256,7 @@ function LeaveManagementView() {
               : 'text-gray-500 hover:text-gray-700'
           )}
         >
-          Regularizations
+          {t('attendance.regularizations')}
         </button>
       </div>
 
@@ -364,7 +367,7 @@ function LeaveManagementView() {
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors"
                           >
                             <ThumbsUp size={14} />
-                            Approve
+                            {t('leaves.approve')}
                           </motion.button>
                           <motion.button
                             aria-label="Reject leave"
@@ -374,7 +377,7 @@ function LeaveManagementView() {
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
                           >
                             <ThumbsDown size={14} />
-                            Reject
+                            {t('leaves.reject')}
                           </motion.button>
                         </>
                       )}
@@ -389,7 +392,7 @@ function LeaveManagementView() {
           {(approvalsRes?.meta?.totalPages ?? 0) > 1 && (
             <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
               <p className="text-xs text-gray-500">
-                Showing {((page - 1) * 20) + 1}–{Math.min(page * 20, approvalsRes?.meta?.total || 0)} of {approvalsRes?.meta?.total || 0}
+                {t('common.showing')} {((page - 1) * 20) + 1}–{Math.min(page * 20, approvalsRes?.meta?.total || 0)} {t('common.of')} {approvalsRes?.meta?.total || 0}
               </p>
               <div className="flex items-center gap-2">
                 <button
@@ -397,7 +400,7 @@ function LeaveManagementView() {
                   disabled={!approvalsRes?.meta?.hasPrev}
                   className="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface-2 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
-                  Previous
+                  {t('common.previousPage')}
                 </button>
                 <span className="text-xs text-gray-500 font-mono" data-mono>
                   {page} / {approvalsRes?.meta?.totalPages || 1}
@@ -407,7 +410,7 @@ function LeaveManagementView() {
                   disabled={!approvalsRes?.meta?.hasNext}
                   className="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface-2 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
-                  Next
+                  {t('common.nextPage')}
                 </button>
               </div>
             </div>
@@ -429,7 +432,7 @@ function LeaveManagementView() {
               className="btn-primary flex items-center gap-2 text-sm"
             >
               <Plus size={16} />
-              Create Leave Type
+              {t('leaves.createLeaveType')}
             </motion.button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -547,6 +550,7 @@ function LeaveManagementView() {
    ============================================================================= */
 
 function HolidayManagementTab() {
+  const { t } = useTranslation();
   const { data: holidaysRes, refetch } = useGetHolidaysQuery({});
   const { data: suggestionsRes } = useGetHolidaySuggestionsQuery({});
   const [createHoliday, { isLoading: creating }] = useCreateHolidayMutation();
@@ -615,7 +619,7 @@ function HolidayManagementTab() {
       {/* Actions */}
       <div className="flex items-center gap-3 mb-4">
         <button onClick={() => setShowForm(true)} className="btn-primary text-sm flex items-center gap-2">
-          <Plus size={14} /> Create Holiday / Event
+          <Plus size={14} /> {t('leaves.addHoliday')}
         </button>
         <button onClick={() => setShowSuggestions(!showSuggestions)} className="btn-secondary text-sm flex items-center gap-2">
           <CalendarDays size={14} /> Indian Holidays ({suggestions.length})
@@ -735,7 +739,7 @@ function HolidayManagementTab() {
                   {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                   Create
                 </button>
-                <button onClick={resetForm} className="btn-secondary text-sm">Cancel</button>
+                <button onClick={resetForm} className="btn-secondary text-sm">{t('common.cancel')}</button>
               </div>
             </div>
           </motion.div>
@@ -755,10 +759,10 @@ function HolidayManagementTab() {
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/50">
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Holiday / Event</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Date</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Type</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{t('common.date')}</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">{t('common.type')}</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Duration</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Action</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">{t('common.action')}</th>
               </tr>
             </thead>
             <tbody>
@@ -785,7 +789,7 @@ function HolidayManagementTab() {
                       {h.isHalfDay ? `Half Day (${h.halfDaySession === 'FIRST_HALF' ? '1st' : '2nd'} half)` : h.startTime ? `${h.startTime} — ${h.endTime}` : 'Full Day'}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => handleDelete(h.id, h.name)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
+                      <button onClick={() => handleDelete(h.id, h.name)} className="text-xs text-red-500 hover:text-red-700">{t('common.delete')}</button>
                     </td>
                   </tr>
                 );
@@ -894,6 +898,7 @@ const LEAVE_TYPE_DEFAULTS = {
 };
 
 function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose: () => void }) {
+  const { t } = useTranslation();
   const isEditing = !!leaveType;
   const [formData, setFormData] = useState(() => {
     if (leaveType) {
@@ -975,7 +980,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
       >
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-display font-semibold text-gray-800">
-            {isEditing ? 'Edit Leave Type' : 'Create Leave Type'}
+            {isEditing ? t('common.edit') + ' ' + t('leaves.leaveType') : t('leaves.createLeaveType')}
           </h2>
           <button aria-label="Close" onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
             <X size={18} className="text-gray-400" />
@@ -1195,7 +1200,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">
-              Cancel
+              {t('common.cancel')}
             </button>
             <motion.button
               whileHover={{ scale: 1.01 }}
@@ -1205,7 +1210,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
               className="btn-primary flex-1 flex items-center justify-center gap-2"
             >
               {isLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-              {isEditing ? 'Update' : 'Create'}
+              {isEditing ? t('common.save') : t('common.submit')}
             </motion.button>
           </div>
         </form>
@@ -1219,6 +1224,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
    ============================================================================= */
 
 function LeavePersonalView() {
+  const { t } = useTranslation();
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [leavePage, setLeavePage] = useState(1);
   const [leaveStatusFilter, setLeaveStatusFilter] = useState<string>('');
@@ -1320,8 +1326,8 @@ function LeavePersonalView() {
 
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">Leave Management</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Track your leaves and apply for new ones</p>
+          <h1 className="text-2xl font-display font-bold text-gray-900">{t('leaves.title')}</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{t('leaves.subtitle')}</p>
         </div>
         <motion.button
           whileHover={{ scale: 1.02 }}
@@ -1330,7 +1336,7 @@ function LeavePersonalView() {
           className="btn-primary flex items-center gap-2"
         >
           <Plus size={18} />
-          Apply Leave
+          {t('leaves.applyLeave')}
         </motion.button>
       </div>
 
@@ -1394,12 +1400,12 @@ function LeavePersonalView() {
               onChange={(e) => { setLeaveStatusFilter(e.target.value); setLeavePage(1); }}
               className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-300 bg-white"
             >
-              <option value="">All Status</option>
-              <option value="PENDING">Pending</option>
+              <option value="">{t('common.all')} {t('common.status')}</option>
+              <option value="PENDING">{t('leaves.pending')}</option>
               <option value="DRAFT">Draft</option>
               <option value="MANAGER_APPROVED">Manager Approved</option>
-              <option value="APPROVED">Approved</option>
-              <option value="REJECTED">Rejected</option>
+              <option value="APPROVED">{t('leaves.approved')}</option>
+              <option value="REJECTED">{t('leaves.rejected')}</option>
               <option value="CANCELLED">Cancelled</option>
             </select>
           </div>
@@ -1433,7 +1439,7 @@ function LeavePersonalView() {
                       disabled={!leavesRes?.meta?.hasPrev}
                       className="px-2.5 py-1 text-xs rounded-lg bg-surface-2 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Prev
+                      {t('common.previousPage')}
                     </button>
                     <span className="text-xs text-gray-500 font-mono" data-mono>{leavePage}/{leavesRes?.meta?.totalPages || 1}</span>
                     <button
@@ -1441,7 +1447,7 @@ function LeavePersonalView() {
                       disabled={!leavesRes?.meta?.hasNext}
                       className="px-2.5 py-1 text-xs rounded-lg bg-surface-2 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Next
+                      {t('common.nextPage')}
                     </button>
                   </div>
                 </div>
@@ -1493,22 +1499,25 @@ function LeavePersonalView() {
 }
 
 function LeaveRequestCard({ leave }: { leave: any }) {
+  const { t } = useTranslation();
   const [cancelLeave] = useCancelLeaveMutation();
 
   const handleCancel = async () => {
-    if (!window.confirm('Are you sure you want to cancel this leave request?')) return;
+    if (!window.confirm(t('common.areYouSure'))) return;
     try {
       await cancelLeave(leave.id).unwrap();
       toast.success('Leave cancelled');
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to cancel');
+      toast.error(err?.data?.error?.message || t('common.failed'));
     }
   };
 
   const statusIcon: Record<string, React.ReactNode> = {
+    DRAFT: <Clock size={16} className="text-gray-400" />,
     PENDING: <Clock size={16} className="text-amber-500" />,
     MANAGER_APPROVED: <CheckCircle size={16} className="text-blue-500" />,
     APPROVED: <CheckCircle size={16} className="text-emerald-500" />,
+    APPROVED_WITH_CONDITION: <CheckCircle size={16} className="text-amber-500" />,
     REJECTED: <XCircle size={16} className="text-red-500" />,
     CANCELLED: <AlertCircle size={16} className="text-gray-400" />,
   };
@@ -1535,14 +1544,16 @@ function LeaveRequestCard({ leave }: { leave: any }) {
       </div>
       <div className="flex items-center gap-2">
         <span className={`badge ${getStatusColor(leave.status)} text-xs`}>
-          {leave.status === 'MANAGER_APPROVED' ? 'Manager Approved' : leave.status}
+          {leave.status === 'MANAGER_APPROVED' ? 'Manager Approved'
+            : leave.status === 'APPROVED_WITH_CONDITION' ? 'Approved (Conditional)'
+            : leave.status}
         </span>
         {(leave.status === 'PENDING' || leave.status === 'DRAFT') && (
           <button
             onClick={handleCancel}
             className="text-xs text-red-400 hover:text-red-600 transition-colors"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         )}
       </div>

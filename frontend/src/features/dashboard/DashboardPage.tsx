@@ -14,6 +14,7 @@ import { formatDate } from '../../lib/utils';
 import { RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 import { SkeletonLoader, QuickActionGrid } from './components';
 import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 // Lazy-load role-specific dashboards
 const SuperAdminDashboard = lazy(() => import('./SuperAdminDashboard'));
@@ -28,13 +29,6 @@ const item = {
   hidden: { opacity: 0, y: 16 },
   show: { opacity: 1, y: 0 },
 };
-
-const EMP_QUICK_ACTIONS = [
-  { label: 'Attendance', icon: '⏰', path: '/attendance' },
-  { label: 'Apply Leave', icon: '🏖️', path: '/leaves' },
-  { label: 'View Payslip', icon: '💰', path: '/payroll' },
-  { label: 'Raise Ticket', icon: '🎫', path: '/helpdesk' },
-];
 
 const STATUS_CONFIG: Record<string, { bg: string; text: string; icon: LucideIcon }> = {
   PRESENT: { bg: 'bg-emerald-50', text: 'text-emerald-700', icon: CheckCircle2 },
@@ -72,6 +66,7 @@ export default function DashboardPage() {
 
 // ─── LEAVE BALANCE WIDGET ──────────────────────────────────────
 const LeaveBalanceWidget = memo(function LeaveBalanceWidget() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const user = useAppSelector(s => s.auth.user);
   const { data: balRes, isLoading } = useGetLeaveBalancesQuery(undefined, { skip: !user?.employeeId });
@@ -80,7 +75,7 @@ const LeaveBalanceWidget = memo(function LeaveBalanceWidget() {
   if (isLoading) {
     return (
       <div className="layer-card p-4">
-        <h3 className="text-sm font-semibold text-gray-600 mb-3">Leave Balance</h3>
+        <h3 className="text-sm font-semibold text-gray-600 mb-3">{t('dashboard.leaveBalance')}</h3>
         <div className="grid grid-cols-3 gap-2">
           {[1,2,3].map(i => <div key={i} className="h-16 bg-gray-100 rounded-lg animate-pulse" />)}
         </div>
@@ -93,9 +88,9 @@ const LeaveBalanceWidget = memo(function LeaveBalanceWidget() {
   return (
     <div className="layer-card p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-600">Leave Balance</h3>
+        <h3 className="text-sm font-semibold text-gray-600">{t('dashboard.leaveBalance')}</h3>
         <button onClick={() => navigate('/leaves')} className="text-xs text-brand-600 hover:text-brand-700">
-          Apply Leave →
+          {t('dashboard.applyLeave')}
         </button>
       </div>
       <div className="grid grid-cols-3 gap-2">
@@ -115,7 +110,9 @@ const LeaveBalanceWidget = memo(function LeaveBalanceWidget() {
 
 // ─── UPCOMING HOLIDAYS WIDGET ──────────────────────────────────
 const UpcomingHolidaysWidget = memo(function UpcomingHolidaysWidget() {
+  const { t, i18n } = useTranslation();
   const { data: holRes } = useGetHolidaysQuery({});
+  const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const holidays = useMemo(() =>
     (holRes?.data || [])
       .filter((h: { date: string }) => new Date(h.date) >= new Date())
@@ -128,13 +125,13 @@ const UpcomingHolidaysWidget = memo(function UpcomingHolidaysWidget() {
 
   return (
     <div className="layer-card p-4">
-      <h3 className="text-sm font-semibold text-gray-600 mb-3">Upcoming Holidays</h3>
+      <h3 className="text-sm font-semibold text-gray-600 mb-3">{t('dashboard.upcomingHolidays')}</h3>
       <div className="space-y-2">
         {holidays.map((h: { id: string; name: string; date: string }) => (
           <div key={h.id} className="flex items-center justify-between text-sm">
             <span className="text-gray-700">{h.name}</span>
             <span className="text-xs text-gray-400 font-mono" data-mono>
-              {new Date(h.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', weekday: 'short' })}
+              {new Date(h.date).toLocaleDateString(locale, { day: 'numeric', month: 'short', weekday: 'short' })}
             </span>
           </div>
         ))}
@@ -154,6 +151,8 @@ interface AttendanceRecord {
 }
 
 const AttendanceRow = memo(function AttendanceRow({ record }: { record: AttendanceRecord }) {
+  const { i18n } = useTranslation();
+  const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const cfg = STATUS_CONFIG[record.status] || STATUS_CONFIG.ABSENT;
   const StatusIcon = cfg.icon;
 
@@ -163,14 +162,14 @@ const AttendanceRow = memo(function AttendanceRow({ record }: { record: Attendan
         <StatusIcon size={14} className={cfg.text} />
         <div>
           <p className="text-xs font-medium text-gray-700">
-            {new Date(record.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}
+            {new Date(record.date).toLocaleDateString(locale, { weekday: 'short', day: '2-digit', month: 'short' })}
           </p>
           <p className="text-[10px] text-gray-400">
             {record.checkIn
-              ? new Date(record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
+              ? new Date(record.checkIn).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
               : '—'}
             {record.checkOut
-              ? ` → ${new Date(record.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`
+              ? ` → ${new Date(record.checkOut).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`
               : ''}
           </p>
         </div>
@@ -191,6 +190,8 @@ const AttendanceRow = memo(function AttendanceRow({ record }: { record: Attendan
 
 // ─── EMPLOYEE DASHBOARD ────────────────────────────────────────
 function EmployeeDashboard() {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const navigate = useNavigate();
   const user = useAppSelector((state) => state.auth.user);
   const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
@@ -250,23 +251,31 @@ function EmployeeDashboard() {
         } catch { /* proceed without */ }
       }
       setGettingGps(false);
+      const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' as const : 'desktop' as const;
       if (todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut) {
-        await clockOut(coords).unwrap();
-        toast.success('Checked out successfully!');
+        await clockOut({ ...coords, deviceType }).unwrap();
+        toast.success(t('dashboard.checkedOut'));
       } else {
-        await clockIn({ ...coords, source: 'MANUAL_APP' }).unwrap();
-        toast.success(todayStatus?.isCheckedOut ? 'Re-checked in successfully!' : 'Checked in successfully!');
+        await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
+        toast.success(todayStatus?.isCheckedOut ? t('dashboard.reCheckedIn') : t('dashboard.checkedIn'));
       }
     } catch (err: any) {
       setGettingGps(false);
-      toast.error(err?.data?.error?.message || 'Failed');
+      toast.error(err?.data?.error?.message || t('dashboard.failedToClock'));
     }
-  }, [gettingGps, clockingIn, clockingOut, todayStatus, clockIn, clockOut]);
+  }, [gettingGps, clockingIn, clockingOut, todayStatus, clockIn, clockOut, t]);
 
   const isCheckingInOut = gettingGps || clockingIn || clockingOut;
 
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+  const greeting = hour < 12 ? t('dashboard.goodMorning') : hour < 17 ? t('dashboard.goodAfternoon') : t('dashboard.goodEvening');
+
+  const EMP_QUICK_ACTIONS = [
+    { label: t('dashboard.attendanceAction'), icon: '⏰', path: '/attendance' },
+    { label: t('dashboard.applyLeaveAction'), icon: '🏖️', path: '/leaves' },
+    { label: t('dashboard.viewPayslip'), icon: '💰', path: '/payroll' },
+    { label: t('dashboard.raiseTicket'), icon: '🎫', path: '/helpdesk' },
+  ];
 
   const expectedHours = useMemo(() => {
     if (todayStatus?.shift?.startTime && todayStatus?.shift?.endTime) {
@@ -291,7 +300,7 @@ function EmployeeDashboard() {
     setSelectedMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + dir, 1));
   }, []);
 
-  const monthLabel = selectedMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  const monthLabel = selectedMonth.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
   const isCurrentMonth = selectedMonth.getMonth() === new Date().getMonth() && selectedMonth.getFullYear() === new Date().getFullYear();
 
   if (isLoading && !stats) {
@@ -325,7 +334,7 @@ function EmployeeDashboard() {
     return (
       <div className="page-container">
         <div className="layer-card p-8 text-center">
-          <p className="text-red-500">Failed to load dashboard data. Please refresh the page.</p>
+          <p className="text-red-500">{t('dashboard.failedToLoad')}</p>
         </div>
       </div>
     );
@@ -338,7 +347,7 @@ function EmployeeDashboard() {
         <h1 className="text-2xl md:text-3xl font-display font-bold text-gray-900">
           {greeting}, {user?.firstName || 'there'}
         </h1>
-        <p className="text-gray-500 mt-1">Manage your attendance, leaves & more</p>
+        <p className="text-gray-500 mt-1">{t('dashboard.manageDesc')}</p>
       </motion.div>
 
       {/* Today's Hours Circular Chart — only for non-management */}
@@ -363,40 +372,40 @@ function EmployeeDashboard() {
                     ? `${completedHours.toFixed(1)}h`
                     : '0h 0m'}
                 </p>
-                <p className="text-xs text-gray-400">of {expectedHours}h</p>
+                <p className="text-xs text-gray-400">{t('common.of')} {expectedHours}h</p>
               </div>
             </div>
 
             <div className="flex-1 space-y-3">
-              <h2 className="text-lg font-display font-semibold text-gray-800">Today&apos;s Progress</h2>
+              <h2 className="text-lg font-display font-semibold text-gray-800">{t('dashboard.todaysProgress')}</h2>
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 bg-surface-2 rounded-xl">
-                  <p className="text-xs text-gray-400 mb-1">Status</p>
+                  <p className="text-xs text-gray-400 mb-1">{t('dashboard.statusLabel')}</p>
                   <p className="text-sm font-semibold text-gray-700">
-                    {todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut ? 'Working'
-                      : todayStatus?.isCheckedOut ? 'Completed' : 'Not Started'}
+                    {todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut ? t('dashboard.working')
+                      : todayStatus?.isCheckedOut ? t('dashboard.completed') : t('dashboard.notStarted')}
                   </p>
                 </div>
                 <div className="p-3 bg-surface-2 rounded-xl">
-                  <p className="text-xs text-gray-400 mb-1">Check In</p>
+                  <p className="text-xs text-gray-400 mb-1">{t('dashboard.checkIn')}</p>
                   <p className="text-sm font-semibold text-gray-700" data-mono>
                     {todayStatus?.record?.checkIn
-                      ? new Date(todayStatus.record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
+                      ? new Date(todayStatus.record.checkIn).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
                       : '—'}
                   </p>
                 </div>
                 <div className="p-3 bg-surface-2 rounded-xl">
-                  <p className="text-xs text-gray-400 mb-1">Check Out</p>
+                  <p className="text-xs text-gray-400 mb-1">{t('dashboard.checkOut')}</p>
                   <p className="text-sm font-semibold text-gray-700" data-mono>
                     {todayStatus?.record?.checkOut
-                      ? new Date(todayStatus.record.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
+                      ? new Date(todayStatus.record.checkOut).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
                       : '—'}
                   </p>
                 </div>
                 <div className="p-3 bg-surface-2 rounded-xl">
-                  <p className="text-xs text-gray-400 mb-1">Shift</p>
+                  <p className="text-xs text-gray-400 mb-1">{t('dashboard.shift')}</p>
                   <p className="text-sm font-semibold text-gray-700">
-                    {todayStatus?.shift ? `${todayStatus.shift.startTime}–${todayStatus.shift.endTime}` : 'Default'}
+                    {todayStatus?.shift ? `${todayStatus.shift.startTime}–${todayStatus.shift.endTime}` : t('dashboard.default')}
                   </p>
                 </div>
               </div>
@@ -411,21 +420,21 @@ function EmployeeDashboard() {
         <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
           <h2 className="text-lg font-display font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <Clock size={18} className="text-brand-500" />
-            Quick Actions
+            {t('dashboard.quickActions')}
           </h2>
           {!isManagement && todayStatus && (
             <div className="mb-4 p-4 bg-surface-2 rounded-xl flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-700">
                   {todayStatus.isCheckedIn && !todayStatus.isCheckedOut && todayStatus.record?.checkIn
-                    ? `Checked in at ${new Date(todayStatus.record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`
+                    ? t('dashboard.checkedInAt', { time: new Date(todayStatus.record.checkIn).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) })
                     : todayStatus.isCheckedOut
-                    ? `Done for today (${Number(todayStatus.totalHours || 0).toFixed(1)}h)`
-                    : 'Not checked in yet'}
+                    ? t('dashboard.doneForToday', { hours: Number(todayStatus.totalHours || 0).toFixed(1) })
+                    : t('dashboard.notCheckedInYet')}
                 </p>
                 <p className="text-xs text-gray-400 flex items-center gap-1">
                   <MapPin size={10} />
-                  {todayStatus.shift ? `${todayStatus.shift.name || 'Shift'} (${todayStatus.shift.startTime}–${todayStatus.shift.endTime})` : 'GPS-based attendance'}
+                  {todayStatus.shift ? `${todayStatus.shift.name || t('dashboard.shift')} (${todayStatus.shift.startTime}–${todayStatus.shift.endTime})` : t('dashboard.gpsAttendance')}
                 </p>
               </div>
               {canCheckIn ? (
@@ -441,12 +450,12 @@ function EmployeeDashboard() {
                 >
                   {isCheckingInOut ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
                   {isCheckingInOut
-                    ? (gettingGps ? 'Getting GPS...' : 'Marking...')
-                    : todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'Check Out'
-                    : todayStatus.isCheckedOut ? 'Re-Check In' : 'Check In'}
+                    ? (gettingGps ? t('dashboard.gettingGps') : t('dashboard.marking'))
+                    : todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? t('dashboard.checkOut')
+                    : todayStatus.isCheckedOut ? t('dashboard.reCheckIn') : t('dashboard.checkIn')}
                 </button>
               ) : (
-                <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg">Mobile only</span>
+                <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg">{t('common.mobileOnly')}</span>
               )}
             </div>
           )}
@@ -456,13 +465,13 @@ function EmployeeDashboard() {
         {/* Monthly Attendance History */}
         <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-display font-semibold text-gray-800">Attendance History</h2>
+            <h2 className="text-lg font-display font-semibold text-gray-800">{t('dashboard.attendanceHistory')}</h2>
             <div className="flex items-center gap-2">
-              <button onClick={() => navigateMonth(-1)} aria-label="Previous month" className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+              <button onClick={() => navigateMonth(-1)} aria-label={t('common.previousPage')} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
                 <ChevronLeft size={16} className="text-gray-500" />
               </button>
               <span className="text-sm font-medium text-gray-700 min-w-[140px] text-center">{monthLabel}</span>
-              <button onClick={() => navigateMonth(1)} aria-label="Next month" className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" disabled={isCurrentMonth}>
+              <button onClick={() => navigateMonth(1)} aria-label={t('common.nextPage')} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" disabled={isCurrentMonth}>
                 <ChevronRight size={16} className={isCurrentMonth ? 'text-gray-200' : 'text-gray-500'} />
               </button>
             </div>
@@ -471,10 +480,10 @@ function EmployeeDashboard() {
           {myAttendance?.summary && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
               {[
-                { label: 'Present', value: myAttendance.summary.present, bg: 'bg-emerald-50', text: 'text-emerald-700', sub: 'text-emerald-600' },
-                { label: 'Absent', value: myAttendance.summary.absent, bg: 'bg-red-50', text: 'text-red-700', sub: 'text-red-600' },
-                { label: 'Half Day', value: myAttendance.summary.halfDay, bg: 'bg-amber-50', text: 'text-amber-700', sub: 'text-amber-600' },
-                { label: 'On Leave', value: myAttendance.summary.onLeave, bg: 'bg-purple-50', text: 'text-purple-700', sub: 'text-purple-600' },
+                { label: t('dashboard.present'), value: myAttendance.summary.present, bg: 'bg-emerald-50', text: 'text-emerald-700', sub: 'text-emerald-600' },
+                { label: t('dashboard.absent'), value: myAttendance.summary.absent, bg: 'bg-red-50', text: 'text-red-700', sub: 'text-red-600' },
+                { label: t('dashboard.halfDay'), value: myAttendance.summary.halfDay, bg: 'bg-amber-50', text: 'text-amber-700', sub: 'text-amber-600' },
+                { label: t('dashboard.onLeave'), value: myAttendance.summary.onLeave, bg: 'bg-purple-50', text: 'text-purple-700', sub: 'text-purple-600' },
               ].map((s) => (
                 <div key={s.label} className={`p-2.5 ${s.bg} rounded-lg text-center`}>
                   <p className={`text-lg font-bold ${s.text} font-mono`} data-mono>{s.value}</p>
@@ -490,13 +499,13 @@ function EmployeeDashboard() {
                 <AttendanceRow key={record.id || record.date} record={record} />
               ))
             ) : (
-              <p className="text-sm text-gray-400 text-center py-8">No records for this month</p>
+              <p className="text-sm text-gray-400 text-center py-8">{t('dashboard.noRecords')}</p>
             )}
           </div>
 
           {myAttendance?.summary && (
             <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-              <p className="text-xs text-gray-400">Average daily hours</p>
+              <p className="text-xs text-gray-400">{t('dashboard.avgDailyHours')}</p>
               <p className="text-sm font-semibold text-gray-700 font-mono" data-mono>
                 {Number(myAttendance.summary.averageHours || 0).toFixed(1)}h
               </p>

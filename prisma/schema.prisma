@@ -26,6 +26,7 @@ model Organization {
   address   Json?
   settings  Json?
   adminNotificationEmail String?
+  payrollEmail           String?  // Accounts department email for payroll reports
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -104,6 +105,11 @@ model Employee {
   avatar           String?
   address          Json?
   emergencyContact Json?
+  fatherName       String?
+
+  // KYC extracted (auto-filled from verified documents)
+  panNumber        String?          // From verified PAN document OCR
+  aadhaarEncrypted String?          // AES-256-GCM encrypted, from verified Aadhaar OCR
 
   // Employment
   departmentId     String?
@@ -1400,6 +1406,12 @@ enum WaMessageStatus {
   DELIVERED
   READ
   FAILED
+  RECEIVED
+}
+
+enum WaMessageDirection {
+  OUTBOUND
+  INBOUND
 }
 
 model WhatsAppSession {
@@ -1412,24 +1424,35 @@ model WhatsAppSession {
   organizationId String
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+
+  @@index([organizationId])
 }
 
 model WhatsAppMessage {
-  id             String          @id @default(uuid())
-  sessionId      String
-  to             String
-  message        String
-  templateType   WaTemplateType?
-  referenceId    String?
-  referenceType  String?
-  status         WaMessageStatus @default(PENDING)
-  sentAt         DateTime?
-  deliveredAt    DateTime?
-  error          String?
-  organizationId String
-  createdAt      DateTime        @default(now())
+  id                String              @id @default(uuid())
+  externalMessageId String?
+  sessionId         String
+  direction         WaMessageDirection  @default(OUTBOUND)
+  fromNumber        String?
+  to                String
+  message           String
+  templateType      WaTemplateType?
+  referenceId       String?
+  referenceType     String?
+  status            WaMessageStatus     @default(PENDING)
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  error             String?
+  mediaUrl          String?
+  mediaMimetype     String?
+  organizationId    String
+  createdAt         DateTime            @default(now())
 
+  @@unique([organizationId, externalMessageId])
   @@index([organizationId, createdAt])
+  @@index([organizationId, to])
+  @@index([organizationId, fromNumber])
 }
 
 // =====================
@@ -2010,10 +2033,11 @@ model ActivityLog {
   organizationId  String
   createdAt       DateTime @default(now())
 
-  employee Employee @relation(fields: [employeeId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@index([employeeId, date])
   @@index([organizationId, date])
+  @@index([organizationId, employeeId, date])
 }
 
 model AgentScreenshot {
@@ -2027,9 +2051,11 @@ model AgentScreenshot {
   organizationId String
   createdAt      DateTime @default(now())
 
-  employee Employee @relation(fields: [employeeId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@index([employeeId, date])
+  @@index([organizationId, date])
+  @@index([organizationId, employeeId, date])
 }
 
 // =====================
@@ -2087,6 +2113,8 @@ model EmployeeInvitation {
   sendWelcomeEmail  Boolean          @default(true)
   inviteToken       String           @unique @default(uuid())
   status            InvitationStatus @default(PENDING)
+  emailStatus       String?          // SENT, FAILED, NOT_SENT
+  whatsappStatus    String?          // SENT, FAILED, NOT_SENT
   invitedBy         String           // userId FK
   expiresAt         DateTime
   acceptedAt        DateTime?
@@ -2143,8 +2171,17 @@ model PublicApplication {
   candidateName     String
   email             String?
   mobileNumber      String?
+  city              String?
+  experience        String?         // e.g. "Fresher", "1-2", "2-5", "5-10", "10+"
+  currentDesignation String?
+  preferredLocation String?
+  willingToRelocate String?         // "yes", "no", "maybe"
+  currentCTC        String?         // free-text e.g. "5 LPA"
+  expectedCTC       String?
+  noticePeriod      String?         // e.g. "Immediate", "15 days", "1 month", "2 months", "3 months"
   resumeUrl         String?
   resumeScoreData   Json?
+  resumeMatchScore  Float?          // 0-100 resume-to-JD match from OCR analysis
   mcqAnswers        Json?           // [{questionId, selectedOption}]
   mcqScore          Float?
   intelligenceScore Float?
@@ -2160,6 +2197,7 @@ model PublicApplication {
   finalizedBy       String?
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
+  deletedAt         DateTime?
 
   jobOpening JobOpening @relation(fields: [jobOpeningId], references: [id])
   interviewRounds InterviewRound[]

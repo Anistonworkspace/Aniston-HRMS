@@ -251,10 +251,10 @@ function AttendanceTable({ records, isLoading, meta, page, onPageChange, sortBy,
                         <div className="absolute right-0 top-full mt-0.5 bg-white rounded-lg border border-gray-200 shadow-lg z-30 min-w-[180px] py-1">
                           {[
                             { icon: Eye, label: 'View Day Detail', onClick: () => r.employeeId && navigate(`/attendance/employee/${r.employeeId}`) },
-                            { icon: PenSquare, label: 'Regularize', onClick: () => {} },
-                            { icon: CheckSquare, label: 'Approve Correction', onClick: () => {} },
-                            { icon: MapPin, label: 'View Map', onClick: () => {} },
-                            { icon: ClipboardList, label: 'Audit History', onClick: () => {} },
+                            { icon: PenSquare, label: 'Regularize', onClick: () => r.employeeId && navigate(`/attendance/employee/${r.employeeId}?action=regularize`) },
+                            { icon: CheckSquare, label: 'Mark Attendance', onClick: () => r.employeeId && navigate(`/attendance/employee/${r.employeeId}?action=mark`) },
+                            { icon: MapPin, label: 'View Location', onClick: () => r.employeeId && navigate(`/attendance/employee/${r.employeeId}?tab=map`) },
+                            { icon: ClipboardList, label: 'Activity Logs', onClick: () => r.employeeId && navigate(`/attendance/employee/${r.employeeId}?tab=logs`) },
                           ].map(a => (
                             <button
                               key={a.label}

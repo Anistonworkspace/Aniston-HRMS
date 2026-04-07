@@ -89,13 +89,28 @@ export const attendanceApi = api.injectEndpoints({
       providesTags: ['Attendance'],
     }),
 
-    clockIn: builder.mutation<any, { latitude?: number; longitude?: number; source?: string; siteName?: string; notes?: string; deviceType?: 'mobile' | 'desktop' }>({
-      query: (body) => ({ url: '/attendance/clock-in', method: 'POST', body }),
+    clockIn: builder.mutation<any, { latitude?: number; longitude?: number; source?: string; siteName?: string; notes?: string; deviceType?: 'mobile' | 'desktop'; isPwa?: boolean }>({
+      query: (body) => ({
+        url: '/attendance/clock-in',
+        method: 'POST',
+        body: {
+          ...body,
+          // Auto-detect PWA standalone mode for mobile attendance validation
+          isPwa: body.isPwa ?? (window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true),
+        },
+      }),
       invalidatesTags: ['Attendance', 'Dashboard'],
     }),
 
-    clockOut: builder.mutation<any, { latitude?: number; longitude?: number; deviceType?: 'mobile' | 'desktop' }>({
-      query: (body) => ({ url: '/attendance/clock-out', method: 'POST', body }),
+    clockOut: builder.mutation<any, { latitude?: number; longitude?: number; deviceType?: 'mobile' | 'desktop'; isPwa?: boolean }>({
+      query: (body) => ({
+        url: '/attendance/clock-out',
+        method: 'POST',
+        body: {
+          ...body,
+          isPwa: body.isPwa ?? (window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true),
+        },
+      }),
       invalidatesTags: ['Attendance', 'Dashboard'],
     }),
 

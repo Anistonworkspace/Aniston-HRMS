@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
@@ -38,6 +39,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function AttendancePage() {
+  const { t } = useTranslation();
   const user = useAppSelector((state) => state.auth.user);
   const role = user?.role || '';
   const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(role);
@@ -52,11 +54,11 @@ export default function AttendancePage() {
         <button onClick={() => setView('team')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
             view === 'team' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}>Team Attendance</button>
+          }`}>{t('attendance.teamAttendance')}</button>
         <button onClick={() => setView('personal')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
             view === 'personal' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}>My Attendance</button>
+          }`}>{t('attendance.myAttendance')}</button>
       </div>
       {view === 'team' ? <CommandCenter /> : <AttendancePersonalView />}
     </>
@@ -68,6 +70,8 @@ export default function AttendancePage() {
    ============================================================================= */
 
 function AttendanceManagementView() {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -127,15 +131,15 @@ function AttendanceManagementView() {
 
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return '--';
-    return new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+    return new Date(dateStr).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
   };
 
   return (
     <div className="page-container">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">Attendance Management</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Monitor and manage employee attendance</p>
+          <h1 className="text-2xl font-display font-bold text-gray-900">{t('attendance.title')}</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{t('attendance.subtitle')}</p>
         </div>
         <button
           onClick={() => {
@@ -147,7 +151,7 @@ function AttendanceManagementView() {
           }}
           className="btn-primary text-sm flex items-center gap-1.5"
         >
-          <Download size={14} /> Export Excel
+          <Download size={14} /> {t('common.exportExcel')}
         </button>
       </div>
 
@@ -164,7 +168,7 @@ function AttendanceManagementView() {
             </div>
             <div>
               <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{summary.totalEmployees}</p>
-              <p className="text-xs text-gray-400">Total Employees</p>
+              <p className="text-xs text-gray-400">{t('attendance.totalEmployees')}</p>
             </div>
           </div>
         </motion.div>
@@ -180,7 +184,7 @@ function AttendanceManagementView() {
             </div>
             <div>
               <p className="text-2xl font-bold font-mono text-emerald-600" data-mono>{summary.present}</p>
-              <p className="text-xs text-gray-400">Present</p>
+              <p className="text-xs text-gray-400">{t('attendance.present')}</p>
             </div>
           </div>
         </motion.div>
@@ -196,7 +200,7 @@ function AttendanceManagementView() {
             </div>
             <div>
               <p className="text-2xl font-bold font-mono text-red-500" data-mono>{summary.absent}</p>
-              <p className="text-xs text-gray-400">Absent</p>
+              <p className="text-xs text-gray-400">{t('attendance.absent')}</p>
             </div>
           </div>
         </motion.div>
@@ -212,7 +216,7 @@ function AttendanceManagementView() {
             </div>
             <div>
               <p className="text-2xl font-bold font-mono text-purple-500" data-mono>{summary.onLeave}</p>
-              <p className="text-xs text-gray-400">On Leave</p>
+              <p className="text-xs text-gray-400">{t('attendance.onLeave')}</p>
             </div>
           </div>
         </motion.div>
@@ -242,7 +246,7 @@ function AttendanceManagementView() {
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by employee name or code..."
+              placeholder={t('common.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="input-glass w-full pl-9 text-sm"
@@ -257,13 +261,13 @@ function AttendanceManagementView() {
               onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
               className="input-glass text-sm"
             >
-              <option value="ALL">All Status</option>
-              <option value="PRESENT">Present</option>
-              <option value="ABSENT">Absent</option>
-              <option value="HALF_DAY">Half Day</option>
-              <option value="ON_LEAVE">On Leave</option>
-              <option value="WORK_FROM_HOME">WFH</option>
-              <option value="NOT_CHECKED_IN">Not Checked In</option>
+              <option value="ALL">{t('attendance.allStatus')}</option>
+              <option value="PRESENT">{t('attendance.present')}</option>
+              <option value="ABSENT">{t('attendance.absent')}</option>
+              <option value="HALF_DAY">{t('attendance.halfDay')}</option>
+              <option value="ON_LEAVE">{t('attendance.onLeave')}</option>
+              <option value="WORK_FROM_HOME">{t('attendance.wfh')}</option>
+              <option value="NOT_CHECKED_IN">{t('attendance.notCheckedIn')}</option>
             </select>
           </div>
         </div>
@@ -280,13 +284,13 @@ function AttendanceManagementView() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Employee</th>
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Check In</th>
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Check Out</th>
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Total Hours</th>
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Status</th>
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Work Mode</th>
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Activity</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">{t('common.employee')}</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">{t('attendance.checkIn')}</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">{t('attendance.checkOut')}</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">{t('attendance.totalHours')}</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">{t('common.status')}</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">{t('attendance.workMode')}</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">{t('attendance.activity')}</th>
               </tr>
             </thead>
             <tbody>
@@ -308,7 +312,7 @@ function AttendanceManagementView() {
                 <tr>
                   <td colSpan={7} className="text-center py-12">
                     <Users size={40} className="mx-auto text-gray-200 mb-3" />
-                    <p className="text-sm text-gray-400">No attendance records found for this date</p>
+                    <p className="text-sm text-gray-400">{t('attendance.noRecords')}</p>
                   </td>
                 </tr>
               ) : (
@@ -361,9 +365,9 @@ function AttendanceManagementView() {
                       <button
                         onClick={(e) => { e.stopPropagation(); record.employeeId && navigate(`/attendance/employee/${record.employeeId}`); }}
                         className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg transition-colors font-medium"
-                        aria-label="View activity details, screenshots & GPS trail"
+                        aria-label={t('attendance.viewActivity')}
                       >
-                        <Monitor size={12} /> Activity
+                        <Monitor size={12} /> {t('attendance.activity')}
                       </button>
                     </td>
                   </tr>
@@ -383,7 +387,7 @@ function AttendanceManagementView() {
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                aria-label="Previous page"
+                aria-label={t('common.previousPage')}
                 className="p-1.5 rounded-lg hover:bg-surface-2 transition-colors disabled:opacity-40"
               >
                 <ChevronLeft size={16} />
@@ -391,7 +395,7 @@ function AttendanceManagementView() {
               <button
                 onClick={() => setPage((p) => p + 1)}
                 disabled={page >= (meta.totalPages || 1)}
-                aria-label="Next page"
+                aria-label={t('common.nextPage')}
                 className="p-1.5 rounded-lg hover:bg-surface-2 transition-colors disabled:opacity-40"
               >
                 <ChevronRight size={16} />
@@ -409,6 +413,8 @@ function AttendanceManagementView() {
    ============================================================================= */
 
 function AttendancePersonalView() {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [liveTime, setLiveTime] = useState(new Date());
   const [locationStatus, setLocationStatus] = useState<'checking' | 'granted' | 'denied' | 'prompt'>('checking');
@@ -515,15 +521,23 @@ function AttendancePersonalView() {
   const getGPS = async () => {
     if (!navigator.geolocation) return {};
     try {
+      // iOS Safari needs longer timeout (permission prompt delays response)
+      // 30s timeout covers: iOS permission prompt + cold GPS fix on weak signal
       const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 30000,
+          timeout: 30000,
+          maximumAge: 60000,
         })
       );
       return { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
-    } catch {
+    } catch (err: any) {
+      // Differentiate error types for better UX
+      if (err?.code === 1) {
+        toast.error(t('attendance.locationDenied'));
+      } else if (err?.code === 3) {
+        toast.error(t('attendance.locationTimeout'));
+      }
       return {};
     }
   };
@@ -535,15 +549,15 @@ function AttendancePersonalView() {
       const coords = await getGPS();
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
-      toast.success('Checked in!');
+      toast.success(t('attendance.checkedIn'));
     } catch (err: any) {
       if (!navigator.onLine) {
         const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
         enqueueAction('CLOCK_IN', { source: 'MANUAL_APP', deviceType });
-        toast('Check-in queued \u2014 will sync when online', { icon: '\uD83D\uDCE1' });
+        toast(t('attendance.checkinQueued'), { icon: '📡' });
         return;
       }
-      toast.error(err?.data?.error?.message || 'Failed to clock in');
+      toast.error(err?.data?.error?.message || t('attendance.failedClockIn'));
     } finally {
       setTimeout(() => { actionLockRef.current = false; }, 2000); // 2s cooldown
     }
@@ -556,31 +570,35 @@ function AttendancePersonalView() {
       const coords = await getGPS();
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockOut({ ...coords, deviceType }).unwrap();
-      toast.success('Checked out!');
+      toast.success(t('attendance.checkedOut'));
     } catch (err: any) {
       if (!navigator.onLine) {
         const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
         enqueueAction('CLOCK_OUT', { deviceType });
-        toast('Check-out queued \u2014 will sync when online', { icon: '\uD83D\uDCE1' });
+        toast(t('attendance.checkoutQueued'), { icon: '📡' });
         return;
       }
-      toast.error(err?.data?.error?.message || 'Failed to clock out');
+      toast.error(err?.data?.error?.message || t('attendance.failedClockOut'));
     } finally {
       setTimeout(() => { actionLockRef.current = false; }, 2000); // 2s cooldown
     }
   };
 
   const handleBreak = async () => {
+    if (actionLockRef.current) return; // prevent double-tap
+    actionLockRef.current = true;
     try {
       if (today?.isOnBreak) {
         await endBreak().unwrap();
-        toast.success('Break ended');
+        toast.success(t('attendance.breakEnded'));
       } else {
         await startBreak({ type: 'SHORT' }).unwrap();
-        toast.success('Break started');
+        toast.success(t('attendance.breakStarted'));
       }
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed');
+      toast.error(err?.data?.error?.message || t('common.failed'));
+    } finally {
+      setTimeout(() => { actionLockRef.current = false; }, 2000);
     }
   };
 
@@ -649,7 +667,7 @@ function AttendancePersonalView() {
   };
 
   const calendarDays = buildCalendar();
-  const monthName = currentMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+  const monthName = currentMonth.toLocaleString(locale, { month: 'long', year: 'numeric' });
 
   // Detect work mode from today's status
   const workMode = today?.workMode || 'OFFICE';
@@ -667,24 +685,24 @@ function AttendancePersonalView() {
             <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-5">
               <Shield size={40} className="text-red-500" />
             </div>
-            <h2 className="text-xl font-display font-bold text-gray-900 mb-3">Location Permission Required</h2>
+            <h2 className="text-xl font-display font-bold text-gray-900 mb-3">{t('attendance.locationRequired')}</h2>
             <p className="text-sm text-gray-500 mb-6">
-              You must enable location access to use attendance. Please go to your browser/app settings and allow location for this site.
+              {t('attendance.locationDenied')}
             </p>
             <div className="bg-gray-50 rounded-xl p-4 text-left mb-6">
-              <p className="text-xs font-semibold text-gray-700 mb-2">How to enable:</p>
+              <p className="text-xs font-semibold text-gray-700 mb-2">{t('attendance.howToEnable')}</p>
               <ol className="text-xs text-gray-500 space-y-1.5 list-decimal list-inside">
-                <li>Open your browser <span className="font-semibold">Settings</span></li>
-                <li>Go to <span className="font-semibold">Site Settings</span> (or Privacy & Security)</li>
-                <li>Tap <span className="font-semibold">Location</span></li>
-                <li>Find this site and set to <span className="font-semibold">Allow</span></li>
+                <li>{t('attendance.openBrowserSettings')}</li>
+                <li>{t('attendance.goToSiteSettings')}</li>
+                <li>{t('attendance.tapLocation')}</li>
+                <li>{t('attendance.findSiteAllow')}</li>
               </ol>
             </div>
             <button
               onClick={() => window.location.reload()}
               className="btn-primary w-full py-3 text-sm flex items-center justify-center gap-2"
             >
-              <RefreshCw size={16} /> Refresh
+              <RefreshCw size={16} /> {t('common.refresh')}
             </button>
           </motion.div>
         </div>
@@ -705,9 +723,9 @@ function AttendancePersonalView() {
             <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-5">
               <Shield size={40} className="text-blue-500" />
             </div>
-            <h2 className="text-xl font-display font-bold text-gray-900 mb-3">Enable Location Access</h2>
+            <h2 className="text-xl font-display font-bold text-gray-900 mb-3">{t('attendance.enableLocation')}</h2>
             <p className="text-sm text-gray-500 mb-6">
-              Attendance requires your location for GPS-based check-in and geofencing. Tap the button below to enable.
+              {t('attendance.locationDenied')}
             </p>
             <motion.button
               whileHover={{ scale: 1.02 }}
@@ -721,7 +739,7 @@ function AttendancePersonalView() {
               ) : (
                 <MapPin size={16} />
               )}
-              Allow Location
+              {t('attendance.enableLocation')}
             </motion.button>
           </motion.div>
         </div>
@@ -734,13 +752,13 @@ function AttendancePersonalView() {
     <div className="page-container">
       {notificationStatus === 'denied' && !dismissedNotifBanner && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex items-center justify-between">
-          <p className="text-sm text-amber-700">Notifications are disabled. Enable them in browser settings for real-time attendance alerts.</p>
+          <p className="text-sm text-amber-700">{t('attendance.notificationsDisabled')}</p>
           <button onClick={() => setDismissedNotifBanner(true)} className="text-amber-500 hover:text-amber-700 ml-2" aria-label="Dismiss">
             <X size={16} />
           </button>
         </div>
       )}
-      <h1 className="text-2xl font-display font-bold text-gray-900 mb-4">Attendance</h1>
+      <h1 className="text-2xl font-display font-bold text-gray-900 mb-4">{t('nav.attendance')}</h1>
 
       {/* Work Mode Indicator */}
       {(workMode === 'FIELD_SALES' || workMode === 'PROJECT_SITE') && (
@@ -772,7 +790,7 @@ function AttendancePersonalView() {
           >
             {/* Live time */}
             <p className="text-4xl font-mono font-bold text-gray-900 mb-1" data-mono>
-              {liveTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' })}
+              {liveTime.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' })}
             </p>
             <p className="text-sm text-gray-400 mb-6">{formatDate(new Date(), 'long')}</p>
 
@@ -791,11 +809,11 @@ function AttendancePersonalView() {
 
             {today?.isCheckedOut && (
               <div className="mb-4">
-                <span className="badge badge-neutral text-sm px-3 py-1">Day Complete</span>
+                <span className="badge badge-neutral text-sm px-3 py-1">{t('attendance.dayComplete')}</span>
                 <p className="text-2xl font-mono font-bold text-gray-600 mt-3" data-mono>
                   {Number(today.record?.totalHours || 0).toFixed(1)}h
                 </p>
-                <p className="text-xs text-gray-400 mt-1">Total hours</p>
+                <p className="text-xs text-gray-400 mt-1">{t('attendance.totalHours')}</p>
               </div>
             )}
 
@@ -811,7 +829,9 @@ function AttendancePersonalView() {
                     next.setDate(d.getDate() + i);
                     const key = next.toISOString().split('T')[0];
                     const isHoliday = monthData?.holidays?.some((h: any) => new Date(h.date).toISOString().split('T')[0] === key);
-                    if (next.getDay() !== 0 && !isHoliday) return next;
+                    // Check against all configured week-off days (default: Sunday only)
+                    const weekOffs = new Set(today?.weekOffDays || [0]); // 0=Sun
+                    if (!weekOffs.has(next.getDay()) && !isHoliday) return next;
                   }
                   return null;
                 })();
@@ -821,7 +841,7 @@ function AttendancePersonalView() {
                       Today is {todayHoliday.name} — Holiday
                     </p>
                     <p className="text-xs text-violet-500 mt-1">
-                      Enjoy your day off!{nextWorkday && ` Next working day: ${nextWorkday.toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}`}
+                      Enjoy your day off!{nextWorkday && ` Next working day: ${nextWorkday.toLocaleDateString(locale, { weekday: 'long', month: 'short', day: 'numeric' })}`}
                     </p>
                   </div>
                 );
@@ -859,7 +879,7 @@ function AttendancePersonalView() {
                 ) : (
                   <LogIn size={22} />
                 )}
-                Check In
+                {t('attendance.checkIn')}
               </motion.button>
             )}
 
@@ -877,7 +897,7 @@ function AttendancePersonalView() {
                 ) : (
                   <LogIn size={20} />
                 )}
-                Re-Check In
+                {t('dashboard.reCheckIn')}
               </motion.button>
             )}
 
@@ -895,12 +915,12 @@ function AttendancePersonalView() {
                   ) : (
                     <LogOut size={20} />
                   )}
-                  Check Out
+                  {t('attendance.checkOut')}
                 </motion.button>
 
                 <button
                   onClick={handleBreak}
-                  aria-label={today.isOnBreak ? 'End break' : 'Start break'}
+                  aria-label={today.isOnBreak ? t('attendance.endBreak') : t('attendance.startBreak')}
                   className={cn(
                     'w-full py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors',
                     today.isOnBreak
@@ -909,7 +929,7 @@ function AttendancePersonalView() {
                   )}
                 >
                   {today.isOnBreak ? <Square size={16} /> : <Coffee size={16} />}
-                  {today.isOnBreak ? 'End Break' : 'Start Break'}
+                  {today.isOnBreak ? t('attendance.endBreak') : t('attendance.startBreak')}
                 </button>
               </div>
             )}
@@ -926,7 +946,7 @@ function AttendancePersonalView() {
             {today?.geofenceViolation && (
               <div className="mt-3 p-2.5 bg-red-50 rounded-lg border border-red-100">
                 <p className="text-xs font-medium text-red-600 flex items-center gap-1">
-                  <Shield size={12} /> Marked outside geofence area
+                  <Shield size={12} /> {t('attendance.outsideGeofence')}
                 </p>
               </div>
             )}
@@ -940,14 +960,14 @@ function AttendancePersonalView() {
               transition={{ delay: 0.1 }}
               className="layer-card p-5"
             >
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">This Month</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">{t('attendance.thisMonth')}</h3>
               <div className="grid grid-cols-2 gap-3">
-                <SummaryItem label="Present" value={monthData.summary.present} color="text-emerald-600" />
-                <SummaryItem label="Absent" value={monthData.summary.absent} color="text-red-500" />
-                <SummaryItem label="Half Day" value={monthData.summary.halfDay} color="text-amber-500" />
-                <SummaryItem label="On Leave" value={monthData.summary.onLeave} color="text-purple-500" />
-                <SummaryItem label="Avg Hours" value={`${monthData.summary.averageHours}h`} color="text-blue-600" />
-                <SummaryItem label="WFH" value={monthData.summary.workFromHome} color="text-teal-500" />
+                <SummaryItem label={t('attendance.present')} value={monthData.summary.present} color="text-emerald-600" />
+                <SummaryItem label={t('attendance.absent')} value={monthData.summary.absent} color="text-red-500" />
+                <SummaryItem label={t('attendance.halfDay')} value={monthData.summary.halfDay} color="text-amber-500" />
+                <SummaryItem label={t('attendance.onLeave')} value={monthData.summary.onLeave} color="text-purple-500" />
+                <SummaryItem label={t('attendance.avgHours')} value={`${monthData.summary.averageHours}h`} color="text-blue-600" />
+                <SummaryItem label={t('attendance.wfh')} value={monthData.summary.workFromHome} color="text-teal-500" />
               </div>
             </motion.div>
           )}
@@ -969,7 +989,7 @@ function AttendancePersonalView() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
-                aria-label="Previous month"
+                aria-label={t('common.previousPage')}
                 className="p-2 rounded-lg hover:bg-surface-2 transition-colors"
               >
                 <ChevronLeft size={18} />
@@ -982,7 +1002,7 @@ function AttendancePersonalView() {
               </button>
               <button
                 onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
-                aria-label="Next month"
+                aria-label={t('common.nextPage')}
                 className="p-2 rounded-lg hover:bg-surface-2 transition-colors"
               >
                 <ChevronRight size={18} />
@@ -1045,22 +1065,22 @@ function AttendancePersonalView() {
           {/* Legend */}
           <div className="flex flex-wrap gap-4 mt-5 pt-4 border-t border-gray-100">
             {[
-              { label: 'Present', color: 'bg-emerald-500' },
-              { label: 'Absent', color: 'bg-red-400' },
-              { label: 'Half Day', color: 'bg-amber-400' },
-              { label: 'Holiday', color: 'bg-blue-400' },
-              { label: 'Weekend', color: 'bg-gray-300' },
-              { label: 'Leave', color: 'bg-purple-400' },
-              { label: 'WFH', color: 'bg-teal-400' },
+              { labelKey: 'attendance.present', color: 'bg-emerald-500' },
+              { labelKey: 'attendance.absent', color: 'bg-red-400' },
+              { labelKey: 'attendance.halfDay', color: 'bg-amber-400' },
+              { labelKey: 'attendance.holiday', color: 'bg-blue-400' },
+              { labelKey: 'attendance.weekend', color: 'bg-gray-300' },
+              { labelKey: 'attendance.onLeave', color: 'bg-purple-400' },
+              { labelKey: 'attendance.wfh', color: 'bg-teal-400' },
             ].map((item) => (
-              <div key={item.label} className="flex items-center gap-1.5">
+              <div key={item.labelKey} className="flex items-center gap-1.5">
                 <div className={cn('w-2.5 h-2.5 rounded-full', item.color)} />
-                <span className="text-xs text-gray-500">{item.label}</span>
+                <span className="text-xs text-gray-500">{t(item.labelKey)}</span>
               </div>
             ))}
             <div className="flex items-center gap-1.5">
               <Flag size={10} className="text-red-500" />
-              <span className="text-xs text-gray-500">Outside Geofence</span>
+              <span className="text-xs text-gray-500">{t('attendance.outsideGeofence')}</span>
             </div>
           </div>
         </motion.div>

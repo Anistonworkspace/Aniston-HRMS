@@ -40,8 +40,8 @@ sleep 5 && curl -s http://localhost:4000/api/health
 ```
 
 ## Post-Deploy Verification
-- [ ] Health check returns 200: `curl http://13.126.128.38/api/health`
-- [ ] Login page loads: `http://13.126.128.38/login`
+- [ ] Health check returns 200: `curl https://hr.anistonav.com/api/health`
+- [ ] Login page loads: `https://hr.anistonav.com/login`
 - [ ] Login works with test credentials
 - [ ] No console errors in browser
 

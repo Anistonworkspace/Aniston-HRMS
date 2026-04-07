@@ -90,12 +90,13 @@ export class SettingsController {
 
   async saveEmailConfig(req: Request, res: Response, next: NextFunction) {
     try {
-      const { host, port, user, pass, fromAddress, fromName, emailDomain, authMethod, tenantId, clientId, clientSecret, senderEmail } = req.body;
+      const { host, port, user, pass, fromAddress, fromName, emailDomain, authMethod, tenantId, clientId, clientSecret, senderEmail, payrollEmail } = req.body;
       await settingsService.saveEmailConfig(req.user!.organizationId, {
         authMethod: authMethod || 'smtp',
         host, port: port ? Number(port) : undefined, user, pass,
         fromAddress, fromName, emailDomain,
         tenantId, clientId, clientSecret, senderEmail,
+        payrollEmail,
       }, req.user!.userId);
       res.json({ success: true, message: 'Email configuration saved' });
     } catch (err) {

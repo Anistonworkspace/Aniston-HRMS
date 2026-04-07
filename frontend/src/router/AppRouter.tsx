@@ -46,6 +46,7 @@ const WhatsAppPage = lazy(() => import('../features/whatsapp/WhatsAppPage'));
 const PublicApplyPage = lazy(() => import('../features/public-apply/PublicApplyPage'));
 const TrackApplicationPage = lazy(() => import('../features/public-apply/TrackApplicationPage'));
 const ActivateAccountPage = lazy(() => import('../features/auth/ActivateAccountPage'));
+const ResetPasswordPage = lazy(() => import('../features/auth/ResetPasswordPage'));
 const KycGatePage = lazy(() => import('../features/kyc/KycGatePage'));
 const MyDocumentsPage = lazy(() => import('../features/my-documents/MyDocumentsPage'));
 const EmployeeOnboardingPage = lazy(() => import('../features/onboarding/EmployeeOnboardingPage'));
@@ -142,6 +143,7 @@ export default function AppRouter() {
           <Route path="/track/:uid" element={<TrackApplicationPage />} />
           <Route path="/track" element={<TrackApplicationPage />} />
           <Route path="/activate/:token" element={<ActivateAccountPage />} />
+          <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
           <Route path="/download" element={<DownloadPage />} />
 
           {/* Walk-In Kiosk (public, no auth) */}

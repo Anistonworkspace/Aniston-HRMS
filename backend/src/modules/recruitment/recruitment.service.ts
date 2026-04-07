@@ -31,7 +31,7 @@ export class RecruitmentService {
       prisma.jobOpening.findMany({
         where, skip, take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { _count: { select: { applications: true } } },
+        include: { _count: { select: { applications: true, questions: true } } },
       }),
       prisma.jobOpening.count({ where }),
     ]);
@@ -53,7 +53,8 @@ export class RecruitmentService {
             offerLetter: true,
           },
         },
-        _count: { select: { applications: true } },
+        questions: true,
+        _count: { select: { applications: true, questions: true } },
       },
     });
     if (!job) throw new NotFoundError('Job opening');
@@ -286,7 +287,7 @@ export class RecruitmentService {
           }) : null;
 
           // Auto-create invitation for the accepted candidate
-          await prisma.employeeInvitation.create({
+          const invitation = await prisma.employeeInvitation.create({
             data: {
               email: offer.candidateEmail,
               role: offer.application.isIntern ? 'INTERN' : 'EMPLOYEE',
@@ -305,7 +306,7 @@ export class RecruitmentService {
             template: 'onboarding-invite',
             context: {
               name: offer.application.candidateName || offer.candidateEmail.split('@')[0],
-              link: `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/onboarding/invite/${offer.candidateEmail}`,
+              link: `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/onboarding/invite/${invitation.inviteToken}`,
             },
           });
 

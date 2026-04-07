@@ -34,7 +34,7 @@ function getISTYesterday(): Date {
 
 export class AttendanceService {
   // ===================== EDGE CASE CONSTANTS =====================
-  private readonly MAX_RECLOCKIN_PER_DAY = 0; // Strict: no re-check-in allowed
+  private readonly MAX_RECLOCKIN_PER_DAY = 3; // Allow up to 3 re-clock-ins per day
   private readonly EARLY_CLOCKIN_WARNING_MINUTES = 120; // warn if >2h before shift
   private readonly LATE_CLOCKOUT_FLAG_MINUTES = 120;    // flag if >2h after shift
   private readonly MAX_BREAK_PERCENT = 50;              // breaks can't exceed 50% of shift
@@ -55,9 +55,20 @@ export class AttendanceService {
       throw new BadRequestError('Your account is inactive. Contact HR to reactivate.');
     }
 
-    // Mobile-only attendance enforcement (HR manual mark bypasses this)
-    if (data.source !== 'MANUAL_HR' && data.deviceType !== 'mobile') {
-      throw new BadRequestError('Attendance can only be marked from a mobile device. Please use the Aniston HRMS mobile app.');
+    // Mobile-only attendance enforcement (HR manual mark and PWA bypass this)
+    // PWA installed on phone reports deviceType='mobile' but also accept isPwa=true
+    // as the installed PWA app is a valid attendance source on mobile devices
+    // NOTE: MANUAL_HR source is only allowed through the markAttendance() method which has
+    // its own route-level authorize(['SUPER_ADMIN','ADMIN','HR']) check. Direct clockIn
+    // requests with source='MANUAL_HR' from non-HR users are blocked here.
+    const isMobileOrPwa = data.deviceType === 'mobile' || data.isPwa === true;
+    if (data.source === 'MANUAL_HR') {
+      // MANUAL_HR is only valid when called from markAttendance route (which validates role)
+      // If called directly via clockIn, reject it
+      throw new BadRequestError('Manual HR attendance can only be marked through the HR attendance panel.');
+    }
+    if (!isMobileOrPwa) {
+      throw new BadRequestError('Attendance can only be marked from a mobile device. Please use the Aniston HRMS mobile app or install the PWA.');
     }
 
     const today = getISTToday();
@@ -87,10 +98,13 @@ export class AttendanceService {
       data.notes = `${data.notes || ''} [Working on optional holiday: ${holiday.name}]`.trim();
     }
 
-    // ===== PHASE 3: Warn on weekend clock-in (Sunday only — Saturday is working day) =====
+    // ===== PHASE 3: Warn on weekend clock-in (uses policy weekOffDays, default Sunday only) =====
+    const policy = await prisma.attendancePolicy.findUnique({ where: { organizationId } });
+    const weekOffDays = new Set(policy?.weekOffDays || [0]); // 0=Sunday
     const dayOfWeek = today.getDay();
-    if (dayOfWeek === 0) {
-      data.notes = `${data.notes || ''} [Weekend clock-in: Sunday]`.trim();
+    if (weekOffDays.has(dayOfWeek)) {
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      data.notes = `${data.notes || ''} [Weekend clock-in: ${dayNames[dayOfWeek]}]`.trim();
     }
 
     // Atomic check-and-validate to prevent race conditions (double-tap / concurrent requests)
@@ -218,7 +232,8 @@ export class AttendanceService {
 
     if (shift) {
       const [shiftHour, shiftMin] = shift.startTime.split(':').map(Number);
-      const graceMinutes = shift.graceMinutes || 15;
+      // Grace: shift-level overrides policy-level; policy is org-wide default
+      const graceMinutes = shift.graceMinutes || policy?.lateGraceMinutes || 15;
       const shiftStart = new Date(istNow);
       shiftStart.setHours(shiftHour, shiftMin, 0, 0);
       const graceEnd = new Date(shiftStart);
@@ -241,9 +256,9 @@ export class AttendanceService {
         data.notes = `${data.notes || ''} [Late by ${lateMinutes} min — shift ${shift.name} starts at ${shift.startTime}]`.trim();
       }
 
-      // Auto-mark HALF_DAY if late beyond grace + 30 min (only first clock-in)
+      // Auto-mark HALF_DAY: use policy.lateHalfDayAfterMins (org-level) if set, else grace + 30
       if (!isReClockIn) {
-        const halfDayThreshold = graceMinutes + 30;
+        const halfDayThreshold = policy?.lateHalfDayAfterMins || (graceMinutes + 30);
         const minutesLate = Math.round((istNow.getTime() - shiftStart.getTime()) / (1000 * 60));
         if (minutesLate > halfDayThreshold) {
           data.notes = `${data.notes || ''} [Auto-marked HALF_DAY: ${minutesLate} min late, threshold ${halfDayThreshold} min]`.trim();
@@ -296,10 +311,12 @@ export class AttendanceService {
       });
     } else {
       // Determine initial status: HALF_DAY if very late, else PRESENT
+      // Uses policy.lateHalfDayAfterMins as org-level half-day threshold
       const autoHalfDay = shift && (() => {
         const [sh, sm] = shift.startTime.split(':').map(Number);
-        const ss = new Date(istNow); ss.setHours(sh, sm, 0, 0); // IST comparison for shift times
-        const threshold = (shift.graceMinutes || 15) + 30;
+        const ss = new Date(istNow); ss.setHours(sh, sm, 0, 0);
+        const graceMin = shift.graceMinutes || policy?.lateGraceMinutes || 15;
+        const threshold = policy?.lateHalfDayAfterMins || (graceMin + 30);
         return Math.round((istNow.getTime() - ss.getTime()) / 60000) > threshold;
       })();
 
@@ -392,13 +409,19 @@ export class AttendanceService {
     let isPreviousDayClockOut = false;
 
     if (!record || record.checkOut) {
-      // No record today or already clocked out today — check yesterday's open record
+      // No record today or already clocked out today — check yesterday ONLY (not older)
       const yesterday = getISTYesterday();
       const yesterdayRecord = await prisma.attendanceRecord.findUnique({
         where: { employeeId_date: { employeeId, date: yesterday } },
       });
 
       if (yesterdayRecord && !yesterdayRecord.checkOut) {
+        // Only allow yesterday clock-out if check-in was within last 24 hours
+        const checkInTime = new Date(yesterdayRecord.checkIn!);
+        const hoursSinceCheckIn = (now.getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
+        if (hoursSinceCheckIn > 24) {
+          throw new BadRequestError('Cannot clock out: your check-in was more than 24 hours ago. Please contact HR for manual correction.');
+        }
         record = yesterdayRecord;
         isPreviousDayClockOut = true;
       } else if (!record) {
@@ -426,10 +449,14 @@ export class AttendanceService {
     });
 
     const shift = shiftAssignment?.shift;
-    const fullDayHours = shift ? Number(shift.fullDayHours) : 8;
-    const halfDayHours = shift ? Number(shift.halfDayHours) : 4;
+    // Fetch org attendance policy for fallback values
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { organizationId: true } });
+    const clockOutPolicy = await prisma.attendancePolicy.findUnique({ where: { organizationId: employee?.organizationId || '' } });
+    // Shift-level overrides policy-level; policy is org-wide default; hardcoded is last resort
+    const fullDayHours = shift ? Number(shift.fullDayHours) : (clockOutPolicy?.fullDayMinHours || 8);
+    const halfDayHours = shift ? Number(shift.halfDayHours) : (clockOutPolicy?.halfDayMinHours || 4);
 
-    // Determine status based on shift hours
+    // Determine status based on shift/policy hours
     let status: 'PRESENT' | 'HALF_DAY' = 'PRESENT';
     if (totalHours < halfDayHours) {
       status = 'HALF_DAY';
@@ -442,6 +469,7 @@ export class AttendanceService {
     let isLateClockout = false;
     let lateClockoutMinutes = 0;
     let overtimeFlag = false;
+    let overtimeHours = 0;
 
     if (shift) {
       const istNow = getISTNow(); // IST for comparison with shift times
@@ -463,8 +491,15 @@ export class AttendanceService {
       }
     }
 
-    // ===== PHASE 2: Flag excessive hours =====
-    if (totalHours > fullDayHours + this.OVERTIME_FLAG_EXTRA_HOURS) {
+    // ===== Overtime detection: gated by policy.otEnabled =====
+    const extraHours = totalHours - fullDayHours;
+    const otThresholdMin = clockOutPolicy?.otThresholdMinutes || 30;
+    const otMaxPerDay = clockOutPolicy?.otMaxHoursPerDay || 4;
+    if (clockOutPolicy?.otEnabled && extraHours > (otThresholdMin / 60)) {
+      overtimeFlag = true;
+      overtimeHours = Math.min(Math.round(extraHours * 100) / 100, otMaxPerDay);
+    } else if (!clockOutPolicy?.otEnabled && totalHours > fullDayHours + this.OVERTIME_FLAG_EXTRA_HOURS) {
+      // Fallback: flag excessive hours even if OT tracking is off (informational only)
       overtimeFlag = true;
     }
 
@@ -482,8 +517,10 @@ export class AttendanceService {
     if (isLateClockout) {
       notes = `${notes} [Late clock-out: ${lateClockoutMinutes} min after shift end]`.trim();
     }
-    if (overtimeFlag) {
-      notes = `${notes} [Overtime flagged: ${totalHours.toFixed(1)}h, max expected ${fullDayHours + this.OVERTIME_FLAG_EXTRA_HOURS}h]`.trim();
+    if (overtimeFlag && overtimeHours > 0) {
+      notes = `${notes} [OT: ${overtimeHours.toFixed(1)}h overtime (policy: ${clockOutPolicy?.otRateMultiplier || 1.5}x rate, max ${otMaxPerDay}h/day)]`.trim();
+    } else if (overtimeFlag) {
+      notes = `${notes} [Overtime flagged: ${totalHours.toFixed(1)}h, expected ${fullDayHours}h]`.trim();
     }
 
     const updated = await prisma.attendanceRecord.update({
@@ -536,7 +573,39 @@ export class AttendanceService {
       } catch { /* non-blocking */ }
     }
 
-    return { ...updated, isEarlyCheckout, earlyMinutes, isPreviousDayClockOut, overtimeFlag };
+    // ===== Comp-Off auto-grant: if employee worked on weekoff/holiday and policy allows =====
+    if (clockOutPolicy?.compOffEnabled && totalHours >= (clockOutPolicy.compOffMinOTHours || 4)) {
+      const recordDay = new Date(record.date).getDay();
+      const policyWeekOffs = new Set(clockOutPolicy.weekOffDays || [0]);
+      const isWeekOff = policyWeekOffs.has(recordDay);
+      const isHoliday = await prisma.holiday.findFirst({
+        where: { organizationId: employee?.organizationId || '', date: new Date(record.date) },
+      });
+
+      if (isWeekOff || isHoliday) {
+        const compOffExpiry = new Date();
+        compOffExpiry.setDate(compOffExpiry.getDate() + (clockOutPolicy.compOffExpiryDays || 30));
+        try {
+          // Check if comp-off not already granted for this date
+          const existingCompOff = await prisma.attendanceLog.findFirst({
+            where: { attendanceId: record.id, action: 'COMP_OFF_GRANTED' },
+          });
+          if (!existingCompOff) {
+            await prisma.attendanceLog.create({
+              data: {
+                attendanceId: record.id,
+                action: 'COMP_OFF_GRANTED',
+                timestamp: new Date(),
+                notes: `Comp-off granted: worked ${totalHours.toFixed(1)}h on ${isHoliday ? `holiday (${isHoliday.name})` : 'week-off day'}. Expires: ${compOffExpiry.toISOString().split('T')[0]}. Min OT required: ${clockOutPolicy.compOffMinOTHours}h.`,
+              },
+            });
+            logger.info(`Comp-off granted to employee ${employeeId} for working on ${isHoliday ? 'holiday' : 'weekoff'} (${record.date})`);
+          }
+        } catch (e) { logger.error(`Comp-off grant error:`, e); }
+      }
+    }
+
+    return { ...updated, isEarlyCheckout, earlyMinutes, isPreviousDayClockOut, overtimeFlag, overtimeHours };
   }
 
   /**
@@ -857,11 +926,18 @@ export class AttendanceService {
       throw new BadRequestError('Already on a break. Please end current break first.');
     }
 
-    // ===== PHASE 3: Break duration validation =====
+    // ===== PHASE 3: Break duration validation — use actual shift hours =====
     const totalBreakMinutes = record.breaks
       .filter((b: any) => b.endTime && b.durationMinutes)
       .reduce((sum: number, b: any) => sum + (b.durationMinutes || 0), 0);
-    const maxBreakMinutes = Math.round(8 * 60 * this.MAX_BREAK_PERCENT / 100); // 50% of 8h = 240min
+    // Get shift's full day hours for proportional break limit
+    const breakShiftAssignment = await prisma.shiftAssignment.findFirst({
+      where: { employeeId, startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+      include: { shift: true },
+      orderBy: { startDate: 'desc' },
+    });
+    const shiftFullDayHours = Number(breakShiftAssignment?.shift?.fullDayHours) || 8;
+    const maxBreakMinutes = Math.round(shiftFullDayHours * 60 * this.MAX_BREAK_PERCENT / 100);
     if (totalBreakMinutes >= maxBreakMinutes) {
       throw new BadRequestError(`Total break time (${totalBreakMinutes} min) has reached the maximum (${maxBreakMinutes} min). Cannot start another break.`);
     }
@@ -1051,10 +1127,11 @@ export class AttendanceService {
       const [shiftHour, shiftMin] = shift.startTime.split(':').map(Number);
       const graceMinutes = shift.graceMinutes || 15;
 
-      // Calculate grace end time
+      // Calculate grace end time (use setMinutes separately to avoid overflow when min+grace > 59)
       const checkInDate = new Date(requestedCheckIn);
       const graceEnd = new Date(checkInDate);
-      graceEnd.setHours(shiftHour, shiftMin + graceMinutes, 0, 0);
+      graceEnd.setHours(shiftHour, shiftMin, 0, 0);
+      graceEnd.setMinutes(graceEnd.getMinutes() + graceMinutes);
 
       if (checkInDate <= graceEnd) {
         // Within grace — auto-approve
@@ -1124,7 +1201,14 @@ export class AttendanceService {
               ((end.getTime() - start.getTime()) / (1000 * 60 * 60)) * 100
             ) / 100;
           }
-          updateData.status = updateData.totalHours >= 4 ? 'PRESENT' : 'HALF_DAY';
+          // Use shift's halfDayHours for status determination instead of hardcoded 4
+          const regShift = await tx.shiftAssignment.findFirst({
+            where: { employeeId: reg.attendance.employeeId, endDate: null },
+            include: { shift: true },
+            orderBy: { startDate: 'desc' },
+          });
+          const halfDayThreshold = Number(regShift?.shift?.halfDayHours) || 4;
+          updateData.status = updateData.totalHours >= halfDayThreshold ? 'PRESENT' : 'HALF_DAY';
         }
 
         if (Object.keys(updateData).length > 0) {
@@ -1445,8 +1529,18 @@ export class AttendanceService {
     siteName: string; siteAddress?: string; notes?: string;
     latitude?: number; longitude?: number; checkInPhoto?: string;
   }) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getISTToday();
+
+    // Verify employee has an active clock-in for today
+    const attendance = await prisma.attendanceRecord.findUnique({
+      where: { employeeId_date: { employeeId, date: today } },
+    });
+    if (!attendance || !attendance.checkIn) {
+      throw new BadRequestError('Please clock in first before recording a project site visit.');
+    }
+    if (attendance.checkOut) {
+      throw new BadRequestError('You have already clocked out. Cannot record a site visit after clock-out.');
+    }
 
     return prisma.projectSiteCheckIn.create({
       data: {
@@ -1975,15 +2069,22 @@ export class AttendanceService {
       }
     }
 
-    // Bulk upsert anomalies (skip duplicates)
+    // Bulk upsert anomalies (use transaction to prevent race condition duplicates)
     let created = 0;
     for (const anomaly of anomalies) {
-      const existing = await prisma.attendanceAnomaly.findFirst({
-        where: { attendanceId: anomaly.attendanceId, type: anomaly.type, date: anomaly.date },
-      });
-      if (!existing) {
-        await prisma.attendanceAnomaly.create({ data: anomaly });
-        created++;
+      try {
+        await prisma.$transaction(async (tx) => {
+          const existing = await tx.attendanceAnomaly.findFirst({
+            where: { attendanceId: anomaly.attendanceId, type: anomaly.type, date: anomaly.date },
+          });
+          if (!existing) {
+            await tx.attendanceAnomaly.create({ data: anomaly });
+            created++;
+          }
+        });
+      } catch (e: any) {
+        // Skip unique constraint violations from concurrent detection runs
+        if (!e.code?.includes('P2002')) logger.error(`Anomaly upsert error:`, e);
       }
     }
 

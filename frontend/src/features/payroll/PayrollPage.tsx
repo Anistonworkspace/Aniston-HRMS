@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   DollarSign, Play, Download, Eye, Plus, Calendar, Upload, FileSpreadsheet,
   Loader2, Filter, ChevronDown, ChevronUp, IndianRupee, TrendingDown,
   Briefcase, FileText, Lock, Unlock, CheckCircle2, XCircle, AlertTriangle,
-  Search, Users, BarChart3, Shield, PlusCircle, Trash2, Clock,
+  Search, Users, BarChart3, Shield, PlusCircle, Trash2, Clock, Mail,
 } from 'lucide-react';
 import {
   useGetPayrollRunsQuery,
@@ -16,6 +17,7 @@ import {
   useImportSalariesMutation,
   useLockPayrollRunMutation,
   useUnlockPayrollRunMutation,
+  useSendPayrollEmailMutation,
 } from './payrollApi';
 import {
   useGetRunAdjustmentsQuery,
@@ -25,18 +27,19 @@ import {
 } from './adjustmentApi';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
+import { useAuthDownload } from '../../hooks/useAuthDownload';
 import toast from 'react-hot-toast';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const FULL_MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-const STATUS_MAP: Record<string, { label: string; class: string; icon: any }> = {
-  DRAFT: { label: 'Draft', class: 'badge-warning', icon: FileText },
-  PROCESSING: { label: 'Processing', class: 'badge-info', icon: Loader2 },
-  REVIEW: { label: 'In Review', class: 'bg-purple-50 text-purple-700 border-purple-200', icon: Eye },
-  APPROVED: { label: 'Approved', class: 'bg-blue-50 text-blue-700 border-blue-200', icon: CheckCircle2 },
-  COMPLETED: { label: 'Completed', class: 'badge-success', icon: CheckCircle2 },
-  LOCKED: { label: 'Locked', class: 'badge-neutral', icon: Lock },
+const STATUS_MAP: Record<string, { labelKey: string; class: string; icon: any }> = {
+  DRAFT: { labelKey: 'payroll.draft', class: 'badge-warning', icon: FileText },
+  PROCESSING: { labelKey: 'payroll.processing', class: 'badge-info', icon: Loader2 },
+  REVIEW: { labelKey: 'payroll.inReview', class: 'bg-purple-50 text-purple-700 border-purple-200', icon: Eye },
+  APPROVED: { labelKey: 'payroll.approved', class: 'bg-blue-50 text-blue-700 border-blue-200', icon: CheckCircle2 },
+  COMPLETED: { labelKey: 'payroll.completed', class: 'badge-success', icon: CheckCircle2 },
+  LOCKED: { labelKey: 'payroll.locked', class: 'badge-neutral', icon: Lock },
 };
 
 const ADJUSTMENT_TYPES = [
@@ -62,6 +65,7 @@ export default function PayrollPage() {
 // ════════════════════════════════════════════════════════════════════
 
 function PayrollAdminView() {
+  const { t } = useTranslation();
   const user = useAppSelector((state) => state.auth.user);
   const { data: runsRes, isLoading } = useGetPayrollRunsQuery();
   const [createRun] = useCreatePayrollRunMutation();
@@ -69,6 +73,9 @@ function PayrollAdminView() {
   const [importSalaries] = useImportSalariesMutation();
   const [lockRun] = useLockPayrollRunMutation();
   const [unlockRun] = useUnlockPayrollRunMutation();
+  const [sendPayrollEmail] = useSendPayrollEmailMutation();
+  const { download: authDownload, openInline, downloading } = useAuthDownload();
+  const [sendingEmail, setSendingEmail] = useState<string | null>(null);
   const [viewingRunId, setViewingRunId] = useState<string | null>(null);
   const [showNewRun, setShowNewRun] = useState(false);
   const [newRunMonth, setNewRunMonth] = useState(new Date().getMonth() + 1);
@@ -94,59 +101,58 @@ function PayrollAdminView() {
   const handleCreateRun = async () => {
     try {
       await createRun({ month: newRunMonth, year: newRunYear }).unwrap();
-      toast.success(`Payroll run created for ${MONTH_NAMES[newRunMonth - 1]} ${newRunYear}`);
+      toast.success(t('payroll.payrollCreated'));
       setShowNewRun(false);
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to create payroll run');
+      toast.error(err?.data?.error?.message || t('payroll.failedToCreate'));
     }
   };
 
   const handleProcess = async (runId: string) => {
     try {
       const result = await processPayroll(runId).unwrap();
-      toast.success(`Payroll processed — ${result.data.processed} employees`);
+      toast.success(`${t('payroll.payrollProcessed')} — ${result.data.processed} employees`);
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to process payroll');
+      toast.error(err?.data?.error?.message || t('payroll.failedToProcess'));
     }
   };
 
   const handleLock = async (runId: string) => {
     try {
       await lockRun(runId).unwrap();
-      toast.success('Payroll run locked');
+      toast.success(t('payroll.payrollLocked'));
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to lock');
+      toast.error(err?.data?.error?.message || t('payroll.failedToLock'));
     }
   };
 
   const handleUnlock = async (runId: string) => {
     try {
       await unlockRun(runId).unwrap();
-      toast.success('Payroll run unlocked for corrections');
+      toast.success(t('payroll.payrollUnlocked'));
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to unlock');
+      toast.error(err?.data?.error?.message || t('payroll.failedToUnlock'));
     }
   };
-
-  const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
 
   return (
     <div className="page-container">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">Payroll</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Enterprise salary processing & compliance</p>
+          <h1 className="text-2xl font-display font-bold text-gray-900">{t('payroll.title')}</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{t('payroll.subtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => window.open(`${apiBase}/payroll/template`, '_blank')}
+            onClick={() => authDownload('/payroll/template', 'salary-template.xlsx')}
+            disabled={downloading === '/payroll/template'}
             className="btn-secondary text-sm flex items-center gap-1.5"
           >
-            <FileSpreadsheet size={14} /> Download Template
+            {downloading === '/payroll/template' ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} {t('payroll.downloadTemplate')}
           </button>
           <label className="btn-secondary text-sm flex items-center gap-1.5 cursor-pointer">
-            <Upload size={14} /> Import Salaries
+            <Upload size={14} /> {t('payroll.importSalaries')}
             <input type="file" accept=".xlsx,.xls" className="hidden" onChange={async (e) => {
               const file = e.target.files?.[0];
               if (!file) return;
@@ -169,7 +175,7 @@ function PayrollAdminView() {
             className="btn-primary flex items-center gap-2"
           >
             <Plus size={18} />
-            New Payroll Run
+            {t('payroll.createPayrollRun')}
           </motion.button>
         </div>
       </div>
@@ -192,12 +198,12 @@ function PayrollAdminView() {
           <p className="text-lg font-bold text-gray-900">
             {runs[0] ? `${MONTH_NAMES[runs[0].month - 1]} ${runs[0].year}` : '—'}
           </p>
-          <p className="text-[10px] text-gray-500 mt-1">{runs[0] ? STATUS_MAP[runs[0].status]?.label : 'No runs'}</p>
+          <p className="text-[10px] text-gray-500 mt-1">{runs[0] ? t(STATUS_MAP[runs[0].status]?.labelKey) : 'No runs'}</p>
         </div>
         <div className="stat-card">
           <div className="flex items-center justify-between mb-2">
             <DollarSign size={18} className="text-emerald-500" />
-            <span className="text-[10px] font-medium text-gray-400 uppercase">Total Gross</span>
+            <span className="text-[10px] font-medium text-gray-400 uppercase">{t('payroll.totalGross')}</span>
           </div>
           <p className="text-lg font-bold font-mono text-gray-900" data-mono>
             {totalGrossAll > 0 ? formatCurrency(totalGrossAll) : '—'}
@@ -206,7 +212,7 @@ function PayrollAdminView() {
         <div className="stat-card">
           <div className="flex items-center justify-between mb-2">
             <IndianRupee size={18} className="text-emerald-600" />
-            <span className="text-[10px] font-medium text-gray-400 uppercase">Total Net</span>
+            <span className="text-[10px] font-medium text-gray-400 uppercase">{t('payroll.totalNet')}</span>
           </div>
           <p className="text-lg font-bold font-mono text-emerald-600" data-mono>
             {totalNetAll > 0 ? formatCurrency(totalNetAll) : '—'}
@@ -215,7 +221,7 @@ function PayrollAdminView() {
         <div className="stat-card">
           <div className="flex items-center justify-between mb-2">
             <TrendingDown size={18} className="text-red-400" />
-            <span className="text-[10px] font-medium text-gray-400 uppercase">Total Deductions</span>
+            <span className="text-[10px] font-medium text-gray-400 uppercase">{t('payroll.deductions')}</span>
           </div>
           <p className="text-lg font-bold font-mono text-red-500" data-mono>
             {totalDeductionsAll > 0 ? formatCurrency(totalDeductionsAll) : '—'}
@@ -232,10 +238,10 @@ function PayrollAdminView() {
             exit={{ opacity: 0, y: -10 }}
             className="layer-card p-5 mb-6 border-l-4 border-brand-500"
           >
-            <h3 className="text-sm font-semibold text-gray-800 mb-4">Create New Payroll Run</h3>
+            <h3 className="text-sm font-semibold text-gray-800 mb-4">{t('payroll.createPayrollRun')}</h3>
             <div className="flex flex-wrap items-end gap-4">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Month</label>
+                <label className="block text-xs text-gray-500 mb-1">{t('payroll.month')}</label>
                 <select value={newRunMonth} onChange={e => setNewRunMonth(Number(e.target.value))} className="input-glass text-sm py-2 px-3 min-w-[160px]">
                   {FULL_MONTH_NAMES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
                 </select>
@@ -247,8 +253,8 @@ function PayrollAdminView() {
                 </select>
               </div>
               <div className="flex gap-2">
-                <button onClick={handleCreateRun} className="btn-primary text-sm px-5 py-2">Create Run</button>
-                <button onClick={() => setShowNewRun(false)} className="btn-secondary text-sm px-4 py-2">Cancel</button>
+                <button onClick={handleCreateRun} className="btn-primary text-sm px-5 py-2">{t('payroll.createPayrollRun')}</button>
+                <button onClick={() => setShowNewRun(false)} className="btn-secondary text-sm px-4 py-2">{t('common.cancel')}</button>
               </div>
             </div>
           </motion.div>
@@ -273,13 +279,13 @@ function PayrollAdminView() {
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-100">
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Period</th>
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3 hidden md:table-cell">Employees</th>
-              <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Gross</th>
-              <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3 hidden lg:table-cell">Deductions</th>
-              <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Net</th>
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Status</th>
-              <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Actions</th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">{t('payroll.month')}</th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3 hidden md:table-cell">{t('payroll.employees')}</th>
+              <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3 hidden sm:table-cell">{t('payroll.totalGross')}</th>
+              <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3 hidden lg:table-cell">{t('payroll.deductions')}</th>
+              <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">{t('payroll.totalNet')}</th>
+              <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">{t('common.status')}</th>
+              <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">{t('common.actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -341,7 +347,7 @@ function PayrollAdminView() {
                     <td className="px-4 py-3.5">
                       <span className={cn('inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium border', STATUS_MAP[run.status]?.class || 'badge-neutral')}>
                         <StatusIcon size={11} />
-                        {STATUS_MAP[run.status]?.label || run.status}
+                        {STATUS_MAP[run.status] ? t(STATUS_MAP[run.status].labelKey) : run.status}
                       </span>
                     </td>
                     <td className="px-4 py-3.5 text-right">
@@ -351,7 +357,7 @@ function PayrollAdminView() {
                             onClick={() => handleProcess(run.id)}
                             className="text-xs text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
                           >
-                            <Play size={12} /> Process
+                            <Play size={12} /> {t('payroll.processPayroll')}
                           </button>
                         )}
                         {run.status === 'COMPLETED' && (
@@ -359,7 +365,7 @@ function PayrollAdminView() {
                             onClick={() => handleLock(run.id)}
                             className="text-xs text-amber-700 bg-amber-50 hover:bg-amber-100 px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
                           >
-                            <Lock size={11} /> Lock
+                            <Lock size={11} /> {t('payroll.lockPayroll')}
                           </button>
                         )}
                         {run.status === 'LOCKED' && user?.role === 'SUPER_ADMIN' && (
@@ -367,22 +373,41 @@ function PayrollAdminView() {
                             onClick={() => handleUnlock(run.id)}
                             className="text-xs text-purple-700 bg-purple-50 hover:bg-purple-100 px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
                           >
-                            <Unlock size={11} /> Unlock
+                            <Unlock size={11} /> {t('payroll.unlockPayroll')}
                           </button>
                         )}
                         {['COMPLETED', 'LOCKED'].includes(run.status) && (
                           <>
                             <button
-                              onClick={() => window.open(`${apiBase}/payroll/runs/${run.id}/export`, '_blank')}
+                              onClick={() => authDownload(`/payroll/runs/${run.id}/export`, `payroll-${MONTH_NAMES[run.month - 1]}-${run.year}.xlsx`)}
+                              disabled={downloading === `/payroll/runs/${run.id}/export`}
                               className="text-xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
                             >
-                              <Download size={11} /> Excel
+                              {downloading === `/payroll/runs/${run.id}/export` ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />} Excel
                             </button>
                             <button
-                              onClick={() => window.open(`${apiBase}/payroll/runs/${run.id}/bank-file`, '_blank')}
+                              onClick={() => authDownload(`/payroll/runs/${run.id}/bank-file`, `bank-transfer-${MONTH_NAMES[run.month - 1]}-${run.year}.csv`)}
+                              disabled={downloading === `/payroll/runs/${run.id}/bank-file`}
                               className="text-xs text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
                             >
-                              <Briefcase size={11} /> Bank File
+                              {downloading === `/payroll/runs/${run.id}/bank-file` ? <Loader2 size={11} className="animate-spin" /> : <Briefcase size={11} />} Bank File
+                            </button>
+                            <button
+                              onClick={async () => {
+                                setSendingEmail(run.id);
+                                try {
+                                  const result = await sendPayrollEmail(run.id).unwrap();
+                                  toast.success(result.message || 'Payroll email sent!');
+                                } catch (err: any) {
+                                  toast.error(err?.data?.error?.message || 'Failed to send email');
+                                } finally {
+                                  setSendingEmail(null);
+                                }
+                              }}
+                              disabled={sendingEmail === run.id}
+                              className="text-xs text-purple-700 bg-purple-50 hover:bg-purple-100 px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
+                            >
+                              {sendingEmail === run.id ? <Loader2 size={11} className="animate-spin" /> : <Mail size={11} />} Send to Accounts
                             </button>
                             <button
                               onClick={() => setViewingRunId(viewingRunId === run.id ? null : run.id)}
@@ -435,6 +460,7 @@ function PayrollRecordsPanel({ runId, runStatus, onClose }: { runId: string; run
   const [createAdjustment] = useCreateAdjustmentMutation();
   const [approveAdj] = useApproveAdjustmentMutation();
   const [deleteAdj] = useDeleteAdjustmentMutation();
+  const { download: authDownload, openInline, downloading } = useAuthDownload();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [amendForm, setAmendForm] = useState<any>({});
   const [showAdjForm, setShowAdjForm] = useState(false);
@@ -485,7 +511,6 @@ function PayrollRecordsPanel({ runId, runStatus, onClose }: { runId: string; run
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to add adjustment'); }
   };
 
-  const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
   const canAmend = ['COMPLETED'].includes(runStatus);
   const canAdjust = ['DRAFT', 'REVIEW'].includes(runStatus);
 
@@ -591,7 +616,7 @@ function PayrollRecordsPanel({ runId, runStatus, onClose }: { runId: string; run
                         <td className="px-4 py-3 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <button
-                              onClick={() => window.open(`${apiBase}/payroll/records/${rec.id}/pdf`, '_blank')}
+                              onClick={() => openInline(`/payroll/records/${rec.id}/pdf`)}
                               className="text-[10px] text-brand-600 hover:text-brand-700 px-2 py-1 rounded bg-brand-50 font-medium"
                             >
                               PDF
@@ -793,7 +818,9 @@ function PayrollRecordsPanel({ runId, runStatus, onClose }: { runId: string; run
 // ════════════════════════════════════════════════════════════════════
 
 function PayrollEmployeeView() {
+  const { t } = useTranslation();
   const now = new Date();
+  const { download: authDownload, openInline, downloading } = useAuthDownload();
   const [filterMonth, setFilterMonth] = useState<number>(0);
   const [filterYear, setFilterYear] = useState<number>(now.getFullYear());
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -807,7 +834,6 @@ function PayrollEmployeeView() {
   );
   const payslips = payslipsRes?.data || [];
 
-  const apiBase = import.meta.env.VITE_API_URL === '/api' ? '/api' : (import.meta.env.VITE_API_URL || '/api');
   const yearOptions = Array.from({ length: 4 }, (_, i) => now.getFullYear() - i);
 
   const totalNet = payslips.reduce((sum: number, s: any) => sum + Number(s.netSalary || 0), 0);
@@ -820,8 +846,8 @@ function PayrollEmployeeView() {
     <div className="page-container">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">My Payslips</h1>
-          <p className="text-gray-500 text-sm mt-0.5">View and download your salary slips</p>
+          <h1 className="text-2xl font-display font-bold text-gray-900">{t('payroll.salarySlip')}</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{t('payroll.viewPayslip')}</p>
         </div>
       </div>
 
@@ -944,8 +970,8 @@ function PayrollEmployeeView() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-                    <button onClick={(e) => { e.stopPropagation(); window.open(`${apiBase}/payroll/records/${slip.id}/pdf`, '_blank'); }} className="btn-secondary flex items-center gap-1.5 text-xs py-2 px-3">
-                      <Download size={13} /> Download
+                    <button onClick={(e) => { e.stopPropagation(); openInline(`/payroll/records/${slip.id}/pdf`); }} className="btn-secondary flex items-center gap-1.5 text-xs py-2 px-3">
+                      <Download size={13} /> {t('common.download')}
                     </button>
                     {isExpanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
                   </div>
@@ -998,13 +1024,13 @@ function PayrollEmployeeView() {
                         </div>
 
                         <div className="mt-4 bg-brand-600 rounded-xl p-4 flex items-center justify-between">
-                          <span className="text-sm font-semibold text-white">Net Pay</span>
+                          <span className="text-sm font-semibold text-white">{t('payroll.netPay')}</span>
                           <span className="text-xl font-bold font-mono text-white" data-mono>{formatCurrency(net)}</span>
                         </div>
 
                         <div className="mt-4 flex justify-end">
-                          <button onClick={() => window.open(`${apiBase}/payroll/records/${slip.id}/pdf`, '_blank')} className="btn-primary flex items-center gap-2 text-sm">
-                            <Download size={14} /> Download Salary Slip (PDF)
+                          <button onClick={() => authDownload(`/payroll/records/${slip.id}/pdf`, `salary-slip-${MONTH_NAMES[month - 1]}-${year}.pdf`)} className="btn-primary flex items-center gap-2 text-sm">
+                            <Download size={14} /> {t('payroll.downloadPayslip')}
                           </button>
                         </div>
                       </div>

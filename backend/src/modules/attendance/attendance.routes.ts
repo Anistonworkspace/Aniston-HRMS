@@ -291,23 +291,48 @@ router.get('/monthly-report', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), 
     const empRecordMap = new Map<string, any[]>();
     records.forEach(r => { if (!empRecordMap.has(r.employeeId)) empRecordMap.set(r.employeeId, []); empRecordMap.get(r.employeeId)!.push(r); });
 
+    // Get shift assignments for accurate late detection per employee
+    const shiftAssignments = await prisma.shiftAssignment.findMany({
+      where: { employee: { organizationId: req.user!.organizationId }, endDate: null },
+      include: { shift: true },
+    });
+    const empShiftMap = new Map<string, any>();
+    shiftAssignments.forEach(a => empShiftMap.set(a.employeeId, a.shift));
+
     const report = employees.map(emp => {
       const recs = empRecordMap.get(emp.id) || [];
+      const empShift = empShiftMap.get(emp.id);
       const present = recs.filter(r => r.status === 'PRESENT').length;
       const absent = recs.filter(r => r.status === 'ABSENT').length;
       const halfDay = recs.filter(r => r.status === 'HALF_DAY').length;
       const onLeave = recs.filter(r => r.status === 'ON_LEAVE').length;
       const wfh = recs.filter(r => r.status === 'WORK_FROM_HOME').length;
       const totalHours = recs.reduce((s, r) => s + (Number(r.totalHours) || 0), 0);
+      // Use employee's actual shift start time for late detection, not hardcoded 9:00
+      const [shiftStartH, shiftStartM] = (empShift?.startTime || '09:00').split(':').map(Number);
+      const shiftStartMinutes = shiftStartH * 60 + shiftStartM;
+      const graceMinutes = empShift?.graceMinutes || policy?.lateGraceMinutes || 15;
       const lateCount = recs.filter(r => {
         if (!r.checkIn) return false;
         const ci = new Date(r.checkIn);
         const ciMinutes = ci.getHours() * 60 + ci.getMinutes();
-        return ciMinutes > (9 * 60 + (policy?.lateGraceMinutes || 15));
+        return ciMinutes > (shiftStartMinutes + graceMinutes);
       }).length;
       const effectivePresent = present + wfh + (halfDay * 0.5);
-      const lopDays = Math.max(0, totalWorkingDays - effectivePresent - onLeave);
-      const otHours = Math.max(0, totalHours - (present + wfh) * Number(policy?.fullDayMinHours || 8));
+      let lopDays = Math.max(0, totalWorkingDays - effectivePresent - onLeave);
+
+      // Late penalty LOP: if policy.latePenaltyEnabled, every N lates = 1 LOP day
+      let latePenaltyLOP = 0;
+      if (policy?.latePenaltyEnabled && (policy?.latePenaltyPerCount || 0) > 0) {
+        latePenaltyLOP = Math.floor(lateCount / policy.latePenaltyPerCount);
+        lopDays += latePenaltyLOP;
+      }
+
+      // OT calculation: only if policy.otEnabled, use fullDayMinHours from policy
+      const fullDayHrsForOT = Number(empShift?.fullDayHours || policy?.fullDayMinHours || 8);
+      const otHours = policy?.otEnabled
+        ? Math.max(0, totalHours - (present + wfh) * fullDayHrsForOT)
+        : 0;
 
       return {
         employeeId: emp.id, employeeCode: emp.employeeCode, name: `${emp.firstName} ${emp.lastName}`,
@@ -315,6 +340,7 @@ router.get('/monthly-report', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), 
         totalWorkingDays, present, absent, halfDay, onLeave, wfh, lateCount,
         totalHours: Math.round(totalHours * 10) / 10,
         lopDays: Math.round(lopDays * 10) / 10,
+        latePenaltyLOP,
         otHours: Math.round(otHours * 10) / 10,
         effectivePresent: Math.round(effectivePresent * 10) / 10,
       };

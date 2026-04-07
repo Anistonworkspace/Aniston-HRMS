@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { User, Mail, Phone, Building2, MapPin, Calendar, Shield, Edit2, Key, Loader2, Save, X, Camera, Upload, UserMinus, AlertTriangle, Clock, CheckCircle2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { useGetMeQuery, useChangePasswordMutation } from '../auth/authApi';
 import { useUpdateEmployeeMutation, useGetEmployeeQuery } from '../employee/employeeApi';
@@ -10,6 +11,8 @@ import { getInitials, formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 export default function ProfilePage() {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const user = useAppSelector((s) => s.auth.user);
   const [searchParams] = useSearchParams();
   const isOnboarding = searchParams.get('onboarding') === 'true';
@@ -36,6 +39,23 @@ export default function ProfilePage() {
     address: { street: '', city: '', state: '', pincode: '' },
   });
 
+  // Profile completion calculation — must be before any early return to keep hooks order stable
+  const completionItems = useMemo(() => {
+    if (!employee) return [];
+    const items = [
+      { label: t('profile.personalDetails'), done: !!(employee.phone && employee.phone !== '0000000000' && employee.dateOfBirth) },
+      { label: t('profile.emergencyContact'), done: !!(employee.emergencyContact && (employee.emergencyContact as any)?.name) },
+      { label: t('common.address'), done: !!(employee.address && (employee.address as any)?.city) },
+      { label: t('profile.personalEmail'), done: !!employee.personalEmail },
+      { label: t('profile.bloodGroup'), done: !!employee.bloodGroup },
+    ];
+    return items;
+  }, [employee, t]);
+
+  const completionPct = completionItems.length > 0
+    ? Math.round((completionItems.filter(i => i.done).length / completionItems.length) * 100)
+    : 0;
+
   useEffect(() => {
     if (employee) {
       setForm({
@@ -53,9 +73,9 @@ export default function ProfilePage() {
     if (!user?.employeeId) return;
     try {
       await updateEmployee({ id: user.employeeId, data: form as any }).unwrap();
-      toast.success('Profile updated');
+      toast.success(t('profile.profileUpdated'));
       setShowEdit(false);
-    } catch { toast.error('Failed to update'); }
+    } catch { toast.error(t('profile.failedToUpdate')); }
   };
 
   if (isLoading) {
@@ -78,26 +98,9 @@ export default function ProfilePage() {
     );
   }
 
-  // Profile completion calculation
-  const completionItems = useMemo(() => {
-    if (!employee) return [];
-    const items = [
-      { label: 'Personal details', done: !!(employee.phone && employee.phone !== '0000000000' && employee.dateOfBirth) },
-      { label: 'Emergency contact', done: !!(employee.emergencyContact && (employee.emergencyContact as any)?.name) },
-      { label: 'Address', done: !!(employee.address && (employee.address as any)?.city) },
-      { label: 'Personal email', done: !!employee.personalEmail },
-      { label: 'Blood group', done: !!employee.bloodGroup },
-    ];
-    return items;
-  }, [employee]);
-
-  const completionPct = completionItems.length > 0
-    ? Math.round((completionItems.filter(i => i.done).length / completionItems.length) * 100)
-    : 0;
-
   return (
     <div className="page-container">
-      <h1 className="text-2xl font-display font-bold text-gray-900 mb-6">My Profile</h1>
+      <h1 className="text-2xl font-display font-bold text-gray-900 mb-6">{t('profile.title')}</h1>
 
       {/* Onboarding banner */}
       {isOnboarding && (
@@ -111,11 +114,11 @@ export default function ProfilePage() {
               <CheckCircle2 size={20} className="text-brand-600" />
             </div>
             <div className="flex-1">
-              <h3 className="text-sm font-semibold text-gray-900">Welcome! Please complete your profile to get started.</h3>
-              <p className="text-xs text-gray-500 mt-1">Fill in your personal details, emergency contact, and address to finish onboarding.</p>
+              <h3 className="text-sm font-semibold text-gray-900">{t('profile.welcomeMessage')}</h3>
+              <p className="text-xs text-gray-500 mt-1">{t('profile.fillDetails')}</p>
               <div className="mt-3">
                 <div className="flex items-center justify-between text-xs mb-1.5">
-                  <span className="text-gray-500">Profile completion</span>
+                  <span className="text-gray-500">{t('profile.profileCompletion')}</span>
                   <span className="font-mono font-semibold text-brand-600" data-mono>{completionPct}%</span>
                 </div>
                 <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
@@ -134,7 +137,7 @@ export default function ProfilePage() {
                           : 'bg-amber-100 text-amber-700'
                       }`}
                     >
-                      {item.done ? 'Done' : 'Incomplete'}: {item.label}
+                      {item.done ? t('profile.done') : t('profile.incomplete')}: {item.label}
                     </span>
                   ))}
                 </div>
@@ -185,11 +188,11 @@ export default function ProfilePage() {
           </div>
           <div className="flex gap-2">
             <button onClick={() => setShowEdit(!showEdit)} className="btn-secondary flex items-center gap-2 text-sm">
-              {showEdit ? <><X size={14} /> Cancel</> : <><Edit2 size={14} /> Edit Profile</>}
+              {showEdit ? <><X size={14} /> {t('common.cancel')}</> : <><Edit2 size={14} /> {t('profile.editProfile')}</>}
             </button>
             {employee && !employee.exitStatus && employee.status !== 'TERMINATED' && (
               <button onClick={() => setShowResignModal(true)} className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
-                <UserMinus size={14} /> Submit Resignation
+                <UserMinus size={14} /> {t('profile.submitResignation')}
               </button>
             )}
           </div>
@@ -203,13 +206,13 @@ export default function ProfilePage() {
             {employee.exitStatus === 'COMPLETED' ? <UserMinus size={20} className="text-emerald-600" /> : <Clock size={20} className="text-amber-600" />}
             <div>
               <p className="text-sm font-semibold text-gray-800">
-                {employee.exitStatus === 'PENDING' && 'Resignation Pending Approval'}
-                {employee.exitStatus === 'APPROVED' && 'Resignation Approved'}
-                {employee.exitStatus === 'NO_DUES_PENDING' && 'Exit Approved — No Dues Pending'}
-                {employee.exitStatus === 'COMPLETED' && 'Exit Completed'}
+                {employee.exitStatus === 'PENDING' && t('profile.resignationPending')}
+                {employee.exitStatus === 'APPROVED' && t('profile.resignationApproved')}
+                {employee.exitStatus === 'NO_DUES_PENDING' && t('profile.exitApproved')}
+                {employee.exitStatus === 'COMPLETED' && t('profile.exitCompleted')}
               </p>
               <p className="text-xs text-gray-500">
-                {employee.lastWorkingDate && `Last working date: ${new Date(employee.lastWorkingDate).toLocaleDateString('en-IN')}`}
+                {employee.lastWorkingDate && `${t('profile.lastWorkingDate')} ${new Date(employee.lastWorkingDate).toLocaleDateString(locale)}`}
                 {employee.exitType && ` · ${employee.exitType.replace(/_/g, ' ')}`}
               </p>
             </div>
@@ -223,25 +226,25 @@ export default function ProfilePage() {
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
             onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-display font-semibold text-gray-800">Submit Resignation</h3>
+              <h3 className="text-lg font-display font-semibold text-gray-800">{t('profile.submitResignation')}</h3>
               <button onClick={() => setShowResignModal(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
             <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 text-amber-700 text-xs mb-4">
               <AlertTriangle size={14} />
-              This will notify HR and begin the exit process.
+              {t('profile.resignationNotice')}
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Reason *</label>
+                <label className="block text-sm font-medium text-gray-600 mb-1">{t('profile.reason')} *</label>
                 <textarea
                   value={resignForm.reason}
                   onChange={e => setResignForm({ ...resignForm, reason: e.target.value })}
                   className="input-glass w-full text-sm" rows={3}
-                  placeholder="Please provide your reason for resignation..."
+                  placeholder={t('profile.reason') + '...'}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Proposed Last Working Date *</label>
+                <label className="block text-sm font-medium text-gray-600 mb-1">{t('profile.proposedLastDate')} *</label>
                 <input
                   type="date"
                   value={resignForm.lastWorkingDate}
@@ -252,19 +255,19 @@ export default function ProfilePage() {
               </div>
               <button
                 onClick={async () => {
-                  if (!resignForm.reason || !resignForm.lastWorkingDate) { toast.error('Please fill all fields'); return; }
+                  if (!resignForm.reason || !resignForm.lastWorkingDate) { toast.error(t('profile.fillAllFields')); return; }
                   try {
                     await submitResignation(resignForm).unwrap();
-                    toast.success('Resignation submitted — HR has been notified');
+                    toast.success(t('profile.resignationSubmitted'));
                     setShowResignModal(false);
                     setResignForm({ reason: '', lastWorkingDate: '' });
-                  } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to submit'); }
+                  } catch (err: any) { toast.error(err?.data?.error?.message || t('common.failed')); }
                 }}
                 disabled={resigning}
                 className="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
               >
                 {resigning ? <Loader2 size={16} className="animate-spin" /> : <UserMinus size={16} />}
-                {resigning ? 'Submitting...' : 'Confirm Resignation'}
+                {resigning ? t('common.loading') : t('profile.confirmResignation')}
               </button>
             </div>
           </motion.div>
@@ -275,67 +278,67 @@ export default function ProfilePage() {
       {showEdit && (
         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
           className="layer-card p-6 mb-6">
-          <h3 className="text-sm font-semibold text-gray-800 mb-4">Edit Personal Information</h3>
+          <h3 className="text-sm font-semibold text-gray-800 mb-4">{t('profile.editProfile')} — {t('profile.personalInfo')}</h3>
           <div className="space-y-4 max-w-2xl">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Phone</label>
+                <label className="block text-xs text-gray-500 mb-1">{t('common.phone')}</label>
                 <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})}
                   className="input-glass w-full text-sm" placeholder="+91 XXXXXXXXXX" />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Personal Email</label>
+                <label className="block text-xs text-gray-500 mb-1">{t('profile.personalEmail')}</label>
                 <input value={form.personalEmail} onChange={e => setForm({...form, personalEmail: e.target.value})}
                   className="input-glass w-full text-sm" placeholder="personal@email.com" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Blood Group</label>
+                <label className="block text-xs text-gray-500 mb-1">{t('profile.bloodGroup')}</label>
                 <select value={form.bloodGroup} onChange={e => setForm({...form, bloodGroup: e.target.value})} className="input-glass w-full text-sm">
-                  <option value="">Select</option>
+                  <option value="">{t('common.selectOption')}</option>
                   {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(bg => <option key={bg} value={bg}>{bg}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Marital Status</label>
+                <label className="block text-xs text-gray-500 mb-1">{t('profile.maritalStatus')}</label>
                 <select value={form.maritalStatus} onChange={e => setForm({...form, maritalStatus: e.target.value})} className="input-glass w-full text-sm">
-                  <option value="">Select</option>
-                  <option value="Single">Single</option>
-                  <option value="Married">Married</option>
-                  <option value="Divorced">Divorced</option>
-                  <option value="Widowed">Widowed</option>
+                  <option value="">{t('common.selectOption')}</option>
+                  <option value="Single">{t('profile.single')}</option>
+                  <option value="Married">{t('profile.married')}</option>
+                  <option value="Divorced">{t('profile.divorced')}</option>
+                  <option value="Widowed">{t('profile.widowed')}</option>
                 </select>
               </div>
             </div>
 
-            <h4 className="text-xs font-semibold text-gray-600 pt-2">Address</h4>
+            <h4 className="text-xs font-semibold text-gray-600 pt-2">{t('common.address')}</h4>
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <input value={form.address.street} onChange={e => setForm({...form, address: {...form.address, street: e.target.value}})}
-                  className="input-glass w-full text-sm" placeholder="Street address" />
+                  className="input-glass w-full text-sm" placeholder={t('profile.streetAddress')} />
               </div>
               <input value={form.address.city} onChange={e => setForm({...form, address: {...form.address, city: e.target.value}})}
-                className="input-glass w-full text-sm" placeholder="City" />
+                className="input-glass w-full text-sm" placeholder={t('common.city')} />
               <input value={form.address.state} onChange={e => setForm({...form, address: {...form.address, state: e.target.value}})}
-                className="input-glass w-full text-sm" placeholder="State" />
+                className="input-glass w-full text-sm" placeholder={t('common.state')} />
               <input value={form.address.pincode} onChange={e => setForm({...form, address: {...form.address, pincode: e.target.value}})}
-                className="input-glass w-full text-sm" placeholder="Pincode" />
+                className="input-glass w-full text-sm" placeholder={t('common.pincode')} />
             </div>
 
-            <h4 className="text-xs font-semibold text-gray-600 pt-2">Emergency Contact</h4>
+            <h4 className="text-xs font-semibold text-gray-600 pt-2">{t('profile.emergencyContact')}</h4>
             <div className="grid grid-cols-3 gap-4">
               <input value={form.emergencyContact.name} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, name: e.target.value}})}
-                className="input-glass w-full text-sm" placeholder="Name" />
+                className="input-glass w-full text-sm" placeholder={t('common.name')} />
               <input value={form.emergencyContact.phone} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, phone: e.target.value}})}
-                className="input-glass w-full text-sm" placeholder="Phone" />
+                className="input-glass w-full text-sm" placeholder={t('common.phone')} />
               <input value={form.emergencyContact.relationship} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, relationship: e.target.value}})}
-                className="input-glass w-full text-sm" placeholder="Relationship" />
+                className="input-glass w-full text-sm" placeholder={t('profile.relationship')} />
             </div>
 
             <button onClick={handleSaveProfile} disabled={updating} className="btn-primary flex items-center gap-2 text-sm">
               {updating ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              Save Changes
+              {t('profile.saveChanges')}
             </button>
           </div>
         </motion.div>
@@ -346,16 +349,16 @@ export default function ProfilePage() {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
           className="layer-card p-6">
           <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <Building2 size={16} className="text-brand-500" /> Employment Details
+            <Building2 size={16} className="text-brand-500" /> {t('profile.employmentDetails')}
           </h3>
           <dl className="space-y-3">
-            <ProfileRow label="Employee Code" value={employee?.employeeCode} mono />
-            <ProfileRow label="Department" value={employee?.department?.name} />
-            <ProfileRow label="Designation" value={employee?.designation?.name} />
-            <ProfileRow label="Work Mode" value={employee?.workMode?.replace(/_/g, ' ')} />
-            <ProfileRow label="Joining Date" value={employee?.joiningDate ? formatDate(employee.joiningDate, 'long') : undefined} />
-            <ProfileRow label="Status" value={employee?.status} />
-            <ProfileRow label="Manager" value={employee?.manager ? `${employee.manager.firstName} ${employee.manager.lastName}` : undefined} />
+            <ProfileRow label={t('profile.employeeCode')} value={employee?.employeeCode} mono />
+            <ProfileRow label={t('common.department')} value={employee?.department?.name} />
+            <ProfileRow label={t('common.designation')} value={employee?.designation?.name} />
+            <ProfileRow label={t('profile.workMode')} value={employee?.workMode?.replace(/_/g, ' ')} />
+            <ProfileRow label={t('profile.joiningDate')} value={employee?.joiningDate ? formatDate(employee.joiningDate, 'long') : undefined} />
+            <ProfileRow label={t('common.status')} value={employee?.status} />
+            <ProfileRow label={t('common.manager')} value={employee?.manager ? `${employee.manager.firstName} ${employee.manager.lastName}` : undefined} />
           </dl>
         </motion.div>
 
@@ -363,16 +366,16 @@ export default function ProfilePage() {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
           className="layer-card p-6">
           <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <User size={16} className="text-brand-500" /> Personal Information
+            <User size={16} className="text-brand-500" /> {t('profile.personalInfo')}
           </h3>
           <dl className="space-y-3">
-            <ProfileRow label="Email" value={user?.email} />
-            <ProfileRow label="Phone" value={employee?.phone} />
-            <ProfileRow label="Personal Email" value={employee?.personalEmail} />
-            <ProfileRow label="Date of Birth" value={employee?.dateOfBirth ? formatDate(employee.dateOfBirth, 'long') : undefined} />
-            <ProfileRow label="Gender" value={employee?.gender} />
-            <ProfileRow label="Blood Group" value={employee?.bloodGroup} />
-            <ProfileRow label="Marital Status" value={employee?.maritalStatus} />
+            <ProfileRow label={t('common.email')} value={user?.email} />
+            <ProfileRow label={t('common.phone')} value={employee?.phone} />
+            <ProfileRow label={t('profile.personalEmail')} value={employee?.personalEmail} />
+            <ProfileRow label={t('profile.dateOfBirth')} value={employee?.dateOfBirth ? formatDate(employee.dateOfBirth, 'long') : undefined} />
+            <ProfileRow label={t('profile.gender')} value={employee?.gender} />
+            <ProfileRow label={t('profile.bloodGroup')} value={employee?.bloodGroup} />
+            <ProfileRow label={t('profile.maritalStatus')} value={employee?.maritalStatus} />
           </dl>
         </motion.div>
 
@@ -380,19 +383,19 @@ export default function ProfilePage() {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
           className="layer-card p-6">
           <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <Key size={16} className="text-amber-500" /> Security
+            <Key size={16} className="text-amber-500" /> {t('profile.security')}
           </h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
               <div>
-                <p className="text-sm font-medium text-gray-700">Password</p>
-                <p className="text-xs text-gray-400">Change your account password</p>
+                <p className="text-sm font-medium text-gray-700">{t('profile.password')}</p>
+                <p className="text-xs text-gray-400">{t('profile.changePassword')}</p>
               </div>
-              <button onClick={() => setShowChangePassword(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Change</button>
+              <button onClick={() => setShowChangePassword(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">{t('profile.change')}</button>
             </div>
             <div className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
               <div>
-                <p className="text-sm font-medium text-gray-700">Last Login</p>
+                <p className="text-sm font-medium text-gray-700">{t('profile.lastLogin')}</p>
                 <p className="text-xs text-gray-400">
                   {employee?.user?.lastLoginAt ? formatDate(employee.user.lastLoginAt, 'long') : 'Unknown'}
                 </p>
@@ -405,11 +408,11 @@ export default function ProfilePage() {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
           className="layer-card p-6">
           <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <MapPin size={16} className="text-brand-500" /> Address & Emergency Contact
+            <MapPin size={16} className="text-brand-500" /> {t('profile.addressEmergency')}
           </h3>
           {employee?.address ? (
             <div className="mb-4">
-              <p className="text-xs text-gray-400 mb-1">Address</p>
+              <p className="text-xs text-gray-400 mb-1">{t('common.address')}</p>
               <p className="text-sm text-gray-700">
                 {(employee.address as any).street && `${(employee.address as any).street}, `}
                 {(employee.address as any).city && `${(employee.address as any).city}, `}
@@ -418,17 +421,17 @@ export default function ProfilePage() {
               </p>
             </div>
           ) : (
-            <p className="text-sm text-gray-400 mb-4">No address provided</p>
+            <p className="text-sm text-gray-400 mb-4">{t('common.noData')}</p>
           )}
           {employee?.emergencyContact ? (
             <div>
-              <p className="text-xs text-gray-400 mb-1">Emergency Contact</p>
+              <p className="text-xs text-gray-400 mb-1">{t('profile.emergencyContact')}</p>
               <p className="text-sm text-gray-700">
                 {(employee.emergencyContact as any).name} ({(employee.emergencyContact as any).relationship}) — {(employee.emergencyContact as any).phone}
               </p>
             </div>
           ) : (
-            <p className="text-sm text-gray-400">No emergency contact provided</p>
+            <p className="text-sm text-gray-400">{t('common.noData')}</p>
           )}
         </motion.div>
       </div>
@@ -451,17 +454,18 @@ function ProfileRow({ label, value, mono }: { label: string; value?: string | nu
 }
 
 function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
   const [changePassword, { isLoading }] = useChangePasswordMutation();
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
   const handleSubmit = async () => {
-    if (form.newPassword.length < 8) { toast.error('Password must be at least 8 characters'); return; }
-    if (form.newPassword !== form.confirmPassword) { toast.error('Passwords do not match'); return; }
+    if (form.newPassword.length < 8) { toast.error(t('profile.passwordMinLength')); return; }
+    if (form.newPassword !== form.confirmPassword) { toast.error(t('profile.passwordsDoNotMatch')); return; }
     try {
       await changePassword({ currentPassword: form.currentPassword, newPassword: form.newPassword }).unwrap();
-      toast.success('Password changed successfully');
+      toast.success(t('profile.passwordChanged'));
       onClose();
-    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to change password'); }
+    } catch (err: any) { toast.error(err?.data?.error?.message || t('profile.failedToChangePassword')); }
   };
 
   return (
@@ -469,28 +473,28 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
         onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-display font-semibold text-gray-800">Change Password</h3>
+          <h3 className="text-lg font-display font-semibold text-gray-800">{t('profile.changePassword')}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
         <div className="space-y-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Current Password</label>
+            <label className="block text-xs text-gray-500 mb-1">{t('profile.currentPassword')}</label>
             <input type="password" value={form.currentPassword} onChange={e => setForm({...form, currentPassword: e.target.value})}
               className="input-glass w-full text-sm" />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">New Password</label>
+            <label className="block text-xs text-gray-500 mb-1">{t('profile.newPassword')}</label>
             <input type="password" value={form.newPassword} onChange={e => setForm({...form, newPassword: e.target.value})}
               className="input-glass w-full text-sm" />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Confirm New Password</label>
+            <label className="block text-xs text-gray-500 mb-1">{t('profile.confirmNewPassword')}</label>
             <input type="password" value={form.confirmPassword} onChange={e => setForm({...form, confirmPassword: e.target.value})}
               className="input-glass w-full text-sm" />
           </div>
           <button onClick={handleSubmit} disabled={isLoading} className="btn-primary w-full flex items-center justify-center gap-2 text-sm">
             {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Key size={14} />}
-            Change Password
+            {t('profile.changePassword')}
           </button>
         </div>
       </motion.div>

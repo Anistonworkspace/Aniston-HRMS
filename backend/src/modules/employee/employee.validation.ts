@@ -48,7 +48,7 @@ export const updateEmployeeSchema = createEmployeeSchema.partial();
 
 export const employeeQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(500).default(10),
+  limit: z.coerce.number().min(1).max(2000).default(10),
   search: z.string().optional(),
   department: z.string().optional(),
   designation: z.string().optional(),

@@ -4,8 +4,17 @@ const API_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://loc
 
 let socket: Socket | null = null;
 
+// Queue of pending listeners registered before socket was ready
+const pendingListeners: Array<{ event: string; callback: (data: any) => void }> = [];
+
 export function connectSocket(token: string) {
   if (socket?.connected) return socket;
+
+  // Prevent duplicate socket creation if one is already connecting
+  if (socket && !socket.connected) {
+    socket.disconnect();
+    socket = null;
+  }
 
   socket = io(API_URL, {
     auth: { token },
@@ -17,6 +26,11 @@ export function connectSocket(token: string) {
 
   socket.on('connect', () => {
     if (import.meta.env.DEV) console.log('[Socket] Connected:', socket?.id);
+    // Flush any pending listeners that were queued before connection
+    while (pendingListeners.length > 0) {
+      const { event, callback } = pendingListeners.shift()!;
+      socket?.on(event, callback);
+    }
   });
 
   socket.on('disconnect', (reason) => {
@@ -35,6 +49,8 @@ export function disconnectSocket() {
     socket.disconnect();
     socket = null;
   }
+  // Clear any pending listeners on disconnect
+  pendingListeners.length = 0;
 }
 
 export function getSocket(): Socket | null {
@@ -42,11 +58,23 @@ export function getSocket(): Socket | null {
 }
 
 export function onSocketEvent(event: string, callback: (data: any) => void) {
-  if (!socket) return;
-  socket.on(event, callback);
+  if (socket?.connected) {
+    socket.on(event, callback);
+  } else if (socket) {
+    // Socket exists but not yet connected — queue the listener
+    pendingListeners.push({ event, callback });
+    socket.on(event, callback); // also register directly so it fires after reconnect
+  } else {
+    // Socket not initialized yet — queue for when connectSocket() is called
+    pendingListeners.push({ event, callback });
+  }
 }
 
 export function offSocketEvent(event: string, callback: (data: any) => void) {
-  if (!socket) return;
-  socket.off(event, callback);
+  if (socket) {
+    socket.off(event, callback);
+  }
+  // Also remove from pending queue if it's there
+  const idx = pendingListeners.findIndex(p => p.event === event && p.callback === callback);
+  if (idx !== -1) pendingListeners.splice(idx, 1);
 }

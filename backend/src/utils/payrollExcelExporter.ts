@@ -141,6 +141,14 @@ export async function generatePayrollExcel(
 
   summarySheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3 + records.length, column: headers.length } };
 
+  // Protect summary sheet — read-only, password protected
+  await summarySheet.protect('aniston@payroll', {
+    selectLockedCells: true,
+    selectUnlockedCells: true,
+    autoFilter: true,
+    sort: true,
+  });
+
   // ===== SHEET 2: Employer Cost =====
   const costSheet = workbook.addWorksheet('Employer Cost', {
     views: [{ state: 'frozen', ySplit: 1 }],
@@ -168,6 +176,14 @@ export async function generatePayrollExcel(
     });
     row.font = { size: 9 };
     for (const col of [3, 4, 5, 6]) row.getCell(col).numFmt = '₹#,##0';
+  });
+
+  // Protect employer cost sheet
+  await costSheet.protect('aniston@payroll', {
+    selectLockedCells: true,
+    selectUnlockedCells: true,
+    autoFilter: true,
+    sort: true,
   });
 
   const buffer = await workbook.xlsx.writeBuffer();

@@ -84,6 +84,10 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
       toast.error('Please fill all required fields');
       return;
     }
+    if (!formData.reason || formData.reason.length < 5) {
+      toast.error('Reason must be at least 5 characters');
+      return;
+    }
 
     try {
       // Save draft
@@ -129,15 +133,6 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
     }
 
     try {
-      // Update reason on draft if changed
-      await saveDraft({
-        leaveTypeId: formData.leaveTypeId,
-        startDate: formData.startDate,
-        endDate: effectiveEndDate,
-        isHalfDay,
-        reason: formData.reason,
-      }).unwrap().catch(() => {});
-
       await submitDraft({
         id: draftId,
         acknowledgements,
@@ -240,14 +235,16 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
                     className="input-glass w-full text-sm"
                   >
                     <option value="">Select leave type...</option>
-                    {leaveTypes.map((lt: any) => {
-                      const bal = balances.find((b: any) => b.leaveType?.id === lt.id);
-                      return (
-                        <option key={lt.id} value={lt.id}>
-                          {LEAVE_ICONS[lt.code] || '📋'} {lt.name} — {bal ? `${bal.remaining} days left` : ''}
-                        </option>
-                      );
-                    })}
+                    {leaveTypes
+                      .filter((lt: any) => balances.some((b: any) => b.leaveType?.id === lt.id))
+                      .map((lt: any) => {
+                        const bal = balances.find((b: any) => b.leaveType?.id === lt.id);
+                        return (
+                          <option key={lt.id} value={lt.id}>
+                            {LEAVE_ICONS[lt.code] || '📋'} {lt.name} — {bal ? `${bal.remaining} days left` : ''}
+                          </option>
+                        );
+                      })}
                   </select>
                 </div>
 

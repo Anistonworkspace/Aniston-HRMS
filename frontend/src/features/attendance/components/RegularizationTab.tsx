@@ -6,19 +6,25 @@ import toast from 'react-hot-toast';
 
 export default function RegularizationTab() {
   const { data: res, isLoading } = useGetPendingRegularizationsQuery();
-  const [handleReg] = useHandleRegularizationMutation();
+  const [handleReg, { isLoading: processing }] = useHandleRegularizationMutation();
   const [remarkId, setRemarkId] = useState<string | null>(null);
   const [remarks, setRemarks] = useState('');
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   const regularizations = res?.data || [];
 
   const handleAction = async (id: string, action: string) => {
+    setProcessingId(id);
     try {
       await handleReg({ id, action, remarks: remarkId === id ? remarks : undefined }).unwrap();
       toast.success(`Regularization ${action.toLowerCase()}`);
       setRemarkId(null);
       setRemarks('');
-    } catch { toast.error('Failed to process'); }
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to process regularization');
+    } finally {
+      setProcessingId(null);
+    }
   };
 
   const formatTime = (d: string | null) => {
@@ -64,7 +70,7 @@ export default function RegularizationTab() {
 
       {regularizations.map((r: any) => {
         const att = r.attendance || {};
-        const emp = att.employee || r.employee || {};
+        const emp = att.employee || r.employee || { firstName: 'Unknown', lastName: '', employeeCode: '—' };
         return (
           <div key={r.id} className="layer-card p-3 space-y-2">
             {/* Header row */}
@@ -115,13 +121,15 @@ export default function RegularizationTab() {
             <div className="flex items-center gap-2 pt-1">
               <button
                 onClick={() => handleAction(r.id, 'APPROVED')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors"
+                disabled={processingId === r.id}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                <CheckCircle size={13} /> Approve
+                <CheckCircle size={13} /> {processingId === r.id ? 'Processing...' : 'Approve'}
               </button>
               <button
                 onClick={() => handleAction(r.id, 'REJECTED')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                disabled={processingId === r.id}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <XCircle size={13} /> Reject
               </button>

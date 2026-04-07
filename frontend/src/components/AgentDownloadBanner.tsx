@@ -4,7 +4,7 @@ import { Monitor, Download, ChevronDown, ChevronUp, X, CheckCircle2, Loader2, Wi
 import { useAppSelector } from '../app/store';
 import { useGetAgentStatusQuery, useGenerateAgentPairCodeMutation } from '../features/attendance/attendanceApi';
 import { useGetEmployeeShiftQuery } from '../features/workforce/workforceApi';
-import { onSocketEvent, offSocketEvent } from '../lib/socket';
+import { onSocketEvent, offSocketEvent, getSocket } from '../lib/socket';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 const DISMISS_KEY = 'agent-banner-dismissed';
@@ -40,10 +40,20 @@ export default function AgentDownloadBanner() {
   const agentActive = statusRes?.data?.isActive;
 
   // Listen for real-time agent connection via Socket.io
+  // Re-registers when socket reconnects (onSocketEvent now queues if socket not ready)
   useEffect(() => {
     const handleConnected = () => setPhase('connected');
     onSocketEvent('agent:connected', handleConnected);
-    return () => { offSocketEvent('agent:connected', handleConnected); };
+
+    // Also listen for socket reconnect to re-register
+    const sock = getSocket();
+    const onReconnect = () => onSocketEvent('agent:connected', handleConnected);
+    sock?.on('connect', onReconnect);
+
+    return () => {
+      offSocketEvent('agent:connected', handleConnected);
+      sock?.off('connect', onReconnect);
+    };
   }, []);
 
   // Determine phase

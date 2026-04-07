@@ -89,6 +89,10 @@ export const payrollApi = api.injectEndpoints({
       }),
       invalidatesTags: ['Payroll', 'Employee'],
     }),
+
+    sendPayrollEmail: builder.mutation<any, string>({
+      query: (runId) => ({ url: `/payroll/runs/${runId}/send-email`, method: 'POST' }),
+    }),
   }),
 });
 
@@ -107,4 +111,5 @@ export const {
   useLockPayrollRunMutation,
   useUnlockPayrollRunMutation,
   useSaveSalaryStructureDynamicMutation,
+  useSendPayrollEmailMutation,
 } = payrollApi;

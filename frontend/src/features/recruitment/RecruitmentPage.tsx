@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Briefcase, Search, Users, Eye, Sparkles, X, MapPin, Clock, Pencil, Trash2, Upload,
@@ -28,6 +29,7 @@ type RecruitmentTab = 'jobs' | 'walkin' | 'ai-screened' | 'hiring-passed';
 
 // =================== Main Tabbed Page ===================
 export default function RecruitmentPage() {
+  const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab') as RecruitmentTab | null;
   const [activeTab, setActiveTab] = useState<RecruitmentTab>(tabParam || 'jobs');
@@ -44,10 +46,10 @@ export default function RecruitmentPage() {
   };
 
   const TABS: { key: RecruitmentTab; label: string; icon: React.ElementType }[] = [
-    { key: 'jobs', label: 'Job Openings', icon: Briefcase },
-    { key: 'walkin', label: 'Walk-In Candidates', icon: Users },
-    { key: 'ai-screened', label: 'AI Screened', icon: Sparkles },
-    { key: 'hiring-passed', label: 'Hiring Passed', icon: Award },
+    { key: 'jobs', label: t('recruitment.jobOpenings'), icon: Briefcase },
+    { key: 'walkin', label: t('recruitment.walkInCandidates'), icon: Users },
+    { key: 'ai-screened', label: t('recruitment.aiScreened'), icon: Sparkles },
+    { key: 'hiring-passed', label: t('recruitment.hiringPassed'), icon: Award },
   ];
 
   return (
@@ -55,8 +57,8 @@ export default function RecruitmentPage() {
       <div className="page-container">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-display font-bold text-gray-900">Recruitment</h1>
-            <p className="text-gray-500 text-sm mt-0.5">Manage jobs, walk-in candidates, and hiring</p>
+            <h1 className="text-2xl font-display font-bold text-gray-900">{t('recruitment.title')}</h1>
+            <p className="text-gray-500 text-sm mt-0.5">{t('recruitment.subtitle')}</p>
           </div>
         </div>
 
@@ -93,17 +95,28 @@ export default function RecruitmentPage() {
 }
 
 // =================== Tab 1: Job Openings ===================
-const JOB_STATUS_MAP: Record<string, { label: string; class: string }> = {
-  DRAFT: { label: 'Draft', class: 'badge-neutral' },
-  OPEN: { label: 'Open', class: 'badge-success' },
-  ON_HOLD: { label: 'On Hold', class: 'badge-warning' },
-  CLOSED: { label: 'Closed', class: 'badge-danger' },
-};
-const JOB_TYPE_MAP: Record<string, string> = {
-  FULL_TIME: 'Full-time', PART_TIME: 'Part-time', CONTRACT: 'Contract', INTERNSHIP: 'Internship', RESEARCH: 'Research',
+const JOB_STATUS_CLASSES: Record<string, string> = {
+  DRAFT: 'badge-neutral',
+  OPEN: 'badge-success',
+  ON_HOLD: 'badge-warning',
+  CLOSED: 'badge-danger',
 };
 
 function JobOpeningsTab() {
+  const { t } = useTranslation();
+  const JOB_STATUS_MAP: Record<string, { label: string; class: string }> = {
+    DRAFT: { label: t('recruitment.draft'), class: 'badge-neutral' },
+    OPEN: { label: t('recruitment.open'), class: 'badge-success' },
+    ON_HOLD: { label: t('recruitment.onHold'), class: 'badge-warning' },
+    CLOSED: { label: t('recruitment.closed'), class: 'badge-danger' },
+  };
+  const JOB_TYPE_MAP: Record<string, string> = {
+    FULL_TIME: t('recruitment.fullTime'),
+    PART_TIME: t('recruitment.partTime'),
+    CONTRACT: t('recruitment.contract'),
+    INTERNSHIP: t('recruitment.internship'),
+    RESEARCH: t('recruitment.research'),
+  };
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [editingJob, setEditingJob] = useState<any>(null);
@@ -123,12 +136,32 @@ function JobOpeningsTab() {
   const navigate = useNavigate();
   const jobs = jobsRes?.data || [];
 
-  const handleGenerateQuestions = async (job: any) => {
+  const handleGenerateQuestions = async (job: any, forceRegenerate = false) => {
+    // If job already has questions and not force-regenerating, just show preview
+    const existingCount = job._count?.questions || job.questions?.length || 0;
+    if (existingCount > 0 && !forceRegenerate) {
+      // Fetch job details to get actual questions
+      try {
+        setGeneratingJobId(job.id);
+        const detail = await fetch(`/api/recruitment/jobs/${job.id}`, {
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken') || ''}` },
+        });
+        const json = await detail.json();
+        if (json.success && json.data?.questions?.length > 0) {
+          setQuestionsPreview({ jobTitle: job.title, questions: json.data.questions });
+          setGeneratingJobId(null);
+          return;
+        }
+      } catch {
+        // Fall through to generate
+      }
+    }
+
     setGeneratingJobId(job.id);
     try {
       const result = await generateQuestions(job.id).unwrap();
       const questions = result?.data || result || [];
-      toast.success(`${Array.isArray(questions) ? questions.length : 6} screening questions generated!`);
+      toast.success(`${Array.isArray(questions) ? questions.length : 6} screening questions ${forceRegenerate ? 'regenerated' : 'generated'}!`);
       setQuestionsPreview({ jobTitle: job.title, questions: Array.isArray(questions) ? questions : [] });
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to generate questions. Is AI configured?');
@@ -173,11 +206,11 @@ function JobOpeningsTab() {
         <div className="flex items-center gap-2 ml-auto">
           <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
             onClick={() => setShowBulkUpload(true)} className="btn-secondary flex items-center gap-2">
-            <Upload size={16} /> Bulk Upload
+            <Upload size={16} /> {t('common.upload')}
           </motion.button>
           <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
             onClick={() => setShowCreateModal(true)} className="btn-primary flex items-center gap-2">
-            <Plus size={18} /> Post Job
+            <Plus size={18} /> {t('recruitment.createJob')}
           </motion.button>
         </div>
       </div>
@@ -241,32 +274,32 @@ function JobOpeningsTab() {
                   <span className="font-mono" data-mono>{job._count?.applications || 0}</span> applicants
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  {job.status === 'DRAFT' && <button onClick={() => handleStatusChange(job.id, 'OPEN')} className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">Publish</button>}
+                  {job.status === 'DRAFT' && <button onClick={() => handleStatusChange(job.id, 'OPEN')} className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">{t('recruitment.open')}</button>}
                   {job.status === 'OPEN' && (
                     <>
-                      <button onClick={() => handleStatusChange(job.id, 'DRAFT')} className="text-xs text-amber-600 hover:text-amber-700 font-medium">Unpublish</button>
-                      <button onClick={() => handleStatusChange(job.id, 'ON_HOLD')} className="text-xs text-orange-600 hover:text-orange-700 font-medium">Hold</button>
-                      <button onClick={() => handleStatusChange(job.id, 'CLOSED')} className="text-xs text-red-500 hover:text-red-600 font-medium">Close</button>
+                      <button onClick={() => handleStatusChange(job.id, 'DRAFT')} className="text-xs text-amber-600 hover:text-amber-700 font-medium">{t('recruitment.draft')}</button>
+                      <button onClick={() => handleStatusChange(job.id, 'ON_HOLD')} className="text-xs text-orange-600 hover:text-orange-700 font-medium">{t('recruitment.onHold')}</button>
+                      <button onClick={() => handleStatusChange(job.id, 'CLOSED')} className="text-xs text-red-500 hover:text-red-600 font-medium">{t('recruitment.closed')}</button>
                     </>
                   )}
                   {job.status === 'ON_HOLD' && (
                     <>
-                      <button onClick={() => handleStatusChange(job.id, 'OPEN')} className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">Reopen</button>
-                      <button onClick={() => handleStatusChange(job.id, 'CLOSED')} className="text-xs text-red-500 hover:text-red-600 font-medium">Close</button>
+                      <button onClick={() => handleStatusChange(job.id, 'OPEN')} className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">{t('recruitment.open')}</button>
+                      <button onClick={() => handleStatusChange(job.id, 'CLOSED')} className="text-xs text-red-500 hover:text-red-600 font-medium">{t('recruitment.closed')}</button>
                     </>
                   )}
-                  {job.status === 'CLOSED' && <button onClick={() => handleStatusChange(job.id, 'OPEN')} className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">Reopen</button>}
-                  <button onClick={() => setEditingJob(job)} className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1"><Pencil size={12} /> Edit</button>
+                  {job.status === 'CLOSED' && <button onClick={() => handleStatusChange(job.id, 'OPEN')} className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">{t('recruitment.open')}</button>}
+                  <button onClick={() => setEditingJob(job)} className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1"><Pencil size={12} /> {t('common.edit')}</button>
                   {(job._count?.applications || 0) === 0 && (
                     <button onClick={() => setDeleteConfirm(job.id)} className="text-xs text-red-400 hover:text-red-600 flex items-center gap-1"><Trash2 size={12} /></button>
                   )}
-                  <button onClick={() => navigate(`/recruitment/${job.id}`)} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"><Eye size={14} /> View</button>
+                  <button onClick={() => navigate(`/recruitment/${job.id}`)} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"><Eye size={14} /> {t('common.viewAll')}</button>
                   <button
                     onClick={() => setShareJob(job)}
                     className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1 font-medium"
                     title="Share job opening link"
                   >
-                    <Share2 size={12} /> Share
+                    <Share2 size={12} /> {t('recruitment.shareJob')}
                   </button>
                 </div>
               </div>
@@ -285,11 +318,11 @@ function JobOpeningsTab() {
             onClick={() => setDeleteConfirm(null)}>
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
               onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 max-w-sm">
-              <h3 className="text-lg font-display font-semibold text-gray-800 mb-2">Delete Job?</h3>
-              <p className="text-sm text-gray-500 mb-5">This action cannot be undone.</p>
+              <h3 className="text-lg font-display font-semibold text-gray-800 mb-2">{t('recruitment.deleteJob')}?</h3>
+              <p className="text-sm text-gray-500 mb-5">{t('common.cannotBeUndone')}</p>
               <div className="flex gap-3">
-                <button onClick={() => setDeleteConfirm(null)} className="btn-secondary flex-1">Cancel</button>
-                <button onClick={() => handleDeleteJob(deleteConfirm)} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors">Delete</button>
+                <button onClick={() => setDeleteConfirm(null)} className="btn-secondary flex-1">{t('common.cancel')}</button>
+                <button onClick={() => handleDeleteJob(deleteConfirm)} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors">{t('common.delete')}</button>
               </div>
             </motion.div>
           </motion.div>
@@ -303,7 +336,7 @@ function JobOpeningsTab() {
             onClose={() => setQuestionsPreview(null)}
             onRegenerate={() => {
               const job = jobs.find((j: any) => j.title === questionsPreview.jobTitle);
-              if (job) handleGenerateQuestions(job);
+              if (job) handleGenerateQuestions(job, true);
             }}
             isRegenerating={!!generatingJobId}
           />
@@ -423,6 +456,7 @@ function ShareJobModal({ isOpen, onClose, job, allJobs }: {
   job: { id: string; title: string; publicFormToken?: string | null; department?: string };
   allJobs?: any[];
 }) {
+  const { t } = useTranslation();
   const [selectedJobId, setSelectedJobId] = useState(job.id);
   const selectedJob = allJobs?.find((j: any) => j.id === selectedJobId) || job;
   const jobUrl = selectedJob.publicFormToken ? `${window.location.origin}/apply/${selectedJob.publicFormToken}` : '';
@@ -452,11 +486,16 @@ function ShareJobModal({ isOpen, onClose, job, allJobs }: {
 
   const handleWhatsAppOpen = () => {
     if (!jobUrl) { toast.error('Please save the job first to generate a link'); return; }
-    // Store the message in sessionStorage so the WhatsApp page can pick it up
-    sessionStorage.setItem('whatsapp_prefill_message', whatsappMsg);
-    if (phone.trim()) sessionStorage.setItem('whatsapp_prefill_phone', phone.trim());
-    // Navigate to the internal WhatsApp page
-    window.location.href = '/whatsapp';
+    // Open WhatsApp Web with the pre-filled message (external link)
+    const encodedMsg = encodeURIComponent(whatsappMsg);
+    if (phone.trim()) {
+      // Direct send to number via wa.me
+      window.open(`https://wa.me/${phone.trim()}?text=${encodedMsg}`, '_blank');
+    } else {
+      // Store the message in sessionStorage so the internal WhatsApp page can pick it up
+      sessionStorage.setItem('whatsapp_prefill_message', whatsappMsg);
+      window.open('/whatsapp', '_blank');
+    }
   };
 
   const handleSendEmail = async () => {
@@ -477,7 +516,7 @@ function ShareJobModal({ isOpen, onClose, job, allJobs }: {
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
             <h3 className="text-lg font-display font-semibold text-gray-800 flex items-center gap-2">
-              <Share2 size={20} className="text-teal-600" /> Share Job Opening
+              <Share2 size={20} className="text-teal-600" /> {t('recruitment.shareJob')}
             </h3>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={18} className="text-gray-400" /></button>
@@ -503,6 +542,14 @@ function ShareJobModal({ isOpen, onClose, job, allJobs }: {
             </div>
           )}
 
+          {/* Non-OPEN warning */}
+          {selectedJob.status && selectedJob.status !== 'OPEN' && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+              <AlertCircle size={14} className="shrink-0" />
+              This job is <strong>{selectedJob.status}</strong> — candidates can still apply via the link but the position may not be actively recruiting.
+            </div>
+          )}
+
           {/* Copy Link */}
           <div>
             <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-2">
@@ -511,18 +558,25 @@ function ShareJobModal({ isOpen, onClose, job, allJobs }: {
             {jobUrl ? (
               <div className="flex items-center gap-2">
                 <input type="text" readOnly value={jobUrl} className="input-glass flex-1 text-xs text-gray-600 bg-gray-50" />
-                <button onClick={handleCopyLink} className="btn-primary text-xs px-3 py-2 shrink-0">Copy</button>
+                <button onClick={handleCopyLink} className="btn-primary text-xs px-3 py-2 shrink-0">{t('common.copy')}</button>
               </div>
             ) : (
               <p className="text-xs text-amber-600">This job doesn't have a public form token yet.</p>
             )}
             <div className="flex items-center gap-2 mt-2">
               <span className="text-[10px] text-gray-400">Share on:</span>
-              {['LinkedIn', 'Naukri', 'Indeed'].map(site => (
-                <a key={site} href={site === 'LinkedIn' ? `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(jobUrl)}` : site === 'Naukri' ? 'https://www.naukri.com' : 'https://www.indeed.com'}
-                  target="_blank" rel="noopener noreferrer"
-                  className="text-[10px] text-brand-600 hover:underline">{site}</a>
-              ))}
+              <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(jobUrl)}`}
+                target="_blank" rel="noopener noreferrer"
+                className="text-[10px] text-brand-600 hover:underline">LinkedIn</a>
+              <a href={`https://www.naukri.com/post-job?title=${encodeURIComponent(selectedJob.title || '')}&location=${encodeURIComponent(selectedJob.location || '')}`}
+                target="_blank" rel="noopener noreferrer"
+                className="text-[10px] text-brand-600 hover:underline">Naukri</a>
+              <a href={`https://employers.indeed.com/p#/post-job?title=${encodeURIComponent(selectedJob.title || '')}`}
+                target="_blank" rel="noopener noreferrer"
+                className="text-[10px] text-brand-600 hover:underline">Indeed</a>
+              <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`We're hiring! ${selectedJob.title} at Aniston Technologies. Apply here:`)}&url=${encodeURIComponent(jobUrl)}`}
+                target="_blank" rel="noopener noreferrer"
+                className="text-[10px] text-brand-600 hover:underline">X/Twitter</a>
             </div>
           </div>
 
@@ -570,7 +624,7 @@ function ShareJobModal({ isOpen, onClose, job, allJobs }: {
         </div>
 
         <div className="px-6 py-3 border-t border-gray-100 flex justify-end">
-          <button onClick={onClose} className="btn-secondary text-sm">Close</button>
+          <button onClick={onClose} className="btn-secondary text-sm">{t('common.close')}</button>
         </div>
       </motion.div>
     </motion.div>
@@ -761,6 +815,7 @@ function WalkInTab() {
 
 // =================== Tab 3: Hiring Passed ===================
 function HiringPassedTab() {
+  const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [hireModal, setHireModal] = useState<any>(null);
@@ -869,7 +924,7 @@ function HiringPassedTab() {
                         </button>
                         <button onClick={() => setHireModal(c)}
                           className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-1">
-                          <UserPlus size={12} /> Hire
+                          <UserPlus size={12} /> {t('recruitment.hire')}
                         </button>
                         <div className="relative">
                           <button onClick={() => setOpenMenu(openMenu === c.id ? null : c.id)}
@@ -919,6 +974,7 @@ function HiringPassedTab() {
 
 // =================== Walk-In Detail Slide-Over ===================
 function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candidateId: string; onClose: () => void; onStatusChange: () => void }) {
+  const { t } = useTranslation();
   const { data: res, isLoading } = useGetWalkInByIdQuery(candidateId);
   const [updateStatus] = useUpdateWalkInStatusMutation();
   const [addNotes] = useAddWalkInNotesMutation();
@@ -1117,7 +1173,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                           <ClipboardCheck size={12} /> Take Interview
                         </button>
                       )}
-                      <button onClick={() => setShowAddRound(true)} className="btn-primary text-xs flex items-center gap-1"><Plus size={12} /> Add Round</button>
+                      <button onClick={() => setShowAddRound(true)} className="btn-primary text-xs flex items-center gap-1"><Plus size={12} /> {t('recruitment.addInterviewRound')}</button>
                     </div>
                   </div>
 
@@ -1130,8 +1186,8 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                         {interviewers.map((i: any) => <option key={i.id} value={i.id}>{i.email}</option>)}
                       </select>
                       <div className="flex gap-2">
-                        <button onClick={handleAddRound} className="btn-primary text-xs">Add</button>
-                        <button onClick={() => setShowAddRound(false)} className="btn-secondary text-xs">Cancel</button>
+                        <button onClick={handleAddRound} className="btn-primary text-xs">{t('recruitment.addInterviewRound')}</button>
+                        <button onClick={() => setShowAddRound(false)} className="btn-secondary text-xs">{t('common.cancel')}</button>
                       </div>
                     </div>
                   )}
@@ -1307,7 +1363,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                   {candidate.status === 'SELECTED' && (
                     <button onClick={() => setHireModal(true)}
                       className="w-full bg-emerald-600 text-white py-3 rounded-xl font-medium hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2">
-                      <UserPlus size={18} /> Hire Candidate
+                      <UserPlus size={18} /> {t('recruitment.hire')}
                     </button>
                   )}
 
@@ -1849,6 +1905,7 @@ function AIScreenedTab() {
 
 // =================== Hire Modal ===================
 function HireModal({ candidate, onClose, onSuccess }: { candidate: any; onClose: () => void; onSuccess?: () => void }) {
+  const { t } = useTranslation();
   const [teamsEmail, setTeamsEmail] = useState('');
   const [hireWalkIn, { isLoading }] = useHireWalkInMutation();
   const [result, setResult] = useState<any>(null);
@@ -1880,7 +1937,7 @@ function HireModal({ candidate, onClose, onSuccess }: { candidate: any; onClose:
             <p className="text-2xl font-display font-bold text-brand-600 mb-2" data-mono>{result.employeeCode}</p>
             <p className="text-sm text-gray-500 mb-1">Teams Email: {teamsEmail}</p>
             <p className="text-xs text-gray-400">Onboarding invitation has been sent</p>
-            <button onClick={onClose} className="btn-primary mt-5 w-full">Done</button>
+            <button onClick={onClose} className="btn-primary mt-5 w-full">{t('profile.done')}</button>
           </div>
         ) : (
           <div className="space-y-4">
@@ -1896,11 +1953,11 @@ function HireModal({ candidate, onClose, onSuccess }: { candidate: any; onClose:
               <p className="text-xs text-gray-400 mt-1">This will be used as the employee's login email</p>
             </div>
             <div className="flex gap-3 pt-2">
-              <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={onClose} className="btn-secondary flex-1">{t('common.cancel')}</button>
               <button onClick={handleHire} disabled={isLoading || !teamsEmail}
                 className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50">
                 {isLoading && <Loader2 size={16} className="animate-spin" />}
-                <Mail size={16} /> Create & Send Invite
+                <Mail size={16} /> {t('recruitment.hire')}
               </button>
             </div>
           </div>
@@ -1912,6 +1969,7 @@ function HireModal({ candidate, onClose, onSuccess }: { candidate: any; onClose:
 
 // =================== Edit Job Modal ===================
 function EditJobModal({ job, onClose }: { job: any; onClose: () => void }) {
+  const { t } = useTranslation();
   const [updateJob, { isLoading }] = useUpdateJobMutation();
   const [form, setForm] = useState({
     title: job.title || '', department: job.department || '', location: job.location || '',
@@ -1932,7 +1990,7 @@ function EditJobModal({ job, onClose }: { job: any; onClose: () => void }) {
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
         className="bg-white rounded-2xl shadow-glass-lg w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-display font-semibold text-gray-800">Edit Job</h2>
+          <h2 className="text-lg font-display font-semibold text-gray-800">{t('recruitment.editJob')}</h2>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"><X size={18} className="text-gray-400" /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -1947,8 +2005,8 @@ function EditJobModal({ job, onClose }: { job: any; onClose: () => void }) {
           <div className="grid grid-cols-3 gap-3">
             <div><label className="block text-sm font-medium text-gray-600 mb-1">Type</label>
               <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} className="input-glass w-full">
-                <option value="FULL_TIME">Full-time</option><option value="PART_TIME">Part-time</option>
-                <option value="CONTRACT">Contract</option><option value="INTERNSHIP">Internship</option>
+                <option value="FULL_TIME">{t('recruitment.fullTime')}</option><option value="PART_TIME">{t('recruitment.partTime')}</option>
+                <option value="CONTRACT">{t('recruitment.contract')}</option><option value="INTERNSHIP">{t('recruitment.internship')}</option>
               </select></div>
             <div><label className="block text-sm font-medium text-gray-600 mb-1">Experience</label>
               <input value={form.experience} onChange={(e) => setForm({ ...form, experience: e.target.value })} className="input-glass w-full" /></div>
@@ -1960,10 +2018,10 @@ function EditJobModal({ job, onClose }: { job: any; onClose: () => void }) {
           <div><label className="block text-sm font-medium text-gray-600 mb-1">Requirements (one per line)</label>
             <textarea value={form.requirements} onChange={(e) => setForm({ ...form, requirements: e.target.value })} className="input-glass w-full h-20 resize-none" /></div>
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">{t('common.cancel')}</button>
             <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} type="submit" disabled={isLoading}
               className="btn-primary flex-1 flex items-center justify-center gap-2">
-              {isLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}Save Changes</motion.button>
+              {isLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}{t('common.save')}</motion.button>
           </div>
         </form>
       </motion.div>
@@ -1973,13 +2031,26 @@ function EditJobModal({ job, onClose }: { job: any; onClose: () => void }) {
 
 // =================== Create Job Modal ===================
 function CreateJobModal({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
   const [createJob, { isLoading }] = useCreateJobMutation();
+  const [generateQuestions] = useGenerateJobQuestionsMutation();
+  const [autoGenerate, setAutoGenerate] = useState(true);
   const [form, setForm] = useState({ title: '', department: '', location: '', type: 'FULL_TIME', experience: '', openings: 1, description: '', requirements: '' });
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await createJob({ ...form, requirements: form.requirements.split('\n').filter(Boolean) }).unwrap();
-      toast.success('Job opening created!'); onClose();
+      const result = await createJob({ ...form, requirements: form.requirements.split('\n').filter(Boolean) }).unwrap();
+      toast.success('Job opening created!');
+      // Auto-generate screening questions for the new job
+      if (autoGenerate && result?.data?.id) {
+        try {
+          await generateQuestions(result.data.id).unwrap();
+          toast.success('AI screening questions generated!');
+        } catch {
+          toast.success('Job created! AI questions will use fallback set.');
+        }
+      }
+      onClose();
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to create job'); }
   };
   return (
@@ -1989,7 +2060,7 @@ function CreateJobModal({ onClose }: { onClose: () => void }) {
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
         className="bg-white rounded-2xl shadow-glass-lg w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-display font-semibold text-gray-800">Post New Job</h2>
+          <h2 className="text-lg font-display font-semibold text-gray-800">{t('recruitment.createJob')}</h2>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"><X size={18} className="text-gray-400" /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -2004,8 +2075,8 @@ function CreateJobModal({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-3 gap-3">
             <div><label className="block text-sm font-medium text-gray-600 mb-1">Type</label>
               <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} className="input-glass w-full">
-                <option value="FULL_TIME">Full-time</option><option value="PART_TIME">Part-time</option>
-                <option value="CONTRACT">Contract</option><option value="INTERNSHIP">Internship</option>
+                <option value="FULL_TIME">{t('recruitment.fullTime')}</option><option value="PART_TIME">{t('recruitment.partTime')}</option>
+                <option value="CONTRACT">{t('recruitment.contract')}</option><option value="INTERNSHIP">{t('recruitment.internship')}</option>
               </select></div>
             <div><label className="block text-sm font-medium text-gray-600 mb-1">Experience</label>
               <input value={form.experience} onChange={(e) => setForm({ ...form, experience: e.target.value })} className="input-glass w-full" placeholder="e.g. 3-5 years" /></div>
@@ -2016,11 +2087,16 @@ function CreateJobModal({ onClose }: { onClose: () => void }) {
             <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="input-glass w-full h-24 resize-none" placeholder="Describe the role..." required minLength={20} /></div>
           <div><label className="block text-sm font-medium text-gray-600 mb-1">Requirements (one per line)</label>
             <textarea value={form.requirements} onChange={(e) => setForm({ ...form, requirements: e.target.value })} className="input-glass w-full h-20 resize-none" placeholder="3+ years React experience&#10;TypeScript proficiency" /></div>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={autoGenerate} onChange={e => setAutoGenerate(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+            <span className="text-sm text-gray-600">Auto-generate AI screening questions (Intelligence, Integrity, Energy)</span>
+          </label>
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">{t('common.cancel')}</button>
             <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} type="submit" disabled={isLoading}
               className="btn-primary flex-1 flex items-center justify-center gap-2">
-              {isLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}Create Job</motion.button>
+              {isLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}{t('recruitment.createJob')}</motion.button>
           </div>
         </form>
       </motion.div>

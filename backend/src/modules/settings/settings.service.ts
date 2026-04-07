@@ -111,7 +111,7 @@ export class SettingsService {
   // ==================
 
   async getEmailConfig(organizationId: string) {
-    const org = await prisma.organization.findFirst({ where: { id: organizationId }, select: { settings: true } });
+    const org = await prisma.organization.findFirst({ where: { id: organizationId }, select: { settings: true, payrollEmail: true } });
     const settings = (org?.settings as any) || {};
     const email = settings.email || {};
     // Never expose secrets to frontend
@@ -130,6 +130,8 @@ export class SettingsService {
       clientId: email.clientId || '',
       hasClientSecret: !!email.clientSecret,
       senderEmail: email.senderEmail || '',
+      // Payroll
+      payrollEmail: org?.payrollEmail || '',
       // Status
       configured: email.authMethod === 'oauth2'
         ? !!(email.tenantId && email.clientId && email.clientSecret && email.senderEmail)
@@ -191,9 +193,15 @@ export class SettingsService {
       senderEmail: parsed.data.senderEmail || existingEmail.senderEmail || '',
     };
 
+    // Also save payrollEmail if provided (stored on Organization model directly)
+    const updateData: any = { settings: { ...existingSettings, email: emailConfig } };
+    if (config.payrollEmail !== undefined) {
+      updateData.payrollEmail = config.payrollEmail || null;
+    }
+
     await prisma.organization.update({
       where: { id: organizationId },
-      data: { settings: { ...existingSettings, email: emailConfig } },
+      data: updateData,
     });
 
     await createAuditLog({
@@ -202,7 +210,7 @@ export class SettingsService {
       entity: 'EmailConfig',
       entityId: organizationId,
       action: 'UPDATE',
-      newValue: { authMethod: emailConfig.authMethod, host: config.host, user: config.user, fromAddress: config.fromAddress, senderEmail: config.senderEmail },
+      newValue: { authMethod: emailConfig.authMethod, host: config.host, user: config.user, fromAddress: config.fromAddress, senderEmail: config.senderEmail, payrollEmail: config.payrollEmail },
     });
 
     return { success: true };

@@ -475,6 +475,8 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const agentSocketIdRef = useRef<string | null>(null);
+  const signalHandlerRef = useRef<((data: any) => void) | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -483,6 +485,21 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
   const { data: empRes } = useGetEmployeesQuery({ page: 1, limit: 100 });
   const employee = (empRes?.data || []).find((e: any) => e.id === employeeId);
   const employeeUserId = employee?.user?.id;
+
+  // Cleanup on unmount — ensures no leaked listeners, timers, or peer connections
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      const socket = getSocket();
+      if (socket && signalHandlerRef.current) {
+        socket.off('stream:signal', signalHandlerRef.current);
+      }
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
+    };
+  }, []);
 
   const startLiveStream = useCallback(() => {
     if (!employeeUserId) {
@@ -499,6 +516,12 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
       return;
     }
 
+    // Clean up previous signal handler if any
+    if (signalHandlerRef.current) {
+      socket.off('stream:signal', signalHandlerRef.current);
+    }
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
     // Create RTCPeerConnection
     const pc = new RTCPeerConnection({
       iceServers: [
@@ -514,6 +537,7 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
         videoRef.current.srcObject = event.streams[0];
         setStreaming(true);
         setConnecting(false);
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
       }
     };
 
@@ -538,7 +562,6 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
     // Listen for WebRTC signals from agent
     const handleSignal = (data: any) => {
       if (data.type === 'offer' && data.sdp) {
-        // Save agent's socket ID for sending signals back
         agentSocketIdRef.current = data.fromSocketId;
         pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
           .then(() => pc.createAnswer())
@@ -550,7 +573,7 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
               targetSocketId: data.fromSocketId,
             });
           })
-          .catch((err) => {
+          .catch(() => {
             setError('Failed to establish connection');
             setConnecting(false);
           });
@@ -559,28 +582,36 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
       }
     };
 
+    signalHandlerRef.current = handleSignal;
     socket.on('stream:signal', handleSignal);
 
     // Request stream from agent
     socket.emit('stream:request', { employeeUserId });
 
-    // Timeout after 15 seconds
-    setTimeout(() => {
-      if (!streaming && connecting) {
-        setConnecting(false);
-        setError('Agent did not respond. Make sure the desktop agent is running.');
-      }
+    // Timeout after 15 seconds — properly cleared on success or unmount
+    timeoutRef.current = setTimeout(() => {
+      setConnecting(prev => {
+        if (prev) {
+          setError('Agent did not respond. Make sure the desktop agent is running.');
+          return false;
+        }
+        return prev;
+      });
     }, 15000);
-
-    return () => {
-      socket.off('stream:signal', handleSignal);
-    };
   }, [employeeUserId]);
 
   const stopLiveStream = useCallback(() => {
     const socket = getSocket();
     if (socket && employeeUserId) {
       socket.emit('stream:stop-request', { employeeUserId });
+    }
+    if (socket && signalHandlerRef.current) {
+      socket.off('stream:signal', signalHandlerRef.current);
+      signalHandlerRef.current = null;
+    }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
     }
     if (pcRef.current) {
       pcRef.current.close();

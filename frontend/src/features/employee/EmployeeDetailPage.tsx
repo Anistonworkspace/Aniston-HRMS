@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import 'leaflet/dist/leaflet.css';
@@ -30,6 +31,7 @@ const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 type TabKey = 'overview' | 'attendance' | 'personal' | 'salary' | 'documents' | 'connections' | 'intern' | 'permissions';
 
 export default function EmployeeDetailPage() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const user = useAppSelector((state) => state.auth.user);
@@ -63,11 +65,11 @@ export default function EmployeeDetailPage() {
   const profileCompletion = useMemo(() => {
     if (!employee) return { items: [], pct: 0 };
     const items = [
-      { label: 'Personal Details', done: !!(employee.dateOfBirth && employee.gender) },
-      { label: 'Emergency Contact', done: !!employee.emergencyContact },
-      { label: 'Dept & Designation', done: !!(employee.department && employee.designation) },
-      { label: 'Documents', done: (employee.documents?.length || 0) >= 3 },
-      { label: 'Bank Details', done: !!employee.bankAccountNumber },
+      { label: t('employees.completionPersonal'), done: !!(employee.dateOfBirth && employee.gender) },
+      { label: t('employees.completionEmergency'), done: !!employee.emergencyContact },
+      { label: t('employees.completionDept'), done: !!(employee.department && employee.designation) },
+      { label: t('employees.completionDocuments'), done: (employee.documents?.length || 0) >= 3 },
+      { label: t('employees.completionBank'), done: !!employee.bankAccountNumber },
     ];
     const pct = Math.round((items.filter(i => i.done).length / items.length) * 100);
     return { items, pct };
@@ -100,8 +102,8 @@ export default function EmployeeDetailPage() {
     return (
       <div className="min-h-screen bg-surface-1 flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-lg font-display font-bold text-gray-600">Employee not found</h2>
-          <button onClick={() => navigate('/employees')} className="mt-4 btn-primary text-sm">Back to Employees</button>
+          <h2 className="text-lg font-display font-bold text-gray-600">{t('employees.notFound')}</h2>
+          <button onClick={() => navigate('/employees')} className="mt-4 btn-primary text-sm">{t('employees.backToEmployees')}</button>
         </div>
       </div>
     );
@@ -109,14 +111,14 @@ export default function EmployeeDetailPage() {
 
   const isIntern = employee?.user?.role === 'INTERN';
   const tabs: { key: TabKey; label: string }[] = [
-    { key: 'overview', label: 'Overview' },
-    { key: 'attendance', label: 'Attendance & Leaves' },
-    ...(isManagement ? [{ key: 'salary' as TabKey, label: 'Salary' }] : []),
-    { key: 'personal', label: 'Personal' },
-    { key: 'documents', label: 'Documents' },
-    ...(isIntern ? [{ key: 'intern' as TabKey, label: 'Intern Profile' }] : []),
-    { key: 'connections', label: 'Connections' },
-    ...(isManagement ? [{ key: 'permissions' as TabKey, label: 'Permissions' }] : []),
+    { key: 'overview', label: t('employees.overview') },
+    { key: 'attendance', label: t('employees.attendanceLeaves') },
+    ...(isManagement ? [{ key: 'salary' as TabKey, label: t('employees.salary') }] : []),
+    { key: 'personal', label: t('employees.personal') },
+    { key: 'documents', label: t('employees.documents') },
+    ...(isIntern ? [{ key: 'intern' as TabKey, label: t('employees.internProfile') }] : []),
+    { key: 'connections', label: t('employees.connections') },
+    ...(isManagement ? [{ key: 'permissions' as TabKey, label: t('employees.permissions') }] : []),
   ];
 
   return (
@@ -125,7 +127,7 @@ export default function EmployeeDetailPage() {
       <div className="bg-white border-b border-gray-100 px-6 py-3">
         <div className="flex items-center gap-2 text-sm">
           <button onClick={() => navigate('/employees')} className="text-gray-400 hover:text-brand-600 transition-colors flex items-center gap-1">
-            <ArrowLeft size={14} /> Employee
+            <ArrowLeft size={14} /> {t('employees.breadcrumb')}
           </button>
           <ChevronRight size={14} className="text-gray-300" />
           <span className="text-gray-800 font-medium font-mono" data-mono>{employee.employeeCode}</span>
@@ -189,7 +191,7 @@ export default function EmployeeDetailPage() {
           {/* Profile Completion Bar */}
           {profileCompletion.pct < 100 && (
             <div className="mt-5 border-t border-gray-100 pt-4">
-              <h4 className="text-[11px] font-semibold text-gray-600 mb-2">Profile Completion</h4>
+              <h4 className="text-[11px] font-semibold text-gray-600 mb-2">{t('profile.profileCompletion')}</h4>
               <div className="space-y-1.5">
                 {profileCompletion.items.map((item, i) => (
                   <div key={i} className="flex items-center justify-between text-[11px]">
@@ -389,14 +391,14 @@ export default function EmployeeDetailPage() {
 
                 {/* Profile Completion */}
                 <div className="layer-card p-5">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Profile Completion</h3>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">{t('profile.profileCompletion')}</h3>
                   <div className="space-y-2">
                     {[
-                      { label: 'Personal Details', done: !!(employee.dateOfBirth && employee.gender) },
-                      { label: 'Emergency Contact', done: !!employee.emergencyContact },
-                      { label: 'Department & Designation', done: !!(employee.department && employee.designation) },
-                      { label: 'Documents', done: (employee.documents?.length || 0) >= 3 },
-                      { label: 'Bank Details', done: !!employee.bankAccountNumber },
+                      { label: t('employees.completionPersonal'), done: !!(employee.dateOfBirth && employee.gender) },
+                      { label: t('employees.completionEmergency'), done: !!employee.emergencyContact },
+                      { label: t('employees.completionDept'), done: !!(employee.department && employee.designation) },
+                      { label: t('employees.completionDocuments'), done: (employee.documents?.length || 0) >= 3 },
+                      { label: t('employees.completionBank'), done: !!employee.bankAccountNumber },
                     ].map((item, i) => (
                       <div key={i} className="flex items-center justify-between text-sm">
                         <span className="text-gray-600">{item.label}</span>
@@ -1249,8 +1251,6 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
   const pt = grossEarnings > 15000 ? 200 : grossEarnings > 10000 ? 150 : 0;
 
   const customDeductionTotal = customDeductions.reduce((sum, d) => sum + (d.amount || 0), 0);
-  const totalDeductions = Math.round(epfEmployee) + Math.round(esiEmployee) + pt + customDeductionTotal;
-  const netMonthly = grossEarnings - totalDeductions;
 
   // Validation
   const validate = useCallback((): Record<string, string> => {
@@ -1258,8 +1258,6 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
     if (annualCtc <= 0) errs.ctc = 'Annual CTC must be greater than zero';
     if (basicAmount <= 0) errs.basic = 'Basic salary is required and must be positive';
     if (grossEarnings > monthly * 1.5) errs.gross = 'Total earnings significantly exceed monthly CTC';
-    if (totalDeductions > grossEarnings) errs.deductions = 'Total deductions exceed earnings — net pay would be negative';
-    if (netMonthly < 0) errs.net = 'Net take-home cannot be negative';
     for (const e of earnings) {
       if (e.amount < 0) errs[e.id] = `${e.name} cannot be negative`;
       if (!e.name.trim()) errs[e.id] = 'Component name is required';
@@ -1269,7 +1267,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
       if (!d.name.trim()) errs[d.id] = 'Deduction name is required';
     }
     return errs;
-  }, [annualCtc, basicAmount, grossEarnings, monthly, totalDeductions, netMonthly, earnings, customDeductions]);
+  }, [annualCtc, basicAmount, grossEarnings, monthly, earnings, customDeductions]);
 
   useEffect(() => {
     if (editing) setErrors(validate());
@@ -1409,276 +1407,247 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
     }
   };
 
-  const statutoryDeductionRows = [
-    { label: 'EPF (Employee 12%)', value: Math.round(epfEmployee), note: `Employer: ${formatCurrency(Math.round(epfEmployer))}` },
-    ...(esiEmployee > 0 ? [{ label: 'ESI (Employee 0.75%)', value: Math.round(esiEmployee), note: `Employer: ${formatCurrency(Math.round(esiEmployer))}` }] : []),
-    { label: 'Professional Tax', value: pt, note: 'State slab-based' },
-  ];
+  // Statutory toggles
+  const [epfEnabled, setEpfEnabled] = useState(true);
+  const [esiEnabled, setEsiEnabled] = useState(true);
+  const [ptEnabled, setPtEnabled] = useState(true);
+
+  const activeEpfEmployee = epfEnabled ? Math.round(epfEmployee) : 0;
+  const activeEpfEmployer = epfEnabled ? Math.round(epfEmployer) : 0;
+  const activeEsiEmployee = esiEnabled && grossEarnings <= 21000 ? Math.round(esiEmployee) : 0;
+  const activeEsiEmployer = esiEnabled && grossEarnings <= 21000 ? Math.round(esiEmployer) : 0;
+  const activePt = ptEnabled ? pt : 0;
+
+  const customDeductionTotal2 = customDeductions.reduce((sum, d) => sum + (d.amount || 0), 0);
+  const totalDeductionsCalc = activeEpfEmployee + activeEsiEmployee + activePt + customDeductionTotal2;
+  const netMonthlyCalc = grossEarnings - totalDeductionsCalc;
 
   return (
-    <div className="space-y-6">
-      {/* CTC & Summary Cards */}
-      <div className="grid md:grid-cols-4 gap-4">
-        <div className="layer-card p-5 text-center">
-          <p className="text-xs text-gray-400 mb-1">CTC (Annual)</p>
+    <div className="space-y-4">
+      {/* CTC + Summary — compact row */}
+      <div className="grid grid-cols-4 gap-3">
+        <div className="layer-card p-3 text-center">
+          <p className="text-[10px] text-gray-400 mb-0.5">CTC (Annual)</p>
           {editing ? (
-            <div>
-              <input
-                type="number"
-                value={annualCtc || ''}
-                onChange={e => handleCtcChange(Number(e.target.value))}
-                className={`input-glass w-full text-center text-lg font-bold font-mono ${errors.ctc ? 'ring-2 ring-red-400' : ''}`}
-                data-mono
-                placeholder="Enter annual CTC"
-              />
-              {errors.ctc && <p className="text-xs text-red-500 mt-1">{errors.ctc}</p>}
-            </div>
+            <input type="number" value={annualCtc || ''} onChange={e => handleCtcChange(Number(e.target.value))}
+              className={`input-glass w-full text-center text-sm font-bold font-mono py-1 ${errors.ctc ? 'ring-2 ring-red-400' : ''}`} data-mono placeholder="Annual CTC" />
           ) : (
-            <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{annualCtc ? formatCurrency(annualCtc) : '—'}</p>
+            <p className="text-lg font-bold font-mono text-gray-900" data-mono>{annualCtc ? formatCurrency(annualCtc) : '—'}</p>
           )}
         </div>
-        <div className="layer-card p-5 text-center">
-          <p className="text-xs text-gray-400 mb-1">Monthly Gross</p>
-          <p className={`text-2xl font-bold font-mono ${errors.gross ? 'text-amber-600' : 'text-brand-600'}`} data-mono>
-            {formatCurrency(Math.round(grossEarnings))}
-          </p>
-          {errors.gross && <p className="text-xs text-amber-500 mt-1">{errors.gross}</p>}
+        <div className="layer-card p-3 text-center">
+          <p className="text-[10px] text-gray-400 mb-0.5">Monthly Gross</p>
+          <p className="text-lg font-bold font-mono text-brand-600" data-mono>{formatCurrency(Math.round(grossEarnings))}</p>
         </div>
-        <div className="layer-card p-5 text-center">
-          <p className="text-xs text-gray-400 mb-1">Total Deductions</p>
-          <p className={`text-2xl font-bold font-mono ${errors.deductions ? 'text-red-600' : 'text-red-500'}`} data-mono>
-            -{formatCurrency(Math.round(totalDeductions))}
-          </p>
-          {errors.deductions && <p className="text-xs text-red-500 mt-1">{errors.deductions}</p>}
+        <div className="layer-card p-3 text-center">
+          <p className="text-[10px] text-gray-400 mb-0.5">Total Deductions</p>
+          <p className="text-lg font-bold font-mono text-red-500" data-mono>-{formatCurrency(Math.round(totalDeductionsCalc))}</p>
         </div>
-        <div className="layer-card p-5 text-center">
-          <p className="text-xs text-gray-400 mb-1">Net Take-Home</p>
-          <p className={`text-2xl font-bold font-mono ${netMonthly < 0 ? 'text-red-600' : 'text-emerald-600'}`} data-mono>
-            {formatCurrency(Math.round(netMonthly))}
-          </p>
-          {errors.net && <p className="text-xs text-red-500 mt-1">{errors.net}</p>}
+        <div className="layer-card p-3 text-center">
+          <p className="text-[10px] text-gray-400 mb-0.5">Net Take-Home</p>
+          <p className={`text-lg font-bold font-mono ${netMonthlyCalc < 0 ? 'text-red-600' : 'text-emerald-600'}`} data-mono>{formatCurrency(Math.round(netMonthlyCalc))}</p>
         </div>
       </div>
 
-      {/* Tax Regime Toggle */}
-      {editing && (
-        <div className="layer-card p-4 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-gray-800">Income Tax Regime</p>
-            <p className="text-xs text-gray-400">Affects TDS calculation</p>
+      {/* Actions bar — always visible */}
+      {isManagement && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {editing ? (
+              <>
+                <button onClick={handleSave} disabled={saving || hasErrors} className={`btn-primary text-xs flex items-center gap-1.5 py-1.5 ${hasErrors ? 'opacity-50' : ''}`}>
+                  {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} {saving ? 'Saving...' : 'Save'}
+                </button>
+                <button onClick={handleCancel} className="btn-secondary text-xs py-1.5">Cancel</button>
+                {hasErrors && <span className="text-[10px] text-red-500">{Object.values(errors)[0]}</span>}
+              </>
+            ) : (
+              <button onClick={() => setEditing(true)} className="btn-primary text-xs flex items-center gap-1.5 py-1.5">
+                <DollarSign size={12} /> Edit Salary Structure
+              </button>
+            )}
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setTaxRegime('NEW_REGIME')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${taxRegime === 'NEW_REGIME' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-            >
-              New Regime
-            </button>
-            <button
-              onClick={() => setTaxRegime('OLD_REGIME')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${taxRegime === 'OLD_REGIME' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-            >
-              Old Regime
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Earnings */}
-      <div className="layer-card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-800">Earnings (Monthly)</h3>
           {editing && (
             <div className="flex items-center gap-2">
-              <button onClick={() => setShowComponentPicker(true)} className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1">
-                <Plus size={14} /> Add from Library
-              </button>
-              <button onClick={addEarning} className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
-                <Plus size={14} /> Custom
-              </button>
+              <span className="text-[10px] text-gray-400">Tax:</span>
+              <button onClick={() => setTaxRegime('NEW_REGIME')} className={`px-2 py-1 text-[10px] font-medium rounded transition-colors ${taxRegime === 'NEW_REGIME' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600'}`}>New</button>
+              <button onClick={() => setTaxRegime('OLD_REGIME')} className={`px-2 py-1 text-[10px] font-medium rounded transition-colors ${taxRegime === 'OLD_REGIME' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600'}`}>Old</button>
             </div>
-          )}
-        </div>
-
-        {/* Component Picker from Master Library */}
-        {showComponentPicker && editing && (
-          <div className="mb-4 p-3 bg-blue-50/50 border border-blue-100 rounded-lg">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-blue-700">Select from Component Library</p>
-              <button onClick={() => setShowComponentPicker(false)} className="text-xs text-gray-400 hover:text-gray-600">Close</button>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
-              {componentMaster
-                .filter((mc: any) => mc.type === 'EARNING' && mc.isActive && !earnings.find(e => e.name === mc.name))
-                .map((mc: any) => (
-                  <button
-                    key={mc.id}
-                    onClick={() => {
-                      componentCounter++;
-                      const defaultAmt = mc.defaultValue ? Number(mc.defaultValue) : 0;
-                      const defaultPct = mc.defaultPercentage ? Number(mc.defaultPercentage) : 0;
-                      const monthly2 = annualCtc / 12;
-                      const isPercent = mc.calculationRule === 'PERCENTAGE_CTC' || mc.calculationRule === 'PERCENTAGE_BASIC';
-                      const calcAmt = isPercent ? Math.round(monthly2 * defaultPct / 100) : defaultAmt;
-                      setEarnings(prev => [...prev, {
-                        id: `master_${mc.code}_${componentCounter}`,
-                        name: mc.name,
-                        amount: calcAmt,
-                        mode: isPercent ? 'percent' as const : 'fixed' as const,
-                        percentValue: defaultPct,
-                        type: 'earning' as const,
-                      }]);
-                      setShowComponentPicker(false);
-                    }}
-                    className="text-left p-2 rounded-lg border border-blue-200 bg-white hover:bg-blue-50 transition-colors"
-                  >
-                    <p className="text-xs font-medium text-gray-800">{mc.name}</p>
-                    <p className="text-[10px] text-gray-500">{mc.code} · {mc.calculationRule?.replace(/_/g, ' ')} {mc.defaultPercentage ? `(${Number(mc.defaultPercentage)}%)` : mc.defaultValue ? `(₹${Number(mc.defaultValue)})` : ''}</p>
-                  </button>
-                ))
-              }
-              {componentMaster.filter((mc: any) => mc.type === 'DEDUCTION' && mc.isActive && !mc.isStatutory && !customDeductions.find(d => d.name === mc.name)).length > 0 && (
-                <div className="col-span-full mt-2 pt-2 border-t border-blue-200">
-                  <p className="text-[10px] font-semibold text-blue-600 mb-1 uppercase">Deductions</p>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {componentMaster
-                      .filter((mc: any) => mc.type === 'DEDUCTION' && mc.isActive && !mc.isStatutory && !customDeductions.find(d => d.name === mc.name))
-                      .map((mc: any) => (
-                        <button
-                          key={mc.id}
-                          onClick={() => {
-                            componentCounter++;
-                            setCustomDeductions(prev => [...prev, {
-                              id: `master_${mc.code}_${componentCounter}`,
-                              name: mc.name,
-                              amount: mc.defaultValue ? Number(mc.defaultValue) : 0,
-                              mode: 'fixed',
-                              percentValue: 0,
-                              type: 'deduction',
-                            }]);
-                            setShowComponentPicker(false);
-                          }}
-                          className="text-left p-2 rounded-lg border border-red-200 bg-white hover:bg-red-50 transition-colors"
-                        >
-                          <p className="text-xs font-medium text-gray-800">{mc.name}</p>
-                          <p className="text-[10px] text-gray-500">{mc.code}</p>
-                        </button>
-                      ))
-                    }
-                  </div>
-                </div>
-              )}
-              {componentMaster.filter((mc: any) => mc.isActive && !mc.isStatutory).length === 0 && (
-                <p className="col-span-full text-xs text-gray-500 text-center py-4">No components in library yet. Add them in Settings → Salary Components.</p>
-              )}
-            </div>
-          </div>
-        )}
-        <div className="space-y-2">
-          {earnings.map(comp => (
-            <SalaryComponentRow
-              key={comp.id}
-              component={comp}
-              editing={editing}
-              monthly={monthly}
-              error={errors[comp.id]}
-              onUpdate={(updates) => updateEarning(comp.id, updates)}
-              onRemove={comp.isRequired ? undefined : () => removeEarning(comp.id)}
-            />
-          ))}
-          <div className="border-t border-gray-200 pt-3 mt-3">
-            <div className="flex justify-between items-center font-semibold">
-              <span className="text-sm text-gray-700">Gross Monthly</span>
-              <span className="text-base font-mono text-brand-600" data-mono>{formatCurrency(Math.round(grossEarnings))}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Deductions */}
-      <div className="layer-card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-800">Deductions (Monthly)</h3>
-          {editing && (
-            <button onClick={addDeduction} className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
-              <Plus size={14} /> Add Deduction
-            </button>
-          )}
-        </div>
-        <div className="space-y-2">
-          {/* Statutory (auto-calculated, read-only) */}
-          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">Statutory (Auto-calculated)</p>
-          {statutoryDeductionRows.map(row => (
-            <div key={row.label} className="flex justify-between items-center py-1.5">
-              <div>
-                <span className="text-xs text-gray-500">{row.label}</span>
-                <span className="text-[10px] text-gray-400 ml-2">{row.note}</span>
-              </div>
-              <span className="text-sm font-mono text-red-600" data-mono>-{formatCurrency(row.value)}</span>
-            </div>
-          ))}
-
-          {/* Custom deductions */}
-          {customDeductions.length > 0 && (
-            <>
-              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mt-3 mb-1">Custom Deductions</p>
-              {customDeductions.map(comp => (
-                <SalaryComponentRow
-                  key={comp.id}
-                  component={comp}
-                  editing={editing}
-                  monthly={monthly}
-                  error={errors[comp.id]}
-                  onUpdate={(updates) => updateDeduction(comp.id, updates)}
-                  onRemove={() => removeDeduction(comp.id)}
-                  isDeduction
-                />
-              ))}
-            </>
-          )}
-
-          <div className="border-t border-gray-200 pt-3 mt-3 space-y-2">
-            <div className="flex justify-between items-center font-semibold">
-              <span className="text-sm text-gray-700">Total Deductions</span>
-              <span className="text-base font-mono text-red-600" data-mono>-{formatCurrency(Math.round(totalDeductions))}</span>
-            </div>
-            <div className="border-t border-gray-200 pt-2">
-              <div className="flex justify-between items-center font-semibold">
-                <span className="text-sm text-gray-700">Net Take-Home</span>
-                <span className={`text-base font-mono ${netMonthly < 0 ? 'text-red-600' : 'text-emerald-600'}`} data-mono>{formatCurrency(Math.round(netMonthly))}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Actions */}
-      {isManagement && (
-        <div className="flex items-center gap-3">
-          {editing ? (
-            <>
-              <button
-                onClick={handleSave}
-                disabled={saving || hasErrors}
-                className={`btn-primary text-sm flex items-center gap-1.5 ${hasErrors ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                {saving ? 'Saving...' : 'Save Structure'}
-              </button>
-              <button onClick={handleCancel} className="btn-secondary text-sm">Cancel</button>
-              {hasErrors && (
-                <span className="text-xs text-red-500 flex items-center gap-1">
-                  <XCircle size={12} /> {Object.values(errors)[0]}
-                </span>
-              )}
-            </>
-          ) : (
-            <button onClick={() => setEditing(true)} className="btn-primary text-sm flex items-center gap-1.5">
-              <DollarSign size={14} /> Edit Salary Structure
-            </button>
           )}
         </div>
       )}
+
+      {/* Two-column: Earnings + Deductions side by side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* LEFT: Earnings */}
+        <div className="layer-card p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Earnings (Monthly)</h3>
+            {editing && (
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setShowComponentPicker(true)} className="text-[10px] text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-0.5">
+                  <Plus size={11} /> Library
+                </button>
+                <button onClick={addEarning} className="text-[10px] text-brand-600 hover:text-brand-700 font-medium flex items-center gap-0.5">
+                  <Plus size={11} /> Custom
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Component Picker */}
+          {showComponentPicker && editing && (
+            <div className="mb-3 p-2 bg-blue-50/50 border border-blue-100 rounded-lg">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[10px] font-semibold text-blue-700">Component Library</p>
+                <button onClick={() => setShowComponentPicker(false)} className="text-[10px] text-gray-400 hover:text-gray-600">Close</button>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto">
+                {componentMaster
+                  .filter((mc: any) => mc.type === 'EARNING' && mc.isActive && !earnings.find(e => e.name === mc.name))
+                  .map((mc: any) => (
+                    <button key={mc.id} onClick={() => {
+                      componentCounter++;
+                      const defaultPct = mc.defaultPercentage ? Number(mc.defaultPercentage) : 0;
+                      const isPercent = mc.calculationRule === 'PERCENTAGE_CTC' || mc.calculationRule === 'PERCENTAGE_BASIC';
+                      setEarnings(prev => [...prev, {
+                        id: `master_${mc.code}_${componentCounter}`, name: mc.name,
+                        amount: isPercent ? Math.round((annualCtc / 12) * defaultPct / 100) : (mc.defaultValue ? Number(mc.defaultValue) : 0),
+                        mode: isPercent ? 'percent' as const : 'fixed' as const, percentValue: defaultPct, type: 'earning' as const,
+                      }]);
+                      setShowComponentPicker(false);
+                    }} className="text-left p-1.5 rounded border border-blue-200 bg-white hover:bg-blue-50 text-[10px]">
+                      <span className="font-medium text-gray-800">{mc.name}</span>
+                      <span className="text-gray-400 ml-1">{mc.defaultPercentage ? `${Number(mc.defaultPercentage)}%` : ''}</span>
+                    </button>
+                  ))
+                }
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-0.5">
+            {earnings.map(comp => (
+              <SalaryComponentRow key={comp.id} component={comp} editing={editing} monthly={monthly}
+                error={errors[comp.id]} onUpdate={(u) => updateEarning(comp.id, u)}
+                onRemove={comp.isRequired ? undefined : () => removeEarning(comp.id)} />
+            ))}
+          </div>
+          <div className="border-t border-gray-200 pt-2 mt-2 flex justify-between items-center">
+            <span className="text-xs font-semibold text-gray-700">Gross Monthly</span>
+            <span className="text-sm font-bold font-mono text-brand-600" data-mono>{formatCurrency(Math.round(grossEarnings))}</span>
+          </div>
+        </div>
+
+        {/* RIGHT: Deductions */}
+        <div className="layer-card p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Deductions (Monthly)</h3>
+            {editing && (
+              <button onClick={addDeduction} className="text-[10px] text-brand-600 hover:text-brand-700 font-medium flex items-center gap-0.5">
+                <Plus size={11} /> Add
+              </button>
+            )}
+          </div>
+
+          {/* Statutory — toggleable */}
+          <div className="space-y-1 mb-3">
+            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Statutory</p>
+
+            {/* EPF */}
+            <div className="flex items-center justify-between py-1">
+              <div className="flex items-center gap-2">
+                {editing && (
+                  <button onClick={() => setEpfEnabled(!epfEnabled)} className={`w-7 h-4 rounded-full transition-colors relative ${epfEnabled ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${epfEnabled ? 'left-3.5' : 'left-0.5'}`} />
+                  </button>
+                )}
+                <span className={`text-xs ${epfEnabled ? 'text-gray-600' : 'text-gray-400 line-through'}`}>EPF 12%</span>
+                <span className="text-[10px] text-gray-400">ER: {formatCurrency(activeEpfEmployer)}</span>
+              </div>
+              <span className={`text-xs font-mono ${epfEnabled ? 'text-red-600' : 'text-gray-300'}`} data-mono>-{formatCurrency(activeEpfEmployee)}</span>
+            </div>
+
+            {/* ESI */}
+            <div className="flex items-center justify-between py-1">
+              <div className="flex items-center gap-2">
+                {editing && (
+                  <button onClick={() => setEsiEnabled(!esiEnabled)} className={`w-7 h-4 rounded-full transition-colors relative ${esiEnabled ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${esiEnabled ? 'left-3.5' : 'left-0.5'}`} />
+                  </button>
+                )}
+                <span className={`text-xs ${esiEnabled ? 'text-gray-600' : 'text-gray-400 line-through'}`}>ESI 0.75%</span>
+                {grossEarnings > 21000 && <span className="text-[10px] text-amber-500">N/A &gt;21K</span>}
+                {grossEarnings <= 21000 && <span className="text-[10px] text-gray-400">ER: {formatCurrency(activeEsiEmployer)}</span>}
+              </div>
+              <span className={`text-xs font-mono ${esiEnabled && grossEarnings <= 21000 ? 'text-red-600' : 'text-gray-300'}`} data-mono>-{formatCurrency(activeEsiEmployee)}</span>
+            </div>
+
+            {/* PT */}
+            <div className="flex items-center justify-between py-1">
+              <div className="flex items-center gap-2">
+                {editing && (
+                  <button onClick={() => setPtEnabled(!ptEnabled)} className={`w-7 h-4 rounded-full transition-colors relative ${ptEnabled ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${ptEnabled ? 'left-3.5' : 'left-0.5'}`} />
+                  </button>
+                )}
+                <span className={`text-xs ${ptEnabled ? 'text-gray-600' : 'text-gray-400 line-through'}`}>Professional Tax</span>
+                <span className="text-[10px] text-gray-400">Slab</span>
+              </div>
+              <span className={`text-xs font-mono ${ptEnabled ? 'text-red-600' : 'text-gray-300'}`} data-mono>-{formatCurrency(activePt)}</span>
+            </div>
+          </div>
+
+          {/* Custom deductions */}
+          {(customDeductions.length > 0 || editing) && (
+            <div className="space-y-0.5">
+              {customDeductions.length > 0 && <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Custom</p>}
+              {customDeductions.map(comp => (
+                <SalaryComponentRow key={comp.id} component={comp} editing={editing} monthly={monthly}
+                  error={errors[comp.id]} onUpdate={(u) => updateDeduction(comp.id, u)}
+                  onRemove={() => removeDeduction(comp.id)} isDeduction />
+              ))}
+            </div>
+          )}
+
+          {/* Deduction picker from library */}
+          {editing && (
+            <div className="mt-2">
+              {componentMaster.filter((mc: any) => mc.type === 'DEDUCTION' && mc.isActive && !mc.isStatutory && !customDeductions.find(d => d.name === mc.name)).length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  <span className="text-[10px] text-gray-400 self-center mr-1">Quick add:</span>
+                  {componentMaster
+                    .filter((mc: any) => mc.type === 'DEDUCTION' && mc.isActive && !mc.isStatutory && !customDeductions.find(d => d.name === mc.name))
+                    .slice(0, 5)
+                    .map((mc: any) => (
+                      <button key={mc.id} onClick={() => {
+                        componentCounter++;
+                        setCustomDeductions(prev => [...prev, {
+                          id: `master_${mc.code}_${componentCounter}`, name: mc.name,
+                          amount: mc.defaultValue ? Number(mc.defaultValue) : 0, mode: 'fixed', percentValue: 0, type: 'deduction',
+                        }]);
+                      }} className="text-[10px] px-2 py-0.5 rounded-full border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
+                        + {mc.name}
+                      </button>
+                    ))
+                  }
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="border-t border-gray-200 pt-2 mt-2 space-y-1.5">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-semibold text-gray-700">Total Deductions</span>
+              <span className="text-sm font-bold font-mono text-red-600" data-mono>-{formatCurrency(Math.round(totalDeductionsCalc))}</span>
+            </div>
+            <div className="flex justify-between items-center border-t border-gray-200 pt-1.5">
+              <span className="text-xs font-semibold text-gray-700">Net Take-Home</span>
+              <span className={`text-sm font-bold font-mono ${netMonthlyCalc < 0 ? 'text-red-600' : 'text-emerald-600'}`} data-mono>{formatCurrency(Math.round(netMonthlyCalc))}</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Salary Revision History */}
       {isManagement && salaryHistory.length > 0 && (

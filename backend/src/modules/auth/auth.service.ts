@@ -7,6 +7,8 @@ import { env } from '../../config/env.js';
 import { UnauthorizedError, NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import type { JwtPayload } from '../../middleware/auth.middleware.js';
 import { employeePermissionService } from '../employee-permissions/employee-permissions.service.js';
+import { enqueueEmail } from '../../jobs/queues.js';
+import { logger } from '../../lib/logger.js';
 
 const REFRESH_TOKEN_PREFIX = 'refresh_token:';
 const RESET_TOKEN_PREFIX = 'reset_token:';
@@ -78,6 +80,32 @@ export class AuthService {
         create: { userId: user.id, deviceId, deviceType, userAgent: (deviceInfo.userAgent || '').slice(0, 200), isActive: true },
         update: { deviceId, userAgent: (deviceInfo.userAgent || '').slice(0, 200), lastActiveAt: new Date(), isActive: true },
       });
+    }
+
+    // Check if MFA is enabled — if so, return temp token instead of full access
+    const mfa = await prisma.userMFA.findUnique({ where: { userId: user.id } });
+    if (mfa?.isEnabled) {
+      const tempToken = jwt.sign(
+        { userId: user.id, mfaPending: true },
+        env.JWT_SECRET,
+        { expiresIn: '5m' }
+      );
+      return {
+        accessToken: '',
+        refreshToken: '',
+        mfaRequired: true,
+        tempToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          employeeId: user.employee?.id,
+          firstName: user.employee?.firstName,
+          lastName: user.employee?.lastName,
+          avatar: user.employee?.avatar,
+          organizationId: user.organizationId,
+        },
+      } as any;
     }
 
     // Generate tokens
@@ -206,9 +234,20 @@ export class AuthService {
     const resetToken = randomBytes(32).toString('hex');
     await redis.setex(`${RESET_TOKEN_PREFIX}${resetToken}`, 3600, user.id); // 1 hour
 
-    // Send email with reset link
+    // Send password reset email
+    const resetUrl = `${env.FRONTEND_URL}/reset-password/${resetToken}`;
+    await enqueueEmail({
+      to: user.email,
+      subject: 'Reset Your Aniston HRMS Password',
+      template: 'password-reset',
+      context: {
+        name: user.email.split('@')[0],
+        link: resetUrl,
+      },
+    }).catch((err) => logger.error(`[Auth] Failed to enqueue password reset email for ${email}:`, err));
+
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[DEV] Password reset token for ${email}: ${resetToken}`);
+      logger.info(`[DEV] Password reset token for ${email}: ${resetToken}`);
     }
 
     return { message: 'If the email exists, a reset link has been sent' };

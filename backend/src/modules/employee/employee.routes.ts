@@ -59,8 +59,8 @@ router.post('/invite-whatsapp', requirePermission('employee', 'create'), async (
 
     let whatsappSent = false;
     try {
-      const { sendWhatsAppMessage } = await import('../../services/whatsapp.service.js');
-      await sendWhatsAppMessage('91' + cleanPhone, message);
+      const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
+      await whatsAppService.sendToNumber('91' + cleanPhone, message, req.user!.organizationId);
       whatsappSent = true;
     } catch (e: any) {
       console.warn('[WhatsApp invite] Not sent:', e.message);

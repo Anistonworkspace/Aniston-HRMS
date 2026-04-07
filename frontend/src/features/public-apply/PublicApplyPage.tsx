@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Loader2,
@@ -13,6 +13,7 @@ import {
   Upload,
   X,
   Timer,
+  ExternalLink,
 } from 'lucide-react';
 import { useGetJobFormQuery, useSubmitPublicApplicationMutation } from './publicApplyApi';
 import { cn } from '../../lib/utils';
@@ -20,23 +21,41 @@ import toast from 'react-hot-toast';
 
 const QUESTION_TIME_LIMIT = 90; // seconds per question
 
+// Email regex for proper validation
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Indian mobile: 10 digits starting with 6-9
+const PHONE_REGEX = /^[6-9]\d{9}$/;
+
 export default function PublicApplyPage() {
   const { token } = useParams<{ token: string }>();
   const { data: res, isLoading, isError } = useGetJobFormQuery(token || '', { skip: !token });
   const [submitApp, { isLoading: submitting }] = useSubmitPublicApplicationMutation();
 
   const [step, setStep] = useState(1); // 1=details, 2=MCQ, 3=resume, 4=done
+  // --- Step 1 fields ---
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [city, setCity] = useState('');
   const [experience, setExperience] = useState('');
   const [currentDesignation, setCurrentDesignation] = useState('');
+  const [preferredLocation, setPreferredLocation] = useState('');
+  const [willingToRelocate, setWillingToRelocate] = useState('');
+  const [currentCTC, setCurrentCTC] = useState('');
+  const [expectedCTC, setExpectedCTC] = useState('');
+  const [noticePeriod, setNoticePeriod] = useState('');
+  // --- Validation errors ---
+  const [emailError, setEmailError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
+  // --- Step 2 ---
   const [currentQ, setCurrentQ] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [result, setResult] = useState<any>(null);
+  // --- Step 3 ---
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [noResume, setNoResume] = useState(false);
+  // --- Step 4 ---
+  const [result, setResult] = useState<any>(null);
+  // --- Timer ---
   const [timeLeft, setTimeLeft] = useState(QUESTION_TIME_LIMIT);
   const [isAnswering, setIsAnswering] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,10 +70,10 @@ export default function PublicApplyPage() {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
+    setIsAnswering(false);
     if (currentQ < questions.length - 1) {
       setCurrentQ(prev => prev + 1);
       setTimeLeft(QUESTION_TIME_LIMIT);
-      setIsAnswering(false);
     } else {
       setStep(3); // Move to resume upload step
     }
@@ -64,13 +83,11 @@ export default function PublicApplyPage() {
   useEffect(() => {
     if (step !== 2 || questions.length === 0) return;
 
-    // Reset timer when question changes
     setTimeLeft(QUESTION_TIME_LIMIT);
 
     timerRef.current = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          // Time's up - auto-advance (unanswered = wrong)
           advanceQuestion();
           return QUESTION_TIME_LIMIT;
         }
@@ -84,7 +101,8 @@ export default function PublicApplyPage() {
         timerRef.current = null;
       }
     };
-  }, [step, currentQ, advanceQuestion, questions.length]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, currentQ]);
 
   if (isLoading) {
     return (
@@ -108,11 +126,35 @@ export default function PublicApplyPage() {
     );
   }
 
+  // --- Validation ---
+  const validateEmail = (v: string) => {
+    if (!v) { setEmailError(''); return true; }
+    if (!EMAIL_REGEX.test(v)) { setEmailError('Enter a valid email address'); return false; }
+    setEmailError('');
+    return true;
+  };
+  const validatePhone = (v: string) => {
+    if (!v) { setPhoneError(''); return true; }
+    const digits = v.replace(/\D/g, '').slice(-10);
+    if (!PHONE_REGEX.test(digits)) { setPhoneError('Enter a valid 10-digit Indian mobile number'); return false; }
+    setPhoneError('');
+    return true;
+  };
+
+  const canProceedStep1 = () => {
+    if (!name.trim()) { toast.error('Please enter your full name'); return false; }
+    if (!email.trim()) { toast.error('Please enter your email'); return false; }
+    if (!EMAIL_REGEX.test(email.trim())) { toast.error('Please enter a valid email'); return false; }
+    if (!phone.trim()) { toast.error('Please enter your mobile number'); return false; }
+    const digits = phone.replace(/\D/g, '').slice(-10);
+    if (!PHONE_REGEX.test(digits)) { toast.error('Please enter a valid 10-digit mobile number'); return false; }
+    return true;
+  };
+
   const handleSelectAnswer = (questionId: string, option: string) => {
-    if (isAnswering) return; // Prevent double-click
+    if (isAnswering) return;
     setIsAnswering(true);
     setAnswers(prev => ({ ...prev, [questionId]: option }));
-    // Auto-advance after 500ms
     setTimeout(() => {
       advanceQuestion();
     }, 500);
@@ -149,12 +191,17 @@ export default function PublicApplyPage() {
       }));
 
       const formData = new FormData();
-      formData.append('candidateName', name);
-      formData.append('email', email);
-      formData.append('mobileNumber', phone);
-      if (city) formData.append('city', city);
+      formData.append('candidateName', name.trim());
+      formData.append('email', email.trim());
+      formData.append('mobileNumber', phone.replace(/\D/g, '').slice(-10));
+      if (city) formData.append('city', city.trim());
       if (experience) formData.append('experience', experience);
-      if (currentDesignation) formData.append('currentDesignation', currentDesignation);
+      if (currentDesignation) formData.append('currentDesignation', currentDesignation.trim());
+      if (preferredLocation) formData.append('preferredLocation', preferredLocation.trim());
+      if (willingToRelocate) formData.append('willingToRelocate', willingToRelocate);
+      if (currentCTC) formData.append('currentCTC', currentCTC.trim());
+      if (expectedCTC) formData.append('expectedCTC', expectedCTC.trim());
+      if (noticePeriod) formData.append('noticePeriod', noticePeriod);
       formData.append('mcqAnswers', JSON.stringify(mcqAnswers));
       if (resumeFile && !noResume) {
         formData.append('resume', resumeFile);
@@ -171,7 +218,7 @@ export default function PublicApplyPage() {
     }
   };
 
-  // Timer progress percentage (1 = full, 0 = empty)
+  // Timer visuals
   const timerProgress = timeLeft / QUESTION_TIME_LIMIT;
   const timerColor =
     timeLeft > 60 ? 'text-green-500' : timeLeft > 30 ? 'text-amber-500' : 'text-red-500';
@@ -179,7 +226,6 @@ export default function PublicApplyPage() {
     timeLeft > 60 ? 'stroke-green-500' : timeLeft > 30 ? 'stroke-amber-500' : 'stroke-red-500';
 
   const stepLabels = ['Details', 'Screening', 'Resume', 'Submit'];
-  const totalSteps = 4;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4">
@@ -198,7 +244,7 @@ export default function PublicApplyPage() {
               <Clock size={14} /> {job.type?.replace('_', ' ')}
             </span>
           </div>
-          {/* Progress bar — 4 steps */}
+          {/* Progress bar */}
           <div className="mt-4 flex items-center gap-2">
             {[1, 2, 3, 4].map(s => (
               <div
@@ -231,6 +277,7 @@ export default function PublicApplyPage() {
           >
             <h2 className="text-lg font-semibold text-gray-800 mb-4">Your Details</h2>
             <div className="space-y-4">
+              {/* Full Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Full Name <span className="text-red-500">*</span>
@@ -243,6 +290,8 @@ export default function PublicApplyPage() {
                   placeholder="John Doe"
                 />
               </div>
+
+              {/* Email + Phone */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -250,12 +299,14 @@ export default function PublicApplyPage() {
                   </label>
                   <input
                     value={email}
-                    onChange={e => setEmail(e.target.value)}
+                    onChange={e => { setEmail(e.target.value); validateEmail(e.target.value); }}
+                    onBlur={() => validateEmail(email)}
                     type="email"
                     required
-                    className="input-glass w-full text-sm"
+                    className={cn('input-glass w-full text-sm', emailError && 'border-red-400 ring-1 ring-red-200')}
                     placeholder="john@example.com"
                   />
+                  {emailError && <p className="text-xs text-red-500 mt-1">{emailError}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -263,13 +314,18 @@ export default function PublicApplyPage() {
                   </label>
                   <input
                     value={phone}
-                    onChange={e => setPhone(e.target.value)}
+                    onChange={e => { setPhone(e.target.value); validatePhone(e.target.value); }}
+                    onBlur={() => validatePhone(phone)}
                     required
-                    className="input-glass w-full text-sm"
+                    className={cn('input-glass w-full text-sm', phoneError && 'border-red-400 ring-1 ring-red-200')}
                     placeholder="9876543210"
+                    maxLength={10}
                   />
+                  {phoneError && <p className="text-xs text-red-500 mt-1">{phoneError}</p>}
                 </div>
               </div>
+
+              {/* City + Experience */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
@@ -296,6 +352,8 @@ export default function PublicApplyPage() {
                   </select>
                 </div>
               </div>
+
+              {/* Designation */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Current Designation</label>
                 <input
@@ -305,12 +363,91 @@ export default function PublicApplyPage() {
                   placeholder="e.g. Software Engineer"
                 />
               </div>
+
+              {/* Preferred Location + Willing to Relocate */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Job Location</label>
+                  <select
+                    value={preferredLocation}
+                    onChange={e => setPreferredLocation(e.target.value)}
+                    className="input-glass w-full text-sm"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Delhi NCR">Delhi NCR</option>
+                    <option value="Rohini, Delhi">Rohini, Delhi</option>
+                    <option value="Mumbai">Mumbai</option>
+                    <option value="Bangalore">Bangalore</option>
+                    <option value="Hyderabad">Hyderabad</option>
+                    <option value="Pune">Pune</option>
+                    <option value="Chennai">Chennai</option>
+                    <option value="Kolkata">Kolkata</option>
+                    <option value="Ahmedabad">Ahmedabad</option>
+                    <option value="Remote">Remote / Work from Home</option>
+                    <option value="Any">Any Location</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Willing to Relocate to Delhi?</label>
+                  <select
+                    value={willingToRelocate}
+                    onChange={e => setWillingToRelocate(e.target.value)}
+                    className="input-glass w-full text-sm"
+                  >
+                    <option value="">Select...</option>
+                    <option value="yes">Yes, willing to relocate</option>
+                    <option value="no">No, not willing to relocate</option>
+                    <option value="maybe">Maybe, depends on the offer</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* CTC + Notice Period */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Current CTC (LPA)</label>
+                  <input
+                    value={currentCTC}
+                    onChange={e => setCurrentCTC(e.target.value)}
+                    className="input-glass w-full text-sm"
+                    placeholder="e.g. 5 LPA"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Expected CTC (LPA)</label>
+                  <input
+                    value={expectedCTC}
+                    onChange={e => setExpectedCTC(e.target.value)}
+                    className="input-glass w-full text-sm"
+                    placeholder="e.g. 8 LPA"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Notice Period</label>
+                  <select
+                    value={noticePeriod}
+                    onChange={e => setNoticePeriod(e.target.value)}
+                    className="input-glass w-full text-sm"
+                  >
+                    <option value="">Select...</option>
+                    <option value="Immediate">Immediate</option>
+                    <option value="15 days">15 days</option>
+                    <option value="1 month">1 month</option>
+                    <option value="2 months">2 months</option>
+                    <option value="3 months">3 months</option>
+                  </select>
+                </div>
+              </div>
+
               <button
-                onClick={() => (questions.length > 0 ? setStep(2) : setStep(3))}
-                disabled={!name || !email || !phone}
+                onClick={() => {
+                  if (!canProceedStep1()) return;
+                  // Always go to screening — questions are guaranteed (fallback exists)
+                  setStep(questions.length > 0 ? 2 : 2);
+                }}
                 className="btn-primary w-full text-sm"
               >
-                {questions.length > 0 ? 'Next: Screening Questions' : 'Next: Upload Resume'}
+                Next: Screening Questions
               </button>
             </div>
           </motion.div>
@@ -328,11 +465,7 @@ export default function PublicApplyPage() {
                 Question {currentQ + 1} of {questions.length}
               </h2>
               <div className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    'text-xs px-2 py-1 bg-gray-100 rounded-full text-gray-400'
-                  )}
-                >
+                <span className="text-xs px-2 py-1 bg-gray-100 rounded-full text-gray-400">
                   {questions[currentQ]?.category}
                 </span>
               </div>
@@ -350,37 +483,19 @@ export default function PublicApplyPage() {
             <div className="flex items-center justify-center mb-6">
               <div className="relative w-20 h-20">
                 <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+                  <circle cx="40" cy="40" r="34" fill="none" stroke="#e5e7eb" strokeWidth="6" />
                   <circle
-                    cx="40"
-                    cy="40"
-                    r="34"
-                    fill="none"
-                    stroke="#e5e7eb"
-                    strokeWidth="6"
-                  />
-                  <circle
-                    cx="40"
-                    cy="40"
-                    r="34"
-                    fill="none"
+                    cx="40" cy="40" r="34" fill="none"
                     className={timerStroke}
-                    strokeWidth="6"
-                    strokeLinecap="round"
+                    strokeWidth="6" strokeLinecap="round"
                     strokeDasharray={`${2 * Math.PI * 34}`}
                     strokeDashoffset={`${2 * Math.PI * 34 * (1 - timerProgress)}`}
                     style={{ transition: 'stroke-dashoffset 1s linear' }}
                   />
                 </svg>
-                <div
-                  className={cn(
-                    'absolute inset-0 flex flex-col items-center justify-center',
-                    timerColor
-                  )}
-                >
+                <div className={cn('absolute inset-0 flex flex-col items-center justify-center', timerColor)}>
                   <Timer size={14} />
-                  <span className="text-lg font-bold font-mono" data-mono>
-                    {timeLeft}s
-                  </span>
+                  <span className="text-lg font-bold font-mono" data-mono>{timeLeft}s</span>
                 </div>
               </div>
             </div>
@@ -424,7 +539,6 @@ export default function PublicApplyPage() {
               </motion.div>
             </AnimatePresence>
 
-            {/* Time warning */}
             {timeLeft <= 15 && (
               <motion.p
                 initial={{ opacity: 0 }}
@@ -446,7 +560,7 @@ export default function PublicApplyPage() {
           >
             <h2 className="text-lg font-semibold text-gray-800 mb-2">Upload Resume</h2>
             <p className="text-sm text-gray-500 mb-6">
-              Upload your resume in PDF format (max 5MB). This step is optional but recommended.
+              Upload your resume in PDF format (max 5MB). This step is optional but recommended — your resume will be analyzed against the job description.
             </p>
 
             {!noResume && (
@@ -510,7 +624,7 @@ export default function PublicApplyPage() {
                 }}
                 className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
               />
-              <span className="text-sm text-gray-600">I don't have a resume</span>
+              <span className="text-sm text-gray-600">I don't have a resume right now</span>
             </label>
 
             <div className="mt-6">
@@ -525,33 +639,20 @@ export default function PublicApplyPage() {
             </div>
 
             {/* Summary */}
-            <div className="bg-gray-50 rounded-xl p-4 mt-4 text-sm text-gray-600">
-              <p>
-                <strong>Name:</strong> {name}
-              </p>
-              <p>
-                <strong>Email:</strong> {email}
-              </p>
-              <p>
-                <strong>Phone:</strong> {phone}
-              </p>
-              {city && (
-                <p>
-                  <strong>City:</strong> {city}
-                </p>
-              )}
-              {experience && (
-                <p>
-                  <strong>Experience:</strong> {experience}
-                </p>
-              )}
-              <p>
-                <strong>Questions answered:</strong> {Object.keys(answers).length} /{' '}
-                {questions.length}
-              </p>
-              <p>
-                <strong>Resume:</strong> {noResume ? 'Skipped' : resumeFile ? resumeFile.name : 'Not uploaded'}
-              </p>
+            <div className="bg-gray-50 rounded-xl p-4 mt-4 text-sm text-gray-600 space-y-0.5">
+              <p><strong>Name:</strong> {name}</p>
+              <p><strong>Email:</strong> {email}</p>
+              <p><strong>Phone:</strong> {phone}</p>
+              {city && <p><strong>City:</strong> {city}</p>}
+              {experience && <p><strong>Experience:</strong> {experience}</p>}
+              {currentDesignation && <p><strong>Designation:</strong> {currentDesignation}</p>}
+              {preferredLocation && <p><strong>Preferred Location:</strong> {preferredLocation}</p>}
+              {willingToRelocate && <p><strong>Willing to Relocate:</strong> {willingToRelocate === 'yes' ? 'Yes' : willingToRelocate === 'no' ? 'No' : 'Maybe'}</p>}
+              {currentCTC && <p><strong>Current CTC:</strong> {currentCTC}</p>}
+              {expectedCTC && <p><strong>Expected CTC:</strong> {expectedCTC}</p>}
+              {noticePeriod && <p><strong>Notice Period:</strong> {noticePeriod}</p>}
+              <p><strong>Questions answered:</strong> {Object.keys(answers).length} / {questions.length}</p>
+              <p><strong>Resume:</strong> {noResume ? 'Skipped' : resumeFile ? resumeFile.name : 'Not uploaded'}</p>
             </div>
           </motion.div>
         )}
@@ -571,11 +672,15 @@ export default function PublicApplyPage() {
                 {result.candidateUid}
               </p>
             </div>
-            <p className="text-sm text-gray-500 mb-4">Track your application status at:</p>
+            <p className="text-sm text-gray-500 mb-4">Track your application status:</p>
             <div className="flex items-center gap-2 justify-center">
-              <code className="text-xs bg-gray-100 px-3 py-1.5 rounded-lg">
+              <Link
+                to={`/track/${result.candidateUid}`}
+                className="text-xs text-brand-600 hover:text-brand-700 underline flex items-center gap-1"
+              >
+                <ExternalLink size={12} />
                 {window.location.origin}/track/{result.candidateUid}
-              </code>
+              </Link>
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(

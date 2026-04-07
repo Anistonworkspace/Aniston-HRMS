@@ -15,8 +15,11 @@ import { api } from '../../app/api';
 import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
 import { connectSocket, disconnectSocket, onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 export default function AppShell() {
+  const { t } = useTranslation();
+
   // Activity tracking — runs globally for all logged-in users
   useActivityTracker();
 
@@ -29,9 +32,9 @@ export default function AppShell() {
       wasOffline.current = true;
     } else if (wasOffline.current) {
       wasOffline.current = false;
-      toast.success('Back online');
+      toast.success(t('appShell.backOnline'));
     }
-  }, [isOnline]);
+  }, [isOnline, t]);
   const user = useAppSelector(s => s.auth.user);
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
   const { resetTimer } = useInactivityTimeout(() => setShowTimeoutWarning(true));
@@ -59,8 +62,8 @@ export default function AppShell() {
   const aiContext = location.pathname.startsWith('/recruitment') ? 'hr-recruitment' as const
     : location.pathname.startsWith('/settings') ? 'admin' as const
     : 'hr-general' as const;
-  const aiLabel = aiContext === 'hr-recruitment' ? 'HR Recruitment Assistant'
-    : aiContext === 'admin' ? 'Admin Assistant' : 'HR Assistant';
+  const aiLabel = aiContext === 'hr-recruitment' ? t('appShell.hrRecruitmentAssistant')
+    : aiContext === 'admin' ? t('appShell.adminAssistant') : t('appShell.hrAssistant');
 
   const exitAccess = user?.exitAccess;
 
@@ -85,7 +88,7 @@ export default function AppShell() {
               >
                 <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2">
                   <WifiOff size={14} className="text-red-500 flex-shrink-0" />
-                  <p className="text-xs text-red-700 font-medium">You are offline. Some features may not work until you reconnect.</p>
+                  <p className="text-xs text-red-700 font-medium">{t('appShell.offline')}</p>
                 </div>
               </motion.div>
             )}
@@ -94,7 +97,7 @@ export default function AppShell() {
           {exitAccess && (
             <div className="mx-4 mt-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-600 flex-shrink-0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-              <p className="text-xs text-amber-700">You are in <strong>limited access mode</strong>. Only specific features are available. Contact HR for details.</p>
+              <p className="text-xs text-amber-700" dangerouslySetInnerHTML={{ __html: t('appShell.limitedAccess') }} />
             </div>
           )}
           <motion.div
@@ -121,9 +124,9 @@ export default function AppShell() {
       {showTimeoutWarning && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="layer-card mx-4 w-full max-w-sm rounded-2xl p-6 shadow-xl">
-            <h2 className="font-sora text-lg font-semibold text-gray-900">Session Expiring Soon</h2>
+            <h2 className="font-sora text-lg font-semibold text-gray-900">{t('appShell.sessionExpiring')}</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Your session will expire in 60 seconds due to inactivity. Do you want to stay logged in?
+              {t('appShell.sessionExpiryMessage')}
             </p>
             <div className="mt-5 flex gap-3 justify-end">
               <button
@@ -133,7 +136,7 @@ export default function AppShell() {
                 }}
                 className="btn-primary px-5 py-2 text-sm"
               >
-                Stay Logged In
+                {t('appShell.stayLoggedIn')}
               </button>
             </div>
           </div>

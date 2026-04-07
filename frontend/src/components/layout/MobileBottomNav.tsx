@@ -6,16 +6,10 @@ import { useGetTodayStatusQuery, useClockInMutation, useClockOutMutation } from 
 import { useAppSelector } from '../../app/store';
 import { enqueueAction } from '../../lib/offlineQueue';
 import toast from 'react-hot-toast';
-
-const navItems = [
-  { name: 'Home', path: '/dashboard', icon: Home },
-  { name: 'Leave', path: '/leaves', icon: CalendarDays },
-  // Center button handled separately
-  { name: 'Attend', path: '/attendance', icon: Calendar },
-  { name: 'Profile', path: '/profile', icon: User },
-];
+import { useTranslation } from 'react-i18next';
 
 export default function MobileBottomNav() {
+  const { t } = useTranslation();
   const location = useLocation();
   const user = useAppSelector((state) => state.auth.user);
   const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
@@ -24,6 +18,14 @@ export default function MobileBottomNav() {
   const [clockIn, { isLoading: clockingIn }] = useClockInMutation();
   const [clockOut, { isLoading: clockingOut }] = useClockOutMutation();
   const [gettingLocation, setGettingLocation] = useState(false);
+
+  const navItems = [
+    { name: t('nav.home'), path: '/dashboard', icon: Home },
+    { name: t('nav.leave'), path: '/leaves', icon: CalendarDays },
+    // Center button handled separately
+    { name: t('nav.attend'), path: '/attendance', icon: Calendar },
+    { name: t('nav.profile'), path: '/profile', icon: User },
+  ];
 
   const handleCheckInOut = async () => {
     if (gettingLocation || clockingIn || clockingOut) return;
@@ -48,10 +50,10 @@ export default function MobileBottomNav() {
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       if (todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut) {
         await clockOut({ ...coords, deviceType }).unwrap();
-        toast.success('Checked out!');
+        toast.success(t('attendance.checkedOut'));
       } else {
         await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
-        toast.success(todayStatus?.isCheckedOut ? 'Re-checked in!' : 'Checked in!');
+        toast.success(todayStatus?.isCheckedOut ? t('dashboard.reCheckedIn') : t('attendance.checkedIn'));
       }
     } catch (err: any) {
       setGettingLocation(false);
@@ -64,7 +66,7 @@ export default function MobileBottomNav() {
         toast('Queued — will sync when you\u2019re back online', { icon: '\uD83D\uDCE1' });
         return;
       }
-      toast.error(err?.data?.error?.message || 'Failed. Please try again.');
+      toast.error(err?.data?.error?.message || t('common.failed'));
     }
   };
 
@@ -92,7 +94,7 @@ export default function MobileBottomNav() {
           <button
             onClick={handleCheckInOut}
             disabled={isLoading || isManagement}
-            aria-label={isCompleted ? 'Checked out' : isCheckedIn ? 'Check out' : 'Check in'}
+            aria-label={isCompleted ? t('mobileNav.checkOut') : isCheckedIn ? t('mobileNav.checkOut') : t('mobileNav.checkIn')}
             className={cn(
               'w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all',
               isLoading
@@ -116,8 +118,8 @@ export default function MobileBottomNav() {
           {isCheckedIn && !isLoading && <div className="w-2 h-2 bg-emerald-400 rounded-full mt-1 animate-pulse" />}
           <span className="text-[10px] text-gray-500 mt-0.5 font-medium">
             {isLoading
-              ? (gettingLocation ? 'Getting GPS...' : clockingIn ? 'Marking...' : 'Processing...')
-              : isManagement ? 'HR' : isCheckedIn ? 'Check Out' : isCompleted ? 'Re-Check In' : 'Check In'}
+              ? (gettingLocation ? t('mobileNav.gettingGps') : clockingIn ? t('mobileNav.marking') : t('mobileNav.processing'))
+              : isManagement ? t('attendance.hr') : isCheckedIn ? t('mobileNav.checkOut') : isCompleted ? t('mobileNav.reCheckIn') : t('mobileNav.checkIn')}
           </span>
         </div>
 

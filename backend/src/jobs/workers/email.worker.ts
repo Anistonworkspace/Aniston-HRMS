@@ -58,6 +58,14 @@ function emailLayout(headerBg: string, iconText: string, title: string, subtitle
 </html>`;
 }
 
+/** Escape user-provided strings before injecting into HTML email templates */
+function esc(text: any): string {
+  if (text == null) return '';
+  const s = String(text);
+  const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+  return s.replace(/[&<>"']/g, (ch) => map[ch]);
+}
+
 function ctaButton(href: string, label: string, bg: string = '#4F46E5'): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:28px auto;">
   <tr>
@@ -84,7 +92,7 @@ function standardFooter(orgName: string, fallbackUrl?: string, fallbackLabel?: s
 const templates: Record<string, (ctx: Record<string, any>) => string> = {
   'onboarding-invite': (ctx) => emailLayout(
     '#4F46E5', 'A', 'Welcome to Aniston!', 'Complete your onboarding profile',
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${ctx.name}</strong>,</p>
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.name)}</strong>,</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">You've been invited to join Aniston Technologies. Please complete your onboarding by clicking the button below:</p>
     ${ctaButton(ctx.link, 'Start Onboarding')}
     <p style="color:#6B7280;font-size:13px;margin:16px 0 0;">This link expires in 7 days.</p>`,
@@ -92,10 +100,10 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
   ),
 
   'employee-invite': (ctx) => emailLayout(
-    '#4F46E5', 'A', "You're Invited!", `Join ${ctx.orgName} on Aniston HRMS`,
+    '#4F46E5', 'A', "You're Invited!", `Join ${esc(ctx.orgName)} on Aniston HRMS`,
     `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hello,</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
-      <strong>${ctx.inviterName || 'The HR team'}</strong> has invited you to join <strong>${ctx.orgName}</strong>${ctx.role && ctx.role !== 'EMPLOYEE' ? ` as <strong>${ctx.role.replace(/_/g, ' ')}</strong>` : ''}. Click the button below to set up your password and complete your profile.
+      <strong>${esc(ctx.inviterName || 'The HR team')}</strong> has invited you to join <strong>${esc(ctx.orgName)}</strong>${ctx.role && ctx.role !== 'EMPLOYEE' ? ` as <strong>${esc(ctx.role.replace(/_/g, ' '))}</strong>` : ''}. Click the button below to set up your password and complete your profile.
     </p>
 
     ${ctaButton(ctx.inviteUrl, 'Accept Invitation & Set Password')}
@@ -196,7 +204,7 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
 
   'password-reset': (ctx) => emailLayout(
     '#4F46E5', 'A', 'Password Reset', 'Reset your Aniston HRMS password',
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${ctx.name}</strong>,</p>
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.name)}</strong>,</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">We received a request to reset your password. Click the button below to create a new password:</p>
     ${ctaButton(ctx.link, 'Reset Password')}
     <p style="color:#6B7280;font-size:13px;margin:16px 0 0;">If you didn't request this, you can safely ignore this email.</p>`,
@@ -205,11 +213,11 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
 
   'resignation-submitted': (ctx) => emailLayout(
     '#DC2626', '!', 'Resignation Notice', 'Employee resignation submitted',
-    `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;"><strong>${ctx.name}</strong> (${ctx.employeeCode}) has submitted their resignation.</p>
+    `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;"><strong>${esc(ctx.name)}</strong> (${esc(ctx.employeeCode)}) has submitted their resignation.</p>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:16px 0;">
-      <tr><td style="padding:10px 0;color:#6B7280;font-size:14px;width:140px;border-bottom:1px solid #F3F4F6;">Department</td><td style="padding:10px 0;font-weight:600;font-size:14px;color:#111827;border-bottom:1px solid #F3F4F6;">${ctx.department || 'N/A'}</td></tr>
-      <tr><td style="padding:10px 0;color:#6B7280;font-size:14px;border-bottom:1px solid #F3F4F6;">Last Working Date</td><td style="padding:10px 0;font-weight:600;font-size:14px;color:#111827;border-bottom:1px solid #F3F4F6;">${ctx.lastWorkingDate}</td></tr>
-      <tr><td style="padding:10px 0;color:#6B7280;font-size:14px;">Reason</td><td style="padding:10px 0;font-size:14px;color:#111827;">${ctx.reason}</td></tr>
+      <tr><td style="padding:10px 0;color:#6B7280;font-size:14px;width:140px;border-bottom:1px solid #F3F4F6;">Department</td><td style="padding:10px 0;font-weight:600;font-size:14px;color:#111827;border-bottom:1px solid #F3F4F6;">${esc(ctx.department || 'N/A')}</td></tr>
+      <tr><td style="padding:10px 0;color:#6B7280;font-size:14px;border-bottom:1px solid #F3F4F6;">Last Working Date</td><td style="padding:10px 0;font-weight:600;font-size:14px;color:#111827;border-bottom:1px solid #F3F4F6;">${esc(ctx.lastWorkingDate)}</td></tr>
+      <tr><td style="padding:10px 0;color:#6B7280;font-size:14px;">Reason</td><td style="padding:10px 0;font-size:14px;color:#111827;">${esc(ctx.reason)}</td></tr>
     </table>
     ${ctaButton(ctx.link, 'Review in HRMS Portal')}`,
     standardFooter('Aniston Technologies', ctx.link)
@@ -217,8 +225,8 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
 
   'exit-approved': (ctx) => emailLayout(
     '#4F46E5', '&#10003;', 'Resignation Approved', 'Your resignation has been approved',
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${ctx.name}</strong>,</p>
-    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">Your resignation has been approved. Your last working date is <strong>${ctx.lastWorkingDate}</strong>.</p>
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.name)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">Your resignation has been approved. Your last working date is <strong>${esc(ctx.lastWorkingDate)}</strong>.</p>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FFF7ED;border:1px solid #FDE68A;margin:16px 0;">
       <tr><td style="padding:20px;">
         <p style="color:#92400E;font-weight:600;font-size:14px;margin:0 0 10px;">Please ensure the following before your last day:</p>
@@ -229,13 +237,13 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
         </table>
       </td></tr>
     </table>
-    ${ctx.notes ? `<p style="color:#6B7280;font-size:14px;margin:16px 0 0;"><strong>Notes from HR:</strong> ${ctx.notes}</p>` : ''}`,
+    ${ctx.notes ? `<p style="color:#6B7280;font-size:14px;margin:16px 0 0;"><strong>Notes from HR:</strong> ${esc(ctx.notes)}</p>` : ''}`,
     standardFooter('Aniston Technologies')
   ),
 
   'exit-completed': (ctx) => emailLayout(
     '#059669', '&#10003;', 'Exit Process Complete', 'All formalities have been completed',
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${ctx.name}</strong>,</p>
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.name)}</strong>,</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">Your exit process from Aniston Technologies has been completed successfully.</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">All no-dues have been cleared and your account has been deactivated.</p>
     <p style="color:#6B7280;font-size:14px;line-height:1.6;margin:24px 0 0;">We wish you all the very best for your future endeavours. Thank you for your contributions to Aniston Technologies.</p>`,
@@ -243,14 +251,14 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
   ),
 
   'job-share': (ctx) => emailLayout(
-    '#4F46E5', 'A', `Job Opening at ${ctx.orgName}`, ctx.jobTitle,
-    `<h2 style="color:#111827;margin:0 0 16px;font-size:20px;">${ctx.jobTitle}</h2>
+    '#4F46E5', 'A', `Job Opening at ${esc(ctx.orgName)}`, esc(ctx.jobTitle),
+    `<h2 style="color:#111827;margin:0 0 16px;font-size:20px;">${esc(ctx.jobTitle)}</h2>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:16px 0;">
-      ${ctx.department ? `<tr><td style="padding:10px 0;color:#6B7280;font-size:14px;width:120px;border-bottom:1px solid #F3F4F6;">Department</td><td style="padding:10px 0;font-weight:600;font-size:14px;color:#111827;border-bottom:1px solid #F3F4F6;">${ctx.department}</td></tr>` : ''}
-      ${ctx.location ? `<tr><td style="padding:10px 0;color:#6B7280;font-size:14px;border-bottom:1px solid #F3F4F6;">Location</td><td style="padding:10px 0;font-weight:600;font-size:14px;color:#111827;border-bottom:1px solid #F3F4F6;">${ctx.location}</td></tr>` : ''}
-      ${ctx.type ? `<tr><td style="padding:10px 0;color:#6B7280;font-size:14px;">Type</td><td style="padding:10px 0;font-weight:600;font-size:14px;color:#111827;">${ctx.type.replace(/_/g, ' ')}</td></tr>` : ''}
+      ${ctx.department ? `<tr><td style="padding:10px 0;color:#6B7280;font-size:14px;width:120px;border-bottom:1px solid #F3F4F6;">Department</td><td style="padding:10px 0;font-weight:600;font-size:14px;color:#111827;border-bottom:1px solid #F3F4F6;">${esc(ctx.department)}</td></tr>` : ''}
+      ${ctx.location ? `<tr><td style="padding:10px 0;color:#6B7280;font-size:14px;border-bottom:1px solid #F3F4F6;">Location</td><td style="padding:10px 0;font-weight:600;font-size:14px;color:#111827;border-bottom:1px solid #F3F4F6;">${esc(ctx.location)}</td></tr>` : ''}
+      ${ctx.type ? `<tr><td style="padding:10px 0;color:#6B7280;font-size:14px;">Type</td><td style="padding:10px 0;font-weight:600;font-size:14px;color:#111827;">${esc(ctx.type.replace(/_/g, ' '))}</td></tr>` : ''}
     </table>
-    ${ctx.customMessage ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:16px 0;"><tr><td style="padding:12px;background:#F9FAFB;border-left:3px solid #4F46E5;color:#4B5563;font-size:14px;">${ctx.customMessage}</td></tr></table>` : ''}
+    ${ctx.customMessage ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:16px 0;"><tr><td style="padding:12px;background:#F9FAFB;border-left:3px solid #4F46E5;color:#4B5563;font-size:14px;">${esc(ctx.customMessage)}</td></tr></table>` : ''}
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 8px;">We have an exciting opportunity that might interest you. Click the button below to learn more and apply:</p>
     ${ctaButton(ctx.applyUrl, 'Apply Now')}`,
     standardFooter(ctx.orgName, ctx.applyUrl, 'If the button doesn\'t work, copy and paste this link into your browser:')
@@ -258,9 +266,9 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
 
   'app-download': (ctx) => emailLayout(
     '#4F46E5', 'A', 'Download Aniston HRMS App', 'Mark attendance, apply leaves, and more — right from your phone',
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hello <strong>${ctx.employeeName || 'there'}</strong>,</p>
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hello <strong>${esc(ctx.employeeName || 'there')}</strong>,</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 24px;">
-      ${ctx.orgName} uses <strong>Aniston HRMS</strong> for attendance tracking, leave management, and more. Please install the app on your phone to mark your daily attendance.
+      ${esc(ctx.orgName)} uses <strong>Aniston HRMS</strong> for attendance tracking, leave management, and more. Please install the app on your phone to mark your daily attendance.
     </p>
     ${ctaButton(ctx.downloadUrl, 'Install App Now')}
 
@@ -288,7 +296,7 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
 
   'attendance-instructions': (ctx) => emailLayout(
     '#059669', 'A', 'Attendance Instructions', 'How to mark your daily attendance using Aniston HRMS',
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hello <strong>${ctx.employeeName || 'there'}</strong>,</p>
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hello <strong>${esc(ctx.employeeName || 'there')}</strong>,</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 24px;">
       Please follow these instructions to mark your attendance daily using the Aniston HRMS app.
     </p>
@@ -296,7 +304,7 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     ${ctx.shiftInfo ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EFF6FF;border:1px solid #BFDBFE;margin:0 0 20px;">
       <tr><td style="padding:16px;">
         <p style="color:#1E40AF;font-weight:600;margin:0 0 8px;font-size:14px;">Your Shift</p>
-        <p style="color:#1E3A5F;font-size:14px;margin:0;"><strong>${ctx.shiftInfo}</strong></p>
+        <p style="color:#1E3A5F;font-size:14px;margin:0;"><strong>${esc(ctx.shiftInfo)}</strong></p>
       </td></tr>
     </table>` : ''}
 
@@ -342,34 +350,26 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     <p style="color:#9CA3AF;font-size:11px;margin:0;">${ctx.orgName} | Powered by Aniston HRMS</p>`
   ),
 
-  'document-batch-submitted': (ctx) => `
-    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 32px; border-radius: 12px 12px 0 0;">
-        <h1 style="color: white; margin: 0; font-size: 24px;">Documents Uploaded</h1>
-        <p style="color: rgba(255,255,255,0.85); margin: 8px 0 0; font-size: 14px;">${ctx.orgName}</p>
-      </div>
-      <div style="padding: 32px; background: #fff; border: 1px solid #E5E7EB; border-radius: 0 0 12px 12px;">
-        <p style="color: #374151; font-size: 15px; line-height: 1.6;">
-          <strong>${ctx.employeeName}</strong> (${ctx.employeeCode}) has uploaded <strong>${ctx.documents.length}</strong> document${ctx.documents.length > 1 ? 's' : ''} for review:
-        </p>
-        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
-          <tr style="background: #F9FAFB;">
-            <th style="text-align: left; padding: 8px 12px; font-size: 12px; color: #6B7280; border-bottom: 1px solid #E5E7EB;">Document</th>
-            <th style="text-align: left; padding: 8px 12px; font-size: 12px; color: #6B7280; border-bottom: 1px solid #E5E7EB;">Type</th>
-          </tr>
-          ${ctx.documents.map((d: any) => `
-            <tr>
-              <td style="padding: 8px 12px; font-size: 13px; color: #111827; border-bottom: 1px solid #F3F4F6;">${d.name}</td>
-              <td style="padding: 8px 12px; font-size: 13px; color: #6B7280; border-bottom: 1px solid #F3F4F6;">${d.type.replace(/_/g, ' ')}</td>
-            </tr>
-          `).join('')}
-        </table>
-        <a href="${ctx.reviewUrl}" style="display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; margin: 16px 0; font-weight: 600;">
-          Review Documents
-        </a>
-      </div>
-    </div>
-  `,
+  'document-batch-submitted': (ctx) => emailLayout(
+    '#4F46E5', 'A', 'Documents Uploaded', esc(ctx.orgName),
+    `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
+      <strong>${esc(ctx.employeeName)}</strong> (${esc(ctx.employeeCode)}) has uploaded <strong>${ctx.documents.length}</strong> document${ctx.documents.length > 1 ? 's' : ''} for review:
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:16px 0;">
+      <tr style="background:#F9FAFB;">
+        <td style="text-align:left;padding:8px 12px;font-size:12px;color:#6B7280;border-bottom:1px solid #E5E7EB;font-weight:600;">Document</td>
+        <td style="text-align:left;padding:8px 12px;font-size:12px;color:#6B7280;border-bottom:1px solid #E5E7EB;font-weight:600;">Type</td>
+      </tr>
+      ${ctx.documents.map((d: any) => `
+        <tr>
+          <td style="padding:8px 12px;font-size:13px;color:#111827;border-bottom:1px solid #F3F4F6;">${esc(d.name)}</td>
+          <td style="padding:8px 12px;font-size:13px;color:#6B7280;border-bottom:1px solid #F3F4F6;">${esc(d.type.replace(/_/g, ' '))}</td>
+        </tr>
+      `).join('')}
+    </table>
+    ${ctaButton(ctx.reviewUrl, 'Review Documents')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies', ctx.reviewUrl)
+  ),
 
   'generic': (ctx) => emailLayout(
     '#4F46E5', 'A', ctx.title || 'Notification', '',
@@ -378,16 +378,16 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
   ),
 
   'document-submitted': (ctx) => emailLayout(
-    '#4F46E5', 'A', 'Document Submitted for Review', `${ctx.employeeName} uploaded a document`,
+    '#4F46E5', 'A', 'Document Submitted for Review', `${esc(ctx.employeeName)} uploaded a document`,
     `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hello HR Team,</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
-      <strong>${ctx.employeeName}</strong> (${ctx.employeeCode}) has uploaded a new document that requires your review.
+      <strong>${esc(ctx.employeeName)}</strong> (${esc(ctx.employeeCode)}) has uploaded a new document that requires your review.
     </p>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;margin:16px 0;">
       <tr><td style="padding:16px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;width:130px;">Document Type</td><td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${ctx.documentType?.replace(/_/g, ' ') || 'N/A'}</td></tr>
-          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;">Document Name</td><td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${ctx.documentName}</td></tr>
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;width:130px;">Document Type</td><td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${esc(ctx.documentType?.replace(/_/g, ' ') || 'N/A')}</td></tr>
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;">Document Name</td><td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${esc(ctx.documentName)}</td></tr>
           <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;">Uploaded At</td><td style="padding:6px 0;font-size:14px;color:#111827;">${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td></tr>
         </table>
       </td></tr>
@@ -400,13 +400,13 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     '#DC2626', '!', 'Suspicious Document Alert', `Possible fake or altered document detected`,
     `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hello HR Team,</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
-      A document uploaded by <strong>${ctx.employeeName}</strong> (${ctx.employeeCode}) has been automatically flagged as suspicious by the OCR verification system.
+      A document uploaded by <strong>${esc(ctx.employeeName)}</strong> (${esc(ctx.employeeCode)}) has been automatically flagged as suspicious by the OCR verification system.
     </p>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;margin:16px 0;">
       <tr><td style="padding:16px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;width:130px;">Document Type</td><td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${ctx.documentType || 'N/A'}</td></tr>
-          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;">Document Name</td><td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${ctx.documentName}</td></tr>
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;width:130px;">Document Type</td><td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${esc(ctx.documentType || 'N/A')}</td></tr>
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:14px;">Document Name</td><td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${esc(ctx.documentName)}</td></tr>
         </table>
       </td></tr>
     </table>
@@ -414,7 +414,7 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
       <tr><td style="padding:16px;">
         <p style="color:#991B1B;font-weight:600;margin:0 0 8px;font-size:14px;">Issues Detected:</p>
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          ${(ctx.issues || []).map((issue: string) => `<tr><td style="padding:3px 0;color:#991B1B;font-size:13px;">&#8226; ${issue}</td></tr>`).join('')}
+          ${(ctx.issues || []).map((issue: string) => `<tr><td style="padding:3px 0;color:#991B1B;font-size:13px;">&#8226; ${esc(issue)}</td></tr>`).join('')}
         </table>
       </td></tr>
     </table>
@@ -424,10 +424,10 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
   ),
 
   'activation-invite': (ctx) => emailLayout(
-    '#4F46E5', 'A', 'Activate Your Account', `Welcome to ${ctx.organizationName}`,
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${ctx.name}</strong>,</p>
+    '#4F46E5', 'A', 'Activate Your Account', `Welcome to ${esc(ctx.organizationName)}`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.name)}</strong>,</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
-      Your account on <strong>${ctx.organizationName}</strong>'s Aniston HRMS has been created. Please activate your account by setting a password.
+      Your account on <strong>${esc(ctx.organizationName)}</strong>'s Aniston HRMS has been created. Please activate your account by setting a password.
     </p>
     ${ctaButton(ctx.link, 'Activate Account & Set Password')}
 
@@ -453,28 +453,28 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     ctx.isEvent ? '&#128197;' : '&#127881;',
     ctx.isEvent ? 'Company Event' : 'Holiday Announcement',
     ctx.holidayName || '',
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 12px;">Hello <strong>${ctx.employeeName || 'there'}</strong>,</p>
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 12px;">Hello <strong>${esc(ctx.employeeName || 'there')}</strong>,</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
       ${ctx.isEvent ? 'A new company event has been scheduled' : 'A holiday has been announced'}:
     </p>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${ctx.isEvent ? '#FFF7ED' : '#EEF2FF'};border:1px solid ${ctx.isEvent ? '#FED7AA' : '#C7D2FE'};margin:0 0 20px;">
       <tr><td style="padding:20px;">
-        <p style="color:${ctx.isEvent ? '#C2410C' : '#4338CA'};font-weight:700;font-size:18px;margin:0 0 8px;">${ctx.holidayName}</p>
+        <p style="color:${ctx.isEvent ? '#C2410C' : '#4338CA'};font-weight:700;font-size:18px;margin:0 0 8px;">${esc(ctx.holidayName)}</p>
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
           <tr>
             <td style="padding:4px 0;color:#6B7280;font-size:13px;width:80px;">Date</td>
-            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.holidayDate}</td>
+            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.holidayDate)}</td>
           </tr>
           <tr>
             <td style="padding:4px 0;color:#6B7280;font-size:13px;">Type</td>
-            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.typeLabel}</td>
+            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.typeLabel)}</td>
           </tr>
           <tr>
             <td style="padding:4px 0;color:#6B7280;font-size:13px;">Timing</td>
-            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.timingInfo}</td>
+            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.timingInfo)}</td>
           </tr>
         </table>
-        ${ctx.description ? `<p style="color:#4B5563;font-size:13px;margin:12px 0 0;line-height:1.5;border-top:1px solid ${ctx.isEvent ? '#FED7AA' : '#C7D2FE'};padding-top:12px;">${ctx.description}</p>` : ''}
+        ${ctx.description ? `<p style="color:#4B5563;font-size:13px;margin:12px 0 0;line-height:1.5;border-top:1px solid ${ctx.isEvent ? '#FED7AA' : '#C7D2FE'};padding-top:12px;">${esc(ctx.description)}</p>` : ''}
       </td></tr>
     </table>`,
     standardFooter(ctx.orgName)
@@ -484,18 +484,18 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     '#DC2626', '!', 'Geofence Alert', `Employee attendance marked outside office location`,
     `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hello HR Team,</p>
     <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
-      <strong>${ctx.employeeName}</strong> (${ctx.employeeCode}) has marked attendance <strong>outside</strong> the assigned office geofence.
+      <strong>${esc(ctx.employeeName)}</strong> (${esc(ctx.employeeCode)}) has marked attendance <strong>outside</strong> the assigned office geofence.
     </p>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF2F2;margin:16px 0;">
       <tr><td style="padding:16px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
           <tr>
             <td style="padding:4px 0;color:#6B7280;font-size:13px;width:130px;">Employee</td>
-            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.employeeName} (${ctx.employeeCode})</td>
+            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.employeeName)} (${esc(ctx.employeeCode)})</td>
           </tr>
           <tr>
             <td style="padding:4px 0;color:#6B7280;font-size:13px;">Assigned Location</td>
-            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.locationName}</td>
+            <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.locationName)}</td>
           </tr>
           <tr>
             <td style="padding:4px 0;color:#6B7280;font-size:13px;">Distance from Office</td>
@@ -515,17 +515,17 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
   // ── Leave Notification Templates ──
 
   'leave-submitted': (ctx) => emailLayout(
-    '#4F46E5', '📋', 'Leave Request Submitted', `${ctx.employeeName} has applied for leave`,
+    '#4F46E5', '📋', 'Leave Request Submitted', `${esc(ctx.employeeName)} has applied for leave`,
     `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">A new leave request requires your attention.</p>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;padding:0;">
       <tr><td style="padding:16px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Employee</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.employeeName}</td></tr>
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Type</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.leaveType}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Employee</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.employeeName)}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Type</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.leaveType)}</td></tr>
           <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Duration</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.days} day(s)</td></tr>
           <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Dates</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${new Date(ctx.startDate).toLocaleDateString('en-IN')} — ${new Date(ctx.endDate).toLocaleDateString('en-IN')}</td></tr>
           <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Risk Level</td><td style="padding:4px 0;font-size:13px;font-weight:600;color:${ctx.riskLevel === 'CRITICAL' ? '#DC2626' : ctx.riskLevel === 'HIGH' ? '#EA580C' : ctx.riskLevel === 'MEDIUM' ? '#D97706' : '#16A34A'};">${ctx.riskLevel || 'LOW'}</td></tr>
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Reason</td><td style="padding:4px 0;color:#111827;font-size:13px;">${ctx.reason || '—'}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Reason</td><td style="padding:4px 0;color:#111827;font-size:13px;">${esc(ctx.reason || '—')}</td></tr>
         </table>
       </td></tr>
     </table>
@@ -534,15 +534,15 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
   ),
 
   'leave-approved': (ctx) => emailLayout(
-    '#16A34A', '✅', 'Leave Approved', `Your ${ctx.leaveType} has been approved`,
+    '#16A34A', '✅', 'Leave Approved', `Your ${esc(ctx.leaveType)} has been approved`,
     `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Your leave request has been <strong style="color:#16A34A;">approved</strong>.</p>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0FDF4;padding:0;">
       <tr><td style="padding:16px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Type</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.leaveType}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Type</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.leaveType)}</td></tr>
           <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Duration</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.days} day(s)</td></tr>
           <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Dates</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${new Date(ctx.startDate).toLocaleDateString('en-IN')} — ${new Date(ctx.endDate).toLocaleDateString('en-IN')}</td></tr>
-          ${ctx.remarks ? `<tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Remarks</td><td style="padding:4px 0;color:#111827;font-size:13px;">${ctx.remarks}</td></tr>` : ''}
+          ${ctx.remarks ? `<tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Remarks</td><td style="padding:4px 0;color:#111827;font-size:13px;">${esc(ctx.remarks)}</td></tr>` : ''}
         </table>
       </td></tr>
     </table>`,
@@ -550,14 +550,14 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
   ),
 
   'leave-rejected': (ctx) => emailLayout(
-    '#DC2626', '❌', 'Leave Rejected', `Your ${ctx.leaveType} request was not approved`,
+    '#DC2626', '❌', 'Leave Rejected', `Your ${esc(ctx.leaveType)} request was not approved`,
     `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Your leave request has been <strong style="color:#DC2626;">rejected</strong>.</p>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF2F2;padding:0;">
       <tr><td style="padding:16px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Type</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.leaveType}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Type</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.leaveType)}</td></tr>
           <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Dates</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${new Date(ctx.startDate).toLocaleDateString('en-IN')} — ${new Date(ctx.endDate).toLocaleDateString('en-IN')}</td></tr>
-          ${ctx.remarks ? `<tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Reason</td><td style="padding:4px 0;color:#111827;font-size:13px;">${ctx.remarks}</td></tr>` : ''}
+          ${ctx.remarks ? `<tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Reason</td><td style="padding:4px 0;color:#111827;font-size:13px;">${esc(ctx.remarks)}</td></tr>` : ''}
         </table>
       </td></tr>
     </table>
@@ -567,11 +567,11 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
 
   'leave-backup-assigned': (ctx) => emailLayout(
     '#7C3AED', '🔄', 'Backup Assignment', `You've been assigned as backup`,
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;"><strong>${ctx.employeeName}</strong> has assigned you as backup during their upcoming leave.</p>
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;"><strong>${esc(ctx.employeeName)}</strong> has assigned you as backup during their upcoming leave.</p>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F3FF;padding:0;">
       <tr><td style="padding:16px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Employee</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.employeeName}</td></tr>
+          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Employee</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.employeeName)}</td></tr>
           <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Dates</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${new Date(ctx.startDate).toLocaleDateString('en-IN')} — ${new Date(ctx.endDate).toLocaleDateString('en-IN')}</td></tr>
           <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Duration</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.days} day(s)</td></tr>
         </table>

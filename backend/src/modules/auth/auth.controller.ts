@@ -155,10 +155,14 @@ export class AuthController {
       const secret = otplib.generateSecret();
       const otpauthUrl = otplib.generateURI({ issuer: 'Aniston HRMS', label: req.user!.email, secret });
       const qrCode = await QRCode.toDataURL(otpauthUrl);
-      const backupCodes = Array.from({ length: 8 }, () =>
-        Math.random().toString(36).slice(2, 6).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase()
-      );
-      const encSecret = Buffer.from(secret).toString('base64');
+      const crypto = await import('crypto');
+      const backupCodes = Array.from({ length: 8 }, () => {
+        const bytes = crypto.randomBytes(5);
+        const hex = bytes.toString('hex').toUpperCase();
+        return hex.slice(0, 4) + '-' + hex.slice(4, 8);
+      });
+      const { encrypt } = await import('../../utils/encryption.js');
+      const encSecret = encrypt(secret);
 
       await prisma.userMFA.upsert({
         where: { userId: req.user!.userId },
@@ -178,7 +182,8 @@ export class AuthController {
       const mfa = await prisma.userMFA.findUnique({ where: { userId: req.user!.userId } });
       if (!mfa) { res.status(404).json({ success: false, error: { message: 'MFA not initialized. Call /mfa/setup first.' } }); return; }
 
-      const secret = Buffer.from(mfa.secret, 'base64').toString('utf8');
+      const { decrypt } = await import('../../utils/encryption.js');
+      const secret = decrypt(mfa.secret);
       if (!otplib.verifySync({ token: code, secret })?.valid) {
         res.status(400).json({ success: false, error: { message: 'Invalid code. Check your authenticator app and try again.' } });
         return;
@@ -205,7 +210,8 @@ export class AuthController {
       const mfa = await prisma.userMFA.findUnique({ where: { userId: payload.userId } });
       if (!mfa?.isEnabled) { res.status(401).json({ success: false, error: { message: 'MFA not enabled' } }); return; }
 
-      const secret = Buffer.from(mfa.secret, 'base64').toString('utf8');
+      const { decrypt } = await import('../../utils/encryption.js');
+      const secret = decrypt(mfa.secret);
       let isValid = otplib.verifySync({ token: code, secret })?.valid ?? false;
 
       // Check backup codes
@@ -247,7 +253,8 @@ export class AuthController {
       const mfa = await prisma.userMFA.findUnique({ where: { userId: req.user!.userId } });
       if (!mfa?.isEnabled) { res.status(400).json({ success: false, error: { message: 'MFA is not enabled' } }); return; }
 
-      const secret = Buffer.from(mfa.secret, 'base64').toString('utf8');
+      const { decrypt } = await import('../../utils/encryption.js');
+      const secret = decrypt(mfa.secret);
       if (!otplib.verifySync({ token: code, secret })?.valid) {
         res.status(401).json({ success: false, error: { message: 'Invalid code. MFA was NOT disabled.' } });
         return;

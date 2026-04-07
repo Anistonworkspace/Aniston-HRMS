@@ -79,7 +79,7 @@ export const PERMISSIONS: PermissionsMap = {
     report: ['read', 'export'],
     asset: ['create', 'read', 'update', 'delete'],
     settings: ['read', 'update'],
-    org_chart: ['read'],
+    org_chart: ['read', 'manage'],
     social_wall: ['create', 'read', 'update', 'delete'],
     onboarding: ['create', 'read', 'update', 'delete'],
     audit_log: ['read', 'export'],

@@ -361,6 +361,12 @@ export enum WaMessageStatus {
   DELIVERED = 'DELIVERED',
   READ = 'READ',
   FAILED = 'FAILED',
+  RECEIVED = 'RECEIVED',
+}
+
+export enum WaMessageDirection {
+  OUTBOUND = 'OUTBOUND',
+  INBOUND = 'INBOUND',
 }
 
 export enum KycStatus {

@@ -6,9 +6,9 @@ import {
   Cake, ChevronRight,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAppSelector } from '../../app/store';
 import { useGetHRStatsQuery } from './dashboardApi';
-import { formatDate } from '../../lib/utils';
 import {
   StatusCard, DashboardSection, ActionCard, QuickActionGrid,
   EmployeeListWidget, SkeletonLoader,
@@ -20,17 +20,6 @@ const container = {
   show: { opacity: 1, transition: { staggerChildren: 0.06 } },
 };
 
-const QUICK_ACTIONS = [
-  { label: 'Approve Leaves', path: '/pending-approvals', icon: '✅' },
-  { label: 'Manage Attendance', path: '/attendance', icon: '📊' },
-  { label: 'Add Employee', path: '/employees', icon: '➕' },
-  { label: 'View Helpdesk', path: '/helpdesk', icon: '🎫' },
-  { label: 'Run Payroll', path: '/payroll', icon: '💰' },
-  { label: 'Recruitment', path: '/recruitment', icon: '🎯' },
-  { label: 'Walk-ins', path: '/walk-in-management', icon: '🚶' },
-  { label: 'Send Bulk Email', path: '/send-bulk-email', icon: '📧' },
-];
-
 const attentionIconMap: Record<string, typeof Clock> = {
   late: Clock,
   missing_checkout: ShieldAlert,
@@ -41,14 +30,28 @@ const attentionIconMap: Record<string, typeof Clock> = {
 
 function HRDashboard() {
   const navigate = useNavigate();
+  const { t, i18n } = useTranslation();
   const user = useAppSelector((s) => s.auth.user);
   const { data: response, isLoading, isError } = useGetHRStatsQuery(undefined, {
     pollingInterval: 60000,
   });
   const stats = response?.data;
 
+  const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
+
+  const QUICK_ACTIONS = [
+    { label: t('leaves.approvals'), path: '/pending-approvals', icon: '✅' },
+    { label: t('nav.attendance'), path: '/attendance', icon: '📊' },
+    { label: t('employees.addEmployee'), path: '/employees', icon: '➕' },
+    { label: t('nav.helpdesk'), path: '/helpdesk', icon: '🎫' },
+    { label: t('payroll.processPayroll'), path: '/payroll', icon: '💰' },
+    { label: t('nav.recruitment'), path: '/recruitment', icon: '🎯' },
+    { label: t('recruitment.walkInCandidates'), path: '/walk-in-management', icon: '🚶' },
+    { label: t('nav.sendBulkEmail'), path: '/send-bulk-email', icon: '📧' },
+  ];
+
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+  const greeting = hour < 12 ? t('dashboard.goodMorning') : hour < 17 ? t('dashboard.goodAfternoon') : t('dashboard.goodEvening');
 
   const attendanceCards = useMemo(() => {
     if (!stats) return [];
@@ -122,7 +125,7 @@ function HRDashboard() {
           {greeting}, {user?.firstName || 'HR'}
         </h1>
         <p className="text-gray-500 mt-1 text-sm">
-          Today's operations — {formatDate(new Date(), 'long')}
+          Today's operations — {new Date().toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })}
         </p>
       </motion.div>
 

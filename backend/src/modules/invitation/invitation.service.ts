@@ -101,34 +101,71 @@ export class InvitationService {
     const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`;
     const downloadUrl = `https://hr.anistonav.com/download`;
 
+    // Track delivery statuses
+    let emailStatus: string = email ? 'NOT_SENT' : 'NOT_SENT';
+    let whatsappStatus: string = invitation.mobileNumber ? 'NOT_SENT' : 'NOT_SENT';
+
     // Send email invitation
     if (email) {
-      await enqueueEmail({
-        to: email,
-        subject: `You're invited to join ${org?.name || 'Aniston HRMS'}`,
-        template: 'employee-invite',
-        context: {
-          orgName: org?.name || 'Aniston Technologies',
-          inviteUrl,
-          downloadUrl,
-          expiresAt: expiresAt.toISOString(),
-          inviterName,
-          role: role || 'EMPLOYEE',
-        },
-      });
+      try {
+        await enqueueEmail({
+          to: email,
+          subject: `You're invited to join ${org?.name || 'Aniston HRMS'}`,
+          template: 'employee-invite',
+          context: {
+            orgName: org?.name || 'Aniston Technologies',
+            inviteUrl,
+            downloadUrl,
+            expiresAt: expiresAt.toISOString(),
+            inviterName,
+            role: role || 'EMPLOYEE',
+          },
+        });
+        emailStatus = 'SENT';
+      } catch (err) {
+        logger.error('Failed to enqueue invitation email:', err);
+        emailStatus = 'FAILED';
+      }
     }
 
     // Send WhatsApp invitation (best-effort)
     if (invitation.mobileNumber) {
       try {
+        const orgName = org?.name || 'Aniston HRMS';
+        const roleName = (role || 'EMPLOYEE').replace(/_/g, ' ');
+        const whatsAppMessage = [
+          `*${orgName} — Employee Invitation*`,
+          ``,
+          `Hi! ${inviterName} has invited you to join *${orgName}* as *${roleName}*.`,
+          ``,
+          `Click the link below to accept and set up your account:`,
+          `${inviteUrl}`,
+          ``,
+          `*What happens next?*`,
+          `1. Click the link above`,
+          `2. Set your name and password`,
+          `3. Complete your profile`,
+          `4. You're all set!`,
+          ``,
+          `This link expires in 72 hours.`,
+        ].join('\n');
+
         await whatsAppService.sendMessage({
           to: invitation.mobileNumber,
-          message: `Hi! You're invited to join ${org?.name || 'Aniston HRMS'} on Aniston HRMS.\n\nClick here to accept: ${inviteUrl}\n\nThis link expires in 72 hours.`,
+          message: whatsAppMessage,
         }, organizationId);
+        whatsappStatus = 'SENT';
       } catch (err) {
         logger.error('Failed to send WhatsApp invite:', err);
+        whatsappStatus = 'FAILED';
       }
     }
+
+    // Update delivery statuses on the invitation record
+    await prisma.employeeInvitation.update({
+      where: { id: invitation.id },
+      data: { emailStatus, whatsappStatus },
+    });
 
     // Audit log
     await createAuditLog({
@@ -137,7 +174,7 @@ export class InvitationService {
       entity: 'EmployeeInvitation',
       entityId: invitation.id,
       action: 'CREATE',
-      newValue: { email, mobileNumber, role, departmentId, designationId },
+      newValue: { email, mobileNumber, role, departmentId, designationId, emailStatus, whatsappStatus },
     });
 
     return {
@@ -149,6 +186,8 @@ export class InvitationService {
       role,
       expiresAt,
       status: invitation.status,
+      emailStatus,
+      whatsappStatus,
     };
   }
 
@@ -574,34 +613,64 @@ export class InvitationService {
     const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${updated.inviteToken}`;
     const downloadUrl = `https://hr.anistonav.com/download`;
 
+    let emailStatus: string = invitation.email ? 'NOT_SENT' : 'NOT_SENT';
+    let whatsappStatus: string = invitation.mobileNumber ? 'NOT_SENT' : 'NOT_SENT';
+
     if (invitation.email) {
-      await enqueueEmail({
-        to: invitation.email,
-        subject: `Reminder: You're invited to join ${org?.name || 'Aniston HRMS'}`,
-        template: 'employee-invite',
-        context: {
-          orgName: org?.name || 'Aniston Technologies',
-          inviteUrl,
-          downloadUrl,
-          expiresAt: newExpiresAt.toISOString(),
-          inviterName: 'HR Team',
-          role: invitation.role || 'EMPLOYEE',
-        },
-      });
+      try {
+        await enqueueEmail({
+          to: invitation.email,
+          subject: `Reminder: You're invited to join ${org?.name || 'Aniston HRMS'}`,
+          template: 'employee-invite',
+          context: {
+            orgName: org?.name || 'Aniston Technologies',
+            inviteUrl,
+            downloadUrl,
+            expiresAt: newExpiresAt.toISOString(),
+            inviterName: 'HR Team',
+            role: invitation.role || 'EMPLOYEE',
+          },
+        });
+        emailStatus = 'SENT';
+      } catch (err) {
+        logger.error('Failed to enqueue resend email:', err);
+        emailStatus = 'FAILED';
+      }
     }
 
     if (invitation.mobileNumber) {
       try {
+        const orgName = org?.name || 'Aniston HRMS';
+        const roleName = (invitation.role || 'EMPLOYEE').replace(/_/g, ' ');
+        const whatsAppMessage = [
+          `*${orgName} — Invitation Reminder*`,
+          ``,
+          `Hi! This is a reminder that you've been invited to join *${orgName}* as *${roleName}*.`,
+          ``,
+          `Click the link below to accept and set up your account:`,
+          `${inviteUrl}`,
+          ``,
+          `This link expires in 72 hours.`,
+        ].join('\n');
+
         await whatsAppService.sendMessage({
           to: invitation.mobileNumber,
-          message: `Hi! Reminder: You're invited to join ${org?.name || 'Aniston HRMS'} on Aniston HRMS.\n\nClick here to accept: ${inviteUrl}\n\nThis link expires in 72 hours.`,
+          message: whatsAppMessage,
         }, organizationId);
+        whatsappStatus = 'SENT';
       } catch (err) {
         logger.error('Failed to send WhatsApp invite on resend:', err);
+        whatsappStatus = 'FAILED';
       }
     }
 
-    return { success: true, inviteUrl, expiresAt: newExpiresAt };
+    // Update delivery statuses
+    await prisma.employeeInvitation.update({
+      where: { id: invitationId },
+      data: { emailStatus, whatsappStatus },
+    });
+
+    return { success: true, inviteUrl, expiresAt: newExpiresAt, emailStatus, whatsappStatus };
   }
 
   /**

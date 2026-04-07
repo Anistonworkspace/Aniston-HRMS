@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
 import { whatsAppService } from './whatsapp.service.js';
-import { sendMessageSchema, sendJobLinkSchema, sendMediaSchema } from './whatsapp.validation.js';
+import { sendMessageSchema, sendJobLinkSchema, sendMediaSchema, sendToNumberSchema } from './whatsapp.validation.js';
 
 export class WhatsAppController {
   async initialize(req: Request, res: Response, next: NextFunction) {
@@ -28,7 +27,7 @@ export class WhatsAppController {
   async sendMessage(req: Request, res: Response, next: NextFunction) {
     try {
       const data = sendMessageSchema.parse(req.body);
-      const msg = await whatsAppService.sendMessage(data, req.user!.organizationId);
+      const msg = await whatsAppService.sendMessage(data, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: msg, message: 'Message sent' });
     } catch (err) { next(err); }
   }
@@ -36,7 +35,7 @@ export class WhatsAppController {
   async sendJobLink(req: Request, res: Response, next: NextFunction) {
     try {
       const data = sendJobLinkSchema.parse(req.body);
-      const msg = await whatsAppService.sendJobLink(data, req.user!.organizationId);
+      const msg = await whatsAppService.sendJobLink(data, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: msg, message: 'Job link sent' });
     } catch (err) { next(err); }
   }
@@ -48,7 +47,7 @@ export class WhatsAppController {
         res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'No file uploaded' } });
         return;
       }
-      const result = await whatsAppService.sendMedia(chatId, req.file.path, caption, req.user!.organizationId);
+      const result = await whatsAppService.sendMedia(chatId, req.file.path, caption, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: result, message: 'Media sent' });
     } catch (err) { next(err); }
   }
@@ -56,7 +55,7 @@ export class WhatsAppController {
   async getMessages(req: Request, res: Response, next: NextFunction) {
     try {
       const page = Number(req.query.page) || 1;
-      const limit = Number(req.query.limit) || 20;
+      const limit = Math.min(Number(req.query.limit) || 20, 100);
       const result = await whatsAppService.getMessages(req.user!.organizationId, page, limit);
       res.json({ success: true, ...result });
     } catch (err) { next(err); }
@@ -71,37 +70,39 @@ export class WhatsAppController {
 
   async getChatMessages(req: Request, res: Response, next: NextFunction) {
     try {
-      const limit = Number(req.query.limit) || 50;
-      const before = req.query.before as string | undefined;
-      const messages = await whatsAppService.getChatMessages(req.params.chatId, limit, before);
+      const chatId = String(req.params.chatId);
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const before = typeof req.query.before === 'string' ? req.query.before : undefined;
+      const messages = await whatsAppService.getChatMessages(chatId, limit, before);
       res.json({ success: true, data: messages });
     } catch (err) { next(err); }
   }
 
   async markAsRead(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await whatsAppService.markChatAsRead(req.params.chatId);
+      const result = await whatsAppService.markChatAsRead(String(req.params.chatId));
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
 
   async searchMessages(req: Request, res: Response, next: NextFunction) {
     try {
-      const query = req.query.q as string;
+      const chatId = String(req.params.chatId);
+      const query = typeof req.query.q === 'string' ? req.query.q : '';
       if (!query || query.length < 2) {
         res.status(400).json({ success: false, error: { message: 'Search query must be at least 2 characters' } });
         return;
       }
-      const limit = Number(req.query.limit) || 50;
-      const results = await whatsAppService.searchMessages(req.params.chatId, query, limit);
+      const limit = Math.min(Number(req.query.limit) || 50, 100);
+      const results = await whatsAppService.searchMessages(chatId, query, limit);
       res.json({ success: true, data: results });
     } catch (err) { next(err); }
   }
 
   async downloadMedia(req: Request, res: Response, next: NextFunction) {
     try {
-      const { messageId } = req.params;
-      const chatId = req.query.chatId as string;
+      const messageId = String(req.params.messageId);
+      const chatId = typeof req.query.chatId === 'string' ? req.query.chatId : '';
       if (!chatId) {
         res.status(400).json({ success: false, error: { message: 'chatId query param required' } });
         return;
@@ -113,11 +114,8 @@ export class WhatsAppController {
 
   async sendToNumber(req: Request, res: Response, next: NextFunction) {
     try {
-      const { phone, message } = z.object({
-        phone: z.string().min(10).max(20),
-        message: z.string().min(1).max(4096),
-      }).parse(req.body);
-      const result = await whatsAppService.sendToNumber(phone, message, req.user!.organizationId);
+      const { phone, message } = sendToNumberSchema.parse(req.body);
+      const result = await whatsAppService.sendToNumber(phone, message, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
@@ -131,14 +129,14 @@ export class WhatsAppController {
 
   async refreshQr(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await whatsAppService.refreshQr(req.user!.organizationId);
+      const result = await whatsAppService.refreshQr(req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: result, message: 'QR refreshed — scan the new code' });
     } catch (err) { next(err); }
   }
 
   async logout(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await whatsAppService.logout(req.user!.organizationId);
+      const result = await whatsAppService.logout(req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }

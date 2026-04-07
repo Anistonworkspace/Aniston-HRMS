@@ -12,10 +12,26 @@ const PAIR_PREFIX = 'agent-pair:';
 const LIVE_VIEW_PREFIX = 'agent-live:';
 const PAIR_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
+/** Safely parse JSON from Redis — returns null on failure instead of crashing */
+function safeJsonParse<T = any>(data: string | null): T | null {
+  if (!data) return null;
+  try { return JSON.parse(data); }
+  catch { return null; }
+}
+
+/** Get today's date at midnight in the organization's timezone (defaults to Asia/Kolkata) */
+function getOrgToday(timezone: string = 'Asia/Kolkata'): Date {
+  // Format current time in org timezone to get the correct local date
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-CA', { timeZone: timezone }); // en-CA gives YYYY-MM-DD
+  const localDate = new Date(dateStr + 'T00:00:00.000Z');
+  return localDate;
+}
+
 export class AgentService {
   async submitHeartbeat(employeeId: string, organizationId: string, activities: ActivityEntry[]) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } });
+    const today = getOrgToday(org?.timezone);
 
     const records = activities.map(a => ({
       employeeId,
@@ -68,8 +84,8 @@ export class AgentService {
   }
 
   async saveScreenshot(employeeId: string, organizationId: string, imageUrl: string, metadata: ScreenshotMetadata) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } });
+    const today = getOrgToday(org?.timezone);
 
     return prisma.agentScreenshot.create({
       data: {
@@ -84,10 +100,12 @@ export class AgentService {
     });
   }
 
-  async getConfig(employeeId: string) {
+  async getConfig(employeeId: string, organizationId?: string) {
     // Get employee's current shift assignment to determine tracking config
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const org = organizationId
+      ? await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } })
+      : null;
+    const today = getOrgToday(org?.timezone);
 
     const assignment = await prisma.shiftAssignment.findFirst({
       where: {
@@ -100,7 +118,7 @@ export class AgentService {
 
     // Check if live mode is enabled by admin
     const liveData = await redis.get(`${LIVE_VIEW_PREFIX}${employeeId}`);
-    const liveMode = liveData ? JSON.parse(liveData) : null;
+    const liveMode = safeJsonParse(liveData);
 
     return {
       enabled: true,
@@ -126,11 +144,19 @@ export class AgentService {
 
   async getLiveMode(employeeId: string) {
     const data = await redis.get(`${LIVE_VIEW_PREFIX}${employeeId}`);
-    return data ? JSON.parse(data) : { enabled: false, intervalSeconds: 600 };
+    return safeJsonParse(data) || { enabled: false, intervalSeconds: 600 };
   }
 
   async getActivityLogs(employeeId: string, date: string, organizationId: string) {
+    // Validate employee belongs to this organization
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
     const queryDate = new Date(date);
+    if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
     queryDate.setHours(0, 0, 0, 0);
 
     const logs = await prisma.activityLog.findMany({
@@ -171,7 +197,15 @@ export class AgentService {
   }
 
   async getScreenshots(employeeId: string, date: string, organizationId: string) {
+    // Validate employee belongs to this organization
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
     const queryDate = new Date(date);
+    if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
     queryDate.setHours(0, 0, 0, 0);
 
     return prisma.agentScreenshot.findMany({
@@ -180,12 +214,12 @@ export class AgentService {
     });
   }
 
-  async getAgentStatus(employeeId: string) {
+  async getAgentStatus(employeeId: string, organizationId: string) {
     const now = new Date();
     const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
 
     const lastLog = await prisma.activityLog.findFirst({
-      where: { employeeId },
+      where: { employeeId, organizationId },
       orderBy: { timestamp: 'desc' },
       select: { timestamp: true },
     });
@@ -356,6 +390,10 @@ export class AgentService {
     });
 
     if (employee && employee.user) {
+      // Verify user is active before issuing token
+      const fullUser = await prisma.user.findUnique({ where: { id: employee.user.id }, select: { status: true } });
+      if (fullUser?.status !== 'ACTIVE') throw new BadRequestError('User account is not active. Contact your administrator.');
+
       // Mark as paired
       await prisma.employee.update({
         where: { id: employee.id },
@@ -378,7 +416,9 @@ export class AgentService {
     const data = await redis.get(`${PAIR_PREFIX}${code}`);
     if (!data) throw new BadRequestError('Invalid or expired pairing code. Please check with your admin.');
 
-    const { userId, employeeId, organizationId } = JSON.parse(data);
+    const parsed = safeJsonParse<{ userId: string; employeeId: string; organizationId: string }>(data);
+    if (!parsed) throw new BadRequestError('Invalid pairing data. Please regenerate the code.');
+    const { userId, employeeId, organizationId } = parsed;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },

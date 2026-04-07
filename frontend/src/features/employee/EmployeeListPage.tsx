@@ -4,7 +4,7 @@ import {
   Search, Filter, MoreHorizontal, ChevronLeft, ChevronRight, UserPlus,
   Mail, Phone, X, Loader2, Copy, Send, CheckCircle2, Eye, Pencil,
   RefreshCw, UserCheck, UserX, Users, Clock, AlertTriangle, Shield,
-  Building2, ChevronDown, Calendar, Briefcase, MapPin, Download,
+  Building2, ChevronDown, Calendar, Briefcase, MapPin, Download, MessageCircle,
 } from 'lucide-react';
 import {
   useGetEmployeesQuery,
@@ -548,6 +548,34 @@ function Th({ children, className }: { children?: React.ReactNode; className?: s
   );
 }
 
+function ChannelIndicator({ emailStatus, whatsappStatus, email, mobile }: { emailStatus?: string; whatsappStatus?: string; email?: string; mobile?: string }) {
+  const getColor = (status?: string) => {
+    if (status === 'SENT') return 'text-emerald-500';
+    if (status === 'FAILED') return 'text-red-500';
+    return 'text-gray-300';
+  };
+  const getTooltip = (channel: string, status?: string) => {
+    if (status === 'SENT') return `${channel}: Sent`;
+    if (status === 'FAILED') return `${channel}: Failed`;
+    if (status === 'NOT_SENT') return `${channel}: Not sent`;
+    return `${channel}: Unknown`;
+  };
+  return (
+    <div className="flex items-center gap-1.5">
+      {email && (
+        <span title={getTooltip('Email', emailStatus)}>
+          <Mail size={14} className={getColor(emailStatus)} />
+        </span>
+      )}
+      {mobile && (
+        <span title={getTooltip('WhatsApp', whatsappStatus)}>
+          <MessageCircle size={14} className={getColor(whatsappStatus)} />
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ──────────────────────────────────────────────
 // Avatar
 // ──────────────────────────────────────────────
@@ -700,16 +728,30 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
             <div className="bg-green-50 border border-green-200 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-2">
                 <CheckCircle2 size={20} className="text-green-600" />
-                <span className="text-sm font-semibold text-green-700">Invitation Sent!</span>
+                <span className="text-sm font-semibold text-green-700">Invitation Created!</span>
               </div>
-              <p className="text-xs text-green-600">
-                {result.email && `Email sent to ${result.email}`}
-                {result.email && result.mobileNumber && ' and '}
-                {result.mobileNumber && `WhatsApp to ${result.mobileNumber}`}
-              </p>
+              {/* Delivery channel status */}
+              <div className="space-y-1.5 mt-2">
+                {result.email && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <Mail size={14} className={result.emailStatus === 'SENT' ? 'text-green-600' : result.emailStatus === 'FAILED' ? 'text-red-500' : 'text-gray-400'} />
+                    <span className={result.emailStatus === 'SENT' ? 'text-green-700' : result.emailStatus === 'FAILED' ? 'text-red-600' : 'text-gray-500'}>
+                      Email {result.emailStatus === 'SENT' ? 'sent' : result.emailStatus === 'FAILED' ? 'failed' : 'pending'} to {result.email}
+                    </span>
+                  </div>
+                )}
+                {result.mobileNumber && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <MessageCircle size={14} className={result.whatsappStatus === 'SENT' ? 'text-green-600' : result.whatsappStatus === 'FAILED' ? 'text-amber-500' : 'text-gray-400'} />
+                    <span className={result.whatsappStatus === 'SENT' ? 'text-green-700' : result.whatsappStatus === 'FAILED' ? 'text-amber-600' : 'text-gray-500'}>
+                      WhatsApp {result.whatsappStatus === 'SENT' ? 'sent' : result.whatsappStatus === 'FAILED' ? 'failed (WA may not be connected)' : 'pending'} to {result.mobileNumber}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Invite Link</label>
+              <label className="block text-xs text-gray-500 mb-1">Invite Link (share manually if needed)</label>
               <div className="flex items-center gap-2">
                 <input readOnly value={result.inviteUrl || ''} className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs" />
                 <button onClick={copyLink} className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50"><Copy size={16} /></button>
@@ -1124,6 +1166,7 @@ function InvitationsTab() {
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/50">
               <Th>Contact</Th>
+              <Th>Channel</Th>
               <Th>Role</Th>
               <Th className="hidden sm:table-cell">Invited By</Th>
               <Th className="hidden md:table-cell">Sent</Th>
@@ -1134,14 +1177,17 @@ function InvitationsTab() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={7} className="text-center py-12"><Loader2 className="animate-spin mx-auto text-indigo-600" size={24} /></td></tr>
+              <tr><td colSpan={8} className="text-center py-12"><Loader2 className="animate-spin mx-auto text-indigo-600" size={24} /></td></tr>
             ) : invitations.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-12 text-gray-400 text-sm">No invitations yet</td></tr>
+              <tr><td colSpan={8} className="text-center py-12 text-gray-400 text-sm">No invitations yet</td></tr>
             ) : invitations.map((inv: any) => (
               <tr key={inv.id} className="border-b border-gray-50">
                 <td className="px-4 py-3">
                   <div className="text-sm text-gray-800">{inv.email || inv.mobileNumber}</div>
                   {inv.email && inv.mobileNumber && <div className="text-xs text-gray-400">{inv.mobileNumber}</div>}
+                </td>
+                <td className="px-4 py-3">
+                  <ChannelIndicator emailStatus={inv.emailStatus} whatsappStatus={inv.whatsappStatus} email={inv.email} mobile={inv.mobileNumber} />
                 </td>
                 <td className="px-4 py-3">
                   <span className="text-xs font-medium text-gray-600">{(inv.role || 'EMPLOYEE').replace(/_/g, ' ')}</span>

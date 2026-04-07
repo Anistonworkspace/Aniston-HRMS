@@ -4,9 +4,10 @@ export const clockInSchema = z.object({
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
   accuracy: z.number().optional(),
-  source: z.enum(['GEOFENCE_AUTO', 'MANUAL_APP', 'MANUAL_HR', 'QR_CODE', 'BIOMETRIC']).default('MANUAL_APP'),
+  source: z.enum(['GEOFENCE_AUTO', 'MANUAL_APP', 'QR_CODE', 'BIOMETRIC']).default('MANUAL_APP'),
   notes: z.string().optional(),
   deviceType: z.enum(['mobile', 'desktop']).optional(),
+  isPwa: z.boolean().optional(), // true when accessed from installed PWA (standalone mode)
   // For project site mode
   siteName: z.string().optional(),
   siteAddress: z.string().optional(),
@@ -19,6 +20,7 @@ export const clockOutSchema = z.object({
   accuracy: z.number().optional(),
   notes: z.string().optional(),
   deviceType: z.enum(['mobile', 'desktop']).optional(),
+  isPwa: z.boolean().optional(),
 });
 
 export const gpsTrailBatchSchema = z.object({

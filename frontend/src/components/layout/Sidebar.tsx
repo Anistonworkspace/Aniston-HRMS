@@ -35,48 +35,50 @@ import { useAppSelector, useAppDispatch } from '../../app/store';
 import { cn } from '../../lib/utils';
 import { useGetWhatsAppStatusQuery, useGetWhatsAppChatsQuery } from '../../features/whatsapp/whatsappApi';
 import { useGetEmployeeQuery } from '../../features/employee/employeeApi';
+import { useTranslation } from 'react-i18next';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
 interface NavItem {
-  name: string;
-  managementName?: string;
+  nameKey: string;
+  managementNameKey?: string;
   path: string;
   icon: React.ElementType;
   roles?: string[];
-  exitAccessKey?: string; // Key in ExitAccessInfo to check for exiting employees
-  permissionKey?: string; // Key in FeaturePermissions to check for active employees
+  exitAccessKey?: string;
+  permissionKey?: string;
 }
 
 const navItems: NavItem[] = [
-  { name: 'Dashboard', path: '/dashboard', icon: Home, exitAccessKey: 'canViewDashboard', permissionKey: 'canViewDashboardStats' },
-  { name: 'Employees', managementName: 'Manage Employees', path: '/employees', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { name: 'Attendance', managementName: 'Attendance Management', path: '/attendance', icon: Clock, exitAccessKey: 'canViewAttendance', permissionKey: 'canViewAttendanceHistory' },
-  { name: 'Activity Tracking', path: '/activity-tracking', icon: Activity, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { name: 'Leave', managementName: 'Leave Management', path: '/leaves', icon: CalendarDays, exitAccessKey: 'canViewLeaveBalance', permissionKey: 'canViewLeaveBalance' },
-  { name: 'Payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'], exitAccessKey: 'canViewPayslips' },
-  { name: 'Salary Templates', path: '/salary-templates', icon: FileCog, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { name: 'Payslips', path: '/payroll', icon: DollarSign, roles: ['EMPLOYEE', 'INTERN', 'MANAGER'], permissionKey: 'canViewPayslips' },
-  { name: 'Roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { name: 'Recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { name: 'Employee Exit', path: '/exit-management', icon: UserMinus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { name: 'Interview Tasks', path: '/interview-assignments', icon: ClipboardCheck, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'GUEST_INTERVIEWER'] },
-  { name: 'Assets', managementName: 'Asset Management', path: '/assets', icon: Monitor, roles: ['SUPER_ADMIN', 'ADMIN'] },
-  { name: 'My Assets', path: '/my-assets', icon: Laptop, roles: ['HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
-  { name: 'My Documents', path: '/my-documents', icon: FileCheck, roles: ['EMPLOYEE', 'INTERN', 'MANAGER', 'HR'], exitAccessKey: 'canViewDocuments', permissionKey: 'canViewDocuments' },
-  { name: 'Performance', path: '/performance', icon: BarChart3, permissionKey: 'canViewPerformance' },
-  { name: 'Policies', path: '/policies', icon: FileText, permissionKey: 'canViewPolicies' },
-  { name: 'Announcements', path: '/announcements', icon: Megaphone, exitAccessKey: 'canViewAnnouncements', permissionKey: 'canViewAnnouncements' },
-  { name: 'Helpdesk', path: '/helpdesk', icon: HelpCircle, exitAccessKey: 'canViewHelpdesk', permissionKey: 'canRaiseHelpdeskTickets' },
-  { name: 'Send Bulk Email', path: '/send-bulk-email', icon: Send, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { name: 'WhatsApp', path: '/whatsapp', icon: MessageCircle, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { name: 'Org Chart', path: '/org-chart', icon: Network, permissionKey: 'canViewOrgChart' },
-  { name: 'Reports', path: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { name: 'Settings', path: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { name: 'Profile', path: '/profile', icon: Users, exitAccessKey: 'canViewProfile', permissionKey: 'canViewEditProfile' },
+  { nameKey: 'nav.dashboard', path: '/dashboard', icon: Home, exitAccessKey: 'canViewDashboard', permissionKey: 'canViewDashboardStats' },
+  { nameKey: 'nav.employees', managementNameKey: 'nav.manageEmployees', path: '/employees', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
+  { nameKey: 'nav.attendance', managementNameKey: 'nav.attendanceManagement', path: '/attendance', icon: Clock, exitAccessKey: 'canViewAttendance', permissionKey: 'canViewAttendanceHistory' },
+  { nameKey: 'nav.activityTracking', path: '/activity-tracking', icon: Activity, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
+  { nameKey: 'nav.leave', managementNameKey: 'nav.leaveManagement', path: '/leaves', icon: CalendarDays, exitAccessKey: 'canViewLeaveBalance', permissionKey: 'canViewLeaveBalance' },
+  { nameKey: 'nav.payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'], exitAccessKey: 'canViewPayslips' },
+  { nameKey: 'nav.salaryTemplates', path: '/salary-templates', icon: FileCog, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { nameKey: 'nav.payslips', path: '/payroll', icon: DollarSign, roles: ['EMPLOYEE', 'INTERN', 'MANAGER'], permissionKey: 'canViewPayslips' },
+  { nameKey: 'nav.roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { nameKey: 'nav.recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
+  { nameKey: 'nav.employeeExit', path: '/exit-management', icon: UserMinus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { nameKey: 'nav.interviewTasks', path: '/interview-assignments', icon: ClipboardCheck, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'GUEST_INTERVIEWER'] },
+  { nameKey: 'nav.assets', managementNameKey: 'nav.assetManagement', path: '/assets', icon: Monitor, roles: ['SUPER_ADMIN', 'ADMIN'] },
+  { nameKey: 'nav.myAssets', path: '/my-assets', icon: Laptop, roles: ['HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
+  { nameKey: 'nav.myDocuments', path: '/my-documents', icon: FileCheck, roles: ['EMPLOYEE', 'INTERN', 'MANAGER', 'HR'], exitAccessKey: 'canViewDocuments', permissionKey: 'canViewDocuments' },
+  { nameKey: 'nav.performance', path: '/performance', icon: BarChart3, permissionKey: 'canViewPerformance' },
+  { nameKey: 'nav.policies', path: '/policies', icon: FileText, permissionKey: 'canViewPolicies' },
+  { nameKey: 'nav.announcements', path: '/announcements', icon: Megaphone, exitAccessKey: 'canViewAnnouncements', permissionKey: 'canViewAnnouncements' },
+  { nameKey: 'nav.helpdesk', path: '/helpdesk', icon: HelpCircle, exitAccessKey: 'canViewHelpdesk', permissionKey: 'canRaiseHelpdeskTickets' },
+  { nameKey: 'nav.sendBulkEmail', path: '/send-bulk-email', icon: Send, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { nameKey: 'nav.whatsapp', path: '/whatsapp', icon: MessageCircle, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { nameKey: 'nav.orgChart', path: '/org-chart', icon: Network, permissionKey: 'canViewOrgChart' },
+  { nameKey: 'nav.reports', path: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
+  { nameKey: 'nav.settings', path: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { nameKey: 'nav.profile', path: '/profile', icon: Users, exitAccessKey: 'canViewProfile', permissionKey: 'canViewEditProfile' },
 ];
 
 export default function Sidebar() {
+  const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
   const user = useAppSelector((state) => state.auth.user);
   const dispatch = useAppDispatch();
@@ -153,6 +155,7 @@ export default function Sidebar() {
       <nav className="flex-1 overflow-y-auto custom-scrollbar py-4 px-2 space-y-1">
         {filteredItems.map((item) => {
           const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+          const label = isManagement && item.managementNameKey ? t(item.managementNameKey) : t(item.nameKey);
           return (
             <NavLink
               key={item.path}
@@ -182,7 +185,7 @@ export default function Sidebar() {
                     exit={{ opacity: 0 }}
                     className="text-sm whitespace-nowrap flex-1"
                   >
-                    {isManagement && item.managementName ? item.managementName : item.name}
+                    {label}
                   </motion.span>
                 )}
               </AnimatePresence>
@@ -209,7 +212,7 @@ export default function Sidebar() {
           <AnimatePresence>
             {!collapsed && (
               <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-xs font-medium">
-                Logout
+                {t('nav.logout')}
               </motion.span>
             )}
           </AnimatePresence>
@@ -222,7 +225,7 @@ export default function Sidebar() {
           <AnimatePresence>
             {!collapsed && (
               <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-xs">
-                Collapse
+                {t('nav.collapse')}
               </motion.span>
             )}
           </AnimatePresence>
@@ -235,6 +238,7 @@ export default function Sidebar() {
 }
 
 function ProfileCompletionBar({ collapsed }: { collapsed: boolean }) {
+  const { t } = useTranslation();
   const user = useAppSelector((state) => state.auth.user);
   const { data: empRes } = useGetEmployeeQuery(user?.employeeId || '', {
     skip: !user?.employeeId,
@@ -263,7 +267,7 @@ function ProfileCompletionBar({ collapsed }: { collapsed: boolean }) {
     <div
       className="mx-2 mb-1 px-3 py-2.5 rounded-lg bg-gray-50 border border-gray-100 cursor-pointer hover:bg-gray-100 transition-colors"
       onClick={() => navigate('/profile')}
-      title="Complete your profile"
+      title={t('sidebar.profileCompletion')}
     >
       {collapsed ? (
         <div className="flex items-center justify-center">
@@ -281,13 +285,13 @@ function ProfileCompletionBar({ collapsed }: { collapsed: boolean }) {
       ) : (
         <>
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] font-semibold text-gray-600">Profile Completion</span>
+            <span className="text-[11px] font-semibold text-gray-600">{t('sidebar.profileCompletion')}</span>
             <span className="text-[10px] font-mono text-gray-400" data-mono>{completedCount}/{totalCount}</span>
           </div>
           <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
             <div className={`h-full ${barColor} rounded-full transition-all duration-500`} style={{ width: `${completionPct}%` }} />
           </div>
-          <p className="text-[10px] text-gray-400 mt-1">{completionPct}% complete</p>
+          <p className="text-[10px] text-gray-400 mt-1">{completionPct}% {t('sidebar.complete')}</p>
         </>
       )}
     </div>

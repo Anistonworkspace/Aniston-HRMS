@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
@@ -19,6 +20,7 @@ import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAp
 import { cn, getInitials } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
+import { useAppSelector } from '../../app/store';
 import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
 import { useGetKnowledgeBaseQuery, useAddKnowledgeDocMutation, useDeleteKnowledgeDocMutation } from '../ai-assistant/aiAssistantApi';
 
@@ -28,36 +30,53 @@ import SalaryComponentsTab from './SalaryComponentsTab';
 type Tab = 'organization' | 'locations' | 'shifts' | 'attendance-policy' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system';
 
 export default function SettingsPage() {
+  const { t } = useTranslation();
+  const user = useAppSelector(s => s.auth.user);
+  const isAdminOrSuper = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+
+  // Tabs visible to HR (non-admin) users
+  const HR_VISIBLE_TABS: Tab[] = ['organization', 'locations', 'shifts', 'attendance-policy', 'whatsapp'];
+
   const [activeTab, setActiveTab] = useState<Tab>(() => {
-    const saved = sessionStorage.getItem('settings_active_tab');
-    return (saved as Tab) || 'organization';
+    const saved = sessionStorage.getItem('settings_active_tab') as Tab | null;
+    if (saved && (isAdminOrSuper || HR_VISIBLE_TABS.includes(saved))) return saved;
+    return 'organization';
   });
 
   useEffect(() => {
     sessionStorage.setItem('settings_active_tab', activeTab);
   }, [activeTab]);
 
-  const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
-    { key: 'organization', label: 'Organization', icon: Building2 },
-    { key: 'locations', label: 'Office Locations', icon: MapPin },
-    { key: 'shifts', label: 'Shifts & Rosters', icon: Clock },
-    { key: 'attendance-policy', label: 'Attendance Policy', icon: Shield },
-    { key: 'salary-components', label: 'Salary Components', icon: DollarSign },
-    { key: 'email', label: 'Email Configuration', icon: Mail },
-    { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
-    { key: 'roles', label: 'User Roles', icon: Users },
-    { key: 'salary-privacy', label: 'Salary Privacy', icon: Lock },
-    { key: 'api-integration', label: 'API Integration', icon: ExternalLink },
-    { key: 'ai-config', label: 'AI API Config', icon: Cpu },
-    { key: 'agent-setup', label: 'Agent Setup', icon: Monitor },
-    { key: 'audit', label: 'Audit Logs', icon: Shield },
-    { key: 'system', label: 'System', icon: Server },
+  // Reset to organization tab if current tab is not accessible
+  useEffect(() => {
+    if (!isAdminOrSuper && !HR_VISIBLE_TABS.includes(activeTab)) {
+      setActiveTab('organization');
+    }
+  }, [isAdminOrSuper, activeTab]);
+
+  const allTabs: { key: Tab; label: string; icon: React.ElementType }[] = [
+    { key: 'organization', label: t('settings.organization'), icon: Building2 },
+    { key: 'locations', label: t('settings.officeLocations'), icon: MapPin },
+    { key: 'shifts', label: t('settings.shiftsRosters'), icon: Clock },
+    { key: 'attendance-policy', label: t('settings.attendancePolicy'), icon: Shield },
+    { key: 'salary-components', label: t('settings.salaryComponents'), icon: DollarSign },
+    { key: 'email', label: t('settings.emailConfig'), icon: Mail },
+    { key: 'whatsapp', label: t('settings.whatsapp'), icon: MessageCircle },
+    { key: 'roles', label: t('settings.userRoles'), icon: Users },
+    { key: 'salary-privacy', label: t('settings.salaryPrivacy'), icon: Lock },
+    { key: 'api-integration', label: t('settings.apiIntegration'), icon: ExternalLink },
+    { key: 'ai-config', label: t('settings.aiApiConfig'), icon: Cpu },
+    { key: 'agent-setup', label: t('settings.agentSetup'), icon: Monitor },
+    { key: 'audit', label: t('settings.auditLogs'), icon: Shield },
+    { key: 'system', label: t('settings.system'), icon: Server },
   ];
+
+  const tabs = isAdminOrSuper ? allTabs : allTabs.filter(tab => HR_VISIBLE_TABS.includes(tab.key));
 
   return (
     <>
       <div className="page-container">
-        <h1 className="text-2xl font-display font-bold text-gray-900 mb-6">Settings</h1>
+        <h1 className="text-2xl font-display font-bold text-gray-900 mb-6">{t('settings.title')}</h1>
 
         <div className="flex gap-6">
           {/* Sidebar tabs */}
@@ -104,6 +123,7 @@ export default function SettingsPage() {
 }
 
 function OrgSettings() {
+  const { t } = useTranslation();
   const { data: res } = useGetOrgSettingsQuery();
   const [updateOrg, { isLoading }] = useUpdateOrgMutation();
   const [testAdminEmail, { isLoading: isTestingAdminEmail }] = useTestAdminNotificationEmailMutation();
@@ -117,22 +137,22 @@ function OrgSettings() {
   const handleSave = async () => {
     try {
       await updateOrg(form).unwrap();
-      toast.success('Organization settings saved');
-    } catch { toast.error('Failed to save'); }
+      toast.success(t('settings.saved'));
+    } catch { toast.error(t('settings.failedToSave')); }
   };
 
   return (
     <div className="layer-card p-6">
-      <h2 className="text-lg font-display font-semibold text-gray-800 mb-6">Organization Settings</h2>
+      <h2 className="text-lg font-display font-semibold text-gray-800 mb-6">{t('settings.orgSettings')}</h2>
       <div className="space-y-4 max-w-lg">
         <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1">Company Name</label>
+          <label className="block text-sm font-medium text-gray-600 mb-1">{t('settings.companyName')}</label>
           <input value={form.name || org?.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="input-glass w-full" />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">Timezone</label>
+            <label className="block text-sm font-medium text-gray-600 mb-1">{t('settings.timezone')}</label>
             <select value={form.timezone || org?.timezone || ''} onChange={(e) => setForm({ ...form, timezone: e.target.value })}
               className="input-glass w-full">
               <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
@@ -142,7 +162,7 @@ function OrgSettings() {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">Currency</label>
+            <label className="block text-sm font-medium text-gray-600 mb-1">{t('settings.currency')}</label>
             <select value={form.currency || org?.currency || ''} onChange={(e) => setForm({ ...form, currency: e.target.value })}
               className="input-glass w-full">
               <option value="INR">INR (₹)</option>
@@ -153,15 +173,15 @@ function OrgSettings() {
           </div>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1">Fiscal Year</label>
+          <label className="block text-sm font-medium text-gray-600 mb-1">{t('settings.fiscalYear')}</label>
           <select value={form.fiscalYear || org?.fiscalYear || ''} onChange={(e) => setForm({ ...form, fiscalYear: e.target.value })}
             className="input-glass w-full">
-            <option value="APRIL_MARCH">April - March</option>
-            <option value="JANUARY_DECEMBER">January - December</option>
+            <option value="APRIL_MARCH">{t('settings.aprilMarch')}</option>
+            <option value="JANUARY_DECEMBER">{t('settings.januaryDecember')}</option>
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1">Admin Notification Email</label>
+          <label className="block text-sm font-medium text-gray-600 mb-1">{t('settings.adminEmail')}</label>
           <div className="flex gap-2">
             <input value={form.adminNotificationEmail} onChange={(e) => setForm({ ...form, adminNotificationEmail: e.target.value })}
               type="email" placeholder="admin@company.com" className="input-glass flex-1" />
@@ -201,7 +221,7 @@ function OrgSettings() {
         <button onClick={handleSave} disabled={isLoading}
           className="btn-primary flex items-center gap-2">
           {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-          Save Changes
+          {t('profile.saveChanges')}
         </button>
       </div>
     </div>
@@ -484,7 +504,7 @@ function EmailConfig() {
   const [testConnection, { isLoading: testing }] = useTestEmailConnectionMutation();
   const config = res?.data;
   const [form, setForm] = useState({
-    host: '', port: 587, user: '', pass: '', fromAddress: '', fromName: '', emailDomain: '',
+    host: '', port: 587, user: '', pass: '', fromAddress: '', fromName: '', emailDomain: '', payrollEmail: '',
   });
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -498,6 +518,7 @@ function EmailConfig() {
         fromAddress: config.fromAddress || '',
         fromName: config.fromName || '',
         emailDomain: config.emailDomain || '',
+        payrollEmail: config.payrollEmail || '',
       });
     }
   }, [config]);
@@ -588,6 +609,20 @@ function EmailConfig() {
             <label className="block text-sm font-medium text-gray-600 mb-1">Email Domain</label>
             <input value={form.emailDomain} onChange={e => setForm({...form, emailDomain: e.target.value})}
               className="input-glass w-full text-sm" placeholder="@anistonav.com" />
+          </div>
+        </div>
+
+        {/* Payroll Email Recipients */}
+        <div className="border-t border-gray-200 pt-4 mt-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-1.5">
+            <DollarSign size={14} className="text-brand-500" /> Payroll Email Recipients
+          </h3>
+          <p className="text-xs text-gray-400 mb-3">When HR sends payroll reports, the password-protected Excel will be emailed to these addresses.</p>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Accounts / Finance Email</label>
+            <input value={form.payrollEmail || ''} onChange={e => setForm({...form, payrollEmail: e.target.value})}
+              className="input-glass w-full text-sm" placeholder="accounts@anistonav.com" />
+            <p className="text-xs text-gray-400 mt-1">Payroll Excel reports will be sent to this email when HR clicks "Send to Accounts" after processing.</p>
           </div>
         </div>
 

@@ -6,9 +6,10 @@ import {
   Settings,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAppSelector } from '../../app/store';
 import { useGetSuperAdminStatsQuery } from './dashboardApi';
-import { formatDate, formatCurrency } from '../../lib/utils';
+import { formatCurrency } from '../../lib/utils';
 import {
   KPICard, AlertBanner, DashboardSection, QuickActionGrid,
   EmployeeListWidget, SkeletonLoader,
@@ -24,27 +25,30 @@ const container = {
   show: { opacity: 1, transition: { staggerChildren: 0.06 } },
 };
 
-const QUICK_NAV = [
-  { label: 'Employees', path: '/employees', icon: '👥' },
-  { label: 'Attendance', path: '/attendance', icon: '📊' },
-  { label: 'Leave Approvals', path: '/pending-approvals', icon: '✅' },
-  { label: 'Recruitment', path: '/recruitment', icon: '🎯' },
-  { label: 'Payroll', path: '/payroll', icon: '💰' },
-  { label: 'Reports', path: '/reports', icon: '📈' },
-  { label: 'Exit Mgmt', path: '/exit-management', icon: '🚪' },
-  { label: 'Settings', path: '/settings', icon: '⚙️' },
-];
-
 function SuperAdminDashboard() {
   const navigate = useNavigate();
+  const { t, i18n } = useTranslation();
   const user = useAppSelector((s) => s.auth.user);
   const { data: response, isLoading, isError } = useGetSuperAdminStatsQuery(undefined, {
     pollingInterval: 300000,
   });
   const stats = response?.data;
 
+  const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
+
+  const QUICK_NAV = [
+    { label: t('nav.employees'), path: '/employees', icon: '👥' },
+    { label: t('nav.attendance'), path: '/attendance', icon: '📊' },
+    { label: t('leaves.approvals'), path: '/pending-approvals', icon: '✅' },
+    { label: t('nav.recruitment'), path: '/recruitment', icon: '🎯' },
+    { label: t('nav.payroll'), path: '/payroll', icon: '💰' },
+    { label: t('nav.reports'), path: '/reports', icon: '📈' },
+    { label: t('nav.employeeExit'), path: '/exit-management', icon: '🚪' },
+    { label: t('nav.settings'), path: '/settings', icon: '⚙️' },
+  ];
+
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+  const greeting = hour < 12 ? t('dashboard.goodMorning') : hour < 17 ? t('dashboard.goodAfternoon') : t('dashboard.goodEvening');
 
   const kpis = useMemo(() => {
     if (!stats) return [];
@@ -82,7 +86,7 @@ function SuperAdminDashboard() {
           {greeting}, {user?.firstName || 'Admin'}
         </h1>
         <p className="text-gray-500 mt-1 text-sm">
-          Company analytics overview — {formatDate(new Date(), 'long')}
+          Company analytics overview — {new Date().toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })}
         </p>
       </motion.div>
 
