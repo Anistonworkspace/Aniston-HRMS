@@ -160,8 +160,8 @@ export class PublicApplyService {
     const hasQuestions = questionsToScore.length > 0;
     const hasAnswers = data.mcqAnswers && data.mcqAnswers.length > 0;
 
-    // Score MCQ answers (null if no questions were answered)
-    let mcqScore: number | null = null;
+    // Score MCQ answers: 0 if no answers provided, null only if scoring is not applicable
+    let mcqScore: number | null = hasAnswers ? null : 0;
     let intelligenceScore: number | null = null;
     let integrityScore: number | null = null;
     let energyScore: number | null = null;
@@ -428,9 +428,13 @@ Return ONLY a JSON array:
 
     const result = await aiService.prompt(organizationId, systemPrompt, userPrompt, 2048);
 
+    if (!result.success) {
+      throw new BadRequestError('Failed to generate questions: ' + (result.error || 'AI provider error'));
+    }
+
     let questions: any[] = [];
 
-    if (result.success && result.data) {
+    if (result.data) {
       try {
         const jsonMatch = result.data.match(/\[[\s\S]*\]/);
         questions = JSON.parse(jsonMatch?.[0] || '[]');
@@ -440,9 +444,9 @@ Return ONLY a JSON array:
       }
     }
 
-    // If AI failed or returned nothing, use fallback questions
+    // If AI returned nothing parseable, use fallback questions
     if (questions.length === 0) {
-      logger.info(`AI unavailable for job ${jobId}, using fallback MCQ questions`);
+      logger.info(`AI returned no parseable questions for job ${jobId}, using fallback MCQ questions`);
       questions = FALLBACK_MCQ_QUESTIONS;
     }
 
