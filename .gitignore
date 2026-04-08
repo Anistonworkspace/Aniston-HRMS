@@ -80,6 +80,10 @@ keys.txt
 
 audit-screenshots
 
+# Local debug/test scripts (contain credentials — never commit)
+test-login.js
+test-*.js
+
 
 
 
