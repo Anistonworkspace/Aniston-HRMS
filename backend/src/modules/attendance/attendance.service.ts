@@ -18,11 +18,19 @@ function getISTNow(): Date {
   return new Date(utc + IST_OFFSET_MS);
 }
 
-/** Get IST today at midnight (for date-only comparisons) */
+/**
+ * Get IST today as UTC-midnight Date for PostgreSQL `date` column comparisons.
+ * PostgreSQL `date` columns store dates without timezone. When Prisma sends a JS Date,
+ * PG truncates to the UTC date portion. So IST 2026-04-08 00:00 = UTC 2026-04-07T18:30
+ * would become 2026-04-07 in PG — WRONG day.
+ * This returns 2026-04-08T00:00:00.000Z so PG sees the correct IST calendar date.
+ */
 function getISTToday(): Date {
   const ist = getISTNow();
-  ist.setHours(0, 0, 0, 0);
-  return ist;
+  const year = ist.getFullYear();
+  const month = String(ist.getMonth() + 1).padStart(2, '0');
+  const day = String(ist.getDate()).padStart(2, '0');
+  return new Date(`${year}-${month}-${day}T00:00:00.000Z`);
 }
 
 /** Get IST yesterday at midnight */
@@ -78,7 +86,7 @@ export class AttendanceService {
     const leaveToday = await prisma.leaveRequest.findFirst({
       where: {
         employeeId,
-        status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
+        status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] },
         startDate: { lte: today },
         endDate: { gte: today },
       },
@@ -646,6 +654,12 @@ export class AttendanceService {
       activeBreak = record.breaks.find((b) => !b.endTime) || null;
     }
 
+    // Get attendance policy for weekOffDays
+    const policy = employee?.organizationId ? await prisma.attendancePolicy.findUnique({
+      where: { organizationId: employee.organizationId },
+      select: { weekOffDays: true },
+    }) : null;
+
     return {
       record,
       isCheckedIn: !!record?.checkIn && !record?.checkOut,
@@ -669,6 +683,7 @@ export class AttendanceService {
         shiftType: shift.shiftType,
       } : null,
       hasShift: !!shift,
+      weekOffDays: (policy?.weekOffDays as number[]) || [0],
     };
   }
 
@@ -1168,9 +1183,10 @@ export class AttendanceService {
    */
   async handleRegularization(
     regularizationId: string,
-    action: 'APPROVED' | 'REJECTED',
+    action: 'APPROVED' | 'REJECTED' | 'MANAGER_REVIEWED',
     approvedBy: string,
-    remarks?: string
+    remarks?: string,
+    approverRole?: string
   ) {
     const reg = await prisma.attendanceRegularization.findUnique({
       where: { id: regularizationId },
@@ -1178,14 +1194,44 @@ export class AttendanceService {
     });
     if (!reg) throw new NotFoundError('Regularization request');
 
+    // 2-tier regularization workflow:
+    // PENDING → MANAGER_REVIEWED (by Manager) → APPROVED/REJECTED (by HR/Admin)
+    // Managers can only move to MANAGER_REVIEWED, HR/Admin can approve/reject directly
+    const isManager = approverRole === 'MANAGER';
+    const isHRorAdmin = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(approverRole || '');
+
+    let finalStatus: string;
+    if (action === 'REJECTED') {
+      finalStatus = 'REJECTED';
+    } else if (isManager && reg.status === 'PENDING') {
+      finalStatus = 'MANAGER_REVIEWED';
+    } else if (isHRorAdmin) {
+      finalStatus = action === 'APPROVED' ? 'APPROVED' : action;
+    } else {
+      finalStatus = action;
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
+      const updateData: any = { status: finalStatus };
+
+      if (isManager) {
+        updateData.managerReviewedBy = approvedBy;
+        updateData.managerRemarks = remarks || null;
+        updateData.managerReviewedAt = new Date();
+      } else if (isHRorAdmin) {
+        updateData.hrReviewedBy = approvedBy;
+        updateData.hrRemarks = remarks || null;
+        updateData.hrReviewedAt = new Date();
+        updateData.approvedBy = approvedBy;
+        updateData.approverRemarks = remarks || null;
+      } else {
+        updateData.approvedBy = approvedBy;
+        updateData.approverRemarks = remarks || null;
+      }
+
       const updatedReg = await tx.attendanceRegularization.update({
         where: { id: regularizationId },
-        data: {
-          status: action,
-          approvedBy,
-          approverRemarks: remarks || null,
-        },
+        data: updateData,
       });
 
       // If approved, update the attendance record
@@ -2165,6 +2211,31 @@ export class AttendanceService {
       } catch (e: any) {
         if (!e.code?.includes('P2002')) logger.error(`Anomaly upsert error:`, e);
       }
+    }
+
+    // Create notification for HR when critical anomalies are found
+    if (created > 0) {
+      try {
+        const criticalCount = anomalies.filter(a => a.severity === 'CRITICAL' || a.severity === 'HIGH').length;
+        if (criticalCount > 0) {
+          // Find all HR/Admin users in the organization to notify
+          const hrUsers = await prisma.user.findMany({
+            where: { role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, employee: { organizationId } },
+            select: { id: true },
+          });
+          for (const hrUser of hrUsers) {
+            await prisma.notification.create({
+              data: {
+                userId: hrUser.id,
+                type: 'ATTENDANCE_ANOMALY',
+                title: `${criticalCount} critical attendance anomal${criticalCount > 1 ? 'ies' : 'y'} detected`,
+                message: `${created} new anomalies found for ${date}. ${criticalCount} are critical/high severity and require immediate review.`,
+                data: { date, totalDetected: anomalies.length, created, criticalCount },
+              },
+            }).catch(() => {}); // Don't fail if notification table structure differs
+          }
+        }
+      } catch { /* notification failure should not block anomaly detection */ }
     }
 
     return { detected: anomalies.length, created, date };

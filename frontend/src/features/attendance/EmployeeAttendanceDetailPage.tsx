@@ -11,6 +11,7 @@ import {
   useGetEmployeeAttendanceQuery, useGetEmployeeGPSTrailQuery,
   useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery,
   useGetAttendanceLogsQuery, useGetEmployeeAttendanceDetailQuery,
+  useGetAttendancePolicyQuery,
 } from './attendanceApi';
 import { useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import { cn, formatDate, getInitials, getStatusColor } from '../../lib/utils';
@@ -74,6 +75,8 @@ export default function EmployeeAttendanceDetailPage() {
   // Data fetching
   const { data: empRes } = useGetEmployeeQuery(employeeId || '');
   const employee = empRes?.data;
+  const { data: policyRes } = useGetAttendancePolicyQuery();
+  const weekOffDays: number[] = (policyRes?.data?.weekOffDays as number[]) || [0];
 
   const { data: shiftRes } = useGetEmployeeShiftQuery(employeeId || '');
   const shiftAssignment = shiftRes?.data;
@@ -147,14 +150,14 @@ export default function EmployeeAttendanceDetailPage() {
       let status = '';
       if (record) status = record.status;
       else if (holidayDates.has(dateStr)) status = 'HOLIDAY';
-      else if (dayOfWeek === 0) status = 'WEEKEND';
+      else if (weekOffDays.includes(dayOfWeek)) status = 'WEEKEND';
       else if (new Date(dateStr) < new Date(todayStr)) status = 'ABSENT';
       const hasAnomaly = record?.geofenceViolation || (record?.clockInCount || 0) > 1;
       const isMissingPunch = record?.checkIn && !record?.checkOut && record?.status === 'PRESENT';
       days.push({ date: d, dateStr, status, record, isToday: dateStr === todayStr, isSelected: dateStr === selectedDate, hasAnomaly, isMissingPunch });
     }
     return days;
-  }, [currentMonth, records, holidays, selectedDate]);
+  }, [currentMonth, records, holidays, selectedDate, weekOffDays]);
 
   // Helpers
   const formatTime = (d: string | null) => {

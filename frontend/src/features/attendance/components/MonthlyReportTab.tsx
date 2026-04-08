@@ -33,6 +33,9 @@ export default function MonthlyReportTab() {
           {report && (
             <div className="flex items-center gap-4 text-xs text-gray-500">
               <span>Working Days: <strong className="text-gray-800">{report.totalWorkingDays}</strong></span>
+              {report.workingDaysElapsed < report.totalWorkingDays && (
+                <span>Elapsed: <strong className="text-amber-600">{report.workingDaysElapsed} of {report.totalWorkingDays}</strong></span>
+              )}
               <span>Holidays: <strong className="text-gray-800">{report.holidays}</strong></span>
             </div>
           )}

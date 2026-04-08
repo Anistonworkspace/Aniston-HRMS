@@ -156,11 +156,11 @@ export class AttendanceController {
     try {
       const { id } = req.params;
       const { action, remarks } = req.body;
-      if (!['APPROVED', 'REJECTED'].includes(action)) {
-        res.status(400).json({ success: false, data: null, error: { code: 'INVALID_ACTION', message: 'Action must be APPROVED or REJECTED' } });
+      if (!['APPROVED', 'REJECTED', 'MANAGER_REVIEWED'].includes(action)) {
+        res.status(400).json({ success: false, data: null, error: { code: 'INVALID_ACTION', message: 'Action must be APPROVED, REJECTED, or MANAGER_REVIEWED' } });
         return;
       }
-      const result = await attendanceService.handleRegularization(id, action, req.user!.userId, remarks);
+      const result = await attendanceService.handleRegularization(id, action, req.user!.userId, remarks, req.user!.role);
       res.json({ success: true, data: result, message: `Regularization ${action.toLowerCase()}` });
     } catch (err) { next(err); }
   }
@@ -168,8 +168,10 @@ export class AttendanceController {
   async getPendingRegularizations(req: Request, res: Response, next: NextFunction) {
     try {
       const { prisma } = await import('../../lib/prisma.js');
+      // Show PENDING for managers, PENDING + MANAGER_REVIEWED for HR/Admin
+      const isHR = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(req.user!.role);
       const regs = await prisma.attendanceRegularization.findMany({
-        where: { status: 'PENDING' },
+        where: { status: { in: isHR ? ['PENDING', 'MANAGER_REVIEWED'] : ['PENDING'] } },
         include: {
           attendance: {
             include: { employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true, email: true } } },

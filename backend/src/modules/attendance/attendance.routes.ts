@@ -184,6 +184,21 @@ router.put('/policy', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (r
       create: { ...data, organizationId: req.user!.organizationId },
       update: data,
     });
+
+    // Audit log for policy changes
+    try {
+      const { auditLogger } = await import('../../utils/auditLogger.js');
+      await auditLogger.log({
+        action: 'UPDATE',
+        entity: 'AttendancePolicy',
+        entityId: policy.id,
+        userId: req.user!.id,
+        organizationId: req.user!.organizationId,
+        changes: data,
+        description: 'Attendance policy updated',
+      });
+    } catch { /* audit log failure should not block policy save */ }
+
     res.json({ success: true, data: policy, message: 'Attendance policy updated' });
   } catch (err) { next(err); }
 });
@@ -285,11 +300,21 @@ async function generateMonthlyReportData(organizationId: string, month: number, 
   const weekOffDays = new Set(policy?.weekOffDays || [0]);
 
   const holidayDates = new Set(holidays.map(h => h.date.toISOString().split('T')[0]));
+
+  // Cap end date to today — don't count future dates as absent for LOP calculation
+  const todayUTC = new Date(new Date().toISOString().split('T')[0] + 'T00:00:00.000Z');
+  const lopEndDate = end < todayUTC ? end : todayUTC;
+
+  // totalWorkingDays = full month (for display), lopWorkingDays = up to today (for LOP calc)
   let totalWorkingDays = 0;
+  let lopWorkingDays = 0;
   const d = new Date(start);
   while (d <= end) {
     const dayStr = d.toISOString().split('T')[0];
-    if (!weekOffDays.has(d.getDay()) && !holidayDates.has(dayStr)) totalWorkingDays++;
+    if (!weekOffDays.has(d.getDay()) && !holidayDates.has(dayStr)) {
+      totalWorkingDays++;
+      if (d <= lopEndDate) lopWorkingDays++;
+    }
     d.setDate(d.getDate() + 1);
   }
 
@@ -322,7 +347,7 @@ async function generateMonthlyReportData(organizationId: string, month: number, 
       return ciMinutes > (shiftStartMinutes + graceMinutes);
     }).length;
     const effectivePresent = present + wfh + (halfDay * 0.5);
-    let lopDays = Math.max(0, totalWorkingDays - effectivePresent - onLeave);
+    let lopDays = Math.max(0, lopWorkingDays - effectivePresent - onLeave);
 
     let latePenaltyLOP = 0;
     if (policy?.latePenaltyEnabled && (policy?.latePenaltyPerCount || 0) > 0) {
@@ -347,7 +372,7 @@ async function generateMonthlyReportData(organizationId: string, month: number, 
     };
   });
 
-  return { month, year, totalWorkingDays, holidays: holidays.length, employees: report };
+  return { month, year, totalWorkingDays, workingDaysElapsed: lopWorkingDays, holidays: holidays.length, employees: report };
 }
 
 router.get('/monthly-report', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {

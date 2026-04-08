@@ -435,6 +435,7 @@ function AttendancePersonalView() {
   const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [liveTime, setLiveTime] = useState(new Date());
+  const { download: downloadReport, downloading: reportDownloading } = useAuthDownload();
   const [locationStatus, setLocationStatus] = useState<'checking' | 'granted' | 'denied' | 'prompt'>('checking');
   const [notificationStatus, setNotificationStatus] = useState<'checking' | 'granted' | 'denied' | 'default'>('checking');
   const [requestingLocation, setRequestingLocation] = useState(false);
@@ -667,7 +668,7 @@ function AttendancePersonalView() {
         status = record.status;
       } else if (isHoliday) {
         status = 'HOLIDAY';
-      } else if (dayOfWeek === 0) { // Only Sunday is weekoff
+      } else if ((today?.weekOffDays || [0]).includes(dayOfWeek)) {
         status = 'WEEKEND';
       } else if (new Date(dateStr) < new Date(todayStr)) {
         status = 'ABSENT';
@@ -978,7 +979,21 @@ function AttendancePersonalView() {
               transition={{ delay: 0.1 }}
               className="layer-card p-5"
             >
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">{t('attendance.thisMonth')}</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-700">{t('attendance.thisMonth')}</h3>
+                <button
+                  onClick={() => {
+                    const m = currentMonth.getMonth() + 1;
+                    const y = currentMonth.getFullYear();
+                    downloadReport(`/attendance/my/report?month=${m}&year=${y}`, `my-attendance-${m}-${y}.xlsx`);
+                  }}
+                  disabled={!!reportDownloading}
+                  className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium"
+                >
+                  <Download size={12} />
+                  {reportDownloading ? 'Downloading...' : 'Download Report'}
+                </button>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <SummaryItem label={t('attendance.present')} value={monthData.summary.present} color="text-emerald-600" />
                 <SummaryItem label={t('attendance.absent')} value={monthData.summary.absent} color="text-red-500" />
