@@ -1,33 +1,35 @@
-// This file is overwritten by vite-plugin-pwa (Workbox) during production builds.
-// It serves as a development fallback only.
+// DEV FALLBACK ONLY — this file is overwritten by Workbox during production builds.
+// It is NOT used in production. In production, /sw.js is the Workbox-generated service worker.
 
-const CACHE_NAME = 'aniston-hrms-v1';
+const CACHE_NAME = 'aniston-hrms-dev-v1';
 
-// Install — skip waiting to activate immediately
+// Install — cache shell immediately
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.addAll(['/', '/offline.html', '/icon-192.png'])
+    ).then(() => self.skipWaiting())
+  );
 });
 
-// Activate — clear ALL old caches so users always get fresh content
+// Activate — remove only OLD named caches (not all caches)
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.map((k) => caches.delete(k)))
+      Promise.all(
+        keys
+          .filter((k) => k.startsWith('aniston-hrms-dev-') && k !== CACHE_NAME)
+          .map((k) => caches.delete(k))
+      )
     ).then(() => self.clients.claim())
   );
 });
 
-// Fetch — network first, fallback to cache
+// Fetch — network first, fallback to cache, then offline page
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-
-  // Skip non-GET requests
   if (request.method !== 'GET') return;
-
-  // Only cache http/https requests — skip chrome-extension://, data:, etc.
   if (!request.url.startsWith('http')) return;
-
-  // API calls — network only
   if (request.url.includes('/api/')) return;
 
   event.respondWith(
@@ -39,13 +41,17 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(request).then((cached) => cached || caches.match('/')))
+      .catch(() =>
+        caches.match(request).then((cached) =>
+          cached || caches.match('/offline.html')
+        )
+      )
   );
 });
 
-// Listen for skip-waiting message from the app (update prompt)
+// Skip-waiting message from the app
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
+  if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
 });

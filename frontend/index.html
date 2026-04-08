@@ -1,19 +1,99 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
-    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
-    <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png" />
-    <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png" />
+
+    <!-- ===== Viewport & PWA core ===== -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#4f46e5" />
     <meta name="description" content="Aniston HRMS — Enterprise Human Resource Management System" />
+    <meta name="application-name" content="Aniston HRMS" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- ===== Android / Chrome PWA ===== -->
     <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- ===== Apple iOS PWA ===== -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Aniston HRMS" />
-    <meta name="format-detection" content="telephone=no" />
+
+    <!-- ===== Favicons ===== -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
+    <link rel="shortcut icon" href="/icon-192.png" />
+
+    <!-- ===== Apple Touch Icons (all required iOS sizes) ===== -->
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="57x57" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="60x60" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="72x72" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="76x76" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="144x144" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="167x167" href="/icon-512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon-512.png" />
+
+    <!-- ===== Apple Splash Screens (generated from /apple-splash/) ===== -->
+    <!-- iPhone SE (1st & 2nd gen): 640×1136 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-640x1136.png"
+          media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)" />
+    <!-- iPhone 8 / 7 / 6s / 6: 750×1334 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-750x1334.png"
+          media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" />
+    <!-- iPhone 8 Plus / 7 Plus / 6s Plus: 1242×2208 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-1242x2208.png"
+          media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3)" />
+    <!-- iPhone X / XS / 11 Pro: 1125×2436 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-1125x2436.png"
+          media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" />
+    <!-- iPhone XR / 11: 828×1792 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-828x1792.png"
+          media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" />
+    <!-- iPhone XS Max / 11 Pro Max: 1242×2688 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-1242x2688.png"
+          media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)" />
+    <!-- iPhone 12 / 12 Pro / 13 / 13 Pro / 14: 1170×2532 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-1170x2532.png"
+          media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
+    <!-- iPhone 12 Pro Max / 13 Pro Max / 14 Plus: 1284×2778 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-1284x2778.png"
+          media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" />
+    <!-- iPhone 14 Pro: 1179×2556 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-1179x2556.png"
+          media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" />
+    <!-- iPhone 14 Pro Max / 15 Pro Max: 1290×2796 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-1290x2796.png"
+          media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)" />
+    <!-- iPad mini (6th): 1488×2266 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-1488x2266.png"
+          media="(device-width: 744px) and (device-height: 1133px) and (-webkit-device-pixel-ratio: 2)" />
+    <!-- iPad Air / iPad (10th): 1640×2360 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-1640x2360.png"
+          media="(device-width: 820px) and (device-height: 1180px) and (-webkit-device-pixel-ratio: 2)" />
+    <!-- iPad Pro 11": 1668×2388 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-1668x2388.png"
+          media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2)" />
+    <!-- iPad Pro 12.9": 2048×2732 -->
+    <link rel="apple-touch-startup-image" href="/apple-splash/splash-2048x2732.png"
+          media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)" />
+
+    <!-- ===== Windows / Microsoft Edge / Tiles ===== -->
+    <meta name="msapplication-TileColor" content="#4f46e5" />
+    <meta name="msapplication-TileImage" content="/icon-512.png" />
+    <meta name="msapplication-config" content="none" />
+    <meta name="msapplication-tap-highlight" content="no" />
+
+    <!-- ===== Open Graph (for link previews when sharing app URL) ===== -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Aniston HRMS" />
+    <meta property="og:description" content="Enterprise Human Resource Management System — Attendance, Leave, Payroll & more" />
+    <meta property="og:image" content="/icon-512.png" />
+    <meta property="og:url" content="https://hr.anistonav.com" />
+
     <title>Aniston HRMS</title>
   </head>
   <body>

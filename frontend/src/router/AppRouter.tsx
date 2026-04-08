@@ -31,6 +31,8 @@ const JobDetailPage = lazy(() => import('../features/recruitment/JobDetailPage')
 const CandidateDetailPage = lazy(() => import('../features/recruitment/CandidateDetailPage'));
 const PublicApplicationDetailPage = lazy(() => import('../features/recruitment/PublicApplicationDetailPage'));
 const DownloadPage = lazy(() => import('../features/pwa/DownloadPage'));
+const ShareTargetPage = lazy(() => import('../features/pwa/ShareTargetPage'));
+const OpenFilePage = lazy(() => import('../features/pwa/OpenFilePage'));
 const RosterPage = lazy(() => import('../features/roster/RosterPage'));
 const HiringPassedPage = lazy(() => import('../features/hiring/HiringPassedPage'));
 const InterviewAssignmentsPage = lazy(() => import('../features/interviews/InterviewAssignmentsPage'));
@@ -145,6 +147,9 @@ export default function AppRouter() {
           <Route path="/activate/:token" element={<ActivateAccountPage />} />
           <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
           <Route path="/download" element={<DownloadPage />} />
+          {/* PWA OS integrations — no auth required */}
+          <Route path="/share-target" element={<ShareTargetPage />} />
+          <Route path="/open-file" element={<OpenFilePage />} />
 
           {/* Walk-In Kiosk (public, no auth) */}
           <Route path="/walk-in" element={<KioskLayout />}>
