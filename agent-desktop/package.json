@@ -31,9 +31,14 @@
     "electron-builder": "^24.13.0",
     "typescript": "^5.3.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Anistonworkspace/Aniston-HRMS.git"
+  },
   "build": {
     "appId": "com.aniston.agent",
     "productName": "Aniston Agent",
+    "publish": "never",
     "directories": {
       "output": "build"
     },
