@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Loader2, Send, Mail, CheckCircle2 } from 'lucide-react';
+import { X, Loader2, Send, Mail, CheckCircle2, DollarSign } from 'lucide-react';
 import { useInviteEmployeeMutation } from './employeeApi';
+import { useGetSalaryTemplatesQuery } from '../payroll/salaryTemplateApi';
+import { useApplyTemplateMutation } from '../payroll/salaryTemplateApi';
+import { formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 interface Props {
@@ -11,10 +14,14 @@ interface Props {
 
 export default function CreateEmployeeModal({ open, onClose }: Props) {
   const [inviteEmployee, { isLoading }] = useInviteEmployeeMutation();
+  const { data: templatesRes } = useGetSalaryTemplatesQuery();
+  const [applyTemplate] = useApplyTemplateMutation();
+  const templates = templatesRes?.data || [];
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [success, setSuccess] = useState<{ email: string; code: string; url: string } | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [success, setSuccess] = useState<{ email: string; code: string; url: string; employeeId?: string } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,12 +35,31 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
         firstName: firstName.trim() || undefined,
         lastName: lastName.trim() || undefined,
       }).unwrap();
+      const employeeId = result?.data?.employeeId;
       setSuccess({
         email: email.trim(),
         code: result?.data?.employeeCode || 'N/A',
         url: result?.data?.onboardingUrl || '',
+        employeeId,
       });
       toast.success(result.message || 'Invitation sent!');
+
+      // Auto-apply salary template if selected
+      if (selectedTemplateId && employeeId) {
+        try {
+          await applyTemplate({
+            templateId: selectedTemplateId,
+            employeeIds: [employeeId],
+            effectiveFrom: new Date().toISOString().split('T')[0],
+            reason: 'Applied during employee creation',
+            confirmOverwrite: true,
+          }).unwrap();
+          toast.success('Salary template applied');
+        } catch {
+          // Non-blocking — template apply failure shouldn't block invitation
+          toast('Salary template will need to be applied manually', { icon: '⚠️' });
+        }
+      }
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to send invitation');
     }
@@ -43,6 +69,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
     setEmail('');
     setFirstName('');
     setLastName('');
+    setSelectedTemplateId('');
     setSuccess(null);
     onClose();
   };
@@ -145,6 +172,28 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
                     />
                   </div>
                 </div>
+
+                {/* Salary Template (optional) */}
+                {templates.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-1 flex items-center gap-1">
+                      <DollarSign size={13} /> Salary Template <span className="text-xs text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(e) => setSelectedTemplateId(e.target.value)}
+                      className="input-glass w-full text-sm"
+                    >
+                      <option value="">No template — set salary later</option>
+                      {templates.map((t: any) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} ({t.type.replace(/_/g, ' ')}) — {formatCurrency(Number(t.ctc))}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-gray-400 mt-1">Salary structure will be auto-applied when employee is created</p>
+                  </div>
+                )}
 
                 <div className="flex gap-3 pt-3">
                   <button type="button" onClick={handleClose} className="btn-secondary flex-1">Cancel</button>

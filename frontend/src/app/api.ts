@@ -109,6 +109,8 @@ export const api = createApi({
     'SalaryTemplate',
     'OfficeLocation',
     'Settings',
+    'Letter',
+    'Branding',
   ],
   endpoints: () => ({}),
 });

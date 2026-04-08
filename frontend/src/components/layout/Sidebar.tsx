@@ -57,7 +57,6 @@ const navItems: NavItem[] = [
   { nameKey: 'nav.activityTracking', path: '/activity-tracking', icon: Activity, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { nameKey: 'nav.leave', managementNameKey: 'nav.leaveManagement', path: '/leaves', icon: CalendarDays, exitAccessKey: 'canViewLeaveBalance', permissionKey: 'canViewLeaveBalance' },
   { nameKey: 'nav.payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'], exitAccessKey: 'canViewPayslips' },
-  { nameKey: 'nav.salaryTemplates', path: '/salary-templates', icon: FileCog, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { nameKey: 'nav.payslips', path: '/payroll', icon: DollarSign, roles: ['EMPLOYEE', 'INTERN', 'MANAGER'], permissionKey: 'canViewPayslips' },
   { nameKey: 'nav.roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { nameKey: 'nav.recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },

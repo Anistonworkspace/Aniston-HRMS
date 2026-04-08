@@ -44,16 +44,17 @@ export default function AttendancePage() {
   const user = useAppSelector((state) => state.auth.user);
   const role = user?.role || '';
   const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(role);
-  const isSuperAdmin = role === 'SUPER_ADMIN';
-  // SuperAdmin is a system account — no personal attendance. Only real employees can view personal.
-  const canViewPersonal = !isSuperAdmin && ['ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'].includes(role);
+  // System/admin roles (SUPER_ADMIN, ADMIN, HR) are administrative accounts — no personal attendance.
+  // Only MANAGER and regular employees can view their own attendance.
+  const isSystemRole = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(role);
+  const canViewPersonal = !isSystemRole && ['MANAGER', 'EMPLOYEE', 'INTERN'].includes(role);
   const [view, setView] = useState<'team' | 'personal'>(isManagement ? 'team' : 'personal');
 
   // Non-management roles go straight to personal view
   if (!isManagement) return <AttendancePersonalView />;
 
-  // SuperAdmin: show only team view, no toggle
-  if (isSuperAdmin) return <CommandCenter />;
+  // System roles (SuperAdmin, Admin, HR): show only team view, no toggle
+  if (isSystemRole) return <CommandCenter />;
 
   return (
     <>

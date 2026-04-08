@@ -68,3 +68,38 @@ jobs:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
           REDIS_URL: redis://localhost:6379
           NODE_ENV: test
+
+  build-agent:
+    name: Build Desktop Agent (.exe)
+    runs-on: windows-latest
+    # Only build agent on main branch pushes and manual triggers
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install agent dependencies
+        working-directory: agent-desktop
+        run: npm ci
+
+      - name: Build TypeScript
+        working-directory: agent-desktop
+        run: npm run build
+
+      - name: Build Windows installer (.exe)
+        working-directory: agent-desktop
+        run: npx electron-builder --win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload agent installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aniston-agent-setup
+          path: agent-desktop/build/aniston-agent-setup.exe
+          retention-days: 30
+          if-no-files-found: error

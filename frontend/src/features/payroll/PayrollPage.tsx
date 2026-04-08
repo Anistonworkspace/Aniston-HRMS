@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -30,6 +30,8 @@ import { useAppSelector } from '../../app/store';
 import { useAuthDownload } from '../../hooks/useAuthDownload';
 import toast from 'react-hot-toast';
 
+const SalaryTemplatesPage = lazy(() => import('./SalaryTemplatesPage'));
+
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const FULL_MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -56,8 +58,56 @@ export default function PayrollPage() {
   const user = useAppSelector((state) => state.auth.user);
   const isHR = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
 
-  if (isHR) return <PayrollAdminView />;
+  if (isHR) return <PayrollAdminWrapper />;
   return <PayrollEmployeeView />;
+}
+
+type PayrollTab = 'runs' | 'templates';
+
+function PayrollAdminWrapper() {
+  const [activeTab, setActiveTab] = useState<PayrollTab>('runs');
+
+  return (
+    <div className="page-container">
+      {/* Page header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h1 className="text-2xl font-display font-bold text-gray-900">Payroll</h1>
+          <p className="text-gray-500 text-sm mt-0.5">Enterprise salary processing & compliance</p>
+        </div>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex items-center gap-1 mb-6 border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab('runs')}
+          className={cn(
+            'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
+            activeTab === 'runs' ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+          )}
+        >
+          Payroll Runs
+        </button>
+        <button
+          onClick={() => setActiveTab('templates')}
+          className={cn(
+            'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
+            activeTab === 'templates' ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+          )}
+        >
+          Salary Templates
+        </button>
+      </div>
+
+      {/* Tab content */}
+      {activeTab === 'runs' && <PayrollAdminView />}
+      {activeTab === 'templates' && (
+        <Suspense fallback={<div className="text-center py-12"><Loader2 size={20} className="animate-spin text-gray-400 mx-auto" /></div>}>
+          <SalaryTemplatesPage />
+        </Suspense>
+      )}
+    </div>
+  );
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -136,14 +186,10 @@ function PayrollAdminView() {
   };
 
   return (
-    <div className="page-container">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">{t('payroll.title')}</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{t('payroll.subtitle')}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+    <div>
+      {/* Action buttons */}
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
           <button
             onClick={() => authDownload('/payroll/template', 'salary-template.xlsx')}
             disabled={downloading === '/payroll/template'}
@@ -181,6 +227,7 @@ function PayrollAdminView() {
       </div>
 
       {/* Summary cards */}
+
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <div className="stat-card">
           <div className="flex items-center justify-between mb-2">

@@ -43,6 +43,11 @@ model Organization {
   leavePolicies LeavePolicy[]
   attendancePolicy AttendancePolicy?
   shiftRotationPatterns ShiftRotationPattern[]
+  policies          Policy[]
+  companyBranding   CompanyBranding?
+  letterTemplates   LetterTemplate[]
+  letters           Letter[]
+  letterAssignments LetterAssignment[]
 }
 
 model User {
@@ -63,6 +68,7 @@ model User {
   employee     Employee?
   auditLogs    AuditLog[]
   walkInInterviews WalkInInterviewRound[]
+  issuedLetters Letter[]
   // Phase 2B
   deviceSessions DeviceSession[]
   mfa            UserMFA?
@@ -193,6 +199,7 @@ model Employee {
   attendanceAnomalies    AttendanceAnomaly[]
   attendanceRegularizations AttendanceRegularization[]
   payrollAdjustments        PayrollAdjustment[]
+  letterAssignments         LetterAssignment[]
 
   @@index([organizationId, status])
   @@index([departmentId])
@@ -1613,21 +1620,28 @@ model SalaryVisibilityRule {
 // =====================
 
 model Policy {
-  id             String          @id @default(uuid())
-  title          String
-  category       PolicyCategory?
-  content        String?
-  filePath       String?
-  fileName       String?
-  version        Int             @default(1)
-  isActive       Boolean         @default(true)
-  targetAudience Json?
-  attachments    String[]
-  organizationId String
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id              String          @id @default(uuid())
+  title           String
+  category        PolicyCategory?
+  content         String?
+  filePath        String?
+  fileName        String?
+  version         Int             @default(1)
+  isActive        Boolean         @default(true)
+  downloadAllowed Boolean         @default(false)
+  targetAudience  Json?
+  attachments     String[]
+  organizationId  String
+  createdById     String?
+  updatedById     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
+  organization    Organization    @relation(fields: [organizationId], references: [id])
   acknowledgments PolicyAcknowledgment[]
+
+  @@index([organizationId])
+  @@index([organizationId, isActive])
 }
 
 enum PolicyCategory {
@@ -2704,4 +2718,99 @@ model ShiftRotationPattern {
 
   organization Organization @relation(fields: [organizationId], references: [id])
   @@index([organizationId])
+}
+
+// =====================
+// COMPANY BRANDING
+// =====================
+
+model CompanyBranding {
+  id             String   @id @default(uuid())
+  logoUrl        String?
+  signatureUrl   String?
+  stampUrl       String?
+  companyName    String?
+  companyAddress String?
+  organizationId String   @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+}
+
+// =====================
+// LETTER MANAGEMENT
+// =====================
+
+model LetterTemplate {
+  id             String   @id @default(uuid())
+  name           String
+  slug           String
+  description    String?
+  previewUrl     String?
+  layout         Json
+  isActive       Boolean  @default(true)
+  isDefault      Boolean  @default(false)
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  letters      Letter[]
+  @@index([organizationId])
+  @@unique([slug, organizationId])
+}
+
+model Letter {
+  id             String      @id @default(uuid())
+  type           LetterType
+  title          String
+  content        Json
+  filePath       String?
+  templateId     String?
+  issuedById     String
+  organizationId String
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  deletedAt      DateTime?
+
+  template    LetterTemplate? @relation(fields: [templateId], references: [id])
+  issuedBy    User            @relation(fields: [issuedById], references: [id])
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  assignments LetterAssignment[]
+
+  @@index([organizationId])
+  @@index([issuedById])
+  @@index([type])
+}
+
+model LetterAssignment {
+  id              String    @id @default(uuid())
+  letterId        String
+  employeeId      String
+  downloadAllowed Boolean   @default(false)
+  viewedAt        DateTime?
+  downloadedAt    DateTime?
+  organizationId  String
+  createdAt       DateTime  @default(now())
+
+  letter   Letter   @relation(fields: [letterId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([letterId, employeeId])
+  @@index([employeeId])
+  @@index([organizationId])
+}
+
+enum LetterType {
+  OFFER_LETTER
+  JOINING_LETTER
+  EXPERIENCE_LETTER
+  RELIEVING_LETTER
+  SALARY_SLIP_LETTER
+  PROMOTION_LETTER
+  WARNING_LETTER
+  APPRECIATION_LETTER
+  CUSTOM
 }

@@ -17,8 +17,7 @@ import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 
 // Lazy-load role-specific dashboards
-const SuperAdminDashboard = lazy(() => import('./SuperAdminDashboard'));
-const HRDashboard = lazy(() => import('./HRDashboard'));
+const AdminDashboard = lazy(() => import('./AdminDashboard'));
 
 const container = {
   hidden: { opacity: 0 },
@@ -45,18 +44,10 @@ export default function DashboardPage() {
   const user = useAppSelector((state) => state.auth.user);
   const role = user?.role || '';
 
-  if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
+  if (role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'HR') {
     return (
       <Suspense fallback={<SkeletonLoader variant="full-page" />}>
-        <SuperAdminDashboard />
-      </Suspense>
-    );
-  }
-
-  if (role === 'HR') {
-    return (
-      <Suspense fallback={<SkeletonLoader variant="full-page" />}>
-        <HRDashboard />
+        <AdminDashboard />
       </Suspense>
     );
   }

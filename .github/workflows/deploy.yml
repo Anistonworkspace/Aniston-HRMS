@@ -5,9 +5,49 @@ on:
     branches: [main]
 
 jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Job 1: Build the Windows desktop agent (.exe) on Windows runner
+  # ─────────────────────────────────────────────────────────────
+  build-agent:
+    name: Build Desktop Agent (.exe)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install agent dependencies
+        working-directory: agent-desktop
+        run: npm ci
+
+      - name: Build TypeScript
+        working-directory: agent-desktop
+        run: npm run build
+
+      - name: Build Windows installer (.exe)
+        working-directory: agent-desktop
+        run: npx electron-builder --win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload agent installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aniston-agent-setup
+          path: agent-desktop/build/aniston-agent-setup.exe
+          retention-days: 30
+          if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────
+  # Job 2: Build web app, run tests, deploy to EC2
+  # ─────────────────────────────────────────────────────────────
   build-and-deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
+    needs: build-agent
 
     services:
       postgres:
@@ -65,6 +105,23 @@ jobs:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
           REDIS_URL: redis://localhost:6379
           NODE_ENV: test
+
+      # Download the .exe built by build-agent job
+      - name: Download agent installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aniston-agent-setup
+          path: ./agent-build
+
+      - name: Upload agent .exe to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: ./agent-build/aniston-agent-setup.exe
+          target: /home/ubuntu/Aniston-HRMS/uploads/agent/
+          strip_components: 1
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -162,8 +219,16 @@ jobs:
 
             echo "=== [13/14] Checking uploads directory ==="
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads
+            mkdir -p /home/ubuntu/Aniston-HRMS/uploads/agent
             echo "Uploads in project root:"
             find /home/ubuntu/Aniston-HRMS/uploads -type f 2>/dev/null | head -10 || echo "(none)"
+
+            echo "=== [13.5/14] Verify agent installer ==="
+            if [ -f /home/ubuntu/Aniston-HRMS/uploads/agent/aniston-agent-setup.exe ]; then
+              echo "Agent installer found: $(ls -lh /home/ubuntu/Aniston-HRMS/uploads/agent/aniston-agent-setup.exe)"
+            else
+              echo "WARNING: Agent installer not found at uploads/agent/aniston-agent-setup.exe"
+            fi
 
             echo "=== [14/15] Setting server timezone to UTC ==="
             sudo timedatectl set-timezone UTC || true

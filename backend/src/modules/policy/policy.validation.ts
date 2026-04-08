@@ -2,10 +2,12 @@ import { z } from 'zod';
 
 export const createPolicySchema = z.object({
   title: z.string().min(1),
+  downloadAllowed: z.preprocess((v) => v === 'true' || v === true, z.boolean()).optional(),
 });
 
 export const updatePolicySchema = z.object({
   title: z.string().min(1).optional(),
+  downloadAllowed: z.preprocess((v) => v === 'true' || v === true, z.boolean()).optional(),
 });
 
 export const policyQuerySchema = z.object({});

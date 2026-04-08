@@ -13,8 +13,9 @@ import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegu
 import { useGetHolidaysQuery } from '../leaves/leaveApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation, useGetSalaryHistoryQuery, useSaveSalaryStructureDynamicMutation } from '../payroll/payrollApi';
 import { useGetComponentsQuery } from '../payroll/componentMasterApi';
+import { useGetSalaryTemplatesQuery } from '../payroll/salaryTemplateApi';
 import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documents/documentApi';
-import { useIssueLetterDocumentMutation } from '../my-documents/myDocumentsApi';
+// Letter issuance moved to Policies module
 import { useGetInternProfileQuery, useGetAchievementLettersQuery, useIssueAchievementLetterMutation } from '../intern/internApi';
 import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import PermissionOverridePanel from '../permissions/PermissionOverridePanel';
@@ -1127,40 +1128,97 @@ interface SalaryComponent {
   isRequired?: boolean; // basic is always required
 }
 
-const DEFAULT_EARNINGS: SalaryComponent[] = [
+// Hardcoded fallback defaults (used only if component master hasn't loaded yet)
+const FALLBACK_DEFAULTS: SalaryComponent[] = [
   { id: 'basic', name: 'Basic Salary', amount: 0, mode: 'percent', percentValue: 50, type: 'earning', isRequired: true },
-  { id: 'hra', name: 'House Rent Allowance', amount: 0, mode: 'percent', percentValue: 20, type: 'earning' },
+  { id: 'hra', name: 'House Rent Allowance', amount: 0, mode: 'percent', percentValue: 40, type: 'earning' },
   { id: 'da', name: 'Dearness Allowance', amount: 0, mode: 'percent', percentValue: 10, type: 'earning' },
-  { id: 'ta', name: 'Transport Allowance', amount: 0, mode: 'percent', percentValue: 5, type: 'earning' },
+  { id: 'ta', name: 'Transport Allowance', amount: 0, mode: 'fixed', percentValue: 0, type: 'earning' },
   { id: 'specialAllowance', name: 'Special Allowance', amount: 0, mode: 'fixed', percentValue: 0, type: 'earning' },
   { id: 'medicalAllowance', name: 'Medical Allowance', amount: 0, mode: 'fixed', percentValue: 0, type: 'earning' },
   { id: 'lta', name: 'Leave Travel Assistance', amount: 0, mode: 'fixed', percentValue: 0, type: 'earning' },
 ];
 
-function buildComponentsFromStructure(structure: any, annualCtc: number): SalaryComponent[] {
+// Map component master code to legacy field names
+const CODE_TO_FIELD: Record<string, string> = {
+  BASIC: 'basic', HRA: 'hra', DA: 'da', TA: 'ta',
+  MEDICAL: 'medicalAllowance', SPECIAL: 'specialAllowance', LTA: 'lta',
+};
+
+/**
+ * Build default earnings from the component master (Settings → Salary Components).
+ * Uses the org's configured defaults (%, fixed amounts) instead of hardcoded values.
+ */
+function buildDefaultsFromMaster(masterComps: any[], annualCtc: number): SalaryComponent[] {
   const monthly = annualCtc / 12;
+  const earningComps = masterComps
+    .filter((c: any) => c.type === 'EARNING' && c.isActive)
+    .sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+  if (earningComps.length === 0) return FALLBACK_DEFAULTS;
+
   const earnings: SalaryComponent[] = [];
+  for (const mc of earningComps) {
+    const isPercent = mc.calculationRule === 'PERCENTAGE_CTC' || mc.calculationRule === 'PERCENTAGE_BASIC';
+    const defaultPct = mc.defaultPercentage ? Number(mc.defaultPercentage) : 0;
+    const defaultFixed = mc.defaultValue ? Number(mc.defaultValue) : 0;
+    const amount = isPercent && monthly > 0 ? Math.round(monthly * defaultPct / 100) : defaultFixed;
 
-  // Basic — always present
-  const basicAmt = structure?.basic ? Number(structure.basic) : 0;
-  const basicPct = monthly > 0 ? (basicAmt / monthly) * 100 : 50;
-  earnings.push({ id: 'basic', name: 'Basic Salary', amount: basicAmt, mode: 'percent', percentValue: Math.round(basicPct * 100) / 100, type: 'earning', isRequired: true });
+    earnings.push({
+      id: CODE_TO_FIELD[mc.code] || `master_${mc.code}`,
+      name: mc.name,
+      amount,
+      mode: isPercent ? 'percent' : 'fixed',
+      percentValue: defaultPct,
+      type: 'earning',
+      isRequired: mc.code === 'BASIC',
+    });
+  }
+  return earnings;
+}
 
-  // Standard components
-  const stdComponents: { id: string; field: string; name: string; defaultPct: number }[] = [
-    { id: 'hra', field: 'hra', name: 'House Rent Allowance', defaultPct: 20 },
-    { id: 'da', field: 'da', name: 'Dearness Allowance', defaultPct: 10 },
-    { id: 'ta', field: 'ta', name: 'Transport Allowance', defaultPct: 5 },
-    { id: 'specialAllowance', field: 'specialAllowance', name: 'Special Allowance', defaultPct: 0 },
-    { id: 'medicalAllowance', field: 'medicalAllowance', name: 'Medical Allowance', defaultPct: 0 },
-    { id: 'lta', field: 'lta', name: 'Leave Travel Assistance', defaultPct: 0 },
-  ];
+/**
+ * Build earnings from a saved salary structure.
+ * Falls back to component master defaults when saved amounts are 0.
+ */
+function buildComponentsFromStructure(structure: any, annualCtc: number, masterComps?: any[]): SalaryComponent[] {
+  const monthly = annualCtc / 12;
 
-  for (const c of stdComponents) {
-    const amt = structure?.[c.field] ? Number(structure[c.field]) : 0;
-    // Always include standard components (even with 0) so they show in edit mode
-    const pct = monthly > 0 ? (amt / monthly) * 100 : c.defaultPct;
-    earnings.push({ id: c.id, name: c.name, amount: amt, mode: amt > 0 ? 'fixed' : (c.defaultPct > 0 ? 'percent' : 'fixed'), percentValue: Math.round(pct * 100) / 100, type: 'earning' });
+  // If structure has dynamic components array, use it directly
+  if (structure?.components && Array.isArray(structure.components) && structure.components.length > 0) {
+    const comps = structure.components as any[];
+    return comps
+      .filter((c: any) => c.type === 'earning')
+      .map((c: any, i: number) => ({
+        id: CODE_TO_FIELD[c.code] || c.name?.toLowerCase().replace(/\s+/g, '_') || `comp_${i}`,
+        name: c.name,
+        amount: Number(c.value || 0),
+        mode: c.isPercentage ? 'percent' as const : 'fixed' as const,
+        percentValue: c.percentage || (monthly > 0 ? Math.round((Number(c.value || 0) / monthly) * 100 * 100) / 100 : 0),
+        type: 'earning' as const,
+        isRequired: c.name === 'Basic' || c.name === 'Basic Salary',
+      }));
+  }
+
+  // Build from master defaults, overriding with saved amounts
+  const defaults = masterComps && masterComps.length > 0
+    ? buildDefaultsFromMaster(masterComps, annualCtc)
+    : FALLBACK_DEFAULTS;
+
+  const earnings: SalaryComponent[] = [];
+  for (const def of defaults) {
+    // Check if structure has a saved value for this component
+    const fieldName = def.id; // e.g. 'basic', 'hra', 'da'
+    const savedAmt = structure?.[fieldName] ? Number(structure[fieldName]) : 0;
+
+    if (savedAmt > 0) {
+      // Use saved value
+      const pct = monthly > 0 ? Math.round((savedAmt / monthly) * 100 * 100) / 100 : def.percentValue;
+      earnings.push({ ...def, amount: savedAmt, percentValue: pct, mode: 'fixed' });
+    } else {
+      // Use master default
+      earnings.push({ ...def });
+    }
   }
 
   // Custom components from enabledComponents JSON
@@ -1173,11 +1231,19 @@ function buildComponentsFromStructure(structure: any, annualCtc: number): Salary
   return earnings;
 }
 
-function buildDeductionsFromStructure(structure: any, annualCtc: number): SalaryComponent[] {
+function buildDeductionsFromStructure(structure: any, _annualCtc: number): SalaryComponent[] {
   const deductions: SalaryComponent[] = [];
   if (structure?.enabledComponents?.customDeductions) {
     for (const cd of structure.enabledComponents.customDeductions) {
       deductions.push({ id: cd.id, name: cd.name, amount: cd.amount || 0, mode: cd.mode || 'fixed', percentValue: cd.percentValue || 0, type: 'deduction' });
+    }
+  }
+  // Also extract deduction components from dynamic components array
+  if (structure?.components && Array.isArray(structure.components)) {
+    for (const c of structure.components) {
+      if (c.type === 'deduction') {
+        deductions.push({ id: c.name?.toLowerCase().replace(/\s+/g, '_') || `ded_${deductions.length}`, name: c.name, amount: Number(c.value || 0), mode: 'fixed', percentValue: 0, type: 'deduction' });
+      }
     }
   }
   return deductions;
@@ -1189,8 +1255,10 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
   const { data: salRes } = useGetSalaryStructureQuery(employeeId);
   const { data: historyRes } = useGetSalaryHistoryQuery(employeeId);
   const { data: compMasterRes } = useGetComponentsQuery();
+  const { data: templatesRes } = useGetSalaryTemplatesQuery();
   const salaryHistory = historyRes?.data || [];
   const componentMaster = compMasterRes?.data || [];
+  const templates = templatesRes?.data || [];
   const [saveSalaryDynamic, { isLoading: saving }] = useSaveSalaryStructureDynamicMutation();
   const structure = salRes?.data;
   const [editing, setEditing] = useState(false);
@@ -1200,27 +1268,63 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
   const [customDeductions, setCustomDeductions] = useState<SalaryComponent[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showComponentPicker, setShowComponentPicker] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
-  // Sync from server data
+  // Apply a salary template to this employee's form
+  const applyTemplateToForm = (tmpl: any) => {
+    const annual = Number(tmpl.ctc || 0);
+    setAnnualCtc(annual);
+    const monthly = annual / 12;
+    setTaxRegime(tmpl.incomeTaxRegime || 'NEW_REGIME');
+
+    const newEarnings: SalaryComponent[] = [];
+    const basicAmt = Number(tmpl.basic || 0);
+    const basicPct = monthly > 0 ? Math.round((basicAmt / monthly) * 100 * 100) / 100 : 50;
+    newEarnings.push({ id: 'basic', name: 'Basic Salary', amount: basicAmt, mode: 'percent', percentValue: basicPct, type: 'earning', isRequired: true });
+
+    const stdFields: { id: string; field: string; name: string }[] = [
+      { id: 'hra', field: 'hra', name: 'House Rent Allowance' },
+      { id: 'da', field: 'da', name: 'Dearness Allowance' },
+      { id: 'ta', field: 'ta', name: 'Transport Allowance' },
+      { id: 'specialAllowance', field: 'specialAllowance', name: 'Special Allowance' },
+      { id: 'medicalAllowance', field: 'medicalAllowance', name: 'Medical Allowance' },
+      { id: 'lta', field: 'lta', name: 'Leave Travel Assistance' },
+    ];
+    for (const f of stdFields) {
+      const amt = Number(tmpl[f.field] || 0);
+      const pct = monthly > 0 ? Math.round((amt / monthly) * 100 * 100) / 100 : 0;
+      newEarnings.push({ id: f.id, name: f.name, amount: amt, mode: amt > 0 ? 'fixed' : 'percent', percentValue: pct, type: 'earning' });
+    }
+
+    setEarnings(newEarnings);
+    setCustomDeductions([]);
+    setShowTemplatePicker(false);
+    if (!editing) setEditing(true);
+    toast.success(`Template "${tmpl.name}" applied — review and save`);
+  };
+
+  // Sync from server data — uses component master for defaults
   useEffect(() => {
     if (structure) {
       const annual = structure.ctc ? Number(structure.ctc) : (ctc ? Number(ctc) : 0);
       setAnnualCtc(annual);
       setTaxRegime(structure.incomeTaxRegime || 'NEW_REGIME');
-      const builtEarnings = buildComponentsFromStructure(structure, annual);
-      setEarnings(builtEarnings.length > 0 ? builtEarnings : DEFAULT_EARNINGS);
+      const builtEarnings = buildComponentsFromStructure(structure, annual, componentMaster);
+      setEarnings(builtEarnings);
       setCustomDeductions(buildDeductionsFromStructure(structure, annual));
     } else if (!structure) {
-      // No structure yet — initialize defaults from CTC (or 0)
+      // No structure yet — use component master defaults
       const annual = ctc ? Number(ctc) : 0;
-      const monthly = annual / 12;
       setAnnualCtc(annual);
-      setEarnings(DEFAULT_EARNINGS.map(e => ({
-        ...e,
-        amount: e.mode === 'percent' && monthly > 0 ? Math.round(monthly * e.percentValue / 100) : 0,
-      })));
+      const defaults = componentMaster.length > 0
+        ? buildDefaultsFromMaster(componentMaster, annual)
+        : FALLBACK_DEFAULTS.map(e => {
+            const monthly = annual / 12;
+            return { ...e, amount: e.mode === 'percent' && monthly > 0 ? Math.round(monthly * e.percentValue / 100) : 0 };
+          });
+      setEarnings(defaults);
     }
-  }, [structure, ctc]);
+  }, [structure, ctc, componentMaster]);
 
   // Recalculate amounts when CTC changes (for percent-mode components)
   const recalcFromCtc = useCallback((newCtc: number) => {
@@ -1393,16 +1497,17 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
   const handleCancel = () => {
     setEditing(false);
     setErrors({});
+    setShowTemplatePicker(false);
     if (structure) {
       const annual = structure.ctc ? Number(structure.ctc) : (ctc ? Number(ctc) : 0);
       setAnnualCtc(annual);
       setTaxRegime(structure.incomeTaxRegime || 'NEW_REGIME');
-      const builtEarnings = buildComponentsFromStructure(structure, annual);
-      setEarnings(builtEarnings.length > 0 ? builtEarnings : DEFAULT_EARNINGS);
+      setEarnings(buildComponentsFromStructure(structure, annual, componentMaster));
       setCustomDeductions(buildDeductionsFromStructure(structure, annual));
     } else {
-      setAnnualCtc(ctc ? Number(ctc) : 0);
-      setEarnings(DEFAULT_EARNINGS);
+      const annual = ctc ? Number(ctc) : 0;
+      setAnnualCtc(annual);
+      setEarnings(componentMaster.length > 0 ? buildDefaultsFromMaster(componentMaster, annual) : FALLBACK_DEFAULTS);
       setCustomDeductions([]);
     }
   };
@@ -1462,9 +1567,36 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
                 {hasErrors && <span className="text-[10px] text-red-500">{Object.values(errors)[0]}</span>}
               </>
             ) : (
-              <button onClick={() => setEditing(true)} className="btn-primary text-xs flex items-center gap-1.5 py-1.5">
-                <DollarSign size={12} /> Edit Salary Structure
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setEditing(true)} className="btn-primary text-xs flex items-center gap-1.5 py-1.5">
+                  <DollarSign size={12} /> Edit Salary Structure
+                </button>
+                {/* Apply Template dropdown */}
+                <div className="relative">
+                  <button onClick={() => setShowTemplatePicker(!showTemplatePicker)} className="btn-secondary text-xs flex items-center gap-1.5 py-1.5">
+                    <FileText size={12} /> Apply Template
+                  </button>
+                  {showTemplatePicker && templates.length > 0 && (
+                    <div className="absolute top-full left-0 mt-1 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-20 max-h-60 overflow-y-auto">
+                      <div className="p-2 border-b border-gray-100">
+                        <p className="text-[10px] text-gray-500 font-semibold uppercase">Select Template</p>
+                      </div>
+                      {templates.map((tmpl: any) => (
+                        <button key={tmpl.id} onClick={() => applyTemplateToForm(tmpl)}
+                          className="w-full text-left px-3 py-2 hover:bg-brand-50 transition-colors border-b border-gray-50 last:border-0">
+                          <p className="text-xs font-medium text-gray-800">{tmpl.name}</p>
+                          <p className="text-[10px] text-gray-500">{tmpl.type.replace(/_/g, ' ')} · CTC: ₹{Number(tmpl.ctc).toLocaleString('en-IN')}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {showTemplatePicker && templates.length === 0 && (
+                    <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-20 p-3">
+                      <p className="text-xs text-gray-500">No templates created yet. Go to Payroll → Templates to create one.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </div>
           {editing && (
@@ -1758,9 +1890,14 @@ function SalaryComponentRow({
   if (!editing) {
     return (
       <div className="flex justify-between items-center py-1.5">
-        <span className="text-xs text-gray-500">{component.name}</span>
-        <span className={`text-sm font-mono ${isDeduction ? 'text-red-600' : 'text-gray-800'}`} data-mono>
-          {isDeduction ? '-' : ''}{formatCurrency(Math.round(component.amount))}
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-gray-500">{component.name}</span>
+          {component.mode === 'percent' && component.percentValue > 0 && (
+            <span className="text-[9px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{component.percentValue}%</span>
+          )}
+        </div>
+        <span className={`text-sm font-mono ${isDeduction ? 'text-red-600' : component.amount > 0 ? 'text-gray-800' : 'text-gray-300'}`} data-mono>
+          {isDeduction ? '-' : ''}{component.amount > 0 ? formatCurrency(Math.round(component.amount)) : component.mode === 'percent' && component.percentValue > 0 ? `${component.percentValue}% of CTC` : formatCurrency(0)}
         </span>
       </div>
     );
@@ -1870,11 +2007,8 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
   const [uploadDoc, { isLoading: uploading }] = useUploadDocumentMutation();
   const [verifyDoc] = useVerifyDocumentMutation();
   const [verifyKyc, { isLoading: verifyingAll }] = useVerifyKycMutation();
-  const [issueLetter, { isLoading: issuingLetter }] = useIssueLetterDocumentMutation();
   const { data: ocrSummaryRes } = useGetEmployeeOcrSummaryQuery(employeeId, { skip: !isManagement });
   const [showUpload, setShowUpload] = useState(false);
-  const [showIssueLetter, setShowIssueLetter] = useState(false);
-  const [letterType, setLetterType] = useState('JOINING_LETTER');
   const [ocrDocId, setOcrDocId] = useState<string | null>(null);
   const [ocrDocName, setOcrDocName] = useState('');
   const [ocrDocType, setOcrDocType] = useState('');
@@ -1883,24 +2017,6 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
   const [docName, setDocName] = useState('');
   const [docType, setDocType] = useState('OTHER');
   const fileRef = useRef<HTMLInputElement>(null);
-
-  const LETTER_TYPES = [
-    { value: 'OFFER_LETTER_DOC', label: 'Offer Letter', description: 'Formal job offer with compensation details' },
-    { value: 'JOINING_LETTER', label: 'Joining Letter', description: 'Confirmation of employment start date and terms' },
-    { value: 'EXPERIENCE_LETTER', label: 'Experience Letter', description: 'Employment tenure and role verification' },
-    { value: 'RELIEVING_LETTER', label: 'Relieving Letter', description: 'Confirmation of resignation acceptance and relieving' },
-  ];
-
-  const handleIssueLetter = async () => {
-    try {
-      await issueLetter({ employeeId, type: letterType }).unwrap();
-      toast.success(`${LETTER_TYPES.find(l => l.value === letterType)?.label || 'Letter'} issued successfully`);
-      setShowIssueLetter(false);
-      setLetterType('JOINING_LETTER');
-    } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to issue letter');
-    }
-  };
 
   // Build OCR lookup by documentId for inline display
   const ocrByDocId: Record<string, any> = {};
@@ -1967,71 +2083,11 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
               Verify All & Approve KYC
             </button>
           )}
-          {isManagement && (
-            <button onClick={() => setShowIssueLetter(!showIssueLetter)} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors">
-              <Award size={14} /> Issue Letter
-            </button>
-          )}
           <button onClick={() => setShowUpload(!showUpload)} className="btn-primary text-xs flex items-center gap-1.5">
             <Plus size={14} /> Upload Document
           </button>
         </div>
       </div>
-
-      {/* Issue Letter Modal */}
-      {showIssueLetter && isManagement && (
-        <div className="layer-card p-5 space-y-4 border-l-4 border-indigo-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                <Award size={16} className="text-indigo-600" /> Issue Employment Letter
-              </h4>
-              <p className="text-xs text-gray-500 mt-0.5">Generate and issue an official letter as a PDF document</p>
-            </div>
-            <button onClick={() => setShowIssueLetter(false)} className="text-gray-400 hover:text-gray-600">
-              <XCircle size={18} />
-            </button>
-          </div>
-
-          <div className="grid gap-2">
-            {LETTER_TYPES.map((lt) => (
-              <label
-                key={lt.value}
-                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                  letterType === lt.value
-                    ? 'border-indigo-300 bg-indigo-50/50 ring-1 ring-indigo-200'
-                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="letterType"
-                  value={lt.value}
-                  checked={letterType === lt.value}
-                  onChange={(e) => setLetterType(e.target.value)}
-                  className="accent-indigo-600"
-                />
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{lt.label}</p>
-                  <p className="text-xs text-gray-500">{lt.description}</p>
-                </div>
-              </label>
-            ))}
-          </div>
-
-          <div className="flex gap-2 pt-1">
-            <button
-              onClick={handleIssueLetter}
-              disabled={issuingLetter}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-            >
-              {issuingLetter ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-              {issuingLetter ? 'Generating...' : 'Generate & Issue'}
-            </button>
-            <button onClick={() => setShowIssueLetter(false)} className="btn-secondary text-sm">Cancel</button>
-          </div>
-        </div>
-      )}
 
       {/* Upload form */}
       {showUpload && (

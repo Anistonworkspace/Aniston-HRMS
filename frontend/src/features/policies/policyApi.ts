@@ -24,9 +24,13 @@ export const policyApi = api.injectEndpoints({
       query: ({ id, data }) => ({ url: `/policies/${id}`, method: 'PATCH', body: data }),
       invalidatesTags: (result, error, { id }) => [{ type: 'Policy', id }, { type: 'Policy', id: 'LIST' }],
     }),
+    deletePolicy: builder.mutation<any, string>({
+      query: (id) => ({ url: `/policies/${id}`, method: 'DELETE' }),
+      invalidatesTags: [{ type: 'Policy', id: 'LIST' }],
+    }),
     acknowledgePolicy: builder.mutation<any, string>({
       query: (id) => ({ url: `/policies/${id}/acknowledge`, method: 'POST' }),
-      invalidatesTags: (result, error, id) => [{ type: 'Policy', id }],
+      invalidatesTags: (result, error, id) => [{ type: 'Policy', id }, { type: 'Policy', id: 'LIST' }],
     }),
   }),
 });
@@ -36,5 +40,6 @@ export const {
   useGetPolicyQuery,
   useCreatePolicyMutation,
   useUpdatePolicyMutation,
+  useDeletePolicyMutation,
   useAcknowledgePolicyMutation,
 } = policyApi;

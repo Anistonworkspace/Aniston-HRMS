@@ -46,6 +46,8 @@ import { documentOcrRouter } from './modules/document-ocr/document-ocr.routes.js
 import { taskIntegrationRouter } from './modules/task-integration/task-integration.routes.js';
 import { componentMasterRouter } from './modules/component-master/component-master.routes.js';
 import { payrollAdjustmentRouter } from './modules/payroll-adjustment/payroll-adjustment.routes.js';
+import { letterRouter } from './modules/letter/letter.routes.js';
+import { brandingRouter } from './modules/branding/branding.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 import { getEmailWorkerHealth } from './jobs/workers/email.worker.js';
@@ -201,6 +203,8 @@ app.use('/api/jobs', publicApplyRouter);
 app.use('/api/exit-access', exitAccessRouter);
 app.use('/api/employee-permissions', employeePermissionsRouter);
 app.use('/api/task-integration', taskIntegrationRouter);
+app.use('/api/letters', letterRouter);
+app.use('/api/branding', brandingRouter);
 
 // Resolve uploads base — always relative to project root (handles both root + backend/ cwd)
 const uploadsBase = process.cwd().replace(/[/\\]backend[/\\]?$/, '');

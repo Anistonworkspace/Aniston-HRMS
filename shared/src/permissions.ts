@@ -36,7 +36,8 @@ export type Resource =
   | 'department'
   | 'designation'
   | 'walk_in'
-  | 'exit_access';
+  | 'exit_access'
+  | 'letter';
 
 export type PermissionsMap = Record<Role, Partial<Record<Resource, Action[]>>>;
 
@@ -64,6 +65,7 @@ export const PERMISSIONS: PermissionsMap = {
     designation: ['create', 'read', 'update', 'delete'],
     walk_in: ['create', 'read', 'update', 'delete'],
     exit_access: ['create', 'read', 'update', 'delete', 'manage'],
+    letter: ['create', 'read', 'update', 'delete', 'manage'],
   },
 
   [Role.ADMIN]: {
@@ -89,6 +91,7 @@ export const PERMISSIONS: PermissionsMap = {
     designation: ['create', 'read', 'update', 'delete'],
     walk_in: ['create', 'read', 'update', 'delete'],
     exit_access: ['create', 'read', 'update', 'delete'],
+    letter: ['create', 'read', 'update', 'delete'],
   },
 
   [Role.HR]: {
@@ -114,6 +117,7 @@ export const PERMISSIONS: PermissionsMap = {
     designation: ['create', 'read', 'update'],
     walk_in: ['create', 'read', 'update', 'delete'],
     exit_access: ['create', 'read', 'update'],
+    letter: ['create', 'read', 'update'],
   },
 
   [Role.MANAGER]: {
@@ -150,6 +154,7 @@ export const PERMISSIONS: PermissionsMap = {
     document: ['create', 'read:own'],
     holiday: ['read'],
     org_chart: ['read'],
+    letter: ['read'],
   },
 
   [Role.INTERN]: {
@@ -163,6 +168,7 @@ export const PERMISSIONS: PermissionsMap = {
     announcement: ['read'],
     holiday: ['read'],
     org_chart: ['read'],
+    letter: ['read'],
   },
 
   [Role.GUEST_INTERVIEWER]: {

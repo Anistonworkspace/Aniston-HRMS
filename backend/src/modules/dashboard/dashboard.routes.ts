@@ -16,8 +16,8 @@ router.get('/stats', (req, res, next) =>
   dashboardController.getStats(req, res, next)
 );
 
-// Super Admin analytics — SUPER_ADMIN and ADMIN only
-router.get('/super-admin-stats', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) =>
+// Company analytics — SUPER_ADMIN, ADMIN, HR
+router.get('/super-admin-stats', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res, next) =>
   dashboardController.getSuperAdminStats(req, res, next)
 );
 

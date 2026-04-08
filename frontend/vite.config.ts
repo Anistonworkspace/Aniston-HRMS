@@ -93,7 +93,11 @@ export default defineConfig({
             icons: [{ src: '/icon-192.png', sizes: '192x192' }],
           },
         ],
-      },
+        launch_handler: {
+          client_mode: 'focus-existing',
+        },
+        related_applications: [],
+      } as any,
       workbox: {
         // Clean old precaches on every new SW activation
         cleanupOutdatedCaches: true,

@@ -2153,7 +2153,7 @@ function AgentSetupTab() {
   const employees: any[] = res?.data || [];
 
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
-  const downloadUrl = `${apiUrl.replace('/api', '')}/uploads/agent/aniston-agent.exe`;
+  const downloadUrl = `${apiUrl.replace('/api', '')}/uploads/agent/aniston-agent-setup.exe`;
 
   // Real-time socket updates
   useEffect(() => {

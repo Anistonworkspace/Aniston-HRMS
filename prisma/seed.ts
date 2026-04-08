@@ -126,15 +126,23 @@ async function main() {
     },
   ];
 
-  // Migrate old EMP-001 superadmin to SYS-001 if it exists
-  const oldSuperAdmin = await prisma.employee.findUnique({ where: { employeeCode: 'EMP-001' } });
-  if (oldSuperAdmin && oldSuperAdmin.email === 'superadmin@anistonav.com') {
-    await prisma.employee.update({
-      where: { employeeCode: 'EMP-001' },
-      data: { employeeCode: 'SYS-001', isSystemAccount: true },
-    });
-    console.log('  🔄 Migrated superadmin EMP-001 → SYS-001');
+  // Migrate old EMP-xxx system accounts to SYS-xxx and mark as system accounts
+  const migrationMap: Record<string, { newCode: string; email: string }> = {
+    'EMP-001': { newCode: 'SYS-001', email: 'superadmin@anistonav.com' },
+  };
+  for (const [oldCode, { newCode, email }] of Object.entries(migrationMap)) {
+    const old = await prisma.employee.findUnique({ where: { employeeCode: oldCode } });
+    if (old && old.email === email) {
+      await prisma.employee.update({ where: { employeeCode: oldCode }, data: { employeeCode: newCode, isSystemAccount: true } });
+      console.log(`  🔄 Migrated ${oldCode} → ${newCode}`);
+    }
   }
+  // Ensure all admin-role employees are marked as system accounts
+  const adminEmails = systemAccounts.map(a => a.email);
+  await prisma.employee.updateMany({
+    where: { email: { in: adminEmails } },
+    data: { isSystemAccount: true },
+  });
 
   for (const acct of systemAccounts) {
     const passwordHash = await bcrypt.hash(acct.password, 12);

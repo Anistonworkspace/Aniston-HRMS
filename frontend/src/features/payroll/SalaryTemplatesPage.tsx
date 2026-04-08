@@ -1,8 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, FileText, Pencil, Trash2, Users, Lock, Loader2,
-  ChevronDown, ChevronUp, Copy, CheckCircle2, AlertTriangle, Search, X,
+  ChevronDown, ChevronUp, Copy, CheckCircle2, AlertTriangle, Search, X, Zap,
 } from 'lucide-react';
 import {
   useGetSalaryTemplatesQuery,
@@ -11,6 +11,7 @@ import {
   useDeleteSalaryTemplateMutation,
   useApplyTemplateMutation,
 } from './salaryTemplateApi';
+import { useGetComponentsQuery } from './componentMasterApi';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
 import { formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -59,14 +60,51 @@ const emptyForm: TemplateForm = {
 
 export default function SalaryTemplatesPage() {
   const { data: res, isLoading } = useGetSalaryTemplatesQuery();
+  const { data: compRes } = useGetComponentsQuery();
   const [createTemplate] = useCreateSalaryTemplateMutation();
   const [updateTemplate] = useUpdateSalaryTemplateMutation();
   const [deleteTemplate] = useDeleteSalaryTemplateMutation();
   const [applyTemplate] = useApplyTemplateMutation();
+  const masterComps = compRes?.data || [];
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<TemplateForm>(emptyForm);
+
+  // Auto-calculate components from CTC using master defaults
+  const autoDistributeCTC = (ctcStr: string) => {
+    const ctc = Number(ctcStr) || 0;
+    const monthly = ctc / 12;
+    if (monthly <= 0 || masterComps.length === 0) {
+      setForm(prev => ({ ...prev, ctc: ctcStr }));
+      return;
+    }
+
+    const earnings = masterComps.filter((c: any) => c.type === 'EARNING' && c.isActive);
+    const basicComp = earnings.find((c: any) => c.code === 'BASIC');
+    const basicPct = basicComp?.defaultPercentage ? Number(basicComp.defaultPercentage) : 50;
+    const basicAmt = Math.round(monthly * basicPct / 100);
+
+    const getAmt = (code: string) => {
+      const comp = earnings.find((c: any) => c.code === code);
+      if (!comp) return 0;
+      if (comp.calculationRule === 'PERCENTAGE_CTC') return Math.round(monthly * (Number(comp.defaultPercentage) || 0) / 100);
+      if (comp.calculationRule === 'PERCENTAGE_BASIC') return Math.round(basicAmt * (Number(comp.defaultPercentage) || 0) / 100);
+      return Number(comp.defaultValue) || 0;
+    };
+
+    setForm(prev => ({
+      ...prev,
+      ctc: ctcStr,
+      basic: String(basicAmt),
+      hra: String(getAmt('HRA')),
+      da: String(getAmt('DA')),
+      ta: String(getAmt('TA')),
+      medicalAllowance: String(getAmt('MEDICAL')),
+      specialAllowance: String(getAmt('SPECIAL')),
+      lta: String(getAmt('LTA')),
+    }));
+  };
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showApplyModal, setShowApplyModal] = useState<string | null>(null);
   const [applyForm, setApplyForm] = useState({ selectedEmployees: [] as string[], effectiveFrom: '', reason: '' });
@@ -210,15 +248,16 @@ export default function SalaryTemplatesPage() {
         </motion.button>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      {/* Summary cards — compact */}
+      <div className="grid grid-cols-4 gap-3 mb-6">
         {TEMPLATE_TYPES.map(tt => {
           const count = templates.filter((t: any) => t.type === tt.value).length;
           return (
-            <div key={tt.value} className="stat-card">
-              <FileText size={20} className={tt.color.split(' ')[0] + ' mb-2'} />
-              <p className="text-sm text-gray-500">{tt.label}</p>
-              <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{count}</p>
+            <div key={tt.value} className="layer-card p-3 flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${tt.color}`}>
+                {count}
+              </div>
+              <p className="text-xs font-medium text-gray-600">{tt.label}</p>
             </div>
           );
         })}
@@ -286,34 +325,51 @@ export default function SalaryTemplatesPage() {
                 />
               </div>
 
-              {/* Salary components */}
+              {/* CTC + Auto-distribute */}
               <div>
-                <label className="text-xs font-semibold text-gray-700 mb-2 block">Salary Components</label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold text-gray-700">Salary Components</label>
+                  {masterComps.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => autoDistributeCTC(form.ctc)}
+                      disabled={!form.ctc}
+                      className="text-[10px] text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1 disabled:opacity-40"
+                    >
+                      <Zap size={11} /> Auto-distribute from Settings
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
-                    { key: 'ctc', label: 'Annual CTC *', required: true },
-                    { key: 'basic', label: 'Basic (Monthly) *', required: true },
-                    { key: 'hra', label: 'HRA' },
-                    { key: 'da', label: 'DA' },
-                    { key: 'ta', label: 'TA' },
-                    { key: 'medicalAllowance', label: 'Medical' },
-                    { key: 'specialAllowance', label: 'Special' },
-                    { key: 'lta', label: 'LTA' },
+                    { key: 'ctc', label: 'Annual CTC *', hint: '', isCtc: true },
+                    { key: 'basic', label: 'Basic (Monthly) *', hint: masterComps.find((c: any) => c.code === 'BASIC')?.defaultPercentage ? `${Number(masterComps.find((c: any) => c.code === 'BASIC')?.defaultPercentage)}% of CTC` : '50% of CTC' },
+                    { key: 'hra', label: 'HRA', hint: masterComps.find((c: any) => c.code === 'HRA')?.defaultPercentage ? `${Number(masterComps.find((c: any) => c.code === 'HRA')?.defaultPercentage)}% of Basic` : '' },
+                    { key: 'da', label: 'DA', hint: masterComps.find((c: any) => c.code === 'DA')?.defaultPercentage ? `${Number(masterComps.find((c: any) => c.code === 'DA')?.defaultPercentage)}% of Basic` : '' },
+                    { key: 'ta', label: 'TA', hint: masterComps.find((c: any) => c.code === 'TA')?.defaultValue ? `Default ₹${Number(masterComps.find((c: any) => c.code === 'TA')?.defaultValue).toLocaleString('en-IN')}` : '' },
+                    { key: 'medicalAllowance', label: 'Medical', hint: masterComps.find((c: any) => c.code === 'MEDICAL')?.defaultValue ? `Default ₹${Number(masterComps.find((c: any) => c.code === 'MEDICAL')?.defaultValue).toLocaleString('en-IN')}` : '' },
+                    { key: 'specialAllowance', label: 'Special', hint: '' },
+                    { key: 'lta', label: 'LTA', hint: '' },
                   ].map(field => (
                     <div key={field.key} className="relative">
                       <label className="text-xs text-gray-500 mb-1 flex items-center gap-1">
                         {field.label}
-                        {form.lockedFields.includes(field.key) && (
-                          <Lock size={10} className="text-red-500" />
-                        )}
+                        {form.lockedFields.includes(field.key) && <Lock size={10} className="text-red-500" />}
                       </label>
                       <input
                         type="number"
                         className="input-glass w-full font-mono text-sm"
                         placeholder="0"
                         value={form[field.key as keyof TemplateForm] as string}
-                        onChange={e => setForm({ ...form, [field.key]: e.target.value })}
+                        onChange={e => {
+                          if ((field as any).isCtc) {
+                            autoDistributeCTC(e.target.value);
+                          } else {
+                            setForm({ ...form, [field.key]: e.target.value });
+                          }
+                        }}
                       />
+                      {field.hint && <p className="text-[9px] text-gray-400 mt-0.5">{field.hint}</p>}
                     </div>
                   ))}
                 </div>

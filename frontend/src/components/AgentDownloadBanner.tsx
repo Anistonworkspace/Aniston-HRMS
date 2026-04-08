@@ -75,7 +75,7 @@ export default function AgentDownloadBanner() {
   };
 
   const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace('/api', '');
-  const downloadUrl = import.meta.env.VITE_AGENT_DOWNLOAD_URL || `${apiBase}/uploads/agent/aniston-agent.exe`;
+  const downloadUrl = import.meta.env.VITE_AGENT_DOWNLOAD_URL || `${apiBase}/uploads/agent/aniston-agent-setup.exe`;
 
   // Hidden for management or non-agent employees
   if (phase === 'hidden') return null;
@@ -151,7 +151,7 @@ export default function AgentDownloadBanner() {
           </p>
 
           <div className="flex items-center gap-2 mb-2">
-            <a href={downloadUrl} download="aniston-agent.exe"
+            <a href={downloadUrl} download="aniston-agent-setup.exe"
               className="flex-1 inline-flex items-center justify-center gap-2 bg-brand-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">
               <Download size={14} /> Download
             </a>

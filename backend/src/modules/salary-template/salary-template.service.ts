@@ -228,6 +228,31 @@ export class SalaryTemplateService {
       performanceBonus: overrides.performanceBonus ?? (template.performanceBonus ? Number(template.performanceBonus) : null),
     };
 
+    // Build dynamic components[] from template — ensures payroll processing works correctly
+    let componentsJson = template.components as any[] | null;
+    if (!componentsJson || !Array.isArray(componentsJson) || componentsJson.length === 0) {
+      // Build from flat fields
+      const comps: { name: string; type: string; value: number; isPercentage: boolean }[] = [];
+      if (salaryValues.basic > 0) comps.push({ name: 'Basic', type: 'earning', value: salaryValues.basic, isPercentage: false });
+      if (salaryValues.hra > 0) comps.push({ name: 'HRA', type: 'earning', value: salaryValues.hra, isPercentage: false });
+      if (salaryValues.da) comps.push({ name: 'DA', type: 'earning', value: salaryValues.da, isPercentage: false });
+      if (salaryValues.ta) comps.push({ name: 'TA', type: 'earning', value: salaryValues.ta, isPercentage: false });
+      if (salaryValues.medicalAllowance) comps.push({ name: 'Medical Allowance', type: 'earning', value: salaryValues.medicalAllowance, isPercentage: false });
+      if (salaryValues.specialAllowance) comps.push({ name: 'Special Allowance', type: 'earning', value: salaryValues.specialAllowance, isPercentage: false });
+      if (salaryValues.lta) comps.push({ name: 'LTA', type: 'earning', value: salaryValues.lta, isPercentage: false });
+      componentsJson = comps;
+    }
+
+    // Calculate statutory deductions for the structure
+    const basicValue = salaryValues.basic;
+    const monthlyGross = componentsJson.filter((c: any) => c.type === 'earning').reduce((s: number, c: any) => s + (c.value || 0), 0);
+    const epfBase = Math.min(basicValue, 15000);
+    const pfEmployee = Math.round(epfBase * 0.12);
+    const pfEmployer = Math.round(epfBase * 0.12);
+    const esiEmployee = monthlyGross <= 21000 ? Math.round(monthlyGross * 0.0075) : 0;
+    const esiEmployer = monthlyGross <= 21000 ? Math.round(monthlyGross * 0.0325) : 0;
+    const professionalTax = monthlyGross > 15000 ? 200 : monthlyGross > 10000 ? 175 : 0;
+
     const effectiveDate = new Date(data.effectiveFrom);
     const results: { employeeId: string; name: string; status: string }[] = [];
 
@@ -238,48 +263,32 @@ export class SalaryTemplateService {
         const currentVersion = emp.salaryStructure?.version ?? 0;
         const changeType = emp.salaryStructure ? 'TEMPLATE_APPLIED' : 'INITIAL';
 
-        // Upsert salary structure
+        // Common salary structure data
+        const structData = {
+          templateId: template.id,
+          templateName: template.name,
+          ctc: salaryValues.ctc,
+          basic: salaryValues.basic,
+          hra: salaryValues.hra,
+          da: salaryValues.da,
+          ta: salaryValues.ta,
+          medicalAllowance: salaryValues.medicalAllowance,
+          specialAllowance: salaryValues.specialAllowance,
+          lta: salaryValues.lta,
+          performanceBonus: salaryValues.performanceBonus,
+          incomeTaxRegime: template.incomeTaxRegime,
+          components: componentsJson as any,
+          statutoryConfig: template.statutoryConfig ?? undefined,
+          lockedFields: template.lockedFields ?? undefined,
+          pfEmployee, pfEmployer, esiEmployee, esiEmployer, professionalTax,
+          effectiveFrom: effectiveDate,
+        };
+
+        // Upsert salary structure with dynamic components
         await tx.salaryStructure.upsert({
           where: { employeeId: emp.id },
-          create: {
-            employeeId: emp.id,
-            templateId: template.id,
-            templateName: template.name,
-            ctc: salaryValues.ctc,
-            basic: salaryValues.basic,
-            hra: salaryValues.hra,
-            da: salaryValues.da,
-            ta: salaryValues.ta,
-            medicalAllowance: salaryValues.medicalAllowance,
-            specialAllowance: salaryValues.specialAllowance,
-            lta: salaryValues.lta,
-            performanceBonus: salaryValues.performanceBonus,
-            incomeTaxRegime: template.incomeTaxRegime,
-            components: template.components ?? undefined,
-            statutoryConfig: template.statutoryConfig ?? undefined,
-            lockedFields: template.lockedFields ?? undefined,
-            effectiveFrom: effectiveDate,
-            version: 1,
-          },
-          update: {
-            templateId: template.id,
-            templateName: template.name,
-            ctc: salaryValues.ctc,
-            basic: salaryValues.basic,
-            hra: salaryValues.hra,
-            da: salaryValues.da,
-            ta: salaryValues.ta,
-            medicalAllowance: salaryValues.medicalAllowance,
-            specialAllowance: salaryValues.specialAllowance,
-            lta: salaryValues.lta,
-            performanceBonus: salaryValues.performanceBonus,
-            incomeTaxRegime: template.incomeTaxRegime,
-            components: template.components ?? undefined,
-            statutoryConfig: template.statutoryConfig ?? undefined,
-            lockedFields: template.lockedFields ?? undefined,
-            effectiveFrom: effectiveDate,
-            version: currentVersion + 1,
-          },
+          create: { employeeId: emp.id, ...structData, version: 1 },
+          update: { ...structData, version: currentVersion + 1 },
         });
 
         // Update CTC on employee record

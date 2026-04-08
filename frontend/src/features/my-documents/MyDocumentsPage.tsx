@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import {
   FileText, Download, Shield, GraduationCap, Briefcase,
-  Loader2, AlertTriangle, CheckCircle2, Clock, XCircle, ChevronDown,
+  Loader2, AlertTriangle, CheckCircle2, Clock, XCircle, ChevronDown, Mail, Eye, Lock,
 } from 'lucide-react';
 import { useGetMyDocumentsQuery } from './myDocumentsApi';
+import { useGetMyLettersQuery } from '../policies/letterApi';
 import { cn } from '../../lib/utils';
+import SecureDocumentViewer from '../policies/SecureDocumentViewer';
 
 /* ------------------------------------------------------------------ */
 /*  Document type → category mapping                                   */
@@ -318,8 +320,125 @@ export default function MyDocumentsPage() {
               <CategorySection key={cat.key} category={cat} documents={docs} />
             );
           })}
+
+          {/* My Letters Section */}
+          <MyLettersSection />
         </div>
       )}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  My Letters Section — assigned letters from HR                      */
+/* ------------------------------------------------------------------ */
+
+function MyLettersSection() {
+  const { data: lettersRes, isLoading } = useGetMyLettersQuery();
+  const [open, setOpen] = useState(true);
+  const [viewLetter, setViewLetter] = useState<any>(null);
+
+  const assignments = lettersRes?.data || [];
+
+  const LETTER_TYPE_LABELS: Record<string, string> = {
+    OFFER_LETTER: 'Offer Letter',
+    JOINING_LETTER: 'Joining Letter',
+    EXPERIENCE_LETTER: 'Experience Letter',
+    RELIEVING_LETTER: 'Relieving Letter',
+    SALARY_SLIP_LETTER: 'Salary Slip',
+    PROMOTION_LETTER: 'Promotion Letter',
+    WARNING_LETTER: 'Warning Letter',
+    APPRECIATION_LETTER: 'Appreciation',
+    CUSTOM: 'Custom Letter',
+  };
+
+  return (
+    <>
+      <div className="layer-card overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="w-full flex items-center gap-3 px-5 py-4 hover:bg-gray-50/50 transition-colors"
+        >
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-purple-50 text-purple-600">
+            <Mail size={18} />
+          </div>
+          <h3 className="text-base font-semibold flex-1 text-left text-purple-600">
+            My Letters
+          </h3>
+          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">
+            {assignments.length}
+          </span>
+          <ChevronDown
+            size={18}
+            className={cn('text-gray-400 transition-transform duration-200', open && 'rotate-180')}
+          />
+        </button>
+
+        {open && (
+          <div className="px-5 pb-5">
+            {isLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 size={20} className="animate-spin text-purple-500" />
+              </div>
+            ) : assignments.length === 0 ? (
+              <div className="text-center py-8">
+                <Mail className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+                <p className="text-sm text-gray-400">No letters assigned to you yet</p>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {assignments.map((a: any) => (
+                  <div key={a.id} className="layer-card p-4 flex flex-col gap-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-semibold text-gray-900 truncate">{a.letter.title}</h4>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {LETTER_TYPE_LABELS[a.letter.type] || a.letter.type.replace(/_/g, ' ')}
+                        </p>
+                      </div>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700">
+                        <Mail size={12} /> Letter
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-400 text-xs">
+                        Issued {new Date(a.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </span>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setViewLetter(a)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 text-purple-600 text-xs font-medium hover:bg-purple-100 transition-colors"
+                        >
+                          <Eye size={14} /> View
+                        </button>
+                        {!a.downloadAllowed && (
+                          <span className="inline-flex items-center gap-1 text-xs text-gray-400" title="Download restricted by HR">
+                            <Lock size={12} />
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Secure Letter Viewer */}
+      {viewLetter && (
+        <SecureDocumentViewer
+          streamUrl={`/letters/${viewLetter.letter.id}/stream`}
+          title={viewLetter.letter.title}
+          downloadAllowed={viewLetter.downloadAllowed}
+          downloadUrl={`/letters/${viewLetter.letter.id}/download`}
+          onClose={() => setViewLetter(null)}
+        />
+      )}
+    </>
   );
 }

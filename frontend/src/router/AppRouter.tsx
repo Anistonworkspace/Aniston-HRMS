@@ -178,7 +178,7 @@ export default function AppRouter() {
             <Route path="/activity-tracking" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER']}><ActivityTrackingPage /></ProtectedRoute>} />
             <Route path="/leaves" element={<LeavePage />} />
             <Route path="/payroll" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN']}><PayrollPage /></ProtectedRoute>} />
-            <Route path="/salary-templates" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><SalaryTemplatesPage /></ProtectedRoute>} />
+            <Route path="/salary-templates" element={<Navigate to="/payroll" replace />} />
             <Route path="/recruitment" element={<RecruitmentPage />} />
             <Route path="/recruitment/:jobId" element={<JobDetailPage />} />
             <Route path="/recruitment/candidate/:id" element={<CandidateDetailPage />} />
