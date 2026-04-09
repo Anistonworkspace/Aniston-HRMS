@@ -38,7 +38,6 @@
   "build": {
     "appId": "com.aniston.agent",
     "productName": "Aniston Agent",
-    "publish": "never",
     "directories": {
       "output": "build"
     },
