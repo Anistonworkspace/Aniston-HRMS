@@ -1,0 +1,156 @@
+{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.5",
+  "body": [
+    {
+      "type": "Container",
+      "style": "emphasis",
+      "bleed": true,
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "auto",
+              "items": [
+                {
+                  "type": "Image",
+                  "url": "https://hr.anistonav.com/icon-192.png",
+                  "size": "Small",
+                  "style": "RoundedCorners"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Aniston HRMS",
+                  "weight": "Bolder",
+                  "size": "Small",
+                  "color": "Accent"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Attendance",
+                  "size": "ExtraLarge",
+                  "weight": "Bolder",
+                  "spacing": "None"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Status",
+                  "size": "Small",
+                  "color": "Default",
+                  "isSubtle": true
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${status}",
+                  "weight": "Bolder",
+                  "size": "Medium",
+                  "color": "${statusColor}",
+                  "spacing": "None"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Check-In",
+                  "size": "Small",
+                  "color": "Default",
+                  "isSubtle": true
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${checkInTime}",
+                  "weight": "Bolder",
+                  "size": "Medium",
+                  "spacing": "None"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Hours Today",
+                  "size": "Small",
+                  "color": "Default",
+                  "isSubtle": true
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${hoursToday}",
+                  "weight": "Bolder",
+                  "size": "Medium",
+                  "spacing": "None"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "This Month",
+                  "size": "Small",
+                  "color": "Default",
+                  "isSubtle": true
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${daysPresent} days",
+                  "weight": "Bolder",
+                  "size": "Medium",
+                  "spacing": "None"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.OpenUrl",
+      "title": "Mark Attendance",
+      "url": "https://hr.anistonav.com/attendance",
+      "style": "positive"
+    }
+  ]
+}

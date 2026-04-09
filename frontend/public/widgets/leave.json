@@ -1,0 +1,158 @@
+{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.5",
+  "body": [
+    {
+      "type": "Container",
+      "style": "emphasis",
+      "bleed": true,
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "auto",
+              "items": [
+                {
+                  "type": "Image",
+                  "url": "https://hr.anistonav.com/icon-192.png",
+                  "size": "Small",
+                  "style": "RoundedCorners"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Aniston HRMS",
+                  "weight": "Bolder",
+                  "size": "Small",
+                  "color": "Accent"
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "Leave Balance",
+                  "size": "ExtraLarge",
+                  "weight": "Bolder",
+                  "spacing": "None"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Container",
+      "spacing": "Medium",
+      "items": [
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Annual Leave",
+                  "size": "Small",
+                  "color": "Default",
+                  "isSubtle": true
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${annualLeave} days",
+                  "weight": "Bolder",
+                  "size": "Medium",
+                  "color": "Good",
+                  "spacing": "None"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Sick Leave",
+                  "size": "Small",
+                  "color": "Default",
+                  "isSubtle": true
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${sickLeave} days",
+                  "weight": "Bolder",
+                  "size": "Medium",
+                  "color": "Warning",
+                  "spacing": "None"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Casual Leave",
+                  "size": "Small",
+                  "color": "Default",
+                  "isSubtle": true
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${casualLeave} days",
+                  "weight": "Bolder",
+                  "size": "Medium",
+                  "spacing": "None"
+                }
+              ]
+            },
+            {
+              "type": "Column",
+              "width": "stretch",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "Pending",
+                  "size": "Small",
+                  "color": "Default",
+                  "isSubtle": true
+                },
+                {
+                  "type": "TextBlock",
+                  "text": "${pendingRequests} request(s)",
+                  "weight": "Bolder",
+                  "size": "Medium",
+                  "color": "${pendingColor}",
+                  "spacing": "None"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.OpenUrl",
+      "title": "Apply Leave",
+      "url": "https://hr.anistonav.com/leaves",
+      "style": "positive"
+    }
+  ]
+}
