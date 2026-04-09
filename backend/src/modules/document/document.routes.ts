@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authenticate, authorize, requirePermission } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
-import { uploadDocument, createEmployeeKycUpload } from '../../middleware/upload.middleware.js';
+import { uploadDocument, createEmployeeKycUpload, getEmployeeKycUrl } from '../../middleware/upload.middleware.js';
 import { documentController } from './document.controller.js';
 import { prisma } from '../../lib/prisma.js';
 
@@ -42,7 +42,7 @@ router.post('/', requirePermission('document', 'create'), async (req: Request, r
           return;
         }
         // Set the file URL to the structured path
-        const fileUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
+        const fileUrl = getEmployeeKycUrl(employeeId as string, req.file.filename);
         // Attach to req for controller to use
         (req as any)._structuredFileUrl = fileUrl;
         documentController.upload(req, res, next);

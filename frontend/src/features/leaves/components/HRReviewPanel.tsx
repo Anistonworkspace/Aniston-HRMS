@@ -3,7 +3,7 @@ import { X, Loader2, CheckCircle, XCircle, AlertTriangle, Clock, Shield, AlertCi
 import { useGetHrReviewQuery, useHandleLeaveActionMutation } from '../leaveApi';
 import TaskAuditPanel from './TaskAuditPanel';
 import HandoverSection from './HandoverSection';
-import { formatDate, getInitials } from '../../../lib/utils';
+import { formatDate, getInitials, getUploadUrl } from '../../../lib/utils';
 import toast from 'react-hot-toast';
 
 interface HRReviewPanelProps {
@@ -64,8 +64,10 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
         <div className="px-6 py-4 overflow-y-auto flex-1 space-y-5">
           {/* Employee Header */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-sm">
-              {getInitials(data.employee?.firstName, data.employee?.lastName)}
+            <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-sm overflow-hidden">
+              {data.employee?.avatar
+                ? <img src={getUploadUrl(data.employee.avatar)} className="w-full h-full object-cover" />
+                : getInitials(data.employee?.firstName, data.employee?.lastName)}
             </div>
             <div>
               <p className="text-sm font-semibold text-gray-900">{data.employee?.firstName} {data.employee?.lastName}</p>
@@ -119,7 +121,7 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
           </div>
 
           {/* Manager Decision */}
-          {data.managerDecision && (
+          {data.managerDecision ? (
             <div className={`layer-card p-4 ${
               data.managerDecision.action === 'APPROVED' || data.managerDecision.action === 'MANAGER_APPROVED'
                 ? 'border-l-4 border-l-emerald-500'
@@ -135,6 +137,11 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
               <p className="text-[10px] text-gray-400 mt-1">
                 {formatDate(data.managerDecision.createdAt)}
               </p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
+              <Clock size={13} />
+              Awaiting manager review — this request has not yet been reviewed by a manager.
             </div>
           )}
 

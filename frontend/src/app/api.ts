@@ -111,6 +111,7 @@ export const api = createApi({
     'Settings',
     'Letter',
     'Branding',
+    'Backup',
   ],
   endpoints: () => ({}),
 });

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
 import { onboardingController } from './onboarding.controller.js';
+import { getEmployeeKycUrl } from '../../middleware/upload.middleware.js';
 
 const router = Router();
 
@@ -160,7 +161,7 @@ router.post('/kyc/:employeeId/photo', authenticate,
         }
         try {
           const { documentGateService } = await import('./document-gate.service.js');
-          const photoUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
+          const photoUrl = getEmployeeKycUrl(employeeId, req.file.filename);
           const gate = await documentGateService.saveKycPhoto(employeeId, photoUrl);
           res.json({ success: true, data: gate, message: 'Photo uploaded' });
         } catch (innerErr) {
@@ -210,7 +211,7 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
           return;
         }
         try {
-          const fileUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
+          const fileUrl = getEmployeeKycUrl(employeeId, req.file.filename);
           // Create document record
           const { documentService } = await import('../document/document.service.js');
           const doc = await documentService.create(
@@ -264,7 +265,7 @@ router.post('/kyc/:employeeId/photo-upload', authenticate,
           return;
         }
         try {
-          const photoUrl = `/uploads/employees/${employeeId}/kyc/${req.file.filename}`;
+          const photoUrl = getEmployeeKycUrl(employeeId, req.file.filename);
           const { documentGateService } = await import('./document-gate.service.js');
           const gate = await documentGateService.saveKycPhoto(employeeId, photoUrl);
           res.json({ success: true, data: gate, message: 'Photo uploaded' });

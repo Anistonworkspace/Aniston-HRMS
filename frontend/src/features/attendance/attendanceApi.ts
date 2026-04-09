@@ -89,7 +89,7 @@ export const attendanceApi = api.injectEndpoints({
       providesTags: ['Attendance'],
     }),
 
-    clockIn: builder.mutation<any, { latitude?: number; longitude?: number; source?: string; siteName?: string; notes?: string; deviceType?: 'mobile' | 'desktop'; isPwa?: boolean }>({
+    clockIn: builder.mutation<any, { latitude?: number; longitude?: number; accuracy?: number; gpsTimestamp?: string; source?: string; siteName?: string; notes?: string; deviceType?: 'mobile' | 'desktop'; isPwa?: boolean }>({
       query: (body) => ({
         url: '/attendance/clock-in',
         method: 'POST',
@@ -102,7 +102,7 @@ export const attendanceApi = api.injectEndpoints({
       invalidatesTags: ['Attendance', 'Dashboard'],
     }),
 
-    clockOut: builder.mutation<any, { latitude?: number; longitude?: number; deviceType?: 'mobile' | 'desktop'; isPwa?: boolean }>({
+    clockOut: builder.mutation<any, { latitude?: number; longitude?: number; accuracy?: number; gpsTimestamp?: string; deviceType?: 'mobile' | 'desktop'; isPwa?: boolean }>({
       query: (body) => ({
         url: '/attendance/clock-out',
         method: 'POST',

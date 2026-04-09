@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { policyController } from './policy.controller.js';
 import { authenticate, requirePermission } from '../../middleware/auth.middleware.js';
-import { uploadDocument } from '../../middleware/upload.middleware.js';
+import { uploadPolicy } from '../../middleware/upload.middleware.js';
 
 const router = Router();
 
@@ -26,11 +26,11 @@ router.get('/:id/download', requirePermission('policy', 'read'), (req, res, next
 );
 
 // File upload — field name "file" (PDF/DOC/DOCX)
-router.post('/', requirePermission('policy', 'create'), uploadDocument.single('file'), (req, res, next) =>
+router.post('/', requirePermission('policy', 'create'), uploadPolicy.single('file'), (req, res, next) =>
   policyController.create(req, res, next)
 );
 
-router.patch('/:id', requirePermission('policy', 'update'), uploadDocument.single('file'), (req, res, next) =>
+router.patch('/:id', requirePermission('policy', 'update'), uploadPolicy.single('file'), (req, res, next) =>
   policyController.update(req, res, next)
 );
 

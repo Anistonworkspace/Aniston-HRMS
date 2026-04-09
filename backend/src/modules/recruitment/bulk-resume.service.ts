@@ -1,8 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { enqueueBulkResume } from '../../jobs/queues.js';
-import fs from 'fs';
-import path from 'path';
+import { storageService, StorageFolder } from '../../services/storage.service.js';
 
 export class BulkResumeService {
   async uploadBulkResumes(
@@ -32,7 +31,7 @@ export class BulkResumeService {
           data: {
             bulkUploadId: upload.id,
             fileName: file.originalname,
-            fileUrl: `/uploads/resumes/bulk/${file.filename}`,
+            fileUrl: storageService.buildUrl(StorageFolder.RESUMES_BULK, file.filename),
             status: 'PENDING',
           },
         })
@@ -80,7 +79,7 @@ export class BulkResumeService {
     try {
       // Try AI service first
       const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-      const filePath = path.join(process.cwd(), item.fileUrl.replace(/^\//, ''));
+      const filePath = storageService.resolvePath(item.fileUrl);
 
       let result: any;
       try {
@@ -182,10 +181,7 @@ export class BulkResumeService {
 
     // Delete files from disk
     for (const item of upload.items) {
-      if (item.fileUrl) {
-        const filePath = path.join(process.cwd(), item.fileUrl.replace(/^\//, ''));
-        try { fs.unlinkSync(filePath); } catch { /* file may not exist */ }
-      }
+      await storageService.deleteFile(item.fileUrl);
     }
 
     // Delete items then upload from DB
@@ -199,10 +195,7 @@ export class BulkResumeService {
     if (!item) throw new NotFoundError('Resume item');
 
     // Delete file from disk
-    if (item.fileUrl) {
-      const filePath = path.join(process.cwd(), item.fileUrl.replace(/^\//, ''));
-      try { fs.unlinkSync(filePath); } catch { /* file may not exist */ }
-    }
+    await storageService.deleteFile(item.fileUrl);
 
     await prisma.bulkResumeItem.delete({ where: { id: itemId } });
     return { deleted: true };

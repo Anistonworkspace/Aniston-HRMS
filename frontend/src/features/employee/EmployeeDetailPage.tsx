@@ -25,7 +25,7 @@ import { useVerifyKycMutation } from '../kyc/kycApi';
 import { useGetDepartmentsQuery, useGetDesignationsQuery, useGetManagersQuery, useGetOfficeLocationsQuery } from './employeeDepsApi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { useAppSelector } from '../../app/store';
-import { getInitials, getStatusColor, formatDate, formatCurrency } from '../../lib/utils';
+import { getInitials, getStatusColor, formatDate, formatCurrency, getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
@@ -143,7 +143,7 @@ export default function EmployeeDetailPage() {
             <div className="w-24 h-24 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-3xl font-display mb-3 overflow-hidden">
               {employee.avatar && !avatarError ? (
                 <img
-                  src={employee.avatar.startsWith('http') ? employee.avatar : `${import.meta.env.VITE_API_URL === '/api' ? '' : (import.meta.env.VITE_API_URL?.replace('/api', '') || '')}${employee.avatar}`}
+                  src={getUploadUrl(employee.avatar)}
                   alt={`${employee.firstName} ${employee.lastName}`}
                   className="w-full h-full object-cover"
                   onError={() => setAvatarError(true)}

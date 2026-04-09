@@ -48,6 +48,7 @@ model Organization {
   letterTemplates   LetterTemplate[]
   letters           Letter[]
   letterAssignments LetterAssignment[]
+  databaseBackups   DatabaseBackup[]
 }
 
 model User {
@@ -2813,4 +2814,41 @@ enum LetterType {
   WARNING_LETTER
   APPRECIATION_LETTER
   CUSTOM
+}
+
+// =====================
+// DATABASE BACKUP
+// =====================
+
+enum BackupType {
+  MANUAL
+  SCHEDULED
+}
+
+enum BackupStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  DELETED
+}
+
+model DatabaseBackup {
+  id             String       @id @default(uuid())
+  filename       String       // e.g. backup_2026-04-09T10-30-00.sql.gz
+  filePath       String       // relative path under uploads/backups/
+  sizeBytes      BigInt       @default(0)
+  type           BackupType   @default(MANUAL)
+  status         BackupStatus @default(PENDING)
+  notes          String?      // failure reason or admin note
+  createdById    String?      // null for scheduled backups
+  organizationId String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?    // soft-delete for history tracking
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status])
 }

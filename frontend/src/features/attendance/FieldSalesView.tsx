@@ -105,15 +105,21 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       // Activate wake lock to keep GPS alive in background (iOS fix)
       await wakeLock.request();
 
-      // Clock in first
+      // Clock in with a guaranteed-fresh position (maximumAge: 0 = no cache allowed)
       const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true })
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          maximumAge: 0,       // NEVER accept stale GPS for attendance marking
+          timeout: 30000,
+        })
       );
 
       if (!isCheckedIn) {
         await clockIn({
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          gpsTimestamp: new Date(pos.timestamp).toISOString(),
           source: 'MANUAL_APP',
         }).unwrap();
         toast.success('Field day started!');

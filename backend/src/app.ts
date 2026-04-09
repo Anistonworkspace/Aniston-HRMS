@@ -48,9 +48,11 @@ import { componentMasterRouter } from './modules/component-master/component-mast
 import { payrollAdjustmentRouter } from './modules/payroll-adjustment/payroll-adjustment.routes.js';
 import { letterRouter } from './modules/letter/letter.routes.js';
 import { brandingRouter } from './modules/branding/branding.routes.js';
+import { backupRouter } from './modules/backup/backup.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 import { getEmailWorkerHealth } from './jobs/workers/email.worker.js';
+import { storageService } from './services/storage.service.js';
 
 const app = express();
 
@@ -205,16 +207,23 @@ app.use('/api/employee-permissions', employeePermissionsRouter);
 app.use('/api/task-integration', taskIntegrationRouter);
 app.use('/api/letters', letterRouter);
 app.use('/api/branding', brandingRouter);
+app.use('/api/settings/backup', backupRouter);
 
-// Resolve uploads base — always relative to project root (handles both root + backend/ cwd)
-const uploadsBase = process.cwd().replace(/[/\\]backend[/\\]?$/, '');
-// Static file serving for uploads — requires authentication
-// Only agent downloads (public installer) are served without auth
-app.use('/uploads/agent', express.static(path.join(uploadsBase, 'uploads', 'agent')));
-app.use('/uploads', authenticate, express.static(path.join(uploadsBase, 'uploads')));
-app.use('/uploads', authenticate, express.static(path.join(uploadsBase, 'backend', 'uploads')));
-app.use('/api/uploads', authenticate, express.static(path.join(uploadsBase, 'uploads')));
-app.use('/api/uploads', authenticate, express.static(path.join(uploadsBase, 'backend', 'uploads')));
+// Static file serving for uploads — managed through StorageService.
+//
+// Security model: files are stored under opaque, unguessable paths
+// (UUID employee IDs + timestamp-random filenames). Browsers cannot send
+// Authorization headers for <img src> or <a href> requests, so applying
+// the Bearer-token authenticate middleware here would silently block all
+// in-page image rendering and direct downloads. Production nginx already
+// serves this directory without passing through Express auth.
+//
+// API-level auth (JWT-gated document/policy endpoints) protects access to
+// the file *paths themselves* — a caller must be authenticated to learn
+// which path a file lives at.
+const uploadsRoot = storageService.getUploadsRoot();
+app.use('/uploads', express.static(uploadsRoot));
+app.use('/api/uploads', express.static(uploadsRoot));
 
 // 404 handler
 app.use((_req, res) => {

@@ -1,5 +1,42 @@
 import { api } from '../../app/api';
 
+// ===== Backup Types =====
+export interface DatabaseBackup {
+  id: string;
+  filename: string;
+  filePath: string;
+  sizeBytes: string; // BigInt serialized as string
+  type: 'MANUAL' | 'SCHEDULED';
+  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'DELETED';
+  notes: string | null;
+  createdById: string | null;
+  organizationId: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface BackupStats {
+  totalBackups: number;
+  lastBackupAt: string | null;
+  lastBackupSize: string | null;
+  nextScheduledAt: string | null;
+}
+
+export interface BackupListResponse {
+  success: boolean;
+  backups: DatabaseBackup[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+  stats: BackupStats;
+}
+
 // ===== Agent Setup Types =====
 interface AgentSetupEmployee {
   id: string;
@@ -110,6 +147,28 @@ export const settingsApi = api.injectEndpoints({
       query: () => ({ url: '/agent/setup/bulk-generate', method: 'POST' }),
       invalidatesTags: ['AgentSetup'],
     }),
+
+    // Database Backup
+    listBackups: builder.query<BackupListResponse, { page?: number }>({
+      query: (params) => ({ url: '/settings/backup', params }),
+      providesTags: ['Backup'],
+    }),
+    getBackupStats: builder.query<{ success: boolean; data: BackupStats }, void>({
+      query: () => '/settings/backup/stats',
+      providesTags: ['Backup'],
+    }),
+    createBackup: builder.mutation<{ success: boolean; data: DatabaseBackup }, void>({
+      query: () => ({ url: '/settings/backup', method: 'POST' }),
+      invalidatesTags: ['Backup'],
+    }),
+    deleteBackup: builder.mutation<{ success: boolean }, string>({
+      query: (id) => ({ url: `/settings/backup/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Backup'],
+    }),
+    restoreBackup: builder.mutation<{ success: boolean; data: any }, string>({
+      query: (id) => ({ url: `/settings/backup/${id}/restore`, method: 'POST' }),
+      invalidatesTags: ['Backup'],
+    }),
   }),
 });
 
@@ -138,4 +197,9 @@ export const {
   useGenerateAgentCodeMutation,
   useRegenerateAgentCodeMutation,
   useBulkGenerateAgentCodesMutation,
+  useListBackupsQuery,
+  useGetBackupStatsQuery,
+  useCreateBackupMutation,
+  useDeleteBackupMutation,
+  useRestoreBackupMutation,
 } = settingsApi;

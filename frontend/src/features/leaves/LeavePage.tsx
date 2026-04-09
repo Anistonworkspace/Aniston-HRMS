@@ -37,7 +37,8 @@ const LEAVE_ICONS: Record<string, string> = {
 export default function LeavePage() {
   const { t } = useTranslation();
   const user = useAppSelector((state) => state.auth.user);
-  const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
+  const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(user?.role || '');
+  const isHRAdmin = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const [view, setView] = useState<'management' | 'personal'>(isManagement ? 'management' : 'personal');
 
   if (!isManagement) return <LeavePersonalView />;
@@ -535,7 +536,7 @@ function LeaveManagementView() {
         )}
       </AnimatePresence>
 
-      {/* Review Panel (Manager or HR) */}
+      {/* Review Panel — MANAGER gets first-step panel; HR/Admin get final-step panel */}
       {reviewLeaveId && (
         user?.role === 'MANAGER'
           ? <ManagerReviewPanel leaveId={reviewLeaveId} onClose={() => setReviewLeaveId(null)} />

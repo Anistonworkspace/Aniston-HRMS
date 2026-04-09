@@ -7,7 +7,7 @@ import { useAppSelector, useAppDispatch } from '../../app/store';
 import { useGetMeQuery, useChangePasswordMutation } from '../auth/authApi';
 import { useUpdateEmployeeMutation, useGetEmployeeQuery } from '../employee/employeeApi';
 import { useSubmitResignationMutation } from '../exit/exitApi';
-import { getInitials, formatDate } from '../../lib/utils';
+import { getInitials, formatDate, getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 export default function ProfilePage() {
@@ -154,7 +154,7 @@ export default function ProfilePage() {
           <div className="relative">
             <div className="w-24 h-24 rounded-2xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-3xl font-display">
               {employee?.avatar ? (
-                <img src={employee.avatar} alt="" className="w-full h-full rounded-2xl object-cover" />
+                <img src={getUploadUrl(employee.avatar)} alt="" className="w-full h-full rounded-2xl object-cover" />
               ) : (
                 getInitials(user?.firstName, user?.lastName)
               )}

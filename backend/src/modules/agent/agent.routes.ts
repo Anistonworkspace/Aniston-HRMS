@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { agentController } from './agent.controller.js';
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
-import { uploadImage } from '../../middleware/upload.middleware.js';
+import { uploadAgent } from '../../middleware/upload.middleware.js';
 import { Role } from '@aniston/shared';
 
 const router = Router();
@@ -16,7 +16,7 @@ router.post('/pair/generate', (req, res, next) => agentController.generatePairCo
 
 // Agent endpoints (employee sends data from desktop agent)
 router.post('/heartbeat', (req, res, next) => agentController.submitHeartbeat(req, res, next));
-router.post('/screenshot', uploadImage.single('screenshot'), (req, res, next) => agentController.uploadScreenshot(req, res, next));
+router.post('/screenshot', uploadAgent.single('screenshot'), (req, res, next) => agentController.uploadScreenshot(req, res, next));
 router.get('/config', (req, res, next) => agentController.getConfig(req, res, next));
 router.get('/status', (req, res, next) => agentController.getStatus(req, res, next));
 

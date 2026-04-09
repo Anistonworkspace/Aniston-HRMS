@@ -70,7 +70,11 @@ export default function ProjectSiteView() {
 
       try {
         const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-          navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            maximumAge: 0,      // Force fresh GPS — never use cached position for site check-in
+            timeout: 20000,     // 20 s to cover indoor GPS warm-up on mobile
+          })
         );
         latitude = pos.coords.latitude;
         longitude = pos.coords.longitude;

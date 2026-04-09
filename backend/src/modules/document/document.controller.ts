@@ -5,6 +5,7 @@ import { enqueueDocumentOcr } from '../../jobs/queues.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 import { emitToUser } from '../../sockets/index.js';
+import { storageService, StorageFolder } from '../../services/storage.service.js';
 
 export class DocumentController {
   async list(req: Request, res: Response, next: NextFunction) {
@@ -27,8 +28,9 @@ export class DocumentController {
       // Clean up empty string fields from FormData (multer parses them as strings)
       if (req.body?.employeeId === '') delete req.body.employeeId;
       const data = createDocumentSchema.parse(req.body);
-      // Use structured path if available (employee-specific folder), else default
-      const fileUrl = (req as any)._structuredFileUrl || (req.file ? `/uploads/${req.file.filename}` : '');
+      // Use structured path if available (employee-specific KYC folder), else fallback to employee-documents/
+      const fileUrl = (req as any)._structuredFileUrl ||
+        (req.file ? storageService.buildUrl(StorageFolder.EMPLOYEE_DOCUMENTS, req.file.filename) : '');
       if (!fileUrl) {
         res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'No file uploaded' } });
         return;

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { agentService } from './agent.service.js';
 import { heartbeatSchema, screenshotMetadataSchema, generateCodeSchema, setLiveModeSchema, dateParamSchema } from './agent.validation.js';
+import { storageService, StorageFolder } from '../../services/storage.service.js';
 
 export class AgentController {
   async submitHeartbeat(req: Request, res: Response, next: NextFunction) {
@@ -23,7 +24,7 @@ export class AgentController {
       }
 
       const metadata = screenshotMetadataSchema.parse(req.body);
-      const imageUrl = `/uploads/${req.file.filename}`;
+      const imageUrl = storageService.buildUrl(StorageFolder.AGENT_SCREENSHOTS, req.file.filename);
 
       const screenshot = await agentService.saveScreenshot(
         req.user!.employeeId!,

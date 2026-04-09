@@ -33,25 +33,46 @@ export class TaskIntegrationService {
     };
   }
 
+  // Expose active config (for leave service to read provider name)
+  async getActiveConfig(organizationId: string) {
+    return prisma.taskManagerConfig.findFirst({
+      where: { organizationId, isActive: true },
+      select: { provider: true },
+    });
+  }
+
   async upsertConfig(
     organizationId: string,
     data: { provider: string; apiKey: string; baseUrl?: string; workspaceId?: string },
     updatedBy: string
   ) {
-    const apiKeyEncrypted = encrypt(data.apiKey);
+    // Only encrypt + overwrite the key if a new one was actually provided
+    const shouldUpdateKey = !!data.apiKey;
+    const apiKeyEncrypted = shouldUpdateKey ? encrypt(data.apiKey) : undefined;
+
+    // For create we must have an API key
+    if (!shouldUpdateKey) {
+      // Check if a config already exists so we can update without key
+      const existing = await prisma.taskManagerConfig.findUnique({
+        where: { organizationId_provider: { organizationId, provider: data.provider as any } },
+      });
+      if (!existing) {
+        throw new BadRequestError('API key is required when creating a new integration');
+      }
+    }
 
     const config = await prisma.taskManagerConfig.upsert({
       where: { organizationId_provider: { organizationId, provider: data.provider as any } },
       create: {
         organizationId,
         provider: data.provider as any,
-        apiKeyEncrypted,
+        apiKeyEncrypted: apiKeyEncrypted!,
         baseUrl: data.baseUrl || null,
         workspaceId: data.workspaceId || null,
         updatedBy,
       },
       update: {
-        apiKeyEncrypted,
+        ...(shouldUpdateKey && { apiKeyEncrypted }),
         baseUrl: data.baseUrl || null,
         workspaceId: data.workspaceId || null,
         isActive: true,
@@ -125,7 +146,8 @@ export class TaskIntegrationService {
     employeeId: string,
     startDate: Date,
     endDate: Date,
-    leaveType: string
+    leaveType: string,
+    employeeEmail?: string
   ) {
     const config = await prisma.taskManagerConfig.findFirst({
       where: { organizationId, isActive: true },
@@ -154,7 +176,7 @@ export class TaskIntegrationService {
 
     try {
       const apiKey = decrypt(config.apiKeyEncrypted);
-      tasks = await this.fetchEmployeeTasks(config.provider, apiKey, config.baseUrl, employeeId, config.employeeMapping);
+      tasks = await this.fetchEmployeeTasks(config.provider, apiKey, config.baseUrl, employeeId, config.employeeMapping, employeeEmail);
     } catch (err: any) {
       integrationStatus = 'ERROR';
       errorMessage = err.message;
@@ -305,9 +327,9 @@ export class TaskIntegrationService {
 
   private async fetchEmployeeTasks(
     provider: string, apiKey: string, baseUrl: string | null | undefined,
-    employeeId: string, employeeMapping: any
+    employeeId: string, employeeMapping: any, employeeEmail?: string
   ): Promise<TaskItem[]> {
-    // Map internal employee ID to external task manager user ID
+    // For non-custom providers, use the explicit mapping or fall back to employeeId
     const externalUserId = employeeMapping?.[employeeId] || employeeId;
 
     switch (provider) {
@@ -319,7 +341,8 @@ export class TaskIntegrationService {
         return this.clickupFetchTasks(apiKey, externalUserId);
       case 'CUSTOM':
       case 'MONDAY_COM':
-        return this.customFetchTasks(apiKey, baseUrl!, externalUserId);
+        // Custom provider: resolve external userId via mapping → email → error
+        return this.customFetchTasks(apiKey, baseUrl!, employeeId, employeeMapping, employeeEmail);
       default:
         return [];
     }
@@ -405,25 +428,72 @@ export class TaskIntegrationService {
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) throw new Error(`Custom API returned ${res.status}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(`Custom API returned success=false: ${json.message || 'unknown error'}`);
     return true;
   }
 
-  private async customFetchTasks(apiKey: string, baseUrl: string, userId: string): Promise<TaskItem[]> {
-    const res = await fetch(`${baseUrl}/api/external/employees/${userId}`, {
+  /**
+   * Resolves external userId by:
+   * 1. Explicit employeeMapping[hrmsEmployeeId]
+   * 2. Email-based search in external API (most reliable for CUSTOM provider)
+   * 3. If neither resolves, logs a warning and returns []
+   */
+  private async customFetchTasks(
+    apiKey: string,
+    baseUrl: string,
+    hrmsEmployeeId: string,
+    employeeMapping: any,
+    employeeEmail?: string,
+  ): Promise<TaskItem[]> {
+    // Step 1: check explicit mapping
+    let externalUserId: string | undefined = employeeMapping?.[hrmsEmployeeId];
+
+    // Step 2: email-based lookup when no explicit mapping
+    if (!externalUserId && employeeEmail) {
+      try {
+        const searchRes = await fetch(
+          `${baseUrl}/api/external/employees?search=${encodeURIComponent(employeeEmail)}&limit=10`,
+          { headers: { 'X-API-Key': apiKey, 'Accept': 'application/json' }, signal: AbortSignal.timeout(10000) }
+        );
+        if (searchRes.ok) {
+          const searchJson = await searchRes.json();
+          const employees: any[] = searchJson.data?.employees || [];
+          const match = employees.find(
+            (e: any) => e.email?.toLowerCase() === employeeEmail.toLowerCase()
+          );
+          if (match?.id) {
+            externalUserId = match.id;
+            logger.info(`[TaskAudit] Resolved external userId for ${employeeEmail} via email lookup → ${externalUserId}`);
+          }
+        }
+      } catch (err: any) {
+        logger.warn(`[TaskAudit] Email-based user lookup failed for ${employeeEmail}: ${err.message}`);
+      }
+    }
+
+    // Step 3: no match found — cannot fetch tasks
+    if (!externalUserId) {
+      logger.warn(`[TaskAudit] No external user mapping found for hrmsId=${hrmsEmployeeId}, email=${employeeEmail}. Returning empty task list.`);
+      return [];
+    }
+
+    // Step 4: fetch individual employee tasks
+    const res = await fetch(`${baseUrl}/api/external/employees/${externalUserId}`, {
       headers: { 'X-API-Key': apiKey, 'Accept': 'application/json' },
       signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) throw new Error(`Custom API fetch failed: ${res.status}`);
 
-    const data = await res.json();
-    const employee = data.data || data;
-
+    const json = await res.json();
+    // Response: { success, data: { employee: { activeTasks, taskStats, ... } } }
+    const employee = json.data?.employee || json.data || json;
     const activeTasks: any[] = employee.activeTasks || [];
 
     return activeTasks.map((task: any) => ({
-      externalTaskId: task.id || task._id || '',
-      taskTitle: task.name || task.title || '',
-      projectName: task.board?.name || task.project?.name || task.projectName || undefined,
+      externalTaskId: task.id || '',
+      taskTitle: task.title || '',
+      projectName: task.boardName || undefined,
       priority: task.priority || undefined,
       dueDate: task.dueDate ? new Date(task.dueDate) : null,
       currentStatus: task.status || undefined,

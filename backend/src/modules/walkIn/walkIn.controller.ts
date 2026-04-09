@@ -2,7 +2,9 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 import { walkInService } from './walkIn.service.js';
+import { storageService, StoragePath } from '../../services/storage.service.js';
 import {
   registerWalkInSchema, updateWalkInStatusSchema, walkInQuerySchema,
   addInterviewRoundSchema, updateInterviewRoundSchema, updateCandidateSchema,
@@ -179,19 +181,20 @@ export class WalkInController {
   async uploadFile(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.file) return res.status(400).json({ success: false, error: { message: 'No file uploaded' } });
-      const folder = req.body.folder || 'temp';
-      // Resolve to project root (handles both root and backend/ cwd)
-      let base = process.cwd();
-      if (base.endsWith('backend') || base.endsWith('backend\\') || base.endsWith('backend/')) {
-        base = path.resolve(base, '..');
-      }
-      const targetDir = path.join(base, 'uploads', 'walkin', folder);
-      if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-      const safeFilename = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+
+      // Generate a UUID session folder — never use raw user input as folder name
+      // to prevent path traversal attacks.
+      const sessionId = randomUUID();
+      const targetDir = storageService.getAbsoluteDir(StoragePath.walkinSession(sessionId));
+
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      const safeFilename = `upload${ext}`;
       const targetPath = path.join(targetDir, safeFilename);
+
       fs.renameSync(req.file.path, targetPath);
-      const url = `/uploads/walkin/${folder}/${safeFilename}`;
-      res.json({ success: true, data: { url, filename: safeFilename } });
+
+      const url = storageService.buildUrl(`walkin/${sessionId}`, safeFilename);
+      res.json({ success: true, data: { url, filename: safeFilename, sessionId } });
     } catch (err) { next(err); }
   }
 

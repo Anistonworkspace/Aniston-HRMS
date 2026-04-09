@@ -51,7 +51,12 @@ export const leaveApi = api.injectEndpoints({
 
     handleLeaveAction: builder.mutation<any, { id: string; action: string; remarks?: string; conditionNote?: string }>({
       query: ({ id, ...body }) => ({ url: `/leaves/${id}/action`, method: 'PATCH', body }),
-      invalidatesTags: ['Leave', 'LeaveBalance', 'Dashboard'],
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'Leave' as const, id },
+        'Leave',
+        'LeaveBalance',
+        'Dashboard',
+      ],
     }),
 
     getHolidays: builder.query<any, { year?: number }>({
@@ -107,7 +112,12 @@ export const leaveApi = api.injectEndpoints({
 
     submitDraft: builder.mutation<any, { id: string; acknowledgements?: { reviewedTasks: boolean; assignedHandover: boolean; acceptedVisibility: boolean } }>({
       query: ({ id, ...body }) => ({ url: `/leaves/${id}/submit`, method: 'POST', body }),
-      invalidatesTags: ['Leave', 'LeaveBalance', 'Dashboard'],
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'Leave' as const, id },
+        'Leave',
+        'LeaveBalance',
+        'Dashboard',
+      ],
     }),
 
     getLeaveDetail: builder.query<any, string>({
@@ -117,12 +127,12 @@ export const leaveApi = api.injectEndpoints({
 
     getManagerReview: builder.query<any, string>({
       query: (id) => `/leaves/${id}/manager-review`,
-      providesTags: ['Leave'],
+      providesTags: (result, error, id) => [{ type: 'Leave' as const, id }, 'Leave'],
     }),
 
     getHrReview: builder.query<any, string>({
       query: (id) => `/leaves/${id}/hr-review`,
-      providesTags: ['Leave'],
+      providesTags: (result, error, id) => [{ type: 'Leave' as const, id }, 'Leave'],
     }),
 
     updateHandover: builder.mutation<any, { id: string; backupEmployeeId: string; handoverNotes?: string; taskHandovers?: any[] }>({

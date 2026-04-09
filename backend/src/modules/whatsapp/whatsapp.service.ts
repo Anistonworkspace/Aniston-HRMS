@@ -6,6 +6,7 @@ import { logger } from '../../lib/logger.js';
 import { BadRequestError } from '../../middleware/errorHandler.js';
 import { emitToOrg } from '../../sockets/index.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
+import { storageService } from '../../services/storage.service.js';
 import type { SendMessageInput, SendJobLinkInput } from './whatsapp.validation.js';
 
 // =====================================================================
@@ -613,12 +614,12 @@ export class WhatsAppService {
           let mediaFilename = null;
           let mediaMimetype = null;
           if (msg.hasMedia) {
-            const uploadsDir = path.join(process.cwd(), 'uploads', 'whatsapp');
+            const uploadsDir = storageService.getAbsoluteDir('whatsapp');
             const sanitizedId = msg.id._serialized.replace(/[^a-zA-Z0-9]/g, '_');
             if (fs.existsSync(uploadsDir)) {
               const files = fs.readdirSync(uploadsDir).filter((f: string) => f.startsWith(sanitizedId));
               if (files.length > 0) {
-                mediaUrl = `/uploads/whatsapp/${files[0]}`;
+                mediaUrl = storageService.buildUrl('whatsapp', files[0]);
                 mediaFilename = files[0];
               }
             }
@@ -653,8 +654,7 @@ export class WhatsAppService {
   async downloadMedia(messageId: string, chatId: string) {
     this._ensureReady();
 
-    const uploadsDir = path.join(process.cwd(), 'uploads', 'whatsapp');
-    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+    const uploadsDir = storageService.getAbsoluteDir('whatsapp');
 
     // Check disk cache first
     const sanitizedId = messageId.replace(/[^a-zA-Z0-9]/g, '_');
@@ -664,7 +664,7 @@ export class WhatsAppService {
 
     if (existingFiles.length > 0) {
       return {
-        mediaUrl: `/uploads/whatsapp/${existingFiles[0]}`,
+        mediaUrl: storageService.buildUrl('whatsapp', existingFiles[0]),
         mediaFilename: existingFiles[0],
       };
     }
@@ -688,7 +688,7 @@ export class WhatsAppService {
       fs.writeFileSync(filePath, Buffer.from(media.data, 'base64'));
 
       return {
-        mediaUrl: `/uploads/whatsapp/${filename}`,
+        mediaUrl: storageService.buildUrl('whatsapp', filename),
         mediaFilename: media.filename || filename,
         mediaMimetype: media.mimetype,
       };

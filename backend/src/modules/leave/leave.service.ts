@@ -418,17 +418,17 @@ export class LeaveService {
 
     let where: any;
     if (isOrgAdmin) {
-      // HR/Admin/SuperAdmin see ALL pending leaves in the organization
+      // HR/Admin/SuperAdmin see PENDING and MANAGER_APPROVED leaves (both need HR action)
       const orgEmployees = await prisma.employee.findMany({
         where: { organizationId, deletedAt: null },
         select: { id: true },
       });
       where = {
         employeeId: { in: orgEmployees.map((e) => e.id) },
-        status: 'PENDING',
+        status: { in: ['PENDING', 'MANAGER_APPROVED'] },
       };
     } else {
-      // Manager sees only direct reports
+      // Manager sees only direct reports' PENDING leaves
       const directReports = await prisma.employee.findMany({
         where: { managerId, organizationId, deletedAt: null },
         select: { id: true },
@@ -690,10 +690,11 @@ export class LeaveService {
     let auditResult: any = null;
     try {
       auditResult = await taskIntegrationService.auditTasksForLeave(
-        employee.organizationId, employeeId, startDate, endDate, leaveType.code
+        employee.organizationId, employeeId, startDate, endDate, leaveType.code, employee.email
       );
-      // Persist audit to DB
-      await taskIntegrationService.persistAudit(requestId, auditResult);
+      // Persist audit to DB (pass provider for traceability)
+      const taskConfig = await taskIntegrationService.getActiveConfig(employee.organizationId);
+      await taskIntegrationService.persistAudit(requestId, auditResult, taskConfig?.provider);
     } catch (err: any) {
       logger.warn(`[LeaveSubmit] Task audit failed for ${requestId}: ${err.message}`);
       auditResult = { integrationStatus: 'ERROR', riskLevel: 'LOW', riskScore: 0, errorMessage: err.message };
@@ -928,6 +929,30 @@ export class LeaveService {
     });
     if (!request) throw new NotFoundError('Leave request');
 
+    // ── Org boundary check ──
+    if (organizationId && request.employee?.organizationId !== organizationId) {
+      throw new BadRequestError('Unauthorized: this leave request does not belong to your organization');
+    }
+
+    // ── Role-based permission enforcement ──
+    const approverUser = await prisma.user.findUnique({ where: { id: approvedBy }, select: { role: true } });
+    const approverRole = approverUser?.role;
+
+    const isHRAdmin = approverRole && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(approverRole);
+    const isManager = approverRole === 'MANAGER';
+
+    if (isManager) {
+      // Managers can ONLY do MANAGER_APPROVED (first-step) or REJECTED on PENDING requests
+      if (action !== 'MANAGER_APPROVED' && action !== 'REJECTED') {
+        throw new BadRequestError('Managers can only perform first-step approval or rejection');
+      }
+      if (request.status !== 'PENDING') {
+        throw new BadRequestError('Managers can only act on PENDING requests');
+      }
+    } else if (!isHRAdmin) {
+      throw new BadRequestError('You do not have permission to perform leave actions');
+    }
+
     // Valid state transitions
     const validFromStates: Record<string, string[]> = {
       'MANAGER_APPROVED': ['PENDING'],
@@ -952,14 +977,7 @@ export class LeaveService {
       throw new BadRequestError('Condition note required for conditional approval');
     }
 
-    let finalStatus = action;
-    // Manager approving PENDING → MANAGER_APPROVED
-    if (action === 'APPROVED' && request.status === 'PENDING' && request.employee?.managerId) {
-      const approverUser = await prisma.user.findUnique({ where: { id: approvedBy } });
-      if (approverUser?.role === 'MANAGER') {
-        finalStatus = 'MANAGER_APPROVED';
-      }
-    }
+    const finalStatus = action;
 
     const updated = await prisma.$transaction(async (tx) => {
       const updateData: any = {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search } from 'lucide-react';
+import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -17,7 +17,7 @@ import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as u
 import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
 import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useRefreshWhatsAppQrMutation, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation, useGetWhatsAppContactsQuery, useGetWhatsAppMessagesQuery } from '../whatsapp/whatsappApi';
-import { cn, getInitials } from '../../lib/utils';
+import { cn, getInitials, getUploadUrl } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
 import { useAppSelector } from '../../app/store';
@@ -27,8 +27,9 @@ import { useGetTaskConfigQuery, useUpsertTaskConfigMutation, useTestTaskConnecti
 
 import AttendancePolicyTab from './AttendancePolicyTab';
 import SalaryComponentsTab from './SalaryComponentsTab';
+import DatabaseBackupTab from './DatabaseBackupTab';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'attendance-policy' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system';
+type Tab = 'organization' | 'locations' | 'shifts' | 'attendance-policy' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup';
 
 export default function SettingsPage() {
   const { t } = useTranslation();
@@ -70,6 +71,7 @@ export default function SettingsPage() {
     { key: 'agent-setup', label: t('settings.agentSetup'), icon: Monitor },
     { key: 'audit', label: t('settings.auditLogs'), icon: Shield },
     { key: 'system', label: t('settings.system'), icon: Server },
+    { key: 'database-backup', label: 'Database Backup', icon: Database },
   ];
 
   const tabs = isAdminOrSuper ? allTabs : allTabs.filter(tab => HR_VISIBLE_TABS.includes(tab.key));
@@ -115,6 +117,7 @@ export default function SettingsPage() {
             {activeTab === 'agent-setup' && <AgentSetupTab />}
             {activeTab === 'audit' && <AuditLogs />}
             {activeTab === 'system' && <SystemInfo />}
+            {activeTab === 'database-backup' && <DatabaseBackupTab />}
           </div>
         </div>
       </div>
@@ -1638,7 +1641,8 @@ function ExternalApiIntegrationTab() {
       try {
         await upsertTaskConfig({
           provider: 'CUSTOM',
-          apiKey: intg.apiKey,
+          // Only send apiKey when user typed a new one — blank = keep existing encrypted key
+          apiKey: intg.apiKey || '',
           baseUrl: intg.baseUrl,
         }).unwrap();
         toast.success('Task Manager configuration saved');
@@ -2311,7 +2315,7 @@ function AgentSetupTab() {
                   <td className="p-3">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-semibold flex-shrink-0">
-                        {emp.avatar ? <img src={emp.avatar} alt="" className="w-full h-full rounded-full object-cover" /> : getInitials(`${emp.firstName} ${emp.lastName}`)}
+                        {emp.avatar ? <img src={getUploadUrl(emp.avatar)} alt="" className="w-full h-full rounded-full object-cover" /> : getInitials(`${emp.firstName} ${emp.lastName}`)}
                       </div>
                       <div>
                         <p className="font-medium text-gray-800 text-sm">{emp.firstName} {emp.lastName}</p>

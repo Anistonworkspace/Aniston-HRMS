@@ -9,10 +9,27 @@ export const notificationQueue = new Queue('notification', connection);
 export const payrollQueue = new Queue('payroll-processing', connection);
 export const bulkResumeQueue = new Queue('bulk-resume', connection);
 export const documentOcrQueue = new Queue('document-ocr', connection);
+export const backupQueue = new Queue('database-backup', connection);
 
 export const attendanceCronQueue = new Queue('attendance-cron', connection);
 
 logger.info('✅ BullMQ queues initialized');
+
+// Schedule database backup cron job (every 2 days at 02:00 UTC)
+(async () => {
+  try {
+    const existingBackupJobs = await backupQueue.getRepeatableJobs();
+    for (const job of existingBackupJobs) {
+      await backupQueue.removeRepeatableByKey(job.key);
+    }
+    await backupQueue.add('scheduled-backup', {}, {
+      repeat: { cron: '0 2 */2 * *' }, // 02:00 UTC every 2 days
+    });
+    logger.info('✅ Database backup cron job scheduled (every 2 days at 02:00 UTC)');
+  } catch (err) {
+    logger.warn('Failed to schedule database backup cron job:', err);
+  }
+})();
 
 // Schedule attendance cron jobs (IST 23:59 = UTC 18:29, IST 00:04 = UTC 18:34)
 (async () => {

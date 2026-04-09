@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { publicApplyService } from './public-apply.service.js';
+import { storageService, StorageFolder } from '../../services/storage.service.js';
 
 export class PublicApplyController {
   // Public: Get job form
@@ -37,7 +38,7 @@ export class PublicApplyController {
       // If a resume file was uploaded, set resumeUrl to its path
       const file = (req as any).file as Express.Multer.File | undefined;
       if (file) {
-        body.resumeUrl = `/uploads/${file.filename}`;
+        body.resumeUrl = storageService.buildUrl(StorageFolder.EMPLOYEE_DOCUMENTS, file.filename);
       }
 
       const result = await publicApplyService.submitApplication(req.params.token, body);

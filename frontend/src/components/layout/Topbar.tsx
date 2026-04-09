@@ -6,7 +6,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { logout } from '../../features/auth/authSlice';
 import { useLogoutMutation } from '../../features/auth/authApi';
-import { getInitials } from '../../lib/utils';
+import { getInitials, getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 
@@ -146,7 +146,7 @@ export default function Topbar() {
             className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-lg hover:bg-surface-2 transition-colors"
           >
             {user?.avatar ? (
-              <img src={user.avatar} alt="" className="w-8 h-8 rounded-lg object-cover" />
+              <img src={getUploadUrl(user.avatar)} alt="" className="w-8 h-8 rounded-lg object-cover" />
             ) : (
               <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white text-sm font-semibold">
                 {getInitials(user?.firstName, user?.lastName)}

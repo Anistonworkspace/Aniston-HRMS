@@ -3,8 +3,9 @@ import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { encrypt } from '../../utils/encryption.js';
 import { generateOfferLetterPDF, generateJoiningLetterPDF, generateExperienceLetterPDF, generateRelievingLetterPDF } from '../../utils/letterTemplates.js';
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { writeFileSync } from 'fs';
 import { join } from 'path';
+import { storageService } from '../../services/storage.service.js';
 import type { CreateDocumentInput, DocumentQuery } from './document.validation.js';
 
 export class DocumentService {
@@ -168,16 +169,13 @@ export class DocumentService {
         break;
     }
 
-    // Save PDF to disk
-    const uploadsBase = join(process.cwd(), 'uploads', 'employees', employee.employeeCode, 'letters');
-    if (!existsSync(uploadsBase)) {
-      mkdirSync(uploadsBase, { recursive: true });
-    }
+    // Save PDF to disk under employees/{code}/letters/
+    const lettersDir = storageService.getAbsoluteDir('employees', employee.employeeCode, 'letters');
     const fileName = `${type.toLowerCase()}-${Date.now()}.pdf`;
-    const filePath = join(uploadsBase, fileName);
+    const filePath = join(lettersDir, fileName);
     writeFileSync(filePath, pdfBuffer);
 
-    const fileUrl = `/uploads/employees/${employee.employeeCode}/letters/${fileName}`;
+    const fileUrl = storageService.buildUrl(`employees/${employee.employeeCode}/letters`, fileName);
 
     // Create document record
     const document = await prisma.document.create({

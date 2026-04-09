@@ -431,6 +431,18 @@ function ExportButton({ selectedDate }: { selectedDate: string }) {
    PERSONAL VIEW (existing)
    ============================================================================= */
 
+// ---------------------------------------------------------------------------
+// Enterprise GPS accuracy state — shown to employee before they can mark
+// ---------------------------------------------------------------------------
+type GpsReadiness = 'acquiring' | 'poor' | 'fair' | 'good';
+
+function gpsReadinessFrom(accuracy: number | null): GpsReadiness {
+  if (accuracy === null) return 'acquiring';
+  if (accuracy > 100) return 'poor';
+  if (accuracy > 40)  return 'fair';
+  return 'good';
+}
+
 function AttendancePersonalView() {
   const { t, i18n } = useTranslation();
   const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
@@ -442,6 +454,39 @@ function AttendancePersonalView() {
   const [requestingLocation, setRequestingLocation] = useState(false);
   const [requestingNotification, setRequestingNotification] = useState(false);
   const [dismissedNotifBanner, setDismissedNotifBanner] = useState(false);
+
+  // -------------------------------------------------------------------------
+  // Enterprise GPS pre-warming
+  // As soon as location permission is confirmed we start watchPosition so the
+  // GPS chip is already locked by the time the employee taps Check In.
+  // We continuously keep the *best* (most accurate) recent fix in a ref.
+  // -------------------------------------------------------------------------
+  const bestPosRef = useRef<GeolocationPosition | null>(null);
+  const gpsWatchRef = useRef<number | null>(null);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null); // metres
+
+  useEffect(() => {
+    if (locationStatus !== 'granted' || !navigator.geolocation) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        // Always keep the freshest position; prefer higher accuracy (lower number)
+        const prev = bestPosRef.current;
+        if (!prev || pos.coords.accuracy < prev.coords.accuracy || (Date.now() - pos.timestamp) < 5000) {
+          bestPosRef.current = pos;
+        }
+        setGpsAccuracy(pos.coords.accuracy);
+      },
+      () => { /* silent — user already on permission-granted screen */ },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 },
+    );
+    gpsWatchRef.current = watchId;
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+      gpsWatchRef.current = null;
+    };
+  }, [locationStatus]);
 
   // Check location permission on mount with timeout fallback
   useEffect(() => {
@@ -538,26 +583,54 @@ function AttendancePersonalView() {
     return () => clearInterval(interval);
   }, []);
 
-  const getGPS = async () => {
+  /**
+   * Enterprise-grade GPS acquisition.
+   *
+   * Strategy (mirrors Darwinbox / Keka):
+   * 1. If pre-warmed position exists AND is < 30 s old AND accuracy < 50 m → use it instantly.
+   * 2. Otherwise force a FRESH fix with maximumAge: 0 so the device MUST read the
+   *    current GPS signal — no cached/stale positions are ever accepted.
+   * 3. Always include gpsTimestamp so the backend can verify freshness server-side.
+   */
+  const getGPS = async (): Promise<{
+    latitude?: number; longitude?: number; accuracy?: number; gpsTimestamp?: string;
+  }> => {
     if (!navigator.geolocation) return {};
+
+    const toPayload = (pos: GeolocationPosition) => ({
+      latitude: pos.coords.latitude,
+      longitude: pos.coords.longitude,
+      accuracy: pos.coords.accuracy,
+      gpsTimestamp: new Date(pos.timestamp).toISOString(),
+    });
+
+    // --- Stage 1: use pre-warmed position if it is fresh and precise enough ---
+    const prewarm = bestPosRef.current;
+    if (prewarm) {
+      const ageMs = Date.now() - prewarm.timestamp;
+      if (ageMs < 30_000 && prewarm.coords.accuracy < 50) {
+        return toPayload(prewarm);
+      }
+    }
+
+    // --- Stage 2: force a fresh GPS fix (maximumAge: 0 = NO cache allowed) ---
     try {
-      // iOS Safari needs longer timeout (permission prompt delays response)
-      // 30s timeout covers: iOS permission prompt + cold GPS fix on weak signal
       const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
           timeout: 30000,
-          maximumAge: 60000,
+          maximumAge: 0,          // ← CRITICAL: never accept cached location
         })
       );
-      return { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
-    } catch (err: any) {
-      // Differentiate error types for better UX
-      if (err?.code === 1) {
-        toast.error(t('attendance.locationDenied'));
-      } else if (err?.code === 3) {
-        toast.error(t('attendance.locationTimeout'));
+      // Update pre-warm ref with the fresh fix for the next action
+      if (!bestPosRef.current || pos.coords.accuracy < bestPosRef.current.coords.accuracy) {
+        bestPosRef.current = pos;
+        setGpsAccuracy(pos.coords.accuracy);
       }
+      return toPayload(pos);
+    } catch (err: any) {
+      if (err?.code === 1) toast.error(t('attendance.locationDenied'));
+      else if (err?.code === 3) toast.error(t('attendance.locationTimeout'));
       return {};
     }
   };
@@ -884,6 +957,24 @@ function AttendancePersonalView() {
                 </p>
               </div>
             )}
+
+            {/* GPS readiness badge — shown above action buttons so employee knows signal quality */}
+            {(() => {
+              const readiness = gpsReadinessFrom(gpsAccuracy);
+              const badge: Record<GpsReadiness, { dot: string; label: string; text: string }> = {
+                acquiring: { dot: 'bg-gray-400 animate-pulse', label: 'Acquiring GPS…',   text: 'text-gray-500' },
+                poor:      { dot: 'bg-red-400 animate-pulse',  label: `GPS weak ±${Math.round(gpsAccuracy ?? 999)}m`, text: 'text-red-500' },
+                fair:      { dot: 'bg-amber-400',              label: `GPS fair ±${Math.round(gpsAccuracy!)}m`,       text: 'text-amber-600' },
+                good:      { dot: 'bg-emerald-500',            label: `GPS ready ±${Math.round(gpsAccuracy!)}m`,      text: 'text-emerald-600' },
+              };
+              const b = badge[readiness];
+              return (
+                <div className={`flex items-center justify-center gap-1.5 text-xs font-medium mb-3 ${b.text}`}>
+                  <span className={`w-2 h-2 rounded-full ${b.dot}`} />
+                  {b.label}
+                </div>
+              );
+            })()}
 
             {/* Main CTA button */}
             {!today?.isCheckedIn && !today?.isCheckedOut && (

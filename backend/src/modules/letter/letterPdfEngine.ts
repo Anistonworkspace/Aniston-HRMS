@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
+import { storageService } from '../../services/storage.service.js';
 
 // Template color schemes
 export const TEMPLATE_SCHEMES: Record<string, {
@@ -123,13 +124,7 @@ interface LetterData {
 
 function resolveFilePath(url: string | null | undefined): string | null {
   if (!url) return null;
-  // Remove leading /uploads/ or /api/uploads/
-  const cleaned = url.replace(/^\/(api\/)?uploads\//, '');
-  let base = process.cwd();
-  if (base.endsWith('backend') || base.endsWith('backend\\') || base.endsWith('backend/')) {
-    base = path.resolve(base, '..');
-  }
-  const full = path.join(base, 'uploads', cleaned);
+  const full = storageService.resolvePath(url);
   return fs.existsSync(full) ? full : null;
 }
 

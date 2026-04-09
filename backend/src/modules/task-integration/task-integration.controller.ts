@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { taskIntegrationService } from './task-integration.service.js';
+import { prisma } from '../../lib/prisma.js';
 
 export class TaskIntegrationController {
   async getConfig(req: Request, res: Response, next: NextFunction) {
@@ -31,12 +32,25 @@ export class TaskIntegrationController {
   async auditTasksForLeave(req: Request, res: Response, next: NextFunction) {
     try {
       const { startDate, endDate, leaveType } = req.body;
+      const employeeId = req.user!.employeeId!;
+
+      // Fetch employee email for external system matching
+      let employeeEmail: string | undefined;
+      if (employeeId) {
+        const emp = await prisma.employee.findUnique({
+          where: { id: employeeId },
+          select: { email: true },
+        });
+        employeeEmail = emp?.email ?? undefined;
+      }
+
       const result = await taskIntegrationService.auditTasksForLeave(
         req.user!.organizationId,
-        req.user!.employeeId!,
+        employeeId,
         new Date(startDate),
         new Date(endDate),
-        leaveType
+        leaveType,
+        employeeEmail
       );
       res.json({ success: true, data: result });
     } catch (err) { next(err); }

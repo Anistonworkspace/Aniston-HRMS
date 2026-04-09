@@ -1,29 +1,9 @@
-import path from 'path';
 import fs from 'fs';
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
+import { storageService, StorageFolder } from '../../services/storage.service.js';
 import type { CreatePolicyInput, UpdatePolicyInput } from './policy.validation.js';
-
-function getProjectRoot(): string {
-  let base = process.cwd();
-  if (base.endsWith('backend') || base.endsWith('backend\\') || base.endsWith('backend/')) {
-    base = path.resolve(base, '..');
-  }
-  return base;
-}
-
-function deleteUploadedFile(fileUrl: string | null | undefined) {
-  if (!fileUrl) return;
-  const fullPath = path.join(getProjectRoot(), fileUrl);
-  if (fs.existsSync(fullPath)) {
-    try {
-      fs.unlinkSync(fullPath);
-    } catch (err) {
-      console.error(`[Policy] Failed to delete file: ${fullPath}`, err);
-    }
-  }
-}
 
 export class PolicyService {
   async list(organizationId: string, employeeId?: string) {
@@ -52,7 +32,7 @@ export class PolicyService {
       throw new BadRequestError('A PDF or document file is required');
     }
 
-    const filePath = `/uploads/${file.filename}`;
+    const filePath = storageService.buildUrl(StorageFolder.POLICIES, file.filename);
     const policy = await prisma.policy.create({
       data: {
         title: data.title,
@@ -91,8 +71,8 @@ export class PolicyService {
     if (data.downloadAllowed !== undefined) updateData.downloadAllowed = data.downloadAllowed;
     if (file) {
       // Delete the old file when replacing with a new one
-      deleteUploadedFile(existing.filePath);
-      updateData.filePath = `/uploads/${file.filename}`;
+      await storageService.deleteFile(existing.filePath);
+      updateData.filePath = storageService.buildUrl(StorageFolder.POLICIES, file.filename);
       updateData.fileName = file.originalname;
     }
 
@@ -119,7 +99,7 @@ export class PolicyService {
     if (!existing) throw new NotFoundError('Policy');
 
     // Delete the physical file
-    deleteUploadedFile(existing.filePath);
+    await storageService.deleteFile(existing.filePath);
 
     await prisma.policy.update({
       where: { id },
@@ -151,7 +131,7 @@ export class PolicyService {
     const policy = await prisma.policy.findFirst({ where: { id, organizationId, isActive: true } });
     if (!policy || !policy.filePath) throw new NotFoundError('Policy');
 
-    const fullPath = path.join(getProjectRoot(), policy.filePath);
+    const fullPath = storageService.resolvePath(policy.filePath);
     if (!fs.existsSync(fullPath)) throw new NotFoundError('Policy file');
 
     return {

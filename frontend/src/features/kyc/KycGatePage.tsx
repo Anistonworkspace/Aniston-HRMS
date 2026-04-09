@@ -12,6 +12,7 @@ import {
 } from './kycApi';
 import CameraCapture from './CameraCapture';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
+import { getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 // ===== Document Categories =====
@@ -494,7 +495,7 @@ export default function KycGatePage() {
                                   </div>
                                 </div>
                                 {photoUrl && !showCamera && (
-                                  <img src={photoUrl} alt="KYC Photo" className="w-10 h-10 rounded-lg object-cover border border-gray-200" />
+                                  <img src={getUploadUrl(photoUrl)} alt="KYC Photo" className="w-10 h-10 rounded-lg object-cover border border-gray-200" />
                                 )}
                               </div>
                               <div className="flex items-center gap-2 mt-3">

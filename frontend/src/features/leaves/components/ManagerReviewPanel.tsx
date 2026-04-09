@@ -3,7 +3,7 @@ import { X, Loader2, CheckCircle, XCircle, AlertTriangle, Clock, Shield } from '
 import { useGetManagerReviewQuery, useHandleLeaveActionMutation } from '../leaveApi';
 import TaskAuditPanel from './TaskAuditPanel';
 import HandoverSection from './HandoverSection';
-import { formatDate, getInitials } from '../../../lib/utils';
+import { formatDate, getInitials, getUploadUrl } from '../../../lib/utils';
 import toast from 'react-hot-toast';
 
 interface ManagerReviewPanelProps {
@@ -65,7 +65,7 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-sm">
               {data.employee?.avatar ? (
-                <img src={data.employee.avatar} className="w-full h-full object-cover rounded-xl" />
+                <img src={getUploadUrl(data.employee.avatar)} className="w-full h-full object-cover rounded-xl" />
               ) : (
                 getInitials(data.employee?.firstName, data.employee?.lastName)
               )}

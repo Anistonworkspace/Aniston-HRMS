@@ -5,37 +5,8 @@ import type { LetterType, Prisma } from '@prisma/client';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { generateLetterPDF, TEMPLATE_SCHEMES } from './letterPdfEngine.js';
+import { storageService } from '../../services/storage.service.js';
 import type { CreateLetterInput, AssignLetterInput } from './letter.validation.js';
-
-function getProjectRoot(): string {
-  let base = process.cwd();
-  if (base.endsWith('backend') || base.endsWith('backend\\') || base.endsWith('backend/')) {
-    base = path.resolve(base, '..');
-  }
-  return base;
-}
-
-function deleteUploadedFile(fileUrl: string | null | undefined) {
-  if (!fileUrl) return;
-  const fullPath = path.join(getProjectRoot(), fileUrl);
-  if (fs.existsSync(fullPath)) {
-    try {
-      fs.unlinkSync(fullPath);
-    } catch (err) {
-      console.error(`[Letter] Failed to delete file: ${fullPath}`, err);
-    }
-  }
-}
-
-function getUploadsDir(...subPaths: string[]): string {
-  let base = process.cwd();
-  if (base.endsWith('backend') || base.endsWith('backend\\') || base.endsWith('backend/')) {
-    base = path.resolve(base, '..');
-  }
-  const dir = path.join(base, 'uploads', ...subPaths);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 export class LetterService {
   // List all letters (HR view)
@@ -128,12 +99,12 @@ export class LetterService {
       employee.organization.address,
     );
 
-    // Save PDF file
+    // Save PDF file under letters/{organizationId}/
     const fileName = `${data.type.toLowerCase()}-${employee.employeeCode}-${Date.now()}.pdf`;
-    const dir = getUploadsDir('letters', organizationId);
+    const dir = storageService.getAbsoluteDir('letters', organizationId);
     const filePath = path.join(dir, fileName);
     fs.writeFileSync(filePath, pdfBuffer);
-    const fileUrl = `/uploads/letters/${organizationId}/${fileName}`;
+    const fileUrl = storageService.buildUrl(`letters/${organizationId}`, fileName);
 
     // Create letter record + assignment in a transaction
     const letter = await prisma.$transaction(async (tx) => {
@@ -234,7 +205,7 @@ export class LetterService {
     if (!letter) throw new NotFoundError('Letter');
 
     // Delete the physical PDF file
-    deleteUploadedFile(letter.filePath);
+    await storageService.deleteFile(letter.filePath);
 
     await prisma.letter.update({
       where: { id },

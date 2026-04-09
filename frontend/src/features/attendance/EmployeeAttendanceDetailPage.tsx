@@ -1,5 +1,6 @@
 import { useState, useMemo, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { getUploadUrl } from '../../lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowLeft, Clock, MapPin, Calendar, ChevronLeft, ChevronRight, Activity,
@@ -749,8 +750,8 @@ export default function EmployeeAttendanceDetailPage() {
               <h3 className="text-xs font-semibold text-gray-700 mb-2.5">Screenshots ({screenshots.length})</h3>
               <div className="grid grid-cols-4 gap-2">
                 {screenshots.map((s: any) => (
-                  <div key={s.id} className="group relative cursor-pointer" onClick={() => window.open(s.imageUrl, '_blank')}>
-                    <img src={s.imageUrl} alt={s.activeApp || 'Screenshot'} className="w-full h-20 object-cover rounded-lg border border-gray-200 group-hover:border-brand-300" />
+                  <div key={s.id} className="group relative cursor-pointer" onClick={() => window.open(getUploadUrl(s.imageUrl), '_blank')}>
+                    <img src={getUploadUrl(s.imageUrl)} alt={s.activeApp || 'Screenshot'} className="w-full h-20 object-cover rounded-lg border border-gray-200 group-hover:border-brand-300" />
                     <div className="absolute bottom-0 left-0 right-0 bg-black/60 rounded-b-lg px-1.5 py-0.5">
                       <p className="text-[8px] text-white truncate">{s.activeApp || 'Desktop'}</p>
                       <p className="text-[7px] text-gray-300">{formatTime(s.timestamp)}</p>

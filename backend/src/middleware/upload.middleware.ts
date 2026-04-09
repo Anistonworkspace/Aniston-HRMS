@@ -1,39 +1,44 @@
+/**
+ * upload.middleware.ts
+ *
+ * Centralised multer configuration for all file uploads in Aniston HRMS.
+ *
+ * All disk paths are resolved through StorageService so that:
+ *  - The project root is correctly derived regardless of cwd (root vs backend/)
+ *  - Swapping to S3 only requires changing the StorageService provider
+ *  - All upload types land in their own deterministic subdirectory
+ *
+ * Exported multer instances:
+ *  uploadImage        → branding/ (images only, 5 MB)
+ *  uploadDocument     → employee-documents/ (pdf + images + office, 10 MB)
+ *  uploadResume       → resumes/ (pdf + office, 5 MB)
+ *  uploadPolicy       → policies/ (pdf + images + office, 10 MB)
+ *  uploadBranding     → branding/ (images only, 5 MB) — alias of uploadImage
+ *  uploadBulkResumes  → resumes/bulk/ (pdf + office, 10 MB, up to 50 files)
+ *  uploadAny          → employee-documents/ (any type, 50 MB)
+ *
+ * Dynamic factory functions:
+ *  createEmployeeKycUpload(employeeId)  → employees/{id}/kyc/
+ *  createEmployeeUpload(empCode)        → employees/{empCode}/
+ *  createWalkInUpload(sessionId)        → walkin/{sessionId}/
+ */
+
 import multer from 'multer';
 import path from 'path';
-import fs from 'fs';
 import { BadRequestError } from './errorHandler.js';
+import { storageService, StorageFolder, StoragePath } from '../services/storage.service.js';
 
-// Resolve uploads dir relative to project root (handles both root and backend/ cwd)
-function getUploadsDir(...subPaths: string[]): string {
-  let base = process.cwd();
-  // If cwd is the backend dir, go up one level to project root
-  if (base.endsWith('backend') || base.endsWith('backend\\') || base.endsWith('backend/')) {
-    base = path.resolve(base, '..');
-  }
-  const dir = path.join(base, 'uploads', ...subPaths);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
+// ---------------------------------------------------------------------------
+// File-type filters
+// ---------------------------------------------------------------------------
 
-// Storage configuration: uploads/filename
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, getUploadsDir());
-  },
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    const ext = path.extname(file.originalname);
-    cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
-  },
-});
-
-// Validate both MIME type and file extension to prevent polyglot attacks
+/** Validate both MIME type and extension to prevent polyglot attacks. */
 function validateFileType(
   file: Express.Multer.File,
   allowedMimes: string[],
   allowedExts: string[],
   errorMsg: string,
-  cb: multer.FileFilterCallback
+  cb: multer.FileFilterCallback,
 ) {
   const ext = path.extname(file.originalname).toLowerCase();
   if (allowedMimes.includes(file.mimetype) && allowedExts.includes(ext)) {
@@ -43,120 +48,174 @@ function validateFileType(
   }
 }
 
-// File type filters
-const imageFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  validateFileType(file,
+const imageFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) =>
+  validateFileType(
+    file,
     ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
     ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
-    'Only JPEG, PNG, WebP, and GIF images are allowed', cb);
-};
+    'Only JPEG, PNG, WebP, and GIF images are allowed',
+    cb,
+  );
 
-const documentFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  validateFileType(file,
-    ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'application/msword',
-     'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+const documentFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) =>
+  validateFileType(
+    file,
+    [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ],
     ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.doc', '.docx'],
-    'Only PDF, DOC, DOCX, and image files are allowed', cb);
-};
+    'Only PDF, DOC, DOCX, and image files are allowed',
+    cb,
+  );
 
-const resumeFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  validateFileType(file,
-    ['application/pdf', 'application/msword',
-     'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+const resumeFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) =>
+  validateFileType(
+    file,
+    [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ],
     ['.pdf', '.doc', '.docx'],
-    'Only PDF, DOC, and DOCX files are allowed', cb);
-};
+    'Only PDF, DOC, and DOCX files are allowed',
+    cb,
+  );
 
-// Multer instances
+// ---------------------------------------------------------------------------
+// Internal storage factory
+// ---------------------------------------------------------------------------
+
+/** Unique filename: {fieldname}-{timestamp}-{random}.{ext} */
+function uniqueFilename(_req: any, file: Express.Multer.File, cb: (err: any, name: string) => void) {
+  const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  const ext = path.extname(file.originalname).toLowerCase();
+  cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+}
+
+/** Build a multer.diskStorage pointing at the given sub-path inside uploads/. */
+function diskStorageFor(...subPaths: string[]): multer.StorageEngine {
+  return multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      cb(null, storageService.getAbsoluteDir(...subPaths));
+    },
+    filename: uniqueFilename,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Exported multer instances — one per upload category
+// ---------------------------------------------------------------------------
+
+/** Image uploads (branding, profile photos).  5 MB. JPEG/PNG/WebP/GIF only. */
 export const uploadImage = multer({
-  storage,
+  storage: diskStorageFor(StorageFolder.BRANDING),
   fileFilter: imageFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
+/** Generic document uploads (employee docs, KYC fallback). 10 MB. */
 export const uploadDocument = multer({
-  storage,
+  storage: diskStorageFor(StorageFolder.EMPLOYEE_DOCUMENTS),
   fileFilter: documentFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per spec
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
+/** Policy document uploads. 10 MB. Lands in policies/ subfolder. */
+export const uploadPolicy = multer({
+  storage: diskStorageFor(StorageFolder.POLICIES),
+  fileFilter: documentFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+/**
+ * Branding image uploads (logo / signature / stamp).
+ * Alias of uploadImage — both land in branding/ subfolder.
+ */
+export const uploadBranding = multer({
+  storage: diskStorageFor(StorageFolder.BRANDING),
+  fileFilter: imageFilter,
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+/** Resume uploads (single). 5 MB. Lands in resumes/ subfolder. */
 export const uploadResume = multer({
-  storage,
+  storage: diskStorageFor(StorageFolder.EMPLOYEE_DOCUMENTS),
   fileFilter: resumeFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-// Generic upload (any file type, 50MB limit)
+/**
+ * Bulk resume uploads (up to 50 files).
+ * Lands in resumes/bulk/ subfolder. 10 MB per file.
+ * Use: uploadBulkResumes(req, res, cb) — already bound to .array('resumes', 50).
+ */
+const _bulkResumeMulter = multer({
+  storage: diskStorageFor(StorageFolder.RESUMES_BULK),
+  fileFilter: resumeFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+export const uploadBulkResumes = _bulkResumeMulter.array('resumes', 50);
+
+/**
+ * Agent screenshot uploads (desktop monitoring agent).
+ * Lands in agent-screenshots/ — requires JWT auth to serve (private).
+ * NOT the same as agent/ which holds public installer binaries.
+ */
+export const uploadAgent = multer({
+  storage: diskStorageFor(StorageFolder.AGENT_SCREENSHOTS),
+  fileFilter: imageFilter,
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+/** Generic any-type uploads (large imports, etc.). 50 MB. */
 export const uploadAny = multer({
-  storage,
+  storage: diskStorageFor(StorageFolder.EMPLOYEE_DOCUMENTS),
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-// Dynamic storage for walk-in uploads — creates uploads/walkin/{folder}/
-export function createWalkInUpload(folderName: string) {
-  const dir = path.join(process.cwd(), 'uploads', 'walkin', folderName);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-  return multer({
-    storage: multer.diskStorage({
-      destination: (_req, _file, cb) => cb(null, dir),
-      filename: (_req, file, cb) => {
-        const ext = path.extname(file.originalname);
-        cb(null, `${file.fieldname}${ext}`);
-      },
-    }),
-    fileFilter: documentFilter,
-    limits: { fileSize: 10 * 1024 * 1024 },
-  });
-}
-
-// Dynamic storage for employee documents
-export function createEmployeeUpload(empCode: string) {
-  const dir = path.join(process.cwd(), 'uploads', 'employees', empCode);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-  return multer({
-    storage: multer.diskStorage({
-      destination: (_req, _file, cb) => cb(null, dir),
-      filename: (_req, file, cb) => {
-        const ext = path.extname(file.originalname);
-        const uniqueSuffix = `${Date.now()}`;
-        cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
-      },
-    }),
-    fileFilter: documentFilter,
-    limits: { fileSize: 10 * 1024 * 1024 },
-  });
-}
+// ---------------------------------------------------------------------------
+// Dynamic factory functions — entity-scoped storage
+// ---------------------------------------------------------------------------
 
 /**
- * Create employee KYC upload — saves to uploads/employees/{employeeId}/kyc/
- * Structured folder: each employee gets their own folder with sub-categories
+ * Create a multer pair for employee KYC uploads.
+ * Both document and photo land in uploads/employees/{employeeId}/kyc/
+ *
+ * Usage:
+ *   const { document, photo } = createEmployeeKycUpload(employeeId);
+ *   document.single('file')(req, res, next);
  */
 export function createEmployeeKycUpload(employeeId: string) {
-  const dir = getUploadsDir('employees', employeeId, 'kyc');
+  const kycPath = StoragePath.employeeKyc(employeeId);
+  const dir = storageService.getAbsoluteDir(kycPath);
+
+  const kycFilename = (_req: any, file: Express.Multer.File, cb: (err: any, name: string) => void) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+  };
+
+  const photoFilename = (_req: any, file: Express.Multer.File, cb: (err: any, name: string) => void) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `photo-${Date.now()}${ext}`);
+  };
+
+  const destination = (_req: any, _file: Express.Multer.File, cb: (err: any, dest: string) => void) =>
+    cb(null, dir);
 
   return {
     document: multer({
-      storage: multer.diskStorage({
-        destination: (_req, _file, cb) => cb(null, dir),
-        filename: (_req, file, cb) => {
-          const ext = path.extname(file.originalname);
-          const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
-          cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
-        },
-      }),
+      storage: multer.diskStorage({ destination, filename: kycFilename }),
       fileFilter: documentFilter,
       limits: { fileSize: 10 * 1024 * 1024 },
     }),
     photo: multer({
-      storage: multer.diskStorage({
-        destination: (_req, _file, cb) => cb(null, dir),
-        filename: (_req, file, cb) => {
-          const ext = path.extname(file.originalname);
-          cb(null, `photo-${Date.now()}${ext}`);
-        },
-      }),
+      storage: multer.diskStorage({ destination, filename: photoFilename }),
       fileFilter: imageFilter,
       limits: { fileSize: 5 * 1024 * 1024 },
     }),
@@ -164,8 +223,54 @@ export function createEmployeeKycUpload(employeeId: string) {
 }
 
 /**
- * Get the relative URL path for an employee's KYC file
+ * Create a multer instance scoped to a specific employee folder.
+ * Lands in uploads/employees/{empCode}/
  */
-export function getEmployeeKycPath(employeeId: string, filename: string): string {
-  return `/uploads/employees/${employeeId}/kyc/${filename}`;
+export function createEmployeeUpload(empCode: string) {
+  const dir = storageService.getAbsoluteDir('employees', empCode);
+
+  return multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, dir),
+      filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, `${file.fieldname}-${Date.now()}${ext}`);
+      },
+    }),
+    fileFilter: documentFilter,
+    limits: { fileSize: 10 * 1024 * 1024 },
+  });
+}
+
+/**
+ * Create a multer instance for a walk-in kiosk upload session.
+ * Lands in uploads/walkin/{sessionId}/
+ *
+ * IMPORTANT: sessionId must be a UUID or similarly opaque value — never
+ * derive it directly from user input to prevent path traversal.
+ */
+export function createWalkInUpload(sessionId: string) {
+  const dir = storageService.getAbsoluteDir(StoragePath.walkinSession(sessionId));
+
+  return multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, dir),
+      filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        cb(null, `${file.fieldname}-${unique}${ext}`);
+      },
+    }),
+    fileFilter: documentFilter,
+    limits: { fileSize: 10 * 1024 * 1024 },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// URL helpers
+// ---------------------------------------------------------------------------
+
+/** Build the relative URL for a KYC file stored in DB. */
+export function getEmployeeKycUrl(employeeId: string, filename: string): string {
+  return storageService.buildUrl(StoragePath.employeeKyc(employeeId), filename);
 }

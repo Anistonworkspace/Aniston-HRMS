@@ -8,6 +8,7 @@ import { startEmailWorker } from './jobs/workers/email.worker.js';
 import { startNotificationWorker } from './jobs/workers/notification.worker.js';
 import { startAttendanceCronWorker } from './jobs/workers/attendance-cron.worker.js';
 import { startPayrollWorker } from './jobs/workers/payroll.worker.js';
+import { startBackupWorker } from './jobs/workers/backup.worker.js';
 import { whatsAppService } from './modules/whatsapp/whatsapp.service.js';
 
 const server = createServer(app);
@@ -36,6 +37,9 @@ async function main() {
     startPayrollWorker();
     // Attendance cron worker (auto-close stale + auto-mark absent)
     startAttendanceCronWorker();
+    // Database backup cron worker (scheduled every 2 days)
+    startBackupWorker();
+    logger.info('✅ Database backup worker started');
 
     server.listen(env.PORT, () => {
       logger.info(`🚀 Aniston HRMS API running on port ${env.PORT}`);

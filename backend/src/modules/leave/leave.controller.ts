@@ -198,6 +198,18 @@ export class LeaveController {
 
   async getLeaveAudit(req: Request, res: Response, next: NextFunction) {
     try {
+      // Verify leave request belongs to caller's organization before exposing audit data
+      const leaveRequest = await prisma.leaveRequest.findFirst({
+        where: {
+          id: req.params.id,
+          employee: { organizationId: req.user!.organizationId },
+        },
+        select: { id: true },
+      });
+      if (!leaveRequest) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Leave request not found' } });
+        return;
+      }
       const audits = await prisma.leaveTaskAudit.findMany({
         where: { leaveRequestId: req.params.id },
         orderBy: { auditedAt: 'desc' },

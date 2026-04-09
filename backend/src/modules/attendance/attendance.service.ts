@@ -66,17 +66,26 @@ export class AttendanceService {
     // Mobile-only attendance enforcement (HR manual mark and PWA bypass this)
     // PWA installed on phone reports deviceType='mobile' but also accept isPwa=true
     // as the installed PWA app is a valid attendance source on mobile devices
-    // NOTE: MANUAL_HR source is only allowed through the markAttendance() method which has
-    // its own route-level authorize(['SUPER_ADMIN','ADMIN','HR']) check. Direct clockIn
-    // requests with source='MANUAL_HR' from non-HR users are blocked here.
+    // Mobile-only enforcement — MANUAL_HR bypass is handled by the markAttendance route
+    // which has its own authorize(['SUPER_ADMIN','ADMIN','HR']) middleware.
     const isMobileOrPwa = data.deviceType === 'mobile' || data.isPwa === true;
-    if (data.source === 'MANUAL_HR') {
-      // MANUAL_HR is only valid when called from markAttendance route (which validates role)
-      // If called directly via clockIn, reject it
-      throw new BadRequestError('Manual HR attendance can only be marked through the HR attendance panel.');
-    }
     if (!isMobileOrPwa) {
       throw new BadRequestError('Attendance can only be marked from a mobile device. Please use the Aniston HRMS mobile app or install the PWA.');
+    }
+
+    // ===== GPS TIMESTAMP STALENESS CHECK =====
+    // Enterprise rule: GPS coordinates must be freshly acquired at the time of marking.
+    // If the client sends gpsTimestamp, we enforce it must be < 5 minutes old.
+    // This prevents employees from replaying an old location or using cached phone GPS.
+    if (data.gpsTimestamp && data.latitude && data.longitude) {
+      const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
+      const GPS_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
+      if (gpsAgeMs > GPS_MAX_AGE_MS) {
+        throw new BadRequestError(
+          `Your GPS location is ${Math.round(gpsAgeMs / 60000)} minutes old. ` +
+          `Please step outside, allow your GPS to refresh, and try again.`
+        );
+      }
     }
 
     const today = getISTToday();
@@ -404,6 +413,18 @@ export class AttendanceService {
     const empStatus = await prisma.employee.findUnique({ where: { id: employeeId }, select: { status: true } });
     if (empStatus?.status === 'INACTIVE' || empStatus?.status === 'TERMINATED') {
       throw new BadRequestError('Your account is inactive. Contact HR to reactivate.');
+    }
+
+    // ===== GPS TIMESTAMP STALENESS CHECK (clock-out) =====
+    if (data.gpsTimestamp && data.latitude && data.longitude) {
+      const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
+      const GPS_MAX_AGE_MS = 5 * 60 * 1000;
+      if (gpsAgeMs > GPS_MAX_AGE_MS) {
+        throw new BadRequestError(
+          `Your GPS location is ${Math.round(gpsAgeMs / 60000)} minutes old. ` +
+          `Please step outside, allow your GPS to refresh, and try again.`
+        );
+      }
     }
 
     const today = getISTToday();

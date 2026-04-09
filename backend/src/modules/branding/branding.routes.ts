@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { brandingController } from './branding.controller.js';
 import { authenticate, requirePermission } from '../../middleware/auth.middleware.js';
-import { uploadImage } from '../../middleware/upload.middleware.js';
+import { uploadBranding } from '../../middleware/upload.middleware.js';
 
 const router = Router();
 
@@ -18,17 +18,17 @@ router.patch('/', requirePermission('policy', 'create'), (req, res, next) =>
 );
 
 // Upload logo
-router.post('/logo', requirePermission('policy', 'create'), uploadImage.single('file'), (req, res, next) =>
+router.post('/logo', requirePermission('policy', 'create'), uploadBranding.single('file'), (req, res, next) =>
   brandingController.uploadLogo(req, res, next)
 );
 
 // Upload signature
-router.post('/signature', requirePermission('policy', 'create'), uploadImage.single('file'), (req, res, next) =>
+router.post('/signature', requirePermission('policy', 'create'), uploadBranding.single('file'), (req, res, next) =>
   brandingController.uploadSignature(req, res, next)
 );
 
 // Upload stamp
-router.post('/stamp', requirePermission('policy', 'create'), uploadImage.single('file'), (req, res, next) =>
+router.post('/stamp', requirePermission('policy', 'create'), uploadBranding.single('file'), (req, res, next) =>
   brandingController.uploadStamp(req, res, next)
 );
 

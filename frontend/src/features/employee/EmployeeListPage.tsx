@@ -28,13 +28,11 @@ import {
   useGetManagersQuery,
 } from './employeeDepsApi';
 import { useAppSelector } from '../../app/store';
-import { getInitials, getStatusColor, formatDate, cn } from '../../lib/utils';
+import { getInitials, getStatusColor, formatDate, cn, getUploadUrl } from '../../lib/utils';
 import CenterModal from '../../components/ui/CenterModal';
 import MiniModal from '../../components/ui/MiniModal';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import toast from 'react-hot-toast';
-
-const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:4000';
 
 // ──────────────────────────────────────────────
 // Main Page
@@ -584,7 +582,7 @@ function Avatar({ employee }: { employee: any }) {
     <div className="w-9 h-9 rounded-lg flex-shrink-0 relative">
       {employee.avatar ? (
         <img
-          src={employee.avatar.startsWith('http') ? employee.avatar : `${API_BASE}${employee.avatar}`}
+          src={getUploadUrl(employee.avatar)}
           alt=""
           className="w-9 h-9 rounded-lg object-cover"
           onError={(e) => {
