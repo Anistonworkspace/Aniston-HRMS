@@ -1,11 +1,14 @@
 import { api } from '../../app/api';
 
 // ===== Backup Types =====
+export type BackupCategory = 'DATABASE' | 'FILES';
+
 export interface DatabaseBackup {
   id: string;
   filename: string;
   filePath: string;
   sizeBytes: string; // BigInt serialized as string
+  category: BackupCategory;
   type: 'MANUAL' | 'SCHEDULED';
   status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'DELETED';
   notes: string | null;
@@ -18,9 +21,18 @@ export interface DatabaseBackup {
 
 export interface BackupStats {
   totalBackups: number;
-  lastBackupAt: string | null;
-  lastBackupSize: string | null;
+  totalDbBackups: number;
+  totalFilesBackups: number;
+  lastDbBackupAt: string | null;
+  lastDbBackupSize: string | null;
+  lastFilesBackupAt: string | null;
+  lastFilesBackupSize: string | null;
   nextScheduledAt: string | null;
+}
+
+export interface BackupAvailability {
+  pgDump: { available: boolean; path: string | null; method: string | null; envVar: string; hint: string | null };
+  psql: { available: boolean; path: string | null; method: string | null; envVar: string; hint: string | null };
 }
 
 export interface BackupListResponse {
@@ -148,8 +160,13 @@ export const settingsApi = api.injectEndpoints({
       invalidatesTags: ['AgentSetup'],
     }),
 
+    // Backup — availability pre-flight
+    checkBackupAvailability: builder.query<{ success: boolean; data: BackupAvailability }, void>({
+      query: () => '/settings/backup/check',
+      providesTags: ['Backup'],
+    }),
     // Database Backup
-    listBackups: builder.query<BackupListResponse, { page?: number }>({
+    listBackups: builder.query<BackupListResponse, { page?: number; category?: BackupCategory }>({
       query: (params) => ({ url: '/settings/backup', params }),
       providesTags: ['Backup'],
     }),
@@ -157,8 +174,8 @@ export const settingsApi = api.injectEndpoints({
       query: () => '/settings/backup/stats',
       providesTags: ['Backup'],
     }),
-    createBackup: builder.mutation<{ success: boolean; data: DatabaseBackup }, void>({
-      query: () => ({ url: '/settings/backup', method: 'POST' }),
+    createBackup: builder.mutation<{ success: boolean; data: DatabaseBackup }, { category: BackupCategory }>({
+      query: (body) => ({ url: '/settings/backup', method: 'POST', body }),
       invalidatesTags: ['Backup'],
     }),
     deleteBackup: builder.mutation<{ success: boolean }, string>({
@@ -167,6 +184,10 @@ export const settingsApi = api.injectEndpoints({
     }),
     restoreBackup: builder.mutation<{ success: boolean; data: any }, string>({
       query: (id) => ({ url: `/settings/backup/${id}/restore`, method: 'POST' }),
+      invalidatesTags: ['Backup'],
+    }),
+    restoreFilesBackup: builder.mutation<{ success: boolean; data: any }, string>({
+      query: (id) => ({ url: `/settings/backup/${id}/restore-files`, method: 'POST' }),
       invalidatesTags: ['Backup'],
     }),
   }),
@@ -197,9 +218,11 @@ export const {
   useGenerateAgentCodeMutation,
   useRegenerateAgentCodeMutation,
   useBulkGenerateAgentCodesMutation,
+  useCheckBackupAvailabilityQuery,
   useListBackupsQuery,
   useGetBackupStatsQuery,
   useCreateBackupMutation,
   useDeleteBackupMutation,
   useRestoreBackupMutation,
+  useRestoreFilesBackupMutation,
 } = settingsApi;

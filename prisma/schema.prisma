@@ -2817,7 +2817,7 @@ enum LetterType {
 }
 
 // =====================
-// DATABASE BACKUP
+// BACKUP (DATABASE + FILES)
 // =====================
 
 enum BackupType {
@@ -2833,22 +2833,29 @@ enum BackupStatus {
   DELETED
 }
 
+enum BackupCategory {
+  DATABASE
+  FILES
+}
+
 model DatabaseBackup {
-  id             String       @id @default(uuid())
-  filename       String       // e.g. backup_2026-04-09T10-30-00.sql.gz
-  filePath       String       // relative path under uploads/backups/
-  sizeBytes      BigInt       @default(0)
-  type           BackupType   @default(MANUAL)
-  status         BackupStatus @default(PENDING)
-  notes          String?      // failure reason or admin note
-  createdById    String?      // null for scheduled backups
+  id             String         @id @default(uuid())
+  filename       String         // e.g. db_backup_2026-04-09T10-30-00.sql.gz OR files_backup_*.tar.gz
+  filePath       String         // relative path under uploads/backups/
+  sizeBytes      BigInt         @default(0)
+  category       BackupCategory @default(DATABASE) // DATABASE = pg_dump gzip; FILES = uploads tar.gz
+  type           BackupType     @default(MANUAL)
+  status         BackupStatus   @default(PENDING)
+  notes          String?        // failure reason or admin note
+  createdById    String?        // null for scheduled backups
   organizationId String
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  deletedAt      DateTime?    // soft-delete for history tracking
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?      // soft-delete for history tracking
 
   organization Organization @relation(fields: [organizationId], references: [id])
 
   @@index([organizationId, createdAt])
   @@index([organizationId, status])
+  @@index([organizationId, category])
 }

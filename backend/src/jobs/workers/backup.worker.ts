@@ -10,21 +10,33 @@ export function startBackupWorker() {
     async (job) => {
       if (job.name !== 'scheduled-backup') return;
 
-      logger.info('[Backup Worker] Starting scheduled database backup...');
+      logger.info('[Backup Worker] Starting scheduled backup cycle (DB + Files)...');
 
-      // Run backup for every organization (multi-tenant)
-      const organizations = await prisma.organization.findMany({
-        select: { id: true },
-      });
+      const organizations = await prisma.organization.findMany({ select: { id: true } });
 
       for (const org of organizations) {
+        // ── Database backup ──────────────────────────────────────────────────
         try {
-          await backupService.createBackup(org.id, 'SCHEDULED');
-          // Apply retention: keep at most 15 completed backups per org
+          await backupService.createBackup(org.id, 'SCHEDULED', undefined, 'DATABASE');
+          logger.info(`[Backup Worker] DB backup completed for org ${org.id}`);
+        } catch (err: any) {
+          // Log but continue — do not abort files backup due to DB backup failure
+          logger.error(`[Backup Worker] DB backup failed for org ${org.id}: ${err.message}`);
+        }
+
+        // ── Files backup ─────────────────────────────────────────────────────
+        try {
+          await backupService.createBackup(org.id, 'SCHEDULED', undefined, 'FILES');
+          logger.info(`[Backup Worker] Files backup completed for org ${org.id}`);
+        } catch (err: any) {
+          logger.error(`[Backup Worker] Files backup failed for org ${org.id}: ${err.message}`);
+        }
+
+        // ── Retention cleanup (keep 15 of each category per org) ────────────
+        try {
           await backupService.applyRetentionPolicy(org.id, 15);
         } catch (err: any) {
-          logger.error(`[Backup Worker] Failed for org ${org.id}: ${err.message}`);
-          // Continue with other orgs, do not throw
+          logger.warn(`[Backup Worker] Retention cleanup failed for org ${org.id}: ${err.message}`);
         }
       }
 
@@ -33,13 +45,8 @@ export function startBackupWorker() {
     { connection: redis, concurrency: 1 }
   );
 
-  worker.on('completed', (job) => {
-    logger.info(`[Backup Worker] Job ${job.id} completed`);
-  });
-
-  worker.on('failed', (job, err) => {
-    logger.error(`[Backup Worker] Job ${job?.id} failed: ${err.message}`);
-  });
+  worker.on('completed', (job) => logger.info(`[Backup Worker] Job ${job.id} completed`));
+  worker.on('failed', (job, err) => logger.error(`[Backup Worker] Job ${job?.id} failed: ${err.message}`));
 
   return worker;
 }

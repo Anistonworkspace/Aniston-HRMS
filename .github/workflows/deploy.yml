@@ -145,9 +145,19 @@ jobs:
               libgbm1 libpango-1.0-0 libcairo2 libnspr4 libnss3 libxss1 \
               libxtst6 xdg-utils fonts-liberation \
               libasound2t64 || sudo apt-get install -y -qq libasound2 || true
-            # PostgreSQL client for database backups
+            # PostgreSQL client tools (pg_dump + psql) for database backup & restore
             sudo apt-get install -y -qq postgresql-client || true
-            # Docker + Docker Compose (for AI service)
+            # Verify pg_dump is accessible (backup service will use it directly)
+            PG_DUMP_BIN=$(which pg_dump 2>/dev/null || true)
+            if [ -n "$PG_DUMP_BIN" ]; then
+              echo "pg_dump found at: $PG_DUMP_BIN ($(pg_dump --version))"
+              # Persist explicit path in .env so backup service resolves it even in constrained environments
+              grep -q 'PG_DUMP_PATH=' .env 2>/dev/null || echo "PG_DUMP_PATH=$PG_DUMP_BIN" >> .env
+              grep -q 'PSQL_PATH=' .env 2>/dev/null || echo "PSQL_PATH=$(which psql 2>/dev/null || true)" >> .env
+            else
+              echo "WARNING: pg_dump not in PATH after install — database backup will fall back to Docker exec (aniston-postgres container)"
+            fi
+            # Docker + Docker Compose (for AI service and pg_dump Docker fallback)
             which docker || (curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker ubuntu) || true
             which docker-compose || sudo apt-get install -y -qq docker-compose-plugin || true
             which chromium-browser || which chromium || which google-chrome-stable || echo "WARNING: No system Chrome found"
@@ -166,7 +176,11 @@ jobs:
 
             echo "=== [5/14] Installing Node.js dependencies ==="
             export SCARF_ANALYTICS=false
+            # npm ci installs all workspace deps (frontend, backend, shared)
+            # This includes the new 'tar' package added to backend for uploaded-files backup
             npm ci || (echo "Retrying npm ci..." && rm -rf node_modules && npm ci)
+            # Verify tar is available in backend workspace (required for files backup/restore)
+            node -e "import('tar').then(t => console.log('✅ tar package OK:', typeof t.create)).catch(e => console.error('❌ tar missing:', e.message))" || true
 
             echo "=== [6/14] Generating Prisma client ==="
             npx --no-install prisma generate
@@ -213,8 +227,14 @@ jobs:
             echo "=== [13/14] Checking uploads directory ==="
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads/agent
-            echo "Uploads in project root:"
-            find /home/ubuntu/Aniston-HRMS/uploads -type f 2>/dev/null | head -10 || true
+            # Backup storage directories (created by backup service on-demand, but ensure
+            # they exist with correct permissions before first backup runs)
+            mkdir -p /home/ubuntu/Aniston-HRMS/uploads/backups
+            mkdir -p /home/ubuntu/Aniston-HRMS/uploads/tmp
+            echo "Upload directory layout:"
+            ls -la /home/ubuntu/Aniston-HRMS/uploads/ || true
+            echo "Uploads file count:"
+            find /home/ubuntu/Aniston-HRMS/uploads -type f 2>/dev/null | wc -l || true
 
             echo "=== [13.5/14] Verify agent installer ==="
             ls -lh /home/ubuntu/Aniston-HRMS/uploads/agent/aniston-agent-setup.exe 2>/dev/null && echo "Agent installer found." || echo "WARNING: Agent installer not found at uploads/agent/"

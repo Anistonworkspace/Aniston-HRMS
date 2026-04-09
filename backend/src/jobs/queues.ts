@@ -15,7 +15,8 @@ export const attendanceCronQueue = new Queue('attendance-cron', connection);
 
 logger.info('✅ BullMQ queues initialized');
 
-// Schedule database backup cron job (every 2 days at 02:00 UTC)
+// Schedule backup cron job: every Sunday at 02:00 UTC (7-day cycle)
+// This covers both database backup + uploaded files backup in one job.
 (async () => {
   try {
     const existingBackupJobs = await backupQueue.getRepeatableJobs();
@@ -23,11 +24,11 @@ logger.info('✅ BullMQ queues initialized');
       await backupQueue.removeRepeatableByKey(job.key);
     }
     await backupQueue.add('scheduled-backup', {}, {
-      repeat: { cron: '0 2 */2 * *' }, // 02:00 UTC every 2 days
+      repeat: { cron: '0 2 * * 0' }, // 02:00 UTC every Sunday
     });
-    logger.info('✅ Database backup cron job scheduled (every 2 days at 02:00 UTC)');
+    logger.info('✅ Backup cron job scheduled (every Sunday at 02:00 UTC — DB + Files)');
   } catch (err) {
-    logger.warn('Failed to schedule database backup cron job:', err);
+    logger.warn('Failed to schedule backup cron job:', err);
   }
 })();
 
