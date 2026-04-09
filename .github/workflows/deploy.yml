@@ -197,14 +197,7 @@ jobs:
             echo "=== [9/14] Cleaning up old employees + auto-seeded holidays ==="
             npx tsx scripts/cleanup-employees.ts || echo "Cleanup completed (or already clean)"
             # Remove auto-seeded holidays (HR adds manually now)
-            npx tsx -e "
-              const { PrismaClient } = require('@prisma/client');
-              const p = new PrismaClient();
-              p.holiday.deleteMany({ where: { createdBy: null } }).then(r => {
-                console.log('Deleted ' + r.count + ' auto-seeded holidays');
-                p.\$disconnect();
-              }).catch(() => p.\$disconnect());
-            " || echo "Holiday cleanup skipped"
+            npx tsx scripts/cleanup-holidays.ts || echo "Holiday cleanup skipped"
 
             echo "=== [10/14] Seeding database ==="
             npx --no-install prisma db seed || echo "Seed completed (or already seeded)"
@@ -221,14 +214,10 @@ jobs:
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads/agent
             echo "Uploads in project root:"
-            find /home/ubuntu/Aniston-HRMS/uploads -type f 2>/dev/null | head -10 || echo "(none)"
+            find /home/ubuntu/Aniston-HRMS/uploads -type f 2>/dev/null | head -10 || true
 
             echo "=== [13.5/14] Verify agent installer ==="
-            if [ -f /home/ubuntu/Aniston-HRMS/uploads/agent/aniston-agent-setup.exe ]; then
-              echo "Agent installer found: $(ls -lh /home/ubuntu/Aniston-HRMS/uploads/agent/aniston-agent-setup.exe)"
-            else
-              echo "WARNING: Agent installer not found at uploads/agent/aniston-agent-setup.exe"
-            fi
+            ls -lh /home/ubuntu/Aniston-HRMS/uploads/agent/aniston-agent-setup.exe 2>/dev/null && echo "Agent installer found." || echo "WARNING: Agent installer not found at uploads/agent/"
 
             echo "=== [14/15] Setting server timezone to UTC ==="
             sudo timedatectl set-timezone UTC || true
