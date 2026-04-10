@@ -721,9 +721,11 @@ function EmailConfig() {
         delete payload.pass;
       }
       await saveConfig(payload).unwrap();
-      toast.success('Email configuration saved');
-      refetch();
+      // Clear password field immediately after save — never leave a secret in form state
+      setForm(f => ({ ...f, pass: '' }));
       setTestResult(null);
+      await refetch();
+      toast.success('Email configuration saved');
     } catch { toast.error('Failed to save'); }
   };
 
@@ -893,10 +895,11 @@ function TeamsConfig() {
       const payload: any = { tenantId: form.tenantId, clientId: form.clientId, ssoEnabled: form.ssoEnabled, redirectUri: form.redirectUri };
       if (form.clientSecret) payload.clientSecret = form.clientSecret;
       await saveConfig(payload).unwrap();
-      toast.success('Microsoft Teams configuration saved');
-      refetch();
-      setIsEditing(false);
+      // Clear secret field immediately — never leave a secret in form state
       setForm(f => ({ ...f, clientSecret: '' }));
+      setIsEditing(false);
+      await refetch();
+      toast.success('Microsoft Teams configuration saved');
     } catch { toast.error('Failed to save'); }
   };
 
@@ -1990,7 +1993,7 @@ function ExternalApiIntegrationTab() {
 }
 
 function ApiIntegrationsTab() {
-  const { data: res, isLoading } = useGetAiConfigQuery();
+  const { data: res, isLoading, refetch } = useGetAiConfigQuery();
   const [saveConfig, { isLoading: saving }] = useSaveAiConfigMutation();
   const [testConnection, { isLoading: testing }] = useTestAiConnectionMutation();
 
@@ -2042,9 +2045,11 @@ function ApiIntegrationsTab() {
       if (apiKey) body.apiKey = apiKey.trim(); // Trim whitespace from pasted keys
       if (provider === 'CUSTOM' && baseUrl) body.baseUrl = baseUrl;
       await saveConfig(body).unwrap();
-      toast.success(apiKey ? 'AI configuration saved with new API key' : 'AI configuration updated');
+      // Clear API key field immediately — never leave a secret in form state
       setApiKey('');
       setTestResult(null);
+      await refetch();
+      toast.success(apiKey ? 'AI configuration saved with new API key' : 'AI configuration updated');
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to save AI configuration');
     }

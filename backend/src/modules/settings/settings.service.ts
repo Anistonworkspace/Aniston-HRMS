@@ -266,16 +266,26 @@ export class SettingsService {
       const nodemailer = await import('nodemailer');
       let smtpPass = email.pass;
       try { smtpPass = decrypt(email.pass); } catch { /* already plaintext (legacy) */ }
+      const isOffice365 = (email.host || '').toLowerCase().includes('office365') || (email.host || '').toLowerCase().includes('outlook');
       const transporter = nodemailer.createTransport({
         host: email.host,
         port: email.port || 587,
         secure: email.port === 465,
+        requireTLS: true,
         auth: { user: email.user, pass: smtpPass },
+        tls: { ciphers: 'SSLv3', rejectUnauthorized: false },
       });
       await transporter.verify();
-      return { success: true, message: 'SMTP connection successful! Server is reachable.' };
+      return { success: true, message: 'SMTP connection successful! Server is reachable and credentials are valid.' };
     } catch (err: any) {
-      return { success: false, message: `Connection failed: ${err.message}` };
+      const msg: string = err.message || '';
+      if (msg.includes('535') || msg.includes('5.7.139') || msg.includes('Authentication unsuccessful')) {
+        return {
+          success: false,
+          message: `Authentication failed (535 5.7.139). For Microsoft 365, make sure SMTP AUTH is enabled:\n1. Go to Microsoft 365 Admin Center → Users → Active Users → select the user\n2. Click the Mail tab → Manage email apps\n3. Enable "Authenticated SMTP" and Save\n4. If MFA is on, use an App Password instead of the account password.`,
+        };
+      }
+      return { success: false, message: `Connection failed: ${msg}` };
     }
   }
 

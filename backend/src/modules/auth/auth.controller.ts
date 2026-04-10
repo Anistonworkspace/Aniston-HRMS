@@ -107,7 +107,16 @@ export class AuthController {
         data.currentPassword,
         data.newPassword
       );
-      res.json({ success: true, data: null, message: result.message });
+      // Rotate the refresh token cookie for this device
+      res.cookie('refreshToken', result.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        path: '/api/auth',
+      });
+      // Return new access token so the frontend can replace the old one in-memory
+      res.json({ success: true, data: { accessToken: result.accessToken }, message: result.message });
     } catch (err) {
       next(err);
     }

@@ -91,10 +91,10 @@ export const settingsApi = api.injectEndpoints({
       providesTags: ['Settings'],
     }),
     getSystemInfo: builder.query<any, void>({ query: () => '/settings/system' }),
-    getEmailConfig: builder.query<any, void>({ query: () => '/settings/email', providesTags: ['Settings'] }),
+    getEmailConfig: builder.query<any, void>({ query: () => '/settings/email', providesTags: ['Settings', 'EmailConfig'] }),
     saveEmailConfig: builder.mutation<any, any>({
       query: (body) => ({ url: '/settings/email', method: 'POST', body }),
-      invalidatesTags: ['Settings'],
+      invalidatesTags: ['EmailConfig'],
     }),
     testEmailConnection: builder.mutation<any, void>({
       query: () => ({ url: '/settings/email/test', method: 'POST' }),

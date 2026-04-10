@@ -68,6 +68,11 @@ const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
 export const api = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithReauth,
+  // Re-fetch stale queries when user switches back to the tab or reconnects — ensures
+  // config changes made on another device are reflected without a full page reload
+  refetchOnFocus: true,
+  refetchOnReconnect: true,
+  keepUnusedDataFor: 30, // 30s — keeps settings configs fresh across tab switches
   tagTypes: [
     'Employee',
     'EmployeeList',
@@ -111,6 +116,7 @@ export const api = createApi({
     'SalaryTemplate',
     'OfficeLocation',
     'Settings',
+    'EmailConfig',
     'Letter',
     'Branding',
     'Backup',

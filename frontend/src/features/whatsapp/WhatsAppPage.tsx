@@ -1272,7 +1272,14 @@ function ChatView({
             <AlertCircle size={32} className="text-red-300 mb-3" />
             <p className="text-sm text-red-500 font-medium mb-1">Failed to load messages</p>
             <p className="text-xs text-gray-400 mb-3 max-w-xs">
-              {(error as any)?.data?.error?.message || 'WhatsApp may be disconnected or the chat is unavailable'}
+              {(() => {
+                const msg: string = (error as any)?.data?.error?.message || '';
+                // Don't expose raw internal stack traces
+                if (!msg || msg.includes('Cannot read properties') || msg.includes('waitForChat')) {
+                  return 'Chat is temporarily unavailable. The WhatsApp session may still be loading.';
+                }
+                return msg || 'WhatsApp may be disconnected or the chat is unavailable';
+              })()}
             </p>
             <button
               onClick={() => refetch()}

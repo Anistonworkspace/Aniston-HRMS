@@ -661,7 +661,22 @@ export class WhatsAppService {
       if (!chat) throw new Error('Chat not found');
 
       const fetchLimit = before ? limit * 2 : limit;
-      const messages = await chat.fetchMessages({ limit: fetchLimit });
+
+      // whatsapp-web.js can throw internal errors (e.g. waitForChatLoading undefined)
+      // for group chats or chats with partially-loaded state. Retry once, then return [].
+      let messages: any[] = [];
+      try {
+        messages = await chat.fetchMessages({ limit: fetchLimit });
+      } catch (fetchErr: any) {
+        logger.warn(`WhatsApp: fetchMessages failed for ${normalizedChatId}, retrying once — ${fetchErr.message}`);
+        await new Promise(r => setTimeout(r, 1200));
+        try {
+          messages = await chat.fetchMessages({ limit: fetchLimit });
+        } catch (retryErr: any) {
+          logger.error(`WhatsApp: fetchMessages retry also failed for ${normalizedChatId} — ${retryErr.message}`);
+          return []; // graceful empty — client shows "No messages yet"
+        }
+      }
 
       let filtered = messages;
       if (before) {

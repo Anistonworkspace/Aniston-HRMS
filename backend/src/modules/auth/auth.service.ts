@@ -285,15 +285,20 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({
+    const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: { passwordHash },
+      include: { employee: { select: { id: true } } },
     });
 
-    // Invalidate all existing refresh token sessions for this user using SCAN (non-blocking)
+    // Invalidate ALL existing refresh token sessions (kicks other devices out on next refresh)
     await this.revokeAllUserTokens(userId);
 
-    return { message: 'Password changed successfully' };
+    // Issue a fresh token pair for the requesting device so they stay logged in
+    const newAccessToken = this.generateAccessToken(updatedUser);
+    const newRefreshToken = await this.generateRefreshToken(userId);
+
+    return { message: 'Password changed successfully', accessToken: newAccessToken, refreshToken: newRefreshToken };
   }
 
   async getMe(userId: string) {

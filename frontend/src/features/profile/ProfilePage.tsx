@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { User, Mail, Phone, Building2, MapPin, Calendar, Shield, Edit2, Key, Loader2, Save, X, Camera, Upload, UserMinus, AlertTriangle, Clock, CheckCircle2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
+import { setAccessToken } from '../auth/authSlice';
 import { useGetMeQuery, useChangePasswordMutation } from '../auth/authApi';
 import { useUpdateEmployeeMutation, useGetEmployeeQuery } from '../employee/employeeApi';
 import { useSubmitResignationMutation } from '../exit/exitApi';
@@ -455,6 +456,7 @@ function ProfileRow({ label, value, mono }: { label: string; value?: string | nu
 
 function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
+  const dispatch = useAppDispatch();
   const [changePassword, { isLoading }] = useChangePasswordMutation();
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
@@ -462,7 +464,11 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
     if (form.newPassword.length < 8) { toast.error(t('profile.passwordMinLength')); return; }
     if (form.newPassword !== form.confirmPassword) { toast.error(t('profile.passwordsDoNotMatch')); return; }
     try {
-      await changePassword({ currentPassword: form.currentPassword, newPassword: form.newPassword }).unwrap();
+      const result = await changePassword({ currentPassword: form.currentPassword, newPassword: form.newPassword }).unwrap();
+      // Replace the stored access token with the fresh one so this session stays valid
+      if (result?.data?.accessToken) {
+        dispatch(setAccessToken(result.data.accessToken));
+      }
       toast.success(t('profile.passwordChanged'));
       onClose();
     } catch (err: any) { toast.error(err?.data?.error?.message || t('profile.failedToChangePassword')); }
