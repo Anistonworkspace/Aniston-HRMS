@@ -106,7 +106,7 @@ export const PERMISSIONS: PermissionsMap = {
     helpdesk: ['read', 'update'],
     report: ['read', 'export'],
     asset: ['create', 'read', 'update'],
-    settings: ['read'],
+    settings: ['read', 'update'],
     org_chart: ['read'],
     social_wall: ['create', 'read', 'update', 'delete'],
     onboarding: ['create', 'read', 'update'],
