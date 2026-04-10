@@ -345,11 +345,11 @@ export class AiConfigService {
       case 'OPENAI':
       case 'DEEPSEEK':
       case 'CUSTOM': {
-        if (!baseUrl) {
+        if (provider === 'CUSTOM' && !baseUrl) {
           throw new Error('Base URL is required for Custom provider. Please set a Base URL in the AI config settings.');
         }
         // OpenAI-compatible API
-        const normalizedBase = baseUrl.replace(/\/+$/, ''); // trim trailing slashes
+        const normalizedBase = baseUrl ? baseUrl.replace(/\/+$/, '') : ''; // trim trailing slashes
         const url = provider === 'OPENAI'
           ? 'https://api.openai.com/v1/chat/completions'
           : provider === 'DEEPSEEK'
