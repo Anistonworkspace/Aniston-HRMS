@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database } from 'lucide-react';
+import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -28,20 +28,27 @@ import { useGetTaskConfigQuery, useUpsertTaskConfigMutation, useTestTaskConnecti
 import AttendancePolicyTab from './AttendancePolicyTab';
 import SalaryComponentsTab from './SalaryComponentsTab';
 import DatabaseBackupTab from './DatabaseBackupTab';
+import DeletionRequestsTab from './DeletionRequestsTab';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'attendance-policy' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup';
+type Tab = 'organization' | 'locations' | 'shifts' | 'attendance-policy' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests';
 
 export default function SettingsPage() {
   const { t } = useTranslation();
   const user = useAppSelector(s => s.auth.user);
   const isAdminOrSuper = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   // Tabs visible to HR (non-admin) users
   const HR_VISIBLE_TABS: Tab[] = ['organization', 'locations', 'shifts', 'attendance-policy', 'whatsapp'];
+  // Tabs visible only to Super Admin
+  const SUPER_ADMIN_ONLY_TABS: Tab[] = ['deletion-requests'];
 
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     const saved = sessionStorage.getItem('settings_active_tab') as Tab | null;
-    if (saved && (isAdminOrSuper || HR_VISIBLE_TABS.includes(saved))) return saved;
+    if (saved && (isAdminOrSuper || HR_VISIBLE_TABS.includes(saved))) {
+      if (SUPER_ADMIN_ONLY_TABS.includes(saved) && !isSuperAdmin) return 'organization';
+      return saved;
+    }
     return 'organization';
   });
 
@@ -54,7 +61,10 @@ export default function SettingsPage() {
     if (!isAdminOrSuper && !HR_VISIBLE_TABS.includes(activeTab)) {
       setActiveTab('organization');
     }
-  }, [isAdminOrSuper, activeTab]);
+    if (SUPER_ADMIN_ONLY_TABS.includes(activeTab) && !isSuperAdmin) {
+      setActiveTab('organization');
+    }
+  }, [isAdminOrSuper, isSuperAdmin, activeTab]);
 
   const allTabs: { key: Tab; label: string; icon: React.ElementType }[] = [
     { key: 'organization', label: t('settings.organization'), icon: Building2 },
@@ -72,9 +82,13 @@ export default function SettingsPage() {
     { key: 'audit', label: t('settings.auditLogs'), icon: Shield },
     { key: 'system', label: t('settings.system'), icon: Server },
     { key: 'database-backup', label: 'Database Backup', icon: Database },
+    // Super Admin only
+    ...(isSuperAdmin ? [{ key: 'deletion-requests' as Tab, label: 'Deletion Requests', icon: UserMinus }] : []),
   ];
 
-  const tabs = isAdminOrSuper ? allTabs : allTabs.filter(tab => HR_VISIBLE_TABS.includes(tab.key));
+  const tabs = isAdminOrSuper
+    ? allTabs
+    : allTabs.filter(tab => HR_VISIBLE_TABS.includes(tab.key));
 
   return (
     <>
@@ -118,6 +132,7 @@ export default function SettingsPage() {
             {activeTab === 'audit' && <AuditLogs />}
             {activeTab === 'system' && <SystemInfo />}
             {activeTab === 'database-backup' && <DatabaseBackupTab />}
+            {activeTab === 'deletion-requests' && isSuperAdmin && <DeletionRequestsTab />}
           </div>
         </div>
       </div>

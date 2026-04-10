@@ -267,12 +267,23 @@ router.post('/runs/:id/send-email',
       const { decrypt } = await import('../../utils/encryption.js');
       let smtpPass = emailSettings.pass;
       try { smtpPass = decrypt(emailSettings.pass); } catch { /* already plaintext (legacy) */ }
+
+      const escHtml = (text: any): string => {
+        if (text == null) return '';
+        const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+        return String(text).replace(/[&<>"']/g, (ch) => map[ch]);
+      };
+
       const transporter = nodemailer.default.createTransport({
         host: emailSettings.host,
         port: emailSettings.port || 587,
         secure: emailSettings.port === 465,
         auth: { user: emailSettings.user, pass: smtpPass },
+        tls: { ciphers: 'SSLv3' },
       });
+
+      const safeOrgName = escHtml(org.name || 'Aniston Technologies LLP');
+      const safePeriod = escHtml(periodLabel);
 
       await transporter.sendMail({
         from: `"${emailSettings.fromName || 'Aniston HRMS'}" <${emailSettings.fromAddress || emailSettings.user}>`,
@@ -281,16 +292,16 @@ router.post('/runs/:id/send-email',
         html: `
           <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <div style="background: #4F46E5; padding: 24px; border-radius: 12px 12px 0 0;">
-              <h1 style="color: white; margin: 0; font-size: 20px;">${org.name}</h1>
+              <h1 style="color: white; margin: 0; font-size: 20px;">${safeOrgName}</h1>
               <p style="color: rgba(255,255,255,0.8); margin: 4px 0 0;">Payroll Report</p>
             </div>
             <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
-              <h2 style="color: #1e293b; font-size: 18px; margin-top: 0;">Payroll for ${periodLabel}</h2>
-              <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+              <h2 style="color: #1e293b; font-size: 18px; margin-top: 0;">Payroll for ${safePeriod}</h2>
+              <table style="width: 100%; border-collapse: collapse; margin: 16px 0;" role="presentation">
                 <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Employees Processed</td><td style="text-align: right; font-weight: bold; color: #1e293b;">${records.length}</td></tr>
-                <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Gross</td><td style="text-align: right; font-weight: bold; color: #1e293b; border-top: 1px solid #f1f5f9;">₹${Number(run.totalGross || 0).toLocaleString('en-IN')}</td></tr>
-                <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Deductions</td><td style="text-align: right; font-weight: bold; color: #dc2626; border-top: 1px solid #f1f5f9;">₹${Number(run.totalDeductions || 0).toLocaleString('en-IN')}</td></tr>
-                <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Net Payable</td><td style="text-align: right; font-weight: bold; color: #059669; font-size: 16px; border-top: 1px solid #f1f5f9;">₹${Number(run.totalNet || 0).toLocaleString('en-IN')}</td></tr>
+                <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Gross</td><td style="text-align: right; font-weight: bold; color: #1e293b; border-top: 1px solid #f1f5f9;">&#8377;${Number(run.totalGross || 0).toLocaleString('en-IN')}</td></tr>
+                <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Deductions</td><td style="text-align: right; font-weight: bold; color: #dc2626; border-top: 1px solid #f1f5f9;">&#8377;${Number(run.totalDeductions || 0).toLocaleString('en-IN')}</td></tr>
+                <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Net Payable</td><td style="text-align: right; font-weight: bold; color: #059669; font-size: 16px; border-top: 1px solid #f1f5f9;">&#8377;${Number(run.totalNet || 0).toLocaleString('en-IN')}</td></tr>
               </table>
               <p style="color: #6b7280; font-size: 13px;">The detailed payroll report is attached as an Excel file. Please handle this document with appropriate confidentiality.</p>
               <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 16px 0;">

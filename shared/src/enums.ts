@@ -381,6 +381,20 @@ export enum WaMessageDirection {
   INBOUND = 'INBOUND',
 }
 
+export enum WaConversationStatus {
+  OPEN = 'OPEN',
+  CLOSED = 'CLOSED',
+  ARCHIVED = 'ARCHIVED',
+}
+
+export enum WaContactSource {
+  MANUAL = 'MANUAL',
+  WHATSAPP_IMPORT = 'WHATSAPP_IMPORT',
+  EMPLOYEE = 'EMPLOYEE',
+  ONBOARDING = 'ONBOARDING',
+  APPLICATION = 'APPLICATION',
+}
+
 export enum KycStatus {
   PENDING = 'PENDING',
   SUBMITTED = 'SUBMITTED',

@@ -1,6 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { whatsAppService } from './whatsapp.service.js';
-import { sendMessageSchema, sendJobLinkSchema, sendMediaSchema, sendToNumberSchema } from './whatsapp.validation.js';
+import {
+  sendMessageSchema,
+  sendJobLinkSchema,
+  sendMediaSchema,
+  sendToNumberSchema,
+  createContactSchema,
+  updateContactSchema,
+} from './whatsapp.validation.js';
 
 export class WhatsAppController {
   async initialize(req: Request, res: Response, next: NextFunction) {
@@ -140,6 +147,7 @@ export class WhatsAppController {
     } catch (err) { next(err); }
   }
 
+  // Live WhatsApp session contacts (from device)
   async getContacts(req: Request, res: Response, next: NextFunction) {
     try {
       const contacts = await whatsAppService.getContacts(req.user!.organizationId);
@@ -158,6 +166,43 @@ export class WhatsAppController {
     try {
       const result = await whatsAppService.logout(req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  // ===================== DB CONTACTS CRUD =====================
+
+  async getDbContacts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const page = Number(req.query.page) || 1;
+      const limit = Math.min(Number(req.query.limit) || 100, 200);
+      const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+      const result = await whatsAppService.getDbContacts(req.user!.organizationId, search, page, limit);
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  }
+
+  async createContact(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = createContactSchema.parse(req.body);
+      const contact = await whatsAppService.createContact(data, req.user!.organizationId, req.user!.userId);
+      res.status(201).json({ success: true, data: contact, message: 'Contact created' });
+    } catch (err) { next(err); }
+  }
+
+  async updateContact(req: Request, res: Response, next: NextFunction) {
+    try {
+      const contactId = String(req.params.contactId);
+      const data = updateContactSchema.parse(req.body);
+      const contact = await whatsAppService.updateContact(contactId, data, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: contact, message: 'Contact updated' });
+    } catch (err) { next(err); }
+  }
+
+  async deleteContact(req: Request, res: Response, next: NextFunction) {
+    try {
+      const contactId = String(req.params.contactId);
+      const result = await whatsAppService.deleteContact(contactId, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result, message: 'Contact deleted' });
     } catch (err) { next(err); }
   }
 }

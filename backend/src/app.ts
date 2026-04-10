@@ -59,6 +59,7 @@ import { payrollAdjustmentRouter } from './modules/payroll-adjustment/payroll-ad
 import { letterRouter } from './modules/letter/letter.routes.js';
 import { brandingRouter } from './modules/branding/branding.routes.js';
 import { backupRouter } from './modules/backup/backup.routes.js';
+import { employeeDeletionRouter } from './modules/employee-deletion/employee-deletion.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 import { getEmailWorkerHealth } from './jobs/workers/email.worker.js';
@@ -218,6 +219,7 @@ app.use('/api/task-integration', taskIntegrationRouter);
 app.use('/api/letters', letterRouter);
 app.use('/api/branding', brandingRouter);
 app.use('/api/settings/backup', backupRouter);
+app.use('/api/employee-deletion-requests', employeeDeletionRouter);
 
 // Static file serving for uploads — managed through StorageService.
 //

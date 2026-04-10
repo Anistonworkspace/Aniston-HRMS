@@ -4,7 +4,7 @@ import {
   Search, Send, Phone, MessageCircle, Loader2, WifiOff, Plus, User,
   Check, CheckCheck, ArrowLeft, X, ExternalLink, FileText, Play,
   Image as ImageIcon, AlertCircle, RefreshCw, Paperclip, Download,
-  Copy, ArrowDown, Bell, Clock,
+  Copy, ArrowDown, Clock, Trash2, UserPlus, Edit2, Mail, StickyNote,
 } from 'lucide-react';
 import {
   useGetWhatsAppStatusQuery,
@@ -12,15 +12,19 @@ import {
   useGetWhatsAppChatMessagesQuery,
   useSendWhatsAppMessageMutation,
   useSendWhatsAppToNumberMutation,
-  useGetWhatsAppConversationsQuery,
   useLazyResolveWhatsAppChatQuery,
-  useGetWhatsAppContactsQuery,
   useMarkChatAsReadMutation,
   useDownloadWhatsAppMediaMutation,
   useSendWhatsAppMediaMutation,
   useLazySearchWhatsAppMessagesQuery,
+  useGetWhatsAppDbContactsQuery,
+  useCreateWhatsAppContactMutation,
+  useUpdateWhatsAppContactMutation,
+  useDeleteWhatsAppContactMutation,
 } from './whatsappApi';
-import type { WhatsAppChat, WhatsAppMessage, WhatsAppContact, WhatsAppConversation } from './whatsappApi';
+import type {
+  WhatsAppChat, WhatsAppMessage, WhatsAppDbContact,
+} from './whatsappApi';
 import { Link } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -45,7 +49,6 @@ export default function WhatsAppPage() {
   const sessionPhone = statusRes?.data?.phoneNumber;
   const lastPing = statusRes?.data?.lastPing;
 
-  // Session staleness warning — show if last ping > 6 hours ago
   const sessionStale = useMemo(() => {
     if (!lastPing || !isConnected) return false;
     return Date.now() - new Date(lastPing).getTime() > 6 * 60 * 60 * 1000;
@@ -150,29 +153,284 @@ function formatChatTime(timestamp: string) {
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 }
 
-// Normalize a phone or chat ID to pure digits for comparison
 function normalizePhone(raw: string): string {
   return (raw || '').replace(/\D/g, '');
 }
 
-// Match a phone number against a WhatsApp chat ID (handles @c.us and @lid)
 function phoneMatchesChatId(phone: string, chatId: string): boolean {
   if (!phone || !chatId) return false;
   const phoneDigits = normalizePhone(phone);
-  // For @c.us IDs, extract digits and compare suffix (last 10+ digits)
   if (chatId.includes('@c.us')) {
     const chatDigits = chatId.replace('@c.us', '');
     return chatDigits === phoneDigits ||
       chatDigits.endsWith(phoneDigits.slice(-10)) ||
       phoneDigits.endsWith(chatDigits.slice(-10));
   }
-  // For @lid or group IDs, can't match by phone — return false
   return false;
 }
 
 function findChatForPhone(chats: WhatsAppChat[], phone: string): WhatsAppChat | null {
   if (!phone || !chats.length) return null;
   return chats.find(c => phoneMatchesChatId(phone, c.id)) || null;
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  MANUAL: 'Added',
+  WHATSAPP_IMPORT: 'WhatsApp',
+  EMPLOYEE: 'Employee',
+  ONBOARDING: 'Onboarding',
+  APPLICATION: 'Applied',
+};
+
+const SOURCE_COLORS: Record<string, string> = {
+  MANUAL: 'bg-gray-100 text-gray-600',
+  WHATSAPP_IMPORT: 'bg-green-50 text-green-700',
+  EMPLOYEE: 'bg-blue-50 text-blue-700',
+  ONBOARDING: 'bg-brand-50 text-brand-700',
+  APPLICATION: 'bg-amber-50 text-amber-700',
+};
+
+// =====================================================================
+// ADD CONTACT MODAL
+// =====================================================================
+
+function AddContactModal({
+  onClose,
+  onSaved,
+}: { onClose: () => void; onSaved: (contact: WhatsAppDbContact) => void }) {
+  const [form, setForm] = useState({ name: '', phone: '', email: '', notes: '' });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [createContact, { isLoading }] = useCreateWhatsAppContactMutation();
+
+  const validate = () => {
+    const e: Record<string, string> = {};
+    if (!form.name.trim()) e.name = 'Name is required';
+    if (!form.phone.trim()) {
+      e.phone = 'Phone is required';
+    } else {
+      const digits = form.phone.replace(/\D/g, '');
+      if (digits.length < 7 || digits.length > 15) e.phone = 'Enter a valid phone number with country code';
+    }
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Invalid email';
+    return e;
+  };
+
+  const handleSave = async () => {
+    const errs = validate();
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+
+    try {
+      const result = await createContact({
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim() || undefined,
+        notes: form.notes.trim() || undefined,
+      }).unwrap();
+      toast.success('Contact saved');
+      onSaved(result.data);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to save contact');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="bg-white rounded-2xl shadow-xl w-full max-w-md"
+      >
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <UserPlus size={18} className="text-brand-600" />
+            <h2 className="text-base font-semibold text-gray-800">Add Contact</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100" aria-label="Close">
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Name *</label>
+            <input
+              value={form.name}
+              onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+              placeholder="John Doe"
+              className={cn('input-glass w-full text-sm', errors.name && 'border-red-300')}
+            />
+            {errors.name && <p className="text-xs text-red-500 mt-0.5">{errors.name}</p>}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Phone * (with country code)</label>
+            <div className="relative">
+              <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={form.phone}
+                onChange={e => setForm(p => ({ ...p, phone: e.target.value }))}
+                placeholder="+919876543210 or +14155551234"
+                className={cn('input-glass w-full text-sm pl-9', errors.phone && 'border-red-300')}
+              />
+            </div>
+            {errors.phone ? (
+              <p className="text-xs text-red-500 mt-0.5">{errors.phone}</p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-0.5">International format — include country code</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Email (optional)</label>
+            <div className="relative">
+              <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={form.email}
+                onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+                placeholder="john@example.com"
+                type="email"
+                className={cn('input-glass w-full text-sm pl-9', errors.email && 'border-red-300')}
+              />
+            </div>
+            {errors.email && <p className="text-xs text-red-500 mt-0.5">{errors.email}</p>}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Notes (optional)</label>
+            <div className="relative">
+              <StickyNote size={14} className="absolute left-3 top-3 text-gray-400" />
+              <textarea
+                value={form.notes}
+                onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
+                placeholder="Any notes about this contact..."
+                rows={2}
+                className="input-glass w-full text-sm pl-9 resize-none"
+                maxLength={500}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 bg-gray-50 rounded-lg p-3">
+            <strong>Note:</strong> This contact is stored in HRMS only. Due to WhatsApp provider limitations
+            (whatsapp-web.js browser automation), contacts cannot be added directly to your WhatsApp device address book.
+          </p>
+        </div>
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2">
+          <button onClick={onClose} className="btn-secondary text-sm">Cancel</button>
+          <button
+            onClick={handleSave}
+            disabled={isLoading}
+            className="btn-primary text-sm flex items-center gap-2"
+          >
+            {isLoading ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
+            Save Contact
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// =====================================================================
+// EDIT CONTACT MODAL
+// =====================================================================
+
+function EditContactModal({
+  contact,
+  onClose,
+  onSaved,
+}: { contact: WhatsAppDbContact; onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState({
+    name: contact.name,
+    email: contact.email || '',
+    notes: contact.notes || '',
+  });
+  const [updateContact, { isLoading }] = useUpdateWhatsAppContactMutation();
+
+  const handleSave = async () => {
+    if (!form.name.trim()) { toast.error('Name is required'); return; }
+    try {
+      await updateContact({
+        contactId: contact.id,
+        name: form.name.trim(),
+        email: form.email.trim() || undefined,
+        notes: form.notes.trim() || undefined,
+      }).unwrap();
+      toast.success('Contact updated');
+      onSaved();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to update');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="bg-white rounded-2xl shadow-xl w-full max-w-md"
+      >
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Edit2 size={18} className="text-brand-600" />
+            <h2 className="text-base font-semibold text-gray-800">Edit Contact</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100" aria-label="Close">
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Name *</label>
+            <input
+              value={form.name}
+              onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+              className="input-glass w-full text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Phone</label>
+            <input
+              value={contact.phone}
+              disabled
+              className="input-glass w-full text-sm opacity-60 cursor-not-allowed"
+            />
+            <p className="text-xs text-gray-400 mt-0.5">Phone cannot be changed after creation</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
+            <div className="relative">
+              <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={form.email}
+                onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+                type="email"
+                className="input-glass w-full text-sm pl-9"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Notes</label>
+            <textarea
+              value={form.notes}
+              onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
+              rows={2}
+              className="input-glass w-full text-sm resize-none"
+              maxLength={500}
+            />
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2">
+          <button onClick={onClose} className="btn-secondary text-sm">Cancel</button>
+          <button
+            onClick={handleSave}
+            disabled={isLoading}
+            className="btn-primary text-sm flex items-center gap-2"
+          >
+            {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+            Save Changes
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
 }
 
 // =====================================================================
@@ -185,9 +443,11 @@ function WhatsAppChatApp({ sessionPhone }: { sessionPhone?: string | null }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewChat, setShowNewChat] = useState(hasPrefill);
   const [showContactInfo, setShowContactInfo] = useState(false);
-  const [leftTab, setLeftTab] = useState<'chats' | 'contacts' | 'hrms'>('chats');
-  // resolvingPhone: phone currently being resolved to a live chatId
+  // Only 2 tabs: chats and contacts (HRMS tab removed — all chats are unified)
+  const [leftTab, setLeftTab] = useState<'chats' | 'contacts'>('chats');
   const [resolvingPhone, setResolvingPhone] = useState<string | null>(null);
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [editingContact, setEditingContact] = useState<WhatsAppDbContact | null>(null);
 
   const {
     data: chatsRes,
@@ -196,27 +456,23 @@ function WhatsAppChatApp({ sessionPhone }: { sessionPhone?: string | null }) {
     refetch: refetchChats,
   } = useGetWhatsAppChatsQuery(undefined, { pollingInterval: POLLING.CHATS });
 
-  const { data: contactsRes, isLoading: loadingContacts, isFetching: fetchingContacts } =
-    useGetWhatsAppContactsQuery();
-
-  // HRMS tab: use DB conversations (correct, keyed by contactPhone)
+  // DB contacts (WhatsAppContact model) — replaces live session contacts in the Contacts tab
   const {
-    data: conversationsRes,
-    isLoading: loadingConversations,
-    refetch: refetchConversations,
-  } = useGetWhatsAppConversationsQuery(
-    { page: 1, limit: 100 },
-    { skip: leftTab !== 'hrms' }
+    data: dbContactsRes,
+    isLoading: loadingDbContacts,
+    isFetching: fetchingDbContacts,
+    refetch: refetchDbContacts,
+  } = useGetWhatsAppDbContactsQuery(
+    { page: 1, limit: 200, search: searchQuery || undefined },
+    { skip: leftTab !== 'contacts' }
   );
 
-  // LID-safe chat resolution — used when clicking HRMS contact
   const [triggerResolve] = useLazyResolveWhatsAppChatQuery();
-
   const [markAsRead] = useMarkChatAsReadMutation();
+  const [deleteContact] = useDeleteWhatsAppContactMutation();
 
-  const phoneContacts = contactsRes?.data || [];
   const chats: WhatsAppChat[] = chatsRes?.data || [];
-  const conversations: WhatsAppConversation[] = conversationsRes?.data || [];
+  const dbContacts: WhatsAppDbContact[] = dbContactsRes?.data || [];
 
   // Expose active chatId so API layer can suppress toast for active conversation
   useEffect(() => {
@@ -225,104 +481,83 @@ function WhatsAppChatApp({ sessionPhone }: { sessionPhone?: string | null }) {
 
   const selectedChatData = chats.find((c: WhatsAppChat) => c.id === selectedChat);
 
-  // Close contact info when chat changes
   useEffect(() => { setShowContactInfo(false); }, [selectedChat]);
 
-  // Mark chat as read when selected — fires immediately, socket updates all clients
+  // Mark chat as read when selected
   useEffect(() => {
     if (selectedChat) {
       markAsRead(selectedChat).catch(() => {});
     }
   }, [selectedChat, markAsRead]);
 
-  // ===== HRMS Contact click handler (LID-safe) =====
-  const handleHrmsContactClick = useCallback(async (conv: WhatsAppConversation) => {
-    // 1. If we already have providerChatId stored in DB, use it directly
-    if (conv.providerChatId) {
-      setSelectedChat(conv.providerChatId);
+  // Open chat by chatId from DB contact's providerChatId or phone resolution
+  const handleContactClick = useCallback(async (contact: WhatsAppDbContact) => {
+    // 1. If we already have providerChatId, use directly
+    if (contact.providerChatId) {
+      setSelectedChat(contact.providerChatId);
       setShowNewChat(false);
       return;
     }
 
-    // 2. Check if any live chat matches this phone number (fast @c.us match)
-    const liveChat = findChatForPhone(chats, conv.contactPhone);
+    // 2. Try live @c.us match on current chats
+    const liveChat = findChatForPhone(chats, contact.normalizedPhone)
+      || findChatForPhone(chats, contact.phone);
     if (liveChat) {
       setSelectedChat(liveChat.id);
       setShowNewChat(false);
       return;
     }
 
-    // 3. Resolve via backend (handles LID, stores result in DB for future)
-    setResolvingPhone(conv.contactPhone);
+    // 3. Resolve via backend (handles LID multi-device IDs)
+    setResolvingPhone(contact.normalizedPhone);
     try {
-      const res = await triggerResolve(conv.contactPhone).unwrap();
+      const res = await triggerResolve(contact.normalizedPhone).unwrap();
       if (res.data?.chatId) {
         setSelectedChat(res.data.chatId);
         setShowNewChat(false);
-        refetchConversations();
+        refetchDbContacts();
         return;
       }
-    } catch {
-      // ignore resolve failure
-    } finally {
+    } catch { /* ignore */ } finally {
       setResolvingPhone(null);
     }
 
-    // 4. Fallback: open NewChatView pre-filled with this number so HR can still reply
-    sessionStorage.setItem('whatsapp_prefill_phone', conv.contactPhone);
+    // 4. Fallback: open NewChatView pre-filled so HR can compose a first message
+    sessionStorage.setItem('whatsapp_prefill_phone', contact.normalizedPhone || contact.phone.replace(/\D/g, ''));
     setShowNewChat(true);
     setSelectedChat(null);
-    toast(`Opening composer for +${conv.contactPhone} — number not found in active chats`, {
+    toast(`Opening composer for ${contact.name} (+${contact.normalizedPhone || contact.phone})`, {
       duration: 4000,
       icon: '💬',
     });
-  }, [chats, triggerResolve, refetchConversations]);
+  }, [chats, triggerResolve, refetchDbContacts]);
 
-  // ===== Contacts tab click handler =====
-  const handleContactClick = useCallback((contact: WhatsAppContact) => {
-    const phone = contact.number || contact.id?.replace('@c.us', '');
-    if (!phone) return;
-    // If contact already has @c.us ID, use directly
-    if (contact.id?.includes('@c.us')) {
-      setSelectedChat(contact.id);
-      setShowNewChat(false);
-      return;
+  const handleDeleteContact = useCallback(async (contact: WhatsAppDbContact, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete contact "${contact.name}"?\n\nChat history will not be deleted.`)) return;
+    try {
+      await deleteContact(contact.id).unwrap();
+      toast.success('Contact deleted');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to delete');
     }
-    // Try to find in live chats
-    const liveChat = findChatForPhone(chats, phone);
-    if (liveChat) {
-      setSelectedChat(liveChat.id);
-      setShowNewChat(false);
-      return;
-    }
-    // Fallback to new chat
-    sessionStorage.setItem('whatsapp_prefill_phone', phone);
-    setShowNewChat(true);
-    setSelectedChat(null);
-  }, [chats]);
+  }, [deleteContact]);
 
-  const filteredChats = useMemo(() =>
-    chats.filter((c: WhatsAppChat) => c.name?.toLowerCase().includes(searchQuery.toLowerCase())),
-    [chats, searchQuery]
-  );
+  const handleEditContact = useCallback((contact: WhatsAppDbContact, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingContact(contact);
+  }, []);
 
-  const filteredContacts = useMemo(() =>
-    phoneContacts.filter((c: WhatsAppContact) =>
-      !searchQuery || c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.number?.includes(searchQuery)
-    ),
-    [phoneContacts, searchQuery]
-  );
+  const filteredChats = useMemo(() => {
+    if (!searchQuery) return chats;
+    return chats.filter((c: WhatsAppChat) =>
+      c.name?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [chats, searchQuery]);
 
-  const filteredConversations = useMemo(() =>
-    conversations.filter(c =>
-      !searchQuery ||
-      c.contactPhone.includes(searchQuery) ||
-      (c.contactName || '').toLowerCase().includes(searchQuery.toLowerCase())
-    ),
-    [conversations, searchQuery]
-  );
+  // DB contacts are already filtered server-side via the search param
+  const filteredDbContacts = dbContacts;
 
-  // Total unread count for header/badge
   const totalUnread = useMemo(() =>
     chats.reduce((sum, c) => sum + (c.unreadCount || 0), 0),
     [chats]
@@ -341,10 +576,10 @@ function WhatsAppChatApp({ sessionPhone }: { sessionPhone?: string | null }) {
         <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50">
           <div className="flex items-center gap-2 mb-2">
             <div className="flex bg-gray-100 rounded-lg p-0.5 flex-1">
-              {(['chats', 'contacts', 'hrms'] as const).map(tab => (
+              {(['chats', 'contacts'] as const).map(tab => (
                 <button
                   key={tab}
-                  onClick={() => setLeftTab(tab)}
+                  onClick={() => { setLeftTab(tab); setSearchQuery(''); }}
                   className={cn(
                     'flex-1 text-xs font-medium py-1.5 rounded-md transition-all',
                     leftTab === tab ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
@@ -353,25 +588,33 @@ function WhatsAppChatApp({ sessionPhone }: { sessionPhone?: string | null }) {
                 >
                   {tab === 'chats'
                     ? `Chats${chats.length > 0 ? ` (${chats.length})` : ''}`
-                    : tab === 'contacts'
-                    ? `Contacts${phoneContacts.length > 0 ? ` (${phoneContacts.length})` : ''}`
-                    : `HRMS${conversations.length > 0 ? ` (${conversations.length})` : ''}`}
+                    : `Contacts${dbContactsRes?.meta?.total ? ` (${dbContactsRes.meta.total})` : ''}`}
                 </button>
               ))}
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
-              {totalUnread > 0 && (
+              {totalUnread > 0 && leftTab === 'chats' && (
                 <span className="w-5 h-5 rounded-full bg-green-500 text-white text-[9px] font-bold flex items-center justify-center">
                   {totalUnread > 99 ? '99+' : totalUnread}
                 </span>
               )}
-              <button
-                onClick={() => { setShowNewChat(true); setSelectedChat(null); }}
-                className="w-8 h-8 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors flex items-center justify-center"
-                aria-label="New chat" title="New Chat"
-              >
-                <Plus size={16} className="text-white" />
-              </button>
+              {leftTab === 'contacts' ? (
+                <button
+                  onClick={() => setShowAddContact(true)}
+                  className="w-8 h-8 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors flex items-center justify-center"
+                  aria-label="Add contact" title="Add Contact"
+                >
+                  <UserPlus size={15} className="text-white" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setShowNewChat(true); setSelectedChat(null); }}
+                  className="w-8 h-8 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors flex items-center justify-center"
+                  aria-label="New chat" title="New Chat"
+                >
+                  <Plus size={16} className="text-white" />
+                </button>
+              )}
             </div>
           </div>
           <div className="relative">
@@ -379,17 +622,14 @@ function WhatsAppChatApp({ sessionPhone }: { sessionPhone?: string | null }) {
             <input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder={
-                leftTab === 'chats' ? 'Search chats...' :
-                leftTab === 'contacts' ? 'Search contacts...' : 'Search HRMS conversations...'
-              }
+              placeholder={leftTab === 'chats' ? 'Search chats...' : 'Search contacts...'}
               className="w-full text-xs bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-300"
               aria-label="Search"
             />
           </div>
         </div>
 
-        {/* Chat/Contact/HRMS list */}
+        {/* Chat / Contact list */}
         <div className="flex-1 overflow-y-auto" role="list" aria-label={`${leftTab} list`}>
           {leftTab === 'chats' ? (
             loadingChats ? <ChatListSkeleton /> :
@@ -397,6 +637,7 @@ function WhatsAppChatApp({ sessionPhone }: { sessionPhone?: string | null }) {
               <EmptyState
                 icon={<MessageCircle size={32} className="text-gray-200" />}
                 text={searchQuery ? 'No matching chats' : 'No chats yet'}
+                subtext={!searchQuery ? 'All WhatsApp conversations — including HRMS invitations and job application messages — appear here' : undefined}
                 action={!searchQuery ? (
                   <button onClick={() => refetchChats()} className="text-xs text-brand-600 hover:text-brand-700 font-medium mt-2 flex items-center gap-1 mx-auto">
                     <RefreshCw size={12} /> Refresh
@@ -416,47 +657,38 @@ function WhatsAppChatApp({ sessionPhone }: { sessionPhone?: string | null }) {
                 ))}
               </>
             )
-          ) : leftTab === 'contacts' ? (
-            loadingContacts ? <ChatListSkeleton /> :
-            filteredContacts.length === 0 ? (
-              <EmptyState icon={<User size={32} className="text-gray-200" />} text={searchQuery ? 'No matching contacts' : 'No contacts found'} />
+          ) : (
+            // Contacts tab — DB contacts (WhatsAppContact model)
+            loadingDbContacts ? <ChatListSkeleton /> :
+            filteredDbContacts.length === 0 ? (
+              <EmptyState
+                icon={<User size={32} className="text-gray-200" />}
+                text={searchQuery ? 'No matching contacts' : 'No contacts yet'}
+                subtext={!searchQuery ? 'Add contacts to quickly start WhatsApp conversations' : undefined}
+                action={!searchQuery ? (
+                  <button
+                    onClick={() => setShowAddContact(true)}
+                    className="text-xs text-brand-600 hover:text-brand-700 font-medium mt-2 flex items-center gap-1 mx-auto"
+                  >
+                    <UserPlus size={12} /> Add Contact
+                  </button>
+                ) : undefined}
+              />
             ) : (
               <>
-                {fetchingContacts && !loadingContacts && <LoadingBanner text="Refreshing contacts..." />}
-                {filteredContacts.map((contact: WhatsAppContact) => (
-                  <ContactListItem
+                {fetchingDbContacts && !loadingDbContacts && <LoadingBanner text="Refreshing contacts..." />}
+                {filteredDbContacts.map((contact: WhatsAppDbContact) => (
+                  <DbContactListItem
                     key={contact.id}
                     contact={contact}
-                    isSelected={selectedChat === contact.id}
+                    isSelected={selectedChat === contact.providerChatId}
+                    isResolving={resolvingPhone === contact.normalizedPhone}
                     onClick={() => handleContactClick(contact)}
+                    onDelete={e => handleDeleteContact(contact, e)}
+                    onEdit={e => handleEditContact(contact, e)}
                   />
                 ))}
               </>
-            )
-          ) : (
-            // HRMS tab — DB conversations (properly grouped by contactPhone)
-            loadingConversations ? <ChatListSkeleton /> :
-            filteredConversations.length === 0 ? (
-              <EmptyState
-                icon={<MessageCircle size={32} className="text-gray-200" />}
-                text="No HRMS conversations yet"
-                subtext="Messages sent to candidates will appear here"
-                action={
-                  <button onClick={() => refetchConversations()} className="text-xs text-brand-600 hover:text-brand-700 font-medium mt-2 flex items-center gap-1 mx-auto">
-                    <RefreshCw size={12} /> Refresh
-                  </button>
-                }
-              />
-            ) : (
-              filteredConversations.map(conv => (
-                <HrmsConversationItem
-                  key={conv.id}
-                  conv={conv}
-                  isSelected={selectedChat === conv.providerChatId}
-                  isResolving={resolvingPhone === conv.contactPhone}
-                  onClick={() => handleHrmsContactClick(conv)}
-                />
-              ))
             )
           )}
         </div>
@@ -470,7 +702,6 @@ function WhatsAppChatApp({ sessionPhone }: { sessionPhone?: string | null }) {
               setSelectedChat(chatId);
               setShowNewChat(false);
               refetchChats();
-              refetchConversations();
             }}
             onBack={() => setShowNewChat(false)}
           />
@@ -513,10 +744,38 @@ function WhatsAppChatApp({ sessionPhone }: { sessionPhone?: string | null }) {
               <ContactInfoPanel
                 chatId={selectedChat}
                 chatName={selectedChatData?.name || 'Contact'}
+                dbContacts={dbContacts}
                 onClose={() => setShowContactInfo(false)}
               />
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* Add Contact Modal */}
+      <AnimatePresence>
+        {showAddContact && (
+          <AddContactModal
+            onClose={() => setShowAddContact(false)}
+            onSaved={() => {
+              setShowAddContact(false);
+              refetchDbContacts();
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Edit Contact Modal */}
+      <AnimatePresence>
+        {editingContact && (
+          <EditContactModal
+            contact={editingContact}
+            onClose={() => setEditingContact(null)}
+            onSaved={() => {
+              setEditingContact(null);
+              refetchDbContacts();
+            }}
+          />
         )}
       </AnimatePresence>
     </div>
@@ -570,99 +829,97 @@ const ChatListItem = memo(function ChatListItem({
   );
 });
 
-const ContactListItem = memo(function ContactListItem({
-  contact, isSelected, onClick,
-}: { contact: WhatsAppContact; isSelected: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      role="listitem"
-      className={cn(
-        'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50',
-        isSelected && 'bg-brand-50 hover:bg-brand-50'
-      )}
-    >
-      <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-        <span className="text-xs font-bold text-blue-700">
-          {(contact.name || '?').charAt(0).toUpperCase()}
-        </span>
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 truncate">{contact.name}</p>
-        <p className="text-xs text-gray-400">{contact.number ? `+${contact.number}` : ''}</p>
-      </div>
-      {contact.isMyContact && (
-        <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">Saved</span>
-      )}
-    </button>
-  );
-});
-
-// HRMS conversation item — uses proper WhatsAppConversation data (no phantom grouping)
-const HrmsConversationItem = memo(function HrmsConversationItem({
-  conv, isSelected, isResolving, onClick,
+/** DB Contact list item — shows source badge, has-chat indicator, edit/delete actions */
+const DbContactListItem = memo(function DbContactListItem({
+  contact, isSelected, isResolving, onClick, onDelete, onEdit,
 }: {
-  conv: WhatsAppConversation;
+  contact: WhatsAppDbContact;
   isSelected: boolean;
   isResolving: boolean;
   onClick: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+  onEdit: (e: React.MouseEvent) => void;
 }) {
-  const hasUnread = conv.unreadCount > 0;
-  const displayName = conv.contactName || `+${conv.contactPhone}`;
-  const lastDate = conv.lastMessageAt
-    ? formatChatTime(conv.lastMessageAt)
-    : '';
+  const [showActions, setShowActions] = useState(false);
+  const initials = contact.name.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
+  const sourceLabel = SOURCE_LABELS[contact.source] || contact.source;
+  const sourceColor = SOURCE_COLORS[contact.source] || 'bg-gray-100 text-gray-600';
 
   return (
-    <button
-      onClick={onClick}
-      disabled={isResolving}
+    <div
       role="listitem"
       className={cn(
-        'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50',
+        'group relative flex items-center gap-3 px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer',
         isSelected && 'bg-brand-50 hover:bg-brand-50',
         isResolving && 'opacity-60'
       )}
+      onClick={onClick}
+      onMouseEnter={() => setShowActions(true)}
+      onMouseLeave={() => setShowActions(false)}
     >
-      <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0">
+      <div className={cn(
+        'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 relative',
+        contact.hasChat ? 'bg-green-100' : 'bg-blue-100'
+      )}>
         {isResolving ? (
           <Loader2 size={14} className="text-brand-600 animate-spin" />
         ) : (
-          <MessageCircle size={16} className="text-brand-600" />
+          <span className={cn('text-sm font-bold', contact.hasChat ? 'text-green-700' : 'text-blue-700')}>
+            {initials}
+          </span>
+        )}
+        {contact.hasChat && !isResolving && (
+          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-white" title="Has active chat" />
         )}
       </div>
+
       <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between">
-          <p className={cn('text-sm truncate', hasUnread ? 'font-semibold text-gray-900' : 'font-medium text-gray-800')}>
-            {displayName}
-          </p>
-          {lastDate && (
-            <span className={cn('text-[10px] flex-shrink-0', hasUnread ? 'text-green-600 font-medium' : 'text-gray-400')}>
-              {lastDate}
+        <div className="flex items-center gap-2 justify-between">
+          <p className="text-sm font-medium text-gray-800 truncate">{contact.name}</p>
+          {contact.lastMessageAt && (
+            <span className="text-[10px] text-gray-400 flex-shrink-0">
+              {formatChatTime(contact.lastMessageAt)}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          {conv.lastMessageDirection === 'OUTBOUND' && (
-            <CheckCheck size={10} className="text-gray-400 flex-shrink-0" />
-          )}
-          <p className={cn('text-xs truncate', hasUnread ? 'text-gray-700 font-medium' : 'text-gray-500')}>
-            {conv.lastMessagePreview || 'No messages yet'}
-          </p>
-        </div>
+        <p className="text-xs text-gray-400">{contact.phone}</p>
+        {contact.email && (
+          <p className="text-xs text-gray-300 truncate">{contact.email}</p>
+        )}
       </div>
+
       <div className="flex flex-col items-end gap-1 flex-shrink-0">
-        {hasUnread ? (
-          <span className="w-5 h-5 rounded-full bg-green-500 text-white text-[10px] flex items-center justify-center font-bold">
-            {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
+        {showActions ? (
+          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={onEdit}
+              className="p-1.5 rounded-lg hover:bg-brand-100 transition-colors"
+              aria-label="Edit contact"
+              title="Edit"
+            >
+              <Edit2 size={13} className="text-brand-600" />
+            </button>
+            <button
+              onClick={onDelete}
+              className="p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+              aria-label="Delete contact"
+              title="Delete"
+            >
+              <Trash2 size={13} className="text-red-400" />
+            </button>
+          </div>
+        ) : (
+          <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full', sourceColor)}>
+            {sourceLabel}
           </span>
-        ) : conv.templateSource ? (
-          <span className="text-[9px] bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-            {conv.templateSource.replace(/_/g, ' ')}
+        )}
+        {contact.unreadCount > 0 && (
+          <span className="w-4 h-4 rounded-full bg-green-500 text-white text-[9px] flex items-center justify-center font-bold">
+            {contact.unreadCount}
           </span>
-        ) : null}
+        )}
       </div>
-    </button>
+    </div>
   );
 });
 
@@ -696,10 +953,22 @@ function LoadingBanner({ text }: { text: string }) {
 // =====================================================================
 
 function ContactInfoPanel({
-  chatId, chatName, onClose,
-}: { chatId: string; chatName: string; onClose: () => void }) {
+  chatId, chatName, dbContacts, onClose,
+}: {
+  chatId: string;
+  chatName: string;
+  dbContacts: WhatsAppDbContact[];
+  onClose: () => void;
+}) {
   const phoneNumber = chatId.replace('@c.us', '').replace('@g.us', '').replace(/@\S+/, '');
   const initials = chatName.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
+
+  // Find matching DB contact if available
+  const matchedContact = dbContacts.find(c =>
+    c.normalizedPhone === phoneNumber ||
+    c.normalizedPhone.endsWith(phoneNumber.slice(-10)) ||
+    phoneNumber.endsWith(c.normalizedPhone.slice(-10))
+  );
 
   const handleCopyPhone = () => {
     navigator.clipboard.writeText(`+${phoneNumber}`).then(() => toast.success('Phone copied'));
@@ -719,6 +988,11 @@ function ContactInfoPanel({
             <span className="text-2xl font-bold text-green-700">{initials}</span>
           </div>
           <h4 className="text-base font-semibold text-gray-800">{chatName}</h4>
+          {matchedContact && (
+            <span className={cn('text-[10px] px-2 py-0.5 rounded-full mt-1', SOURCE_COLORS[matchedContact.source] || 'bg-gray-100 text-gray-600')}>
+              {SOURCE_LABELS[matchedContact.source] || matchedContact.source}
+            </span>
+          )}
         </div>
         {phoneNumber && (
           <div className="px-4 py-4 border-b border-gray-100">
@@ -735,6 +1009,21 @@ function ContactInfoPanel({
                 <Copy size={14} className="text-gray-400" />
               </button>
             </div>
+          </div>
+        )}
+        {matchedContact?.email && (
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs text-gray-400 mb-1">Email</p>
+            <div className="flex items-center gap-2">
+              <Mail size={14} className="text-gray-400" />
+              <span className="text-sm text-gray-700 flex-1">{matchedContact.email}</span>
+            </div>
+          </div>
+        )}
+        {matchedContact?.notes && (
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs text-gray-400 mb-1">Notes</p>
+            <p className="text-sm text-gray-600">{matchedContact.notes}</p>
           </div>
         )}
         <div className="px-4 py-4">
@@ -781,7 +1070,6 @@ function ChatView({
 
   const messages: WhatsAppMessage[] = messagesRes?.data || [];
 
-  // Smart scroll — scroll on new messages
   useEffect(() => {
     if (messages.length > prevMessageCount.current && messages.length > 0) {
       messagesEndRef.current?.scrollIntoView({
@@ -791,7 +1079,6 @@ function ChatView({
     prevMessageCount.current = messages.length;
   }, [messages.length]);
 
-  // Reset state when chat changes
   useEffect(() => {
     prevMessageCount.current = 0;
     setInput('');
@@ -815,7 +1102,6 @@ function ChatView({
     if (!input.trim() || sending) return;
     setSending(true);
     try {
-      // Extract phone from chatId — strip suffix (@c.us, @lid etc.)
       const phone = chatId.split('@')[0];
       await sendMessage({ to: phone, message: input.trim() }).unwrap();
       setInput('');
@@ -1011,7 +1297,6 @@ function ChatView({
         )}
         <div ref={messagesEndRef} />
 
-        {/* Scroll to bottom button */}
         <AnimatePresence>
           {showScrollDown && (
             <motion.button
@@ -1179,10 +1464,9 @@ function NewChatView({ onSent, onBack }: { onSent: (chatId: string) => void; onB
   const validatePhone = (value: string) => {
     const cleaned = value.replace(/[\s\-()]/g, '');
     if (!cleaned) { setPhoneError(''); return false; }
-    // Allow 10-15 digits with optional leading +
     const digits = cleaned.replace(/^\+/, '');
     if (!/^[0-9]{10,15}$/.test(digits)) {
-      setPhoneError('Enter 10–15 digits with country code (e.g. 919876543210)');
+      setPhoneError('Enter 10–15 digits with country code (e.g. 919876543210 or +14155551234)');
       return false;
     }
     setPhoneError('');
@@ -1218,7 +1502,7 @@ function NewChatView({ onSent, onBack }: { onSent: (chatId: string) => void; onB
               <input
                 value={phone}
                 onChange={e => { setPhone(e.target.value); validatePhone(e.target.value); }}
-                placeholder="919876543210"
+                placeholder="919876543210 or +14155551234"
                 className={cn('input-glass w-full pl-10 text-sm', phoneError && 'border-red-300 focus:ring-red-300')}
                 aria-label="Phone number"
               />
@@ -1226,7 +1510,7 @@ function NewChatView({ onSent, onBack }: { onSent: (chatId: string) => void; onB
             {phoneError ? (
               <p className="text-xs text-red-500 mt-1">{phoneError}</p>
             ) : (
-              <p className="text-xs text-gray-400 mt-1">Include country code (e.g. 91 for India)</p>
+              <p className="text-xs text-gray-400 mt-1">Include country code (e.g. 91 for India, 1 for US)</p>
             )}
           </div>
           <div>

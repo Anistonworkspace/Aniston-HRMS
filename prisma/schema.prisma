@@ -49,6 +49,7 @@ model Organization {
   letters           Letter[]
   letterAssignments LetterAssignment[]
   databaseBackups   DatabaseBackup[]
+  deletionRequests  EmployeeDeletionRequest[]
 }
 
 model User {
@@ -204,6 +205,7 @@ model Employee {
   attendanceRegularizations AttendanceRegularization[]
   payrollAdjustments        PayrollAdjustment[]
   letterAssignments         LetterAssignment[]
+  deletionRequests          EmployeeDeletionRequest[] @relation("EmployeeDeletionRequests")
 
   @@index([organizationId, status])
   @@index([departmentId])
@@ -1475,6 +1477,14 @@ enum WaConversationStatus {
   ARCHIVED
 }
 
+enum WaContactSource {
+  MANUAL
+  WHATSAPP_IMPORT
+  EMPLOYEE
+  ONBOARDING
+  APPLICATION
+}
+
 model WhatsAppConversation {
   id               String                @id @default(uuid())
   organizationId   String
@@ -1496,6 +1506,27 @@ model WhatsAppConversation {
   @@unique([organizationId, contactPhone])
   @@index([organizationId, lastMessageAt])
   @@index([organizationId, status])
+}
+
+model WhatsAppContact {
+  id              String           @id @default(uuid())
+  organizationId  String
+  name            String
+  phone           String           // User-provided display value (e.g. +919876543210)
+  normalizedPhone String           // Digits only (e.g. 919876543210) for matching/dedup
+  email           String?
+  notes           String?
+  source          WaContactSource  @default(MANUAL)
+  referenceId     String?          // e.g. employeeId, invitationId, applicationId
+  referenceType   String?          // e.g. "employee" | "invitation" | "application"
+  deletedAt       DateTime?        // Soft delete
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([organizationId, normalizedPhone])
+  @@index([organizationId, deletedAt])
+  @@index([organizationId, name])
+  @@index([organizationId, source])
 }
 
 // =====================
@@ -2852,6 +2883,49 @@ enum LetterType {
   WARNING_LETTER
   APPRECIATION_LETTER
   CUSTOM
+}
+
+// =====================
+// EMPLOYEE DELETION REQUESTS
+// =====================
+
+enum DeletionRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model EmployeeDeletionRequest {
+  id              String                @id @default(uuid())
+  organizationId  String
+  // Nullable FK: set to null after employee is permanently removed
+  employeeId      String?
+  // Snapshot fields — preserved even after deletion for audit trail
+  employeeName    String
+  employeeCode    String
+  employeeEmail   String
+  // Requestor
+  requestedById   String
+  requestedByName String
+  requestedByRole String
+  reason          String
+  notes           String?
+  status          DeletionRequestStatus @default(PENDING)
+  // Review
+  reviewedById    String?
+  reviewedByName  String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  employee     Employee?     @relation("EmployeeDeletionRequests", fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([employeeId])
+  @@index([status])
 }
 
 // =====================

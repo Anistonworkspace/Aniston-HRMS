@@ -4,7 +4,7 @@ import { logger } from '../../lib/logger.js';
 import { payrollService } from '../../modules/payroll/payroll.service.js';
 
 interface PayrollJobData {
-  type: 'PROCESS_PAYROLL' | 'BULK_EMAIL_SLIPS';
+  type: 'PROCESS_PAYROLL';
   runId: string;
   organizationId: string;
   userId?: string;
@@ -22,11 +22,6 @@ export function startPayrollWorker() {
             const result = await payrollService.processPayroll(runId, organizationId);
             logger.info(`[PayrollWorker] Payroll processed: ${result.processed} employees, net: ${result.totalNet}`);
             return result;
-          }
-
-          case 'BULK_EMAIL_SLIPS': {
-            logger.info(`[PayrollWorker] Sending salary slips for run ${runId}`);
-            return { sent: 0, message: 'Bulk email not yet implemented' };
           }
 
           default:

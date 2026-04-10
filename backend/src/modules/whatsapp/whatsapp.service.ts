@@ -7,7 +7,7 @@ import { BadRequestError } from '../../middleware/errorHandler.js';
 import { emitToOrg } from '../../sockets/index.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { storageService } from '../../services/storage.service.js';
-import type { SendMessageInput, SendJobLinkInput } from './whatsapp.validation.js';
+import type { SendMessageInput, SendJobLinkInput, CreateContactInput, UpdateContactInput } from './whatsapp.validation.js';
 
 // =====================================================================
 // CONSTANTS
@@ -29,12 +29,45 @@ const MAX_CONTACTS_DISPLAY = 300;
 // PHONE NUMBER UTILITIES
 // =====================================================================
 
-/** Strip non-digit chars and ensure 91 prefix for Indian numbers */
+/**
+ * Normalize phone for WhatsApp chat ID lookup.
+ * Adds 91 prefix for 10-digit Indian mobile numbers only.
+ * Numbers with 11+ digits are assumed to already have country code.
+ * NOTE: This is intentionally kept as-is to preserve backward compatibility
+ * with existing WhatsAppConversation.contactPhone records.
+ */
 function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, '');
   if (digits.length === 10) return `91${digits}`;
   if (digits.startsWith('0') && digits.length === 11) return `91${digits.slice(1)}`;
   return digits;
+}
+
+/**
+ * Normalize phone for contact storage — strips all non-digits.
+ * International-safe: does NOT add any country code prefix.
+ * Use this for WhatsAppContact.normalizedPhone storage.
+ * Examples: "+1 (415) 555-1234" → "14155551234"
+ *           "9876543210" → "9876543210"
+ *           "+91 98765 43210" → "919876543210"
+ */
+function normalizePhoneForStorage(phone: string): string {
+  return phone.replace(/\D/g, '');
+}
+
+/**
+ * Check if two normalized phone numbers match, handling suffix overlap.
+ * e.g. "9876543210" matches "919876543210" (one is 10-digit local, other has country code)
+ */
+function phonesMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const digA = a.replace(/\D/g, '');
+  const digB = b.replace(/\D/g, '');
+  if (digA === digB) return true;
+  // Handle 10-digit vs full international: compare last 10 digits
+  const last10A = digA.slice(-10);
+  const last10B = digB.slice(-10);
+  return last10A.length === 10 && last10A === last10B;
 }
 
 /** Convert phone to WhatsApp chat ID format */
@@ -1054,6 +1087,161 @@ export class WhatsAppService {
     }
 
     return { message: 'WhatsApp disconnected' };
+  }
+
+  // ===================== DB CONTACTS CRUD =====================
+
+  /**
+   * Get DB-backed contacts for this org (not live WhatsApp session contacts).
+   * These are contacts stored in WhatsAppContact table — manually added or imported.
+   */
+  async getDbContacts(organizationId: string, search?: string, page = 1, limit = 100) {
+    const skip = (page - 1) * limit;
+    const where: any = {
+      organizationId,
+      deletedAt: null,
+    };
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search } },
+        { normalizedPhone: { contains: search } },
+      ];
+    }
+
+    const [contacts, total] = await Promise.all([
+      prisma.whatsAppContact.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.whatsAppContact.count({ where }),
+    ]);
+
+    // Enrich with providerChatId from WhatsAppConversation if available
+    const conversations = await prisma.whatsAppConversation.findMany({
+      where: { organizationId },
+      select: { contactPhone: true, providerChatId: true, unreadCount: true, lastMessageAt: true },
+    });
+
+    // Build lookup: normalized phone → conversation metadata
+    const convMap = new Map(conversations.map(c => [c.contactPhone, c]));
+
+    const enriched = contacts.map(c => {
+      // Try to find conversation by phone matching (handles prefix differences)
+      const conv = convMap.get(c.normalizedPhone)
+        || convMap.get(normalizePhone(c.normalizedPhone)) // try with India prefix
+        || Array.from(convMap.entries()).find(([k]) => phonesMatch(k, c.normalizedPhone))?.[1];
+
+      return {
+        ...c,
+        providerChatId: conv?.providerChatId || null,
+        hasChat: !!conv?.providerChatId,
+        lastMessageAt: conv?.lastMessageAt || null,
+        unreadCount: conv?.unreadCount || 0,
+      };
+    });
+
+    return {
+      data: enriched,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  async createContact(data: CreateContactInput, organizationId: string, userId?: string) {
+    const normalizedPhone = normalizePhoneForStorage(data.phone);
+    if (!normalizedPhone || normalizedPhone.length < 7) {
+      throw new BadRequestError('Invalid phone number — must contain at least 7 digits');
+    }
+
+    // Check duplicate
+    const existing = await prisma.whatsAppContact.findFirst({
+      where: { organizationId, normalizedPhone, deletedAt: null },
+    });
+    if (existing) {
+      throw new BadRequestError(`A contact with phone ${data.phone} already exists`);
+    }
+
+    const contact = await prisma.whatsAppContact.create({
+      data: {
+        organizationId,
+        name: data.name.trim(),
+        phone: data.phone.trim(),
+        normalizedPhone,
+        email: data.email || null,
+        notes: data.notes || null,
+        source: (data.source as any) || 'MANUAL',
+        referenceId: data.referenceId || null,
+        referenceType: data.referenceType || null,
+      },
+    });
+
+    if (userId) {
+      await createAuditLog({
+        userId, organizationId,
+        entity: 'WhatsAppContact', entityId: contact.id,
+        action: 'CREATE',
+        newValue: { name: contact.name, phone: contact.phone, source: contact.source },
+      });
+    }
+
+    return contact;
+  }
+
+  async updateContact(contactId: string, data: UpdateContactInput, organizationId: string, userId?: string) {
+    const contact = await prisma.whatsAppContact.findFirst({
+      where: { id: contactId, organizationId, deletedAt: null },
+    });
+    if (!contact) throw new BadRequestError('Contact not found');
+
+    const updated = await prisma.whatsAppContact.update({
+      where: { id: contactId },
+      data: {
+        ...(data.name ? { name: data.name.trim() } : {}),
+        ...(data.email !== undefined ? { email: data.email || null } : {}),
+        ...(data.notes !== undefined ? { notes: data.notes || null } : {}),
+      },
+    });
+
+    if (userId) {
+      await createAuditLog({
+        userId, organizationId,
+        entity: 'WhatsAppContact', entityId: contactId,
+        action: 'UPDATE',
+        newValue: data,
+      });
+    }
+
+    return updated;
+  }
+
+  /**
+   * Soft-delete a contact. Chat history is NOT deleted.
+   * Note: whatsapp-web.js does NOT support deleting contacts from the actual WhatsApp account.
+   * Deletion is application-layer only — the contact will still exist in WhatsApp on the device.
+   */
+  async deleteContact(contactId: string, organizationId: string, userId?: string) {
+    const contact = await prisma.whatsAppContact.findFirst({
+      where: { id: contactId, organizationId, deletedAt: null },
+    });
+    if (!contact) throw new BadRequestError('Contact not found');
+
+    await prisma.whatsAppContact.update({
+      where: { id: contactId },
+      data: { deletedAt: new Date() },
+    });
+
+    if (userId) {
+      await createAuditLog({
+        userId, organizationId,
+        entity: 'WhatsAppContact', entityId: contactId,
+        action: 'DELETE',
+        newValue: { name: contact.name, phone: contact.phone },
+      });
+    }
+
+    return { success: true };
   }
 
   async destroy() {

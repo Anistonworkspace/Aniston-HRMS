@@ -29,10 +29,12 @@ router.post('/logout', authorize(...WA_ROLES), (req, res, next) =>
   whatsAppController.logout(req, res, next)
 );
 
-// HR+ with rate limiting on send operations
+// Status and chats
 router.get('/status', authorize(...WA_ROLES), (req, res, next) =>
   whatsAppController.getStatus(req, res, next)
 );
+
+// Send operations (rate limited)
 router.post('/send', authorize(...WA_ROLES), sendLimiter, (req, res, next) =>
   whatsAppController.sendMessage(req, res, next)
 );
@@ -46,7 +48,7 @@ router.post('/send-media', authorize(...WA_ROLES), sendLimiter, uploadDocument.s
   whatsAppController.sendMedia(req, res, next)
 );
 
-// Read-only endpoints
+// Read-only chat endpoints
 router.get('/messages', authorize(...WA_ROLES), (req, res, next) =>
   whatsAppController.getMessages(req, res, next)
 );
@@ -65,14 +67,34 @@ router.get('/chats/:chatId/search', authorize(...WA_ROLES), (req, res, next) =>
 router.get('/media/:messageId', authorize(...WA_ROLES), (req, res, next) =>
   whatsAppController.downloadMedia(req, res, next)
 );
+
+// Live WhatsApp session contacts (from WhatsApp device)
 router.get('/contacts', authorize(...WA_ROLES), (req, res, next) =>
   whatsAppController.getContacts(req, res, next)
 );
+
+// Conversations (DB-backed)
 router.get('/conversations', authorize(...WA_ROLES), (req, res, next) =>
   whatsAppController.getConversations(req, res, next)
 );
 router.get('/resolve/:phone', authorize(...WA_ROLES), (req, res, next) =>
   whatsAppController.resolveChatByPhone(req, res, next)
+);
+
+// =====================================================================
+// DB CONTACTS CRUD — application-layer contacts (not WhatsApp device contacts)
+// =====================================================================
+router.get('/db-contacts', authorize(...WA_ROLES), (req, res, next) =>
+  whatsAppController.getDbContacts(req, res, next)
+);
+router.post('/db-contacts', authorize(...WA_ROLES), (req, res, next) =>
+  whatsAppController.createContact(req, res, next)
+);
+router.patch('/db-contacts/:contactId', authorize(...WA_ROLES), (req, res, next) =>
+  whatsAppController.updateContact(req, res, next)
+);
+router.delete('/db-contacts/:contactId', authorize(...WA_ROLES), (req, res, next) =>
+  whatsAppController.deleteContact(req, res, next)
 );
 
 export { router as whatsAppRouter };

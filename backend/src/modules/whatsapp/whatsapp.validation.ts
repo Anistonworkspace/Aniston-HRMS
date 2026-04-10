@@ -35,7 +35,34 @@ export const sendMediaSchema = z.object({
   caption: z.string().max(1024, 'Caption too long').optional(),
 });
 
+// =====================================================================
+// CONTACT SCHEMAS
+// =====================================================================
+
+const WA_CONTACT_SOURCES = ['MANUAL', 'WHATSAPP_IMPORT', 'EMPLOYEE', 'ONBOARDING', 'APPLICATION'] as const;
+
+export const createContactSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(100, 'Name too long'),
+  phone: z.string()
+    .min(7, 'Phone number too short')
+    .max(20, 'Phone number too long')
+    .regex(/^\+?[0-9\s\-().]{7,20}$/, 'Invalid phone number format'),
+  email: z.string().email('Invalid email address').optional().or(z.literal('')),
+  notes: z.string().max(500, 'Notes too long').optional(),
+  source: z.enum(WA_CONTACT_SOURCES).optional().default('MANUAL'),
+  referenceId: z.string().optional(),
+  referenceType: z.string().max(50).optional(),
+});
+
+export const updateContactSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  email: z.string().email().optional().or(z.literal('')),
+  notes: z.string().max(500).optional(),
+});
+
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 export type SendJobLinkInput = z.infer<typeof sendJobLinkSchema>;
 export type SendToNumberInput = z.infer<typeof sendToNumberSchema>;
 export type SendMediaInput = z.infer<typeof sendMediaSchema>;
+export type CreateContactInput = z.infer<typeof createContactSchema>;
+export type UpdateContactInput = z.infer<typeof updateContactSchema>;

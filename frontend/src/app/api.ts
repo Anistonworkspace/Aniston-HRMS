@@ -97,6 +97,7 @@ export const api = createApi({
     'WhatsAppMessages',
     'WhatsAppHrmsMessages',
     'WhatsAppConversations',
+    'WhatsAppDbContacts',
     'KnowledgeBase',
     'Activation',
     'Policy',
@@ -113,6 +114,7 @@ export const api = createApi({
     'Letter',
     'Branding',
     'Backup',
+    'DeletionRequests',
   ],
   endpoints: () => ({}),
 });

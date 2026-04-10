@@ -5,6 +5,7 @@ import {
   Mail, Phone, X, Loader2, Copy, Send, CheckCircle2, Eye, Pencil,
   RefreshCw, UserCheck, UserX, Users, Clock, AlertTriangle, Shield,
   Building2, ChevronDown, Calendar, Briefcase, MapPin, Download, MessageCircle,
+  Trash2, TriangleAlert,
 } from 'lucide-react';
 import {
   useGetEmployeesQuery,
@@ -13,6 +14,10 @@ import {
   useUpdateEmployeeMutation,
   useSendActivationInviteMutation,
 } from './employeeApi';
+import {
+  useCreateDeletionRequestMutation,
+  usePermanentDeleteEmployeeMutation,
+} from './employeeDeletionApi';
 import {
   useCreateInvitationMutation,
   useGetInvitationsQuery,
@@ -43,6 +48,8 @@ export default function EmployeeListPage() {
   const canInvite = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const canManage = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const canCreateMasterData = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const isHR = user?.role === 'HR';
 
   // Page state
   const [page, setPage] = useState(1);
@@ -67,6 +74,18 @@ export default function EmployeeListPage() {
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [updateEmployee] = useUpdateEmployeeMutation();
   const [sendActivationInvite] = useSendActivationInviteMutation();
+
+  // Deletion state — Super Admin direct delete
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; code: string; email: string } | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
+  const [permanentDeleteEmployee, { isLoading: isDeleting }] = usePermanentDeleteEmployeeMutation();
+
+  // Deletion state — HR request deletion
+  const [requestTarget, setRequestTarget] = useState<{ id: string; name: string; code: string } | null>(null);
+  const [requestReason, setRequestReason] = useState('');
+  const [requestNotes, setRequestNotes] = useState('');
+  const [createDeletionRequest, { isLoading: isRequestingDeletion }] = useCreateDeletionRequestMutation();
 
   // Data
   const { data: deptData } = useGetDepartmentsQuery();
@@ -105,6 +124,51 @@ export default function EmployeeListPage() {
       toast.success('Activation email sent');
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to send activation email');
+    }
+  };
+
+  // Super Admin: confirm and execute permanent delete
+  const handleConfirmPermanentDelete = async () => {
+    if (!deleteTarget) return;
+    const expected = deleteTarget.email.toLowerCase();
+    if (deleteConfirmText.trim().toLowerCase() !== expected) {
+      toast.error('Email address does not match. Please type the exact email to confirm.');
+      return;
+    }
+    if (!deleteReason.trim() || deleteReason.trim().length < 5) {
+      toast.error('Please provide a reason for deletion (minimum 5 characters).');
+      return;
+    }
+    try {
+      const res = await permanentDeleteEmployee({ employeeId: deleteTarget.id, reason: deleteReason.trim() }).unwrap();
+      toast.success(res.message || `${deleteTarget.name} permanently deleted`);
+      setDeleteTarget(null);
+      setDeleteConfirmText('');
+      setDeleteReason('');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to delete employee');
+    }
+  };
+
+  // HR: submit deletion request
+  const handleSubmitDeletionRequest = async () => {
+    if (!requestTarget) return;
+    if (!requestReason.trim() || requestReason.trim().length < 10) {
+      toast.error('Please provide a detailed reason (minimum 10 characters).');
+      return;
+    }
+    try {
+      await createDeletionRequest({
+        employeeId: requestTarget.id,
+        reason: requestReason.trim(),
+        notes: requestNotes.trim() || undefined,
+      }).unwrap();
+      toast.success('Deletion request submitted. A Super Admin will review it shortly.');
+      setRequestTarget(null);
+      setRequestReason('');
+      setRequestNotes('');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to submit deletion request');
     }
   };
 
@@ -196,6 +260,152 @@ export default function EmployeeListPage() {
         onClose={() => setShowInviteModal(false)}
         canCreateMasterData={canCreateMasterData}
       />
+
+      {/* ── Super Admin: Permanent Delete Confirmation Modal ── */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-red-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={20} className="text-red-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Permanently Delete Employee</h2>
+                <p className="text-sm text-red-600 font-medium">This action is irreversible</p>
+              </div>
+            </div>
+
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700 space-y-1">
+              <p className="font-semibold">⚠ Warning: This will permanently remove:</p>
+              <ul className="list-disc list-inside space-y-0.5 text-xs">
+                <li>All attendance, leave &amp; payroll records</li>
+                <li>All documents, assets &amp; onboarding data</li>
+                <li>All helpdesk, activity &amp; performance records</li>
+                <li>Employee login and account access</li>
+              </ul>
+              <p className="text-xs mt-1">Recovery is only possible via database backup restore.</p>
+            </div>
+
+            <div className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+              <p className="text-sm text-gray-700">
+                Deleting: <span className="font-semibold">{deleteTarget.name}</span>{' '}
+                <span className="text-gray-400 font-mono text-xs">({deleteTarget.code})</span>
+              </p>
+            </div>
+
+            <div className="mb-3">
+              <label className="text-sm font-medium text-gray-700 block mb-1">
+                Reason for deletion <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+                placeholder="Provide a reason for this deletion..."
+                value={deleteReason}
+                onChange={e => setDeleteReason(e.target.value)}
+              />
+            </div>
+
+            <div className="mb-5">
+              <label className="text-sm font-medium text-gray-700 block mb-1">
+                Type the employee email to confirm{' '}
+                <span className="font-mono text-red-600 text-xs">{deleteTarget.email}</span>
+              </label>
+              <input
+                type="text"
+                autoComplete="off"
+                className="w-full px-3 py-2 border border-red-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                placeholder={deleteTarget.email}
+                value={deleteConfirmText}
+                onChange={e => setDeleteConfirmText(e.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setDeleteTarget(null); setDeleteConfirmText(''); setDeleteReason(''); }}
+                className="flex-1 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmPermanentDelete}
+                disabled={isDeleting || deleteConfirmText.trim().toLowerCase() !== deleteTarget.email.toLowerCase() || deleteReason.trim().length < 5}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                {isDeleting ? 'Deleting...' : 'Permanently Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── HR: Request Deletion Modal ── */}
+      {requestTarget && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-orange-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                <TriangleAlert size={20} className="text-orange-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Request Employee Deletion</h2>
+                <p className="text-sm text-orange-600 font-medium">Requires Super Admin approval</p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-800">
+              <p className="font-semibold mb-1">ℹ This is a request, not an immediate deletion.</p>
+              <p className="text-xs">The employee <strong>{requestTarget.name} ({requestTarget.code})</strong> will remain active until a Super Admin reviews and approves this request.</p>
+            </div>
+
+            <div className="mb-3">
+              <label className="text-sm font-medium text-gray-700 block mb-1">
+                Reason for deletion request <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
+                placeholder="Explain why this employee should be permanently deleted..."
+                value={requestReason}
+                onChange={e => setRequestReason(e.target.value)}
+              />
+              <p className="text-xs text-gray-400 mt-1">Minimum 10 characters required</p>
+            </div>
+
+            <div className="mb-5">
+              <label className="text-sm font-medium text-gray-700 block mb-1">
+                Additional notes <span className="text-gray-400">(optional)</span>
+              </label>
+              <textarea
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
+                placeholder="Any additional context..."
+                value={requestNotes}
+                onChange={e => setRequestNotes(e.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setRequestTarget(null); setRequestReason(''); setRequestNotes(''); }}
+                className="flex-1 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitDeletionRequest}
+                disabled={isRequestingDeletion || requestReason.trim().length < 10}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-orange-600 text-white text-sm font-semibold hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isRequestingDeletion ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                {isRequestingDeletion ? 'Submitting...' : 'Submit Request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeView === 'invitations' ? (
         <InvitationsTab />
@@ -446,6 +656,40 @@ export default function EmployeeListPage() {
                               )}
                               {canManage && emp.status === 'INACTIVE' && (
                                 <ActionBtn icon={<UserCheck size={14} />} label="Reactivate" className="text-green-600 hover:bg-green-50" onClick={() => handleStatusChange(emp.id, 'ACTIVE')} />
+                              )}
+                              {/* Super Admin: permanent delete */}
+                              {isSuperAdmin && (
+                                <>
+                                  <div className="my-1 border-t border-gray-100" />
+                                  <ActionBtn
+                                    icon={<Trash2 size={14} />}
+                                    label="Delete Employee"
+                                    className="text-red-600 hover:bg-red-50"
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      setDeleteConfirmText('');
+                                      setDeleteReason('');
+                                      setDeleteTarget({ id: emp.id, name: `${emp.firstName} ${emp.lastName}`, code: emp.employeeCode, email: emp.email });
+                                    }}
+                                  />
+                                </>
+                              )}
+                              {/* HR: request deletion */}
+                              {isHR && (
+                                <>
+                                  <div className="my-1 border-t border-gray-100" />
+                                  <ActionBtn
+                                    icon={<TriangleAlert size={14} />}
+                                    label="Request Deletion"
+                                    className="text-orange-600 hover:bg-orange-50"
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      setRequestReason('');
+                                      setRequestNotes('');
+                                      setRequestTarget({ id: emp.id, name: `${emp.firstName} ${emp.lastName}`, code: emp.employeeCode });
+                                    }}
+                                  />
+                                </>
                               )}
                             </div>
                           </>

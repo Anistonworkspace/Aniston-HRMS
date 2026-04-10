@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { employeeController } from './employee.controller.js';
 import { authenticate, requirePermission } from '../../middleware/auth.middleware.js';
+import { employeeDeletionController } from '../employee-deletion/employee-deletion.controller.js';
 
 const router = Router();
 
@@ -107,6 +108,20 @@ router.patch('/:id/role', requirePermission('employee', 'manage'), (req, res, ne
 
 router.delete('/:id', requirePermission('employee', 'delete'), (req, res, next) =>
   employeeController.delete(req, res, next)
+);
+
+// Super Admin: permanent delete with strong confirmation (POST to avoid accidental browser DELETE)
+// POST /api/employees/:employeeId/permanent-delete
+router.post('/:employeeId/permanent-delete',
+  requirePermission('settings', 'manage'), // SUPER_ADMIN only via settings:manage
+  (req, res, next) => {
+    // Extra check: SUPER_ADMIN only — settings:manage is granted to SA only
+    if (req.user?.role !== 'SUPER_ADMIN') {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only Super Admin can permanently delete employees' } });
+      return;
+    }
+    employeeDeletionController.directDelete(req, res, next);
+  }
 );
 
 // Exit detail & actions
