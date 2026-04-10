@@ -21,6 +21,7 @@ import {
   useGetInterviewersQuery,
 } from './walkInApi';
 import toast from 'react-hot-toast';
+import { getUploadUrl } from '../../lib/utils';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
   WAITING:      { label: 'Waiting',      color: 'text-amber-700',   bg: 'bg-amber-50',   icon: Clock },
@@ -45,8 +46,6 @@ const ROUND_RESULT: Record<string, { label: string; color: string; bg: string }>
   FAILED:  { label: 'Failed',  color: 'text-red-700',     bg: 'bg-red-50' },
   ON_HOLD: { label: 'On Hold', color: 'text-orange-700',  bg: 'bg-orange-50' },
 };
-
-const API_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:4000';
 
 export default function WalkInDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -446,7 +445,7 @@ function DocumentsTab({ candidate }: { candidate: any }) {
               <div className="relative group">
                 {doc.url.match(/\.(jpg|jpeg|png|webp|gif)$/i) || doc.label.includes('Selfie') || doc.label.includes('Aadhaar') || doc.label.includes('PAN') ? (
                   <img
-                    src={`${API_URL}${doc.url}`}
+                    src={getUploadUrl(doc.url)}
                     alt={doc.label}
                     className="w-full h-36 object-cover rounded-lg bg-gray-50"
                     onError={(e) => { (e.target as HTMLImageElement).src = ''; (e.target as HTMLImageElement).className = 'hidden'; }}
@@ -457,7 +456,7 @@ function DocumentsTab({ candidate }: { candidate: any }) {
                   </div>
                 )}
                 <a
-                  href={`${API_URL}${doc.url}`}
+                  href={getUploadUrl(doc.url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="absolute inset-0 bg-black/0 group-hover:bg-black/30 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"

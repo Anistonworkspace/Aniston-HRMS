@@ -80,7 +80,10 @@ export class WhatsAppController {
 
   async markAsRead(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await whatsAppService.markChatAsRead(String(req.params.chatId));
+      const result = await whatsAppService.markChatAsRead(
+        String(req.params.chatId),
+        req.user!.organizationId,
+      );
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
@@ -107,8 +110,25 @@ export class WhatsAppController {
         res.status(400).json({ success: false, error: { message: 'chatId query param required' } });
         return;
       }
-      const result = await whatsAppService.downloadMedia(messageId, chatId);
+      const result = await whatsAppService.downloadMedia(messageId, chatId, req.user!.organizationId);
       res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async resolveChatByPhone(req: Request, res: Response, next: NextFunction) {
+    try {
+      const phone = String(req.params.phone);
+      const result = await whatsAppService.getOrResolveChatByPhone(phone, req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async getConversations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const page = Number(req.query.page) || 1;
+      const limit = Math.min(Number(req.query.limit) || 50, 100);
+      const result = await whatsAppService.getConversations(req.user!.organizationId, page, limit);
+      res.json({ success: true, ...result });
     } catch (err) { next(err); }
   }
 

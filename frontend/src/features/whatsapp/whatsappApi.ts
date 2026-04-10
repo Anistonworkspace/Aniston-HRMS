@@ -1,5 +1,6 @@
 import { api } from '../../app/api';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
+import toast from 'react-hot-toast';
 
 // =====================================================================
 // TYPES
@@ -61,6 +62,21 @@ export interface HrmsMessage {
   createdAt: string;
 }
 
+// Conversation from DB (new WhatsAppConversation model)
+export interface WhatsAppConversation {
+  id: string;
+  contactPhone: string;
+  providerChatId: string | null;
+  contactName: string | null;
+  lastMessageAt: string | null;
+  lastMessagePreview: string | null;
+  unreadCount: number;
+  status: 'OPEN' | 'CLOSED' | 'ARCHIVED';
+  templateSource: string | null;
+  lastMessageDirection: 'INBOUND' | 'OUTBOUND' | null;
+  lastMessageStatus: string | null;
+}
+
 interface ApiResponse<T> {
   success: boolean;
   data: T;
@@ -90,14 +106,76 @@ interface SocketAckEvent {
   ack: number;
 }
 
+interface SocketChatReadEvent {
+  chatId: string;
+}
+
+// =====================================================================
+// NOTIFICATION SOUND
+// =====================================================================
+
+let notifAudio: HTMLAudioElement | null = null;
+let lastSoundAt = 0;
+const SOUND_DEBOUNCE_MS = 2000; // don't play more than once per 2s
+
+function playNotificationSound() {
+  const now = Date.now();
+  if (now - lastSoundAt < SOUND_DEBOUNCE_MS) return;
+  lastSoundAt = now;
+
+  try {
+    if (!notifAudio) {
+      // Use a base64-encoded short "ding" sound (416Hz, 150ms, sine wave)
+      // This avoids needing a static file and works offline
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      oscillator.frequency.value = 880;
+      oscillator.type = 'sine';
+      gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      oscillator.start(ctx.currentTime);
+      oscillator.stop(ctx.currentTime + 0.3);
+      return;
+    }
+    notifAudio.currentTime = 0;
+    notifAudio.play().catch(() => {});
+  } catch {
+    // AudioContext not available — silent fail
+  }
+}
+
 // =====================================================================
 // POLLING INTERVALS
 // =====================================================================
 
 const POLLING = {
-  STATUS: 15000,       // 15s (was 5s — reduce server load)
-  CHATS: 60000,        // 60s (socket handles real-time)
+  STATUS: 15000, // 15s
+  CHATS: 60000,  // 60s (socket handles real-time)
 } as const;
+
+// =====================================================================
+// HELPERS
+// =====================================================================
+
+// Normalize chat IDs for comparison — strips @c.us, @lid suffix digits, etc.
+function normalizeChatId(id: string): string {
+  if (!id) return '';
+  // For @c.us: "917060821855@c.us" → "917060821855"
+  // For @lid: "123456789012345.0:0@lid" → keep as-is for comparison
+  return id.replace(/@c\.us$/, '').replace(/@g\.us$/, '');
+}
+
+// Match two chat IDs — handles @c.us and @lid formats
+function chatIdsMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const na = normalizeChatId(a);
+  const nb = normalizeChatId(b);
+  return na === nb;
+}
 
 // =====================================================================
 // API ENDPOINTS
@@ -109,51 +187,133 @@ export const whatsappApi = api.injectEndpoints({
       query: () => ({ url: '/whatsapp/initialize', method: 'POST' }),
       invalidatesTags: ['WhatsAppStatus', 'WhatsAppChats'],
     }),
+
     getWhatsAppStatus: builder.query<ApiResponse<WhatsAppStatus>, void>({
       query: () => '/whatsapp/status',
       providesTags: ['WhatsAppStatus'],
     }),
+
     getWhatsAppQr: builder.query<ApiResponse<{ qrCode: string | null }>, void>({
       query: () => '/whatsapp/qr',
       providesTags: ['WhatsAppStatus'],
     }),
+
     refreshWhatsAppQr: builder.mutation<ApiResponse<any>, void>({
       query: () => ({ url: '/whatsapp/refresh-qr', method: 'POST' }),
       invalidatesTags: ['WhatsAppStatus'],
     }),
+
     logoutWhatsApp: builder.mutation<ApiResponse<any>, void>({
       query: () => ({ url: '/whatsapp/logout', method: 'POST' }),
       invalidatesTags: ['WhatsAppStatus', 'WhatsAppChats'],
     }),
 
-    // Chats — with Socket.io push for real-time updates
+    // ============================================================
+    // CHATS — live WhatsApp client list
+    // Socket events:
+    //   whatsapp:message:new → update lastMessage, unreadCount, reorder, show toast
+    //   whatsapp:chat:read  → immediately zero out unreadCount
+    // ============================================================
     getWhatsAppChats: builder.query<ApiResponse<WhatsAppChat[]>, void>({
       query: () => '/whatsapp/chats',
       providesTags: ['WhatsAppChats'],
       keepUnusedDataFor: 120,
-      async onCacheEntryAdded(_arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved }) {
+      async onCacheEntryAdded(_arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved, dispatch }) {
         try {
           await cacheDataLoaded;
+
+          // Track which chatId is currently open so we don't show toast for it
+          let activeChatId: string | null = null;
+          const setActive = (e: CustomEvent) => { activeChatId = e.detail || null; };
+          window.addEventListener('wa:active-chat', setActive as EventListener);
+
           const handleNewMsg = (data: SocketMessageEvent) => {
             updateCachedData((draft: any) => {
               if (!draft?.data) return;
-              const normalizeId = (id: string) => id?.replace('@c.us', '').replace('@g.us', '');
+
               const chatIdx = draft.data.findIndex((c: WhatsAppChat) =>
-                normalizeId(c.id) === normalizeId(data.chatId)
+                chatIdsMatch(c.id, data.chatId)
               );
+
               if (chatIdx >= 0) {
+                // Update existing chat entry
                 const chat = draft.data[chatIdx];
                 chat.lastMessage = data.body?.slice(0, 100) || '';
                 chat.timestamp = data.timestamp;
-                if (!data.fromMe) chat.unreadCount = (chat.unreadCount || 0) + 1;
+                // Only increment unread for incoming msgs NOT in the active chat
+                if (!data.fromMe && !chatIdsMatch(data.chatId, activeChatId || '')) {
+                  chat.unreadCount = (chat.unreadCount || 0) + 1;
+                }
+                // Move to top
                 draft.data.splice(chatIdx, 1);
                 draft.data.unshift(chat);
+              } else if (!data.fromMe) {
+                // Unknown chat — inject a placeholder and trigger refetch
+                draft.data.unshift({
+                  id: data.chatId,
+                  name: data.chatId.replace('@c.us', '').replace('@lid', ''),
+                  isGroup: data.chatId.includes('@g.us'),
+                  lastMessage: data.body?.slice(0, 100) || '',
+                  timestamp: data.timestamp,
+                  unreadCount: 1,
+                  profilePicUrl: null,
+                });
+                // Trigger background refetch to get proper contact name / profile pic
+                setTimeout(() => {
+                  dispatch(whatsappApi.util.invalidateTags(['WhatsAppChats']));
+                }, 3000);
               }
             });
+
+            // Show toast + sound for incoming messages not in active chat
+            if (!data.fromMe && !chatIdsMatch(data.chatId, activeChatId || '')) {
+              playNotificationSound();
+              const preview = data.body?.slice(0, 60) || 'New WhatsApp message';
+              const phoneDisplay = normalizeChatId(data.chatId);
+              toast(
+                `📩 +${phoneDisplay}: ${preview}`,
+                {
+                  duration: 4000,
+                  style: {
+                    background: '#25D366',
+                    color: '#fff',
+                    fontSize: '13px',
+                    maxWidth: '360px',
+                  },
+                  icon: '💬',
+                }
+              );
+
+              // Browser notification (best-effort, only if page not focused)
+              if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.hidden) {
+                try {
+                  new Notification(`WhatsApp: +${phoneDisplay}`, {
+                    body: preview,
+                    icon: '/icons/icon-192.png',
+                    tag: `wa-${data.chatId}`,
+                  });
+                } catch { /* ignore */ }
+              }
+            }
           };
+
+          // Real-time unread clear — fires when any client marks a chat read
+          const handleChatRead = (data: SocketChatReadEvent) => {
+            updateCachedData((draft: any) => {
+              if (!draft?.data) return;
+              const chat = draft.data.find((c: WhatsAppChat) => chatIdsMatch(c.id, data.chatId));
+              if (chat) chat.unreadCount = 0;
+            });
+          };
+
           onSocketEvent('whatsapp:message:new', handleNewMsg);
+          onSocketEvent('whatsapp:chat:read', handleChatRead);
+
           await cacheEntryRemoved;
+
           offSocketEvent('whatsapp:message:new', handleNewMsg);
+          offSocketEvent('whatsapp:chat:read', handleChatRead);
+          window.removeEventListener('wa:active-chat', setActive as EventListener);
         } catch { /* ignore */ }
       },
     }),
@@ -164,26 +324,31 @@ export const whatsappApi = api.injectEndpoints({
       keepUnusedDataFor: 300,
     }),
 
-    // Messages for a specific chat — Socket.io push (no polling needed)
-    getWhatsAppChatMessages: builder.query<ApiResponse<WhatsAppMessage[]>, { chatId: string; limit?: number; before?: string }>({
+    // ============================================================
+    // MESSAGES for a specific chat — Socket.io real-time push
+    // ============================================================
+    getWhatsAppChatMessages: builder.query<
+      ApiResponse<WhatsAppMessage[]>,
+      { chatId: string; limit?: number; before?: string }
+    >({
       query: ({ chatId, limit, before }) => ({
         url: `/whatsapp/chats/${encodeURIComponent(chatId)}/messages`,
         params: { limit, before },
       }),
-      providesTags: (_result, _error, { chatId }) => [{ type: 'WhatsAppMessages' as const, id: chatId }],
+      providesTags: (_result, _error, { chatId }) => [
+        { type: 'WhatsAppMessages' as const, id: chatId },
+      ],
       async onCacheEntryAdded(arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved }) {
         try {
           await cacheDataLoaded;
 
-          const normalizeId = (id: string) => id?.replace('@c.us', '').replace('@g.us', '');
-
           // Append new messages in real-time
           const handleNewMsg = (data: SocketMessageEvent) => {
-            if (normalizeId(data.chatId) !== normalizeId(arg.chatId)) return;
+            if (!chatIdsMatch(data.chatId, arg.chatId)) return;
 
             updateCachedData((draft: any) => {
               if (!draft?.data) return;
-              // Deduplicate by messageId only (reliable)
+              // Deduplicate
               if (data.messageId && draft.data.some((m: WhatsAppMessage) => m.id === data.messageId)) return;
 
               draft.data.push({
@@ -201,7 +366,7 @@ export const whatsappApi = api.injectEndpoints({
 
           // Update message ack status in real-time
           const handleAck = (data: SocketAckEvent) => {
-            if (normalizeId(data.chatId) !== normalizeId(arg.chatId)) return;
+            if (!chatIdsMatch(data.chatId, arg.chatId)) return;
 
             updateCachedData((draft: any) => {
               if (!draft?.data) return;
@@ -219,40 +384,86 @@ export const whatsappApi = api.injectEndpoints({
       },
     }),
 
-    // HRMS DB messages
-    getWhatsAppMessages: builder.query<PaginatedResponse<HrmsMessage>, { page?: number; limit?: number }>({
+    // ============================================================
+    // CONVERSATIONS — DB-backed, used by HRMS tab
+    // Replaces flat message grouping with proper conversation model
+    // ============================================================
+    getWhatsAppConversations: builder.query<
+      PaginatedResponse<WhatsAppConversation>,
+      { page?: number; limit?: number }
+    >({
+      query: (params) => ({ url: '/whatsapp/conversations', params }),
+      providesTags: ['WhatsAppConversations'],
+      keepUnusedDataFor: 120,
+    }),
+
+    // Resolve live chatId for a phone number (LID-safe)
+    resolveWhatsAppChat: builder.query<
+      ApiResponse<{ chatId: string | null; conversationId: string | null }>,
+      string
+    >({
+      query: (phone) => `/whatsapp/resolve/${encodeURIComponent(phone)}`,
+    }),
+
+    // HRMS DB messages (flat list — still available for debugging)
+    getWhatsAppMessages: builder.query<
+      PaginatedResponse<HrmsMessage>,
+      { page?: number; limit?: number }
+    >({
       query: (params) => ({ url: '/whatsapp/messages', params }),
       providesTags: ['WhatsAppHrmsMessages'],
     }),
 
-    // Send text message
-    sendWhatsAppMessage: builder.mutation<ApiResponse<any>, { to: string; message: string; quotedMessageId?: string }>({
+    // Send text message to existing chat (by phone number extracted from chatId)
+    sendWhatsAppMessage: builder.mutation<
+      ApiResponse<any>,
+      { to: string; message: string; quotedMessageId?: string }
+    >({
       query: (body) => ({ url: '/whatsapp/send', method: 'POST', body }),
-      invalidatesTags: ['WhatsAppChats', 'WhatsAppHrmsMessages'],
+      invalidatesTags: ['WhatsAppChats', 'WhatsAppHrmsMessages', 'WhatsAppConversations'],
     }),
-    sendWhatsAppToNumber: builder.mutation<ApiResponse<{ chatId: string }>, { phone: string; message: string }>({
+
+    // Send message to any phone number (creates new chat)
+    sendWhatsAppToNumber: builder.mutation<
+      ApiResponse<{ chatId: string; conversationId?: string }>,
+      { phone: string; message: string }
+    >({
       query: (body) => ({ url: '/whatsapp/send-to-number', method: 'POST', body }),
-      invalidatesTags: ['WhatsAppChats', 'WhatsAppHrmsMessages'],
+      invalidatesTags: ['WhatsAppChats', 'WhatsAppHrmsMessages', 'WhatsAppConversations'],
     }),
-    sendWhatsAppJobLink: builder.mutation<ApiResponse<any>, { phone: string; candidateName?: string; jobTitle: string; jobUrl?: string }>({
+
+    sendWhatsAppJobLink: builder.mutation<
+      ApiResponse<any>,
+      { phone: string; candidateName?: string; jobTitle: string; jobUrl?: string }
+    >({
       query: (body) => ({ url: '/whatsapp/send-job-link', method: 'POST', body }),
-      invalidatesTags: ['WhatsAppChats', 'WhatsAppHrmsMessages'],
+      invalidatesTags: ['WhatsAppChats', 'WhatsAppHrmsMessages', 'WhatsAppConversations'],
     }),
 
     // Send media (image/document)
     sendWhatsAppMedia: builder.mutation<ApiResponse<{ messageId: string }>, FormData>({
-      query: (formData) => ({ url: '/whatsapp/send-media', method: 'POST', body: formData }),
+      query: (formData) => ({
+        url: '/whatsapp/send-media',
+        method: 'POST',
+        body: formData,
+      }),
       invalidatesTags: ['WhatsAppChats'],
     }),
 
-    // Mark chat as read
+    // Mark chat as read — backend emits whatsapp:chat:read to all clients
     markChatAsRead: builder.mutation<ApiResponse<{ success: boolean }>, string>({
-      query: (chatId) => ({ url: `/whatsapp/chats/${encodeURIComponent(chatId)}/read`, method: 'POST' }),
-      invalidatesTags: ['WhatsAppChats'],
+      query: (chatId) => ({
+        url: `/whatsapp/chats/${encodeURIComponent(chatId)}/read`,
+        method: 'POST',
+      }),
+      // Don't invalidate WhatsAppChats — socket event handles it in real-time
     }),
 
     // Search messages in a chat
-    searchWhatsAppMessages: builder.query<ApiResponse<WhatsAppMessage[]>, { chatId: string; query: string }>({
+    searchWhatsAppMessages: builder.query<
+      ApiResponse<WhatsAppMessage[]>,
+      { chatId: string; query: string }
+    >({
       query: ({ chatId, query }) => ({
         url: `/whatsapp/chats/${encodeURIComponent(chatId)}/search`,
         params: { q: query },
@@ -260,7 +471,10 @@ export const whatsappApi = api.injectEndpoints({
     }),
 
     // Download media on demand (lazy)
-    downloadWhatsAppMedia: builder.mutation<ApiResponse<{ mediaUrl: string; mediaFilename: string; mediaMimetype?: string }>, { messageId: string; chatId: string }>({
+    downloadWhatsAppMedia: builder.mutation<
+      ApiResponse<{ mediaUrl: string; mediaFilename: string; mediaMimetype?: string }>,
+      { messageId: string; chatId: string }
+    >({
       query: ({ messageId, chatId }) => ({
         url: `/whatsapp/media/${encodeURIComponent(messageId)}`,
         params: { chatId },
@@ -278,6 +492,8 @@ export const {
   useGetWhatsAppChatsQuery,
   useGetWhatsAppContactsQuery,
   useGetWhatsAppChatMessagesQuery,
+  useGetWhatsAppConversationsQuery,
+  useLazyResolveWhatsAppChatQuery,
   useGetWhatsAppMessagesQuery,
   useSendWhatsAppMessageMutation,
   useSendWhatsAppToNumberMutation,

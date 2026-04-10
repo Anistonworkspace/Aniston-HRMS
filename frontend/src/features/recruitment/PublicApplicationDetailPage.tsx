@@ -15,7 +15,7 @@ import {
 } from '../public-apply/publicApplyApi';
 import { useAiChatMutation } from '../ai-assistant/aiAssistantApi';
 import { useAppSelector } from '../../app/store';
-import { formatDate } from '../../lib/utils';
+import { formatDate, getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 const HR_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
@@ -97,9 +97,7 @@ export default function PublicApplicationDetailPage() {
   const badge = STATUS_BADGE[app.status] || { label: app.status, class: 'badge-neutral' };
 
   /* Resume URL resolution */
-  const resolvedResumeUrl = app.resumeUrl
-    ? (app.resumeUrl.startsWith('http') ? app.resumeUrl : `${import.meta.env.VITE_API_URL || ''}/uploads/${app.resumeUrl}`)
-    : null;
+  const resolvedResumeUrl = app.resumeUrl ? getUploadUrl(app.resumeUrl) : null;
 
   const handleFinalize = async (status: string) => {
     if (!confirm(`Are you sure you want to mark this candidate as ${status}?`)) return;

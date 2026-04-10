@@ -93,7 +93,7 @@ export class PerformanceService {
     const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId } });
     if (!employee) throw new NotFoundError('Employee');
     const reviews = await prisma.performanceReview.findMany({
-      where: { employeeId },
+      where: { employeeId, reviewCycle: { organizationId } },
       orderBy: { createdAt: 'desc' },
       include: { reviewCycle: { select: { name: true, type: true } } },
     });
@@ -186,19 +186,15 @@ export class PerformanceService {
     const review = await prisma.performanceReview.findUnique({
       where: { id: reviewId },
       include: {
-        employee: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            designation: { select: { name: true } },
-            department: { select: { name: true } },
-          },
-        },
         reviewCycle: { select: { name: true, startDate: true, endDate: true } },
       },
     });
     if (!review) throw new NotFoundError('Performance review');
+
+    const employee = await prisma.employee.findUnique({
+      where: { id: review.employeeId },
+      select: { firstName: true, lastName: true, designation: { select: { name: true } }, department: { select: { name: true } } },
+    });
 
     const goals = await prisma.goal.findMany({
       where: { employeeId: review.employeeId, organizationId },
@@ -219,7 +215,7 @@ export class PerformanceService {
     });
 
     const systemPrompt = 'You are an HR manager writing a performance review summary. Based on the employee\'s goals, ratings, and attendance, generate a balanced, constructive review. Return JSON: { summary: string, strengths: string[], areasForImprovement: string[], developmentPlan: string[], overallAssessment: string }';
-    const userPrompt = `Employee: ${review.employee.firstName} ${review.employee.lastName}\nDesignation: ${review.employee.designation?.name || 'N/A'}\nDepartment: ${review.employee.department?.name || 'N/A'}\nReview Cycle: ${review.reviewCycle?.name || 'N/A'}\nSelf Rating: ${review.selfRating || 'Not provided'}\nManager Rating: ${review.managerRating || 'Not provided'}\nOverall Rating: ${review.overallRating || 'Not provided'}\n\nGoals:\n${goals.map(g => `- ${g.title}: ${g.status} (Current: ${g.currentValue || 'N/A'}, Target: ${g.targetValue || 'N/A'})`).join('\n') || 'No goals set'}\n\nAttendance:\n${attendanceStats.map(a => `${a.status}: ${a._count.status} days`).join('\n') || 'No attendance data'}`;
+    const userPrompt = `Employee: ${employee?.firstName || 'N/A'} ${employee?.lastName || ''}\nDesignation: ${employee?.designation?.name || 'N/A'}\nDepartment: ${employee?.department?.name || 'N/A'}\nReview Cycle: ${review.reviewCycle?.name || 'N/A'}\nSelf Rating: ${review.selfRating || 'Not provided'}\nManager Rating: ${review.managerRating || 'Not provided'}\nOverall Rating: ${review.overallRating || 'Not provided'}\n\nGoals:\n${goals.map(g => `- ${g.title}: ${g.status} (Current: ${g.currentValue || 'N/A'}, Target: ${g.targetValue || 'N/A'})`).join('\n') || 'No goals set'}\n\nAttendance:\n${attendanceStats.map(a => `${a.status}: ${a._count.status} days`).join('\n') || 'No attendance data'}`;
 
     const result = await aiService.prompt(organizationId, systemPrompt, userPrompt, 2048);
     if (!result.success) throw new BadRequestError(result.error || 'AI review summary generation failed');

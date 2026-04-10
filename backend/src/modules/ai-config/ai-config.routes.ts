@@ -1,11 +1,12 @@
 import { Router } from 'express';
+import { Role } from '@aniston/shared';
 import { aiConfigController } from './ai-config.controller.js';
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
 
 const router = Router();
 
 router.use(authenticate);
-router.use(authorize('SUPER_ADMIN', 'ADMIN'));
+router.use(authorize(Role.SUPER_ADMIN, Role.ADMIN));
 
 // GET  /api/settings/ai-config       — get active config (key masked)
 router.get('/', (req, res, next) =>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, Shield, Zap, Calendar, Save, Loader2 } from 'lucide-react';
+import { Clock, Shield, Zap, Calendar, Save, Loader2, Sun } from 'lucide-react';
 import { useGetAttendancePolicyQuery, useUpdateAttendancePolicyMutation } from '../attendance/attendanceApi';
 import toast from 'react-hot-toast';
 
@@ -166,6 +166,49 @@ export default function AttendancePolicyTab() {
               <input type="number" value={form.compOffExpiryDays || 30} onChange={e => set('compOffExpiryDays', +e.target.value)}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
               <p className="text-xs text-gray-400 mt-1">Unused comp-off expires after these many days</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Sunday Working Rules */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+        <h3 className="font-semibold text-gray-800 flex items-center gap-2 mb-1">
+          <Sun size={18} className="text-yellow-500" /> Sunday Working Rules
+        </h3>
+        <p className="text-xs text-gray-400 mb-4">
+          Enable Sunday work for selected employees. When an employee marked as "Sunday worker" clocks in on Sunday,
+          the system sends an email to the HR/admin and applies a pay multiplier in payroll.
+        </p>
+        <div className="flex items-center justify-between bg-gray-50 rounded-xl p-4 mb-4">
+          <div>
+            <p className="text-sm font-medium text-gray-700">Allow Sunday Working</p>
+            <p className="text-xs text-gray-400">Enable org-level Sunday attendance. Must also be enabled per employee in their profile.</p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" checked={form.sundayWorkEnabled || false} onChange={e => set('sundayWorkEnabled', e.target.checked)} className="sr-only peer" />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600" />
+          </label>
+        </div>
+        {form.sundayWorkEnabled && (
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sunday Pay Multiplier</label>
+              <input type="number" step="0.1" min={1} max={5} value={form.sundayPayMultiplier ?? 2.0} onChange={e => set('sundayPayMultiplier', +e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" />
+              <p className="text-xs text-gray-400 mt-1">
+                2.0 = double pay · 1.5 = time and a half · Applied to daily rate in payroll for Sunday records flagged as Sunday work.
+              </p>
+            </div>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-xs text-yellow-700">
+              <p className="font-semibold mb-1">How Sunday pay works:</p>
+              <ol className="list-decimal list-inside space-y-1">
+                <li>Enable Sunday working here (org level)</li>
+                <li>Enable it on specific employees in Employee Profile → Employment tab</li>
+                <li>When they clock in on Sunday, attendance is flagged</li>
+                <li>An email is sent to the configured HR/admin email</li>
+                <li>Payroll applies the multiplier to their daily rate for that Sunday</li>
+              </ol>
             </div>
           </div>
         )}

@@ -46,6 +46,10 @@ export const recruitmentApi = api.injectEndpoints({
       query: (body) => ({ url: '/recruitment/offers', method: 'POST', body }),
       invalidatesTags: ['Recruitment'],
     }),
+    updateOfferStatus: builder.mutation<any, { id: string; status: string }>({
+      query: ({ id, status }) => ({ url: `/recruitment/offers/${id}/status`, method: 'PATCH', body: { status } }),
+      invalidatesTags: ['Recruitment'],
+    }),
     getPipelineStats: builder.query<any, void>({
       query: () => '/recruitment/pipeline/stats',
       providesTags: ['Recruitment'],
@@ -68,6 +72,7 @@ export const {
   useAddInterviewScoreMutation,
   useTriggerAIScoringMutation,
   useCreateOfferMutation,
+  useUpdateOfferStatusMutation,
   useGetPipelineStatsQuery,
   useShareJobEmailMutation,
 } = recruitmentApi;

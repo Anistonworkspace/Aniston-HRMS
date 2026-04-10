@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { redis } from '../../lib/redis.js';
+import { bullmqConnection } from '../queues.js';
 import { logger } from '../../lib/logger.js';
 import { prisma } from '../../lib/prisma.js';
 import { documentOcrService } from '../../modules/document-ocr/document-ocr.service.js';
@@ -180,7 +180,7 @@ const worker = new Worker<DocumentOcrJob>(
     }
   },
   {
-    connection: redis,
+    connection: bullmqConnection,
     concurrency: 3,
   }
 );

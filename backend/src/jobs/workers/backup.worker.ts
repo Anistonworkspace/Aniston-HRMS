@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq';
-import { redis } from '../../lib/redis.js';
+import { bullmqConnection } from '../queues.js';
 import { logger } from '../../lib/logger.js';
 import { backupService } from '../../modules/backup/backup.service.js';
 import { prisma } from '../../lib/prisma.js';
@@ -42,7 +42,7 @@ export function startBackupWorker() {
 
       logger.info('[Backup Worker] Scheduled backup cycle complete');
     },
-    { connection: redis, concurrency: 1 }
+    { connection: bullmqConnection, concurrency: 1 }
   );
 
   worker.on('completed', (job) => logger.info(`[Backup Worker] Job ${job.id} completed`));

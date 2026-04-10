@@ -111,7 +111,7 @@ export const PERMISSIONS: PermissionsMap = {
     social_wall: ['create', 'read', 'update', 'delete'],
     onboarding: ['create', 'read', 'update'],
     audit_log: ['read'],
-    document: ['create', 'read', 'update'],
+    document: ['create', 'read', 'update', 'delete'],
     holiday: ['create', 'read', 'update'],
     department: ['create', 'read', 'update'],
     designation: ['create', 'read', 'update'],

@@ -1,5 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import { redis } from '../../lib/redis.js';
+import { bullmqConnection } from '../queues.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
 
@@ -762,7 +763,7 @@ export function startEmailWorker() {
       const html = templateFn(context);
       await sendEmail(to, subject, html);
     },
-    { connection: redis, concurrency: 5 }
+    { connection: bullmqConnection, concurrency: 5 }
   );
 
   worker.on('completed', (job) => {

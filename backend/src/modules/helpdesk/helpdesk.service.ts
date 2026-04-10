@@ -89,7 +89,9 @@ export class HelpdeskService {
     return updated;
   }
 
-  async addComment(ticketId: string, authorId: string, content: string, isInternal: boolean) {
+  async addComment(ticketId: string, authorId: string, content: string, isInternal: boolean, organizationId: string) {
+    const ticket = await prisma.ticket.findFirst({ where: { id: ticketId, organizationId } });
+    if (!ticket) throw new NotFoundError('Ticket');
     return prisma.ticketComment.create({
       data: { ticketId, authorId, content, isInternal },
     });

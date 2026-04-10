@@ -171,30 +171,32 @@ export class HolidayService {
         ? `${holiday.halfDaySession === 'FIRST_HALF' ? 'Morning Off (First Half)' : 'Afternoon Off (Second Half)'}`
         : 'Full Day';
 
-    for (const emp of employees) {
-      try {
-        await enqueueEmail({
-          to: emp.email,
-          subject: `${holiday.type === 'EVENT' ? '📅 Event' : '🎉 Holiday'}: ${holiday.name} — ${holidayDate}`,
-          template: 'holiday-notification',
-          context: {
-            employeeName: emp.firstName,
-            holidayName: holiday.name,
-            holidayDate,
-            typeLabel,
-            timingInfo,
-            description: holiday.description || '',
-            orgName: org?.name || 'Aniston Technologies',
-            isEvent: holiday.type === 'EVENT',
-            color: holiday.color || (holiday.type === 'EVENT' ? '#F97316' : '#4F46E5'),
-          },
-        });
-      } catch (err) {
-        logger.error(`Failed to send holiday email to ${emp.email}:`, err);
-      }
-    }
+    const subject = `${holiday.type === 'EVENT' ? '📅 Event' : '🎉 Holiday'}: ${holiday.name} — ${holidayDate}`;
+    const context = {
+      holidayName: holiday.name,
+      holidayDate,
+      typeLabel,
+      timingInfo,
+      description: holiday.description || '',
+      orgName: org?.name || 'Aniston Technologies',
+      isEvent: holiday.type === 'EVENT',
+      color: holiday.color || (holiday.type === 'EVENT' ? '#F97316' : '#4F46E5'),
+    };
 
-    logger.info(`Holiday notification sent to ${employees.length} employees for: ${holiday.name}`);
+    await Promise.all(
+      employees
+        .filter((emp) => !!emp.email)
+        .map((emp) =>
+          enqueueEmail({
+            to: emp.email!,
+            subject,
+            template: 'holiday-notification',
+            context: { ...context, employeeName: emp.firstName },
+          }).catch((err) => logger.error(`[Holiday] Failed to queue notification to ${emp.email}:`, err))
+        )
+    );
+
+    logger.info(`Holiday notification queued for ${employees.length} employees for: ${holiday.name}`);
   }
 }
 

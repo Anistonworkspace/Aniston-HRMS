@@ -191,6 +191,9 @@ model Employee {
   permissionOverride     PermissionOverride?
   headOfDepartments      Department[]          @relation("DepartmentHead")
   hybridSchedule         HybridSchedule?
+  // Sunday / special-day work override
+  allowSundayWork        Boolean               @default(false)  // Employee-level override for Sunday attendance
+
   // Phase 2B
   isPhoneVerified        Boolean               @default(false)
   leavePolicyId          String?
@@ -1456,11 +1459,43 @@ model WhatsAppMessage {
   mediaMimetype     String?
   organizationId    String
   createdAt         DateTime            @default(now())
+  conversationId    String?
+  conversation      WhatsAppConversation? @relation(fields: [conversationId], references: [id])
 
   @@unique([organizationId, externalMessageId])
   @@index([organizationId, createdAt])
   @@index([organizationId, to])
   @@index([organizationId, fromNumber])
+  @@index([conversationId])
+}
+
+enum WaConversationStatus {
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+model WhatsAppConversation {
+  id               String                @id @default(uuid())
+  organizationId   String
+  contactPhone     String                // Normalized phone (e.g. 917060821855)
+  providerChatId   String?               // WhatsApp chat ID (e.g. 917060821855@c.us or LID)
+  contactName      String?
+  lastMessageAt    DateTime?
+  lastMessagePreview String?
+  unreadCount      Int                   @default(0)
+  status           WaConversationStatus  @default(OPEN)
+  templateSource   WaTemplateType?       // What triggered this conversation
+  referenceId      String?               // e.g. invitationId or applicationId
+  referenceType    String?               // e.g. "invitation" | "application"
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  messages         WhatsAppMessage[]
+
+  @@unique([organizationId, contactPhone])
+  @@index([organizationId, lastMessageAt])
+  @@index([organizationId, status])
 }
 
 // =====================
@@ -2668,6 +2703,9 @@ model AttendancePolicy {
   weekOffDays           Int[]    @default([0])
   // Auto-absent
   autoAbsentAfterHours  Int      @default(4)
+  // Sunday / special-day working
+  sundayWorkEnabled     Boolean  @default(false)    // Allow selected employees to work on Sunday
+  sundayPayMultiplier   Decimal  @db.Decimal(3, 2) @default(2.0)  // e.g. 2.0 = double pay
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

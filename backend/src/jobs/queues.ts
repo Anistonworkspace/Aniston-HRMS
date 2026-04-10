@@ -1,8 +1,16 @@
 import { Queue } from 'bullmq';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
+import { env } from '../config/env.js';
 
-const connection = { connection: redis };
+// BullMQ has its own nested ioredis, causing type incompatibility with the shared Redis
+// instance. Pass connection options (URL-based) so BullMQ resolves its own connection.
+export const bullmqConnection = {
+  url: env.REDIS_URL,
+  maxRetriesPerRequest: null as null,
+};
+
+const connection = { connection: bullmqConnection };
 
 export const emailQueue = new Queue('email', connection);
 export const notificationQueue = new Queue('notification', connection);
@@ -24,7 +32,7 @@ logger.info('✅ BullMQ queues initialized');
       await backupQueue.removeRepeatableByKey(job.key);
     }
     await backupQueue.add('scheduled-backup', {}, {
-      repeat: { cron: '0 2 * * 0' }, // 02:00 UTC every Sunday
+      repeat: { pattern: '0 2 * * 0' }, // 02:00 UTC every Sunday
     });
     logger.info('✅ Backup cron job scheduled (every Sunday at 02:00 UTC — DB + Files)');
   } catch (err) {
@@ -42,11 +50,11 @@ logger.info('✅ BullMQ queues initialized');
     }
     // Auto-close stale records at 23:59 IST daily
     await attendanceCronQueue.add('auto-close-stale', {}, {
-      repeat: { cron: '29 18 * * *' }, // 18:29 UTC = 23:59 IST
+      repeat: { pattern: '29 18 * * *' }, // 18:29 UTC = 23:59 IST
     });
     // Auto-mark absent at 00:04 IST daily (for previous day)
     await attendanceCronQueue.add('auto-mark-absent', {}, {
-      repeat: { cron: '34 18 * * *' }, // 18:34 UTC = 00:04 IST
+      repeat: { pattern: '34 18 * * *' }, // 18:34 UTC = 00:04 IST
     });
     logger.info('✅ Attendance cron jobs scheduled');
   } catch (err) {
@@ -91,7 +99,7 @@ export async function enqueueDocumentOcr(documentId: string, organizationId: str
 }
 
 // Document digest: batched HR email (5-min debounce per employee)
-export const documentDigestQueue = new Queue('document-digest', connection);
+export const documentDigestQueue = new Queue('document-digest', { connection: bullmqConnection });
 
 export async function enqueueDocumentDigest(employeeId: string, organizationId: string, documentInfo: { type: string; name: string }) {
   const key = `doc-digest:${organizationId}:${employeeId}`;

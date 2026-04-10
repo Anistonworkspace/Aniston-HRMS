@@ -1,5 +1,15 @@
 import path from 'path';
 import express from 'express';
+
+// ── BigInt JSON serialization fix ──────────────────────────────────────────────
+// Prisma returns BigInt for schema fields declared as BigInt (e.g. sizeBytes).
+// JSON.stringify throws "Do not know how to serialize a BigInt" by default.
+// Patching toJSON on BigInt.prototype is the Node.js standard workaround and
+// ensures res.json() never throws on BigInt values from Prisma queries.
+(BigInt.prototype as any).toJSON = function () {
+  return this.toString();
+};
+// ──────────────────────────────────────────────────────────────────────────────
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';

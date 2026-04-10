@@ -22,9 +22,25 @@ export const performanceApi = api.injectEndpoints({
       query: (params) => ({ url: '/performance/reviews', params: params || {} }),
       providesTags: [{ type: 'Performance', id: 'REVIEWS' }],
     }),
+    createReview: builder.mutation<any, any>({
+      query: (body) => ({ url: '/performance/reviews', method: 'POST', body }),
+      invalidatesTags: [{ type: 'Performance', id: 'REVIEWS' }],
+    }),
+    updateReview: builder.mutation<any, { id: string; data: any }>({
+      query: ({ id, data }) => ({ url: `/performance/reviews/${id}`, method: 'PATCH', body: data }),
+      invalidatesTags: [{ type: 'Performance', id: 'REVIEWS' }],
+    }),
     getCycles: builder.query<any, void>({
       query: () => '/performance/cycles',
       providesTags: [{ type: 'Performance', id: 'CYCLES' }],
+    }),
+    createCycle: builder.mutation<any, any>({
+      query: (body) => ({ url: '/performance/cycles', method: 'POST', body }),
+      invalidatesTags: [{ type: 'Performance', id: 'CYCLES' }],
+    }),
+    updateCycle: builder.mutation<any, { id: string; data: any }>({
+      query: ({ id, data }) => ({ url: `/performance/cycles/${id}`, method: 'PATCH', body: data }),
+      invalidatesTags: [{ type: 'Performance', id: 'CYCLES' }],
     }),
   }),
 });
@@ -34,5 +50,9 @@ export const {
   useCreateGoalMutation,
   useUpdateGoalMutation,
   useGetReviewsQuery,
+  useCreateReviewMutation,
+  useUpdateReviewMutation,
   useGetCyclesQuery,
+  useCreateCycleMutation,
+  useUpdateCycleMutation,
 } = performanceApi;

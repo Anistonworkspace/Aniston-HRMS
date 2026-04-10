@@ -4,7 +4,7 @@ import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumen
 import { useVerifyDocumentMutation } from './documentApi';
 import { useVerifyKycMutation } from '../kyc/kycApi';
 import toast from 'react-hot-toast';
-import { cn } from '../../lib/utils';
+import { cn, getUploadUrl } from '../../lib/utils';
 
 interface Props {
   documentId: string;
@@ -74,8 +74,6 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
     }
   };
 
-  const API_URL = import.meta.env.VITE_API_URL === '/api' ? '' : (import.meta.env.VITE_API_URL?.replace('/api', '') || '');
-
   return (
     <div className="fixed inset-0 z-50 flex">
       {/* Backdrop */}
@@ -100,7 +98,7 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
           {fileUrl && (
             <div className="layer-card p-4">
               <p className="text-xs font-medium text-gray-500 mb-2">Document Preview</p>
-              <a href={`${API_URL}${fileUrl}`} target="_blank" rel="noopener noreferrer"
+              <a href={getUploadUrl(fileUrl)} target="_blank" rel="noopener noreferrer"
                 className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1.5">
                 <Eye size={14} /> View Original Document
               </a>

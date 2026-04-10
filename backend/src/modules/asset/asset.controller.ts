@@ -13,7 +13,7 @@ export class AssetController {
 
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      const asset = await assetService.getById(req.params.id);
+      const asset = await assetService.getById(req.params.id, req.user!.organizationId);
       res.json({ success: true, data: asset });
     } catch (err) { next(err); }
   }
@@ -62,7 +62,7 @@ export class AssetController {
 
   async getAssignments(req: Request, res: Response, next: NextFunction) {
     try {
-      const assignments = await assetService.getAssignments(req.params.id);
+      const assignments = await assetService.getAssignments(req.params.id, req.user!.organizationId);
       res.json({ success: true, data: assignments });
     } catch (err) { next(err); }
   }
@@ -76,7 +76,7 @@ export class AssetController {
 
   async getEmployeeAssets(req: Request, res: Response, next: NextFunction) {
     try {
-      const assets = await assetService.getEmployeeAssets(req.params.employeeId);
+      const assets = await assetService.getEmployeeAssets(req.params.employeeId, req.user!.organizationId);
       res.json({ success: true, data: assets });
     } catch (err) { next(err); }
   }

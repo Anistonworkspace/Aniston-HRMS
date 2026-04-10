@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
-  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye,
+  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2,
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery } from './employeeApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery } from '../attendance/attendanceApi';
@@ -14,7 +14,7 @@ import { useGetHolidaysQuery } from '../leaves/leaveApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation, useGetSalaryHistoryQuery, useSaveSalaryStructureDynamicMutation } from '../payroll/payrollApi';
 import { useGetComponentsQuery } from '../payroll/componentMasterApi';
 import { useGetSalaryTemplatesQuery } from '../payroll/salaryTemplateApi';
-import { useUploadDocumentMutation, useVerifyDocumentMutation } from '../documents/documentApi';
+import { useUploadDocumentMutation, useVerifyDocumentMutation, useDeleteDocumentMutation } from '../documents/documentApi';
 // Letter issuance moved to Policies module
 import { useGetInternProfileQuery, useGetAchievementLettersQuery, useIssueAchievementLetterMutation } from '../intern/internApi';
 import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } from '../workforce/workforceApi';
@@ -2006,7 +2006,10 @@ const DOC_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID', 
 function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: string; documents: any[]; isManagement: boolean }) {
   const [uploadDoc, { isLoading: uploading }] = useUploadDocumentMutation();
   const [verifyDoc] = useVerifyDocumentMutation();
+  const [deleteDoc] = useDeleteDocumentMutation();
   const [verifyKyc, { isLoading: verifyingAll }] = useVerifyKycMutation();
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const { data: ocrSummaryRes } = useGetEmployeeOcrSummaryQuery(employeeId, { skip: !isManagement });
   const [showUpload, setShowUpload] = useState(false);
   const [ocrDocId, setOcrDocId] = useState<string | null>(null);
@@ -2054,8 +2057,20 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
     } catch { toast.error('Failed to verify'); }
   };
 
-  // Build base URL for file access — on production VITE_API_URL=/api so base becomes '', on dev it becomes http://localhost:4000
-  const API_URL = import.meta.env.VITE_API_URL === '/api' ? '' : (import.meta.env.VITE_API_URL?.replace('/api', '') || '');
+  const handleDelete = async () => {
+    if (!confirmDeleteId) return;
+    setDeleting(true);
+    try {
+      await deleteDoc(confirmDeleteId).unwrap();
+      toast.success('Document deleted');
+      setConfirmDeleteId(null);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to delete document');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState('');
 
@@ -2143,7 +2158,7 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
               )}
 
               {isManagement && doc.fileUrl && (
-                <button onClick={() => { setPreviewUrl(`${API_URL}${doc.fileUrl}`); setPreviewName(doc.name); }}
+                <button onClick={() => { setPreviewUrl(getUploadUrl(doc.fileUrl)); setPreviewName(doc.name); }}
                   className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1 mb-2">
                   <FileText size={12} /> View Document
                 </button>
@@ -2204,11 +2219,22 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
                 </div>
               )}
 
-              {/* HR verify/reject actions */}
-              {isManagement && doc.status === 'PENDING' && (
+              {/* HR verify/reject/delete actions */}
+              {isManagement && (
                 <div className="flex gap-2 mt-2 pt-2 border-t border-gray-50">
-                  <button onClick={() => handleVerify(doc.id, 'VERIFIED')} className="text-xs text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg">Verify</button>
-                  <button onClick={() => handleVerify(doc.id, 'REJECTED')} className="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg">Reject</button>
+                  {doc.status === 'PENDING' && (
+                    <>
+                      <button onClick={() => handleVerify(doc.id, 'VERIFIED')} className="text-xs text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg">Verify</button>
+                      <button onClick={() => handleVerify(doc.id, 'REJECTED')} className="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg">Reject</button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => setConfirmDeleteId(doc.id)}
+                    className="ml-auto text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                    title="Delete document"
+                  >
+                    <Trash2 size={12} /> Delete
+                  </button>
                 </div>
               )}
             </div>
@@ -2271,6 +2297,43 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
           fileUrl={ocrDocFileUrl}
           onClose={() => setOcrDocId(null)}
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !deleting && setConfirmDeleteId(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-[420px] max-w-[90vw]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <Trash2 size={18} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Delete Document</h3>
+                <p className="text-xs text-gray-500 mt-0.5">This action cannot be undone.</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 mb-5">
+              Are you sure you want to delete this document? The file will be soft-deleted and an audit log entry will be created.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                disabled={deleting}
+                className="btn-secondary text-sm px-4"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

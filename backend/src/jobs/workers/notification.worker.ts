@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { redis } from '../../lib/redis.js';
+import { bullmqConnection } from '../queues.js';
 import { logger } from '../../lib/logger.js';
 import { emitToUser } from '../../sockets/index.js';
 
@@ -35,7 +35,7 @@ export function startNotificationWorker() {
         throw err;
       }
     },
-    { connection: redis, concurrency: 10 }
+    { connection: bullmqConnection, concurrency: 10 }
   );
 
   worker.on('failed', (job, err) => {

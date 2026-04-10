@@ -155,7 +155,7 @@ export class DocumentController {
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      await documentService.remove(req.params.id);
+      await documentService.remove(req.params.id, req.user!.userId, req.user!.organizationId);
       res.json({ success: true, data: null, message: 'Document deleted' });
     } catch (err) { next(err); }
   }

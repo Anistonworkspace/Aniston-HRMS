@@ -262,6 +262,17 @@ export class WhatsAppService {
           },
         });
 
+        // Upsert conversation and increment unread count
+        const fromPhone = normalizePhone(msg.from || '');
+        await this._upsertConversation(fromPhone, organizationId, msg.from, {
+          lastMessagePreview: (msg.body || '').slice(0, 100),
+          lastMessageAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
+        });
+        await prisma.whatsAppConversation.updateMany({
+          where: { organizationId, contactPhone: fromPhone },
+          data: { unreadCount: { increment: 1 } },
+        }).catch(() => {});
+
         // Include messageId for deduplication + quoted message info
         const quotedMsg = msg.hasQuotedMsg ? await msg.getQuotedMessage().catch(() => null) : null;
 
@@ -320,7 +331,7 @@ export class WhatsAppService {
 
   // ===================== SEND MESSAGES =====================
 
-  async sendMessage(data: SendMessageInput, organizationId: string, userId?: string) {
+  async sendMessage(data: SendMessageInput, organizationId: string, userId?: string, templateType: any = 'GENERAL') {
     this._ensureReady();
 
     const phone = normalizePhone(data.to);
@@ -331,6 +342,13 @@ export class WhatsAppService {
       const numberId = await this._client.getNumberId(rawChatId.replace('@c.us', ''));
       if (!numberId) throw new BadRequestError(`The number ${data.to} is not registered on WhatsApp`);
       const chatId = numberId._serialized;
+
+      // Upsert conversation record
+      await this._upsertConversation(phone, organizationId, chatId, {
+        lastMessagePreview: data.message,
+        lastMessageAt: new Date(),
+        templateSource: templateType,
+      });
 
       // Support reply/quote
       const options: any = {};
@@ -350,7 +368,7 @@ export class WhatsAppService {
           fromNumber: session.phoneNumber || '',
           to: phone,
           message: data.message,
-          templateType: 'GENERAL',
+          templateType,
           status: 'SENT',
           sentAt: new Date(),
           organizationId,
@@ -377,11 +395,11 @@ export class WhatsAppService {
           entity: 'WhatsAppMessage',
           entityId: msg.id,
           action: 'CREATE',
-          newValue: { to: phone, templateType: 'GENERAL', messageLength: data.message.length },
+          newValue: { to: phone, templateType, messageLength: data.message.length },
         });
       }
 
-      return msg;
+      return { ...msg, chatId };
     } catch (error: any) {
       // Log failed attempt
       const session = await prisma.whatsAppSession.findFirst({ where: { organizationId } });
@@ -392,7 +410,7 @@ export class WhatsAppService {
           fromNumber: session?.phoneNumber || '',
           to: phone,
           message: data.message,
-          templateType: 'GENERAL',
+          templateType,
           status: 'FAILED',
           error: error.message?.slice(0, 500),
           organizationId,
@@ -406,7 +424,7 @@ export class WhatsAppService {
     const jobUrl = data.jobUrl || 'https://hr.anistonav.com/jobs';
     const name = data.candidateName || 'Candidate';
     const message = `Hi ${name}! We'd like you to apply for *${data.jobTitle}* at Aniston Technologies.\n\nPlease click the link to apply: ${jobUrl}\n\nThank you!\n— HR Team, Aniston Technologies LLP`;
-    return this.sendMessage({ to: data.phone, message }, organizationId, userId);
+    return this.sendMessage({ to: data.phone, message }, organizationId, userId, 'JOB_LINK');
   }
 
   async sendToNumber(phone: string, message: string, organizationId: string, userId?: string) {
@@ -418,6 +436,12 @@ export class WhatsAppService {
       const numberId = await this._client.getNumberId(cleanPhone);
       if (!numberId) throw new BadRequestError(`The number ${phone} is not registered on WhatsApp`);
       const chatId = numberId._serialized;
+
+      // Upsert conversation record
+      const conversationId = await this._upsertConversation(cleanPhone, organizationId, chatId, {
+        lastMessagePreview: message,
+        lastMessageAt: new Date(),
+      });
 
       const sentMsg = await this._client.sendMessage(chatId, message);
       const externalId = sentMsg?.id?._serialized || null;
@@ -462,7 +486,7 @@ export class WhatsAppService {
         });
       }
 
-      return { success: true, chatId };
+      return { success: true, chatId, conversationId };
     } catch (err: any) {
       throw new BadRequestError(`Failed to send: ${err.message}`);
     }
@@ -556,6 +580,24 @@ export class WhatsAppService {
           profilePicUrl,
         };
       }));
+
+      // Try to merge DB conversation metadata (unread counts, contact names)
+      try {
+        const convs = await prisma.whatsAppConversation.findMany({
+          where: { organizationId },
+          select: { providerChatId: true, contactPhone: true, contactName: true, unreadCount: true, lastMessagePreview: true },
+        });
+        const convByChat = new Map(convs.filter(c => c.providerChatId).map(c => [c.providerChatId!, c]));
+        for (const chat of result) {
+          const conv = convByChat.get(chat.id);
+          if (conv) {
+            // Use DB unread count as fallback if WhatsApp client returns 0 (stale)
+            if (chat.unreadCount === 0 && conv.unreadCount > 0) {
+              chat.unreadCount = conv.unreadCount;
+            }
+          }
+        }
+      } catch { /* ignore — DB merge is best-effort */ }
 
       // Cache
       try { await redis.set(cacheKey, JSON.stringify(result), 'EX', CHATS_CACHE_TTL); } catch { /* ignore */ }
@@ -651,7 +693,7 @@ export class WhatsAppService {
 
   // ===================== LAZY MEDIA DOWNLOAD =====================
 
-  async downloadMedia(messageId: string, chatId: string) {
+  async downloadMedia(messageId: string, chatId: string, organizationId?: string) {
     this._ensureReady();
 
     const uploadsDir = storageService.getAbsoluteDir('whatsapp');
@@ -687,8 +729,18 @@ export class WhatsAppService {
       const filePath = path.join(uploadsDir, filename);
       fs.writeFileSync(filePath, Buffer.from(media.data, 'base64'));
 
+      const mediaUrl = storageService.buildUrl('whatsapp', filename);
+
+      // Update DB record with mediaUrl
+      if (organizationId) {
+        await prisma.whatsAppMessage.updateMany({
+          where: { organizationId, externalMessageId: messageId },
+          data: { mediaUrl, mediaMimetype: media.mimetype },
+        }).catch(() => {});
+      }
+
       return {
-        mediaUrl: storageService.buildUrl('whatsapp', filename),
+        mediaUrl,
         mediaFilename: media.filename || filename,
         mediaMimetype: media.mimetype,
       };
@@ -699,7 +751,7 @@ export class WhatsAppService {
 
   // ===================== MARK AS READ =====================
 
-  async markChatAsRead(chatId: string) {
+  async markChatAsRead(chatId: string, organizationId: string): Promise<{ success: boolean }> {
     this._ensureReady();
 
     const normalizedChatId = this._normalizeChatId(chatId);
@@ -708,8 +760,13 @@ export class WhatsAppService {
       const chat = await this._client.getChatById(normalizedChatId);
       await chat.sendSeen();
 
-      if (this._orgId) {
-        await redis.del(`wa:chats:${this._orgId}`);
+      if (organizationId) {
+        await redis.del(`wa:chats:${organizationId}`);
+        emitToOrg(organizationId, 'whatsapp:chat:read', { chatId: normalizedChatId });
+        await prisma.whatsAppConversation.updateMany({
+          where: { organizationId, providerChatId: normalizedChatId },
+          data: { unreadCount: 0 },
+        }).catch(() => {});
       }
 
       return { success: true };
@@ -746,6 +803,73 @@ export class WhatsAppService {
     } catch (err: any) {
       throw new BadRequestError(`Search failed: ${err.message}`);
     }
+  }
+
+  // ===================== CONVERSATIONS (DB-backed) =====================
+
+  async getConversations(organizationId: string, page = 1, limit = 50) {
+    const skip = (page - 1) * limit;
+    const [conversations, total] = await Promise.all([
+      prisma.whatsAppConversation.findMany({
+        where: { organizationId, status: { not: 'ARCHIVED' } },
+        orderBy: { lastMessageAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { direction: true, message: true, status: true, sentAt: true, createdAt: true },
+          },
+        },
+      }),
+      prisma.whatsAppConversation.count({ where: { organizationId } }),
+    ]);
+
+    return {
+      data: conversations.map(c => ({
+        id: c.id,
+        contactPhone: c.contactPhone,
+        providerChatId: c.providerChatId,
+        contactName: c.contactName,
+        lastMessageAt: c.lastMessageAt,
+        lastMessagePreview: c.lastMessagePreview || c.messages[0]?.message?.slice(0, 100),
+        unreadCount: c.unreadCount,
+        status: c.status,
+        templateSource: c.templateSource,
+        lastMessageDirection: c.messages[0]?.direction,
+        lastMessageStatus: c.messages[0]?.status,
+      })),
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  async getOrResolveChatByPhone(phone: string, organizationId: string): Promise<{ chatId: string | null; conversationId: string | null }> {
+    this._ensureReady();
+    const normalized = normalizePhone(phone);
+
+    // 1. Check DB conversation first (fastest, handles LID)
+    try {
+      const conv = await prisma.whatsAppConversation.findUnique({
+        where: { organizationId_contactPhone: { organizationId, contactPhone: normalized } },
+        select: { id: true, providerChatId: true },
+      });
+      if (conv?.providerChatId) {
+        return { chatId: conv.providerChatId, conversationId: conv.id };
+      }
+    } catch { /* ignore */ }
+
+    // 2. Try resolving via WhatsApp client (getNumberId handles LID)
+    try {
+      const numberId = await this._client.getNumberId(normalized);
+      if (numberId) {
+        const resolvedChatId = numberId._serialized;
+        const convId = await this._upsertConversation(normalized, organizationId, resolvedChatId);
+        return { chatId: resolvedChatId, conversationId: convId };
+      }
+    } catch { /* ignore */ }
+
+    return { chatId: null, conversationId: null };
   }
 
   // ===================== CONTACTS (with Redis cache) =====================
@@ -1035,6 +1159,46 @@ export class WhatsAppService {
       try { fs.accessSync(p, fs.constants.X_OK); return p; } catch { /* skip */ }
     }
     return undefined;
+  }
+
+  private async _upsertConversation(
+    contactPhone: string,
+    organizationId: string,
+    providerChatId?: string,
+    updates?: {
+      lastMessagePreview?: string;
+      lastMessageAt?: Date;
+      templateSource?: any;
+      referenceId?: string;
+      referenceType?: string;
+    }
+  ): Promise<string> {
+    const normalized = normalizePhone(contactPhone);
+    try {
+      const conv = await prisma.whatsAppConversation.upsert({
+        where: { organizationId_contactPhone: { organizationId, contactPhone: normalized } },
+        create: {
+          organizationId,
+          contactPhone: normalized,
+          providerChatId: providerChatId || null,
+          lastMessageAt: updates?.lastMessageAt || new Date(),
+          lastMessagePreview: updates?.lastMessagePreview?.slice(0, 100),
+          templateSource: updates?.templateSource,
+          referenceId: updates?.referenceId,
+          referenceType: updates?.referenceType,
+        },
+        update: {
+          ...(providerChatId ? { providerChatId } : {}),
+          ...(updates?.lastMessageAt ? { lastMessageAt: updates.lastMessageAt } : {}),
+          ...(updates?.lastMessagePreview ? { lastMessagePreview: updates.lastMessagePreview.slice(0, 100) } : {}),
+          updatedAt: new Date(),
+        },
+      });
+      return conv.id;
+    } catch (err) {
+      logger.warn('_upsertConversation failed:', err);
+      return '';
+    }
   }
 
   private _getMediaExtension(mimetype: string, msgType: string): string {

@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { emitToOrg, invalidateDashboardCache } from '../../sockets/index.js';
-import { enqueueEmail } from '../../jobs/queues.js';
+import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { logger } from '../../lib/logger.js';
 import type { ClockInInput, ClockOutInput, GPSTrailBatchInput, AttendanceQuery, MarkAttendanceInput } from './attendance.validation.js';
@@ -115,13 +115,31 @@ export class AttendanceService {
       data.notes = `${data.notes || ''} [Working on optional holiday: ${holiday.name}]`.trim();
     }
 
-    // ===== PHASE 3: Warn on weekend clock-in (uses policy weekOffDays, default Sunday only) =====
+    // ===== PHASE 3: Weekend/Sunday clock-in check =====
     const policy = await prisma.attendancePolicy.findUnique({ where: { organizationId } });
     const weekOffDays = new Set(policy?.weekOffDays || [0]); // 0=Sunday
     const dayOfWeek = today.getDay();
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const isSunday = dayOfWeek === 0;
+
     if (weekOffDays.has(dayOfWeek)) {
-      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      data.notes = `${data.notes || ''} [Weekend clock-in: ${dayNames[dayOfWeek]}]`.trim();
+      // Check employee-level Sunday work override
+      const isSundayWorker = isSunday && (policy as any)?.sundayWorkEnabled && employee.allowSundayWork;
+      if (isSunday && !isSundayWorker) {
+        throw new BadRequestError(
+          'Sunday is a week off. Contact HR to enable Sunday working on your profile if you need to work today.'
+        );
+      }
+      if (isSundayWorker) {
+        data.notes = `${data.notes || ''} [Sunday work — pay multiplier: ${(policy as any)?.sundayPayMultiplier ?? 2.0}x]`.trim();
+        // Fire-and-forget email notification to HR
+        this._notifySundayAttendance(employee, organizationId, (policy as any)?.sundayPayMultiplier ?? 2.0).catch(err =>
+          logger.warn(`[Attendance] Sunday notification email failed for ${employeeId}: ${err.message}`)
+        );
+      } else if (!isSunday) {
+        // Non-Sunday week-off day (e.g., Saturday)
+        data.notes = `${data.notes || ''} [Weekend clock-in: ${dayNames[dayOfWeek]}]`.trim();
+      }
     }
 
     // Atomic check-and-validate to prevent race conditions (double-tap / concurrent requests)
@@ -2234,26 +2252,24 @@ export class AttendanceService {
       }
     }
 
-    // Create notification for HR when critical anomalies are found
+    // Notify HR users in real-time when critical/high anomalies are detected
     if (created > 0) {
       try {
         const criticalCount = anomalies.filter(a => a.severity === 'CRITICAL' || a.severity === 'HIGH').length;
         if (criticalCount > 0) {
-          // Find all HR/Admin users in the organization to notify
           const hrUsers = await prisma.user.findMany({
             where: { role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, employee: { organizationId } },
             select: { id: true },
           });
           for (const hrUser of hrUsers) {
-            await prisma.notification.create({
-              data: {
-                userId: hrUser.id,
-                type: 'ATTENDANCE_ANOMALY',
-                title: `${criticalCount} critical attendance anomal${criticalCount > 1 ? 'ies' : 'y'} detected`,
-                message: `${created} new anomalies found for ${date}. ${criticalCount} are critical/high severity and require immediate review.`,
-                data: { date, totalDetected: anomalies.length, created, criticalCount },
-              },
-            }).catch(() => {}); // Don't fail if notification table structure differs
+            enqueueNotification({
+              userId: hrUser.id,
+              organizationId,
+              title: `${criticalCount} critical attendance anomal${criticalCount > 1 ? 'ies' : 'y'} detected`,
+              message: `${created} new anomalies found for ${date}. ${criticalCount} require immediate review.`,
+              type: 'ATTENDANCE_ANOMALY',
+              link: '/command-center',
+            }).catch(() => {}); // Non-blocking: don't fail anomaly detection on notification error
           }
         }
       } catch { /* notification failure should not block anomaly detection */ }
@@ -2335,6 +2351,42 @@ export class AttendanceService {
       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
       Math.sin(dLon / 2) * Math.sin(dLon / 2);
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /**
+   * Fire-and-forget email to HR/admin when a Sunday-working employee clocks in.
+   * Reads recipient from Organization.adminNotificationEmail (falling back to payrollEmail).
+   */
+  private async _notifySundayAttendance(employee: any, organizationId: string, multiplier: number) {
+    try {
+      const org = await prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { adminNotificationEmail: true, payrollEmail: true, name: true, settings: true },
+      });
+
+      // Recipient: admin notification email > payroll email > configured SMTP sender
+      const smtpConfig = (org?.settings as any)?.email;
+      const recipient = org?.adminNotificationEmail || org?.payrollEmail || smtpConfig?.fromAddress;
+      if (!recipient) {
+        logger.warn(`[Attendance] Sunday notification: no recipient email configured for org ${organizationId}. Set Admin Notification Email in Settings.`);
+        return;
+      }
+
+      const { enqueueEmail } = await import('../../jobs/queues.js');
+      const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      await enqueueEmail({
+        to: recipient,
+        subject: `Sunday Attendance — ${employee.firstName} ${employee.lastName} clocked in`,
+        template: 'generic',
+        context: {
+          title: 'Sunday Attendance Notification',
+          message: `<strong>${employee.firstName} ${employee.lastName}</strong> (${employee.employeeCode}) has clocked in on <strong>${today}</strong>.<br/><br/>This employee is marked as a Sunday worker. The payroll system will apply a <strong>${multiplier}x pay multiplier</strong> for today's attendance.<br/><br/><span style="color:#6B7280;font-size:12px;">Sent automatically by Aniston HRMS &middot; ${org?.name || 'Aniston Technologies'}</span>`,
+        },
+      });
+      logger.info(`[Attendance] Sunday notification queued for ${employee.employeeCode} → ${recipient}`);
+    } catch (err: any) {
+      logger.warn(`[Attendance] Sunday notification setup failed: ${err.message}`);
+    }
   }
 }
 

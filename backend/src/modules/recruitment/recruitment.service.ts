@@ -437,6 +437,13 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
   // ==================
 
   async shareJobViaEmail(jobId: string, email: string, customMessage?: string) {
+    // Validate recipient is a proper email address
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email.trim())) {
+      throw new BadRequestError('Invalid recipient email address');
+    }
+    email = email.trim().toLowerCase();
+
     const job = await prisma.jobOpening.findUnique({
       where: { id: jobId },
       include: { organization: { select: { name: true } } },

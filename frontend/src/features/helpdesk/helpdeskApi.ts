@@ -20,7 +20,7 @@ export const helpdeskApi = api.injectEndpoints({
     }),
     updateTicket: builder.mutation<any, { id: string; data: any }>({
       query: ({ id, data }) => ({ url: `/helpdesk/${id}`, method: 'PATCH', body: data }),
-      invalidatesTags: ['Helpdesk'],
+      invalidatesTags: (result, error, { id }) => [{ type: 'Helpdesk', id }, 'Helpdesk'],
     }),
     addComment: builder.mutation<any, { id: string; content: string; isInternal?: boolean }>({
       query: ({ id, ...body }) => ({ url: `/helpdesk/${id}/comment`, method: 'POST', body }),

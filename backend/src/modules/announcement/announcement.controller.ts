@@ -25,7 +25,7 @@ export class AnnouncementController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateAnnouncementSchema.parse(req.body);
-      const announcement = await announcementService.update(req.params.id, data);
+      const announcement = await announcementService.update(req.params.id, data, req.user!.organizationId);
       res.json({ success: true, data: announcement });
     } catch (err) {
       next(err);

@@ -13,8 +13,8 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetLocationsQuery as useGetSettingsLocationsQuery, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation } from './settingsApi';
-import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation } from './settingsApi';
+import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useUpdateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
 import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useRefreshWhatsAppQrMutation, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation, useGetWhatsAppContactsQuery, useGetWhatsAppMessagesQuery } from '../whatsapp/whatsappApi';
 import { cn, getInitials, getUploadUrl } from '../../lib/utils';
@@ -185,12 +185,19 @@ function OrgSettings() {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1">{t('settings.adminEmail')}</label>
+          <label className="block text-sm font-medium text-gray-600 mb-1">
+            {t('settings.adminEmail')}
+          </label>
           <div className="flex gap-2">
             <input value={form.adminNotificationEmail} onChange={(e) => setForm({ ...form, adminNotificationEmail: e.target.value })}
               type="email" placeholder="admin@company.com" className="input-glass flex-1" />
             <button
               onClick={async () => {
+                // Warn if the email has been changed but not saved yet
+                if (form.adminNotificationEmail !== (org?.adminNotificationEmail || '')) {
+                  toast('Save your settings first, then test the email.', { icon: '⚠️' });
+                  return;
+                }
                 try {
                   const result = await testAdminEmail().unwrap();
                   if (result?.data?.success) {
@@ -199,7 +206,7 @@ function OrgSettings() {
                     toast.error(result?.data?.message || 'Failed to send test email');
                   }
                 } catch {
-                  toast.error('Failed to send test email');
+                  toast.error('Failed to send test email — check SMTP configuration');
                 }
               }}
               disabled={isTestingAdminEmail || !form.adminNotificationEmail}
@@ -209,7 +216,9 @@ function OrgSettings() {
               Test
             </button>
           </div>
-          <p className="text-xs text-gray-400 mt-1">System alerts, candidate selection notices, and error reports will be sent here.</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Used for: system alerts, backup notifications, payroll errors, Sunday attendance approvals, candidate selection notices, and HR activity reports.
+          </p>
         </div>
 
         {org && (
@@ -241,153 +250,259 @@ function MapClickHandler({ onLocationSelect }: { onLocationSelect: (lat: number,
   return null;
 }
 
+const EMPTY_LOC_FORM = { name: '', address: '', city: '', state: '', latitude: '', longitude: '', radiusMeters: 200, strictMode: false };
+
+function LocationFormMap({ lat, lng, radius, onSelect }: { lat: string; lng: string; radius: number; onSelect: (lat: number, lng: number) => void }) {
+  const defaultCenter: [number, number] = [lat ? Number(lat) : 28.6139, lng ? Number(lng) : 77.2090];
+  return (
+    <MapContainer center={defaultCenter} zoom={13} style={{ height: '100%', width: '100%' }}>
+      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap' />
+      <MapClickHandler onLocationSelect={onSelect} />
+      {lat && lng && (
+        <>
+          <Marker position={[Number(lat), Number(lng)]} />
+          <Circle center={[Number(lat), Number(lng)]} radius={radius} pathOptions={{ color: '#4f46e5', fillColor: '#4f46e5', fillOpacity: 0.15 }} />
+        </>
+      )}
+    </MapContainer>
+  );
+}
+
+function LocationForm({ form, setForm, onSubmit, onCancel, isLoading, submitLabel }: {
+  form: typeof EMPTY_LOC_FORM; setForm: (f: typeof EMPTY_LOC_FORM) => void;
+  onSubmit: () => void; onCancel: () => void; isLoading: boolean; submitLabel: string;
+}) {
+  return (
+    <div className="bg-surface-2 rounded-xl p-4 mb-4 space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Name *</label>
+          <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Main Office" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">City *</label>
+          <input value={form.city} onChange={e => setForm({...form, city: e.target.value})} className="input-glass w-full text-sm" placeholder="New Delhi" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Address *</label>
+          <input value={form.address} onChange={e => setForm({...form, address: e.target.value})} className="input-glass w-full text-sm" placeholder="123, Business Park, Sector 62" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">State</label>
+          <input value={form.state} onChange={e => setForm({...form, state: e.target.value})} className="input-glass w-full text-sm" placeholder="Delhi" />
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Click map to pin location (or type coordinates below)</label>
+        <div className="rounded-xl overflow-hidden border border-gray-200" style={{ height: 260 }}>
+          <LocationFormMap lat={form.latitude} lng={form.longitude} radius={form.radiusMeters}
+            onSelect={(lat, lng) => setForm({...form, latitude: String(lat.toFixed(6)), longitude: String(lng.toFixed(6))})} />
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Latitude *</label>
+          <input type="number" step="any" value={form.latitude} onChange={e => setForm({...form, latitude: e.target.value})} className="input-glass w-full text-sm" placeholder="28.6139" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Longitude *</label>
+          <input type="number" step="any" value={form.longitude} onChange={e => setForm({...form, longitude: e.target.value})} className="input-glass w-full text-sm" placeholder="77.2090" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Geofence Radius (m)</label>
+          <input type="number" value={form.radiusMeters} onChange={e => setForm({...form, radiusMeters: Number(e.target.value)})} className="input-glass w-full text-sm" />
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-sm text-gray-600">
+        <input type="checkbox" checked={form.strictMode} onChange={e => setForm({...form, strictMode: e.target.checked})} className="rounded border-gray-300" />
+        Strict mode — block clock-in if outside geofence radius
+      </label>
+      <div className="flex gap-2">
+        <button onClick={onSubmit} disabled={isLoading} className="btn-primary text-sm">{isLoading ? 'Saving...' : submitLabel}</button>
+        <button onClick={onCancel} className="btn-secondary text-sm">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 function LocationSettings() {
   const { data: res } = useGetLocationsQuery();
   const locations = res?.data || [];
   const [createLocation, { isLoading: creating }] = useCreateLocationMutation();
+  const [updateLocation, { isLoading: updating }] = useUpdateLocationMutation();
   const [deleteLocation] = useDeleteLocationMutation();
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', address: '', city: '', state: '', latitude: '', longitude: '', radiusMeters: 200, strictMode: false });
+
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [createForm, setCreateForm] = useState({ ...EMPTY_LOC_FORM });
+  const [editForm, setEditForm] = useState({ ...EMPTY_LOC_FORM });
+  const [showMapModal, setShowMapModal] = useState(false);
 
   const handleCreate = async () => {
-    if (!form.name || !form.address || !form.city || !form.latitude || !form.longitude) {
-      toast.error('Fill all required fields'); return;
+    if (!createForm.name || !createForm.address || !createForm.city || !createForm.latitude || !createForm.longitude) {
+      toast.error('Name, address, city, latitude and longitude are required'); return;
     }
     try {
-      await createLocation({ ...form, latitude: Number(form.latitude), longitude: Number(form.longitude) }).unwrap();
+      await createLocation({ ...createForm, latitude: Number(createForm.latitude), longitude: Number(createForm.longitude) }).unwrap();
       toast.success('Location created');
-      setShowForm(false);
-      setForm({ name: '', address: '', city: '', state: '', latitude: '', longitude: '', radiusMeters: 200, strictMode: false });
-    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+      setShowCreateForm(false);
+      setCreateForm({ ...EMPTY_LOC_FORM });
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to create location'); }
+  };
+
+  const startEdit = (loc: any) => {
+    const coords = loc.geofence?.coordinates as any;
+    setEditForm({
+      name: loc.name || '',
+      address: loc.address || '',
+      city: loc.city || '',
+      state: loc.state || '',
+      latitude: coords?.lat ? String(coords.lat) : '',
+      longitude: coords?.lng ? String(coords.lng) : '',
+      radiusMeters: loc.geofence?.radiusMeters || 200,
+      strictMode: loc.geofence?.strictMode || false,
+    });
+    setEditingId(loc.id);
+    setShowCreateForm(false);
+  };
+
+  const handleUpdate = async () => {
+    if (!editingId) return;
+    if (!editForm.name || !editForm.address || !editForm.city || !editForm.latitude || !editForm.longitude) {
+      toast.error('Name, address, city, latitude and longitude are required'); return;
+    }
+    try {
+      await updateLocation({ id: editingId, data: { ...editForm, latitude: Number(editForm.latitude), longitude: Number(editForm.longitude) } }).unwrap();
+      toast.success('Location updated');
+      setEditingId(null);
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to update location'); }
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete "${name}"?`)) return;
-    try { await deleteLocation(id).unwrap(); toast.success('Deleted'); } catch { toast.error('Failed'); }
+    if (!confirm(`Delete location "${name}"? This cannot be undone.`)) return;
+    try {
+      await deleteLocation(id).unwrap();
+      toast.success('Location deleted');
+      if (editingId === id) setEditingId(null);
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to delete'); }
   };
 
   return (
     <div className="layer-card p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-display font-semibold text-gray-800">Office Locations & Geofence</h2>
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary text-sm flex items-center gap-1.5">
+        <button onClick={() => { setShowCreateForm(!showCreateForm); setEditingId(null); }} className="btn-primary text-sm flex items-center gap-1.5">
           <Plus size={14} /> Add Location
         </button>
       </div>
 
-      {showForm && (
-        <div className="bg-surface-2 rounded-xl p-4 mb-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Name *</label>
-              <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Main Office" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">City *</label>
-              <input value={form.city} onChange={e => setForm({...form, city: e.target.value})} className="input-glass w-full text-sm" placeholder="New Delhi" />
-            </div>
+      {showCreateForm && (
+        <LocationForm form={createForm} setForm={setCreateForm} onSubmit={handleCreate}
+          onCancel={() => setShowCreateForm(false)} isLoading={creating} submitLabel="Create Location" />
+      )}
+
+      {/* Overview map with expand button */}
+      {locations.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-xs text-gray-400">All office locations ({locations.length})</p>
+            <button onClick={() => setShowMapModal(true)} className="flex items-center gap-1 text-xs text-brand-600 hover:underline">
+              <ExternalLink size={11} /> Expand Map
+            </button>
           </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Address *</label>
-            <input value={form.address} onChange={e => setForm({...form, address: e.target.value})} className="input-glass w-full text-sm" placeholder="123, Business Park, Sector 62" />
+          <div className="rounded-xl overflow-hidden border border-gray-200 cursor-pointer" style={{ height: 200 }} onClick={() => setShowMapModal(true)}>
+            <MapContainer
+              center={[(locations[0]?.geofence?.coordinates as any)?.lat || 28.6139, (locations[0]?.geofence?.coordinates as any)?.lng || 77.2090]}
+              zoom={11} style={{ height: '100%', width: '100%' }} zoomControl={false} dragging={false} scrollWheelZoom={false}
+            >
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap' />
+              {locations.map((loc: any) => {
+                const coords = loc.geofence?.coordinates as any;
+                if (!coords?.lat || !coords?.lng) return null;
+                return (
+                  <span key={loc.id}>
+                    <Marker position={[coords.lat, coords.lng]} />
+                    <Circle center={[coords.lat, coords.lng]} radius={loc.geofence?.radiusMeters || 200}
+                      pathOptions={{ color: '#4f46e5', fillColor: '#4f46e5', fillOpacity: 0.15 }} />
+                  </span>
+                );
+              })}
+            </MapContainer>
           </div>
-          {/* Interactive Map */}
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Click map to set location (or enter coordinates below)</label>
-            <div className="rounded-xl overflow-hidden border border-gray-200" style={{ height: 250 }}>
+        </div>
+      )}
+
+      {/* Full-screen map modal */}
+      {showMapModal && (
+        <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl overflow-hidden w-full max-w-4xl" style={{ height: '80vh' }}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-800 flex items-center gap-2"><MapPin size={16} className="text-brand-500" /> Office Locations</h3>
+              <button onClick={() => setShowMapModal(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} /></button>
+            </div>
+            <div style={{ height: 'calc(80vh - 57px)' }}>
               <MapContainer
-                center={[form.latitude ? Number(form.latitude) : 28.6139, form.longitude ? Number(form.longitude) : 77.2090]}
-                zoom={13}
-                style={{ height: '100%', width: '100%' }}
+                center={[(locations[0]?.geofence?.coordinates as any)?.lat || 28.6139, (locations[0]?.geofence?.coordinates as any)?.lng || 77.2090]}
+                zoom={12} style={{ height: '100%', width: '100%' }}
               >
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap' />
-                <MapClickHandler onLocationSelect={(lat, lng) => setForm({...form, latitude: String(lat.toFixed(6)), longitude: String(lng.toFixed(6))})} />
-                {form.latitude && form.longitude && (
-                  <>
-                    <Marker position={[Number(form.latitude), Number(form.longitude)]} />
-                    <Circle center={[Number(form.latitude), Number(form.longitude)]} radius={form.radiusMeters} pathOptions={{ color: '#4f46e5', fillColor: '#4f46e5', fillOpacity: 0.15 }} />
-                  </>
-                )}
+                {locations.map((loc: any) => {
+                  const coords = loc.geofence?.coordinates as any;
+                  if (!coords?.lat || !coords?.lng) return null;
+                  return (
+                    <span key={loc.id}>
+                      <Marker position={[coords.lat, coords.lng]} />
+                      <Circle center={[coords.lat, coords.lng]} radius={loc.geofence?.radiusMeters || 200}
+                        pathOptions={{ color: '#4f46e5', fillColor: '#4f46e5', fillOpacity: 0.15 }} />
+                    </span>
+                  );
+                })}
               </MapContainer>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Latitude *</label>
-              <input type="number" step="any" value={form.latitude} onChange={e => setForm({...form, latitude: e.target.value})} className="input-glass w-full text-sm" placeholder="28.6139" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Longitude *</label>
-              <input type="number" step="any" value={form.longitude} onChange={e => setForm({...form, longitude: e.target.value})} className="input-glass w-full text-sm" placeholder="77.2090" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Radius (meters)</label>
-              <input type="number" value={form.radiusMeters} onChange={e => setForm({...form, radiusMeters: Number(e.target.value)})} className="input-glass w-full text-sm" />
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-gray-600">
-              <input type="checkbox" checked={form.strictMode} onChange={e => setForm({...form, strictMode: e.target.checked})} className="rounded border-gray-300" />
-              Strict mode (block clock-in outside geofence)
-            </label>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={handleCreate} disabled={creating} className="btn-primary text-sm">{creating ? 'Creating...' : 'Create Location'}</button>
-            <button onClick={() => setShowForm(false)} className="btn-secondary text-sm">Cancel</button>
-          </div>
         </div>
       )}
 
-      {/* Map showing all existing geofences */}
-      {locations.length > 0 && (
-        <div className="rounded-xl overflow-hidden border border-gray-200 mb-4" style={{ height: 220 }}>
-          <MapContainer
-            center={[
-              (locations[0]?.geofence?.coordinates as any)?.lat || 28.6139,
-              (locations[0]?.geofence?.coordinates as any)?.lng || 77.2090,
-            ]}
-            zoom={11}
-            style={{ height: '100%', width: '100%' }}
-          >
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap' />
-            {locations.map((loc: any) => {
-              const coords = loc.geofence?.coordinates as any;
-              if (!coords?.lat || !coords?.lng) return null;
-              return (
-                <span key={loc.id}>
-                  <Marker position={[coords.lat, coords.lng]} />
-                  <Circle center={[coords.lat, coords.lng]} radius={loc.geofence?.radiusMeters || 200}
-                    pathOptions={{ color: '#4f46e5', fillColor: '#4f46e5', fillOpacity: 0.15 }} />
-                </span>
-              );
-            })}
-          </MapContainer>
-        </div>
-      )}
-
-      {locations.length === 0 && !showForm ? (
+      {locations.length === 0 && !showCreateForm ? (
         <p className="text-sm text-gray-400 text-center py-8">No locations configured. Add your first office location.</p>
       ) : (
         <div className="space-y-3">
           {locations.map((loc: any) => (
-            <div key={loc.id} className="flex items-center justify-between p-4 bg-surface-2 rounded-lg">
-              <div className="flex items-center gap-3">
-                <MapPin size={18} className="text-brand-500" />
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{loc.name}</p>
-                  <p className="text-xs text-gray-400">{loc.address} · {loc.city}</p>
-                  {loc.geofence && (
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      Geofence: {loc.geofence.radiusMeters}m radius
-                      {loc.geofence.strictMode ? ' · Strict' : ''}
-                      {` · ${(loc.geofence.coordinates as any)?.lat?.toFixed(4)}, ${(loc.geofence.coordinates as any)?.lng?.toFixed(4)}`}
-                    </p>
-                  )}
+            <div key={loc.id}>
+              <div className={cn('flex items-center justify-between p-4 bg-surface-2 rounded-lg', editingId === loc.id && 'ring-2 ring-brand-300')}>
+                <div className="flex items-center gap-3">
+                  <MapPin size={18} className="text-brand-500 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">{loc.name}</p>
+                    <p className="text-xs text-gray-400">{loc.address}{loc.city ? ` · ${loc.city}` : ''}{loc.state ? `, ${loc.state}` : ''}</p>
+                    {loc.geofence && (
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Geofence: {loc.geofence.radiusMeters}m radius
+                        {loc.geofence.strictMode ? ' · Strict' : ' · Relaxed'}
+                        {` · ${(loc.geofence.coordinates as any)?.lat?.toFixed(4) ?? '—'}, ${(loc.geofence.coordinates as any)?.lng?.toFixed(4) ?? '—'}`}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => editingId === loc.id ? setEditingId(null) : startEdit(loc)}
+                    className={cn('p-1.5 rounded-lg transition-colors', editingId === loc.id ? 'bg-brand-100 text-brand-600' : 'text-gray-400 hover:text-brand-600 hover:bg-brand-50')}>
+                    <Pencil size={14} />
+                  </button>
+                  <button onClick={() => handleDelete(loc.id, loc.name)} className="text-red-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50">
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               </div>
-              <button onClick={() => handleDelete(loc.id, loc.name)} className="text-red-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50">
-                <Trash2 size={14} />
-              </button>
+              {/* Inline edit form */}
+              {editingId === loc.id && (
+                <div className="mt-2 pl-2 border-l-2 border-brand-300">
+                  <LocationForm form={editForm} setForm={setEditForm} onSubmit={handleUpdate}
+                    onCancel={() => setEditingId(null)} isLoading={updating} submitLabel="Save Changes" />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -396,104 +511,159 @@ function LocationSettings() {
   );
 }
 
+const EMPTY_SHIFT_FORM = { name: '', code: '', startTime: '09:00', endTime: '18:00', graceMinutes: 15, halfDayHours: 4, fullDayHours: 8, isDefault: false };
+
 function ShiftSettings() {
   const { data: res } = useGetShiftsQuery();
   const shifts = res?.data || [];
   const [createShift, { isLoading: creating }] = useCreateShiftMutation();
+  const [updateShift, { isLoading: updating }] = useUpdateShiftMutation();
   const [deleteShift] = useDeleteShiftMutation();
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', code: '', startTime: '09:00', endTime: '18:00', graceMinutes: 15, halfDayHours: 4, fullDayHours: 8, isDefault: false });
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [createForm, setCreateForm] = useState({ ...EMPTY_SHIFT_FORM });
+  const [editForm, setEditForm] = useState({ ...EMPTY_SHIFT_FORM });
 
   const handleCreate = async () => {
-    if (!form.name || !form.code) { toast.error('Name and code are required'); return; }
+    if (!createForm.name || !createForm.code) { toast.error('Shift name and code are required'); return; }
     try {
-      await createShift(form).unwrap();
+      await createShift(createForm).unwrap();
       toast.success('Shift created');
-      setShowForm(false);
-      setForm({ name: '', code: '', startTime: '09:00', endTime: '18:00', graceMinutes: 15, halfDayHours: 4, fullDayHours: 8, isDefault: false });
+      setShowCreateForm(false);
+      setCreateForm({ ...EMPTY_SHIFT_FORM });
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to create shift'); }
+  };
+
+  const startEdit = (shift: any) => {
+    setEditForm({
+      name: shift.name || '',
+      code: shift.code || '',
+      startTime: shift.startTime || '09:00',
+      endTime: shift.endTime || '18:00',
+      graceMinutes: shift.graceMinutes ?? 15,
+      halfDayHours: Number(shift.halfDayHours) || 4,
+      fullDayHours: Number(shift.fullDayHours) || 8,
+      isDefault: shift.isDefault || false,
+    });
+    setEditingId(shift.id);
+    setShowCreateForm(false);
+  };
+
+  const handleUpdate = async () => {
+    if (!editingId) return;
+    if (!editForm.name || !editForm.code) { toast.error('Shift name and code are required'); return; }
+    try {
+      await updateShift({ id: editingId, data: editForm }).unwrap();
+      toast.success('Shift updated');
+      setEditingId(null);
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to update shift'); }
+  };
+
+  const handleDelete = async (id: string, name: string, assignedCount: number) => {
+    const msg = assignedCount > 0
+      ? `Deactivate shift "${name}"? It has ${assignedCount} assigned employee(s). Their assignments will be kept but the shift will be marked inactive.`
+      : `Deactivate shift "${name}"?`;
+    if (!confirm(msg)) return;
+    try {
+      await deleteShift(id).unwrap();
+      toast.success('Shift deactivated');
+      if (editingId === id) setEditingId(null);
     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Deactivate shift "${name}"?`)) return;
-    try { await deleteShift(id).unwrap(); toast.success('Shift deactivated'); } catch { toast.error('Failed'); }
-  };
+  const renderShiftFormFields = (form: typeof EMPTY_SHIFT_FORM, set: (f: typeof EMPTY_SHIFT_FORM) => void, onSubmit: () => void, onCancel: () => void, isLoading: boolean, label: string) => (
+    <div className="bg-surface-2 rounded-xl p-4 mb-3 space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Shift Name *</label>
+          <input value={form.name} onChange={e => set({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Morning Shift" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Code *</label>
+          <input value={form.code} onChange={e => set({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm" placeholder="MORNING" />
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Start Time</label>
+          <input type="time" value={form.startTime} onChange={e => set({...form, startTime: e.target.value})} className="input-glass w-full text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">End Time</label>
+          <input type="time" value={form.endTime} onChange={e => set({...form, endTime: e.target.value})} className="input-glass w-full text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Grace (min)</label>
+          <input type="number" min={0} value={form.graceMinutes} onChange={e => set({...form, graceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Full Day (hrs)</label>
+          <input type="number" step="0.5" min={1} value={form.fullDayHours} onChange={e => set({...form, fullDayHours: Number(e.target.value)})} className="input-glass w-full text-sm" />
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Half Day (hrs)</label>
+        <input type="number" step="0.5" min={0.5} value={form.halfDayHours} onChange={e => set({...form, halfDayHours: Number(e.target.value)})} className="input-glass w-40 text-sm" />
+      </div>
+      <label className="flex items-center gap-2 text-sm text-gray-600">
+        <input type="checkbox" checked={form.isDefault} onChange={e => set({...form, isDefault: e.target.checked})} className="rounded border-gray-300" />
+        Set as default shift (auto-assigned to new employees)
+      </label>
+      <div className="flex gap-2">
+        <button onClick={onSubmit} disabled={isLoading} className="btn-primary text-sm">{isLoading ? 'Saving...' : label}</button>
+        <button onClick={onCancel} className="btn-secondary text-sm">Cancel</button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="layer-card p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-display font-semibold text-gray-800">Shifts & Rosters</h2>
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary text-sm flex items-center gap-1.5">
+        <button onClick={() => { setShowCreateForm(!showCreateForm); setEditingId(null); }} className="btn-primary text-sm flex items-center gap-1.5">
           <Plus size={14} /> Add Shift
         </button>
       </div>
 
-      {showForm && (
-        <div className="bg-surface-2 rounded-xl p-4 mb-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Shift Name *</label>
-              <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Morning Shift" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Code *</label>
-              <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm" placeholder="MORNING" />
-            </div>
-          </div>
-          <div className="grid grid-cols-4 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Start Time</label>
-              <input type="time" value={form.startTime} onChange={e => setForm({...form, startTime: e.target.value})} className="input-glass w-full text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">End Time</label>
-              <input type="time" value={form.endTime} onChange={e => setForm({...form, endTime: e.target.value})} className="input-glass w-full text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Grace (min)</label>
-              <input type="number" value={form.graceMinutes} onChange={e => setForm({...form, graceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Full Day (hrs)</label>
-              <input type="number" value={form.fullDayHours} onChange={e => setForm({...form, fullDayHours: Number(e.target.value)})} className="input-glass w-full text-sm" />
-            </div>
-          </div>
-          <label className="flex items-center gap-2 text-sm text-gray-600">
-            <input type="checkbox" checked={form.isDefault} onChange={e => setForm({...form, isDefault: e.target.checked})} className="rounded border-gray-300" />
-            Set as default shift
-          </label>
-          <div className="flex gap-2">
-            <button onClick={handleCreate} disabled={creating} className="btn-primary text-sm">{creating ? 'Creating...' : 'Create Shift'}</button>
-            <button onClick={() => setShowForm(false)} className="btn-secondary text-sm">Cancel</button>
-          </div>
-        </div>
-      )}
+      {showCreateForm && renderShiftFormFields(createForm, setCreateForm, handleCreate, () => setShowCreateForm(false), creating, 'Create Shift')}
 
-      {shifts.length === 0 && !showForm ? (
+      {shifts.length === 0 && !showCreateForm ? (
         <p className="text-sm text-gray-400 text-center py-8">No shifts configured. Create your first shift.</p>
       ) : (
         <div className="space-y-3">
           {shifts.map((shift: any) => (
-            <div key={shift.id} className="flex items-center justify-between p-4 bg-surface-2 rounded-lg">
-              <div className="flex items-center gap-3">
-                <Clock size={18} className="text-brand-500" />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-800">{shift.name}</p>
-                    <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500" data-mono>{shift.code}</span>
-                    {shift.isDefault && <span className="text-xs bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded">Default</span>}
+            <div key={shift.id}>
+              <div className={cn('flex items-center justify-between p-4 bg-surface-2 rounded-lg', editingId === shift.id && 'ring-2 ring-brand-300')}>
+                <div className="flex items-center gap-3">
+                  <Clock size={18} className="text-brand-500 flex-shrink-0" />
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-medium text-gray-800">{shift.name}</p>
+                      <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">{shift.code}</span>
+                      {shift.isDefault && <span className="text-xs bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded font-medium">Default</span>}
+                      {!shift.isActive && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Inactive</span>}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {shift.startTime} — {shift.endTime} · Grace: {shift.graceMinutes}min · Full day: {Number(shift.fullDayHours)}hrs · Half day: {Number(shift.halfDayHours)}hrs
+                    </p>
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {shift.startTime} — {shift.endTime} · Grace: {shift.graceMinutes}min · Full day: {Number(shift.fullDayHours)}hrs
-                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">{shift._count?.assignments || 0} assigned</span>
+                  <button onClick={() => editingId === shift.id ? setEditingId(null) : startEdit(shift)}
+                    className={cn('p-1.5 rounded-lg transition-colors', editingId === shift.id ? 'bg-brand-100 text-brand-600' : 'text-gray-400 hover:text-brand-600 hover:bg-brand-50')}>
+                    <Pencil size={14} />
+                  </button>
+                  <button onClick={() => handleDelete(shift.id, shift.name, shift._count?.assignments || 0)} className="text-red-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50">
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-400">{shift._count?.assignments || 0} assigned</span>
-                <button onClick={() => handleDelete(shift.id, shift.name)} className="text-red-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50">
-                  <Trash2 size={14} />
-                </button>
-              </div>
+              {editingId === shift.id && (
+                <div className="mt-2 pl-2 border-l-2 border-brand-300">
+                  {renderShiftFormFields(editForm, setEditForm, handleUpdate, () => setEditingId(null), updating, 'Save Changes')}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -510,6 +680,7 @@ function EmailConfig() {
   const [form, setForm] = useState({
     host: '', port: 587, user: '', pass: '', fromAddress: '', fromName: '', emailDomain: '', payrollEmail: '',
   });
+  const [showPass, setShowPass] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
@@ -589,10 +760,19 @@ function EmailConfig() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-1">
-              Password {config?.hasPassword && <span className="text-xs text-gray-400">(saved)</span>}
+              Password {config?.hasPassword && <span className="text-xs text-emerald-600 font-medium">✓ saved</span>}
             </label>
-            <input type="password" value={form.pass} onChange={e => setForm({...form, pass: e.target.value})}
-              className="input-glass w-full text-sm" placeholder={config?.hasPassword ? '••••••••' : 'Email password or App Password'} />
+            <div className="relative">
+              <input type={showPass ? 'text' : 'password'} value={form.pass} onChange={e => setForm({...form, pass: e.target.value})}
+                className="input-glass w-full text-sm pr-10" placeholder={config?.hasPassword ? '(leave blank to keep saved password)' : 'Email password or App Password'} />
+              <button type="button" onClick={() => setShowPass(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
+                {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+            {config?.hasPassword && !form.pass && (
+              <p className="text-xs text-gray-400 mt-1">Password already saved. Enter a new password only if you want to change it.</p>
+            )}
           </div>
         </div>
 

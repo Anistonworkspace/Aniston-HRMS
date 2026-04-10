@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { redis } from '../../lib/redis.js';
+import { bullmqConnection } from '../queues.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 
@@ -229,7 +229,7 @@ export function startAttendanceCronWorker() {
           logger.warn(`[Attendance Cron] Unknown job name: ${job.name}`);
       }
     },
-    { connection: redis, concurrency: 1 }
+    { connection: bullmqConnection, concurrency: 1 }
   );
 
   worker.on('completed', (job) => {

@@ -96,6 +96,7 @@ export const api = createApi({
     'WhatsAppContacts',
     'WhatsAppMessages',
     'WhatsAppHrmsMessages',
+    'WhatsAppConversations',
     'KnowledgeBase',
     'Activation',
     'Policy',

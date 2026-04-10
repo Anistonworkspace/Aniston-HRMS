@@ -8,12 +8,11 @@ import {
   useUploadSignatureMutation,
   useUploadStampMutation,
 } from './brandingApi';
-
-const API_BASE = import.meta.env.VITE_API_URL === '/api' ? '' : (import.meta.env.VITE_API_URL?.replace('/api', '') || '');
+import { getUploadUrl } from '../../lib/utils';
 
 function getFileUrl(path: string | null | undefined) {
-  if (!path) return null;
-  return `${API_BASE}${path}`;
+  const url = getUploadUrl(path);
+  return url || null;
 }
 
 export default function BrandingTab() {

@@ -150,10 +150,12 @@ export class InvitationService {
           `This link expires in 72 hours.`,
         ].join('\n');
 
-        await whatsAppService.sendMessage({
-          to: invitation.mobileNumber,
-          message: whatsAppMessage,
-        }, organizationId);
+        await whatsAppService.sendMessage(
+          { to: invitation.mobileNumber, message: whatsAppMessage },
+          organizationId,
+          undefined,
+          'ONBOARDING_INVITE'
+        );
         whatsappStatus = 'SENT';
       } catch (err) {
         logger.error('Failed to send WhatsApp invite:', err);
@@ -505,7 +507,8 @@ export class InvitationService {
         const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`;
         const downloadUrl = `https://hr.anistonav.com/download`;
 
-        await enqueueEmail({
+        // Fire-and-forget: don't let email queue failure abort the invitation creation
+        enqueueEmail({
           to: email,
           subject: `You're invited to join ${org?.name || 'Aniston HRMS'}`,
           template: 'employee-invite',
@@ -517,7 +520,7 @@ export class InvitationService {
             inviterName,
             role: options?.role || 'EMPLOYEE',
           },
-        });
+        }).catch((err: any) => logger.error(`[BulkInvite] Failed to queue invite email to ${email}:`, err));
 
         sentCount++;
       } catch (err: any) {
@@ -653,10 +656,12 @@ export class InvitationService {
           `This link expires in 72 hours.`,
         ].join('\n');
 
-        await whatsAppService.sendMessage({
-          to: invitation.mobileNumber,
-          message: whatsAppMessage,
-        }, organizationId);
+        await whatsAppService.sendMessage(
+          { to: invitation.mobileNumber, message: whatsAppMessage },
+          organizationId,
+          undefined,
+          'ONBOARDING_INVITE'
+        );
         whatsappStatus = 'SENT';
       } catch (err) {
         logger.error('Failed to send WhatsApp invite on resend:', err);

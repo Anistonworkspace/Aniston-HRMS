@@ -41,6 +41,7 @@ export default function NotificationBell() {
 
   useEffect(() => {
     const handler = (data: any) => {
+      playNotificationSound();
       setNotifications(prev => [{ ...data, read: false }, ...prev].slice(0, 50));
     };
     onSocketEvent('notification:new', handler);

@@ -1199,8 +1199,8 @@ export class LeaveService {
         const context = {
           employeeName: empName,
           leaveType: leaveTypeName,
-          startDate: leaveRequest.startDate,
-          endDate: leaveRequest.endDate,
+          startDate: new Date(leaveRequest.startDate).toISOString(),
+          endDate: new Date(leaveRequest.endDate).toISOString(),
           days: Number(leaveRequest.days),
           reason: leaveRequest.reason,
           riskLevel: leaveRequest.riskLevel || 'LOW',
@@ -1210,10 +1210,14 @@ export class LeaveService {
           appUrl: env.FRONTEND_URL,
         };
 
-        // Enqueue email
-        await enqueueEmail({ to: recipient.email, subject, template: templateName, context }).catch((err) =>
-          logger.error(`[LeaveNotifications] Failed to enqueue email to ${recipient.email}:`, err)
-        );
+        // Enqueue email — skip if recipient has no email address
+        if (!recipient.email) {
+          logger.warn(`[LeaveNotifications] Skipping email for recipient userId=${recipient.userId}: no email address`);
+        } else {
+          await enqueueEmail({ to: recipient.email, subject, template: templateName, context }).catch((err) =>
+            logger.error(`[LeaveNotifications] Failed to enqueue email to ${recipient.email}:`, err)
+          );
+        }
 
         // Socket notification
         await enqueueNotification({

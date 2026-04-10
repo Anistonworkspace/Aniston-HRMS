@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { redis } from '../../lib/redis.js';
+import { bullmqConnection } from '../queues.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 import { bulkResumeService } from '../../modules/recruitment/bulk-resume.service.js';
@@ -101,7 +101,7 @@ const resumeWorker = new Worker(
     logger.info(`Bulk resume upload completed: ${uploadId} (${processedCount}/${upload.items.length})`);
   },
   {
-    connection: redis,
+    connection: bullmqConnection,
     concurrency: 1, // Process one upload at a time
   }
 );

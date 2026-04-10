@@ -111,40 +111,37 @@ export class EmployeeController {
       });
 
       const downloadUrl = `https://hr.anistonav.com/download`;
-      let sentCount = 0;
+      const orgName = org?.name || 'Aniston Technologies';
+      const eligibleEmployees = employees.filter((emp) => !!emp.email);
 
-      for (const emp of employees) {
-        if (!emp.email) continue;
-        const shift = emp.shiftAssignments?.[0]?.shift;
-        const shiftInfo = shift ? `${shift.name} (${shift.startTime} - ${shift.endTime})` : undefined;
+      await Promise.all(
+        eligibleEmployees.map((emp) => {
+          const shift = emp.shiftAssignments?.[0]?.shift;
+          const shiftInfo = shift ? `${shift.name} (${shift.startTime} - ${shift.endTime})` : undefined;
+          const employeeName = `${emp.firstName} ${emp.lastName}`;
 
-        if (templateType === 'app-download') {
-          await enqueueEmail({
-            to: emp.email,
-            subject: `📲 Download Aniston HRMS App — ${org?.name || 'Aniston Technologies'}`,
-            template: 'app-download',
-            context: {
-              employeeName: `${emp.firstName} ${emp.lastName}`,
-              orgName: org?.name || 'Aniston Technologies',
-              downloadUrl,
-            },
+          const job = templateType === 'app-download'
+            ? enqueueEmail({
+                to: emp.email!,
+                subject: `📲 Download Aniston HRMS App — ${orgName}`,
+                template: 'app-download',
+                context: { employeeName, orgName, downloadUrl },
+              })
+            : enqueueEmail({
+                to: emp.email!,
+                subject: `⏰ Attendance Instructions — ${orgName}`,
+                template: 'attendance-instructions',
+                context: { employeeName, orgName, shiftInfo, downloadUrl, hrEmail: 'hr@anistonav.com' },
+              });
+
+          return job.catch((err: any) => {
+            // Log per-employee failure but don't abort the batch
+            console.error(`[BulkEmail] Failed to queue for ${emp.email}:`, err?.message);
           });
-        } else {
-          await enqueueEmail({
-            to: emp.email,
-            subject: `⏰ Attendance Instructions — ${org?.name || 'Aniston Technologies'}`,
-            template: 'attendance-instructions',
-            context: {
-              employeeName: `${emp.firstName} ${emp.lastName}`,
-              orgName: org?.name || 'Aniston Technologies',
-              shiftInfo,
-              downloadUrl,
-              hrEmail: 'hr@anistonav.com',
-            },
-          });
-        }
-        sentCount++;
-      }
+        })
+      );
+
+      const sentCount = eligibleEmployees.length;
 
       res.json({ success: true, data: { queued: sentCount, sentCount, totalRequested: employeeIds.length }, message: `${sentCount} emails queued` });
     } catch (err) {

@@ -20,7 +20,7 @@ import { useAiChatMutation } from '../ai-assistant/aiAssistantApi';
 import { useAppSelector } from '../../app/store';
 import { useSendWhatsAppToNumberMutation, useGetWhatsAppStatusQuery } from '../whatsapp/whatsappApi';
 import { useShareJobEmailMutation } from './recruitmentApi';
-import { cn, formatDate, getInitials } from '../../lib/utils';
+import { cn, formatDate, getInitials, getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 import BulkResumeModal from './BulkResumeModal';
 import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
@@ -1150,10 +1150,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
                   )}
                   {candidate.resumeUrl && (
                     <button onClick={() => {
-                      const url = candidate.resumeUrl.startsWith('http') ? candidate.resumeUrl
-                        : candidate.resumeUrl.startsWith('/') ? candidate.resumeUrl
-                        : `/uploads/${candidate.resumeUrl}`;
-                      setResumePreview(url);
+                      setResumePreview(getUploadUrl(candidate.resumeUrl));
                     }}
                       className="btn-secondary text-sm flex items-center gap-2 w-fit">
                       <Eye size={14} /> View Resume
