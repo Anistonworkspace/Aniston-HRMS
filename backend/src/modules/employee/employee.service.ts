@@ -612,108 +612,87 @@ export class EmployeeService {
       permanent: true,
     };
 
-    await prisma.$transaction(async (tx) => {
-      const docIds = existing.documents.map(d => d.id);
+    // ── Phase 1: Best-effort cleanup (individual operations, NOT in a transaction) ──
+    // CRITICAL: PostgreSQL error 25P02 ("current transaction is aborted") means that
+    // once ANY statement inside a $transaction fails, ALL subsequent statements in that
+    // transaction fail too — even if the first error was caught by try/catch.
+    // Running each deleteMany as an independent Prisma call avoids this cascade failure.
+    const docIds = existing.documents.map(d => d.id);
 
-      // Delete all dependent records — order matters for FK constraints
-      // Each deleteMany is wrapped in try-catch so missing tables don't break the flow
-      const deletions: Array<{ name: string; fn: () => Promise<any> }> = [
-        // OCR verifications (depends on documents)
-        { name: 'DocumentOcrVerification', fn: () => tx.documentOcrVerification.deleteMany({ where: { documentId: { in: docIds.length ? docIds : ['none'] } } }) },
-        // Documents
-        { name: 'Document', fn: () => tx.document.deleteMany({ where: { employeeId: id } }) },
-        // KYC / Onboarding
-        { name: 'OnboardingDocumentGate', fn: () => tx.onboardingDocumentGate.deleteMany({ where: { employeeId: id } }) },
-        // Leave
-        { name: 'LeaveBalance', fn: () => tx.leaveBalance.deleteMany({ where: { employeeId: id } }) },
-        { name: 'LeaveRequest', fn: () => tx.leaveRequest.deleteMany({ where: { employeeId: id } }) },
-        // Attendance — delete child records first (Break, AttendanceLog, Regularization depend on AttendanceRecord)
-        { name: 'AttendanceLog', fn: async () => {
-          const attRecords = await tx.attendanceRecord.findMany({ where: { employeeId: id }, select: { id: true } });
-          const attIds = attRecords.map(r => r.id);
-          if (attIds.length) {
-            await tx.attendanceLog.deleteMany({ where: { attendanceId: { in: attIds } } });
-            await tx.break.deleteMany({ where: { attendanceId: { in: attIds } } });
-            await tx.attendanceRegularization.deleteMany({ where: { attendanceId: { in: attIds } } });
-          }
-        }},
-        { name: 'AttendanceRecord', fn: () => tx.attendanceRecord.deleteMany({ where: { employeeId: id } }) },
-        { name: 'GPSTrailPoint', fn: () => tx.gPSTrailPoint.deleteMany({ where: { employeeId: id } }) },
-        { name: 'ProjectSiteCheckIn', fn: () => tx.projectSiteCheckIn.deleteMany({ where: { employeeId: id } }) },
-        // Shifts
-        { name: 'ShiftAssignment', fn: () => tx.shiftAssignment.deleteMany({ where: { employeeId: id } }) },
-        { name: 'HybridSchedule', fn: () => tx.hybridSchedule.deleteMany({ where: { employeeId: id } }) },
-        // Payroll
-        { name: 'SalaryStructure', fn: () => tx.salaryStructure.deleteMany({ where: { employeeId: id } }) },
-        { name: 'PayrollRecord', fn: () => tx.payrollRecord.deleteMany({ where: { employeeId: id } }) },
-        // Performance
-        // Note: PerformanceGoal model not in schema (goals are within PerformanceReview)
-        { name: 'PerformanceReview', fn: () => tx.performanceReview.deleteMany({ where: { employeeId: id } }) },
-        // Assets
-        { name: 'AssetAssignment', fn: () => tx.assetAssignment.deleteMany({ where: { employeeId: id } }) },
-        // Helpdesk
-        { name: 'Ticket', fn: () => tx.ticket.deleteMany({ where: { employeeId: id } }) },
-        // Activity / Agent
-        { name: 'ActivityLog', fn: () => tx.activityLog.deleteMany({ where: { employeeId: id } }) },
-        { name: 'AgentScreenshot', fn: () => tx.agentScreenshot.deleteMany({ where: { employeeId: id } }) },
-        // Exit
-        { name: 'ExitChecklist', fn: () => tx.exitChecklist.deleteMany({ where: { employeeId: id } }) },
-        { name: 'ExitAccessConfig', fn: () => tx.exitAccessConfig.deleteMany({ where: { employeeId: id } }) },
-        // Intern
-        { name: 'InternProfile', fn: () => tx.internProfile.deleteMany({ where: { employeeId: id } }) },
-        // Permissions / Visibility
-        { name: 'SalaryVisibilityRule', fn: () => tx.salaryVisibilityRule.deleteMany({ where: { employeeId: id } }) },
-        { name: 'PermissionOverride', fn: () => tx.permissionOverride.deleteMany({ where: { employeeId: id } }) },
-        // Lifecycle events
-        { name: 'EmployeeEvent', fn: () => tx.employeeEvent.deleteMany({ where: { employeeId: id } }) },
-        // Goals & Policy
-        { name: 'Goal', fn: () => tx.goal.deleteMany({ where: { employeeId: id } }) },
-        { name: 'PolicyAcknowledgment', fn: () => tx.policyAcknowledgment.deleteMany({ where: { employeeId: id } }) },
-        // Activation tokens
-        { name: 'EmployeeActivation', fn: () => tx.employeeActivation.deleteMany({ where: { employeeId: id } }) },
-        // Salary history
-        { name: 'SalaryHistory', fn: () => tx.salaryHistory.deleteMany({ where: { employeeId: id } }) },
-        // Null out deletion request FK references so the soft-deleted employee is no longer referenced
-        { name: 'EmployeeDeletionRequest(employeeId)', fn: async () => {
-          const drModel = (tx as any).employeeDeletionRequest;
-          if (drModel) await drModel.updateMany({ where: { employeeId: id }, data: { employeeId: null } });
-        }},
-      ];
-
-      // User-related deletions
-      if (existing.userId) {
-        deletions.push(
-          { name: 'AuditLog(user)', fn: () => tx.auditLog.deleteMany({ where: { userId: existing.userId! } }) },
-          // Note: Notification model not in schema (system uses socket-based real-time notifications)
-          { name: 'RefreshToken', fn: () => tx.refreshToken.deleteMany({ where: { userId: existing.userId! } }) },
-        );
-      }
-
-      for (const { name, fn } of deletions) {
-        try { await fn(); } catch (e: any) {
-          // Log but don't block — some tables may not exist or have no matching records
-          logger.warn(`Delete ${name} for employee ${id}: ${e.message?.slice(0, 80)}`);
+    const bestEffortDeletions: Array<{ name: string; fn: () => Promise<any> }> = [
+      { name: 'DocumentOcrVerification', fn: () => prisma.documentOcrVerification.deleteMany({ where: { documentId: { in: docIds.length ? docIds : ['none'] } } }) },
+      { name: 'Document', fn: () => prisma.document.deleteMany({ where: { employeeId: id } }) },
+      { name: 'OnboardingDocumentGate', fn: () => prisma.onboardingDocumentGate.deleteMany({ where: { employeeId: id } }) },
+      { name: 'LeaveBalance', fn: () => prisma.leaveBalance.deleteMany({ where: { employeeId: id } }) },
+      { name: 'LeaveRequest', fn: () => prisma.leaveRequest.deleteMany({ where: { employeeId: id } }) },
+      // Attendance — delete child records first (Break, AttendanceLog depend on AttendanceRecord)
+      { name: 'AttendanceLog', fn: async () => {
+        const attRecords = await prisma.attendanceRecord.findMany({ where: { employeeId: id }, select: { id: true } });
+        const attIds = attRecords.map(r => r.id);
+        if (attIds.length) {
+          await prisma.attendanceLog.deleteMany({ where: { attendanceId: { in: attIds } } });
+          await prisma.break.deleteMany({ where: { attendanceId: { in: attIds } } });
+          await prisma.attendanceRegularization.deleteMany({ where: { attendanceId: { in: attIds } } });
         }
-      }
-
-      // Mark invitations as expired so re-invite starts fresh
-      if (existing.email) {
-        await tx.employeeInvitation.updateMany({
-          where: { email: existing.email, organizationId, status: 'ACCEPTED' },
-          data: { status: 'EXPIRED' },
-        });
-      }
-
+      }},
+      { name: 'AttendanceRecord', fn: () => prisma.attendanceRecord.deleteMany({ where: { employeeId: id } }) },
+      { name: 'GPSTrailPoint', fn: () => prisma.gPSTrailPoint.deleteMany({ where: { employeeId: id } }) },
+      { name: 'ProjectSiteCheckIn', fn: () => prisma.projectSiteCheckIn.deleteMany({ where: { employeeId: id } }) },
+      { name: 'ShiftAssignment', fn: () => prisma.shiftAssignment.deleteMany({ where: { employeeId: id } }) },
+      { name: 'HybridSchedule', fn: () => prisma.hybridSchedule.deleteMany({ where: { employeeId: id } }) },
+      { name: 'SalaryStructure', fn: () => prisma.salaryStructure.deleteMany({ where: { employeeId: id } }) },
+      { name: 'PayrollRecord', fn: () => prisma.payrollRecord.deleteMany({ where: { employeeId: id } }) },
+      { name: 'PerformanceReview', fn: () => prisma.performanceReview.deleteMany({ where: { employeeId: id } }) },
+      { name: 'AssetAssignment', fn: () => prisma.assetAssignment.deleteMany({ where: { employeeId: id } }) },
+      { name: 'Ticket', fn: () => prisma.ticket.deleteMany({ where: { employeeId: id } }) },
+      { name: 'ActivityLog', fn: () => prisma.activityLog.deleteMany({ where: { employeeId: id } }) },
+      { name: 'AgentScreenshot', fn: () => prisma.agentScreenshot.deleteMany({ where: { employeeId: id } }) },
+      { name: 'ExitChecklist', fn: () => prisma.exitChecklist.deleteMany({ where: { employeeId: id } }) },
+      { name: 'ExitAccessConfig', fn: () => prisma.exitAccessConfig.deleteMany({ where: { employeeId: id } }) },
+      { name: 'InternProfile', fn: () => prisma.internProfile.deleteMany({ where: { employeeId: id } }) },
+      { name: 'SalaryVisibilityRule', fn: () => prisma.salaryVisibilityRule.deleteMany({ where: { employeeId: id } }) },
+      { name: 'PermissionOverride', fn: () => prisma.permissionOverride.deleteMany({ where: { employeeId: id } }) },
+      { name: 'EmployeeEvent', fn: () => prisma.employeeEvent.deleteMany({ where: { employeeId: id } }) },
+      { name: 'Goal', fn: () => prisma.goal.deleteMany({ where: { employeeId: id } }) },
+      { name: 'PolicyAcknowledgment', fn: () => prisma.policyAcknowledgment.deleteMany({ where: { employeeId: id } }) },
+      { name: 'EmployeeActivation', fn: () => prisma.employeeActivation.deleteMany({ where: { employeeId: id } }) },
+      { name: 'SalaryHistory', fn: () => prisma.salaryHistory.deleteMany({ where: { employeeId: id } }) },
+      // Null out deletion request FK references
+      { name: 'EmployeeDeletionRequest(employeeId)', fn: async () => {
+        const drModel = (prisma as any).employeeDeletionRequest;
+        if (drModel) await drModel.updateMany({ where: { employeeId: id }, data: { employeeId: null } });
+      }},
+      // Mark invitations expired so re-invite starts fresh
+      { name: 'EmployeeInvitation', fn: async () => {
+        if (existing.email) {
+          await prisma.employeeInvitation.updateMany({
+            where: { email: existing.email, organizationId, status: 'ACCEPTED' },
+            data: { status: 'EXPIRED' },
+          });
+        }
+      }},
       // Unlink manager references from other employees
-      await tx.employee.updateMany({
-        where: { managerId: id },
-        data: { managerId: null },
-      });
+      { name: 'Employee(managerId)', fn: () => prisma.employee.updateMany({ where: { managerId: id }, data: { managerId: null } }) },
+    ];
 
-      // Soft-delete employee record (preserve for audit trail)
+    if (existing.userId) {
+      bestEffortDeletions.push(
+        { name: 'AuditLog(user)', fn: () => prisma.auditLog.deleteMany({ where: { userId: existing.userId! } }) },
+        { name: 'RefreshToken', fn: () => prisma.refreshToken.deleteMany({ where: { userId: existing.userId! } }) },
+      );
+    }
+
+    for (const { name, fn } of bestEffortDeletions) {
+      try { await fn(); } catch (e: any) {
+        logger.warn(`Delete ${name} for employee ${id}: ${e.message?.slice(0, 80)}`);
+      }
+    }
+
+    // ── Phase 2: Atomic soft-delete (small isolated transaction) ─────────────────
+    // Only the two critical writes are here — no try-catch inside, no tables that
+    // could cause 25P02 from earlier failures.
+    await prisma.$transaction(async (tx) => {
       await tx.employee.update({ where: { id }, data: { deletedAt: new Date(), status: 'INACTIVE' } });
-
-      // Deactivate user account (preserve for audit trail)
       if (existing.userId) {
         await tx.user.update({ where: { id: existing.userId }, data: { status: 'INACTIVE' } });
       }
