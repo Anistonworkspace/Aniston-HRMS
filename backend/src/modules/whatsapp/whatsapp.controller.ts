@@ -80,7 +80,7 @@ export class WhatsAppController {
       const chatId = String(req.params.chatId);
       const limit = Math.min(Number(req.query.limit) || 50, 200);
       const before = typeof req.query.before === 'string' ? req.query.before : undefined;
-      const messages = await whatsAppService.getChatMessages(chatId, limit, before);
+      const messages = await whatsAppService.getChatMessages(chatId, limit, before, req.user!.organizationId);
       res.json({ success: true, data: messages });
     } catch (err) { next(err); }
   }

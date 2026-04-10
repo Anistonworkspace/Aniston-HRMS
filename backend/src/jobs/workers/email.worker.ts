@@ -608,6 +608,8 @@ async function getEmailConfig(): Promise<{
     const email = settings.email;
 
     if (email?.authMethod === 'oauth2' && email?.tenantId && email?.clientId && email?.clientSecret) {
+      let clientSecret = email.clientSecret;
+      try { const { decrypt } = await import('../../utils/encryption.js'); clientSecret = decrypt(email.clientSecret); } catch { /* already plaintext (legacy) */ }
       return {
         authMethod: 'oauth2',
         host: '', port: 0, user: '', pass: '',
@@ -615,18 +617,20 @@ async function getEmailConfig(): Promise<{
         fromName: email.fromName || 'Aniston HRMS',
         tenantId: email.tenantId,
         clientId: email.clientId,
-        clientSecret: email.clientSecret,
+        clientSecret,
         senderEmail: email.senderEmail || email.fromAddress,
       };
     }
 
     if (email?.host && email?.user && email?.pass) {
+      let pass = email.pass;
+      try { const { decrypt } = await import('../../utils/encryption.js'); pass = decrypt(email.pass); } catch { /* already plaintext (legacy) */ }
       return {
         authMethod: 'smtp',
         host: email.host,
         port: email.port || 587,
         user: email.user,
-        pass: email.pass,
+        pass,
         fromAddress: email.fromAddress || email.user,
         fromName: email.fromName || 'Aniston HRMS',
       };
@@ -738,7 +742,9 @@ async function sendEmail(to: string, subject: string, html: string) {
         host: config.host,
         port: config.port,
         secure: config.port === 465,
+        requireTLS: true,
         auth: { user: config.user, pass: config.pass },
+        tls: { ciphers: 'SSLv3', rejectUnauthorized: false },
       });
       await transporter.sendMail({
         from: `"${config.fromName}" <${config.fromAddress}>`,

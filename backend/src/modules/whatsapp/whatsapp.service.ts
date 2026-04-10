@@ -651,9 +651,54 @@ export class WhatsAppService {
 
   // ===================== MESSAGES (lazy media — no eager download) =====================
 
-  async getChatMessages(chatId: string, limit = 50, before?: string) {
-    this._ensureReady();
+  async getChatMessages(chatId: string, limit = 50, before?: string, organizationId?: string) {
+    // Extract plain phone number from WhatsApp chat ID (e.g. "919311221636@c.us" → "919311221636")
+    const phone = chatIdToPhone(chatId);
 
+    // ── Primary: serve from DB (reliable, includes HRMS-sent messages not yet in web.js session) ──
+    if (organizationId && phone) {
+      try {
+        const where: any = {
+          organizationId,
+          OR: [{ to: phone }, { fromNumber: phone }],
+        };
+        if (before) {
+          where.sentAt = { lt: new Date(before) };
+        }
+
+        const dbMessages = await prisma.whatsAppMessage.findMany({
+          where,
+          orderBy: { sentAt: 'asc' },
+          take: limit,
+        });
+
+        if (dbMessages.length > 0) {
+          return dbMessages.map((msg) => {
+            const ackMap: Record<string, number> = { READ: 3, DELIVERED: 2, SENT: 1, PENDING: 0, FAILED: -1, RECEIVED: 3 };
+            return {
+              id: msg.externalMessageId || msg.id,
+              body: msg.message,
+              fromMe: msg.direction === 'OUTBOUND',
+              timestamp: (msg.sentAt || msg.createdAt).toISOString(),
+              type: 'chat',
+              hasMedia: !!msg.mediaUrl,
+              ack: ackMap[msg.status] ?? 0,
+              mediaUrl: msg.mediaUrl || null,
+              mediaFilename: msg.mediaUrl ? msg.mediaUrl.split('/').pop() || null : null,
+              mediaMimetype: msg.mediaMimetype || null,
+              quotedMsg: null,
+              author: null,
+              notifyName: null,
+            };
+          });
+        }
+      } catch (dbErr: any) {
+        logger.warn(`WhatsApp: DB message fetch failed for ${phone}, falling back to web.js — ${dbErr.message}`);
+      }
+    }
+
+    // ── Fallback: web.js session (for older chats not yet in DB) ──
+    this._ensureReady();
     const normalizedChatId = this._normalizeChatId(chatId);
 
     try {
@@ -662,8 +707,6 @@ export class WhatsAppService {
 
       const fetchLimit = before ? limit * 2 : limit;
 
-      // whatsapp-web.js can throw internal errors (e.g. waitForChatLoading undefined)
-      // for group chats or chats with partially-loaded state. Retry once, then return [].
       let messages: any[] = [];
       try {
         messages = await chat.fetchMessages({ limit: fetchLimit });
@@ -674,7 +717,7 @@ export class WhatsAppService {
           messages = await chat.fetchMessages({ limit: fetchLimit });
         } catch (retryErr: any) {
           logger.error(`WhatsApp: fetchMessages retry also failed for ${normalizedChatId} — ${retryErr.message}`);
-          return []; // graceful empty — client shows "No messages yet"
+          return [];
         }
       }
 
@@ -684,7 +727,6 @@ export class WhatsAppService {
         filtered = messages.filter((m: any) => m.timestamp < beforeTs).slice(-limit);
       }
 
-      // Map messages WITHOUT downloading media (lazy loading)
       const results = await Promise.all(
         filtered.map(async (msg: any) => {
           let quotedMsg = null;
@@ -699,7 +741,6 @@ export class WhatsAppService {
             } catch { /* ignore */ }
           }
 
-          // Check if media is already cached on disk
           let mediaUrl = null;
           let mediaFilename = null;
           let mediaMimetype = null;
