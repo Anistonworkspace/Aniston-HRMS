@@ -7,10 +7,12 @@ on:
 jobs:
   # ─────────────────────────────────────────────────────────────
   # Job 1: Build the Windows desktop agent (.exe) on Windows runner
+  # continue-on-error: true — failure here must NOT block web deployment
   # ─────────────────────────────────────────────────────────────
   build-agent:
     name: Build Desktop Agent (.exe)
     runs-on: windows-latest
+    continue-on-error: true   # agent build failure never blocks EC2 deploy
 
     steps:
       - uses: actions/checkout@v4
@@ -43,11 +45,13 @@ jobs:
 
   # ─────────────────────────────────────────────────────────────
   # Job 2: Build web app, run tests, deploy to EC2
+  # if: always() — deploy runs even when build-agent fails/is skipped
   # ─────────────────────────────────────────────────────────────
   build-and-deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
     needs: build-agent
+    if: always()   # never skip EC2 deploy because of agent build result
 
     services:
       postgres:
@@ -106,14 +110,16 @@ jobs:
           REDIS_URL: redis://localhost:6379
           NODE_ENV: test
 
-      # Download the .exe built by build-agent job
+      # Download the .exe built by build-agent job (only if agent build succeeded)
       - name: Download agent installer artifact
+        if: needs.build-agent.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: aniston-agent-setup
           path: ./agent-build
 
       - name: Upload agent .exe to EC2
+        if: needs.build-agent.result == 'success'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}

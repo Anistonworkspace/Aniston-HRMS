@@ -1,7 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
-import { redis } from '../../lib/redis.js';
 import { NotFoundError, BadRequestError, ConflictError } from '../../middleware/errorHandler.js';
-import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
+import { enqueueEmail } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { logger } from '../../lib/logger.js';
 import { EmployeeService } from '../employee/employee.service.js';
@@ -10,6 +9,16 @@ import type { CreateDeletionRequestInput, RejectDeletionRequestInput } from './e
 const employeeService = new EmployeeService();
 
 export class EmployeeDeletionService {
+  // Helper: get the deletion request Prisma model, or throw a clear error
+  private getDeletionModel() {
+    const model = (prisma as any).employeeDeletionRequest;
+    if (!model) {
+      logger.error('[EmployeeDeletionService] Prisma client missing employeeDeletionRequest — schema not synced. Run: prisma generate && prisma db push');
+      throw new BadRequestError('Employee deletion feature is initializing. Please try again in a moment or contact support if the issue persists.');
+    }
+    return model;
+  }
+
   // ─────────────────────────────────
   // HR: Create deletion request
   // ─────────────────────────────────
@@ -19,6 +28,8 @@ export class EmployeeDeletionService {
     requestedBy: { id: string; name: string; role: string },
     organizationId: string,
   ) {
+    const deletionModel = this.getDeletionModel();
+
     // Verify employee exists and belongs to this org
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, organizationId, deletedAt: null },
@@ -28,12 +39,12 @@ export class EmployeeDeletionService {
     if (employee.isSystemAccount) throw new BadRequestError('System accounts cannot be deleted');
 
     // Block duplicate pending requests for same employee
-    const existing = await (prisma as any).employeeDeletionRequest.findFirst({
+    const existing = await deletionModel.findFirst({
       where: { employeeId, organizationId, status: 'PENDING' },
     });
     if (existing) throw new ConflictError('A deletion request for this employee is already pending');
 
-    const request = await (prisma as any).employeeDeletionRequest.create({
+    const request = await deletionModel.create({
       data: {
         organizationId,
         employeeId,
@@ -81,14 +92,15 @@ export class EmployeeDeletionService {
     const where: any = { organizationId };
     if (query.status) where.status = query.status;
 
+    const deletionModel = this.getDeletionModel();
     const [requests, total] = await Promise.all([
-      (prisma as any).employeeDeletionRequest.findMany({
+      deletionModel.findMany({
         where,
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
       }),
-      (prisma as any).employeeDeletionRequest.count({ where }),
+      deletionModel.count({ where }),
     ]);
 
     return {
@@ -108,7 +120,7 @@ export class EmployeeDeletionService {
   // Super Admin: Get single request
   // ─────────────────────────────────
   async getRequest(id: string, organizationId: string) {
-    const request = await (prisma as any).employeeDeletionRequest.findFirst({
+    const request = await this.getDeletionModel().findFirst({
       where: { id, organizationId },
     });
     if (!request) throw new NotFoundError('Deletion request');
@@ -123,7 +135,8 @@ export class EmployeeDeletionService {
     reviewedBy: { id: string; name: string },
     organizationId: string,
   ) {
-    const request = await (prisma as any).employeeDeletionRequest.findFirst({
+    const deletionModel = this.getDeletionModel();
+    const request = await deletionModel.findFirst({
       where: { id: requestId, organizationId },
     });
     if (!request) throw new NotFoundError('Deletion request');
@@ -143,7 +156,7 @@ export class EmployeeDeletionService {
     }
 
     // Mark request approved
-    const updated = await (prisma as any).employeeDeletionRequest.update({
+    const updated = await deletionModel.update({
       where: { id: requestId },
       data: {
         status: 'APPROVED',
@@ -182,7 +195,8 @@ export class EmployeeDeletionService {
     organizationId: string,
     data: RejectDeletionRequestInput,
   ) {
-    const request = await (prisma as any).employeeDeletionRequest.findFirst({
+    const deletionModel = this.getDeletionModel();
+    const request = await deletionModel.findFirst({
       where: { id: requestId, organizationId },
     });
     if (!request) throw new NotFoundError('Deletion request');
@@ -190,7 +204,7 @@ export class EmployeeDeletionService {
       throw new BadRequestError(`Cannot reject a request with status "${request.status}"`);
     }
 
-    const updated = await (prisma as any).employeeDeletionRequest.update({
+    const updated = await deletionModel.update({
       where: { id: requestId },
       data: {
         status: 'REJECTED',
@@ -235,17 +249,27 @@ export class EmployeeDeletionService {
     if (employee.isSystemAccount) throw new BadRequestError('System accounts cannot be deleted');
 
     // Cancel any pending deletion requests for this employee
-    await (prisma as any).employeeDeletionRequest.updateMany({
-      where: { employeeId, organizationId, status: 'PENDING' },
-      data: {
-        status: 'CANCELLED',
-        reviewedById: deletedBy.id,
-        reviewedByName: deletedBy.name,
-        reviewedAt: new Date(),
-        rejectionReason: 'Employee was directly deleted by Super Admin',
-        employeeId: null,
-      },
-    });
+    // Guard against Prisma client not having the model (schema not yet synced on server)
+    const deletionRequestModel = (prisma as any).employeeDeletionRequest;
+    if (deletionRequestModel) {
+      try {
+        await deletionRequestModel.updateMany({
+          where: { employeeId, organizationId, status: 'PENDING' },
+          data: {
+            status: 'CANCELLED',
+            reviewedById: deletedBy.id,
+            reviewedByName: deletedBy.name,
+            reviewedAt: new Date(),
+            rejectionReason: 'Employee was directly deleted by Super Admin',
+            employeeId: null,
+          },
+        });
+      } catch (e: any) {
+        logger.warn(`[DirectDelete] Could not cancel pending deletion requests for ${employeeId}: ${e.message}`);
+      }
+    } else {
+      logger.warn('[DirectDelete] employeeDeletionRequest model not available on Prisma client — run prisma generate');
+    }
 
     // Perform permanent removal
     await employeeService.softDelete(employeeId, organizationId, deletedBy.id);
