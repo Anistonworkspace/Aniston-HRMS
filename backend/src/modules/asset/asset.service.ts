@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, ConflictError, BadRequestError } from '../../middleware/errorHandler.js';
+import { NotFoundError, ConflictError, BadRequestError, AppError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
+import { logger } from '../../lib/logger.js';
 import type { CreateAssetInput, UpdateAssetInput, AssignAssetInput, ReturnAssetInput, ExitChecklistItemInput, AssetQuery } from './asset.validation.js';
 
 export class AssetService {
@@ -133,30 +134,36 @@ export class AssetService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    return prisma.$transaction(async (tx) => {
-      const assignment = await tx.assetAssignment.create({
-        data: {
-          assetId: data.assetId,
-          employeeId: data.employeeId,
-          assignedBy,
-          condition: data.condition || null,
-          notes: data.notes || null,
-        },
-        include: {
-          asset: true,
-          employee: {
-            select: { id: true, firstName: true, lastName: true, employeeCode: true },
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const assignment = await tx.assetAssignment.create({
+          data: {
+            assetId: data.assetId,
+            employeeId: data.employeeId,
+            assignedBy,
+            condition: data.condition || null,
+            notes: data.notes || null,
           },
-        },
-      });
+          include: {
+            asset: true,
+            employee: {
+              select: { id: true, firstName: true, lastName: true, employeeCode: true },
+            },
+          },
+        });
 
-      await tx.asset.update({
-        where: { id: data.assetId },
-        data: { status: 'ASSIGNED' },
-      });
+        await tx.asset.update({
+          where: { id: data.assetId },
+          data: { status: 'ASSIGNED' },
+        });
 
-      return assignment;
-    });
+        return assignment;
+      });
+    } catch (err: any) {
+      if (err instanceof BadRequestError || err instanceof NotFoundError) throw err;
+      logger.error(`[Asset] assign() transaction failed: ${err.message}`);
+      throw new AppError('Asset assignment failed. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
   }
 
   async returnAsset(assignmentId: string, returnData?: ReturnAssetInput) {
@@ -168,74 +175,80 @@ export class AssetService {
     if (!assignment) throw new NotFoundError('Asset assignment');
     if (assignment.returnedAt) throw new BadRequestError('This asset has already been returned.');
 
-    return prisma.$transaction(async (tx) => {
-      const updated = await tx.assetAssignment.update({
-        where: { id: assignmentId },
-        data: {
-          returnedAt: new Date(),
-          returnCondition: returnData?.returnCondition || null,
-          returnNotes: returnData?.returnNotes || null,
-        },
-        include: {
-          asset: true,
-          employee: {
-            select: { id: true, firstName: true, lastName: true, employeeCode: true },
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const updated = await tx.assetAssignment.update({
+          where: { id: assignmentId },
+          data: {
+            returnedAt: new Date(),
+            returnCondition: returnData?.returnCondition || null,
+            returnNotes: returnData?.returnNotes || null,
           },
-        },
-      });
-
-      // Update asset status and condition if return condition provided
-      const assetUpdate: any = { status: 'AVAILABLE' as const };
-      if (returnData?.returnCondition) {
-        assetUpdate.condition = returnData.returnCondition;
-      }
-
-      await tx.asset.update({
-        where: { id: assignment.assetId },
-        data: assetUpdate,
-      });
-
-      // Check if this employee has an exit checklist and update it
-      const checklist = await tx.exitChecklist.findUnique({
-        where: { employeeId: assignment.employeeId },
-        include: { items: true },
-      });
-
-      if (checklist) {
-        // Mark matching checklist item as returned
-        const matchingItem = checklist.items.find(
-          (item) => item.assetId === assignment.assetId && !item.isReturned
-        );
-        if (matchingItem) {
-          await tx.exitChecklistItem.update({
-            where: { id: matchingItem.id },
-            data: { isReturned: true, returnedAt: new Date() },
-          });
-        }
-
-        // Check if all items are now returned
-        const updatedItems = await tx.exitChecklistItem.findMany({
-          where: { checklistId: checklist.id },
-        });
-        const allReturned = updatedItems.every((item) => item.isReturned);
-
-        if (allReturned) {
-          await tx.exitChecklist.update({
-            where: { id: checklist.id },
-            data: {
-              assetsClearedAt: new Date(),
-              salaryProcessingUnblocked: true,
+          include: {
+            asset: true,
+            employee: {
+              select: { id: true, firstName: true, lastName: true, employeeCode: true },
             },
-          });
-        }
-      }
+          },
+        });
 
-      return updated;
-    });
+        // Update asset status and condition if return condition provided
+        const assetUpdate: any = { status: 'AVAILABLE' as const };
+        if (returnData?.returnCondition) {
+          assetUpdate.condition = returnData.returnCondition;
+        }
+
+        await tx.asset.update({
+          where: { id: assignment.assetId },
+          data: assetUpdate,
+        });
+
+        // Check if this employee has an exit checklist and update it
+        const checklist = await tx.exitChecklist.findUnique({
+          where: { employeeId: assignment.employeeId },
+          include: { items: true },
+        });
+
+        if (checklist) {
+          // Mark matching checklist item as returned
+          const matchingItem = checklist.items.find(
+            (item) => item.assetId === assignment.assetId && !item.isReturned
+          );
+          if (matchingItem) {
+            await tx.exitChecklistItem.update({
+              where: { id: matchingItem.id },
+              data: { isReturned: true, returnedAt: new Date() },
+            });
+          }
+
+          // Check if all items are now returned
+          const updatedItems = await tx.exitChecklistItem.findMany({
+            where: { checklistId: checklist.id },
+          });
+          const allReturned = updatedItems.every((item) => item.isReturned);
+
+          if (allReturned) {
+            await tx.exitChecklist.update({
+              where: { id: checklist.id },
+              data: {
+                assetsClearedAt: new Date(),
+                salaryProcessingUnblocked: true,
+              },
+            });
+          }
+        }
+
+        return updated;
+      });
+    } catch (err: any) {
+      if (err instanceof BadRequestError || err instanceof NotFoundError) throw err;
+      logger.error(`[Asset] returnAsset() transaction failed: ${err.message}`);
+      throw new AppError('Asset return failed. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
   }
 
-  async getAssignments(assetId: string) {
-    const asset = await prisma.asset.findUnique({ where: { id: assetId } });
+  async getAssignments(assetId: string, organizationId: string) {
+    const asset = await prisma.asset.findFirst({ where: { id: assetId, organizationId } });
     if (!asset) throw new NotFoundError('Asset');
 
     return prisma.assetAssignment.findMany({
@@ -263,7 +276,9 @@ export class AssetService {
     });
   }
 
-  async getEmployeeAssets(employeeId: string) {
+  async getEmployeeAssets(employeeId: string, organizationId: string) {
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId } });
+    if (!employee) throw new NotFoundError('Employee');
     return prisma.assetAssignment.findMany({
       where: { employeeId },
       include: { asset: true },
@@ -367,65 +382,71 @@ export class AssetService {
     const item = checklist.items.find((i) => i.id === data.itemId);
     if (!item) throw new NotFoundError('Checklist item');
 
-    return prisma.$transaction(async (tx) => {
-      // Update the checklist item
-      await tx.exitChecklistItem.update({
-        where: { id: data.itemId },
-        data: {
-          isReturned: data.isReturned,
-          returnedAt: data.isReturned ? new Date() : null,
-          approvedBy: data.isReturned ? approvedBy : null,
-          notes: data.notes || null,
-        },
-      });
-
-      // If item has an asset and is being returned, also return the asset assignment
-      if (data.isReturned && item.assetId) {
-        const assignment = await tx.assetAssignment.findFirst({
-          where: { assetId: item.assetId, employeeId, returnedAt: null },
+    try {
+      return await prisma.$transaction(async (tx) => {
+        // Update the checklist item
+        await tx.exitChecklistItem.update({
+          where: { id: data.itemId },
+          data: {
+            isReturned: data.isReturned,
+            returnedAt: data.isReturned ? new Date() : null,
+            approvedBy: data.isReturned ? approvedBy : null,
+            notes: data.notes || null,
+          },
         });
-        if (assignment) {
-          await tx.assetAssignment.update({
-            where: { id: assignment.id },
-            data: { returnedAt: new Date() },
+
+        // If item has an asset and is being returned, also return the asset assignment
+        if (data.isReturned && item.assetId) {
+          const assignment = await tx.assetAssignment.findFirst({
+            where: { assetId: item.assetId, employeeId, returnedAt: null },
           });
-          await tx.asset.update({
-            where: { id: item.assetId },
-            data: { status: 'AVAILABLE' },
-          });
+          if (assignment) {
+            await tx.assetAssignment.update({
+              where: { id: assignment.id },
+              data: { returnedAt: new Date() },
+            });
+            await tx.asset.update({
+              where: { id: item.assetId },
+              data: { status: 'AVAILABLE' },
+            });
+          }
         }
-      }
 
-      // Check if all items returned
-      const allItems = await tx.exitChecklistItem.findMany({
-        where: { checklistId: checklist.id },
-      });
-      const allReturned = allItems.every((i) =>
-        i.id === data.itemId ? data.isReturned : i.isReturned
-      );
+        // Check if all items returned
+        const allItems = await tx.exitChecklistItem.findMany({
+          where: { checklistId: checklist.id },
+        });
+        const allReturned = allItems.every((i) =>
+          i.id === data.itemId ? data.isReturned : i.isReturned
+        );
 
-      await tx.exitChecklist.update({
-        where: { id: checklist.id },
-        data: {
-          assetsClearedAt: allReturned ? new Date() : null,
-          salaryProcessingUnblocked: allReturned,
-        },
-      });
+        await tx.exitChecklist.update({
+          where: { id: checklist.id },
+          data: {
+            assetsClearedAt: allReturned ? new Date() : null,
+            salaryProcessingUnblocked: allReturned,
+          },
+        });
 
-      // Return updated checklist
-      return tx.exitChecklist.findUnique({
-        where: { employeeId },
-        include: {
-          items: {
-            include: {
-              asset: {
-                select: { id: true, name: true, assetCode: true, category: true, condition: true },
+        // Return updated checklist
+        return tx.exitChecklist.findUnique({
+          where: { employeeId },
+          include: {
+            items: {
+              include: {
+                asset: {
+                  select: { id: true, name: true, assetCode: true, category: true, condition: true },
+                },
               },
             },
           },
-        },
+        });
       });
-    });
+    } catch (err: any) {
+      if (err instanceof BadRequestError || err instanceof NotFoundError) throw err;
+      logger.error(`[Asset] markChecklistItemReturned() transaction failed: ${err.message}`);
+      throw new AppError('Checklist update failed. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
   }
 }
 

@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { emitToOrg } from '../../sockets/index.js';
-import { NotFoundError } from '../../middleware/errorHandler.js';
+import { NotFoundError, AppError } from '../../middleware/errorHandler.js';
+import { logger } from '../../lib/logger.js';
 import type { CreateAnnouncementInput, UpdateAnnouncementInput, CreateSocialPostInput, CreateSocialCommentInput } from './announcement.validation.js';
 
 // Helper to look up user display info
@@ -22,7 +23,8 @@ export class AnnouncementService {
 
     // Enrich with author info
     const userIds = [...new Set(announcements.map(a => a.createdBy))];
-    const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: userSelect });
+    const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: userSelect })
+      .catch((err: any) => { logger.warn('[Announcement] Failed to fetch authors:', err.message); return []; });
     const userMap = new Map(users.map(u => [u.id, u]));
 
     return announcements.map(a => ({
@@ -50,7 +52,9 @@ export class AnnouncementService {
     return { ...announcement, author };
   }
 
-  async update(id: string, data: UpdateAnnouncementInput) {
+  async update(id: string, data: UpdateAnnouncementInput, organizationId: string) {
+    const existing = await prisma.announcement.findFirst({ where: { id, organizationId } });
+    if (!existing) throw new NotFoundError('Announcement');
     const announcement = await prisma.announcement.update({
       where: { id },
       data: { ...data, expiresAt: data.expiresAt ? new Date(data.expiresAt) : undefined },
@@ -86,7 +90,8 @@ export class AnnouncementService {
       authorIds.add(p.authorId);
       p.comments.forEach(c => authorIds.add(c.authorId));
     });
-    const users = await prisma.user.findMany({ where: { id: { in: [...authorIds] } }, select: userSelect });
+    const users = await prisma.user.findMany({ where: { id: { in: [...authorIds] } }, select: userSelect })
+      .catch((err: any) => { logger.warn('[Announcement] Failed to fetch post authors:', err.message); return []; });
     const userMap = new Map(users.map(u => [u.id, u]));
 
     return posts.map(p => ({
@@ -120,29 +125,44 @@ export class AnnouncementService {
   }
 
   async toggleLike(postId: string, userId: string) {
-    const existing = await prisma.socialLike.findUnique({
-      where: { postId_userId: { postId, userId } },
-    });
-    if (existing) {
-      await prisma.socialLike.delete({ where: { id: existing.id } });
-      await prisma.socialPost.update({ where: { id: postId }, data: { likesCount: { decrement: 1 } } });
-      return { liked: false };
-    } else {
-      await prisma.socialLike.create({ data: { postId, userId } });
-      await prisma.socialPost.update({ where: { id: postId }, data: { likesCount: { increment: 1 } } });
-      return { liked: true };
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const existing = await tx.socialLike.findUnique({
+          where: { postId_userId: { postId, userId } },
+        });
+        if (existing) {
+          await tx.socialLike.delete({ where: { id: existing.id } });
+          await tx.socialPost.update({ where: { id: postId }, data: { likesCount: { decrement: 1 } } });
+          return { liked: false };
+        } else {
+          await tx.socialLike.create({ data: { postId, userId } });
+          await tx.socialPost.update({ where: { id: postId }, data: { likesCount: { increment: 1 } } });
+          return { liked: true };
+        }
+      });
+    } catch (err: any) {
+      logger.error(`[Announcement] toggleLike() failed for post ${postId}: ${err.message}`);
+      throw new AppError('Failed to update like. Please try again.', 500, 'TRANSACTION_FAILED');
     }
   }
 
   async createComment(postId: string, userId: string, data: CreateSocialCommentInput) {
-    const comment = await prisma.socialComment.create({
-      data: { postId, authorId: userId, content: data.content },
-    });
-    await prisma.socialPost.update({ where: { id: postId }, data: { commentsCount: { increment: 1 } } });
-
-    const author = await prisma.user.findUnique({ where: { id: userId }, select: userSelect });
-
-    return { ...comment, author };
+    try {
+      const [comment] = await prisma.$transaction(async (tx) => {
+        const newComment = await tx.socialComment.create({
+          data: { postId, authorId: userId, content: data.content },
+        });
+        await tx.socialPost.update({ where: { id: postId }, data: { commentsCount: { increment: 1 } } });
+        return [newComment];
+      });
+      const author = await prisma.user.findUnique({ where: { id: userId }, select: userSelect })
+        .catch(() => null);
+      return { ...comment, author };
+    } catch (err: any) {
+      if (err instanceof AppError) throw err;
+      logger.error(`[Announcement] createComment() failed for post ${postId}: ${err.message}`);
+      throw new AppError('Failed to add comment. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
   }
 
   async deleteComment(commentId: string, postId: string) {

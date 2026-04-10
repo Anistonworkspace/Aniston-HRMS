@@ -2,7 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { encrypt, decrypt } from '../../utils/encryption.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
-import { BadRequestError } from '../../middleware/errorHandler.js';
+import { BadRequestError, ServiceUnavailableError } from '../../middleware/errorHandler.js';
 import { logger } from '../../lib/logger.js';
 import type { AiProvider } from '@prisma/client';
 import type { UpsertAiConfigInput } from './ai-config.validation.js';
@@ -153,34 +153,54 @@ export class AiConfigService {
       }
     }
 
+    // When baseUrl is explicitly set (including empty string to clear it), use the provided value.
+    // When baseUrl is undefined/omitted from the request, preserve the existing DB value.
+    let resolvedBaseUrl: string | null | undefined;
+    if (baseUrl !== undefined) {
+      // User explicitly sent a baseUrl — use it (empty string clears the field → null)
+      resolvedBaseUrl = baseUrl || null;
+    } else {
+      // Not provided — preserve existing value by omitting from update payload
+      resolvedBaseUrl = undefined;
+    }
+
+    // Fetch existing to handle baseUrl preservation in create path
+    const existingConfig = await prisma.aiApiConfig.findFirst({
+      where: { organizationId, provider: provider as AiProvider },
+    });
+    const createBaseUrl = resolvedBaseUrl !== undefined ? resolvedBaseUrl : existingConfig?.baseUrl ?? null;
+    const updateData: any = { apiKeyEncrypted, modelName, isActive: true, updatedBy: userId };
+    if (resolvedBaseUrl !== undefined) updateData.baseUrl = resolvedBaseUrl;
+
     // Atomic: deactivate all + upsert active config
-    const [, config] = await prisma.$transaction([
-      prisma.aiApiConfig.updateMany({
-        where: { organizationId, isActive: true },
-        data: { isActive: false },
-      }),
-      prisma.aiApiConfig.upsert({
-        where: {
-          organizationId_provider: { organizationId, provider: provider as AiProvider },
-        },
-        create: {
-          organizationId,
-          provider: provider as AiProvider,
-          apiKeyEncrypted,
-          baseUrl: baseUrl || null,
-          modelName,
-          isActive: true,
-          updatedBy: userId,
-        },
-        update: {
-          apiKeyEncrypted,
-          baseUrl: baseUrl || null,
-          modelName,
-          isActive: true,
-          updatedBy: userId,
-        },
-      }),
-    ]);
+    let config: any;
+    try {
+      const [, saved] = await prisma.$transaction([
+        prisma.aiApiConfig.updateMany({
+          where: { organizationId, isActive: true },
+          data: { isActive: false },
+        }),
+        prisma.aiApiConfig.upsert({
+          where: {
+            organizationId_provider: { organizationId, provider: provider as AiProvider },
+          },
+          create: {
+            organizationId,
+            provider: provider as AiProvider,
+            apiKeyEncrypted,
+            baseUrl: createBaseUrl,
+            modelName,
+            isActive: true,
+            updatedBy: userId,
+          },
+          update: updateData,
+        }),
+      ]);
+      config = saved;
+    } catch (err: any) {
+      logger.error(`[AI Config] Failed to save config for org ${organizationId}: ${err.message}`);
+      throw new BadRequestError('Failed to save AI configuration. Please try again.');
+    }
 
     // Invalidate Redis cache
     await redis.del(`${CACHE_KEY_PREFIX}${organizationId}`);
@@ -229,7 +249,7 @@ export class AiConfigService {
     // Use overrides from request body if provided (test what user typed, not just what's saved)
     const testProvider = overrides?.provider || config?.provider || 'DEEPSEEK';
     const testModel = overrides?.modelName || config?.modelName || 'deepseek-chat';
-    const testBaseUrl = overrides?.baseUrl !== undefined ? overrides.baseUrl : config?.baseUrl;
+    const testBaseUrl = overrides?.baseUrl !== undefined ? overrides.baseUrl : (config?.baseUrl ?? null);
 
     const startTime = Date.now();
 
@@ -325,24 +345,36 @@ export class AiConfigService {
       case 'OPENAI':
       case 'DEEPSEEK':
       case 'CUSTOM': {
+        if (!baseUrl) {
+          throw new Error('Base URL is required for Custom provider. Please set a Base URL in the AI config settings.');
+        }
         // OpenAI-compatible API
+        const normalizedBase = baseUrl.replace(/\/+$/, ''); // trim trailing slashes
         const url = provider === 'OPENAI'
           ? 'https://api.openai.com/v1/chat/completions'
           : provider === 'DEEPSEEK'
           ? 'https://api.deepseek.com/v1/chat/completions'
-          : baseUrl?.endsWith('/v1') || baseUrl?.endsWith('/v1/')
-            ? `${baseUrl.replace(/\/+$/, '')}/chat/completions`
-            : `${baseUrl}/v1/chat/completions`;
+          : normalizedBase.endsWith('/v1')
+            ? `${normalizedBase}/chat/completions`
+            : normalizedBase.endsWith('/chat/completions')
+            ? normalizedBase  // already the full endpoint
+            : `${normalizedBase}/v1/chat/completions`;
 
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model: modelName,
-            messages: [{ role: 'user', content: prompt }],
-            max_tokens: 100,
-          }),
-        });
+        let res: Response;
+        try {
+          res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body: JSON.stringify({
+              model: modelName,
+              messages: [{ role: 'user', content: prompt }],
+              max_tokens: 100,
+            }),
+            signal: AbortSignal.timeout(30000),
+          });
+        } catch (fetchErr: any) {
+          throw new ServiceUnavailableError(`Cannot reach ${provider} API: ${fetchErr.message}`);
+        }
 
         if (!res.ok) {
           const errBody = await res.text();
@@ -354,19 +386,25 @@ export class AiConfigService {
       }
 
       case 'ANTHROPIC': {
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: modelName,
-            max_tokens: 100,
-            messages: [{ role: 'user', content: prompt }],
-          }),
-        });
+        let res: Response;
+        try {
+          res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: modelName,
+              max_tokens: 100,
+              messages: [{ role: 'user', content: prompt }],
+            }),
+            signal: AbortSignal.timeout(30000),
+          });
+        } catch (fetchErr: any) {
+          throw new ServiceUnavailableError(`Cannot reach Anthropic API: ${fetchErr.message}`);
+        }
 
         if (!res.ok) {
           const errBody = await res.text();
@@ -379,13 +417,19 @@ export class AiConfigService {
 
       case 'GEMINI': {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-          }),
-        });
+        let res: Response;
+        try {
+          res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+            }),
+            signal: AbortSignal.timeout(30000),
+          });
+        } catch (fetchErr: any) {
+          throw new ServiceUnavailableError(`Cannot reach Gemini API: ${fetchErr.message}`);
+        }
 
         if (!res.ok) {
           const errBody = await res.text();

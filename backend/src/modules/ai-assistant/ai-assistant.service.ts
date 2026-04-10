@@ -1,7 +1,8 @@
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { aiService } from '../../services/ai.service.js';
-import { NotFoundError } from '../../middleware/errorHandler.js';
+import { NotFoundError, ServiceUnavailableError, AppError } from '../../middleware/errorHandler.js';
+import { logger } from '../../lib/logger.js';
 
 const CONVERSATION_PREFIX = 'ai-assistant:';
 const CONVERSATION_TTL = 86400; // 24 hours
@@ -24,7 +25,16 @@ export class AiAssistantService {
     // Get conversation history from Redis
     const historyKey = `${CONVERSATION_PREFIX}${userId}:${context}`;
     const rawHistory = await redis.get(historyKey);
-    const history: ChatMessage[] = rawHistory ? JSON.parse(rawHistory) : [];
+    let history: ChatMessage[] = [];
+    if (rawHistory) {
+      try {
+        history = JSON.parse(rawHistory);
+      } catch {
+        // Corrupted cache — clear it and start fresh
+        logger.warn(`[AIAssistant] Corrupted history cache for user ${userId}:${context} — clearing`);
+        await redis.del(historyKey).catch(() => null);
+      }
+    }
 
     // Build system prompt with live data context
     const systemPrompt = await this.buildSystemPrompt(organizationId, context);
@@ -37,7 +47,13 @@ export class AiAssistantService {
     ];
 
     // Call AI
-    const result = await aiService.chat(organizationId, messages, 1024);
+    let result: Awaited<ReturnType<typeof aiService.chat>>;
+    try {
+      result = await aiService.chat(organizationId, messages, 1024);
+    } catch (err: any) {
+      logger.error(`[AIAssistant] aiService.chat() threw unexpectedly: ${err.message}`);
+      throw new ServiceUnavailableError('AI assistant is temporarily unavailable. Please try again later.');
+    }
 
     if (!result.success) {
       const errorMsg = result.error || 'AI service encountered an error.';
@@ -67,7 +83,11 @@ export class AiAssistantService {
    * Clear conversation history.
    */
   async clearHistory(userId: string, context: string) {
-    await redis.del(`${CONVERSATION_PREFIX}${userId}:${context}`);
+    try {
+      await redis.del(`${CONVERSATION_PREFIX}${userId}:${context}`);
+    } catch (err: any) {
+      logger.warn(`[AIAssistant] Failed to clear history for user ${userId}: ${err.message}`);
+    }
     return { cleared: true };
   }
 
@@ -77,7 +97,16 @@ export class AiAssistantService {
   async getHistory(userId: string, context: string) {
     const historyKey = `${CONVERSATION_PREFIX}${userId}:${context}`;
     const rawHistory = await redis.get(historyKey);
-    const history: ChatMessage[] = rawHistory ? JSON.parse(rawHistory) : [];
+    let history: ChatMessage[] = [];
+    if (rawHistory) {
+      try {
+        history = JSON.parse(rawHistory);
+      } catch {
+        // Corrupted cache — clear it and return empty history
+        logger.warn(`[AIAssistant] Corrupted history cache for user ${userId}:${context} — clearing`);
+        await redis.del(historyKey).catch(() => null);
+      }
+    }
     return history;
   }
 
@@ -85,14 +114,15 @@ export class AiAssistantService {
    * Add a knowledge base document.
    */
   async addKnowledgeDoc(organizationId: string, userId: string, title: string, content: string) {
-    const doc = await prisma.aiKnowledgeBase.create({
-      data: {
-        organizationId,
-        title,
-        content,
-        addedBy: userId,
-      },
-    });
+    let doc: any;
+    try {
+      doc = await prisma.aiKnowledgeBase.create({
+        data: { organizationId, title, content, addedBy: userId },
+      });
+    } catch (err: any) {
+      logger.error(`[AIAssistant] Failed to add knowledge doc: ${err.message}`);
+      throw new AppError('Failed to save knowledge document. Please try again.', 500, 'KNOWLEDGE_SAVE_FAILED');
+    }
     return doc;
   }
 
@@ -100,11 +130,15 @@ export class AiAssistantService {
    * List all knowledge base documents for an organization.
    */
   async getKnowledgeDocs(organizationId: string) {
-    const docs = await prisma.aiKnowledgeBase.findMany({
-      where: { organizationId },
-      orderBy: { createdAt: 'desc' },
-    });
-    return docs;
+    try {
+      return await prisma.aiKnowledgeBase.findMany({
+        where: { organizationId },
+        orderBy: { createdAt: 'desc' },
+      });
+    } catch (err: any) {
+      logger.warn(`[AIAssistant] Failed to fetch knowledge docs: ${err.message}`);
+      return [];
+    }
   }
 
   /**
@@ -144,7 +178,7 @@ You can answer questions about system configuration, employee data summaries, re
       } else if (context === 'hr-recruitment') {
         const [openJobs, totalApps, walkIns] = await Promise.all([
           prisma.jobOpening.count({ where: { organizationId, status: 'OPEN' } }),
-          prisma.application.count({ where: { organizationId } }),
+          prisma.application.count({ where: { jobOpening: { organizationId } } }),
           prisma.walkInCandidate.count({ where: { organizationId, status: 'WAITING' } }),
         ]);
 

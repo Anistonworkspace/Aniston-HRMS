@@ -1,8 +1,8 @@
 import { Worker, Job } from 'bullmq';
 import { redis } from '../../lib/redis.js';
+import { bullmqConnection, enqueueEmail } from '../queues.js';
 import { logger } from '../../lib/logger.js';
 import { prisma } from '../../lib/prisma.js';
-import { enqueueEmail } from '../queues.js';
 import { env } from '../../config/env.js';
 
 interface DigestJob {
@@ -15,6 +15,7 @@ const worker = new Worker<DigestJob>(
   async (job: Job<DigestJob>) => {
     const { employeeId, organizationId } = job.data;
     const key = `doc-digest:${organizationId}:${employeeId}`;
+    try {
 
     // Read all buffered documents
     const items = await redis.lrange(key, 0, -1);
@@ -55,8 +56,12 @@ const worker = new Worker<DigestJob>(
     });
 
     logger.info(`[Document Digest] Sent consolidated email for ${documents.length} docs from ${employee.employeeCode}`);
+    } catch (err: any) {
+      logger.error(`[Document Digest] Job ${job.id} failed for employee ${employeeId}: ${err.message}`);
+      throw err;
+    }
   },
-  { connection: redis, concurrency: 5 }
+  { connection: bullmqConnection, concurrency: 5 }
 );
 
 worker.on('completed', (job) => {

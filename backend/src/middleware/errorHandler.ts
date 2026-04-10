@@ -48,6 +48,27 @@ export class ConflictError extends AppError {
   }
 }
 
+export class GoneError extends AppError {
+  constructor(message: string = 'Resource no longer available') {
+    super(message, 410, 'GONE');
+    Object.setPrototypeOf(this, GoneError.prototype);
+  }
+}
+
+export class UnprocessableEntityError extends AppError {
+  constructor(message: string = 'Unprocessable entity') {
+    super(message, 422, 'UNPROCESSABLE_ENTITY');
+    Object.setPrototypeOf(this, UnprocessableEntityError.prototype);
+  }
+}
+
+export class ServiceUnavailableError extends AppError {
+  constructor(message: string = 'Service temporarily unavailable') {
+    super(message, 503, 'SERVICE_UNAVAILABLE');
+    Object.setPrototypeOf(this, ServiceUnavailableError.prototype);
+  }
+}
+
 export function errorHandler(
   err: Error,
   _req: Request,
@@ -137,6 +158,8 @@ export function errorHandler(
   // Prisma known errors
   if (err.constructor.name === 'PrismaClientKnownRequestError') {
     const prismaErr = err as any;
+    const requestId = (_req.headers?.['x-request-id'] as string) || undefined;
+
     if (prismaErr.code === 'P2002') {
       const target = prismaErr.meta?.target?.join(', ') || 'field';
       res.status(409).json({
@@ -172,10 +195,117 @@ export function errorHandler(
       });
       return;
     }
+    if (prismaErr.code === 'P2000') {
+      res.status(400).json({
+        success: false,
+        data: null,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'A field value is too long for the database column.',
+        },
+      });
+      return;
+    }
+    if (prismaErr.code === 'P2001') {
+      res.status(404).json({
+        success: false,
+        data: null,
+        error: {
+          code: 'NOT_FOUND',
+          message: 'The record you searched for does not exist.',
+        },
+      });
+      return;
+    }
+    if (prismaErr.code === 'P2011') {
+      const field = prismaErr.meta?.constraint || 'field';
+      res.status(400).json({
+        success: false,
+        data: null,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `Required field "${field}" cannot be null.`,
+        },
+      });
+      return;
+    }
+    if (prismaErr.code === 'P2012') {
+      const field = prismaErr.meta?.path || 'field';
+      res.status(400).json({
+        success: false,
+        data: null,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `Missing required value for "${field}".`,
+        },
+      });
+      return;
+    }
+    if (prismaErr.code === 'P2014') {
+      res.status(400).json({
+        success: false,
+        data: null,
+        error: {
+          code: 'RELATION_VIOLATION',
+          message: 'The change violates a required relation. Check that all referenced records exist.',
+        },
+      });
+      return;
+    }
+    if (prismaErr.code === 'P2016') {
+      logger.error('Prisma query interpretation error:', {
+        message: prismaErr.message,
+        requestId,
+        url: _req.originalUrl,
+      });
+      res.status(400).json({
+        success: false,
+        data: null,
+        error: {
+          code: 'QUERY_ERROR',
+          message: 'Invalid query. Please check your input and try again.',
+        },
+      });
+      return;
+    }
+    if (prismaErr.code === 'P2021') {
+      logger.error('Prisma table-not-found error — possible migration out of sync:', {
+        message: prismaErr.message,
+        requestId,
+        url: _req.originalUrl,
+      });
+      res.status(500).json({
+        success: false,
+        data: null,
+        error: {
+          code: 'SCHEMA_ERROR',
+          message: 'A database schema error occurred. Please contact support.',
+        },
+      });
+      return;
+    }
+    if (prismaErr.code === 'P2034') {
+      res.status(409).json({
+        success: false,
+        data: null,
+        error: {
+          code: 'TRANSACTION_CONFLICT',
+          message: 'A concurrent update conflict occurred. Please try again.',
+        },
+      });
+      return;
+    }
   }
 
-  // Unknown errors
-  logger.error('Unhandled error:', err);
+  // Unknown / programmer errors
+  const requestId = (_req.headers?.['x-request-id'] as string) || 'unknown';
+  logger.error('Unhandled error:', {
+    message: (err as any).message,
+    stack: (err as any).stack,
+    requestId,
+    method: _req.method,
+    url: _req.originalUrl,
+  });
   res.status(500).json({
     success: false,
     data: null,

@@ -4,7 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
-import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { NotFoundError, BadRequestError, AppError } from '../../middleware/errorHandler.js';
+import { logger } from '../../lib/logger.js';
 import { emitToOrg } from '../../sockets/index.js';
 import { enqueueEmail } from '../../jobs/queues.js';
 import { encrypt, decrypt, maskAadhaar, maskPAN } from '../../utils/encryption.js';
@@ -107,13 +108,13 @@ export class WalkInService {
     // Fire-and-forget: AI resume scoring
     if (candidate.resumeUrl && candidate.jobOpeningId) {
       this.triggerAIScoring(candidate.id, candidate.jobOpeningId, candidate.resumeUrl, organizationId)
-        .catch(err => console.error('AI scoring failed for walk-in:', err));
+        .catch((err: any) => logger.error('[WalkIn] AI scoring failed:', err.message));
     }
 
     // Fire-and-forget: Aadhaar OCR validation
     if (candidate.aadhaarFrontUrl) {
       this.triggerAadhaarOCR(candidate.id, candidate.aadhaarFrontUrl, candidate.aadhaarNumber || undefined)
-        .catch(err => console.error('Aadhaar OCR failed:', err));
+        .catch((err: any) => logger.error('[WalkIn] Aadhaar OCR failed:', err.message));
     }
 
     return candidate;
@@ -363,23 +364,30 @@ export class WalkInService {
     const nextRound = candidate.interviewRounds.length + 1;
     const totalRounds = Math.max(candidate.totalRounds, nextRound);
 
-    const [round] = await prisma.$transaction([
-      prisma.walkInInterviewRound.create({
-        data: {
-          walkInId,
-          roundNumber: nextRound,
-          roundName: data.roundName,
-          interviewerName: data.interviewerName || null,
-          interviewerId: data.interviewerId || null,
-          scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : null,
-          status: data.scheduledAt ? 'SCHEDULED' : 'PENDING',
-        },
-      }),
-      prisma.walkInCandidate.update({
-        where: { id: walkInId },
-        data: { totalRounds },
-      }),
-    ]);
+    let round: any;
+    try {
+      [round] = await prisma.$transaction([
+        prisma.walkInInterviewRound.create({
+          data: {
+            walkInId,
+            roundNumber: nextRound,
+            roundName: data.roundName,
+            interviewerName: data.interviewerName || null,
+            interviewerId: data.interviewerId || null,
+            scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : null,
+            status: data.scheduledAt ? 'SCHEDULED' : 'PENDING',
+          },
+        }),
+        prisma.walkInCandidate.update({
+          where: { id: walkInId },
+          data: { totalRounds },
+        }),
+      ]);
+    } catch (err: any) {
+      if (err instanceof NotFoundError || err instanceof BadRequestError) throw err;
+      logger.error(`[WalkIn] addInterviewRound() transaction failed: ${err.message}`);
+      throw new AppError('Failed to add interview round. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
 
     return round;
   }
@@ -493,35 +501,42 @@ export class WalkInService {
       throw new BadRequestError('Cannot convert: No job opening linked to this walk-in');
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      // Create Application
-      const application = await tx.application.create({
-        data: {
-          jobOpeningId: candidate.jobOpeningId!,
-          candidateName: candidate.fullName,
-          email: candidate.email,
-          phone: candidate.phone,
-          resumeUrl: candidate.resumeUrl || '',
-          source: 'WALK_IN',
-          status: 'SCREENING',
-          currentStage: 2,
-          aiScore: candidate.aiScore || null,
-          aiScoreDetails: candidate.aiScoreDetails || undefined,
-        },
-      });
+    let result: any;
+    try {
+      result = await prisma.$transaction(async (tx) => {
+        // Create Application
+        const application = await tx.application.create({
+          data: {
+            jobOpeningId: candidate.jobOpeningId!,
+            candidateName: candidate.fullName,
+            email: candidate.email,
+            phone: candidate.phone,
+            resumeUrl: candidate.resumeUrl || '',
+            source: 'WALK_IN',
+            status: 'SCREENING',
+            currentStage: 2,
+            aiScore: candidate.aiScore || null,
+            aiScoreDetails: candidate.aiScoreDetails || undefined,
+          },
+        });
 
-      // Update walk-in record
-      await tx.walkInCandidate.update({
-        where: { id },
-        data: {
-          convertedToApp: true,
-          applicationId: application.id,
-          status: 'IN_INTERVIEW',
-        },
-      });
+        // Update walk-in record
+        await tx.walkInCandidate.update({
+          where: { id },
+          data: {
+            convertedToApp: true,
+            applicationId: application.id,
+            status: 'IN_INTERVIEW',
+          },
+        });
 
-      return application;
-    });
+        return application;
+      });
+    } catch (err: any) {
+      if (err instanceof NotFoundError || err instanceof BadRequestError) throw err;
+      logger.error(`[WalkIn] convertToApplication() transaction failed: ${err.message}`);
+      throw new AppError('Failed to convert walk-in to application. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
 
     return result;
   }
@@ -554,6 +569,13 @@ export class WalkInService {
    * Hire a walk-in candidate — creates User + Employee, sends onboarding invite
    */
   async hireCandidate(walkInId: string, teamsEmail: string, organizationId: string, hiredBy: string) {
+    // Guard: teamsEmail must be a valid email address (not a phone number fallback)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!teamsEmail || !emailRegex.test(teamsEmail.trim())) {
+      throw new BadRequestError('A valid corporate email address is required to hire the candidate. Please provide an email (e.g. name@company.com).');
+    }
+    teamsEmail = teamsEmail.trim().toLowerCase();
+
     const candidate = await prisma.walkInCandidate.findUnique({
       where: { id: walkInId },
       include: { jobOpening: { select: { title: true } } },
@@ -565,50 +587,57 @@ export class WalkInService {
     const employeeCode = `EMP-${String(empCount + 1).padStart(3, '0')}`;
 
     // Create User + Employee in transaction
-    const result = await prisma.$transaction(async (tx) => {
-      const tempPassword = crypto.randomBytes(16).toString('hex');
-      const passwordHash = await bcrypt.hash(tempPassword, 12);
+    let result: any;
+    try {
+      result = await prisma.$transaction(async (tx) => {
+        const tempPassword = crypto.randomBytes(16).toString('hex');
+        const passwordHash = await bcrypt.hash(tempPassword, 12);
 
-      const user = await tx.user.create({
-        data: {
-          email: teamsEmail,
-          passwordHash,
-          role: 'EMPLOYEE',
-          status: 'PENDING_VERIFICATION',
-          organizationId,
-        },
+        const user = await tx.user.create({
+          data: {
+            email: teamsEmail,
+            passwordHash,
+            role: 'EMPLOYEE',
+            status: 'PENDING_VERIFICATION',
+            organizationId,
+          },
+        });
+
+        // Split name into first/last
+        const nameParts = candidate.fullName.split(' ');
+        const firstName = nameParts[0];
+        const lastName = nameParts.slice(1).join(' ') || nameParts[0];
+
+        const employee = await tx.employee.create({
+          data: {
+            employeeCode,
+            userId: user.id,
+            firstName,
+            lastName,
+            email: teamsEmail,
+            personalEmail: candidate.email,
+            phone: candidate.phone,
+            gender: 'PREFER_NOT_TO_SAY',
+            workMode: 'OFFICE',
+            joiningDate: new Date(),
+            status: 'PROBATION',
+            organizationId,
+          },
+        });
+
+        // Update walk-in status
+        await tx.walkInCandidate.update({
+          where: { id: walkInId },
+          data: { status: 'COMPLETED', convertedToApp: true },
+        });
+
+        return { user, employee, employeeCode };
       });
-
-      // Split name into first/last
-      const nameParts = candidate.fullName.split(' ');
-      const firstName = nameParts[0];
-      const lastName = nameParts.slice(1).join(' ') || nameParts[0];
-
-      const employee = await tx.employee.create({
-        data: {
-          employeeCode,
-          userId: user.id,
-          firstName,
-          lastName,
-          email: teamsEmail,
-          personalEmail: candidate.email,
-          phone: candidate.phone,
-          gender: 'PREFER_NOT_TO_SAY',
-          workMode: 'OFFICE',
-          joiningDate: new Date(),
-          status: 'PROBATION',
-          organizationId,
-        },
-      });
-
-      // Update walk-in status
-      await tx.walkInCandidate.update({
-        where: { id: walkInId },
-        data: { status: 'COMPLETED', convertedToApp: true },
-      });
-
-      return { user, employee, employeeCode };
-    });
+    } catch (err: any) {
+      if (err instanceof NotFoundError || err instanceof BadRequestError) throw err;
+      logger.error(`[WalkIn] hireCandidate() transaction failed: ${err.message}`);
+      throw new AppError('Failed to create employee record for candidate. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
 
     // Generate onboarding token (Redis, 7-day TTL)
     const token = crypto.randomBytes(32).toString('hex');

@@ -7,7 +7,7 @@ import { prisma } from '../../lib/prisma.js';
 import { storageService, StorageFolder } from '../../services/storage.service.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { logger } from '../../lib/logger.js';
-import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { NotFoundError, BadRequestError, AppError } from '../../middleware/errorHandler.js';
 
 // ─── Binary Detection ─────────────────────────────────────────────────────────
 // Supports PG_DUMP_PATH / PSQL_PATH env vars for explicit absolute paths,
@@ -367,28 +367,45 @@ export class BackupService {
         args = ['exec', '-e', `PGPASSWORD=${conn.password}`, src.container, 'pg_dump', ...pgDumpArgs];
       }
 
-      const pgDump = spawn(cmd, args, { env });
+      let resolved = false;
+      const done = (err?: Error) => {
+        if (resolved) return;
+        resolved = true;
+        if (err) reject(err);
+        else resolve();
+      };
 
+      const pgDump = spawn(cmd, args, { env });
       const gzip = createGzip({ level: 6 });
       const output = fs.createWriteStream(outputGzPath);
       pgDump.stdout.pipe(gzip).pipe(output);
 
       const stderrChunks: Buffer[] = [];
-      pgDump.stderr.on('data', (chunk) => stderrChunks.push(chunk));
+      pgDump.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+
+      // Resolve once the output file is fully written
+      output.on('finish', () => done());
+      output.on('error', (err) => done(err));
 
       pgDump.on('close', (code) => {
-        if (code === 0) {
-          output.on('finish', resolve);
-          output.on('error', reject);
-        } else {
+        if (code !== 0) {
           const errMsg = Buffer.concat(stderrChunks).toString().slice(0, 500);
-          reject(new Error(`pg_dump exited with code ${code}: ${errMsg}`));
+          done(new Error(`pg_dump exited with code ${code}: ${errMsg || 'No error details available'}`));
         }
+        // If code=0, the stream finish event will resolve — don't resolve here to avoid races
       });
 
       pgDump.on('error', (err) => {
-        reject(new Error(`pg_dump spawn failed: ${err.message}`));
+        done(new Error(`pg_dump spawn failed: ${err.message}. Ensure ${src.method === 'docker' ? 'Docker is running and container "' + src.container + '" is up' : 'pg_dump is installed and accessible'}.`));
       });
+
+      // Safety timeout: 15 minutes max for a backup
+      const timeout = setTimeout(() => {
+        done(new Error('pg_dump timed out after 15 minutes. The database may be too large or unreachable.'));
+        try { pgDump.kill(); } catch { /* ignore */ }
+      }, 15 * 60 * 1000);
+      output.on('finish', () => clearTimeout(timeout));
+      output.on('error', () => clearTimeout(timeout));
     });
   }
 
@@ -511,7 +528,12 @@ export class BackupService {
       newValue: { filename: record.filename, restoredAt: new Date().toISOString() },
     });
 
-    await this._runPsqlRestore(psqlSrc, conn, absolutePath);
+    try {
+      await this._runPsqlRestore(psqlSrc, conn, absolutePath);
+    } catch (err: any) {
+      logger.error(`[Backup] ❌ DB restore failed from ${record.filename}: ${err.message}`);
+      throw new AppError(`Database restore failed: ${err.message}`, 500, 'RESTORE_FAILED');
+    }
     logger.info(`[Backup] ✅ DB restore completed from ${record.filename}`);
     return { success: true, message: `Database restored from ${record.filename}` };
   }
@@ -599,7 +621,13 @@ export class BackupService {
       newValue: { restoredAt: new Date().toISOString() },
     });
 
-    await this._runPsqlRestore(psqlSrc, conn, uploadedFilePath);
+    try {
+      await this._runPsqlRestore(psqlSrc, conn, uploadedFilePath);
+    } catch (err: any) {
+      try { fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
+      logger.error(`[Backup] ❌ DB restore from upload failed: ${err.message}`);
+      throw new AppError(`Database restore failed: ${err.message}`, 500, 'RESTORE_FAILED');
+    }
     try { fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
     logger.info('[Backup] ✅ DB restore from upload completed');
     return { success: true, message: 'Database restored from uploaded backup file' };
@@ -623,7 +651,12 @@ export class BackupService {
       newValue: { filename: record.filename, restoredAt: new Date().toISOString() },
     });
 
-    await this._runFilesExtract(absolutePath);
+    try {
+      await this._runFilesExtract(absolutePath);
+    } catch (err: any) {
+      logger.error(`[Backup] ❌ Files restore failed from ${record.filename}: ${err.message}`);
+      throw new AppError(`Files restore failed: ${err.message}`, 500, 'RESTORE_FAILED');
+    }
     logger.info(`[Backup] ✅ Files restore completed from ${record.filename}`);
     return { success: true, message: `Uploaded files restored from ${record.filename}` };
   }
@@ -647,7 +680,13 @@ export class BackupService {
       newValue: { restoredAt: new Date().toISOString() },
     });
 
-    await this._runFilesExtract(uploadedFilePath);
+    try {
+      await this._runFilesExtract(uploadedFilePath);
+    } catch (err: any) {
+      try { fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
+      logger.error(`[Backup] ❌ Files restore from upload failed: ${err.message}`);
+      throw new AppError(`Files restore failed: ${err.message}`, 500, 'RESTORE_FAILED');
+    }
     try { fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
     logger.info('[Backup] ✅ Files restore from upload completed');
     return { success: true, message: 'Uploaded files restored from archive' };
@@ -659,21 +698,25 @@ export class BackupService {
 
     // Anti-zip-slip: filter out absolute paths and parent directory traversals.
     // The tar package strips absolute paths by default; we add explicit check.
-    await tar.extract({
-      file: tarPath,
-      cwd: uploadsRoot,
-      filter: (entryPath: string) => {
-        const normalized = path.normalize(entryPath);
-        if (path.isAbsolute(normalized) || normalized.startsWith('..')) {
-          logger.warn(`[Backup] ⚠️  Skipping suspicious archive entry: ${entryPath}`);
-          return false;
-        }
-        // Prevent overwriting backup files themselves
-        const topLevel = normalized.split(path.sep)[0];
-        if (topLevel === 'backups' || topLevel === 'tmp') return false;
-        return true;
-      },
-    });
+    try {
+      await tar.extract({
+        file: tarPath,
+        cwd: uploadsRoot,
+        filter: (entryPath: string) => {
+          const normalized = path.normalize(entryPath);
+          if (path.isAbsolute(normalized) || normalized.startsWith('..')) {
+            logger.warn(`[Backup] ⚠️  Skipping suspicious archive entry: ${entryPath}`);
+            return false;
+          }
+          // Prevent overwriting backup files themselves
+          const topLevel = normalized.split(path.sep)[0];
+          if (topLevel === 'backups' || topLevel === 'tmp') return false;
+          return true;
+        },
+      });
+    } catch (err: any) {
+      throw new Error(`Failed to extract archive: ${err.message}`);
+    }
   }
 
   // ── Delete Backup ─────────────────────────────────────────────────────────

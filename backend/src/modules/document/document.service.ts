@@ -1,11 +1,12 @@
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { NotFoundError, BadRequestError, AppError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { encrypt } from '../../utils/encryption.js';
 import { generateOfferLetterPDF, generateJoiningLetterPDF, generateExperienceLetterPDF, generateRelievingLetterPDF } from '../../utils/letterTemplates.js';
-import { writeFileSync } from 'fs';
+import { writeFileSync, existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { storageService } from '../../services/storage.service.js';
+import { logger } from '../../lib/logger.js';
 import type { CreateDocumentInput, DocumentQuery } from './document.validation.js';
 
 export class DocumentService {
@@ -31,8 +32,11 @@ export class DocumentService {
         include: {
           employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
         },
+      }).catch((err: any) => {
+        logger.warn('[Document] Failed to fetch document list:', err.message);
+        return [];
       }),
-      prisma.document.count({ where }),
+      prisma.document.count({ where }).catch(() => 0),
     ]);
 
     return {
@@ -53,7 +57,7 @@ export class DocumentService {
   }
 
   async create(data: CreateDocumentInput, fileUrl: string, userId: string) {
-    return prisma.document.create({
+    const doc = await prisma.document.create({
       data: {
         name: data.name,
         type: data.type as any,
@@ -63,6 +67,45 @@ export class DocumentService {
         status: 'PENDING',
       },
     });
+
+    // Notify HR when a document is submitted — best-effort, non-blocking
+    if (data.employeeId) {
+      try {
+        const { enqueueEmail } = await import('../../jobs/queues.js');
+        const employee = await prisma.employee.findUnique({
+          where: { id: data.employeeId },
+          select: { firstName: true, lastName: true, employeeCode: true, organizationId: true },
+        });
+        if (employee) {
+          const org = await prisma.organization.findUnique({
+            where: { id: employee.organizationId },
+            select: { adminNotificationEmail: true, name: true },
+          });
+          const hrEmail = org?.adminNotificationEmail;
+          if (hrEmail) {
+            await enqueueEmail({
+              to: hrEmail,
+              subject: `Document Uploaded: ${data.name} — ${employee.firstName} ${employee.lastName} (${employee.employeeCode})`,
+              template: 'document-submitted',
+              context: {
+                employeeName: `${employee.firstName} ${employee.lastName}`,
+                employeeCode: employee.employeeCode,
+                documentType: data.type,
+                documentName: data.name,
+                reviewUrl: `https://hr.anistonav.com/employees/${data.employeeId}`,
+                orgName: org?.name || 'Aniston Technologies',
+              },
+            });
+          }
+        }
+      } catch (err: any) {
+        // Non-blocking: import/email failure must not fail the document upload
+        const { logger } = await import('../../lib/logger.js');
+        logger.error(`[Document] Failed to send document-submitted notification: ${err.message}`);
+      }
+    }
+
+    return doc;
   }
 
   async verify(id: string, status: string, verifierId: string, rejectionReason?: string) {
@@ -80,14 +123,36 @@ export class DocumentService {
     });
   }
 
-  async remove(id: string) {
-    const doc = await prisma.document.findUnique({ where: { id } });
+  async remove(id: string, userId?: string, organizationId?: string) {
+    const doc = await prisma.document.findFirst({
+      where: organizationId
+        ? { id, employee: { organizationId } }
+        : { id },
+    });
     if (!doc) throw new NotFoundError('Document');
 
-    return prisma.document.update({
+    const deleted = await prisma.document.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
+
+    // Audit log the deletion
+    if (userId && organizationId) {
+      try {
+        const { createAuditLog } = await import('../../utils/auditLogger.js');
+        await createAuditLog({
+          userId,
+          organizationId,
+          entity: 'Document',
+          entityId: id,
+          action: 'DELETE',
+          description: `Document "${doc.name}" (type: ${doc.type}) deleted by HR/Admin`,
+          oldValue: { name: doc.name, type: doc.type, fileUrl: doc.fileUrl, status: doc.status },
+        });
+      } catch { /* audit log failure should not block deletion */ }
+    }
+
+    return deleted;
   }
   /**
    * Get all documents for the currently logged-in employee.
@@ -173,23 +238,36 @@ export class DocumentService {
     const lettersDir = storageService.getAbsoluteDir('employees', employee.employeeCode, 'letters');
     const fileName = `${type.toLowerCase()}-${Date.now()}.pdf`;
     const filePath = join(lettersDir, fileName);
-    writeFileSync(filePath, pdfBuffer);
-
     const fileUrl = storageService.buildUrl(`employees/${employee.employeeCode}/letters`, fileName);
 
-    // Create document record
-    const document = await prisma.document.create({
-      data: {
-        name: `${letterName} - ${employee.firstName} ${employee.lastName}`,
-        type: type as any,
-        fileUrl,
-        employeeId,
-        status: 'ISSUED',
-        issuedBy: issuedByUserId,
-        verifiedBy: issuedByUserId,
-        verifiedAt: new Date(),
-      },
-    });
+    // Write file then persist DB record atomically (clean up file if DB save fails)
+    try {
+      writeFileSync(filePath, pdfBuffer);
+    } catch (err: any) {
+      logger.error(`[Document] Failed to write letter file ${filePath}: ${err.message}`);
+      throw new AppError('Failed to generate letter document. Please check disk space and permissions.', 500, 'FILE_WRITE_ERROR');
+    }
+
+    let document: any;
+    try {
+      document = await prisma.document.create({
+        data: {
+          name: `${letterName} - ${employee.firstName} ${employee.lastName}`,
+          type: type as any,
+          fileUrl,
+          employeeId,
+          status: 'ISSUED',
+          issuedBy: issuedByUserId,
+          verifiedBy: issuedByUserId,
+          verifiedAt: new Date(),
+        },
+      });
+    } catch (err: any) {
+      // DB save failed — clean up the file to avoid orphaned files on disk
+      try { unlinkSync(filePath); } catch { /* ignore cleanup errors */ }
+      logger.error(`[Document] DB save failed after writing letter file ${filePath}: ${err.message}`);
+      throw new AppError('Failed to save letter document record. The generated file has been cleaned up.', 500, 'DOCUMENT_GENERATION_FAILED');
+    }
 
     await createAuditLog({
       userId: issuedByUserId,

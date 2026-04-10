@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { redis } from '../../lib/redis.js';
+import { bullmqConnection } from '../queues.js';
 import { logger } from '../../lib/logger.js';
 import { payrollService } from '../../modules/payroll/payroll.service.js';
 
@@ -15,28 +15,30 @@ export function startPayrollWorker() {
     'payroll-processing',
     async (job: Job<PayrollJobData>) => {
       const { type, runId, organizationId } = job.data;
+      try {
+        switch (type) {
+          case 'PROCESS_PAYROLL': {
+            logger.info(`[PayrollWorker] Processing payroll run ${runId}`);
+            const result = await payrollService.processPayroll(runId, organizationId);
+            logger.info(`[PayrollWorker] Payroll processed: ${result.processed} employees, net: ${result.totalNet}`);
+            return result;
+          }
 
-      switch (type) {
-        case 'PROCESS_PAYROLL': {
-          logger.info(`[PayrollWorker] Processing payroll run ${runId}`);
-          const result = await payrollService.processPayroll(runId, organizationId);
-          logger.info(`[PayrollWorker] Payroll processed: ${result.processed} employees, net: ${result.totalNet}`);
-          return result;
+          case 'BULK_EMAIL_SLIPS': {
+            logger.info(`[PayrollWorker] Sending salary slips for run ${runId}`);
+            return { sent: 0, message: 'Bulk email not yet implemented' };
+          }
+
+          default:
+            throw new Error(`Unknown payroll job type: ${type}`);
         }
-
-        case 'BULK_EMAIL_SLIPS': {
-          logger.info(`[PayrollWorker] Sending salary slips for run ${runId}`);
-          // Placeholder for bulk email functionality
-          // This would iterate over all records and send individual PDFs via email worker
-          return { sent: 0, message: 'Bulk email not yet implemented' };
-        }
-
-        default:
-          throw new Error(`Unknown payroll job type: ${type}`);
+      } catch (err: any) {
+        logger.error(`[PayrollWorker] Job ${job.id} failed (type=${type}, runId=${runId}): ${err.message}`);
+        throw err;
       }
     },
     {
-      connection: redis,
+      connection: bullmqConnection,
       concurrency: 1, // Process one payroll at a time
       limiter: {
         max: 1,

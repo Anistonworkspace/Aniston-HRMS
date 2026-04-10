@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import crypto, { randomBytes } from 'crypto';
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
-import { NotFoundError, ConflictError, BadRequestError } from '../../middleware/errorHandler.js';
+import { NotFoundError, ConflictError, BadRequestError, AppError } from '../../middleware/errorHandler.js';
 import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { env } from '../../config/env.js';
@@ -97,7 +97,7 @@ export class EmployeeService {
   async getStats(organizationId: string) {
     const base = { organizationId, deletedAt: null, isSystemAccount: { not: true as const } };
 
-    const [total, active, probation, inactive, onboarding, noticePeriod, terminated, invited] = await Promise.all([
+    const results = await Promise.allSettled([
       prisma.employee.count({ where: base }),
       prisma.employee.count({ where: { ...base, status: 'ACTIVE' } }),
       prisma.employee.count({ where: { ...base, status: 'PROBATION' } }),
@@ -107,7 +107,7 @@ export class EmployeeService {
       prisma.employee.count({ where: { ...base, status: 'TERMINATED' } }),
       prisma.employeeInvitation.count({ where: { organizationId, status: 'PENDING' } }),
     ]);
-
+    const [total, active, probation, inactive, onboarding, noticePeriod, terminated, invited] = results.map(r => r.status === 'fulfilled' ? r.value : 0);
     return { total, active, probation, inactive, onboarding, noticePeriod, terminated, invited };
   }
 
@@ -173,63 +173,70 @@ export class EmployeeService {
     const tempPassword = this.generateTempPassword();
     const passwordHash = await bcrypt.hash(tempPassword, 12);
 
-    const result = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email: data.email.toLowerCase(),
-          passwordHash,
-          role: 'EMPLOYEE',
-          status: 'ACTIVE',
-          organizationId,
-        },
-      });
+    let result: Awaited<ReturnType<typeof prisma.$transaction<any>>>;
+    try {
+      result = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email: data.email.toLowerCase(),
+            passwordHash,
+            role: 'EMPLOYEE',
+            status: 'ACTIVE',
+            organizationId,
+          },
+        });
 
-      const employee = await tx.employee.create({
-        data: {
-          employeeCode,
-          userId: user.id,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          email: data.email.toLowerCase(),
-          phone: data.phone,
-          personalEmail: data.personalEmail || null,
-          dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
-          gender: data.gender,
-          bloodGroup: data.bloodGroup || null,
-          maritalStatus: data.maritalStatus || null,
-          departmentId: data.departmentId || null,
-          designationId: data.designationId || null,
-          workMode: data.workMode,
-          officeLocationId: data.officeLocationId || null,
-          managerId: data.managerId || null,
-          joiningDate: new Date(data.joiningDate),
-          probationEndDate: data.probationEndDate ? new Date(data.probationEndDate) : null,
-          ctc: data.ctc || null,
-          address: data.address || null,
-          emergencyContact: data.emergencyContact || null,
-          status: 'ACTIVE',
-          organizationId,
-        },
-        include: {
-          department: { select: { id: true, name: true } },
-          designation: { select: { id: true, name: true } },
-        },
-      });
+        const employee = await tx.employee.create({
+          data: {
+            employeeCode,
+            userId: user.id,
+            firstName: data.firstName,
+            lastName: data.lastName,
+            email: data.email.toLowerCase(),
+            phone: data.phone,
+            personalEmail: data.personalEmail || null,
+            dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+            gender: data.gender,
+            bloodGroup: data.bloodGroup || null,
+            maritalStatus: data.maritalStatus || null,
+            departmentId: data.departmentId || null,
+            designationId: data.designationId || null,
+            workMode: data.workMode,
+            officeLocationId: data.officeLocationId || null,
+            managerId: data.managerId || null,
+            joiningDate: new Date(data.joiningDate),
+            probationEndDate: data.probationEndDate ? new Date(data.probationEndDate) : null,
+            ctc: data.ctc || null,
+            address: data.address || null,
+            emergencyContact: data.emergencyContact || null,
+            status: 'ACTIVE',
+            organizationId,
+          },
+          include: {
+            department: { select: { id: true, name: true } },
+            designation: { select: { id: true, name: true } },
+          },
+        });
 
-      // Audit log
-      await tx.auditLog.create({
-        data: {
-          userId: createdBy,
-          entity: 'Employee',
-          entityId: employee.id,
-          action: 'CREATE',
-          newValue: { employeeCode, firstName: data.firstName, lastName: data.lastName, email: data.email },
-          organizationId,
-        },
-      });
+        // Audit log
+        await tx.auditLog.create({
+          data: {
+            userId: createdBy,
+            entity: 'Employee',
+            entityId: employee.id,
+            action: 'CREATE',
+            newValue: { employeeCode, firstName: data.firstName, lastName: data.lastName, email: data.email },
+            organizationId,
+          },
+        });
 
-      return { employee, tempPassword };
-    });
+        return { employee, tempPassword };
+      });
+    } catch (err: any) {
+      if (err instanceof ConflictError || err instanceof BadRequestError) throw err;
+      logger.error(`[Employee] create() transaction failed: ${err.message}`);
+      throw new AppError('Failed to create employee record. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
 
     return result;
   }
@@ -253,46 +260,53 @@ export class EmployeeService {
     const tempPassword = this.generateTempPassword();
     const passwordHash = await bcrypt.hash(tempPassword, 12);
 
-    const result = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email: normalizedEmail,
-          passwordHash,
-          role: 'EMPLOYEE',
-          status: 'PENDING_VERIFICATION',
-          organizationId,
-        },
-      });
+    let result: any;
+    try {
+      result = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email: normalizedEmail,
+            passwordHash,
+            role: 'EMPLOYEE',
+            status: 'PENDING_VERIFICATION',
+            organizationId,
+          },
+        });
 
-      const employee = await tx.employee.create({
-        data: {
-          employeeCode,
-          userId: user.id,
-          firstName: firstName || normalizedEmail.split('@')[0],
-          lastName: lastName || 'Pending',
-          email: normalizedEmail,
-          phone: '0000000000',
-          gender: 'PREFER_NOT_TO_SAY',
-          workMode: 'OFFICE',
-          joiningDate: new Date(),
-          status: 'PROBATION',
-          organizationId,
-        },
-      });
+        const employee = await tx.employee.create({
+          data: {
+            employeeCode,
+            userId: user.id,
+            firstName: firstName || normalizedEmail.split('@')[0],
+            lastName: lastName || 'Pending',
+            email: normalizedEmail,
+            phone: '0000000000',
+            gender: 'PREFER_NOT_TO_SAY',
+            workMode: 'OFFICE',
+            joiningDate: new Date(),
+            status: 'PROBATION',
+            organizationId,
+          },
+        });
 
-      await tx.auditLog.create({
-        data: {
-          userId: createdBy,
-          entity: 'Employee',
-          entityId: employee.id,
-          action: 'CREATE',
-          newValue: { employeeCode, email: normalizedEmail, type: 'INVITE' },
-          organizationId,
-        },
-      });
+        await tx.auditLog.create({
+          data: {
+            userId: createdBy,
+            entity: 'Employee',
+            entityId: employee.id,
+            action: 'CREATE',
+            newValue: { employeeCode, email: normalizedEmail, type: 'INVITE' },
+            organizationId,
+          },
+        });
 
-      return { user, employee };
-    });
+        return { user, employee };
+      });
+    } catch (err: any) {
+      if (err instanceof ConflictError || err instanceof BadRequestError) throw err;
+      logger.error(`[Employee] inviteEmployee() transaction failed: ${err.message}`);
+      throw new AppError('Failed to create invited employee record. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
 
     // Generate onboarding token
     const token = randomBytes(32).toString('hex');
@@ -306,8 +320,8 @@ export class EmployeeService {
 
     const onboardingUrl = `/onboarding/${token}`;
 
-    // Send invitation email
-    await enqueueEmail({
+    // Send invitation email — non-blocking: employee creation must not fail due to email queue issues
+    enqueueEmail({
       to: normalizedEmail,
       subject: 'Welcome to Aniston Technologies — Complete Your Onboarding',
       template: 'onboarding-invite',
@@ -315,7 +329,7 @@ export class EmployeeService {
         name: firstName || normalizedEmail.split('@')[0],
         link: `${env.FRONTEND_URL}${onboardingUrl}`,
       },
-    });
+    }).catch((err) => logger.error(`[Employee] Failed to queue onboarding invite email to ${normalizedEmail}:`, err));
 
     return {
       employee: result.employee,
@@ -413,39 +427,46 @@ export class EmployeeService {
     if (data.joiningDate) updateData.joiningDate = new Date(data.joiningDate);
     if (data.probationEndDate) updateData.probationEndDate = new Date(data.probationEndDate);
 
-    const employee = await prisma.$transaction(async (tx) => {
-      const updated = await tx.employee.update({
-        where: { id },
-        data: updateData,
-        include: {
-          department: { select: { id: true, name: true } },
-          designation: { select: { id: true, name: true } },
-        },
-      });
-
-      // Update user email if changed
-      if (data.email && existing.userId) {
-        await tx.user.update({
-          where: { id: existing.userId },
-          data: { email: data.email.toLowerCase() },
+    let employee: any;
+    try {
+      employee = await prisma.$transaction(async (tx) => {
+        const updated = await tx.employee.update({
+          where: { id },
+          data: updateData,
+          include: {
+            department: { select: { id: true, name: true } },
+            designation: { select: { id: true, name: true } },
+          },
         });
-      }
 
-      // Audit log
-      await tx.auditLog.create({
-        data: {
-          userId: updatedBy,
-          entity: 'Employee',
-          entityId: id,
-          action: 'UPDATE',
-          oldValue: existing,
-          newValue: updateData,
-          organizationId,
-        },
+        // Update user email if changed
+        if (data.email && existing.userId) {
+          await tx.user.update({
+            where: { id: existing.userId },
+            data: { email: data.email.toLowerCase() },
+          });
+        }
+
+        // Audit log
+        await tx.auditLog.create({
+          data: {
+            userId: updatedBy,
+            entity: 'Employee',
+            entityId: id,
+            action: 'UPDATE',
+            oldValue: existing,
+            newValue: updateData,
+            organizationId,
+          },
+        });
+
+        return updated;
       });
-
-      return updated;
-    });
+    } catch (err: any) {
+      if (err instanceof ConflictError || err instanceof BadRequestError || err instanceof NotFoundError) throw err;
+      logger.error(`[Employee] update() transaction failed: ${err.message}`);
+      throw new AppError('Failed to update employee record. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
 
     // Auto-create lifecycle events on key field changes
     if (data.status && data.status !== existing.status) {
@@ -544,20 +565,26 @@ export class EmployeeService {
     if (!validRoles.includes(role)) throw new BadRequestError(`Invalid role: ${role}`);
 
     const oldRole = employee.user?.role;
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id: employee.userId! }, data: { role: role as any } });
-      await tx.auditLog.create({
-        data: {
-          userId: changedBy,
-          entity: 'User',
-          entityId: employee.userId!,
-          action: 'UPDATE',
-          oldValue: { role: oldRole },
-          newValue: { role },
-          organizationId,
-        },
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({ where: { id: employee.userId! }, data: { role: role as any } });
+        await tx.auditLog.create({
+          data: {
+            userId: changedBy,
+            entity: 'User',
+            entityId: employee.userId!,
+            action: 'UPDATE',
+            oldValue: { role: oldRole },
+            newValue: { role },
+            organizationId,
+          },
+        });
       });
-    });
+    } catch (err: any) {
+      if (err instanceof ConflictError || err instanceof BadRequestError || err instanceof NotFoundError) throw err;
+      logger.error(`[Employee] changeRole() transaction failed: ${err.message}`);
+      throw new AppError('Failed to update employee role. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
 
     return { employeeId, userId: employee.userId, oldRole, newRole: role };
   }
@@ -620,7 +647,7 @@ export class EmployeeService {
         { name: 'SalaryStructure', fn: () => tx.salaryStructure.deleteMany({ where: { employeeId: id } }) },
         { name: 'PayrollRecord', fn: () => tx.payrollRecord.deleteMany({ where: { employeeId: id } }) },
         // Performance
-        { name: 'PerformanceGoal', fn: () => tx.performanceGoal.deleteMany({ where: { employeeId: id } }) },
+        // Note: PerformanceGoal model not in schema (goals are within PerformanceReview)
         { name: 'PerformanceReview', fn: () => tx.performanceReview.deleteMany({ where: { employeeId: id } }) },
         // Assets
         { name: 'AssetAssignment', fn: () => tx.assetAssignment.deleteMany({ where: { employeeId: id } }) },
@@ -652,7 +679,7 @@ export class EmployeeService {
       if (existing.userId) {
         deletions.push(
           { name: 'AuditLog(user)', fn: () => tx.auditLog.deleteMany({ where: { userId: existing.userId! } }) },
-          { name: 'Notification', fn: () => tx.notification.deleteMany({ where: { userId: existing.userId! } }) },
+          // Note: Notification model not in schema (system uses socket-based real-time notifications)
           { name: 'RefreshToken', fn: () => tx.refreshToken.deleteMany({ where: { userId: existing.userId! } }) },
         );
       }
@@ -785,15 +812,15 @@ export class EmployeeService {
       data: { employeeId, eventType: 'RESIGNATION', title: 'Resignation Submitted', description: data.reason, eventDate: new Date(), createdBy: employee.userId || employeeId },
     });
 
-    // Email HR users
-    const hrUsers = await prisma.user.findMany({ where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' }, select: { email: true } });
+    // Email HR users — non-blocking: resignation must succeed even if email fails
+    const hrUsers = await prisma.user.findMany({ where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' }, select: { id: true, email: true } });
     const link = `${env.FRONTEND_URL}/exit-management`;
     for (const hr of hrUsers) {
-      await enqueueEmail({ to: hr.email, subject: `Resignation: ${employee.firstName} ${employee.lastName}`, template: 'resignation-submitted', context: { name: `${employee.firstName} ${employee.lastName}`, employeeCode: employee.employeeCode, department: employee.department?.name, lastWorkingDate: new Date(data.lastWorkingDate).toLocaleDateString('en-IN'), reason: data.reason, link } });
-      const hrUser = await prisma.user.findUnique({ where: { email: hr.email }, select: { id: true } });
-      if (hrUser) {
-        await enqueueNotification({ userId: hrUser.id, organizationId, title: 'New Resignation', message: `${employee.firstName} ${employee.lastName} has submitted their resignation`, type: 'exit', link: '/exit-management' });
-      }
+      if (!hr.email) continue;
+      enqueueEmail({ to: hr.email, subject: `Resignation: ${employee.firstName} ${employee.lastName}`, template: 'resignation-submitted', context: { name: `${employee.firstName} ${employee.lastName}`, employeeCode: employee.employeeCode, department: employee.department?.name, lastWorkingDate: new Date(data.lastWorkingDate).toLocaleDateString('en-IN'), reason: data.reason, link } })
+        .catch((err) => logger.error(`[Resignation] Failed to queue email to ${hr.email}:`, err));
+      enqueueNotification({ userId: hr.id, organizationId, title: 'New Resignation', message: `${employee.firstName} ${employee.lastName} has submitted their resignation`, type: 'exit', link: '/exit-management' })
+        .catch((err) => logger.error(`[Resignation] Failed to queue notification for ${hr.id}:`, err));
     }
 
     return updated;
@@ -876,8 +903,11 @@ export class EmployeeService {
       data: { employeeId, eventType: 'EXIT_APPROVED', title: `Exit ${exitStatus === 'NO_DUES_PENDING' ? 'Approved (No-Dues Pending)' : 'Approved'}`, description: data.notes || 'Exit approved by HR', eventDate: new Date(), createdBy: approvedBy },
     });
 
-    // Email employee
-    await enqueueEmail({ to: employee.email, subject: 'Your Resignation Has Been Approved', template: 'exit-approved', context: { name: employee.firstName, lastWorkingDate: (data.lastWorkingDate ? new Date(data.lastWorkingDate) : employee.lastWorkingDate)?.toLocaleDateString('en-IN') || '', notes: data.notes } });
+    // Email employee — non-blocking
+    if (employee.email) {
+      enqueueEmail({ to: employee.email, subject: 'Your Resignation Has Been Approved', template: 'exit-approved', context: { name: employee.firstName, lastWorkingDate: (data.lastWorkingDate ? new Date(data.lastWorkingDate) : employee.lastWorkingDate)?.toLocaleDateString('en-IN') || '', notes: data.notes } })
+        .catch((err) => logger.error(`[ExitApproval] Failed to queue email for employee ${employee.id}:`, err));
+    }
 
     await createAuditLog({ userId: approvedBy, organizationId, entity: 'Employee', entityId: employeeId, action: 'EXIT_APPROVED', newValue: { exitStatus, lastWorkingDate: updated.lastWorkingDate } });
 
@@ -924,8 +954,11 @@ export class EmployeeService {
       data: { employeeId, eventType: 'EXIT_COMPLETED', title: 'Exit Process Completed', description: 'All no-dues cleared, employee separated', eventDate: new Date(), createdBy: userId },
     });
 
-    // Email employee
-    await enqueueEmail({ to: employee.email, subject: 'Exit Process Complete — Aniston Technologies', template: 'exit-completed', context: { name: employee.firstName } });
+    // Email employee — non-blocking
+    if (employee.email) {
+      enqueueEmail({ to: employee.email, subject: 'Exit Process Complete — Aniston Technologies', template: 'exit-completed', context: { name: employee.firstName } })
+        .catch((err) => logger.error(`[ExitComplete] Failed to queue email for employee ${employee.id}:`, err));
+    }
 
     await createAuditLog({ userId, organizationId, entity: 'Employee', entityId: employeeId, action: 'EXIT_COMPLETED', newValue: { exitStatus: 'COMPLETED', status: 'TERMINATED' } });
 
