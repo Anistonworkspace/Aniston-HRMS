@@ -105,6 +105,14 @@ export const employeeDeletionController = {
     } catch (err) { next(err); }
   },
 
+  // Super Admin: DELETE /api/employee-deletion-requests/request/:id — dismiss completed request
+  async dismissRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await employeeDeletionService.dismissRequest(req.params.id as string, req.user!.organizationId);
+      res.json({ success: true, data: result, message: 'Deletion request dismissed.' });
+    } catch (err) { next(err); }
+  },
+
   // Super Admin: DELETE /api/employees/:employeeId/permanent — direct delete
   async directDelete(req: Request, res: Response, next: NextFunction) {
     try {

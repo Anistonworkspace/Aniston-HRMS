@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import {
-  Trash2, CheckCircle2, XCircle, Clock, Search, Loader2,
-  ChevronLeft, ChevronRight, AlertTriangle, User, Calendar,
+  Trash2, CheckCircle2, XCircle, Clock, Loader2,
+  ChevronLeft, ChevronRight, AlertTriangle, User, Calendar, X,
 } from 'lucide-react';
 import {
   useGetDeletionRequestsQuery,
   useApproveDeletionRequestMutation,
   useRejectDeletionRequestMutation,
+  useDismissDeletionRequestMutation,
 } from '../employee/employeeDeletionApi';
 import type { DeletionRequest } from '../employee/employeeDeletionApi';
 import { cn, formatDate } from '../../lib/utils';
@@ -164,6 +165,7 @@ export default function DeletionRequestsTab() {
 
   const [approveRequest, { isLoading: isApproving }] = useApproveDeletionRequestMutation();
   const [rejectRequest, { isLoading: isRejecting }] = useRejectDeletionRequestMutation();
+  const [dismissRequest] = useDismissDeletionRequestMutation();
 
   const requests: DeletionRequest[] = data?.data || [];
   const meta = data?.meta;
@@ -176,6 +178,15 @@ export default function DeletionRequestsTab() {
       setApproveTarget(null);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to approve deletion');
+    }
+  };
+
+  const handleDismiss = async (requestId: string) => {
+    try {
+      await dismissRequest(requestId).unwrap();
+      toast.success('Request dismissed and removed from list');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to dismiss request');
     }
   };
 
@@ -316,7 +327,14 @@ export default function DeletionRequestsTab() {
                           </button>
                         </div>
                       ) : (
-                        <span className="text-gray-300 text-xs">No actions</span>
+                        <button
+                          onClick={() => handleDismiss(req.id)}
+                          title="Dismiss — remove from list"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-400 text-xs font-medium hover:bg-red-50 hover:border-red-200 hover:text-red-500 transition-colors"
+                        >
+                          <X size={11} />
+                          Dismiss
+                        </button>
                       )}
                     </td>
                   </tr>

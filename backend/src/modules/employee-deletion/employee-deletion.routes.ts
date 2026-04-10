@@ -46,4 +46,12 @@ router.post(
   (req, res, next) => employeeDeletionController.rejectRequest(req, res, next),
 );
 
+// Super Admin dismisses a completed request (removes it from the list)
+// DELETE /api/employee-deletion-requests/request/:id
+router.delete(
+  '/request/:id',
+  requirePermission('settings', 'manage'),
+  (req, res, next) => employeeDeletionController.dismissRequest(req, res, next),
+);
+
 export { router as employeeDeletionRouter };

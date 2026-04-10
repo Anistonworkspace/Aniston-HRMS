@@ -673,6 +673,11 @@ export class EmployeeService {
         { name: 'EmployeeActivation', fn: () => tx.employeeActivation.deleteMany({ where: { employeeId: id } }) },
         // Salary history
         { name: 'SalaryHistory', fn: () => tx.salaryHistory.deleteMany({ where: { employeeId: id } }) },
+        // Null out deletion request FK references so the soft-deleted employee is no longer referenced
+        { name: 'EmployeeDeletionRequest(employeeId)', fn: async () => {
+          const drModel = (tx as any).employeeDeletionRequest;
+          if (drModel) await drModel.updateMany({ where: { employeeId: id }, data: { employeeId: null } });
+        }},
       ];
 
       // User-related deletions

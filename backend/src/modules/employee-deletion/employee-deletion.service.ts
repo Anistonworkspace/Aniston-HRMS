@@ -248,8 +248,17 @@ export class EmployeeDeletionService {
     if (!employee) throw new NotFoundError('Employee');
     if (employee.isSystemAccount) throw new BadRequestError('System accounts cannot be deleted');
 
-    // Cancel any pending deletion requests for this employee
-    // Guard against Prisma client not having the model (schema not yet synced on server)
+    // Perform permanent removal FIRST — if this fails, any pending requests stay PENDING so SA/HR can retry
+    try {
+      await employeeService.softDelete(employeeId, organizationId, deletedBy.id);
+    } catch (err: any) {
+      logger.error(`[DirectDelete] softDelete failed for employee ${employeeId}: ${err?.message || err}`);
+      // Re-throw AppErrors as-is; wrap unknown errors so the real message reaches the client
+      if (err?.statusCode) throw err;
+      throw new BadRequestError(err?.message || 'Failed to delete employee — check server logs for details.');
+    }
+
+    // Cancel any pending deletion requests AFTER successful deletion (non-fatal)
     const deletionRequestModel = (prisma as any).employeeDeletionRequest;
     if (deletionRequestModel) {
       try {
@@ -271,9 +280,6 @@ export class EmployeeDeletionService {
       logger.warn('[DirectDelete] employeeDeletionRequest model not available on Prisma client — run prisma generate');
     }
 
-    // Perform permanent removal
-    await employeeService.softDelete(employeeId, organizationId, deletedBy.id);
-
     await createAuditLog({
       userId: deletedBy.id,
       organizationId,
@@ -290,6 +296,20 @@ export class EmployeeDeletionService {
     });
 
     return { deleted: true, employeeCode: employee.employeeCode, employeeName: `${employee.firstName} ${employee.lastName}` };
+  }
+
+  // ─────────────────────────────────
+  // Super Admin: Dismiss a completed request (permanently removes the record)
+  // ─────────────────────────────────
+  async dismissRequest(requestId: string, organizationId: string) {
+    const deletionModel = this.getDeletionModel();
+    const request = await deletionModel.findFirst({ where: { id: requestId, organizationId } });
+    if (!request) throw new NotFoundError('Deletion request');
+    if (request.status === 'PENDING') {
+      throw new BadRequestError('Cannot dismiss a pending request — approve or reject it first.');
+    }
+    await deletionModel.delete({ where: { id: requestId } });
+    return { dismissed: true };
   }
 
   // ─────────────────────────────────

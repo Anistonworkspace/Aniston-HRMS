@@ -71,6 +71,18 @@ export const employeeDeletionApi = api.injectEndpoints({
       invalidatesTags: ['DeletionRequests'],
     }),
 
+    // Super Admin: dismiss a completed (non-PENDING) deletion request
+    dismissDeletionRequest: builder.mutation<
+      { success: boolean; message: string },
+      string
+    >({
+      query: (requestId) => ({
+        url: `/employee-deletion-requests/request/${requestId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['DeletionRequests'],
+    }),
+
     // Super Admin: direct permanent delete
     permanentDeleteEmployee: builder.mutation<
       { success: boolean; data: any; message: string },
@@ -91,5 +103,6 @@ export const {
   useGetDeletionRequestsQuery,
   useApproveDeletionRequestMutation,
   useRejectDeletionRequestMutation,
+  useDismissDeletionRequestMutation,
   usePermanentDeleteEmployeeMutation,
 } = employeeDeletionApi;
