@@ -448,39 +448,48 @@ export class AttendanceService {
     const today = getISTToday();
     const now = new Date();
 
-    // ===== PHASE 1: Check today first, then yesterday (forgot to clock out / night shift) =====
-    let record = await prisma.attendanceRecord.findUnique({
-      where: { employeeId_date: { employeeId, date: today } },
-    });
-
+    // ===== PHASE 1: Atomic record lookup — prevents race condition on concurrent clock-outs =====
+    // Using $transaction so that the "check if already clocked out" and the subsequent
+    // "write checkOut" are a single atomic unit. Without this, two concurrent requests can
+    // both pass the checkOut=null guard and both succeed, corrupting the record.
+    let record: any;
     let isPreviousDayClockOut = false;
 
-    if (!record || record.checkOut) {
-      // No record today or already clocked out today — check yesterday ONLY (not older)
-      const yesterday = getISTYesterday();
-      const yesterdayRecord = await prisma.attendanceRecord.findUnique({
-        where: { employeeId_date: { employeeId, date: yesterday } },
+    await prisma.$transaction(async (tx) => {
+      let r = await tx.attendanceRecord.findUnique({
+        where: { employeeId_date: { employeeId, date: today } },
       });
 
-      if (yesterdayRecord && !yesterdayRecord.checkOut) {
-        // Only allow yesterday clock-out if check-in was within last 24 hours
-        const checkInTime = new Date(yesterdayRecord.checkIn!);
-        const hoursSinceCheckIn = (now.getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
-        if (hoursSinceCheckIn > 24) {
-          throw new BadRequestError('Cannot clock out: your check-in was more than 24 hours ago. Please contact HR for manual correction.');
+      if (!r || r.checkOut) {
+        const yesterday = getISTYesterday();
+        const yesterdayRecord = await tx.attendanceRecord.findUnique({
+          where: { employeeId_date: { employeeId, date: yesterday } },
+        });
+        if (yesterdayRecord && !yesterdayRecord.checkOut) {
+          const hoursSinceCheckIn = (now.getTime() - new Date(yesterdayRecord.checkIn!).getTime()) / (1000 * 60 * 60);
+          if (hoursSinceCheckIn > 24) {
+            throw new BadRequestError('Cannot clock out: your check-in was more than 24 hours ago. Please contact HR for manual correction.');
+          }
+          r = yesterdayRecord;
+          isPreviousDayClockOut = true;
+        } else if (!r) {
+          throw new BadRequestError('No clock-in found for today or yesterday. Please clock in first.');
+        } else {
+          throw new BadRequestError('Already clocked out for today.');
         }
-        record = yesterdayRecord;
-        isPreviousDayClockOut = true;
-      } else if (!record) {
-        throw new BadRequestError('No clock-in found for today or yesterday. Please clock in first.');
-      } else {
-        throw new BadRequestError('Already clocked out for today.');
       }
-    }
 
-    if (record.checkOut) {
-      throw new BadRequestError('Already clocked out.');
-    }
+      if (r.checkOut) throw new BadRequestError('Already clocked out.');
+
+      // Atomically mark checkOut with a sentinel value so no second request can pass
+      // the guard above. Full data written after the transaction using record.id.
+      await tx.attendanceRecord.update({
+        where: { id: r.id },
+        data: { checkOut: now }, // written here atomically; overwritten with full data below
+      });
+
+      record = r; // expose to outer scope
+    });
 
     const checkIn = new Date(record.checkIn!);
 

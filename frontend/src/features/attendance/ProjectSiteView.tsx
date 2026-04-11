@@ -60,6 +60,14 @@ export default function ProjectSiteView() {
       toast.error('Please select a site');
       return;
     }
+    // Prevent duplicate check-in at the same site today
+    const alreadyCheckedIn = todayCheckIns.some(
+      (c: any) => c.siteName?.toLowerCase().trim() === siteName.toLowerCase().trim()
+    );
+    if (alreadyCheckedIn) {
+      toast.error(`Already checked in at "${siteName}" today`);
+      return;
+    }
     if (isSubmitting) return; // debounce double-tap
     setIsSubmitting(true);
 
@@ -160,7 +168,7 @@ export default function ProjectSiteView() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
               capture="environment"
               onChange={handleFileChange}
               className="hidden"

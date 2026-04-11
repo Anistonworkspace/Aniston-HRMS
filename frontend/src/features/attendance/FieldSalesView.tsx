@@ -8,6 +8,18 @@ import toast from 'react-hot-toast';
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
 const isPWA = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
 
+const IOS_BANNER_KEY = 'aniston_ios_banner_dismissed';
+function isBannerDismissed(): boolean {
+  try {
+    const ts = localStorage.getItem(IOS_BANNER_KEY);
+    if (!ts) return false;
+    return Date.now() - Number(ts) < 7 * 24 * 60 * 60 * 1000; // 7 days
+  } catch { return false; }
+}
+function dismissBanner() {
+  try { localStorage.setItem(IOS_BANNER_KEY, String(Date.now())); } catch { /* ok */ }
+}
+
 interface GPSPoint {
   lat: number;
   lng: number;
@@ -25,8 +37,18 @@ const MAX_SYNC_RETRIES = 3;
 function loadPersistedBuffer(): GPSPoint[] {
   try { const raw = localStorage.getItem(GPS_BUFFER_KEY); return raw ? JSON.parse(raw) : []; } catch { return []; }
 }
-function persistBuffer(buffer: GPSPoint[]) {
-  try { localStorage.setItem(GPS_BUFFER_KEY, JSON.stringify(buffer)); } catch { /* full */ }
+let _quotaWarned = false;
+function persistBuffer(buffer: GPSPoint[], onQuotaFull?: () => void) {
+  try {
+    localStorage.setItem(GPS_BUFFER_KEY, JSON.stringify(buffer));
+    _quotaWarned = false;
+  } catch (e: any) {
+    // QuotaExceededError — storage is full. Notify caller so it can sync immediately.
+    if (!_quotaWarned) {
+      _quotaWarned = true;
+      onQuotaFull?.();
+    }
+  }
 }
 function clearPersistedBuffer() {
   try { localStorage.removeItem(GPS_BUFFER_KEY); } catch { /* ok */ }
@@ -37,6 +59,8 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [points, setPoints] = useState<GPSPoint[]>([]);
   const [currentPos, setCurrentPos] = useState<GPSPoint | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [gpsPaused, setGpsPaused] = useState(false); // iOS background pause indicator
+  const [bannerVisible, setBannerVisible] = useState(!isBannerDismissed());
   const watchIdRef = useRef<number | null>(null);
   const bufferRef = useRef<GPSPoint[]>(loadPersistedBuffer());
   const syncRetryRef = useRef(0);
@@ -126,10 +150,12 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       }
 
       setIsTracking(true);
+      setGpsPaused(false);
 
       // Start watching position
       watchIdRef.current = navigator.geolocation.watchPosition(
         (position) => {
+          setGpsPaused(false); // position resumed after any pause
           const point: GPSPoint = {
             lat: position.coords.latitude,
             lng: position.coords.longitude,
@@ -140,9 +166,13 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           setCurrentPos(point);
           setPoints(prev => [...prev, point]);
           bufferRef.current.push(point);
-          persistBuffer(bufferRef.current); // survive crash
+          // Pass syncPoints as quota-full callback so storage never silently drops data
+          persistBuffer(bufferRef.current, () => {
+            toast('GPS storage full — syncing to server now', { icon: '⚠️' });
+            syncPoints();
+          });
 
-          // Auto-sync when buffer is full
+          // Auto-sync when buffer reaches batch size
           if (bufferRef.current.length >= SYNC_BATCH_SIZE && isOnline) {
             syncPoints();
           }
@@ -191,13 +221,26 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     };
   }, []);
 
-  // iOS foreground recovery: when user returns to app, grab fresh GPS to fill gap
+  // iOS foreground recovery: detect GPS pause + grab fresh fix when user returns to app
+  const lastVisibleRef = useRef<number>(Date.now());
   useEffect(() => {
     if (!isTracking) return;
     const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        lastVisibleRef.current = Date.now();
+      }
       if (document.visibilityState === 'visible' && isTracking) {
+        const pausedMs = Date.now() - lastVisibleRef.current;
+        // If app was in background > 3 min, GPS was likely paused on iOS
+        if (isIOS && pausedMs > 3 * 60 * 1000) {
+          setGpsPaused(true);
+          toast(`GPS was paused for ${Math.round(pausedMs / 60000)} min while phone was locked.\nKeep screen on for uninterrupted tracking.`,
+            { icon: '📍', duration: 5000 });
+        }
+        // Grab a fresh position to fill the gap
         navigator.geolocation.getCurrentPosition(
           (position) => {
+            setGpsPaused(false);
             const point: GPSPoint = {
               lat: position.coords.latitude,
               lng: position.coords.longitude,
@@ -208,12 +251,11 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
             setCurrentPos(point);
             setPoints(prev => [...prev, point]);
             bufferRef.current.push(point);
-            persistBuffer(bufferRef.current);
+            persistBuffer(bufferRef.current, () => syncPoints());
           },
           () => {},
           { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
-        // Also try syncing any buffered points
         if (isOnline && bufferRef.current.length > 0) syncPoints();
       }
     };
@@ -236,16 +278,33 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
 
   return (
     <div className="space-y-4">
-      {/* iOS PWA install prompt for background GPS + notifications */}
-      {isIOS && !isPWA && (
+      {/* iOS PWA install prompt — shown once per 7 days, dismissable */}
+      {isIOS && !isPWA && bannerVisible && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-start gap-3">
           <Smartphone className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-blue-800">Install for best experience</p>
+            <p className="text-sm font-medium text-blue-800">Install for best GPS tracking</p>
             <p className="text-xs text-blue-600 mt-0.5">
-              For reliable background GPS tracking and push notifications on iPhone, tap the Share button and "Add to Home Screen".
+              Tap <strong>Share →</strong> "Add to Home Screen" for reliable background GPS and notifications on iPhone.
             </p>
           </div>
+          <button
+            onClick={() => { dismissBanner(); setBannerVisible(false); }}
+            className="text-blue-400 hover:text-blue-600 p-1 flex-shrink-0"
+            aria-label="Dismiss"
+          >
+            <Square className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* iOS GPS paused warning — shown when phone was locked during tracking */}
+      {isIOS && gpsPaused && isTracking && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2">
+          <Navigation className="w-4 h-4 text-amber-600 flex-shrink-0" />
+          <p className="text-xs text-amber-700 font-medium">
+            GPS paused while screen was locked. Keep screen on for continuous trail.
+          </p>
         </div>
       )}
 

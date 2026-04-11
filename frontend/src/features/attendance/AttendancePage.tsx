@@ -496,15 +496,43 @@ function AttendancePersonalView() {
       setLocationStatus(prev => prev === 'checking' ? 'prompt' : prev);
     }, 5000);
 
-    if (navigator.permissions) {
+    // Detect Android WebView: Samsung Internet / MIUI browser / Android System WebView
+    // These browsers either don't support Permissions API for geolocation, or return
+    // wrong state. We skip the API and probe directly with getCurrentPosition instead.
+    const isAndroidWebView = /Android/.test(navigator.userAgent) && (
+      /wv\)/.test(navigator.userAgent) ||          // WebView flag in UA string
+      /SamsungBrowser/.test(navigator.userAgent) || // Samsung Internet
+      /MiuiBrowser/.test(navigator.userAgent)       // MIUI browser
+    );
+
+    if (!navigator.geolocation) {
+      clearTimeout(timeoutId);
+      setLocationStatus('denied');
+      return () => clearTimeout(timeoutId);
+    }
+
+    if (isAndroidWebView || !navigator.permissions) {
+      // Probe GPS directly — triggers native Android permission dialog if not yet granted
+      clearTimeout(timeoutId);
+      navigator.geolocation.getCurrentPosition(
+        () => setLocationStatus('granted'),
+        (err) => setLocationStatus(err.code === 1 ? 'denied' : 'prompt'),
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+      );
+    } else {
       navigator.permissions.query({ name: 'geolocation' }).then(result => {
         clearTimeout(timeoutId);
         setLocationStatus(result.state as any);
         result.onchange = () => setLocationStatus(result.state as any);
-      }).catch(() => { clearTimeout(timeoutId); setLocationStatus('prompt'); });
-    } else {
-      clearTimeout(timeoutId);
-      setLocationStatus('prompt');
+      }).catch(() => {
+        // Permissions API failed — fall back to direct probe (handles edge cases)
+        clearTimeout(timeoutId);
+        navigator.geolocation.getCurrentPosition(
+          () => setLocationStatus('granted'),
+          (err) => setLocationStatus(err.code === 1 ? 'denied' : 'prompt'),
+          { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+        );
+      });
     }
     return () => clearTimeout(timeoutId);
   }, []);

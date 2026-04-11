@@ -1,13 +1,27 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Download, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useGetMonthlyReportQuery } from '../attendanceApi';
 import { useAuthDownload } from '../../../hooks/useAuthDownload';
+import { onSocketEvent, offSocketEvent } from '../../../lib/socket';
 
 export default function MonthlyReportTab() {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
-  const { data: res, isLoading } = useGetMonthlyReportQuery({ month, year });
+  const { data: res, isLoading, refetch } = useGetMonthlyReportQuery({ month, year });
+
+  // Real-time: when an employee marks attendance, HR monthly report refreshes instantly
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  useEffect(() => {
+    const handler = () => refetchRef.current();
+    onSocketEvent('attendance:checkin', handler);
+    onSocketEvent('attendance:checkout', handler);
+    return () => {
+      offSocketEvent('attendance:checkin', handler);
+      offSocketEvent('attendance:checkout', handler);
+    };
+  }, []);
   const report = res?.data;
   const { download, downloading } = useAuthDownload();
   const exporting = !!downloading;

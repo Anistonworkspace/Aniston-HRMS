@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { useGetAllAttendanceQuery } from '../attendanceApi';
 import { useGetShiftsQuery, useGetAllAssignmentsQuery } from '../../workforce/workforceApi';
+import { onSocketEvent, offSocketEvent } from '../../../lib/socket';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SHIFT_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -34,7 +35,20 @@ export default function ShiftRotationCalendar() {
 
   const { data: shiftsRes } = useGetShiftsQuery();
   const { data: assignRes } = useGetAllAssignmentsQuery();
-  const { data: attRes, isLoading } = useGetAllAttendanceQuery({ startDate, endDate, limit: 100 });
+  const { data: attRes, isLoading, refetch } = useGetAllAttendanceQuery({ startDate, endDate, limit: 100 });
+
+  // Real-time: refetch when any employee marks attendance so HR calendar updates instantly
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  useEffect(() => {
+    const handler = () => refetchRef.current();
+    onSocketEvent('attendance:checkin', handler);
+    onSocketEvent('attendance:checkout', handler);
+    return () => {
+      offSocketEvent('attendance:checkin', handler);
+      offSocketEvent('attendance:checkout', handler);
+    };
+  }, []);
 
   const shifts = shiftsRes?.data || [];
   const assignments = assignRes?.data || [];
