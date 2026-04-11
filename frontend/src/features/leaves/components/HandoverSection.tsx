@@ -26,11 +26,11 @@ export default function HandoverSection({
   const employees = empRes?.data || [];
 
   const handleSave = () => {
-    if (!selectedBackup || !onUpdate) return;
+    if (!onUpdate) return;
     onUpdate({
-      backupEmployeeId: selectedBackup,
+      backupEmployeeId: selectedBackup || undefined,
       handoverNotes: notes || undefined,
-      taskHandovers: taskHandovers.filter(h => h.handoverNote.length >= 3),
+      taskHandovers: selectedBackup ? taskHandovers.filter(h => h.handoverNote.length >= 3) : undefined,
     });
   };
 
@@ -75,21 +75,26 @@ export default function HandoverSection({
         <Users size={14} className="text-purple-500" /> Handover / Backup Plan
       </h4>
 
-      {/* Backup Employee Selector */}
+      {/* Backup Employee Selector (optional) */}
       <div>
-        <label className="text-xs text-gray-500 mb-1 block">Backup Employee *</label>
+        <label className="text-xs text-gray-500 mb-1 block">
+          Backup Employee <span className="text-gray-400 font-normal">(optional)</span>
+        </label>
         <select
           value={selectedBackup}
           onChange={(e) => setSelectedBackup(e.target.value)}
           className="input-glass w-full text-sm"
         >
-          <option value="">Select backup...</option>
+          <option value="">Select backup... (optional)</option>
           {employees.map((emp: any) => (
             <option key={emp.id} value={emp.id}>
               {emp.firstName} {emp.lastName} ({emp.employeeCode})
             </option>
           ))}
         </select>
+        {employees.length === 0 && (
+          <p className="text-[11px] text-gray-400 mt-1">No other employees found in your organization.</p>
+        )}
       </div>
 
       {/* General Handover Notes */}
@@ -144,11 +149,15 @@ export default function HandoverSection({
       {/* Save button */}
       <button
         onClick={handleSave}
-        disabled={!selectedBackup}
-        className="btn-primary text-sm disabled:opacity-50"
+        className="btn-primary text-sm"
       >
         Save Handover Plan
       </button>
+      {!selectedBackup && (
+        <p className="text-[11px] text-gray-400 -mt-1">
+          No backup assigned. You can still proceed without assigning a backup.
+        </p>
+      )}
     </div>
   );
 }

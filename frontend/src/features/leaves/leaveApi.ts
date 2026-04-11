@@ -144,6 +144,12 @@ export const leaveApi = api.injectEndpoints({
       query: (id) => `/leaves/${id}/audit`,
       providesTags: ['Leave'],
     }),
+
+    // All leaves (admin view with status filter — for Approved/Rejected/All tabs)
+    getAllLeaves: builder.query<any, { page?: number; limit?: number; status?: string; year?: number }>({
+      query: (params) => ({ url: '/leaves/all', params }),
+      providesTags: ['Leave'],
+    }),
   }),
 });
 
@@ -173,4 +179,5 @@ export const {
   useGetHrReviewQuery,
   useUpdateHandoverMutation,
   useGetLeaveAuditQuery,
+  useGetAllLeavesQuery,
 } = leaveApi;

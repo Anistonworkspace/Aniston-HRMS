@@ -89,6 +89,28 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
       return;
     }
 
+    // Frontend notice-period validation for CL and PL (2 days advance required)
+    if (formData.startDate) {
+      const code = selectedType?.code?.toUpperCase() || '';
+      const isAdvanceRequired = code === 'CL' || code === 'PL';
+      if (isAdvanceRequired) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const start = new Date(formData.startDate);
+        start.setHours(0, 0, 0, 0);
+        const diffDays = Math.floor((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays < 2) {
+          toast.error(
+            code === 'CL'
+              ? 'Casual Leave must be applied at least 2 days in advance.'
+              : 'Privileged Leave must be applied at least 2 days in advance.',
+            { duration: 4000 }
+          );
+          return;
+        }
+      }
+    }
+
     try {
       // Save draft
       const draftRes = await saveDraft({
@@ -116,11 +138,14 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
     }
   };
 
-  // Step 3 → Step 4: validate handover
+  // Step 3 → Step 4: handover is optional — always allow proceeding
   const handleNextFromHandover = () => {
-    if (isSickLeave) {
-      setAcknowledgements({ reviewedTasks: true, assignedHandover: true, acceptedVisibility: false });
-    }
+    // For sick/emergency leave or when no handover assigned, auto-accept the handover ack
+    setAcknowledgements(prev => ({
+      ...prev,
+      reviewedTasks: isSickLeave ? true : prev.reviewedTasks,
+      assignedHandover: true, // Handover is optional — mark as acknowledged regardless
+    }));
     setStep(3);
   };
 
@@ -433,7 +458,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
             {step === 3 && (
               <button
                 onClick={handleSubmit}
-                disabled={submitting || !acknowledgements.acceptedVisibility || (!isSickLeave && (!acknowledgements.reviewedTasks || !acknowledgements.assignedHandover))}
+                disabled={submitting || !acknowledgements.acceptedVisibility}
                 className="btn-primary text-sm flex items-center gap-1 disabled:opacity-50"
               >
                 {submitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}

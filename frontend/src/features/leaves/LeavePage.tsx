@@ -12,6 +12,7 @@ import {
   useCancelLeaveMutation,
   useGetHolidaysQuery,
   useGetPendingApprovalsQuery,
+  useGetAllLeavesQuery,
   useHandleLeaveActionMutation,
   useCreateLeaveTypeMutation,
   useUpdateLeaveTypeMutation,
@@ -73,6 +74,7 @@ export default function LeavePage() {
 function LeaveManagementView() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'regularizations'>('approvals');
+  const [approvalStatusFilter, setApprovalStatusFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [showLeaveTypeModal, setShowLeaveTypeModal] = useState(false);
@@ -80,15 +82,39 @@ function LeaveManagementView() {
   const [reviewLeaveId, setReviewLeaveId] = useState<string | null>(null);
 
   const user = useAppSelector((state) => state.auth.user);
-  const { data: approvalsRes, isLoading: approvalsLoading } = useGetPendingApprovalsQuery({ page, limit: 20 });
+
+  // Pending approvals (PENDING + MANAGER_APPROVED) — used for pending tab
+  const { data: approvalsRes, isLoading: approvalsLoading } = useGetPendingApprovalsQuery(
+    { page, limit: 20 },
+    { skip: approvalStatusFilter !== 'pending' }
+  );
+
+  // All leaves with status filter — used for approved/rejected/all tabs
+  const allLeavesStatus = approvalStatusFilter === 'approved' ? 'APPROVED'
+    : approvalStatusFilter === 'rejected' ? 'REJECTED'
+    : undefined;
+  const { data: allLeavesRes, isLoading: allLeavesLoading } = useGetAllLeavesQuery(
+    { page, limit: 20, status: allLeavesStatus },
+    { skip: approvalStatusFilter === 'pending' }
+  );
+
   const { data: typesRes } = useGetLeaveTypesQuery();
   const { data: holidaysRes } = useGetHolidaysQuery({});
   const [handleAction] = useHandleLeaveActionMutation();
   const [deleteLeaveType] = useDeleteLeaveTypeMutation();
 
-  const approvals = approvalsRes?.data || [];
+  // Combine data based on active filter tab
+  const activeRes = approvalStatusFilter === 'pending' ? approvalsRes : allLeavesRes;
+  const isLoadingApprovals = approvalStatusFilter === 'pending' ? approvalsLoading : allLeavesLoading;
+  const approvals = activeRes?.data || [];
   const leaveTypes = typesRes?.data || [];
   const holidays = holidaysRes?.data || [];
+
+  // Reset page when filter changes
+  const handleFilterChange = (filter: typeof approvalStatusFilter) => {
+    setApprovalStatusFilter(filter);
+    setPage(1);
+  };
 
   // Filter approvals by search
   const filteredApprovals = searchQuery.trim()
@@ -136,8 +162,8 @@ function LeaveManagementView() {
     setShowLeaveTypeModal(true);
   };
 
-  // Summary counts — use total from API meta (not page array length)
-  const pendingCount = approvalsRes?.meta?.total ?? approvals.length;
+  // Summary counts
+  const pendingCount = approvalsRes?.meta?.total ?? 0;
 
   return (
     <div className="page-container">
@@ -267,22 +293,51 @@ function LeaveManagementView() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          {/* Search */}
-          <div className="mb-4">
-            <div className="relative max-w-md">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          {/* Status filter pills */}
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            {[
+              { key: 'pending', label: 'Pending', color: 'amber' },
+              { key: 'approved', label: 'Approved', color: 'emerald' },
+              { key: 'rejected', label: 'Rejected / Cancelled', color: 'red' },
+              { key: 'all', label: 'All', color: 'gray' },
+            ].map((f) => (
+              <button
+                key={f.key}
+                onClick={() => handleFilterChange(f.key as any)}
+                className={cn(
+                  'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
+                  approvalStatusFilter === f.key
+                    ? f.color === 'amber' ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300'
+                      : f.color === 'emerald' ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
+                      : f.color === 'red' ? 'bg-red-100 text-red-800 ring-1 ring-red-300'
+                      : 'bg-gray-200 text-gray-800 ring-1 ring-gray-300'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                )}
+              >
+                {f.label}
+                {f.key === 'pending' && pendingCount > 0 && (
+                  <span className="ml-1.5 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {pendingCount}
+                  </span>
+                )}
+              </button>
+            ))}
+
+            {/* Search */}
+            <div className="relative ml-auto">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search by employee name..."
+                placeholder="Search by name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="input-glass w-full pl-9 text-sm"
+                className="input-glass pl-8 pr-3 py-1.5 text-xs w-48"
               />
             </div>
           </div>
 
           {/* Approval cards */}
-          {approvalsLoading ? (
+          {isLoadingApprovals ? (
             <div className="space-y-3">
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="layer-card p-4 animate-pulse">
@@ -300,115 +355,152 @@ function LeaveManagementView() {
           ) : filteredApprovals.length === 0 ? (
             <div className="layer-card p-12 text-center">
               <CheckCircle size={40} className="mx-auto text-emerald-200 mb-3" />
-              <p className="text-sm text-gray-400">No pending leave requests</p>
-              <p className="text-xs text-gray-300 mt-1">All caught up!</p>
+              <p className="text-sm text-gray-400">
+                {approvalStatusFilter === 'pending' ? 'No pending leave requests' : 'No leave requests found'}
+              </p>
+              <p className="text-xs text-gray-300 mt-1">
+                {approvalStatusFilter === 'pending' ? 'All caught up!' : 'Try a different filter'}
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredApprovals.map((leave: any, idx: number) => (
-                <motion.div
-                  key={leave.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.03 }}
-                  className="layer-card p-5"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-start gap-3 flex-1">
-                      <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-sm font-semibold text-brand-700 shrink-0">
-                        {(leave.employee?.firstName?.[0] || '') + (leave.employee?.lastName?.[0] || '')}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-800">
-                          {leave.employee?.firstName} {leave.employee?.lastName}
-                          <span className="text-gray-400 font-normal ml-2 text-xs">
-                            {leave.employee?.employeeCode}
-                          </span>
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2 mt-1">
-                          <span className="badge badge-info text-xs">
-                            {leave.leaveType?.name || 'Leave'}
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {formatDate(leave.startDate)} - {formatDate(leave.endDate)}
-                          </span>
-                          <span className="text-xs font-mono text-gray-500" data-mono>
-                            {Number(leave.days)} {Number(leave.days) === 1 ? 'day' : 'days'}
-                          </span>
-                          {leave.isHalfDay && (
-                            <span className="badge badge-warning text-xs">Half Day</span>
+              {filteredApprovals.map((leave: any, idx: number) => {
+                // Find leave balance for this leave type from employee's balance data (available in pending approvals)
+                const leaveBalance = leave.employee?.leaveBalances?.find(
+                  (b: any) => b.leaveType?.code === leave.leaveType?.code
+                );
+                const canAct = leave.status === 'PENDING' || leave.status === 'MANAGER_APPROVED';
+
+                return (
+                  <motion.div
+                    key={leave.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.03 }}
+                    className="layer-card p-5"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-sm font-semibold text-brand-700 shrink-0">
+                          {(leave.employee?.firstName?.[0] || '') + (leave.employee?.lastName?.[0] || '')}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-800">
+                            {leave.employee?.firstName} {leave.employee?.lastName}
+                            <span className="text-gray-400 font-normal ml-2 text-xs">
+                              {leave.employee?.employeeCode}
+                            </span>
+                            {leave.employee?.department?.name && (
+                              <span className="text-gray-400 font-normal ml-2 text-xs">
+                                · {leave.employee.department.name}
+                              </span>
+                            )}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                            <span className={cn('badge text-xs', leave.leaveType?.isPaid !== false ? 'badge-info' : 'badge-warning')}>
+                              {leave.leaveType?.name || 'Leave'}
+                              {leave.leaveType?.isPaid === false && ' (Unpaid)'}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {formatDate(leave.startDate)} – {formatDate(leave.endDate)}
+                            </span>
+                            <span className="text-xs font-mono text-gray-600 font-medium" data-mono>
+                              {Number(leave.days)} {Number(leave.days) === 1 ? 'day' : 'days'}
+                            </span>
+                            {leave.isHalfDay && (
+                              <span className="badge badge-neutral text-xs">Half Day</span>
+                            )}
+                            {leave.leaveType?.isPaid === false && (
+                              <span className="badge badge-warning text-[10px]">Payroll Impact</span>
+                            )}
+                          </div>
+                          {leave.reason && (
+                            <p className="text-xs text-gray-400 mt-1.5 line-clamp-1 italic">"{leave.reason}"</p>
+                          )}
+                          {/* Balance info — shown when available (from pending approvals enriched data) */}
+                          {leaveBalance && (
+                            <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-500 bg-gray-50 rounded-md px-2.5 py-1.5">
+                              <span>Balance: <span className="font-medium text-gray-700">{Number(leaveBalance.allocated)} alloc</span></span>
+                              <span>·</span>
+                              <span>Used: <span className="font-medium text-amber-600">{Number(leaveBalance.used)}</span></span>
+                              <span>·</span>
+                              <span>Pending: <span className="font-medium text-blue-600">{Number(leaveBalance.pending)}</span></span>
+                            </div>
+                          )}
+                          {/* Manager-approved note */}
+                          {leave.status === 'MANAGER_APPROVED' && (
+                            <p className="text-[11px] text-emerald-600 mt-1.5 flex items-center gap-1">
+                              <CheckCircle size={11} /> Manager approved — awaiting HR final decision
+                            </p>
                           )}
                         </div>
-                        {leave.reason && (
-                          <p className="text-xs text-gray-400 mt-1.5 line-clamp-2">{leave.reason}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                        <span className={`badge ${getStatusColor(leave.status)} text-xs`}>
+                          {leave.status.replace(/_/g, ' ')}
+                        </span>
+                        {canAct && (
+                          <>
+                            <motion.button
+                              aria-label="Review leave with task impact"
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => setReviewLeaveId(leave.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-50 text-brand-700 rounded-lg text-sm font-medium hover:bg-brand-100 transition-colors"
+                            >
+                              <FileText size={14} />
+                              Review
+                            </motion.button>
+                            <motion.button
+                              aria-label="Approve leave"
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleApprove(leave.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors"
+                            >
+                              <ThumbsUp size={14} />
+                              {t('leaves.approve')}
+                            </motion.button>
+                            <motion.button
+                              aria-label="Reject leave"
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleReject(leave.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
+                            >
+                              <ThumbsDown size={14} />
+                              {t('leaves.reject')}
+                            </motion.button>
+                          </>
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className={`badge ${getStatusColor(leave.status)} text-xs`}>
-                        {leave.status}
-                      </span>
-                      {leave.status === 'PENDING' && (
-                        <>
-                          <motion.button
-                            aria-label="Review leave with task impact"
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => setReviewLeaveId(leave.id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-50 text-brand-700 rounded-lg text-sm font-medium hover:bg-brand-100 transition-colors"
-                          >
-                            <FileText size={14} />
-                            Review
-                          </motion.button>
-                          <motion.button
-                            aria-label="Approve leave"
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => handleApprove(leave.id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors"
-                          >
-                            <ThumbsUp size={14} />
-                            {t('leaves.approve')}
-                          </motion.button>
-                          <motion.button
-                            aria-label="Reject leave"
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => handleReject(leave.id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
-                          >
-                            <ThumbsDown size={14} />
-                            {t('leaves.reject')}
-                          </motion.button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                );
+              })}
             </div>
           )}
 
           {/* Pagination Controls */}
-          {(approvalsRes?.meta?.totalPages ?? 0) > 1 && (
+          {(activeRes?.meta?.totalPages ?? 0) > 1 && (
             <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
               <p className="text-xs text-gray-500">
-                {t('common.showing')} {((page - 1) * 20) + 1}–{Math.min(page * 20, approvalsRes?.meta?.total || 0)} {t('common.of')} {approvalsRes?.meta?.total || 0}
+                {t('common.showing')} {((page - 1) * 20) + 1}–{Math.min(page * 20, activeRes?.meta?.total || 0)} {t('common.of')} {activeRes?.meta?.total || 0}
               </p>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={!approvalsRes?.meta?.hasPrev}
+                  disabled={!activeRes?.meta?.hasPrev}
                   className="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface-2 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {t('common.previousPage')}
                 </button>
                 <span className="text-xs text-gray-500 font-mono" data-mono>
-                  {page} / {approvalsRes?.meta?.totalPages || 1}
+                  {page} / {activeRes?.meta?.totalPages || 1}
                 </span>
                 <button
                   onClick={() => setPage((p) => p + 1)}
-                  disabled={!approvalsRes?.meta?.hasNext}
+                  disabled={!activeRes?.meta?.hasNext}
                   className="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface-2 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {t('common.nextPage')}
@@ -1330,15 +1422,22 @@ function LeavePersonalView() {
           <h1 className="text-2xl font-display font-bold text-gray-900">{t('leaves.title')}</h1>
           <p className="text-gray-500 text-sm mt-0.5">{t('leaves.subtitle')}</p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => setShowApplyModal(true)}
-          className="btn-primary flex items-center gap-2"
-        >
-          <Plus size={18} />
-          {t('leaves.applyLeave')}
-        </motion.button>
+        {/* Only employee accounts can apply leave; system accounts (HR/Admin/SA) cannot */}
+        {!['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '') ? (
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setShowApplyModal(true)}
+            className="btn-primary flex items-center gap-2"
+          >
+            <Plus size={18} />
+            {t('leaves.applyLeave')}
+          </motion.button>
+        ) : (
+          <div className="text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2 max-w-xs text-right">
+            System accounts cannot apply leave
+          </div>
+        )}
       </div>
 
       {/* Leave balance cards */}

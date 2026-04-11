@@ -74,7 +74,7 @@ export const submitDraftSchema = z.object({
 });
 
 export const updateHandoverSchema = z.object({
-  backupEmployeeId: z.string().uuid(),
+  backupEmployeeId: z.string().uuid().optional(),
   handoverNotes: z.string().optional(),
   taskHandovers: z.array(z.object({
     taskExternalId: z.string().optional(),

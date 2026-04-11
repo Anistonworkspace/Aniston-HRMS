@@ -877,19 +877,21 @@ export class LeaveService {
     });
     if (!request) throw new NotFoundError('Leave request (must be in DRAFT or PENDING status)');
 
-    // Validate backup employee exists
-    const backup = await prisma.employee.findUnique({ where: { id: data.backupEmployeeId }, select: { id: true, firstName: true, lastName: true } });
-    if (!backup) throw new NotFoundError('Backup employee');
-    if (data.backupEmployeeId === employeeId) throw new BadRequestError('Cannot assign yourself as backup');
-
     const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { organizationId: true } });
+
+    // Validate backup employee only if one was provided
+    if (data.backupEmployeeId) {
+      const backup = await prisma.employee.findUnique({ where: { id: data.backupEmployeeId }, select: { id: true } });
+      if (!backup) throw new NotFoundError('Backup employee');
+      if (data.backupEmployeeId === employeeId) throw new BadRequestError('Cannot assign yourself as backup');
+    }
 
     await prisma.$transaction(async (tx) => {
       // Update leave request
       await tx.leaveRequest.update({
         where: { id: requestId },
         data: {
-          backupEmployeeId: data.backupEmployeeId,
+          backupEmployeeId: data.backupEmployeeId || null,
           handoverNotes: data.handoverNotes || null,
         },
       });
@@ -897,8 +899,8 @@ export class LeaveService {
       // Remove old handovers for this request
       await tx.leaveHandover.deleteMany({ where: { leaveRequestId: requestId } });
 
-      // Create new handover records
-      if (data.taskHandovers?.length) {
+      // Create new handover records (only if backup provided)
+      if (data.backupEmployeeId && data.taskHandovers?.length) {
         await tx.leaveHandover.createMany({
           data: data.taskHandovers.map((h) => ({
             leaveRequestId: requestId,

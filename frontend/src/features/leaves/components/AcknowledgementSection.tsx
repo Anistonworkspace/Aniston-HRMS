@@ -19,18 +19,21 @@ export default function AcknowledgementSection({ acknowledgements, onChange, lea
       label: 'I have reviewed the task impact assessment and understand the pending work during my absence.',
       disabled: isSickLeave,
       autoChecked: isSickLeave,
+      required: false, // informational only
     },
     {
       key: 'assignedHandover' as const,
-      label: 'I have assigned handover and backup responsibilities where needed for critical tasks.',
-      disabled: isSickLeave,
-      autoChecked: isSickLeave,
+      label: 'I have assigned handover and backup responsibilities where needed (optional — backup assignment is not mandatory).',
+      disabled: true, // auto-set by wizard — user does not need to check this manually
+      autoChecked: true,
+      required: false,
     },
     {
       key: 'acceptedVisibility' as const,
       label: 'I understand that critical deadlines and task impact details are visible to my manager and HR.',
       disabled: false,
       autoChecked: false,
+      required: true, // only this is required to submit
     },
   ];
 

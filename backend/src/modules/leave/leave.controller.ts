@@ -27,6 +27,12 @@ export class LeaveController {
 
   async applyLeave(req: Request, res: Response, next: NextFunction) {
     try {
+      // System accounts (HR, Admin, Super Admin) cannot apply employee leave
+      const SYSTEM_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+      if (SYSTEM_ROLES.includes(req.user!.role)) {
+        res.status(403).json({ success: false, data: null, error: { code: 'SYSTEM_ACCOUNT_RESTRICTED', message: 'System accounts cannot apply employee leave. Only employee accounts can submit leave requests.' } });
+        return;
+      }
       const data = applyLeaveSchema.parse(req.body);
       if (!req.user!.employeeId) {
         res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
@@ -135,6 +141,11 @@ export class LeaveController {
 
   async saveDraft(req: Request, res: Response, next: NextFunction) {
     try {
+      const SYSTEM_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+      if (SYSTEM_ROLES.includes(req.user!.role)) {
+        res.status(403).json({ success: false, data: null, error: { code: 'SYSTEM_ACCOUNT_RESTRICTED', message: 'System accounts cannot apply employee leave. Only employee accounts can submit leave requests.' } });
+        return;
+      }
       const data = saveDraftSchema.parse(req.body);
       if (!req.user!.employeeId) {
         res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
@@ -147,6 +158,11 @@ export class LeaveController {
 
   async submitDraft(req: Request, res: Response, next: NextFunction) {
     try {
+      const SYSTEM_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+      if (SYSTEM_ROLES.includes(req.user!.role)) {
+        res.status(403).json({ success: false, data: null, error: { code: 'SYSTEM_ACCOUNT_RESTRICTED', message: 'System accounts cannot apply employee leave. Only employee accounts can submit leave requests.' } });
+        return;
+      }
       const { acknowledgements } = submitDraftSchema.parse(req.body);
       if (!req.user!.employeeId) {
         res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
