@@ -190,7 +190,7 @@ export class LeaveService {
 
     // 3. Same-day check
     // SL, EL, CL are unplanned by nature — always exempt from advance notice
-    const isUnplannedLeave = ['SL', 'EL', 'CL'].includes(leaveType.code ?? '');
+    const isUnplannedLeave = ['SL', 'EL'].includes(leaveType.code ?? '');
     if (!isUnplannedLeave && !leaveType.allowSameDay && startDateOnly.getTime() === today.getTime()) {
       throw new BadRequestError(`${leaveType.name} must be applied in advance. Same-day applications are not permitted.`);
     }
@@ -649,7 +649,7 @@ export class LeaveService {
 
     // ===== RUN POLICY ENFORCEMENT =====
     // Same-day check (SL/EL/CL exempt)
-    const isUnplannedLeave = ['SL', 'EL', 'CL'].includes(leaveType.code ?? '');
+    const isUnplannedLeave = ['SL', 'EL'].includes(leaveType.code ?? '');
     if (!isUnplannedLeave && !leaveType.allowSameDay && startDateOnly.getTime() === today.getTime()) {
       throw new BadRequestError(`${leaveType.name} must be applied in advance.`);
     }

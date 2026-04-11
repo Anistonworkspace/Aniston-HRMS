@@ -10,6 +10,7 @@ import { startAttendanceCronWorker } from './jobs/workers/attendance-cron.worker
 import { startPayrollWorker } from './jobs/workers/payroll.worker.js';
 import { startBackupWorker } from './jobs/workers/backup.worker.js';
 import { whatsAppService } from './modules/whatsapp/whatsapp.service.js';
+import { initDefaultLeaveSettings } from './lib/dbInit.js';
 
 const server = createServer(app);
 
@@ -18,6 +19,9 @@ async function main() {
     // Test database connection
     await prisma.$connect();
     logger.info('✅ Database connected');
+
+    // Fix any stale default leave settings (SL/EL must be same-day)
+    await initDefaultLeaveSettings();
 
     // Initialize Socket.io
     initSocketServer(server);
