@@ -136,6 +136,58 @@ router.get('/runs/:id/export',
   }
 );
 
+// Attendance salary summary Excel (HR report: First Name, Provided L, Paid, Unpaid, Working Days, Salary Issued Days, Leaves Balance)
+router.get('/runs/:id/attendance-export',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const run = await payrollService.getPayrollRunById(req.params.id);
+      const records = await payrollService.getPayrollRecords(req.params.id);
+      const { prisma } = await import('../../lib/prisma.js');
+
+      const startOfMonth = new Date(run.year, run.month - 1, 1);
+      const endOfMonth = new Date(run.year, run.month, 0);
+
+      const leaveData = await Promise.all(records.map(async (record: any) => {
+        // Annual leave balances for this employee
+        const balances = await prisma.leaveBalance.findMany({
+          where: { employeeId: record.employeeId, year: run.year },
+        });
+        const providedL = balances.reduce((s: number, b: any) => s + Number(b.allocated || 0), 0);
+        const leavesBalance = balances.reduce((s: number, b: any) => {
+          const remaining = Number(b.allocated || 0) + Number(b.carriedForward || 0) - Number(b.used || 0) - Number(b.pending || 0);
+          return s + remaining;
+        }, 0);
+
+        // Approved paid leave days that overlap with this month
+        const paidLeaves = await prisma.leaveRequest.findMany({
+          where: {
+            employeeId: record.employeeId,
+            status: 'APPROVED',
+            startDate: { lte: endOfMonth },
+            endDate: { gte: startOfMonth },
+            leaveType: { isPaid: true },
+          },
+          select: { days: true },
+        });
+        const paidLeaveDays = paidLeaves.reduce((s: number, lr: any) => s + Number(lr.days || 0), 0);
+
+        return { employeeId: record.employeeId, providedL, leavesBalance, paidLeaveDays };
+      }));
+
+      const org = await prisma.organization.findUnique({
+        where: { id: req.user!.organizationId }, select: { name: true },
+      });
+      const { generateAttendanceSalaryExcel } = await import('../../utils/payrollExcelExporter.js');
+      const buffer = await generateAttendanceSalaryExcel(run, records, leaveData, org?.name || 'Aniston Technologies LLP');
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="attendance-salary-${monthNames[run.month - 1]}-${run.year}.xlsx"`);
+      res.send(buffer);
+    } catch (err) { next(err); }
+  }
+);
+
 // Download salary template for bulk import
 router.get('/template',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),

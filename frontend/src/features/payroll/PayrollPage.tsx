@@ -433,6 +433,13 @@ function PayrollAdminView() {
                               {downloading === `/payroll/runs/${run.id}/export` ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />} Excel
                             </button>
                             <button
+                              onClick={() => authDownload(`/payroll/runs/${run.id}/attendance-export`, `attendance-salary-${MONTH_NAMES[run.month - 1]}-${run.year}.xlsx`)}
+                              disabled={downloading === `/payroll/runs/${run.id}/attendance-export`}
+                              className="text-xs text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
+                            >
+                              {downloading === `/payroll/runs/${run.id}/attendance-export` ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />} Attendance Excel
+                            </button>
+                            <button
                               onClick={() => authDownload(`/payroll/runs/${run.id}/bank-file`, `bank-transfer-${MONTH_NAMES[run.month - 1]}-${run.year}.csv`)}
                               disabled={downloading === `/payroll/runs/${run.id}/bank-file`}
                               className="text-xs text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"

@@ -191,6 +191,98 @@ export async function generatePayrollExcel(
 }
 
 /**
+ * Generate attendance-salary summary Excel matching HR report format:
+ * First Name | Provided L | Paid | Unpaid | Working Days | Salary Issued Days | Leaves Balance | Comments
+ */
+export async function generateAttendanceSalaryExcel(
+  run: any,
+  records: any[],
+  leaveData: Array<{ employeeId: string; providedL: number; leavesBalance: number; paidLeaveDays: number }>,
+  orgName: string
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Aniston HRMS';
+  workbook.created = new Date();
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
+
+  const sheet = workbook.addWorksheet('Attendance Salary', {
+    views: [{ state: 'frozen', ySplit: 2 }],
+  });
+
+  // Title row
+  sheet.addRow([`${orgName} — Attendance Salary Report — ${periodLabel}`]);
+  sheet.getRow(1).font = { bold: true, size: 13, color: { argb: BRAND } };
+  sheet.mergeCells(1, 1, 1, 8);
+  sheet.getRow(1).height = 24;
+
+  // Header row — light blue to match screenshot
+  const LIGHT_BLUE = '1E3A8A';
+  const headers = [
+    'First name', 'Provided L', 'Paid', 'Unpaid',
+    'Working Days', 'Salary Issued Days', 'Leaves Balance', 'Comments',
+  ];
+  const headerRow = sheet.addRow(headers);
+  styleHeaderRow(headerRow, LIGHT_BLUE);
+
+  // Column widths
+  [22, 12, 10, 10, 14, 18, 15, 30].forEach((w, i) => {
+    sheet.getColumn(i + 1).width = w;
+  });
+
+  const leaveMap = new Map(leaveData.map((d) => [d.employeeId, d]));
+
+  records.forEach((rec: any) => {
+    const ld = leaveMap.get(rec.employeeId) || { providedL: 0, leavesBalance: 0, paidLeaveDays: 0 };
+    const workingDays = Number(rec.workingDays || 0);
+    const unpaid = Number(rec.lopDays || 0);
+    const salaryIssuedDays = workingDays - unpaid;
+
+    const row = sheet.addRow([
+      rec.employee?.firstName || '',
+      ld.providedL,
+      ld.paidLeaveDays,
+      unpaid,
+      workingDays,
+      salaryIssuedDays,
+      ld.leavesBalance,
+      '', // Comments — blank for HR to fill
+    ]);
+
+    row.font = { size: 10, name: 'Calibri' };
+    row.alignment = { horizontal: 'center', vertical: 'middle' };
+    // Left-align name
+    row.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+
+    // Highlight unpaid (LOP) in red if > 0
+    if (unpaid > 0) {
+      row.getCell(4).font = { bold: true, color: { argb: RED }, size: 10 };
+    }
+
+    // Highlight paid leave in green if > 0
+    if (ld.paidLeaveDays > 0) {
+      row.getCell(3).font = { bold: true, color: { argb: GREEN }, size: 10 };
+    }
+  });
+
+  // Totals row
+  const dataRows = records.length;
+  const totalsRow = sheet.addRow([
+    'TOTAL', '', '', '', '', '', '', '',
+  ]);
+  totalsRow.font = { bold: true, size: 11 };
+  totalsRow.eachCell((cell) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EEF2FF' } };
+  });
+
+  sheet.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2 + dataRows, column: 8 } };
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+/**
  * Generate downloadable payroll import template
  */
 export async function generatePayrollTemplate(employees: any[]): Promise<Buffer> {

@@ -54,13 +54,15 @@ export default function LeavePage() {
           }`}>
           {t('leaves.title')}
         </button>
-        <button
-          onClick={() => setView('personal')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            view === 'personal' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}>
-          {t('leaves.myLeaves')}
-        </button>
+        {!isHRAdmin && (
+          <button
+            onClick={() => setView('personal')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              view === 'personal' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}>
+            {t('leaves.myLeaves')}
+          </button>
+        )}
       </div>
       {view === 'management' ? <LeaveManagementView /> : <LeavePersonalView />}
     </>
