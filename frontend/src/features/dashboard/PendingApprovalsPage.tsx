@@ -44,7 +44,7 @@ export default function PendingApprovalsPage() {
   const leavesCount = response?.data?.pendingLeaves?.total || 0;
   const ticketsCount = response?.data?.openTickets?.total || 0;
 
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const handleSearch = (value: string) => {
     setSearch(value);
     clearTimeout(searchTimerRef.current);

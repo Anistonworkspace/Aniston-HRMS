@@ -190,7 +190,7 @@ export default function EmployeeListPage() {
   const meta = data?.meta;
 
   // Debounced search
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const handleSearch = (value: string) => {
     setSearch(value);
     clearTimeout(searchTimerRef.current);

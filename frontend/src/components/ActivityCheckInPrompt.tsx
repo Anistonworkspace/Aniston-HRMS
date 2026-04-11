@@ -10,7 +10,7 @@ export default function ActivityCheckInPrompt() {
   const [sendPulse] = useSendActivityPulseMutation();
   const { data: todayRes } = useGetTodayStatusQuery(undefined, { skip: !user?.employeeId });
   const today = todayRes?.data;
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const toastIdRef = useRef<string | null>(null);
 
   const isCheckedIn = today?.isCheckedIn && !today?.isCheckedOut;

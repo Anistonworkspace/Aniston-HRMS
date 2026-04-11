@@ -16,7 +16,25 @@ import { getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 // ===== Document Categories =====
-const DOCUMENT_CATEGORIES = [
+// ===== Document Category types =====
+interface KycDoc {
+  type: string;
+  label: string;
+  required: boolean;
+  hint?: string;
+}
+
+const DOCUMENT_CATEGORIES: Array<{
+  id: string;
+  title: string;
+  icon: any;
+  description: string;
+  docs: KycDoc[];
+  anyOne?: boolean;
+  optional?: boolean;
+  skippable?: boolean;
+  isPhotoSection?: boolean;
+}> = [
   {
     id: 'education',
     title: 'Education Certificates',

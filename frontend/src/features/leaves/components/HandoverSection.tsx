@@ -8,7 +8,7 @@ interface HandoverSectionProps {
   backupEmployeeId?: string;
   handoverNotes?: string;
   auditItems?: any[];
-  onUpdate?: (data: { backupEmployeeId: string; handoverNotes?: string; taskHandovers?: any[] }) => void;
+  onUpdate?: (data: { backupEmployeeId?: string; handoverNotes?: string; taskHandovers?: any[] }) => void;
 }
 
 export default function HandoverSection({

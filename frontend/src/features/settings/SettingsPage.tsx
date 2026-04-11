@@ -1761,7 +1761,7 @@ function WhatsAppStats() {
 
   const totalContacts = (contactsRes?.data || []).length;
   // Messages total from the meta — represents all-time messages stored in DB
-  const totalMessages = messagesRes?.meta?.total || messagesRes?.data?.meta?.total || 0;
+  const totalMessages = messagesRes?.meta?.total || 0;
 
   return (
     <div className="grid grid-cols-2 gap-4 mb-6">

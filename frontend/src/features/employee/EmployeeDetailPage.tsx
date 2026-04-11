@@ -1838,7 +1838,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
             <div>
               <p className="text-gray-500 text-xs">EPF Status</p>
               <p className="text-gray-800 font-medium">
-                {earnings.find(e => e.name === 'Basic Salary')?.amount > 0 ? '✓ Enrolled' : '— Not applicable'}
+                {(earnings.find(e => e.name === 'Basic Salary')?.amount ?? 0) > 0 ? '✓ Enrolled' : '— Not applicable'}
               </p>
             </div>
             <div>

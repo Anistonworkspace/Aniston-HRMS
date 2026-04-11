@@ -135,7 +135,7 @@ export const leaveApi = api.injectEndpoints({
       providesTags: (result, error, id) => [{ type: 'Leave' as const, id }, 'Leave'],
     }),
 
-    updateHandover: builder.mutation<any, { id: string; backupEmployeeId: string; handoverNotes?: string; taskHandovers?: any[] }>({
+    updateHandover: builder.mutation<any, { id: string; backupEmployeeId?: string; handoverNotes?: string; taskHandovers?: any[] }>({
       query: ({ id, ...body }) => ({ url: `/leaves/${id}/handover`, method: 'PATCH', body }),
       invalidatesTags: ['Leave'],
     }),

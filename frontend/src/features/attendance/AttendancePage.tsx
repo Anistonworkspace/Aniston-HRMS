@@ -1202,7 +1202,7 @@ function AttendancePersonalView() {
                   <div className="flex items-center gap-0.5 mt-0.5">
                     <div className={cn('w-1.5 h-1.5 rounded-full', STATUS_COLORS[day.status])} />
                     {day.record?.geofenceViolation && (
-                      <Flag size={8} className="text-red-500" title="Outside geofence" />
+                      <Flag size={8} className="text-red-500" aria-label="Outside geofence" />
                     )}
                   </div>
                 )}

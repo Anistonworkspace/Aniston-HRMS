@@ -10,7 +10,7 @@ export interface OrgEmployee {
   avatar?: string | null;
   manager?: { id: string; firstName: string; lastName: string; employeeCode: string } | null;
   managerId?: string | null;
-  user?: { id: string; role: string } | null;
+  user?: { id?: string; role?: string; [key: string]: unknown } | null;
 }
 
 export interface TreeNode extends OrgEmployee {
@@ -27,6 +27,7 @@ export interface EmployeeNodeData {
   role: string;
   avatar?: string | null;
   isSelected?: boolean;
+  [key: string]: unknown;
 }
 
 export interface PendingReassign {

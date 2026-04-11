@@ -10,7 +10,7 @@ export default function useActivityTracker() {
   const [isTabActive, setIsTabActive] = useState(!document.hidden);
   const [activeMinutes, setActiveMinutes] = useState(0);
   const [sessionStart] = useState(() => new Date());
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Track tab visibility
   useEffect(() => {

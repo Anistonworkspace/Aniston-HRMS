@@ -38,7 +38,7 @@ export default function LocationSearch({ onSelect, placeholder = 'Search locatio
   const [isLoading, setIsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const searchNominatim = useCallback(async (q: string) => {
     if (q.length < 3) { setResults([]); return; }

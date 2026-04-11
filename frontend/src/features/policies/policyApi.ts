@@ -2,8 +2,8 @@ import { api } from '../../app/api';
 
 export const policyApi = api.injectEndpoints({
   endpoints: (builder) => ({
-    getPolicies: builder.query<any, void>({
-      query: () => '/policies',
+    getPolicies: builder.query<any, { category?: string } | void>({
+      query: (params) => ({ url: '/policies', params: params || undefined }),
       providesTags: (result) =>
         result?.data
           ? [

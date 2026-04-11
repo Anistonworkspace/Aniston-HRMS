@@ -8,6 +8,10 @@ interface TodayStatus {
   activeBreak: any | null;
   workMode: string;
   totalHours: number | null;
+  weekOffDays?: number[];
+  shift?: { name: string; startTime: string; endTime: string } | null;
+  hasShift?: boolean;
+  geofenceViolation?: boolean;
 }
 
 interface AttendanceData {

@@ -19,7 +19,7 @@ export const publicApplyApi = api.injectEndpoints({
       query: (jobId) => ({ url: `/jobs/${jobId}/generate-questions`, method: 'POST' }),
       invalidatesTags: ['Recruitment'],
     }),
-    getPublicApplications: builder.query<any, { page?: number; jobId?: string }>({
+    getPublicApplications: builder.query<any, { page?: number; limit?: number; jobId?: string }>({
       query: (params) => ({ url: '/jobs/applications', params }),
       providesTags: ['Recruitment'],
     }),

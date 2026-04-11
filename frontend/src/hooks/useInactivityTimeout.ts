@@ -7,8 +7,8 @@ const WARNING_BEFORE = 60 * 1000; // Show warning 60s before
 
 export function useInactivityTimeout(onWarning: () => void) {
   const dispatch = useAppDispatch();
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
-  const warningTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const warningTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const resetTimer = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);

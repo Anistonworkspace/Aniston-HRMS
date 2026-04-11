@@ -234,7 +234,7 @@ export default function WalkInDetailPage() {
           <HireModal
             candidate={candidate}
             isHiring={isHiring}
-            onHire={async (email) => {
+            onHire={async (email: string) => {
               try {
                 const result = await hireWalkIn({ id: candidate.id, teamsEmail: email }).unwrap();
                 toast.success(`Hired! Employee code: ${result?.data?.employeeCode || 'N/A'}`, { duration: 6000 });
@@ -251,7 +251,7 @@ export default function WalkInDetailPage() {
         {showEditModal && (
           <EditCandidateModal
             candidate={candidate}
-            onSave={async (data) => {
+            onSave={async (data: any) => {
               try {
                 await updateCandidate({ id: candidate.id, data }).unwrap();
                 toast.success('Details updated');

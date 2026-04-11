@@ -85,6 +85,7 @@ export interface AuthUser {
   avatar?: string;
   organizationId: string;
   kycCompleted?: boolean;
+  onboardingComplete?: boolean;
   exitAccess?: ExitAccessInfo | null;
 }
 
@@ -125,6 +126,13 @@ export interface EmployeeListItem {
   status: string;
   joiningDate: string;
   avatar?: string;
+  user?: {
+    id?: string;
+    role?: string;
+    lastLoginAt?: string | null;
+    microsoftId?: string | null;
+    [key: string]: unknown;
+  } | null;
 }
 
 export interface EmployeeDetail extends EmployeeListItem {
@@ -149,6 +157,25 @@ export interface EmployeeDetail extends EmployeeListItem {
   documents: DocumentItem[];
   createdAt: string;
   updatedAt: string;
+  user?: {
+    id?: string;
+    role?: string;
+    lastLoginAt?: string | null;
+    microsoftId?: string | null;
+    [key: string]: unknown;
+  } | null;
+  bankAccountNumber?: string | null;
+  currentShift?: {
+    id?: string;
+    name: string;
+    startTime: string;
+    endTime: string;
+    [key: string]: unknown;
+  } | null;
+  ctc?: number | string | null;
+  exitStatus?: string | null;
+  lastWorkingDate?: string | null;
+  exitType?: string | null;
 }
 
 export interface AddressData {
@@ -187,6 +214,8 @@ export interface CreateEmployeeRequest {
   managerId?: string;
   joiningDate: string;
   ctc?: number;
+  status?: string;
+  [key: string]: unknown;
 }
 
 /**

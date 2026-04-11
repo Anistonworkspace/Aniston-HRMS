@@ -675,7 +675,7 @@ function AssignAssetModal({ asset, onClose }: { asset: any; onClose: () => void 
   const [notes, setNotes] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const employees = employeesRes?.data?.data || employeesRes?.data || [];
+  const employees = employeesRes?.data || [];
   const employeeList = Array.isArray(employees) ? employees : [];
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -780,10 +780,10 @@ function AssignAssetModal({ asset, onClose }: { asset: any; onClose: () => void 
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-brand-100/60">
-                  {selectedEmployee.designation && (
+                  {selectedEmployee.designation?.name && (
                     <div>
                       <p className="text-[10px] text-gray-400">Designation</p>
-                      <p className="text-xs font-medium text-gray-700">{selectedEmployee.designation}</p>
+                      <p className="text-xs font-medium text-gray-700">{selectedEmployee.designation.name}</p>
                     </div>
                   )}
                   {selectedEmployee.department?.name && (
@@ -792,10 +792,10 @@ function AssignAssetModal({ asset, onClose }: { asset: any; onClose: () => void 
                       <p className="text-xs font-medium text-gray-700">{selectedEmployee.department.name}</p>
                     </div>
                   )}
-                  {selectedEmployee.location?.name && (
+                  {(selectedEmployee as any).officeLocation?.name && (
                     <div>
                       <p className="text-[10px] text-gray-400">Location</p>
-                      <p className="text-xs font-medium text-gray-700">{selectedEmployee.location.name}</p>
+                      <p className="text-xs font-medium text-gray-700">{(selectedEmployee as any).officeLocation.name}</p>
                     </div>
                   )}
                 </div>
