@@ -1491,13 +1491,14 @@ model WhatsAppConversation {
   contactPhone     String                // Normalized phone (e.g. 917060821855)
   providerChatId   String?               // WhatsApp chat ID (e.g. 917060821855@c.us or LID)
   contactName      String?
-  lastMessageAt    DateTime?
-  lastMessagePreview String?
-  unreadCount      Int                   @default(0)
-  status           WaConversationStatus  @default(OPEN)
-  templateSource   WaTemplateType?       // What triggered this conversation
-  referenceId      String?               // e.g. invitationId or applicationId
-  referenceType    String?               // e.g. "invitation" | "application"
+  lastMessageAt        DateTime?
+  lastMessagePreview   String?
+  lastMessageDirection WaMessageDirection?   // INBOUND or OUTBOUND
+  unreadCount          Int                   @default(0)
+  status               WaConversationStatus  @default(OPEN)
+  templateSource       WaTemplateType?       // What triggered this conversation
+  referenceId          String?               // e.g. invitationId or applicationId
+  referenceType        String?               // e.g. "invitation" | "application"
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
 

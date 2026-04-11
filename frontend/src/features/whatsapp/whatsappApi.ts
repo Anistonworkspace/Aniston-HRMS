@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 export interface WhatsAppStatus {
   isConnected: boolean;
   isInitializing: boolean;
+  isSyncing: boolean;
   phoneNumber: string | null;
   lastPing: string | null;
 }
@@ -254,6 +255,12 @@ export const whatsappApi = api.injectEndpoints({
           const setActive = (e: CustomEvent) => { activeChatId = e.detail || null; };
           window.addEventListener('wa:active-chat', setActive as EventListener);
 
+          // After backend sync completes (post-connect preload), force a fresh fetch
+          const handleSyncComplete = () => {
+            dispatch(whatsappApi.util.invalidateTags(['WhatsAppChats']));
+          };
+          onSocketEvent('whatsapp:sync:complete', handleSyncComplete);
+
           const handleNewMsg = (data: SocketMessageEvent) => {
             updateCachedData((draft: any) => {
               if (!draft?.data) return;
@@ -332,6 +339,7 @@ export const whatsappApi = api.injectEndpoints({
 
           offSocketEvent('whatsapp:message:new', handleNewMsg);
           offSocketEvent('whatsapp:chat:read', handleChatRead);
+          offSocketEvent('whatsapp:sync:complete', handleSyncComplete);
           window.removeEventListener('wa:active-chat', setActive as EventListener);
         } catch { /* ignore */ }
       },

@@ -88,6 +88,7 @@ export class WhatsAppService {
   private _client: any = null;
   private _ready = false;
   private _initializing = false;
+  private _syncing = false; // True while preloading chats after connect
   private _orgId: string | null = null;
   private _qrCode: string | null = null;
   private _pingInterval: ReturnType<typeof setInterval> | null = null;
@@ -231,6 +232,23 @@ export class WhatsAppService {
       logger.info(`WhatsApp connected: ${info?.wid?.user}`);
       emitToOrg(organizationId, 'whatsapp:ready', { phoneNumber: info?.wid?.user });
 
+      // Background chat preload — warms Redis cache so first /whatsapp/chats is fast
+      // WhatsApp Web needs a few seconds to finish syncing after ready fires
+      this._syncing = true;
+      emitToOrg(organizationId, 'whatsapp:sync:start', {});
+      setTimeout(async () => {
+        try {
+          logger.info('WhatsApp: preloading chats after connect...');
+          await this.getChats(organizationId);
+          logger.info('WhatsApp: chat preload complete');
+        } catch (preloadErr: any) {
+          logger.warn(`WhatsApp: chat preload failed — ${preloadErr.message}`);
+        } finally {
+          this._syncing = false;
+          emitToOrg(organizationId, 'whatsapp:sync:complete', {});
+        }
+      }, 3000);
+
       // Periodic ping (every 30 minutes)
       if (this._pingInterval) clearInterval(this._pingInterval);
       this._pingInterval = setInterval(async () => {
@@ -248,6 +266,7 @@ export class WhatsAppService {
     client.on('disconnected', async () => {
       this._ready = false;
       this._initializing = false;
+      this._syncing = false;
       this._qrCode = null;
       await prisma.whatsAppSession.updateMany({
         where: { sessionName: `main-${organizationId}` },
@@ -296,13 +315,20 @@ export class WhatsAppService {
         });
 
         // Upsert conversation and increment unread count
-        const fromPhone = normalizePhone(msg.from || '');
-        await this._upsertConversation(fromPhone, organizationId, msg.from, {
-          lastMessagePreview: (msg.body || '').slice(0, 100),
+        const fromPhone = chatIdToPhone(msg.from || ''); // strip @c.us — already digits-only
+        const fromPhoneNorm = normalizePhone(fromPhone);  // add 91 prefix for 10-digit Indian numbers
+        const msgPreview = msg.body?.trim()
+          ? msg.body.slice(0, 100)
+          : msg.hasMedia
+            ? (msg.type === 'image' ? '📷 Photo' : msg.type === 'video' ? '🎥 Video' : msg.type === 'audio' || msg.type === 'ptt' ? '🎵 Audio' : msg.type === 'document' ? '📄 Document' : '📎 Attachment')
+            : '';
+        await this._upsertConversation(fromPhoneNorm, organizationId, msg.from, {
+          lastMessagePreview: msgPreview,
           lastMessageAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
+          lastMessageDirection: 'INBOUND',
         });
         await prisma.whatsAppConversation.updateMany({
-          where: { organizationId, contactPhone: fromPhone },
+          where: { organizationId, contactPhone: fromPhoneNorm },
           data: { unreadCount: { increment: 1 } },
         }).catch(() => {});
 
@@ -348,6 +374,7 @@ export class WhatsAppService {
     return {
       isConnected: this._ready,
       isInitializing: this._initializing,
+      isSyncing: this._syncing,
       phoneNumber: session?.phoneNumber || null,
       lastPing: session?.lastPing || null,
     };
@@ -378,9 +405,10 @@ export class WhatsAppService {
 
       // Upsert conversation record
       await this._upsertConversation(phone, organizationId, chatId, {
-        lastMessagePreview: data.message,
+        lastMessagePreview: data.message.slice(0, 100),
         lastMessageAt: new Date(),
         templateSource: templateType,
+        lastMessageDirection: 'OUTBOUND',
       });
 
       // Support reply/quote
@@ -472,8 +500,9 @@ export class WhatsAppService {
 
       // Upsert conversation record
       const conversationId = await this._upsertConversation(cleanPhone, organizationId, chatId, {
-        lastMessagePreview: message,
+        lastMessagePreview: message.slice(0, 100),
         lastMessageAt: new Date(),
+        lastMessageDirection: 'OUTBOUND',
       });
 
       const sentMsg = await this._client.sendMessage(chatId, message);
@@ -592,8 +621,8 @@ export class WhatsAppService {
       ) as any[];
 
       const sorted = chats
-        .filter((c: any) => c.lastMessage || c.unreadCount > 0)
         .sort((a: any, b: any) => {
+          // Sort by lastMessage timestamp descending; chats with no lastMessage go to bottom
           const tA = a.lastMessage?.timestamp || 0;
           const tB = b.lastMessage?.timestamp || 0;
           return tB - tA;
@@ -607,7 +636,8 @@ export class WhatsAppService {
           id: chat.id._serialized,
           name: chat.name || chat.id.user,
           isGroup: chat.isGroup,
-          lastMessage: chat.lastMessage?.body?.slice(0, 100) || '',
+          lastMessage: chat.lastMessage?.body?.slice(0, 100)
+            || (chat.lastMessage?.hasMedia ? (chat.lastMessage?.type === 'image' ? '📷 Photo' : chat.lastMessage?.type === 'video' ? '🎥 Video' : chat.lastMessage?.type === 'audio' || chat.lastMessage?.type === 'ptt' ? '🎵 Audio' : chat.lastMessage?.type === 'document' ? '📄 Document' : '📎 Attachment') : ''),
           timestamp: chat.lastMessage?.timestamp ? new Date(chat.lastMessage.timestamp * 1000).toISOString() : null,
           unreadCount: chat.unreadCount || 0,
           profilePicUrl,
@@ -654,13 +684,118 @@ export class WhatsAppService {
   async getChatMessages(chatId: string, limit = 50, before?: string, organizationId?: string) {
     // Extract plain phone number from WhatsApp chat ID (e.g. "919311221636@c.us" → "919311221636")
     const phone = chatIdToPhone(chatId);
+    const normalizedChatId = this._normalizeChatId(chatId);
 
-    // ── Primary: serve from DB (reliable, includes HRMS-sent messages not yet in web.js session) ──
+    // ── PRIMARY: web.js session (authoritative — full conversation history) ──
+    // Always prefer the live session when available; DB is only a fallback.
+    if (this._ready && this._client) {
+      try {
+        const chat = await this._client.getChatById(normalizedChatId);
+        if (!chat) throw new Error('Chat not found in session');
+
+        const fetchLimit = before ? limit * 2 : Math.max(limit, 50);
+
+        let messages: any[] = [];
+        try {
+          messages = await chat.fetchMessages({ limit: fetchLimit });
+        } catch (fetchErr: any) {
+          logger.warn(`WhatsApp: fetchMessages failed for ${normalizedChatId}, retrying — ${fetchErr.message}`);
+          await new Promise(r => setTimeout(r, 1200));
+          try {
+            messages = await chat.fetchMessages({ limit: fetchLimit });
+          } catch (retryErr: any) {
+            logger.error(`WhatsApp: fetchMessages retry failed for ${normalizedChatId} — ${retryErr.message}`);
+            // Fall through to DB
+            messages = [];
+          }
+        }
+
+        let filtered = messages;
+        if (before) {
+          const beforeTs = new Date(before).getTime() / 1000;
+          filtered = messages.filter((m: any) => m.timestamp < beforeTs).slice(-limit);
+        } else {
+          // Return the most recent `limit` messages in chronological order
+          filtered = messages.slice(-limit);
+        }
+
+        if (filtered.length > 0) {
+          const results = await Promise.all(
+            filtered.map(async (msg: any) => {
+              let quotedMsg = null;
+              if (msg.hasQuotedMsg) {
+                try {
+                  const quoted = await msg.getQuotedMessage();
+                  quotedMsg = {
+                    body: quoted?.body?.slice(0, 200) || '',
+                    fromMe: quoted?.fromMe || false,
+                    type: quoted?.type || 'chat',
+                  };
+                } catch { /* ignore */ }
+              }
+
+              let mediaUrl: string | null = null;
+              let mediaFilename: string | null = null;
+              let mediaMimetype: string | null = null;
+              if (msg.hasMedia) {
+                const uploadsDir = storageService.getAbsoluteDir('whatsapp');
+                const sanitizedId = msg.id._serialized.replace(/[^a-zA-Z0-9]/g, '_');
+                if (fs.existsSync(uploadsDir)) {
+                  const files = fs.readdirSync(uploadsDir).filter((f: string) => f.startsWith(sanitizedId));
+                  if (files.length > 0) {
+                    mediaUrl = storageService.buildUrl('whatsapp', files[0]);
+                    mediaFilename = files[0];
+                  }
+                }
+              }
+
+              return {
+                id: msg.id._serialized,
+                body: msg.body,
+                fromMe: msg.fromMe,
+                timestamp: msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : null,
+                type: msg.type,
+                hasMedia: msg.hasMedia,
+                ack: msg.ack,
+                mediaUrl,
+                mediaFilename,
+                mediaMimetype,
+                quotedMsg,
+                author: msg.author || null,
+                notifyName: msg._data?.notifyName || null,
+              };
+            })
+          );
+
+          // Backfill to DB in background — do not await
+          if (organizationId && phone) {
+            this._backfillMessagesToDb(filtered, phone, organizationId).catch((e) =>
+              logger.warn('WhatsApp: backfill failed:', e?.message)
+            );
+          }
+
+          return results;
+        }
+        // Fell through — web.js returned 0 messages (session may not have loaded this chat yet)
+        logger.warn(`WhatsApp: web.js returned 0 messages for ${normalizedChatId}, falling back to DB`);
+      } catch (err: any) {
+        logger.warn(`WhatsApp: web.js message fetch failed for ${normalizedChatId} — ${err.message}, falling back to DB`);
+      }
+    }
+
+    // ── FALLBACK: DB (when client is not ready or web.js returned nothing) ──
     if (organizationId && phone) {
       try {
         const where: any = {
           organizationId,
-          OR: [{ to: phone }, { fromNumber: phone }],
+          // Match messages where this phone is either sender or recipient
+          OR: [
+            { to: phone },
+            { fromNumber: phone },
+            // Also match with potential 91-prefix variant for Indian numbers
+            ...(phone.length === 10 ? [{ to: `91${phone}` }, { fromNumber: `91${phone}` }] : []),
+            ...(phone.startsWith('91') && phone.length === 12 ? [{ to: phone.slice(2) }, { fromNumber: phone.slice(2) }] : []),
+          ],
         };
         if (before) {
           where.sentAt = { lt: new Date(before) };
@@ -668,115 +803,82 @@ export class WhatsAppService {
 
         const dbMessages = await prisma.whatsAppMessage.findMany({
           where,
-          orderBy: { sentAt: 'asc' },
+          orderBy: { sentAt: 'desc' }, // Newest first
           take: limit,
         });
 
         if (dbMessages.length > 0) {
-          return dbMessages.map((msg) => {
-            const ackMap: Record<string, number> = { READ: 3, DELIVERED: 2, SENT: 1, PENDING: 0, FAILED: -1, RECEIVED: 3 };
-            return {
-              id: msg.externalMessageId || msg.id,
-              body: msg.message,
-              fromMe: msg.direction === 'OUTBOUND',
-              timestamp: (msg.sentAt || msg.createdAt).toISOString(),
-              type: 'chat',
-              hasMedia: !!msg.mediaUrl,
-              ack: ackMap[msg.status] ?? 0,
-              mediaUrl: msg.mediaUrl || null,
-              mediaFilename: msg.mediaUrl ? msg.mediaUrl.split('/').pop() || null : null,
-              mediaMimetype: msg.mediaMimetype || null,
-              quotedMsg: null,
-              author: null,
-              notifyName: null,
-            };
-          });
+          // Reverse to chronological (oldest → newest) for display
+          dbMessages.reverse();
+          const ackMap: Record<string, number> = { READ: 3, DELIVERED: 2, SENT: 1, PENDING: 0, FAILED: -1, RECEIVED: 3 };
+          return dbMessages.map((msg) => ({
+            id: msg.externalMessageId || msg.id,
+            body: msg.message,
+            fromMe: msg.direction === 'OUTBOUND',
+            timestamp: (msg.sentAt || msg.createdAt).toISOString(),
+            type: 'chat',
+            hasMedia: !!msg.mediaUrl,
+            ack: ackMap[msg.status] ?? 0,
+            mediaUrl: msg.mediaUrl || null,
+            mediaFilename: msg.mediaUrl ? msg.mediaUrl.split('/').pop() || null : null,
+            mediaMimetype: msg.mediaMimetype || null,
+            quotedMsg: null,
+            author: null,
+            notifyName: null,
+          }));
         }
       } catch (dbErr: any) {
-        logger.warn(`WhatsApp: DB message fetch failed for ${phone}, falling back to web.js — ${dbErr.message}`);
+        logger.warn(`WhatsApp: DB message fetch also failed for ${phone} — ${dbErr.message}`);
       }
     }
 
-    // ── Fallback: web.js session (for older chats not yet in DB) ──
-    this._ensureReady();
-    const normalizedChatId = this._normalizeChatId(chatId);
+    // Neither source has messages — return empty (session may not have synced yet)
+    return [];
+  }
 
-    try {
-      const chat = await this._client.getChatById(normalizedChatId);
-      if (!chat) throw new Error('Chat not found');
+  /**
+   * Backfill messages from web.js session to DB for persistence.
+   * Runs in background — safe to ignore errors.
+   */
+  private async _backfillMessagesToDb(messages: any[], phone: string, organizationId: string): Promise<void> {
+    if (!messages.length) return;
 
-      const fetchLimit = before ? limit * 2 : limit;
+    const session = await prisma.whatsAppSession.findFirst({ where: { organizationId } }).catch(() => null);
+    if (!session) return;
 
-      let messages: any[] = [];
-      try {
-        messages = await chat.fetchMessages({ limit: fetchLimit });
-      } catch (fetchErr: any) {
-        logger.warn(`WhatsApp: fetchMessages failed for ${normalizedChatId}, retrying once — ${fetchErr.message}`);
-        await new Promise(r => setTimeout(r, 1200));
-        try {
-          messages = await chat.fetchMessages({ limit: fetchLimit });
-        } catch (retryErr: any) {
-          logger.error(`WhatsApp: fetchMessages retry also failed for ${normalizedChatId} — ${retryErr.message}`);
-          return [];
-        }
+    for (const msg of messages) {
+      const externalId = msg.id?._serialized;
+      if (!externalId) continue;
+
+      // Skip if already persisted
+      const exists = await prisma.whatsAppMessage.findFirst({
+        where: { organizationId, externalMessageId: externalId },
+        select: { id: true },
+      }).catch(() => null);
+      if (exists) continue;
+
+      // Determine ACK status from web.js ack value
+      let status: any = 'RECEIVED';
+      if (msg.fromMe) {
+        if (msg.ack >= 3) status = 'READ';
+        else if (msg.ack >= 2) status = 'DELIVERED';
+        else status = 'SENT';
       }
 
-      let filtered = messages;
-      if (before) {
-        const beforeTs = new Date(before).getTime() / 1000;
-        filtered = messages.filter((m: any) => m.timestamp < beforeTs).slice(-limit);
-      }
-
-      const results = await Promise.all(
-        filtered.map(async (msg: any) => {
-          let quotedMsg = null;
-          if (msg.hasQuotedMsg) {
-            try {
-              const quoted = await msg.getQuotedMessage();
-              quotedMsg = {
-                body: quoted?.body?.slice(0, 200) || '',
-                fromMe: quoted?.fromMe || false,
-                type: quoted?.type || 'chat',
-              };
-            } catch { /* ignore */ }
-          }
-
-          let mediaUrl = null;
-          let mediaFilename = null;
-          let mediaMimetype = null;
-          if (msg.hasMedia) {
-            const uploadsDir = storageService.getAbsoluteDir('whatsapp');
-            const sanitizedId = msg.id._serialized.replace(/[^a-zA-Z0-9]/g, '_');
-            if (fs.existsSync(uploadsDir)) {
-              const files = fs.readdirSync(uploadsDir).filter((f: string) => f.startsWith(sanitizedId));
-              if (files.length > 0) {
-                mediaUrl = storageService.buildUrl('whatsapp', files[0]);
-                mediaFilename = files[0];
-              }
-            }
-          }
-
-          return {
-            id: msg.id._serialized,
-            body: msg.body,
-            fromMe: msg.fromMe,
-            timestamp: msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : null,
-            type: msg.type,
-            hasMedia: msg.hasMedia,
-            ack: msg.ack,
-            mediaUrl,
-            mediaFilename,
-            mediaMimetype,
-            quotedMsg,
-            author: msg.author || null,
-            notifyName: msg._data?.notifyName || null,
-          };
-        })
-      );
-
-      return results;
-    } catch (err: any) {
-      throw new BadRequestError(`Failed to get messages: ${err.message}`);
+      await prisma.whatsAppMessage.create({
+        data: {
+          externalMessageId: externalId,
+          sessionId: session.id,
+          direction: msg.fromMe ? 'OUTBOUND' : 'INBOUND',
+          fromNumber: msg.fromMe ? (session.phoneNumber || '') : phone,
+          to: msg.fromMe ? phone : (session.phoneNumber || ''),
+          message: msg.body || '',
+          templateType: 'GENERAL',
+          status,
+          sentAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
+          organizationId,
+        },
+      }).catch(() => {}); // Ignore duplicates from concurrent requests
     }
   }
 
@@ -1415,11 +1517,13 @@ export class WhatsAppService {
       templateSource?: any;
       referenceId?: string;
       referenceType?: string;
+      lastMessageDirection?: 'INBOUND' | 'OUTBOUND';
     }
   ): Promise<string> {
+    // contactPhone may already be normalized; normalizePhone is idempotent for 12-digit numbers
     const normalized = normalizePhone(contactPhone);
     try {
-      const conv = await prisma.whatsAppConversation.upsert({
+      const conv = await (prisma.whatsAppConversation.upsert as any)({
         where: { organizationId_contactPhone: { organizationId, contactPhone: normalized } },
         create: {
           organizationId,
@@ -1427,6 +1531,7 @@ export class WhatsAppService {
           providerChatId: providerChatId || null,
           lastMessageAt: updates?.lastMessageAt || new Date(),
           lastMessagePreview: updates?.lastMessagePreview?.slice(0, 100),
+          lastMessageDirection: updates?.lastMessageDirection || null,
           templateSource: updates?.templateSource,
           referenceId: updates?.referenceId,
           referenceType: updates?.referenceType,
@@ -1434,7 +1539,8 @@ export class WhatsAppService {
         update: {
           ...(providerChatId ? { providerChatId } : {}),
           ...(updates?.lastMessageAt ? { lastMessageAt: updates.lastMessageAt } : {}),
-          ...(updates?.lastMessagePreview ? { lastMessagePreview: updates.lastMessagePreview.slice(0, 100) } : {}),
+          ...(updates?.lastMessagePreview !== undefined ? { lastMessagePreview: updates.lastMessagePreview.slice(0, 100) } : {}),
+          ...(updates?.lastMessageDirection ? { lastMessageDirection: updates.lastMessageDirection } : {}),
           updatedAt: new Date(),
         },
       });

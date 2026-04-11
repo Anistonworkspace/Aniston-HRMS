@@ -46,6 +46,7 @@ export default function WhatsAppPage() {
   );
   const isConnected = statusRes?.data?.isConnected;
   const isInitializing = statusRes?.data?.isInitializing;
+  const isSyncing = statusRes?.data?.isSyncing;
   const sessionPhone = statusRes?.data?.phoneNumber;
   const lastPing = statusRes?.data?.lastPing;
 
@@ -97,8 +98,14 @@ export default function WhatsAppPage() {
           <Link to="/settings" className="underline font-medium ml-1">Check Settings</Link>
         </div>
       )}
+      {isSyncing && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border-b border-green-200 text-green-800 text-xs">
+          <Loader2 size={12} className="animate-spin flex-shrink-0" />
+          <span>Syncing WhatsApp chats... This may take a few seconds on first connect.</span>
+        </div>
+      )}
       <div className="flex-1 min-h-0">
-        <WhatsAppChatApp sessionPhone={sessionPhone} />
+        <WhatsAppChatApp sessionPhone={sessionPhone} isSyncing={!!isSyncing} />
       </div>
     </div>
   );
@@ -437,7 +444,7 @@ function EditContactModal({
 // MAIN CHAT APP
 // =====================================================================
 
-function WhatsAppChatApp({ sessionPhone }: { sessionPhone?: string | null }) {
+function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | null; isSyncing?: boolean }) {
   const hasPrefill = typeof window !== 'undefined' && !!sessionStorage.getItem('whatsapp_prefill_message');
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -635,10 +642,16 @@ function WhatsAppChatApp({ sessionPhone }: { sessionPhone?: string | null }) {
             loadingChats ? <ChatListSkeleton /> :
             filteredChats.length === 0 ? (
               <EmptyState
-                icon={<MessageCircle size={32} className="text-gray-200" />}
-                text={searchQuery ? 'No matching chats' : 'No chats yet'}
-                subtext={!searchQuery ? 'All WhatsApp conversations — including HRMS invitations and job application messages — appear here' : undefined}
-                action={!searchQuery ? (
+                icon={isSyncing
+                  ? <Loader2 size={32} className="text-green-400 animate-spin" />
+                  : <MessageCircle size={32} className="text-gray-200" />}
+                text={searchQuery ? 'No matching chats' : isSyncing ? 'Syncing chats...' : 'No chats yet'}
+                subtext={!searchQuery
+                  ? isSyncing
+                    ? 'WhatsApp is loading your conversations. This can take 10–30 seconds on first connect.'
+                    : 'All WhatsApp conversations — including HRMS invitations and job application messages — appear here'
+                  : undefined}
+                action={!searchQuery && !isSyncing ? (
                   <button onClick={() => refetchChats()} className="text-xs text-brand-600 hover:text-brand-700 font-medium mt-2 flex items-center gap-1 mx-auto">
                     <RefreshCw size={12} /> Refresh
                   </button>
@@ -1289,8 +1302,28 @@ function ChatView({
             </button>
           </div>
         ) : messages.length === 0 ? (
-          <div className="text-center py-8 text-gray-400 text-sm">
-            No messages yet — send a message below
+          <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+            {isFetching ? (
+              <>
+                <Loader2 size={28} className="text-green-400 animate-spin mb-3" />
+                <p className="text-sm text-gray-400">Loading messages...</p>
+              </>
+            ) : (
+              <>
+                <MessageCircle size={32} className="text-gray-200 mb-3" />
+                <p className="text-sm text-gray-400 font-medium">No messages loaded</p>
+                <p className="text-xs text-gray-300 mt-1 max-w-xs">
+                  This chat may have messages on your phone that haven't synced to this session yet.
+                  Try refreshing or send a message to start.
+                </p>
+                <button
+                  onClick={() => refetch()}
+                  className="mt-3 text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                >
+                  <RefreshCw size={12} /> Try loading again
+                </button>
+              </>
+            )}
           </div>
         ) : (
           messages.map((msg) => (
