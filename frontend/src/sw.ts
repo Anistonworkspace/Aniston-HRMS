@@ -31,10 +31,17 @@ interface PeriodicSyncEvent extends ExtendableEvent {
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// Activate new SW immediately, claim all open clients
+// Activate new SW immediately, claim all open clients, then reload all tabs
 self.skipWaiting();
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      await self.clients.claim();
+      // Tell every open tab to reload so they pick up new assets
+      const clients = await self.clients.matchAll({ type: 'window' });
+      clients.forEach((client) => client.navigate(client.url));
+    })()
+  );
 });
 
 // Skip-waiting on demand from the app shell

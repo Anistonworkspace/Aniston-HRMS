@@ -14,16 +14,18 @@ export default function PWAUpdatePrompt() {
   const [isOffline,   setIsOffline]   = useState(!navigator.onLine);
   const firstRender = useRef(true);
 
-  // With autoUpdate, useRegisterSW still provides hooks for offline-ready events
-  useRegisterSW({
+  const { updateServiceWorker } = useRegisterSW({
     onRegisteredSW(_swUrl, registration) {
-      // Periodic update check every 60 s — new SW activates silently
+      // Check for updates every 60 s
       if (registration) {
         setInterval(() => registration.update(), 60 * 1000);
       }
     },
+    onNeedRefresh() {
+      // New SW is waiting — force activate + reload all tabs immediately
+      updateServiceWorker(true);
+    },
     onOfflineReady() {
-      // SW has cached enough to work offline — show brief toast on SUBSEQUENT loads only
       if (!firstRender.current) {
         setShowUpdated(true);
         setTimeout(() => setShowUpdated(false), 4000);

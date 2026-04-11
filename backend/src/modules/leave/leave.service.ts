@@ -189,12 +189,14 @@ export class LeaveService {
     }
 
     // 3. Same-day check
-    if (!leaveType.allowSameDay && startDateOnly.getTime() === today.getTime()) {
+    // SL, EL, CL are unplanned by nature — always exempt from advance notice
+    const isUnplannedLeave = ['SL', 'EL', 'CL'].includes(leaveType.code ?? '');
+    if (!isUnplannedLeave && !leaveType.allowSameDay && startDateOnly.getTime() === today.getTime()) {
       throw new BadRequestError(`${leaveType.name} must be applied in advance. Same-day applications are not permitted.`);
     }
 
-    // 4. Notice days check
-    if (leaveType.noticeDays && leaveType.noticeDays > 0) {
+    // 4. Notice days check (skipped for SL/EL/CL)
+    if (!isUnplannedLeave && leaveType.noticeDays && leaveType.noticeDays > 0) {
       const diffMs = startDateOnly.getTime() - today.getTime();
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
       if (diffDays < leaveType.noticeDays) {
@@ -646,12 +648,13 @@ export class LeaveService {
     startDateOnly.setHours(0, 0, 0, 0);
 
     // ===== RUN POLICY ENFORCEMENT =====
-    // Same-day check
-    if (!leaveType.allowSameDay && startDateOnly.getTime() === today.getTime()) {
+    // Same-day check (SL/EL/CL exempt)
+    const isUnplannedLeave = ['SL', 'EL', 'CL'].includes(leaveType.code ?? '');
+    if (!isUnplannedLeave && !leaveType.allowSameDay && startDateOnly.getTime() === today.getTime()) {
       throw new BadRequestError(`${leaveType.name} must be applied in advance.`);
     }
-    // Notice days check
-    if (leaveType.noticeDays && leaveType.noticeDays > 0) {
+    // Notice days check (SL/EL/CL exempt)
+    if (!isUnplannedLeave && leaveType.noticeDays && leaveType.noticeDays > 0) {
       const diffDays = Math.floor((startDateOnly.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       if (diffDays < leaveType.noticeDays) {
         throw new BadRequestError(`${leaveType.name} requires at least ${leaveType.noticeDays} day(s) advance notice.`);
