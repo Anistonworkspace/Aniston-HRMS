@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus } from 'lucide-react';
+import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus, CalendarDays } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -29,8 +29,9 @@ import AttendancePolicyTab from './AttendancePolicyTab';
 import SalaryComponentsTab from './SalaryComponentsTab';
 import DatabaseBackupTab from './DatabaseBackupTab';
 import DeletionRequestsTab from './DeletionRequestsTab';
+import LeaveSettingsTab from './LeaveSettingsTab';
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'attendance-policy' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests';
+type Tab = 'organization' | 'locations' | 'shifts' | 'attendance-policy' | 'salary-components' | 'leave-settings' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests';
 
 export default function SettingsPage() {
   const { t } = useTranslation();
@@ -39,7 +40,7 @@ export default function SettingsPage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   // Tabs visible to HR (non-admin) users
-  const HR_VISIBLE_TABS: Tab[] = ['organization', 'locations', 'shifts', 'attendance-policy', 'email', 'whatsapp'];
+  const HR_VISIBLE_TABS: Tab[] = ['organization', 'locations', 'shifts', 'attendance-policy', 'leave-settings', 'email', 'whatsapp'];
   // Tabs visible only to Super Admin
   const SUPER_ADMIN_ONLY_TABS: Tab[] = ['deletion-requests'];
 
@@ -71,6 +72,7 @@ export default function SettingsPage() {
     { key: 'locations', label: t('settings.officeLocations'), icon: MapPin },
     { key: 'shifts', label: t('settings.shiftsRosters'), icon: Clock },
     { key: 'attendance-policy', label: t('settings.attendancePolicy'), icon: Shield },
+    { key: 'leave-settings', label: 'Leave Settings', icon: CalendarDays },
     { key: 'salary-components', label: t('settings.salaryComponents'), icon: DollarSign },
     { key: 'email', label: t('settings.emailConfig'), icon: Mail },
     { key: 'whatsapp', label: t('settings.whatsapp'), icon: MessageCircle },
@@ -121,6 +123,7 @@ export default function SettingsPage() {
             {activeTab === 'locations' && <LocationSettings />}
             {activeTab === 'shifts' && <ShiftSettings />}
             {activeTab === 'attendance-policy' && <AttendancePolicyTab />}
+            {activeTab === 'leave-settings' && <LeaveSettingsTab />}
             {activeTab === 'salary-components' && <SalaryComponentsTab />}
             {activeTab === 'email' && <EmailConfig />}
             {activeTab === 'whatsapp' && <WhatsAppConfig />}
@@ -1490,6 +1493,7 @@ function WhatsAppConfig() {
   const [testMsg, setTestMsg] = useState('Hello from Aniston HRMS!');
   const [connecting, setConnecting] = useState(false);
   const [linking, setLinking] = useState(false); // QR scanned, waiting for full connection
+  const [liveSyncing, setLiveSyncing] = useState(false); // Chat preload in progress after connect
   const [liveQr, setLiveQr] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false); // instant connected state via socket
   const [livePhone, setLivePhone] = useState<string | null>(null);
@@ -1525,8 +1529,14 @@ function WhatsAppConfig() {
       setConnecting(false);
       setLiveConnected(true);
       setLivePhone(data.phoneNumber || null);
-      toast.success(`WhatsApp connected${data.phoneNumber ? ` (+${data.phoneNumber})` : ''}!`);
+      setLiveSyncing(true); // Chats will start preloading now
+      toast.success(`WhatsApp connected${data.phoneNumber ? ` (+${data.phoneNumber})` : ''}! Syncing chats...`);
       refetchStatus();
+    };
+    const handleSyncStart = () => setLiveSyncing(true);
+    const handleSyncComplete = () => {
+      setLiveSyncing(false);
+      toast.success('WhatsApp chats synced!', { duration: 2000 });
     };
     const handleAuthFailure = (data: any) => {
       setLiveQr(null);
@@ -1550,6 +1560,8 @@ function WhatsAppConfig() {
     onSocketEvent('whatsapp:ready', handleReady);
     onSocketEvent('whatsapp:auth_failure', handleAuthFailure);
     onSocketEvent('whatsapp:disconnected', handleDisconnected);
+    onSocketEvent('whatsapp:sync:start', handleSyncStart);
+    onSocketEvent('whatsapp:sync:complete', handleSyncComplete);
 
     return () => {
       offSocketEvent('whatsapp:qr', handleQr);
@@ -1557,6 +1569,8 @@ function WhatsAppConfig() {
       offSocketEvent('whatsapp:ready', handleReady);
       offSocketEvent('whatsapp:auth_failure', handleAuthFailure);
       offSocketEvent('whatsapp:disconnected', handleDisconnected);
+      offSocketEvent('whatsapp:sync:start', handleSyncStart);
+      offSocketEvent('whatsapp:sync:complete', handleSyncComplete);
     };
   }, [refetchStatus]);
 
@@ -1610,10 +1624,21 @@ function WhatsAppConfig() {
         : 'bg-gray-50 border border-gray-200')}>
         {isConnected ? (
           <>
-            <Wifi size={18} className="text-emerald-600" />
+            {liveSyncing ? (
+              <Loader2 size={18} className="text-emerald-600 animate-spin" />
+            ) : (
+              <Wifi size={18} className="text-emerald-600" />
+            )}
             <div>
-              <p className="text-sm font-medium text-emerald-700">Connected</p>
-              {(livePhone || status?.phoneNumber) && <p className="text-xs text-emerald-500">Phone: +{livePhone || status?.phoneNumber}</p>}
+              <p className="text-sm font-medium text-emerald-700">
+                {liveSyncing ? 'Connected — Syncing chats...' : 'Connected'}
+              </p>
+              {(livePhone || status?.phoneNumber) && (
+                <p className="text-xs text-emerald-500">Phone: +{livePhone || status?.phoneNumber}</p>
+              )}
+              {liveSyncing && (
+                <p className="text-xs text-emerald-400">Loading your WhatsApp conversations...</p>
+              )}
             </div>
           </>
         ) : linking ? (
