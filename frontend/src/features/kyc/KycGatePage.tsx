@@ -171,7 +171,7 @@ export default function KycGatePage() {
   const completedMandatory = mandatoryChecks.filter(Boolean).length;
   const totalMandatory = mandatoryChecks.length;
   const allMandatoryUploaded = mandatoryChecks.every(Boolean);
-  const canSubmit = (allMandatoryUploaded || combinedPdfUploaded) && !isLocked;
+  const canSubmit = (allMandatoryUploaded || (combinedPdfUploaded && hasPhoto)) && !isLocked;
 
   const toggleSection = (id: string) => setOpenSections(prev => ({ ...prev, [id]: !prev[id] }));
 
@@ -293,7 +293,7 @@ export default function KycGatePage() {
   };
 
   return (
-    <div className="min-h-screen bg-surface-1 py-8 px-4">
+    <div className="h-screen overflow-y-auto bg-surface-1 py-8 px-4">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="text-center mb-6">
@@ -625,8 +625,8 @@ export default function KycGatePage() {
               <div className="flex items-center gap-2 mt-3 justify-center">
                 <AlertTriangle size={14} className="text-amber-500" />
                 <p className="text-xs text-gray-400">
-                  {combinedPdfUploaded
-                    ? 'Ready to submit!'
+                  {combinedPdfUploaded && !hasPhoto
+                    ? 'Also upload your passport size photo to submit'
                     : `Upload all mandatory documents (${completedMandatory}/${totalMandatory} done)`}
                 </p>
               </div>

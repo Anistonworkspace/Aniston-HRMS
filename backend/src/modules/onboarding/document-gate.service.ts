@@ -100,8 +100,13 @@ export class DocumentGateService {
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) throw new NotFoundError('Document gate');
 
-    // If combined PDF is uploaded, bypass individual checks
+    // If combined PDF is uploaded, only require a photo as well
     if (gate.combinedPdfUploaded) {
+      const hasPhoto = !!gate.photoUrl || (gate.submittedDocs as string[]).includes('PHOTO');
+      if (!hasPhoto) {
+        const { BadRequestError } = await import('../../middleware/errorHandler.js');
+        throw new BadRequestError('Please also upload your passport size photo before submitting.');
+      }
       const updated = await prisma.onboardingDocumentGate.update({
         where: { employeeId },
         data: { kycStatus: 'SUBMITTED' },

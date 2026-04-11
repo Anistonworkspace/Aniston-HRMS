@@ -62,14 +62,10 @@ export default function EmployeeOnboardingPage() {
   const handleComplete = async () => {
     try {
       await completeOnboarding().unwrap();
+      // Clear the token immediately — user must log in fresh to get the KYC gate applied
+      localStorage.removeItem('accessToken');
       setCompleted(true);
       toast.success('Onboarding complete! Welcome aboard!');
-      // Clear token directly and hard redirect — no dispatch(logout()) to avoid
-      // ProtectedRoute race condition that causes blank page flash
-      setTimeout(() => {
-        localStorage.removeItem('accessToken');
-        window.location.href = '/login';
-      }, 2500);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to complete onboarding');
     }
@@ -112,18 +108,25 @@ export default function EmployeeOnboardingPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
         <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-          className="text-center p-8">
+          className="text-center p-8 max-w-sm">
           <PartyPopper size={64} className="mx-auto text-brand-600 mb-4" />
           <h1 className="text-2xl font-display font-bold text-gray-900 mb-2">Welcome Aboard!</h1>
-          <p className="text-gray-500">Your onboarding is complete. Redirecting to login...</p>
-          <Loader2 size={20} className="animate-spin text-brand-600 mx-auto mt-4" />
+          <p className="text-gray-500 mb-6">
+            Your onboarding is complete. Log in to upload your KYC documents and access the platform.
+          </p>
+          <button
+            onClick={() => { window.location.href = '/login'; }}
+            className="btn-primary w-full flex items-center justify-center gap-2 text-sm"
+          >
+            Go to Login
+          </button>
         </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4">
+    <div className="h-screen overflow-y-auto bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
