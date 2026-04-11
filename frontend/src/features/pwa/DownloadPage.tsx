@@ -1,11 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Download, Smartphone, Shield, MapPin, Bell, ChevronRight } from 'lucide-react';
+import { Download, Smartphone, Shield, MapPin, Bell, ChevronRight, ExternalLink } from 'lucide-react';
+
+// Capture beforeinstallprompt at module level — fires before React renders,
+// so useEffect would miss it if we registered inside the component.
+let _capturedPrompt: any = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  _capturedPrompt = e;
+  // Dispatch a custom event so any mounted component can react immediately
+  window.dispatchEvent(new Event('pwa-prompt-ready'));
+});
 
 export default function DownloadPage() {
   const navigate = useNavigate();
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(_capturedPrompt);
   const [installed, setInstalled] = useState(false);
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
@@ -17,22 +27,22 @@ export default function DownloadPage() {
     }
   }, [isStandalone, navigate]);
 
+  // Pick up the prompt if it arrives after mount
   useEffect(() => {
-    const handler = (e: any) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
+    const onReady = () => setDeferredPrompt(_capturedPrompt);
+    window.addEventListener('pwa-prompt-ready', onReady);
     window.addEventListener('appinstalled', () => setInstalled(true));
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    // In case it was captured before this component mounted
+    if (_capturedPrompt && !deferredPrompt) setDeferredPrompt(_capturedPrompt);
+    return () => {
+      window.removeEventListener('pwa-prompt-ready', onReady);
+    };
   }, []);
 
   // Auto-trigger install prompt after 1 second delay
   useEffect(() => {
     if (deferredPrompt) {
-      const timer = setTimeout(() => {
-        handleInstall();
-      }, 1000);
+      const timer = setTimeout(() => handleInstall(), 1000);
       return () => clearTimeout(timer);
     }
   }, [deferredPrompt]);
@@ -43,6 +53,7 @@ export default function DownloadPage() {
       const { outcome } = await deferredPrompt.userChoice;
       if (outcome === 'accepted') setInstalled(true);
       setDeferredPrompt(null);
+      _capturedPrompt = null;
     }
   };
 
@@ -71,12 +82,10 @@ export default function DownloadPage() {
     );
   }
 
-  // If standalone, we redirect above — but render nothing in the meantime
   if (isStandalone) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-gradient-to-br from-brand-50 via-white to-indigo-50 flex flex-col overflow-y-auto">
-      {/* Full-screen overlay — no way to bypass */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-10">
         {/* Logo & Branding */}
         <motion.div
@@ -105,25 +114,25 @@ export default function DownloadPage() {
               <Smartphone size={40} className="text-brand-600" />
             </div>
             <h2 className="text-2xl font-display font-bold text-gray-900 mb-2">
-              Install Aniston HRMS to continue
+              Install Aniston HRMS
             </h2>
             <p className="text-gray-500 text-sm mb-8">
-              You must install this app on your device to access attendance, leave, payroll, and other features.
+              Install the app on your device for the best experience — attendance, leave, payroll, and more.
             </p>
 
-            {/* Install Button (non-iOS) */}
+            {/* Install Button (Chrome/Edge — prompt captured) */}
             {deferredPrompt ? (
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={handleInstall}
-                className="w-full bg-brand-600 hover:bg-brand-700 text-white py-4 rounded-2xl font-semibold text-lg flex items-center justify-center gap-3 shadow-lg shadow-brand-200 transition-colors"
+                className="w-full bg-brand-600 hover:bg-brand-700 text-white py-4 rounded-2xl font-semibold text-lg flex items-center justify-center gap-3 shadow-lg shadow-brand-200 transition-colors mb-4"
               >
                 <Download size={22} /> Install App
               </motion.button>
             ) : isIOS ? (
-              /* iOS instructions */
-              <div className="bg-gray-50 rounded-2xl p-5 text-left space-y-3">
+              /* iOS Safari instructions */
+              <div className="bg-gray-50 rounded-2xl p-5 text-left space-y-3 mb-4">
                 <p className="text-sm font-semibold text-gray-800">Install on iPhone / iPad:</p>
                 <ol className="text-sm text-gray-600 space-y-2.5 list-decimal list-inside">
                   <li>Tap the <span className="font-semibold">Share</span> button <span className="inline-block px-1.5 py-0.5 bg-gray-200 rounded text-xs">⬆</span> at the bottom of Safari</li>
@@ -133,16 +142,28 @@ export default function DownloadPage() {
                 </ol>
               </div>
             ) : (
-              /* Fallback: manual install instructions */
-              <div className="bg-gray-50 rounded-2xl p-5 text-left space-y-3">
-                <p className="text-sm font-semibold text-gray-800">Install this app:</p>
-                <ol className="text-sm text-gray-600 space-y-2.5 list-decimal list-inside">
-                  <li>Click the <span className="font-semibold">install icon</span> in the address bar (or menu &gt; "Install app")</li>
-                  <li>Click <span className="font-semibold">"Install"</span></li>
-                  <li>Open the installed app</li>
+              /* Chrome/Edge fallback — prompt not yet available */
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-left space-y-3 mb-4">
+                <p className="text-sm font-semibold text-amber-800">To install the app:</p>
+                <ol className="text-sm text-amber-700 space-y-2.5 list-decimal list-inside">
+                  <li>Look for the <span className="font-semibold">install icon</span> <span className="inline-block px-1.5 py-0.5 bg-amber-100 rounded text-xs">⊕</span> in the browser address bar</li>
+                  <li>Click it and select <span className="font-semibold">"Install"</span></li>
+                  <li>Or open the browser menu → <span className="font-semibold">"Install Aniston HRMS"</span></li>
                 </ol>
+                <p className="text-xs text-amber-600 mt-2">
+                  If you don't see the icon, try refreshing the page or use Chrome / Edge.
+                </p>
               </div>
             )}
+
+            {/* Skip / Open in browser link — always visible */}
+            <a
+              href="/login"
+              className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-600 transition-colors mt-1"
+            >
+              <ExternalLink size={13} />
+              Skip — Open in browser instead
+            </a>
           </div>
 
           {/* Required Permissions Section */}
