@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Check, ChevronRight, ChevronLeft, Loader2, PartyPopper, AlertTriangle,
+  Check, ChevronRight, ChevronLeft, Loader2, AlertTriangle,
   User, Phone, ClipboardCheck, Building2
 } from 'lucide-react';
 import { useGetMyOnboardingStatusQuery, useSaveMyStepMutation, useCompleteMyOnboardingMutation } from './onboardingApi';
+import { useAppDispatch, useAppSelector } from '../../app/store';
+import { setUser } from '../auth/authSlice';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -18,11 +20,12 @@ const STEPS = [
 
 export default function EmployeeOnboardingPage() {
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
+  const currentUser = useAppSelector(s => s.auth.user);
   const { data: statusRes, isLoading, isError, error, refetch } = useGetMyOnboardingStatusQuery();
   const [saveStep, { isLoading: saving }] = useSaveMyStepMutation();
   const [completeOnboarding, { isLoading: completing }] = useCompleteMyOnboardingMutation();
   const [currentStep, setCurrentStep] = useState(1);
-  const [completed, setCompleted] = useState(false);
 
   // Form states
   const [personal, setPersonal] = useState({
@@ -36,17 +39,14 @@ export default function EmployeeOnboardingPage() {
 
   useEffect(() => {
     if (status) {
-      if (status.onboardingComplete) {
-        navigate('/dashboard', { replace: true });
-      }
-      // Pre-fill existing data
+      // Pre-fill existing data only — navigation is handled by handleComplete
       setPersonal(prev => ({
         ...prev,
         firstName: status.firstName || prev.firstName,
         lastName: status.lastName || prev.lastName,
       }));
     }
-  }, [status, navigate]);
+  }, [status]);
 
   const handleSaveStep = async (backendStep: number, data: any) => {
     try {
@@ -62,10 +62,12 @@ export default function EmployeeOnboardingPage() {
   const handleComplete = async () => {
     try {
       await completeOnboarding().unwrap();
-      // Clear the token immediately — user must log in fresh to get the KYC gate applied
-      localStorage.removeItem('accessToken');
-      setCompleted(true);
+      // Update Redux user state immediately so ProtectedRoute doesn't bounce back
+      if (currentUser) {
+        dispatch(setUser({ ...currentUser, onboardingComplete: true }));
+      }
       toast.success('Onboarding complete! Welcome aboard!');
+      navigate('/kyc-pending', { replace: true });
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to complete onboarding');
     }
@@ -104,26 +106,6 @@ export default function EmployeeOnboardingPage() {
     );
   }
 
-  if (completed) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
-        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-          className="text-center p-8 max-w-sm">
-          <PartyPopper size={64} className="mx-auto text-brand-600 mb-4" />
-          <h1 className="text-2xl font-display font-bold text-gray-900 mb-2">Welcome Aboard!</h1>
-          <p className="text-gray-500 mb-6">
-            Your onboarding is complete. Log in to upload your KYC documents and access the platform.
-          </p>
-          <button
-            onClick={() => { window.location.href = '/login'; }}
-            className="btn-primary w-full flex items-center justify-center gap-2 text-sm"
-          >
-            Go to Login
-          </button>
-        </motion.div>
-      </div>
-    );
-  }
 
   return (
     <div className="h-screen overflow-y-auto bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4">
