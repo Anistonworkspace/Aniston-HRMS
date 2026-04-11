@@ -172,10 +172,10 @@ export const uploadAgent = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-/** Generic any-type uploads (large imports, etc.). 50 MB. */
+/** Generic any-type uploads (large imports, etc.). 100 MB. */
 export const uploadAny = multer({
   storage: diskStorageFor(StorageFolder.EMPLOYEE_DOCUMENTS),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
 });
 
 // ---------------------------------------------------------------------------
@@ -212,7 +212,7 @@ export function createEmployeeKycUpload(employeeId: string) {
     document: multer({
       storage: multer.diskStorage({ destination, filename: kycFilename }),
       fileFilter: documentFilter,
-      limits: { fileSize: 10 * 1024 * 1024 },
+      limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB — combined PDFs can be large
     }),
     photo: multer({
       storage: multer.diskStorage({ destination, filename: photoFilename }),

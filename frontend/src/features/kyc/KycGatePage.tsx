@@ -354,7 +354,7 @@ export default function KycGatePage() {
             >
               <div className="layer-card p-4 border border-blue-100 bg-blue-50/30 text-sm text-gray-600 space-y-2">
                 <p>All documents should be <strong>clearly scanned</strong> (PDF format preferred; avoid mobile screenshots).</p>
-                <p>Maximum file size: <strong>10MB per document</strong>. Accepted formats: PDF, JPG, PNG.</p>
+                <p>Maximum file size: <strong>100MB per document</strong>. Accepted formats: PDF, JPG, PNG.</p>
                 <p>You can upload documents <strong>individually</strong> OR upload all in <strong>one combined PDF</strong>.</p>
                 <p>Arrange documents in order: ID Proof → PAN → Education → Employment → Photographs.</p>
                 <p>File name format: <strong>YourName_PreJoiningDocs.pdf</strong></p>
