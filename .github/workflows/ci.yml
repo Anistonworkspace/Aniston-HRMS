@@ -126,7 +126,7 @@ jobs:
           timeout: 300s
           script: |
             set -e
-            cd ~/Aniston-hrms
+            cd /home/ubuntu/Aniston-HRMS
 
             echo "⬇️  Pulling latest code..."
             git pull origin main
