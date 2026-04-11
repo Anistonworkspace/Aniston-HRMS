@@ -562,7 +562,16 @@ function EditEmployeeModal({ employee, onSave, onClose }: { employee: any; onSav
           <h2 className="text-lg font-display font-semibold text-gray-800">Edit Employee</h2>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-400">✕</button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="space-y-4">
+        <form onSubmit={(e) => {
+          e.preventDefault();
+          onSave({
+            ...form,
+            departmentId: form.departmentId || null,
+            designationId: form.designationId || null,
+            managerId: form.managerId || null,
+            ctc: form.ctc !== '' && form.ctc !== undefined ? Number(form.ctc) : undefined,
+          });
+        }} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">First Name</label>
               <input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} className="input-glass w-full text-sm" /></div>

@@ -703,17 +703,7 @@ export class LeaveService {
       auditResult = { integrationStatus: 'ERROR', riskLevel: 'LOW', riskScore: 0, errorMessage: err.message };
     }
 
-    // ===== LEAVE-TYPE-SPECIFIC HANDOVER RULES =====
-    const riskLevel = auditResult?.riskLevel || 'LOW';
-    const leaveCode = leaveType.code?.toUpperCase();
-
-    if ((leaveCode === 'CL' || leaveCode === 'EL' || leaveCode === 'PL') &&
-        (riskLevel === 'HIGH' || riskLevel === 'CRITICAL')) {
-      const hasBackup = await prisma.leaveRequest.findUnique({ where: { id: requestId }, select: { backupEmployeeId: true } });
-      if (!hasBackup?.backupEmployeeId) {
-        throw new BadRequestError(`High-risk ${leaveType.name} requires a backup assignee. Please assign a backup in the handover section.`);
-      }
-    }
+    // Backup assignment is optional — no enforcement regardless of risk level
 
     // ===== TRANSITION DRAFT → PENDING =====
     const updated = await prisma.$transaction(async (tx) => {
