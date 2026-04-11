@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, Smartphone, Shield, MapPin, Bell, ChevronRight, ExternalLink, RefreshCw, X, Monitor, Apple } from 'lucide-react';
+import { Download, Smartphone, Shield, MapPin, Bell, ChevronRight, ExternalLink, RefreshCw, X, Monitor, Apple, MoreVertical } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Capture beforeinstallprompt BEFORE React renders.
-// The event fires once — very early in page load. useEffect misses it.
 // ---------------------------------------------------------------------------
 let _capturedPrompt: any = null;
 if (typeof window !== 'undefined') {
@@ -16,13 +15,17 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// Device detection helpers
+const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+const isIOS = /iPad|iPhone|iPod/.test(ua);
+const isAndroid = /Android/.test(ua);
+const isEdge = ua.includes('Edg/');
+const isMobile = isIOS || isAndroid;
+
 // ---------------------------------------------------------------------------
-// Visual step-by-step instructions overlay (when native prompt isn't available)
+// Instructions modal — device-specific steps
 // ---------------------------------------------------------------------------
 function InstallInstructionsModal({ onClose }: { onClose: () => void }) {
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  const isEdge = navigator.userAgent.includes('Edg/');
-
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -45,17 +48,61 @@ function InstallInstructionsModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        {isIOS ? (
+        {/* ── Android Chrome ── */}
+        {isAndroid && (
           <div className="space-y-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Apple size={18} className="text-gray-700" />
-              <span className="font-semibold text-gray-700 text-sm">Safari on iPhone / iPad</span>
+            <div className="flex items-center gap-2 mb-1">
+              <Smartphone size={16} className="text-gray-600" />
+              <span className="font-semibold text-gray-700 text-sm">Android — Chrome / Samsung Browser</span>
+            </div>
+
+            {/* Visual: browser menu */}
+            <div className="bg-gray-900 rounded-2xl p-3 flex items-center justify-between">
+              <span className="text-gray-300 text-xs">hr.anistonav.com</span>
+              <motion.div
+                animate={{ scale: [1, 1.3, 1] }}
+                transition={{ repeat: Infinity, duration: 1.4 }}
+                className="flex flex-col gap-[3px] px-1"
+              >
+                <div className="w-1 h-1 bg-white rounded-full" />
+                <div className="w-1 h-1 bg-white rounded-full" />
+                <div className="w-1 h-1 bg-white rounded-full" />
+              </motion.div>
+            </div>
+            <p className="text-xs text-center text-gray-500 -mt-2">↑ Tap the 3-dot menu in your browser</p>
+
+            {[
+              { step: '1', icon: <MoreVertical size={14} />, text: 'Tap the ⋮ menu', detail: 'Top-right corner of Chrome' },
+              { step: '2', icon: <Download size={14} />, text: 'Tap "Install app" or "Add to Home screen"', detail: 'Scroll down in the menu if needed' },
+              { step: '3', icon: <ChevronRight size={14} />, text: 'Tap "Install" in the popup', detail: 'The Aniston HRMS icon will appear on your home screen' },
+              { step: '4', icon: <Smartphone size={14} />, text: 'Open from your home screen', detail: 'Tap the Aniston HRMS icon to launch' },
+            ].map(({ step, icon, text, detail }) => (
+              <div key={step} className="flex items-start gap-3">
+                <div className="w-7 h-7 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{step}</div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800 flex items-center gap-1">{icon}{text}</p>
+                  <p className="text-xs text-gray-500">{detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── iOS Safari ── */}
+        {isIOS && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Apple size={16} className="text-gray-600" />
+              <span className="font-semibold text-gray-700 text-sm">iPhone / iPad — Safari</span>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-700">
+              Must use <strong>Safari</strong> — Chrome on iOS cannot install PWAs.
             </div>
             {[
-              { step: '1', text: 'Tap the Share button', detail: '⬆ at the bottom of the screen' },
-              { step: '2', text: 'Scroll and tap "Add to Home Screen"', detail: 'Look for the + icon' },
-              { step: '3', text: 'Tap "Add" in the top right', detail: 'The app icon will appear on your home screen' },
-              { step: '4', text: 'Open the app from your Home Screen', detail: 'Tap the Aniston HRMS icon' },
+              { step: '1', text: 'Tap the Share button ⬆', detail: 'At the bottom of Safari' },
+              { step: '2', text: 'Tap "Add to Home Screen"', detail: 'Scroll down in the share sheet' },
+              { step: '3', text: 'Tap "Add" top-right', detail: 'The app icon appears on your home screen' },
+              { step: '4', text: 'Open from Home Screen', detail: 'Tap the Aniston HRMS icon' },
             ].map(({ step, text, detail }) => (
               <div key={step} className="flex items-start gap-3">
                 <div className="w-7 h-7 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{step}</div>
@@ -66,20 +113,21 @@ function InstallInstructionsModal({ onClose }: { onClose: () => void }) {
               </div>
             ))}
           </div>
-        ) : (
+        )}
+
+        {/* ── Desktop Chrome / Edge ── */}
+        {!isMobile && (
           <div className="space-y-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Monitor size={18} className="text-gray-700" />
-              <span className="font-semibold text-gray-700 text-sm">{isEdge ? 'Microsoft Edge' : 'Google Chrome'}</span>
+            <div className="flex items-center gap-2 mb-1">
+              <Monitor size={16} className="text-gray-600" />
+              <span className="font-semibold text-gray-700 text-sm">{isEdge ? 'Microsoft Edge' : 'Google Chrome'} — Desktop</span>
             </div>
 
-            {/* Visual callout for address bar */}
-            <div className="bg-gray-900 rounded-xl p-3 mb-2">
+            <div className="bg-gray-900 rounded-xl p-3">
               <div className="bg-gray-700 rounded-lg px-3 py-2 flex items-center gap-2">
                 <div className="flex-1 bg-gray-600 rounded text-gray-300 text-xs px-2 py-1 truncate">
-                  https://hr.anistonav.com/download
+                  hr.anistonav.com/download
                 </div>
-                {/* Fake install icon */}
                 <motion.div
                   animate={{ scale: [1, 1.2, 1] }}
                   transition={{ repeat: Infinity, duration: 1.5 }}
@@ -88,13 +136,13 @@ function InstallInstructionsModal({ onClose }: { onClose: () => void }) {
                   <Download size={13} className="text-white" />
                 </motion.div>
               </div>
-              <p className="text-gray-400 text-xs text-center mt-2">↑ Look for this install icon in your address bar</p>
+              <p className="text-gray-400 text-xs text-center mt-2">↑ Install icon in the address bar</p>
             </div>
 
             {[
-              { step: '1', text: 'Look for the install icon', detail: 'A ⊕ or download icon appears in the right side of the address bar' },
-              { step: '2', text: 'Click the install icon', detail: 'A popup will appear asking to install Aniston HRMS' },
-              { step: '3', text: 'Click "Install"', detail: 'The app will open in its own window' },
+              { step: '1', text: 'Click the install icon ⊕', detail: 'Right side of the address bar' },
+              { step: '2', text: 'Click "Install"', detail: 'In the popup that appears' },
+              { step: '3', text: 'App opens in its own window', detail: 'Find it in your taskbar / applications' },
             ].map(({ step, text, detail }) => (
               <div key={step} className="flex items-start gap-3">
                 <div className="w-7 h-7 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{step}</div>
@@ -104,13 +152,6 @@ function InstallInstructionsModal({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
             ))}
-
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
-              <span className="text-amber-600 text-xs">💡</span>
-              <p className="text-xs text-amber-700">
-                Don't see the icon? Try <button onClick={() => window.location.reload()} className="font-semibold underline">reloading the page</button> or use Chrome / Edge for the best experience.
-              </p>
-            </div>
           </div>
         )}
 
@@ -119,7 +160,7 @@ function InstallInstructionsModal({ onClose }: { onClose: () => void }) {
             onClick={() => window.location.reload()}
             className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
           >
-            <RefreshCw size={14} /> Reload page &amp; try again
+            <RefreshCw size={14} /> Reload &amp; try again
           </button>
           <a
             href="/login"
@@ -141,15 +182,13 @@ export default function DownloadPage() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(_capturedPrompt);
   const [installed, setInstalled] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
-  const [checking, setChecking] = useState(true); // brief 1.5s wait for prompt
+  const [checking, setChecking] = useState(true);
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
 
-  // Already installed → go to login
   useEffect(() => {
     if (isStandalone) navigate('/login', { replace: true });
   }, [isStandalone, navigate]);
 
-  // Listen for prompt arrival after mount
   useEffect(() => {
     const onReady = () => {
       setDeferredPrompt(_capturedPrompt);
@@ -158,12 +197,10 @@ export default function DownloadPage() {
     window.addEventListener('pwa-prompt-ready', onReady);
     window.addEventListener('appinstalled', () => setInstalled(true));
 
-    // If already captured before mount, use it immediately
     if (_capturedPrompt) {
       setDeferredPrompt(_capturedPrompt);
       setChecking(false);
     } else {
-      // Wait up to 1.5s for the event, then stop waiting
       const t = setTimeout(() => setChecking(false), 1500);
       return () => {
         clearTimeout(t);
@@ -173,7 +210,7 @@ export default function DownloadPage() {
     return () => window.removeEventListener('pwa-prompt-ready', onReady);
   }, []);
 
-  // Auto-trigger install prompt when captured
+  // Auto-trigger when prompt captured
   useEffect(() => {
     if (deferredPrompt) {
       const t = setTimeout(() => triggerInstall(), 800);
@@ -181,7 +218,6 @@ export default function DownloadPage() {
     }
   }, [deferredPrompt]);
 
-  // Redirect after install
   useEffect(() => {
     if (installed) {
       const t = setTimeout(() => navigate('/login', { replace: true }), 1500);
@@ -253,7 +289,7 @@ export default function DownloadPage() {
                 Install the app on your device for the best experience — attendance, leave, payroll, and more.
               </p>
 
-              {/* Install Button — always shown */}
+              {/* Install button — always visible */}
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.97 }}
@@ -268,21 +304,13 @@ export default function DownloadPage() {
                     </motion.div>
                     Checking...
                   </>
+                ) : deferredPrompt ? (
+                  <><Download size={22} /> Install App</>
                 ) : (
-                  <>
-                    <Download size={22} />
-                    {deferredPrompt ? 'Install App' : 'How to Install'}
-                  </>
+                  <><Download size={22} /> Install App</>
                 )}
               </motion.button>
 
-              {!checking && !deferredPrompt && (
-                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3">
-                  Your browser didn't offer automatic install. Tap above for step-by-step instructions.
-                </p>
-              )}
-
-              {/* Skip link */}
               <a href="/login" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-brand-600 transition-colors mt-1">
                 <ExternalLink size={13} />
                 Skip — open in browser instead
@@ -325,7 +353,6 @@ export default function DownloadPage() {
         </footer>
       </div>
 
-      {/* Instructions overlay */}
       <AnimatePresence>
         {showInstructions && <InstallInstructionsModal onClose={() => setShowInstructions(false)} />}
       </AnimatePresence>
