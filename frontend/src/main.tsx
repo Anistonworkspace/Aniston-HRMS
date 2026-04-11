@@ -4,6 +4,16 @@ import App from './App';
 import './styles/globals.css';
 import './i18n'; // Initialize i18n before app renders
 
+// ===== PWA Install Prompt — capture BEFORE any lazy routes load =====
+// beforeinstallprompt fires once during page load. DownloadPage is lazy-loaded,
+// so its own listener would miss it. We capture here and store on window.
+(window as any).__pwaInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  (window as any).__pwaInstallPrompt = e;
+  window.dispatchEvent(new Event('pwa-prompt-ready'));
+});
+
 // ===== PWA Native App Behaviors =====
 const isStandalone = window.matchMedia('(display-mode: standalone)').matches
   || (navigator as any).standalone === true;

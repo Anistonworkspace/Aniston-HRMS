@@ -4,16 +4,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Download, Smartphone, Shield, MapPin, Bell, ChevronRight, ExternalLink, RefreshCw, X, Monitor, Apple, MoreVertical } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
-// Capture beforeinstallprompt BEFORE React renders.
+// Read the install prompt captured in main.tsx (runs before this lazy chunk).
 // ---------------------------------------------------------------------------
-let _capturedPrompt: any = null;
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    _capturedPrompt = e;
-    window.dispatchEvent(new Event('pwa-prompt-ready'));
-  });
-}
+const getPrompt = () => (window as any).__pwaInstallPrompt ?? null;
+const clearPrompt = () => { (window as any).__pwaInstallPrompt = null; };
 
 // Device detection helpers
 const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
@@ -179,10 +173,10 @@ function InstallInstructionsModal({ onClose }: { onClose: () => void }) {
 // ---------------------------------------------------------------------------
 export default function DownloadPage() {
   const navigate = useNavigate();
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(_capturedPrompt);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(getPrompt());
   const [installed, setInstalled] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
-  const [checking, setChecking] = useState(true);
+  const [checking, setChecking] = useState(!getPrompt()); // skip wait if already captured
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
 
   useEffect(() => {
@@ -191,14 +185,14 @@ export default function DownloadPage() {
 
   useEffect(() => {
     const onReady = () => {
-      setDeferredPrompt(_capturedPrompt);
+      setDeferredPrompt(getPrompt());
       setChecking(false);
     };
     window.addEventListener('pwa-prompt-ready', onReady);
     window.addEventListener('appinstalled', () => setInstalled(true));
 
-    if (_capturedPrompt) {
-      setDeferredPrompt(_capturedPrompt);
+    if (getPrompt()) {
+      setDeferredPrompt(getPrompt());
       setChecking(false);
     } else {
       const t = setTimeout(() => setChecking(false), 1500);
@@ -231,7 +225,7 @@ export default function DownloadPage() {
       const { outcome } = await deferredPrompt.userChoice;
       if (outcome === 'accepted') setInstalled(true);
       setDeferredPrompt(null);
-      _capturedPrompt = null;
+      clearPrompt();
     }
   };
 
