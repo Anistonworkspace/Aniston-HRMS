@@ -433,7 +433,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           source: ./apk-build/aniston-hrms.apk
           target: /home/ubuntu/Aniston-HRMS/downloads/
-          strip_components: 1
+          strip_components: 2
         continue-on-error: true
 
       - name: Upload iOS IPA to EC2 /uploads/ios-builds/
