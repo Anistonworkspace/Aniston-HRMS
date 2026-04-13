@@ -1217,8 +1217,23 @@ function ChatView({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const prevMessageCount = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const messages: WhatsAppMessage[] = messagesRes?.data || [];
+
+  // Auto-retry up to 2 times when messages return empty — handles WhatsApp session warm-up delay
+  useEffect(() => {
+    if (!isLoading && !isFetching && !isError && messages.length === 0 && retryCountRef.current < 2) {
+      retryTimerRef.current = setTimeout(() => {
+        retryCountRef.current += 1;
+        refetch();
+      }, 3000);
+    }
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, [messages.length, isLoading, isFetching, isError, refetch]);
 
   useEffect(() => {
     if (messages.length > prevMessageCount.current && messages.length > 0) {
@@ -1231,6 +1246,8 @@ function ChatView({
 
   useEffect(() => {
     prevMessageCount.current = 0;
+    retryCountRef.current = 0;
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     setInput('');
     setShowSearch(false);
     setChatSearch('');

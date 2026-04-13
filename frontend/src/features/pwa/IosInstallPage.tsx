@@ -7,7 +7,18 @@
  * Linked from onboarding email and WhatsApp messages.
  */
 import { motion } from 'framer-motion';
-import { Share2, Plus, Smartphone, CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
+import { Share2, Plus, Smartphone, CheckCircle2, Clock, AlertTriangle, Star } from 'lucide-react';
+
+// ── Safari / browser detection ────────────────────────────────────────────────
+const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+const isIOS = /iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream;
+const isInAppBrowser = /WhatsApp|Instagram|FBAN|FBAV|Twitter|LinkedInApp|Snapchat|GSA/.test(ua);
+const isSafariUA = /Safari/.test(ua) && !/CriOS/.test(ua) && !/FxiOS/.test(ua) && !/OPiOS/.test(ua) && !/Chrome/.test(ua);
+// True Safari = iOS + Safari UA + not an in-app browser
+const isAlreadyInSafari = isIOS && isSafariUA && !isInAppBrowser;
+// Already installed as PWA
+const isStandalone = typeof window !== 'undefined' &&
+  (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true);
 
 // ── Step card ─────────────────────────────────────────────────────────────────
 interface StepProps {
@@ -244,6 +255,12 @@ function SafariWarning() {
 export default function IosInstallPage() {
   const webAppUrl = 'https://hr.anistonav.com';
 
+  // Already installed — redirect to app
+  if (isStandalone) {
+    window.location.replace('/login');
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50">
       <div className="max-w-md mx-auto px-4 py-8 pb-16">
@@ -274,26 +291,45 @@ export default function IosInstallPage() {
           </div>
         </motion.div>
 
-        {/* Safari warning — prominent */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }} className="mb-6">
-          <SafariWarning />
-        </motion.div>
-
-        {/* Open in Safari button */}
-        <motion.a
-          href={webAppUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.2 }}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.97 }}
-          className="flex items-center justify-center gap-3 w-full bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-2xl font-display font-bold text-lg shadow-lg transition-colors mb-8"
-        >
-          <Smartphone size={22} />
-          Open in Safari
-        </motion.a>
+        {isAlreadyInSafari ? (
+          /* ── User IS already in Safari — show green banner + skip straight to steps ── */
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.15 }}
+            className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 mb-6 flex gap-3"
+          >
+            <Star size={18} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-800">You're already in Safari!</p>
+              <p className="text-xs text-emerald-700 mt-0.5 leading-relaxed">
+                You can install the app right now. Just follow the steps below — tap the Share button
+                or the <strong>⋯</strong> button in the address bar.
+              </p>
+            </div>
+          </motion.div>
+        ) : (
+          /* ── User is in an in-app browser (WhatsApp/Gmail) — show bridge ── */
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }} className="mb-6">
+              <SafariWarning />
+            </motion.div>
+            <motion.a
+              href={webAppUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.2 }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              className="flex items-center justify-center gap-3 w-full bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-2xl font-display font-bold text-lg shadow-lg transition-colors mb-8"
+            >
+              <Smartphone size={22} />
+              Open in Safari
+            </motion.a>
+          </>
+        )}
 
         {/* Steps */}
         <div className="space-y-3">
