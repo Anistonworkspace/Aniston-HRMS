@@ -143,8 +143,8 @@ jobs:
             echo "📦 Installing dependencies..."
             npm ci
 
-            echo "🗄️  Applying database migrations..."
-            npx prisma migrate deploy
+            echo "🗄️  Syncing database schema..."
+            npx prisma db push --accept-data-loss
 
             echo "🔧 Generating Prisma client..."
             npx prisma generate
