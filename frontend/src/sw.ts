@@ -31,22 +31,34 @@ interface PeriodicSyncEvent extends ExtendableEvent {
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// Activate new SW immediately, claim all open clients, then reload all tabs
-self.skipWaiting();
+// Do NOT call self.skipWaiting() here.
+// The new SW waits until AppUpdateGuard shows the mandatory "Update Now" modal
+// and the user clicks the button. Only then is SKIP_WAITING sent.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       await self.clients.claim();
-      // Tell every open tab to reload so they pick up new assets
-      const clients = await self.clients.matchAll({ type: 'window' });
-      clients.forEach((client) => client.navigate(client.url));
+      // Do NOT auto-navigate clients — AppUpdateGuard controls the reload
+      // after caches are cleared and the user has confirmed the update.
     })()
   );
 });
 
-// Skip-waiting on demand from the app shell
+// Message handlers from the app shell
 self.addEventListener('message', (event) => {
-  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  // SKIP_WAITING — sent by AppUpdateGuard when user clicks "Update Now"
+  if (event.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+    return;
+  }
+
+  // CLEAR_CACHES — deletes all runtime caches so users see fresh data
+  // Called by AppUpdateGuard before activating the new SW
+  if (event.data?.type === 'CLEAR_CACHES') {
+    event.waitUntil(
+      caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+    );
+  }
 });
 
 // ── SPA Navigation Fallback ───────────────────────────────────────────────────

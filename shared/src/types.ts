@@ -165,6 +165,10 @@ export interface EmployeeDetail extends EmployeeListItem {
     [key: string]: unknown;
   } | null;
   bankAccountNumber?: string | null;
+  bankName?: string | null;
+  ifscCode?: string | null;
+  accountHolderName?: string | null;
+  accountType?: string | null;
   currentShift?: {
     id?: string;
     name: string;

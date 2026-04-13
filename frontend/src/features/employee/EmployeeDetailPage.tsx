@@ -8,7 +8,7 @@ import {
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
   Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2,
 } from 'lucide-react';
-import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery } from './employeeApi';
+import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery, useChangeEmployeeRoleMutation } from './employeeApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery } from '../attendance/attendanceApi';
 import { useGetHolidaysQuery } from '../leaves/leaveApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation, useGetSalaryHistoryQuery, useSaveSalaryStructureDynamicMutation } from '../payroll/payrollApi';
@@ -486,6 +486,7 @@ export default function EmployeeDetailPage() {
         {showEditModal && employee && (
           <EditEmployeeModal
             employee={employee}
+            userRole={user?.role}
             onSave={async (data) => {
               try {
                 await updateEmployee({ id: employee.id, data }).unwrap();
@@ -516,7 +517,12 @@ function SidebarMeta({ icon: Icon, label, count, onClick }: { icon: any; label: 
    Edit Employee Modal
    ============================================================================= */
 
-function EditEmployeeModal({ employee, onSave, onClose }: { employee: any; onSave: (data: any) => void; onClose: () => void }) {
+const MANAGEMENT_CAN_EDIT_STATUS = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+
+function EditEmployeeModal({ employee, userRole, onSave, onClose }: { employee: any; userRole?: string; onSave: (data: any) => void; onClose: () => void }) {
+  const canEditStatus = MANAGEMENT_CAN_EDIT_STATUS.includes(userRole || '');
+  const [changeRole] = useChangeEmployeeRoleMutation();
+  const [selectedRole, setSelectedRole] = useState<string>(employee.user?.role || 'EMPLOYEE');
   const [form, setForm] = useState({
     firstName: employee.firstName || '',
     lastName: employee.lastName || '',
@@ -562,8 +568,12 @@ function EditEmployeeModal({ employee, onSave, onClose }: { employee: any; onSav
           <h2 className="text-lg font-display font-semibold text-gray-800">Edit Employee</h2>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-400">✕</button>
         </div>
-        <form onSubmit={(e) => {
+        <form onSubmit={async (e) => {
           e.preventDefault();
+          // Change role separately if it changed and user has permission
+          if (canEditStatus && selectedRole !== employee.user?.role) {
+            await changeRole({ employeeId: employee.id, role: selectedRole }).unwrap();
+          }
           onSave({
             ...form,
             departmentId: form.departmentId || null,
@@ -627,16 +637,55 @@ function EditEmployeeModal({ employee, onSave, onClose }: { employee: any; onSav
             <div><label className="block text-xs text-gray-500 mb-1">Joining Date</label>
               <input type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} className="input-glass w-full text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">Status</label>
-              <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="input-glass w-full text-sm">
-                <option value="ACTIVE">Active</option><option value="PROBATION">Probation</option>
-                <option value="NOTICE_PERIOD">Notice Period</option><option value="INACTIVE">Inactive</option>
-              </select></div>
+              {canEditStatus ? (
+                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="input-glass w-full text-sm">
+                  <optgroup label="Active States">
+                    <option value="ONBOARDING">Onboarding</option>
+                    <option value="PROBATION">Probation</option>
+                    <option value="INTERN">Intern</option>
+                    <option value="ACTIVE">Active</option>
+                  </optgroup>
+                  <optgroup label="Current States">
+                    <option value="NOTICE_PERIOD">Notice Period</option>
+                    <option value="SUSPENDED">Suspended</option>
+                  </optgroup>
+                  <optgroup label="Terminal States">
+                    <option value="INACTIVE">Inactive</option>
+                    <option value="TERMINATED">Terminated</option>
+                    <option value="ABSCONDED">Absconded</option>
+                  </optgroup>
+                </select>
+              ) : (
+                <div className="input-glass w-full text-sm flex items-center text-gray-600 bg-gray-50 cursor-not-allowed">
+                  {form.status.replace(/_/g, ' ')}
+                </div>
+              )}</div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Personal Email</label>
               <input value={form.personalEmail} onChange={(e) => setForm({ ...form, personalEmail: e.target.value })} className="input-glass w-full text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">CTC (Annual, INR)</label>
               <input type="number" value={form.ctc} onChange={(e) => setForm({ ...form, ctc: e.target.value ? Number(e.target.value) : '' })} className="input-glass w-full text-sm" /></div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Role
+                {canEditStatus && <span className="ml-1 text-indigo-500 font-medium">(HR only)</span>}
+              </label>
+              {canEditStatus ? (
+                <select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)} className="input-glass w-full text-sm">
+                  <option value="EMPLOYEE">Employee</option>
+                  <option value="INTERN">Intern</option>
+                  <option value="MANAGER">Manager</option>
+                  <option value="HR">HR</option>
+                  <option value="ADMIN">Admin</option>
+                  <option value="SUPER_ADMIN">Super Admin</option>
+                </select>
+              ) : (
+                <div className="input-glass w-full text-sm flex items-center text-gray-600 bg-gray-50 cursor-not-allowed">
+                  {selectedRole.replace(/_/g, ' ')}
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex gap-3 pt-3">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>

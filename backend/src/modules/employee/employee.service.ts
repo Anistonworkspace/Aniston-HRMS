@@ -346,9 +346,11 @@ export class EmployeeService {
       throw new NotFoundError('Employee');
     }
 
-    // Field-level permission control — restrict sensitive fields to SUPER_ADMIN only
-    const SUPER_ADMIN_ONLY_FIELDS = ['ctc', 'status'];
-    const MANAGEMENT_ONLY_FIELDS = ['joiningDate', 'probationEndDate', 'workMode', 'officeLocationId'];
+    // Field-level permission control
+    // CTC: SUPER_ADMIN only
+    const SUPER_ADMIN_ONLY_FIELDS = ['ctc'];
+    // Status + org fields: SUPER_ADMIN, ADMIN, HR only
+    const MANAGEMENT_ONLY_FIELDS = ['status', 'joiningDate', 'probationEndDate', 'workMode', 'officeLocationId'];
 
     if (callerRole && !['SUPER_ADMIN'].includes(callerRole)) {
       for (const field of SUPER_ADMIN_ONLY_FIELDS) {

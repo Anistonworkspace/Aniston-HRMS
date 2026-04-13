@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ChevronRight, ChevronLeft, Loader2, CheckCircle, CalendarDays, Save } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, Loader2, CheckCircle, SkipForward, Info } from 'lucide-react';
 import {
   useSaveDraftMutation,
   useSubmitDraftMutation,
   useUpdateHandoverMutation,
   usePreviewLeaveMutation,
+  useCancelLeaveMutation,
 } from '../leaveApi';
 import { useAuditTasksForLeaveMutation } from '../../task-integration/taskIntegrationApi';
 import TaskAuditPanel from './TaskAuditPanel';
 import HandoverSection from './HandoverSection';
 import AcknowledgementSection from './AcknowledgementSection';
-import { formatCurrency } from '../../../lib/utils';
 import toast from 'react-hot-toast';
 
 const LEAVE_ICONS: Record<string, string> = {
@@ -47,6 +47,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
   const [submitDraft, { isLoading: submitting }] = useSubmitDraftMutation();
   const [updateHandover] = useUpdateHandoverMutation();
   const [previewLeave] = usePreviewLeaveMutation();
+  const [cancelLeave] = useCancelLeaveMutation();
   const [auditTasks, { isLoading: auditLoading }] = useAuditTasksForLeaveMutation();
 
   // Derived state
@@ -54,16 +55,28 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
   const [taskAudit, setTaskAudit] = useState<any>(null);
   const [acknowledgements, setAcknowledgements] = useState({
     reviewedTasks: false,
-    assignedHandover: false,
+    assignedHandover: true, // always pre-accepted — handover is never mandatory
     acceptedVisibility: false,
   });
 
   const selectedType = leaveTypes.find((t: any) => t.id === formData.leaveTypeId);
   const typeCode = selectedType?.code?.toUpperCase() || '';
-  const isSickLeave = typeCode === 'SL' || typeCode === 'SICK';
+
+  // Minimum allowed start date based on notice days (e.g. 3 notice days → must apply 3 days ahead)
+  const minStartDate = (() => {
+    const noticeDays = selectedType?.noticeDays ?? 0;
+    if (noticeDays <= 0 || selectedType?.allowSameDay) return '';
+    const d = new Date();
+    d.setDate(d.getDate() + noticeDays);
+    return d.toISOString().split('T')[0];
+  })();
   const isHalfDay = leaveMode === 'half';
   const effectiveEndDate = leaveMode === 'single' || leaveMode === 'half' ? formData.startDate : formData.endDate;
-  const balance = balances.find((b: any) => b.leaveType?.id === formData.leaveTypeId);
+  const taskIntegrationNotConfigured =
+    !taskAudit ||
+    taskAudit.integrationStatus === 'NOT_CONFIGURED' ||
+    taskAudit.integrationStatus === 'ERROR' ||
+    taskAudit.integrationStatus === 'DISABLED';
 
   // Auto-preview when dates/type change
   useEffect(() => {
@@ -78,7 +91,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
     }
   }, [formData.leaveTypeId, formData.startDate, effectiveEndDate, isHalfDay, formData.halfDaySession]);
 
-  // Step 1 → Step 2: save draft & run task audit
+  // Step 0 → Step 1: save draft & run task audit
   const handleNextFromDetails = async () => {
     if (!formData.leaveTypeId || !formData.startDate || !effectiveEndDate) {
       toast.error('Please fill all required fields');
@@ -89,73 +102,48 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
       return;
     }
 
-    // Frontend notice-period validation for CL and PL (2 days advance required)
-    if (formData.startDate) {
-      const code = selectedType?.code?.toUpperCase() || '';
-      const isAdvanceRequired = code === 'CL' || code === 'PL';
-      if (isAdvanceRequired) {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const start = new Date(formData.startDate);
-        start.setHours(0, 0, 0, 0);
-        const diffDays = Math.floor((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays < 2) {
-          toast.error(
-            code === 'CL'
-              ? 'Casual Leave must be applied at least 2 days in advance.'
-              : 'Privileged Leave must be applied at least 2 days in advance.',
-            { duration: 4000 }
-          );
-          return;
-        }
-      }
-    }
-
     try {
-      // Save draft
       const draftRes = await saveDraft({
         leaveTypeId: formData.leaveTypeId,
         startDate: formData.startDate,
         endDate: effectiveEndDate,
         isHalfDay,
         halfDaySession: isHalfDay ? formData.halfDaySession : undefined,
-        reason: formData.reason || '',
+        reason: formData.reason,
       }).unwrap();
 
       setDraftId(draftRes.data.id);
 
-      // Run task audit
-      const auditRes = await auditTasks({
-        startDate: formData.startDate,
-        endDate: effectiveEndDate,
-        leaveType: typeCode,
-      }).unwrap();
-      setTaskAudit(auditRes.data);
+      // Run task audit — non-blocking, errors are handled gracefully
+      try {
+        const auditRes = await auditTasks({
+          startDate: formData.startDate,
+          endDate: effectiveEndDate,
+          leaveType: typeCode,
+        }).unwrap();
+        setTaskAudit(auditRes.data);
+      } catch {
+        // Task audit failure does NOT block leave — just show not configured state
+        setTaskAudit({ integrationStatus: 'NOT_CONFIGURED', riskLevel: 'LOW', riskScore: 0, items: [] });
+      }
 
       setStep(1);
     } catch (err: any) {
-      toast.error(err.data?.error?.message || 'Failed to save draft');
+      // Show the exact backend error message (from leave type settings validation)
+      const msg = err?.data?.error?.message || err?.message || 'Failed to save leave draft. Please try again.';
+      toast.error(msg, { duration: 6000 });
     }
   };
 
-  // Step 3 → Step 4: handover is optional — always allow proceeding
+  // Step 2 → Step 3: handover is always optional, never blocks
   const handleNextFromHandover = () => {
-    // For sick/emergency leave or when no handover assigned, auto-accept the handover ack
-    setAcknowledgements(prev => ({
-      ...prev,
-      reviewedTasks: isSickLeave ? true : prev.reviewedTasks,
-      assignedHandover: true, // Handover is optional — mark as acknowledged regardless
-    }));
+    setAcknowledgements(prev => ({ ...prev, assignedHandover: true }));
     setStep(3);
   };
 
-  // Final submit
+  // Final submit — only blocked by visibility acknowledgement, never by backup/risk
   const handleSubmit = async () => {
     if (!draftId) return;
-    if (!formData.reason || formData.reason.length < 5) {
-      toast.error('Reason must be at least 5 characters');
-      return;
-    }
 
     try {
       await submitDraft({
@@ -164,9 +152,11 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
       }).unwrap();
 
       setSubmitted(true);
-      toast.success('Leave request submitted!');
+      toast.success('Leave request submitted successfully!');
     } catch (err: any) {
-      toast.error(err.data?.error?.message || 'Failed to submit leave request');
+      // Show exact backend validation message (from leave type settings)
+      const msg = err?.data?.error?.message || err?.message || 'Failed to submit leave request. Please try again.';
+      toast.error(msg, { duration: 6000 });
     }
   };
 
@@ -191,13 +181,15 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
           <p className="text-sm text-gray-500 mb-1">
             {preview?.days || '—'} day(s) of {selectedType?.name || 'Leave'}
           </p>
-          <p className="text-xs text-gray-400 mb-6">
-            {taskAudit?.riskLevel && taskAudit.riskLevel !== 'LOW' && (
-              <span className={`font-medium ${taskAudit.riskLevel === 'CRITICAL' ? 'text-red-600' : taskAudit.riskLevel === 'HIGH' ? 'text-orange-600' : 'text-amber-600'}`}>
-                Risk: {taskAudit.riskLevel}
-              </span>
-            )}
-          </p>
+          {taskAudit?.riskLevel && taskAudit.riskLevel !== 'LOW' && !taskIntegrationNotConfigured && (
+            <p className={`text-xs font-medium mb-2 ${
+              taskAudit.riskLevel === 'CRITICAL' ? 'text-red-600' :
+              taskAudit.riskLevel === 'HIGH' ? 'text-orange-600' : 'text-amber-600'
+            }`}>
+              Task Risk: {taskAudit.riskLevel}
+            </p>
+          )}
+          <p className="text-xs text-gray-400 mb-6">Your manager will review and approve your request.</p>
           <button onClick={onClose} className="btn-primary text-sm">Done</button>
         </motion.div>
       </div>
@@ -230,6 +222,8 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
         {/* Content */}
         <div className="px-6 py-4 overflow-y-auto flex-1">
           <AnimatePresence mode="wait">
+
+            {/* ── Step 0: Leave Details ── */}
             {step === 0 && (
               <motion.div key="step0" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }} className="space-y-4">
                 {/* Leave Mode */}
@@ -271,6 +265,14 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
                         );
                       })}
                   </select>
+                  {selectedType && (
+                    <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] text-gray-400">
+                      {selectedType.noticeDays > 0 && <span>⏰ {selectedType.noticeDays}d notice required</span>}
+                      {selectedType.allowSameDay && <span>✅ Same-day allowed</span>}
+                      {selectedType.maxDays && <span>📅 Max {selectedType.maxDays}d</span>}
+                      {!selectedType.isPaid && <span className="text-amber-600 font-medium">Unpaid leave</span>}
+                    </div>
+                  )}
                 </div>
 
                 {/* Dates */}
@@ -282,7 +284,11 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
                       value={formData.startDate}
                       onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
                       className="input-glass w-full text-sm"
+                      min={minStartDate || undefined}
                     />
+                    {minStartDate && (
+                      <p className="text-[10px] text-amber-600 mt-0.5">⏰ {selectedType?.noticeDays}d notice required — earliest: {minStartDate}</p>
+                    )}
                   </div>
                   {leaveMode === 'multiple' && (
                     <div>
@@ -311,7 +317,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
                   )}
                 </div>
 
-                {/* Preview */}
+                {/* Live Preview */}
                 {preview && (
                   <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-3 gap-3 text-center">
                     <div>
@@ -330,6 +336,17 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
                     </div>
                   </div>
                 )}
+                {preview?.warnings?.length > 0 && (
+                  <div className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-3 py-2 space-y-0.5">
+                    {preview.warnings.map((w: string, i: number) => <p key={i}>⚠ {w}</p>)}
+                  </div>
+                )}
+                {selectedType?.isPaid && preview !== null && (preview.balance?.remainingAfter ?? 0) < 0 && (
+                  <div className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-start gap-1.5">
+                    <span className="text-red-500 mt-0.5">✕</span>
+                    <p><strong>Insufficient leave balance.</strong> You need {Math.abs(preview.balance.remainingAfter)} more day(s) to apply for this leave. Contact HR to adjust your balance.</p>
+                  </div>
+                )}
 
                 {/* Reason */}
                 <div>
@@ -345,31 +362,56 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
               </motion.div>
             )}
 
+            {/* ── Step 1: Task Impact ── */}
             {step === 1 && (
               <motion.div key="step1" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }} className="space-y-4">
-                <h3 className="text-sm font-semibold text-gray-700">Task Impact Assessment</h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-700">Task Impact Assessment</h3>
+                  <span className="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">informational only</span>
+                </div>
+
                 {auditLoading ? (
-                  <div className="flex items-center justify-center py-8">
+                  <div className="flex items-center justify-center py-10">
                     <Loader2 size={24} className="animate-spin text-brand-600" />
-                    <span className="ml-2 text-sm text-gray-500">Analyzing task impact...</span>
+                    <span className="ml-2 text-sm text-gray-500">Checking task impact...</span>
                   </div>
-                ) : taskAudit ? (
+                ) : taskIntegrationNotConfigured ? (
+                  // No task integration connected — show info state, never block
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center">
+                    <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                      <Info size={20} className="text-gray-400" />
+                    </div>
+                    <p className="text-sm font-medium text-gray-600 mb-1">No Task Integration Connected</p>
+                    <p className="text-xs text-gray-400">
+                      Task impact analysis requires a connected project management tool (Jira, Linear, ClickUp, etc.).<br />
+                      Your leave can still be submitted without it.
+                    </p>
+                    <p className="text-[11px] text-brand-600 mt-2">Contact your admin to configure task integration in Settings.</p>
+                  </div>
+                ) : (
                   <>
                     <TaskAuditPanel auditData={taskAudit} />
-                    {(taskAudit.riskLevel === 'HIGH' || taskAudit.riskLevel === 'CRITICAL') && !isSickLeave && (
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700">
-                        <strong>Warning:</strong> Your leave overlaps with critical tasks. A backup assignment is required before submission.
+                    {(taskAudit.riskLevel === 'HIGH' || taskAudit.riskLevel === 'CRITICAL') && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 flex gap-2">
+                        <span>⚠</span>
+                        <div>
+                          <p className="font-medium mb-0.5">High-impact leave detected</p>
+                          <p className="text-amber-700">You have critical tasks during this period. Consider assigning a backup in the next step. <strong>This is informational — your leave will not be blocked.</strong></p>
+                        </div>
                       </div>
                     )}
                   </>
-                ) : (
-                  <p className="text-sm text-gray-400 py-4 text-center">No task audit data available.</p>
                 )}
               </motion.div>
             )}
 
+            {/* ── Step 2: Handover (fully optional) ── */}
             {step === 2 && (
-              <motion.div key="step2" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }}>
+              <motion.div key="step2" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }} className="space-y-3">
+                <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 flex gap-2 text-xs text-blue-700">
+                  <span>ℹ</span>
+                  <span>Backup assignment is <strong>completely optional</strong> for all leave types. You can skip this step and still submit your leave.</span>
+                </div>
                 <HandoverSection
                   handovers={[]}
                   editable
@@ -380,18 +422,14 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
                       await updateHandover({ id: draftId, ...data }).unwrap();
                       toast.success('Handover plan saved');
                     } catch (err: any) {
-                      toast.error(err.data?.error?.message || 'Failed to save handover');
+                      toast.error(err?.data?.error?.message || 'Failed to save handover');
                     }
                   }}
                 />
-                {isSickLeave && (
-                  <p className="text-xs text-blue-600 bg-blue-50 px-3 py-2 rounded-lg mt-4">
-                    Sick leave: Handover assignment is optional. You can proceed without it.
-                  </p>
-                )}
               </motion.div>
             )}
 
+            {/* ── Step 3: Confirm & Submit ── */}
             {step === 3 && (
               <motion.div key="step3" initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -20, opacity: 0 }} className="space-y-4">
                 {/* Summary */}
@@ -402,14 +440,14 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
                     <div><span className="text-gray-500">Duration:</span> <span className="font-medium font-mono" data-mono>{preview?.days || '—'} day(s)</span></div>
                     <div><span className="text-gray-500">From:</span> <span className="font-medium">{formData.startDate}</span></div>
                     <div><span className="text-gray-500">To:</span> <span className="font-medium">{effectiveEndDate}</span></div>
-                    {taskAudit && (
+                    {taskAudit && !taskIntegrationNotConfigured && (
                       <div className="col-span-2">
                         <span className="text-gray-500">Risk Level:</span>{' '}
                         <span className={`font-semibold ${
                           taskAudit.riskLevel === 'CRITICAL' ? 'text-red-600' :
                           taskAudit.riskLevel === 'HIGH' ? 'text-orange-600' :
                           taskAudit.riskLevel === 'MEDIUM' ? 'text-amber-600' : 'text-emerald-600'
-                        }`}>{taskAudit.riskLevel}</span>
+                        }`}>{taskAudit.riskLevel || 'LOW'}</span>
                       </div>
                     )}
                   </div>
@@ -429,32 +467,63 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between shrink-0">
           <button
-            onClick={() => step > 0 ? setStep(step - 1) : onClose()}
+            onClick={() => {
+              if (step === 0) {
+                onClose();
+              } else if (step === 1 && draftId) {
+                // Cancel the orphan draft so re-apply from Step 0 doesn't hit overlap errors
+                cancelLeave(draftId);
+                setDraftId(null);
+                setStep(0);
+              } else {
+                setStep(step - 1);
+              }
+            }}
             className="btn-secondary text-sm flex items-center gap-1"
           >
             {step === 0 ? 'Cancel' : <><ChevronLeft size={14} /> Back</>}
           </button>
-          <div className="flex gap-2">
+
+          <div className="flex gap-2 items-center">
+            {/* Step 0 → 1 */}
             {step === 0 && (
               <button
                 onClick={handleNextFromDetails}
-                disabled={savingDraft || auditLoading || !formData.leaveTypeId || !formData.startDate}
+                disabled={
+                  savingDraft || auditLoading || !formData.leaveTypeId || !formData.startDate ||
+                  // Block if paid leave and balance would go negative
+                  (selectedType?.isPaid && preview !== null && (preview.balance?.remainingAfter ?? 0) < 0)
+                }
                 className="btn-primary text-sm flex items-center gap-1 disabled:opacity-50"
               >
                 {savingDraft || auditLoading ? <Loader2 size={14} className="animate-spin" /> : null}
                 Next <ChevronRight size={14} />
               </button>
             )}
+
+            {/* Step 1 → 2: always allowed */}
             {step === 1 && (
               <button onClick={() => setStep(2)} className="btn-primary text-sm flex items-center gap-1">
                 Next <ChevronRight size={14} />
               </button>
             )}
+
+            {/* Step 2 → 3: skip or proceed (handover is optional) */}
             {step === 2 && (
-              <button onClick={handleNextFromHandover} className="btn-primary text-sm flex items-center gap-1">
-                Next <ChevronRight size={14} />
-              </button>
+              <>
+                <button
+                  onClick={handleNextFromHandover}
+                  className="btn-secondary text-sm flex items-center gap-1 text-gray-500"
+                >
+                  <SkipForward size={14} /> Skip
+                </button>
+                <button onClick={handleNextFromHandover} className="btn-primary text-sm flex items-center gap-1">
+                  Next <ChevronRight size={14} />
+                </button>
+              </>
             )}
+
+            {/* Step 3 → Submit: only visibility ack required */}
             {step === 3 && (
               <button
                 onClick={handleSubmit}

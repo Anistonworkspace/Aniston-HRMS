@@ -18,6 +18,11 @@ import {
   useLockPayrollRunMutation,
   useUnlockPayrollRunMutation,
   useSendPayrollEmailMutation,
+  useRequestPayrollDeletionMutation,
+  useGetPayrollDeletionRequestsQuery,
+  useApprovePayrollDeletionMutation,
+  useRejectPayrollDeletionMutation,
+  useDismissPayrollDeletionMutation,
 } from './payrollApi';
 import {
   useGetRunAdjustmentsQuery,
@@ -127,6 +132,16 @@ function PayrollAdminView() {
   const { download: authDownload, openInline, downloading } = useAuthDownload();
   const [sendingEmail, setSendingEmail] = useState<string | null>(null);
   const [viewingRunId, setViewingRunId] = useState<string | null>(null);
+  const [deletionModal, setDeletionModal] = useState<{ runId: string; runLabel: string } | null>(null);
+  const [deletionForm, setDeletionForm] = useState({ reason: '', notes: '' });
+  const [requestPayrollDeletion, { isLoading: requestingDeletion }] = useRequestPayrollDeletionMutation();
+  const [approvePayrollDeletion] = useApprovePayrollDeletionMutation();
+  const [rejectPayrollDeletion] = useRejectPayrollDeletionMutation();
+  const [dismissPayrollDeletion] = useDismissPayrollDeletionMutation();
+  const { data: deletionReqRes, refetch: refetchDeletionReqs } = useGetPayrollDeletionRequestsQuery(undefined, { skip: user?.role !== 'SUPER_ADMIN' });
+  const deletionRequests = deletionReqRes?.data || [];
+  const pendingDeletions = deletionRequests.filter((r: any) => r.status === 'PENDING').length;
+  const [rejectForm, setRejectForm] = useState<{ id: string; reason: string } | null>(null);
   const [showNewRun, setShowNewRun] = useState(false);
   const [newRunMonth, setNewRunMonth] = useState(new Date().getMonth() + 1);
   const [newRunYear, setNewRunYear] = useState(new Date().getFullYear());
@@ -479,6 +494,14 @@ function PayrollAdminView() {
                             <PlusCircle size={11} /> Adjustments
                           </button>
                         )}
+                        {run.status !== 'LOCKED' && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '') && (
+                          <button
+                            onClick={() => setDeletionModal({ runId: run.id, runLabel: `${FULL_MONTH_NAMES[run.month - 1]} ${run.year}` })}
+                            className="text-xs text-red-600 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
+                          >
+                            <Trash2 size={11} /> Request Deletion
+                          </button>
+                        )}
                       </div>
                     </td>
                   </motion.tr>
@@ -499,6 +522,132 @@ function PayrollAdminView() {
           />
         )}
       </AnimatePresence>
+
+      {/* SuperAdmin: Deletion Requests Panel */}
+      {user?.role === 'SUPER_ADMIN' && deletionRequests.length > 0 && (
+        <div className="mt-8">
+          <div className="flex items-center gap-2 mb-3">
+            <Trash2 size={16} className="text-red-500" />
+            <h2 className="text-sm font-semibold text-gray-800">Payroll Deletion Requests</h2>
+            {pendingDeletions > 0 && (
+              <span className="text-xs bg-red-100 text-red-700 font-semibold px-2 py-0.5 rounded-full">{pendingDeletions} pending</span>
+            )}
+          </div>
+          <div className="data-table">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  <th className="text-left text-xs text-gray-500 px-4 py-2.5">Payroll Run</th>
+                  <th className="text-left text-xs text-gray-500 px-4 py-2.5">Reason</th>
+                  <th className="text-left text-xs text-gray-500 px-4 py-2.5">Requested</th>
+                  <th className="text-left text-xs text-gray-500 px-4 py-2.5">Status</th>
+                  <th className="text-right text-xs text-gray-500 px-4 py-2.5">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deletionRequests.map((req: any) => (
+                  <tr key={req.id} className="border-b border-gray-50 hover:bg-surface-2">
+                    <td className="px-4 py-3 font-medium text-sm">{req.runLabel}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">{req.reason}</td>
+                    <td className="px-4 py-3 text-xs text-gray-400">{new Date(req.createdAt).toLocaleDateString('en-IN')}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        req.status === 'PENDING' ? 'bg-amber-100 text-amber-700' :
+                        req.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>{req.status}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {req.status === 'PENDING' ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`Approve deletion of ${req.runLabel} payroll? This will permanently delete all payroll records for this period.`)) return;
+                              try { await approvePayrollDeletion(req.id).unwrap(); toast.success('Payroll run deleted'); refetchDeletionReqs(); }
+                              catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+                            }}
+                            className="text-xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded font-medium"
+                          >Approve & Delete</button>
+                          <button onClick={() => setRejectForm({ id: req.id, reason: '' })}
+                            className="text-xs text-red-700 bg-red-50 hover:bg-red-100 px-2.5 py-1 rounded font-medium">Reject</button>
+                        </div>
+                      ) : (
+                        <button onClick={async () => { try { await dismissPayrollDeletion(req.id).unwrap(); refetchDeletionReqs(); } catch {} }}
+                          className="text-xs text-gray-400 hover:text-gray-600">Dismiss</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Reject modal */}
+      {rejectForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setRejectForm(null)}>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-base font-semibold text-gray-800 mb-3">Reject Deletion Request</h3>
+            <textarea value={rejectForm.reason} onChange={e => setRejectForm({ ...rejectForm, reason: e.target.value })}
+              className="input-glass w-full text-sm mb-3" rows={3} placeholder="Reason for rejection (optional)" />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setRejectForm(null)} className="btn-secondary text-sm">Cancel</button>
+              <button onClick={async () => {
+                try { await rejectPayrollDeletion({ id: rejectForm.id, rejectionReason: rejectForm.reason }).unwrap(); toast.success('Request rejected'); setRejectForm(null); refetchDeletionReqs(); }
+                catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+              }} className="btn-primary text-sm bg-red-600 hover:bg-red-700">Confirm Reject</button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Request Deletion Modal (HR) */}
+      {deletionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setDeletionModal(null)}>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-base font-semibold text-gray-800 mb-1">Request Payroll Deletion</h3>
+            <p className="text-sm text-gray-500 mb-4">Payroll run: <strong>{deletionModal.runLabel}</strong></p>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-700 flex gap-2">
+              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              This request will be sent to the Super Admin for approval. The payroll run will only be deleted after their approval.
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Reason for deletion *</label>
+                <textarea value={deletionForm.reason} onChange={e => setDeletionForm(f => ({ ...f, reason: e.target.value }))}
+                  className="input-glass w-full text-sm" rows={3} placeholder="Explain why this payroll run needs to be deleted..." />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Additional notes (optional)</label>
+                <textarea value={deletionForm.notes} onChange={e => setDeletionForm(f => ({ ...f, notes: e.target.value }))}
+                  className="input-glass w-full text-sm" rows={2} placeholder="Any additional context..." />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end mt-4">
+              <button onClick={() => { setDeletionModal(null); setDeletionForm({ reason: '', notes: '' }); }} className="btn-secondary text-sm">Cancel</button>
+              <button
+                onClick={async () => {
+                  if (!deletionForm.reason.trim()) { toast.error('Please provide a reason'); return; }
+                  try {
+                    await requestPayrollDeletion({ payrollRunId: deletionModal.runId, reason: deletionForm.reason, notes: deletionForm.notes }).unwrap();
+                    toast.success('Deletion request sent to Super Admin');
+                    setDeletionModal(null);
+                    setDeletionForm({ reason: '', notes: '' });
+                  } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to submit request'); }
+                }}
+                disabled={requestingDeletion}
+                className="btn-primary text-sm bg-red-600 hover:bg-red-700 flex items-center gap-1.5"
+              >
+                {requestingDeletion ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                Submit Deletion Request
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
@@ -632,6 +781,7 @@ function PayrollRecordsPanel({ runId, runStatus, onClose }: { runId: string; run
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
                       <th className="text-left text-xs text-gray-500 px-4 py-2.5">Employee</th>
+                      <th className="text-left text-xs text-gray-500 px-4 py-2.5 hidden xl:table-cell">Bank Account</th>
                       <th className="text-right text-xs text-gray-500 px-4 py-2.5">Basic</th>
                       <th className="text-right text-xs text-gray-500 px-4 py-2.5">HRA</th>
                       <th className="text-right text-xs text-gray-500 px-4 py-2.5">Gross</th>
@@ -654,6 +804,20 @@ function PayrollRecordsPanel({ runId, runStatus, onClose }: { runId: string; run
                             <p className="text-[10px] text-amber-600 mt-0.5 flex items-center gap-0.5">
                               <AlertTriangle size={9} /> Amended: {rec.amendmentReason}
                             </p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 hidden xl:table-cell">
+                          {rec.employee?.bankAccountNumber ? (
+                            <div>
+                              <p className="text-xs font-mono text-gray-700" data-mono>
+                                ••••{rec.employee.bankAccountNumber.slice(-4)}
+                              </p>
+                              <p className="text-[10px] text-gray-400">{rec.employee.ifscCode || ''} {rec.employee.bankName ? `· ${rec.employee.bankName}` : ''}</p>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-amber-600 flex items-center gap-1">
+                              <AlertTriangle size={9} /> Missing
+                            </span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-xs" data-mono>{formatCurrency(Number(rec.basic))}</td>

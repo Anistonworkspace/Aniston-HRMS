@@ -190,10 +190,10 @@ const POLLING = {
 // HELPERS
 // =====================================================================
 
-// Normalize chat IDs for comparison — strips @c.us, @g.us suffix
+// Normalize chat IDs for comparison — strips @c.us, @g.us, @lid suffixes
 function normalizeChatId(id: string): string {
   if (!id) return '';
-  return id.replace(/@c\.us$/, '').replace(/@g\.us$/, '');
+  return id.replace(/@c\.us$/, '').replace(/@g\.us$/, '').replace(/@lid$/, '');
 }
 
 // Match two chat IDs — handles @c.us and @lid formats

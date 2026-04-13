@@ -1,48 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, X, Sparkles } from 'lucide-react';
-import { useRegisterSW } from 'virtual:pwa-register/react';
+import { useEffect, useState } from 'react';
+import { X, Sparkles } from 'lucide-react';
 
 /**
- * PWA notification component.
+ * PWAUpdatePrompt — lightweight ambient PWA helpers.
  *
- * registerType: 'autoUpdate' means the SW updates silently in the background.
- * We show a brief "App updated" toast once the new SW is activated (offlineReady / periodic check).
- * We also track when the app goes offline/online.
+ * Responsibilities:
+ *   • Offline / online banner at the top of the screen
+ *   • One-time "Add to Home Screen" install hint
+ *
+ * NOTE: SW update logic has been intentionally removed from this component.
+ *       It now lives entirely in AppUpdateGuard (features/app-update/), which
+ *       shows a mandatory full-screen blocking modal on all platforms (web,
+ *       PWA, Android native, iOS native) and clears all caches before reload.
  */
 export default function PWAUpdatePrompt() {
-  const [showUpdated, setShowUpdated] = useState(false);
-  const [isOffline,   setIsOffline]   = useState(!navigator.onLine);
-  const firstRender = useRef(true);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
-  const { updateServiceWorker } = useRegisterSW({
-    onRegisteredSW(_swUrl, registration) {
-      // Check for updates every 60 s
-      if (registration) {
-        setInterval(() => registration.update(), 60 * 1000);
-      }
-    },
-    onNeedRefresh() {
-      // New SW is waiting — force activate + reload all tabs immediately
-      updateServiceWorker(true);
-    },
-    onOfflineReady() {
-      if (!firstRender.current) {
-        setShowUpdated(true);
-        setTimeout(() => setShowUpdated(false), 4000);
-      }
-    },
-    onRegisterError(error) {
-      console.error('SW registration error:', error);
-    },
-  });
-
-  // Mark first render as done after mount
-  useEffect(() => {
-    const t = setTimeout(() => { firstRender.current = false; }, 2000);
-    return () => clearTimeout(t);
-  }, []);
-
-  // Online / offline banner
   useEffect(() => {
     const setOnline  = () => setIsOffline(false);
     const setOffline = () => setIsOffline(true);
@@ -63,34 +36,13 @@ export default function PWAUpdatePrompt() {
         </div>
       )}
 
-      {/* ── App updated toast ── */}
-      {showUpdated && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] animate-in slide-in-from-bottom-4 fade-in duration-300">
-          <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl border border-green-100 px-5 py-3.5 flex items-center gap-3 min-w-[260px]">
-            <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
-              <CheckCircle2 size={18} className="text-green-600" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-gray-900">App Updated</p>
-              <p className="text-xs text-gray-500">Aniston HRMS is now up to date</p>
-            </div>
-            <button
-              onClick={() => setShowUpdated(false)}
-              className="p-1 text-gray-400 hover:text-gray-600 rounded-lg"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Install hint (shown once, dismissed forever) ── */}
+      {/* ── Install hint ── */}
       <InstallHint />
     </>
   );
 }
 
-/** Shows a one-time "Add to Home Screen" hint on mobile if app is not already installed. */
+/** Shows a one-time "Add to Home Screen" hint on mobile if not already installed. */
 function InstallHint() {
   const [show, setShow] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -102,18 +54,39 @@ function InstallHint() {
       (navigator as any).standalone === true;
     if (isStandalone) return;
 
-    // Check if dismissed before
+    // Already dismissed — never show again
     if (localStorage.getItem('pwa-install-dismissed')) return;
 
+    // main.tsx captures beforeinstallprompt early and stores it on window
+    const earlyPrompt = (window as any).__pwaInstallPrompt;
+    if (earlyPrompt) {
+      setDeferredPrompt(earlyPrompt);
+      setTimeout(() => setShow(true), 3000);
+      return;
+    }
+
+    // Fallback: listen for the event directly
     const handler = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      // Show after a short delay so it doesn't pop up immediately
       setTimeout(() => setShow(true), 3000);
     };
-
     window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+
+    // Also listen for the custom event dispatched by main.tsx
+    const onReady = () => {
+      const p = (window as any).__pwaInstallPrompt;
+      if (p) {
+        setDeferredPrompt(p);
+        setTimeout(() => setShow(true), 3000);
+      }
+    };
+    window.addEventListener('pwa-prompt-ready', onReady);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('pwa-prompt-ready', onReady);
+    };
   }, []);
 
   const handleInstall = async () => {
@@ -158,7 +131,10 @@ function InstallHint() {
             </button>
           </div>
         </div>
-        <button onClick={handleDismiss} className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600 rounded-lg">
+        <button
+          onClick={handleDismiss}
+          className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600 rounded-lg"
+        >
           <X size={16} />
         </button>
       </div>

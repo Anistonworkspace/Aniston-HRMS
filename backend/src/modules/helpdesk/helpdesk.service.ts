@@ -2,6 +2,8 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { aiService } from '../../services/ai.service.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
+import { enqueueEmail } from '../../jobs/queues.js';
+import { logger } from '../../lib/logger.js';
 import type { CreateTicketInput, TicketQuery } from './helpdesk.validation.js';
 
 export class HelpdeskService {
@@ -58,6 +60,46 @@ export class HelpdeskService {
       },
     });
     await createAuditLog({ userId: employeeId, organizationId, entity: 'Ticket', entityId: ticket.id, action: 'CREATE', newValue: { subject: data.subject, category: data.category } });
+
+    // Notify HR/Admin/SuperAdmin that a new ticket was raised
+    try {
+      const [employee, hrUsers] = await Promise.all([
+        prisma.employee.findFirst({
+          where: { id: employeeId },
+          select: { firstName: true, lastName: true, employeeCode: true, department: { select: { name: true } } },
+        }),
+        prisma.user.findMany({
+          where: {
+            organizationId,
+            role: { in: ['HR', 'ADMIN', 'SUPER_ADMIN'] },
+            deletedAt: null,
+          },
+          select: { email: true },
+        }),
+      ]);
+      const employeeName = employee ? `${employee.firstName} ${employee.lastName}` : 'An employee';
+      for (const hrUser of hrUsers) {
+        await enqueueEmail({
+          to: hrUser.email,
+          subject: `[${ticketCode}] New Support Ticket: ${data.subject}`,
+          template: 'helpdesk-ticket-created',
+          context: {
+            ticketCode,
+            subject: data.subject,
+            description: data.description || '',
+            category: data.category || '',
+            priority: data.priority || 'MEDIUM',
+            employeeName,
+            employeeCode: employee?.employeeCode || '',
+            department: employee?.department?.name || '',
+            link: 'https://hr.anistonav.com/helpdesk',
+          },
+        });
+      }
+    } catch (err) {
+      logger.error('Failed to send helpdesk ticket creation email', err);
+    }
+
     return ticket;
   }
 
@@ -75,7 +117,10 @@ export class HelpdeskService {
 
   async update(id: string, data: { status?: string; assignedTo?: string; resolution?: string }, organizationId: string) {
     // Verify ticket belongs to this org
-    const ticket = await prisma.ticket.findFirst({ where: { id, organizationId } });
+    const ticket = await prisma.ticket.findFirst({
+      where: { id, organizationId },
+      include: { employee: { select: { firstName: true, lastName: true, user: { select: { email: true } } } } },
+    });
     if (!ticket) throw new NotFoundError('Ticket');
 
     const updateData: any = {};
@@ -86,15 +131,99 @@ export class HelpdeskService {
 
     const updated = await prisma.ticket.update({ where: { id }, data: updateData });
     await createAuditLog({ userId: id, organizationId, entity: 'Ticket', entityId: id, action: 'UPDATE', newValue: updateData });
+
+    // Notify employee when their ticket status changes
+    if (data.status && data.status !== ticket.status) {
+      try {
+        const employeeEmail = (ticket.employee as any)?.user?.email;
+        if (employeeEmail) {
+          const employeeName = `${(ticket.employee as any).firstName} ${(ticket.employee as any).lastName}`;
+          await enqueueEmail({
+            to: employeeEmail,
+            subject: `[${ticket.ticketCode}] Your ticket has been ${data.status.toLowerCase()}`,
+            template: 'helpdesk-ticket-updated',
+            context: {
+              ticketCode: ticket.ticketCode,
+              subject: ticket.subject,
+              newStatus: data.status,
+              resolution: data.resolution || '',
+              employeeName,
+              link: 'https://hr.anistonav.com/helpdesk',
+            },
+          });
+        }
+      } catch (err) {
+        logger.error('Failed to send helpdesk status update email', err);
+      }
+    }
+
     return updated;
   }
 
-  async addComment(ticketId: string, authorId: string, content: string, isInternal: boolean, organizationId: string) {
-    const ticket = await prisma.ticket.findFirst({ where: { id: ticketId, organizationId } });
+  async addComment(ticketId: string, authorId: string, content: string, isInternal: boolean, organizationId: string, authorRole?: string) {
+    const ticket = await prisma.ticket.findFirst({
+      where: { id: ticketId, organizationId },
+      include: { employee: { select: { firstName: true, lastName: true, user: { select: { email: true } } } } },
+    });
     if (!ticket) throw new NotFoundError('Ticket');
-    return prisma.ticketComment.create({
+
+    const comment = await prisma.ticketComment.create({
       data: { ticketId, authorId, content, isInternal },
     });
+
+    // Email notifications for non-internal comments only
+    if (!isInternal) {
+      try {
+        const isHrSide = authorRole && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(authorRole);
+        if (isHrSide) {
+          // HR commented → notify the employee
+          const employeeEmail = (ticket.employee as any)?.user?.email;
+          if (employeeEmail) {
+            const employeeName = `${(ticket.employee as any).firstName} ${(ticket.employee as any).lastName}`;
+            await enqueueEmail({
+              to: employeeEmail,
+              subject: `[${ticket.ticketCode}] New reply on your support ticket`,
+              template: 'helpdesk-ticket-updated',
+              context: {
+                ticketCode: ticket.ticketCode,
+                subject: ticket.subject,
+                newStatus: null,
+                commentPreview: content.length > 200 ? content.substring(0, 200) + '…' : content,
+                employeeName,
+                link: 'https://hr.anistonav.com/helpdesk',
+              },
+            });
+          }
+        } else {
+          // Employee commented → notify HR/Admin
+          const hrUsers = await prisma.user.findMany({
+            where: { organizationId, role: { in: ['HR', 'ADMIN', 'SUPER_ADMIN'] }, deletedAt: null },
+            select: { email: true },
+          });
+          const employeeName = ticket.employee
+            ? `${(ticket.employee as any).firstName} ${(ticket.employee as any).lastName}`
+            : 'An employee';
+          for (const hrUser of hrUsers) {
+            await enqueueEmail({
+              to: hrUser.email,
+              subject: `[${ticket.ticketCode}] Employee replied: ${ticket.subject}`,
+              template: 'helpdesk-comment-received',
+              context: {
+                ticketCode: ticket.ticketCode,
+                subject: ticket.subject,
+                commentPreview: content.length > 200 ? content.substring(0, 200) + '…' : content,
+                employeeName,
+                link: 'https://hr.anistonav.com/helpdesk',
+              },
+            });
+          }
+        }
+      } catch (err) {
+        logger.error('Failed to send helpdesk comment email', err);
+      }
+    }
+
+    return comment;
   }
 
   async analyzeTicket(ticketId: string, organizationId: string) {

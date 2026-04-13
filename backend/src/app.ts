@@ -1,5 +1,9 @@
 import path from 'path';
+import { readFileSync, existsSync } from 'fs';
+import { fileURLToPath } from 'url';
 import express from 'express';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── BigInt JSON serialization fix ──────────────────────────────────────────────
 // Prisma returns BigInt for schema fields declared as BigInt (e.g. sizeBytes).
@@ -60,6 +64,7 @@ import { letterRouter } from './modules/letter/letter.routes.js';
 import { brandingRouter } from './modules/branding/branding.routes.js';
 import { backupRouter } from './modules/backup/backup.routes.js';
 import { employeeDeletionRouter } from './modules/employee-deletion/employee-deletion.routes.js';
+import { payrollDeletionRouter } from './modules/payroll-deletion/payroll-deletion.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 import { getEmailWorkerHealth } from './jobs/workers/email.worker.js';
@@ -220,6 +225,40 @@ app.use('/api/letters', letterRouter);
 app.use('/api/branding', brandingRouter);
 app.use('/api/settings/backup', backupRouter);
 app.use('/api/employee-deletion-requests', employeeDeletionRouter);
+app.use('/api/payroll-deletion-requests', payrollDeletionRouter);
+
+// ── Native app downloads — APK served directly ────────────────────────────────
+// Place aniston-hrms.apk in backend/downloads/ and it becomes available at
+// https://hr.anistonav.com/downloads/aniston-hrms.apk
+const downloadsRoot = path.resolve(__dirname, '../../downloads');
+app.use('/downloads', express.static(downloadsRoot));
+
+// ── App update bundles — OTA zip files for Capacitor ─────────────────────────
+// Place bundle-X.X.X.zip in backend/app-updates/ and update manifest.json.
+// AppUpdateGuard in the native app polls /api/app-updates/latest on launch.
+const appUpdatesRoot = path.resolve(__dirname, '../../app-updates');
+app.use('/app-updates', express.static(appUpdatesRoot));
+
+// Returns latest version manifest for Capacitor OTA updates.
+// manifest.json format: { version, url, mandatory, notes }
+app.get('/api/app-updates/latest', (_req, res) => {
+  const manifestPath = path.join(appUpdatesRoot, 'manifest.json');
+  if (!existsSync(manifestPath)) {
+    return res.json({
+      success: true,
+      data: { version: '1.0.0', url: null, mandatory: false, notes: 'No update available' },
+    });
+  }
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+    res.json({ success: true, data: manifest });
+  } catch {
+    res.json({
+      success: true,
+      data: { version: '1.0.0', url: null, mandatory: false, notes: 'No update available' },
+    });
+  }
+});
 
 // Static file serving for uploads — managed through StorageService.
 //

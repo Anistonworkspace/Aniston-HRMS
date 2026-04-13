@@ -13,8 +13,9 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.ts',
 
-      // 'autoUpdate' silently activates new SW — best for enterprise apps
-      registerType: 'autoUpdate',
+      // 'prompt' — new SW waits; AppUpdateGuard shows a mandatory blocking modal
+      // before calling updateServiceWorker(true). Never auto-activates silently.
+      registerType: 'prompt',
       // Inject SW registration script inline in index.html
       injectRegister: 'inline',
 

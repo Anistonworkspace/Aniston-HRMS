@@ -99,7 +99,8 @@ export class InvitationService {
       : inviter?.email || 'HR Team';
 
     const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`;
-    const downloadUrl = `https://hr.anistonav.com/download`;
+    const androidDownloadUrl = `https://hr.anistonav.com/download/android`;
+    const iosDownloadUrl = `https://hr.anistonav.com/download/ios`;
 
     // Track delivery statuses
     let emailStatus: string = email ? 'NOT_SENT' : 'NOT_SENT';
@@ -115,7 +116,8 @@ export class InvitationService {
           context: {
             orgName: org?.name || 'Aniston Technologies',
             inviteUrl,
-            downloadUrl,
+            androidDownloadUrl,
+            iosDownloadUrl,
             expiresAt: expiresAt.toISOString(),
             inviterName,
             role: role || 'EMPLOYEE',
@@ -142,13 +144,19 @@ export class InvitationService {
           `${inviteUrl}`,
           ``,
           `📱 *Step 2 — Download the Aniston HRMS app:*`,
-          `${downloadUrl}`,
-          `Install the app to mark attendance, apply for leaves, view payslips and more.`,
+          ``,
+          `🤖 *Android (APK):*`,
+          `${androidDownloadUrl}`,
+          ``,
+          `🍎 *iPhone / iPad (App Store):*`,
+          `${iosDownloadUrl}`,
+          ``,
+          `_Install the app to mark attendance, apply for leaves, view payslips and more._`,
           ``,
           `*What happens next?*`,
           `1. Click the invite link above`,
           `2. Set your name and password`,
-          `3. Install the app on your phone`,
+          `3. Download and install the app`,
           `4. You're all set!`,
           ``,
           `This link expires in 72 hours.`,
@@ -509,7 +517,8 @@ export class InvitationService {
         });
 
         const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`;
-        const downloadUrl = `https://hr.anistonav.com/download`;
+        const androidDownloadUrl = `https://hr.anistonav.com/downloads/aniston-hrms.apk`;
+        const iosDownloadUrl = `https://apps.apple.com/app/aniston-hrms/id000000000`;
 
         // Fire-and-forget: don't let email queue failure abort the invitation creation
         enqueueEmail({
@@ -519,7 +528,8 @@ export class InvitationService {
           context: {
             orgName: org?.name || 'Aniston Technologies',
             inviteUrl,
-            downloadUrl,
+            androidDownloadUrl,
+            iosDownloadUrl,
             expiresAt: expiresAt.toISOString(),
             inviterName,
             role: options?.role || 'EMPLOYEE',
@@ -618,7 +628,8 @@ export class InvitationService {
     });
 
     const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${updated.inviteToken}`;
-    const downloadUrl = `https://hr.anistonav.com/download`;
+    const androidDownloadUrl = `https://hr.anistonav.com/downloads/aniston-hrms.apk`;
+    const iosDownloadUrl = `https://apps.apple.com/app/aniston-hrms/id000000000`;
 
     let emailStatus: string = invitation.email ? 'NOT_SENT' : 'NOT_SENT';
     let whatsappStatus: string = invitation.mobileNumber ? 'NOT_SENT' : 'NOT_SENT';
@@ -632,7 +643,8 @@ export class InvitationService {
           context: {
             orgName: org?.name || 'Aniston Technologies',
             inviteUrl,
-            downloadUrl,
+            androidDownloadUrl,
+            iosDownloadUrl,
             expiresAt: newExpiresAt.toISOString(),
             inviterName: 'HR Team',
             role: invitation.role || 'EMPLOYEE',
@@ -654,8 +666,12 @@ export class InvitationService {
           ``,
           `Hi! This is a reminder that you've been invited to join *${orgName}* as *${roleName}*.`,
           ``,
-          `Click the link below to accept and set up your account:`,
+          `✅ *Accept your invitation:*`,
           `${inviteUrl}`,
+          ``,
+          `📱 *Download the Aniston HRMS app:*`,
+          `🤖 Android: ${androidDownloadUrl}`,
+          `🍎 iPhone / iPad: ${iosDownloadUrl}`,
           ``,
           `This link expires in 72 hours.`,
         ].join('\n');

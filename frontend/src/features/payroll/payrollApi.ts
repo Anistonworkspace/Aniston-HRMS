@@ -93,6 +93,32 @@ export const payrollApi = api.injectEndpoints({
     sendPayrollEmail: builder.mutation<any, string>({
       query: (runId) => ({ url: `/payroll/runs/${runId}/send-email`, method: 'POST' }),
     }),
+
+    // Payroll deletion requests
+    requestPayrollDeletion: builder.mutation<any, { payrollRunId: string; reason: string; notes?: string }>({
+      query: (body) => ({ url: '/payroll-deletion-requests', method: 'POST', body }),
+      invalidatesTags: ['Payroll'],
+    }),
+
+    getPayrollDeletionRequests: builder.query<any, { status?: string } | void>({
+      query: (params) => ({ url: '/payroll-deletion-requests', params: params || {} }),
+      providesTags: ['Payroll'],
+    }),
+
+    approvePayrollDeletion: builder.mutation<any, string>({
+      query: (id) => ({ url: `/payroll-deletion-requests/${id}/approve`, method: 'POST' }),
+      invalidatesTags: ['Payroll'],
+    }),
+
+    rejectPayrollDeletion: builder.mutation<any, { id: string; rejectionReason?: string }>({
+      query: ({ id, ...body }) => ({ url: `/payroll-deletion-requests/${id}/reject`, method: 'POST', body }),
+      invalidatesTags: ['Payroll'],
+    }),
+
+    dismissPayrollDeletion: builder.mutation<any, string>({
+      query: (id) => ({ url: `/payroll-deletion-requests/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Payroll'],
+    }),
   }),
 });
 
@@ -112,4 +138,9 @@ export const {
   useUnlockPayrollRunMutation,
   useSaveSalaryStructureDynamicMutation,
   useSendPayrollEmailMutation,
+  useRequestPayrollDeletionMutation,
+  useGetPayrollDeletionRequestsQuery,
+  useApprovePayrollDeletionMutation,
+  useRejectPayrollDeletionMutation,
+  useDismissPayrollDeletionMutation,
 } = payrollApi;

@@ -1,18 +1,264 @@
 name: Build & Deploy to EC2
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggers on every push to main.
+#
+# Jobs (all run in parallel where possible):
+#   build-android    — builds Android APK on ubuntu-latest
+#   build-ios        — builds iOS IPA  on macos-latest
+#   build-agent      — builds Windows .exe on windows-latest
+#   build-and-deploy — builds web, runs tests, deploys to EC2,
+#                      pushes APK to /downloads/, creates OTA bundle,
+#                      bumps manifest.json → native-app users see update prompt
+#
+# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#
+#   EC2_HOST / EC2_USER / EC2_SSH_KEY   — existing deploy secrets
+#
+#   ── Android signing (optional — debug APK built if missing) ──────────────
+#   ANDROID_KEYSTORE_BASE64    base64 of your .jks keystore file
+#   ANDROID_KEYSTORE_PASSWORD  keystore password
+#   ANDROID_KEY_ALIAS          key alias (e.g. "aniston")
+#   ANDROID_KEY_PASSWORD       key password
+#
+#   ── iOS signing (optional — job skips if missing) ──────────────────────
+#   APPLE_CERTIFICATE          base64 of .p12 distribution certificate
+#   APPLE_CERTIFICATE_PASSWORD .p12 export password
+#   APPLE_PROVISIONING_PROFILE base64 of .mobileprovision Ad Hoc profile
+#   APPLE_TEAM_ID              10-char Apple Developer Team ID
+# ─────────────────────────────────────────────────────────────────────────────
+
 on:
   push:
     branches: [main]
 
 jobs:
-  # ─────────────────────────────────────────────────────────────
-  # Job 1: Build the Windows desktop agent (.exe) on Windows runner
-  # continue-on-error: true — failure here must NOT block web deployment
-  # ─────────────────────────────────────────────────────────────
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # JOB 1 — Android APK
+  # Builds a signed release APK when keystore secrets are present,
+  # or an unsigned debug APK as fallback (still installable on Android).
+  # Output: artifact "aniston-hrms-apk" → aniston-hrms.apk
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    continue-on-error: true   # failure never blocks EC2 deployment
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: gradle
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend (Vite)
+        run: cd frontend && VITE_API_URL=/api npx vite build
+
+      - name: Install Capacitor CLI + Android platform package
+        run: npm install -g @capacitor/cli && npm install -g @capacitor/android
+
+      # If android/ is not committed yet, initialise it now.
+      # After first run, commit the android/ folder and remove this step's init branch.
+      - name: Initialise Android platform if not present
+        working-directory: frontend
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+            echo "ℹ️  android/ initialised — commit this folder to speed up future builds"
+          else
+            echo "✅ android/ already exists"
+          fi
+
+      - name: Sync Capacitor (copy web assets → android/app/src/main/assets)
+        working-directory: frontend
+        run: npx cap sync android
+
+      # ── Signed release (runs only when keystore secrets are set) ──────────
+      - name: Decode keystore
+        id: keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > frontend/android/app/aniston.jks
+            echo "signed=true" >> $GITHUB_OUTPUT
+            echo "✅ Keystore decoded — building signed release APK"
+          else
+            echo "signed=false" >> $GITHUB_OUTPUT
+            echo "ℹ️  No ANDROID_KEYSTORE_BASE64 secret — building debug APK"
+          fi
+
+      - name: Build SIGNED release APK
+        if: steps.keystore.outputs.signed == 'true'
+        working-directory: frontend/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=$(pwd)/app/aniston.jks \
+            -Pandroid.injected.signing.store.password="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
+            -Pandroid.injected.signing.key.alias="${{ secrets.ANDROID_KEY_ALIAS }}" \
+            -Pandroid.injected.signing.key.password="${{ secrets.ANDROID_KEY_PASSWORD }}"
+          cp app/build/outputs/apk/release/app-release.apk aniston-hrms.apk
+          echo "✅ Signed release APK built: $(du -sh aniston-hrms.apk)"
+
+      - name: Build DEBUG APK (fallback — no keystore)
+        if: steps.keystore.outputs.signed != 'true'
+        working-directory: frontend/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk aniston-hrms.apk
+          echo "✅ Debug APK built: $(du -sh aniston-hrms.apk)"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aniston-hrms-apk
+          path: frontend/android/aniston-hrms.apk
+          retention-days: 90
+          if-no-files-found: warn
+
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # JOB 2 — iOS IPA  (macOS runner required by Apple toolchain)
+  # Builds an Ad Hoc IPA for TestFlight / internal distribution.
+  # Requires APPLE_* secrets — job silently fails if they are not configured.
+  # Output: artifact "aniston-hrms-ipa" → AnistonHRMS.ipa
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-latest
+    continue-on-error: true   # failure never blocks EC2 deployment
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend (Vite)
+        run: cd frontend && VITE_API_URL=/api npx vite build
+
+      - name: Install Capacitor CLI + iOS platform package
+        run: npm install -g @capacitor/cli && npm install -g @capacitor/ios
+
+      - name: Initialise iOS platform if not present
+        working-directory: frontend
+        run: |
+          if [ ! -d "ios" ]; then
+            npx cap add ios
+            echo "ℹ️  ios/ initialised — commit this folder to speed up future builds"
+          else
+            echo "✅ ios/ already exists"
+          fi
+
+      - name: Sync Capacitor (copy web assets → iOS)
+        working-directory: frontend
+        run: npx cap sync ios
+
+      # ── Abort early if Apple secrets are not configured ───────────────────
+      - name: Check Apple secrets are present
+        id: apple_check
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "⚠️  APPLE_CERTIFICATE or APPLE_TEAM_ID secret not set — skipping iOS signing"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install Apple distribution certificate
+        if: steps.apple_check.outputs.skip != 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN=$RUNNER_TEMP/aniston.keychain-db
+          security create-keychain -p "ci-temp" $KEYCHAIN
+          security set-keychain-settings -lut 21600 $KEYCHAIN
+          security unlock-keychain -p "ci-temp" $KEYCHAIN
+          echo "$APPLE_CERTIFICATE" | base64 -d > $RUNNER_TEMP/dist.p12
+          security import $RUNNER_TEMP/dist.p12 \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k $KEYCHAIN
+          security list-keychain -d user -s $KEYCHAIN
+
+      - name: Install provisioning profile
+        if: steps.apple_check.outputs.skip != 'true'
+        env:
+          APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$APPLE_PROVISIONING_PROFILE" | base64 -d \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/aniston.mobileprovision
+
+      - name: Build & archive Xcode project
+        if: steps.apple_check.outputs.skip != 'true'
+        working-directory: frontend/ios/App
+        run: |
+          xcodebuild archive \
+            -scheme App \
+            -configuration Release \
+            -archivePath $RUNNER_TEMP/AnistonHRMS.xcarchive \
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            CODE_SIGN_STYLE=Manual \
+            -allowProvisioningUpdates \
+            -quiet
+
+      - name: Export IPA (Ad Hoc)
+        if: steps.apple_check.outputs.skip != 'true'
+        run: |
+          cat > $RUNNER_TEMP/ExportOptions.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>ad-hoc</string>
+            <key>teamID</key><string>${{ secrets.APPLE_TEAM_ID }}</string>
+            <key>stripSwiftSymbols</key><true/>
+            <key>compileBitcode</key><false/>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/AnistonHRMS.xcarchive \
+            -exportPath $RUNNER_TEMP/ipa \
+            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist
+
+      - name: Upload IPA artifact
+        if: steps.apple_check.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: aniston-hrms-ipa
+          path: ${{ runner.temp }}/ipa/*.ipa
+          retention-days: 90
+          if-no-files-found: warn
+
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # JOB 3 — Windows Desktop Agent (.exe)  [unchanged]
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   build-agent:
     name: Build Desktop Agent (.exe)
     runs-on: windows-latest
-    continue-on-error: true   # agent build failure never blocks EC2 deploy
+    continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4
@@ -43,15 +289,22 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  # ─────────────────────────────────────────────────────────────
-  # Job 2: Build web app, run tests, deploy to EC2
-  # if: always() — deploy runs even when build-agent fails/is skipped
-  # ─────────────────────────────────────────────────────────────
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # JOB 4 — Build web, run tests, deploy to EC2
+  #
+  # What's new vs the old deploy:
+  #   • Downloads Android APK artifact → SCPs it to EC2 /downloads/
+  #   • Downloads iOS IPA artifact     → SCPs it to EC2 /uploads/ios-builds/
+  #   • SSH step creates a versioned OTA bundle zip from frontend/dist/
+  #     and updates app-updates/manifest.json
+  #   → Existing native-app users see the "Update Now" screen on next launch
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   build-and-deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
-    needs: build-agent
-    if: always()   # never skip EC2 deploy because of agent build result
+    needs: [build-android, build-ios, build-agent]
+    if: always()   # deploy even when native build jobs fail/skip
 
     services:
       postgres:
@@ -110,13 +363,32 @@ jobs:
           REDIS_URL: redis://localhost:6379
           NODE_ENV: test
 
-      # Download the .exe built by build-agent job (only if agent build succeeded)
+      # ── Download build artifacts ─────────────────────────────────────────
+
       - name: Download agent installer artifact
         if: needs.build-agent.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: aniston-agent-setup
           path: ./agent-build
+
+      - name: Download Android APK artifact
+        if: needs.build-android.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: aniston-hrms-apk
+          path: ./apk-build
+        continue-on-error: true
+
+      - name: Download iOS IPA artifact
+        if: needs.build-ios.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: aniston-hrms-ipa
+          path: ./ipa-build
+        continue-on-error: true
+
+      # ── SCP: push binaries to EC2 ────────────────────────────────────────
 
       - name: Upload agent .exe to EC2
         if: needs.build-agent.result == 'success'
@@ -129,6 +401,32 @@ jobs:
           target: /home/ubuntu/Aniston-HRMS/uploads/agent/
           strip_components: 1
 
+      - name: Upload Android APK to EC2 /downloads/
+        if: needs.build-android.result == 'success'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: ./apk-build/aniston-hrms.apk
+          target: /home/ubuntu/Aniston-HRMS/downloads/
+          strip_components: 1
+        continue-on-error: true
+
+      - name: Upload iOS IPA to EC2 /uploads/ios-builds/
+        if: needs.build-ios.result == 'success'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: ./ipa-build/*.ipa
+          target: /home/ubuntu/Aniston-HRMS/uploads/ios-builds/
+          strip_components: 1
+        continue-on-error: true
+
+      # ── Main SSH deployment ───────────────────────────────────────────────
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -139,127 +437,149 @@ jobs:
           timeout: 300s
           script: |
             cd /home/ubuntu/Aniston-HRMS
-            echo "=== [1/14] Pre-deployment backup ==="
+
+            echo "=== [1/16] Pre-deployment backup ==="
             bash scripts/pre-deploy-backup.sh || echo "WARNING: Backup failed but continuing..."
 
-            echo "=== [2/14] Installing system dependencies ==="
+            echo "=== [2/16] Installing system dependencies ==="
             sudo apt-get update -qq
-            # Chromium for Puppeteer (PDF generation)
             sudo apt-get install -y -qq chromium-browser || sudo apt-get install -y -qq chromium || true
             sudo apt-get install -y -qq \
               libatk1.0-0 libatk-bridge2.0-0 libcups2 libxdamage1 libxrandr2 \
               libgbm1 libpango-1.0-0 libcairo2 libnspr4 libnss3 libxss1 \
               libxtst6 xdg-utils fonts-liberation \
               libasound2t64 || sudo apt-get install -y -qq libasound2 || true
-            # PostgreSQL client tools (pg_dump + psql) for database backup & restore
             sudo apt-get install -y -qq postgresql-client || true
-            # Verify pg_dump is accessible (backup service will use it directly)
             PG_DUMP_BIN=$(which pg_dump 2>/dev/null || true)
             if [ -n "$PG_DUMP_BIN" ]; then
               echo "pg_dump found at: $PG_DUMP_BIN ($(pg_dump --version))"
-              # Persist explicit path in .env so backup service resolves it even in constrained environments
               grep -q 'PG_DUMP_PATH=' .env 2>/dev/null || echo "PG_DUMP_PATH=$PG_DUMP_BIN" >> .env
               grep -q 'PSQL_PATH=' .env 2>/dev/null || echo "PSQL_PATH=$(which psql 2>/dev/null || true)" >> .env
-            else
-              echo "WARNING: pg_dump not in PATH after install — database backup will fall back to Docker exec (aniston-postgres container)"
             fi
-            # Docker + Docker Compose (for AI service and pg_dump Docker fallback)
             which docker || (curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker ubuntu) || true
             which docker-compose || sudo apt-get install -y -qq docker-compose-plugin || true
-            which chromium-browser || which chromium || which google-chrome-stable || echo "WARNING: No system Chrome found"
 
-            echo "=== [3/14] Pulling latest code ==="
+            echo "=== [3/16] Pulling latest code ==="
             git pull origin main
 
-            echo "=== [4/14] Setting production domain + encryption key in .env ==="
+            echo "=== [4/16] Setting production domain + encryption key ==="
             sed -i '/FRONTEND_URL/d' .env 2>/dev/null || true
             sed -i '/API_URL/d' .env 2>/dev/null || true
             sed -i -e '$a\' .env 2>/dev/null || true
             echo 'FRONTEND_URL=https://hr.anistonav.com' >> .env
             echo 'API_URL=https://hr.anistonav.com' >> .env
-            # Add ENCRYPTION_KEY if not already present
             grep -q 'ENCRYPTION_KEY=' .env || echo 'ENCRYPTION_KEY=30f3a3cf6ce04631c122256f5656c70c69429d380ae91c8de9d5f8e05c4a0cf2' >> .env
 
-            echo "=== [5/14] Installing Node.js dependencies ==="
+            echo "=== [5/16] Installing Node.js dependencies ==="
             export SCARF_ANALYTICS=false
-            # npm ci installs all workspace deps (frontend, backend, shared)
-            # This includes the new 'tar' package added to backend for uploaded-files backup
             npm ci || (echo "Retrying npm ci..." && rm -rf node_modules && npm ci)
-            # Verify tar is available in backend workspace (required for files backup/restore)
             node -e "import('tar').then(t => console.log('✅ tar package OK:', typeof t.create)).catch(e => console.error('❌ tar missing:', e.message))" || true
 
-            echo "=== [6/14] Generating Prisma client ==="
+            echo "=== [6/16] Generating Prisma client ==="
             npx --no-install prisma generate
 
-            echo "=== [7/14] Syncing database schema ==="
-            # Use db push with --accept-data-loss for non-interactive deploy.
-            # Adding new enum values (ONBOARDING, SUSPENDED) is safe — no data is lost.
-            # Without this flag, Prisma prompts for confirmation which hangs in CI.
-            # TODO: Baseline existing DB with `prisma migrate diff` and switch to `migrate deploy`
+            echo "=== [7/16] Syncing database schema ==="
             npx --no-install prisma db push --accept-data-loss || {
               echo "WARNING: Schema push failed. Trying without flag..."
-              npx --no-install prisma db push 2>/dev/null || echo "Schema push skipped — manual intervention may be needed"
+              npx --no-install prisma db push 2>/dev/null || echo "Schema push skipped"
             }
 
-            echo "=== [8/14] Building & starting AI service (Docker) ==="
+            echo "=== [8/16] Building & starting AI service (Docker) ==="
             if command -v docker &> /dev/null; then
               cd docker
               docker compose build ai-service 2>/dev/null || docker-compose build ai-service 2>/dev/null || echo "WARNING: AI service Docker build failed"
               docker compose up -d ai-service 2>/dev/null || docker-compose up -d ai-service 2>/dev/null || echo "WARNING: AI service Docker start failed"
               cd ..
-              echo "Waiting for AI service..."
               sleep 5
-              curl -s http://localhost:8000/ai/health || echo "WARNING: AI service not responding (OCR will use fallback)"
+              curl -s http://localhost:8000/ai/health || echo "WARNING: AI service not responding"
             else
-              echo "WARNING: Docker not available — AI service (OCR) will not run"
+              echo "WARNING: Docker not available"
             fi
 
-            echo "=== [9/14] Cleaning up old employees + auto-seeded holidays ==="
+            echo "=== [9/16] Cleanup scripts ==="
             npx tsx scripts/cleanup-employees.ts || echo "Cleanup completed (or already clean)"
-            # Remove auto-seeded holidays (HR adds manually now)
             npx tsx scripts/cleanup-holidays.ts || echo "Holiday cleanup skipped"
 
-            echo "=== [10/14] Seeding database ==="
+            echo "=== [10/16] Seeding database ==="
             npx --no-install prisma db seed || echo "Seed completed (or already seeded)"
 
-            echo "=== [11/14] Building frontend ==="
+            echo "=== [11/16] Building frontend ==="
             cd frontend && VITE_API_URL=/api npx vite build && cd ..
 
-            echo "=== [12/14] Updating Nginx config ==="
+            echo "=== [12/16] Semantic versioning + OTA bundle ==="
+
+            # Step A: Read the current live version before any restart.
+            # Querying the running API means git-pull never resets our semver
+            # history (git has "builtin" as the committed manifest version).
+            PREV_VERSION=$(curl -s http://localhost:4000/api/app-updates/latest 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);v=d.get('data',{}).get('version','x');print(v if v and v[:1].isdigit() else '0.0.0')" 2>/dev/null || echo "0.0.0")
+            echo "Previous live version: ${PREV_VERSION}"
+
+            # Step B: Determine semver bump type from the latest commit message.
+            COMMIT_MSG=$(git log -1 --pretty=%B)
+            COMMIT_SUBJECT=$(git log -1 --pretty=%s | head -c 72 | tr -cd '[:alnum:] .:_()-')
+            if echo "$COMMIT_MSG" | grep -qiE "(BREAKING CHANGE|feat!|fix!|refactor!)"; then
+              BUMP_TYPE="major"
+            elif echo "$COMMIT_MSG" | grep -qE "^feat[:(]"; then
+              BUMP_TYPE="minor"
+            else
+              BUMP_TYPE="patch"
+            fi
+            echo "Bump type: ${BUMP_TYPE}  (commit: ${COMMIT_SUBJECT})"
+
+            # Step C: Compute new semver (single-line python3 -c, no heredoc).
+            BUNDLE_VERSION=$(python3 -c "v='${PREV_VERSION}'.split('.'); a,b,c=int(v[0] if len(v)>0 else 0),int(v[1] if len(v)>1 else 0),int(v[2] if len(v)>2 else 0); t='${BUMP_TYPE}'; print(str(a+1)+'.0.0' if t=='major' else (str(a)+'.'+str(b+1)+'.0' if t=='minor' else str(a)+'.'+str(b)+'.'+str(c+1)))")
+            echo "New version: ${BUNDLE_VERSION}"
+
+            # Step D: Create OTA bundle ZIP.
+            # Zip dist/ contents (not the folder itself — Capacitor updater
+            # expects root-level files: index.html, assets/, etc.)
+            mkdir -p app-updates
+            cd frontend/dist
+            zip -r "../../app-updates/bundle-${BUNDLE_VERSION}.zip" . -q
+            cd ../..
+            BUNDLE_SIZE=$(du -sh "app-updates/bundle-${BUNDLE_VERSION}.zip" | cut -f1)
+            echo "Bundle v${BUNDLE_VERSION} created (${BUNDLE_SIZE})"
+
+            # Step E: Write manifest.json (single-line python3 -c, no heredoc).
+            # mandatory=True means ALL platforms show a blocking update modal —
+            # users cannot access the app until they click Update Now.
+            python3 -c "import json; m={'version':'${BUNDLE_VERSION}','url':'https://hr.anistonav.com/app-updates/bundle-${BUNDLE_VERSION}.zip','mandatory':True,'notes':'v${BUNDLE_VERSION} - ${COMMIT_SUBJECT}'}; f=open('app-updates/manifest.json','w'); json.dump(m,f,indent=2); f.close(); print('manifest.json updated')"
+            # Ensure all required directories exist with correct permissions
+            mkdir -p downloads app-updates uploads/ios-builds
+            chmod 755 downloads app-updates
+
+            echo "=== [13/16] Verifying app binaries ==="
+            ls -lh downloads/aniston-hrms.apk 2>/dev/null && echo "✅ Android APK present" || echo "ℹ️  Android APK not yet uploaded (will appear after first successful android build)"
+            ls -lh uploads/ios-builds/*.ipa 2>/dev/null && echo "✅ iOS IPA present" || echo "ℹ️  iOS IPA not yet uploaded"
+            ls -lh uploads/agent/aniston-agent-setup.exe 2>/dev/null && echo "✅ Agent .exe present" || echo "WARNING: Agent installer not found"
+
+            echo "=== [14/16] Updating Nginx config ==="
             sudo cp /home/ubuntu/Aniston-HRMS/deploy/nginx.conf /etc/nginx/sites-available/hr.anistonav.com
             sudo ln -sf /etc/nginx/sites-available/hr.anistonav.com /etc/nginx/sites-enabled/hr.anistonav.com
             sudo nginx -t && sudo systemctl reload nginx || echo "WARNING: Nginx reload failed"
 
-            echo "=== [13/14] Checking uploads directory ==="
+            echo "=== [15/16] Checking uploads directory ==="
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads/agent
-            # Backup storage directories (created by backup service on-demand, but ensure
-            # they exist with correct permissions before first backup runs)
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads/backups
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads/tmp
-            echo "Upload directory layout:"
-            ls -la /home/ubuntu/Aniston-HRMS/uploads/ || true
-            echo "Uploads file count:"
-            find /home/ubuntu/Aniston-HRMS/uploads -type f 2>/dev/null | wc -l || true
 
-            echo "=== [13.5/14] Verify agent installer ==="
-            ls -lh /home/ubuntu/Aniston-HRMS/uploads/agent/aniston-agent-setup.exe 2>/dev/null && echo "Agent installer found." || echo "WARNING: Agent installer not found at uploads/agent/"
-
-            echo "=== [14/15] Setting server timezone to UTC ==="
+            echo "=== [15.5/16] Setting server timezone to UTC ==="
             sudo timedatectl set-timezone UTC || true
             echo "Server time: $(date)"
-            echo "UTC time: $(date -u)"
 
-            echo "=== [15/15] Restarting PM2 ==="
+            echo "=== [16/16] Restarting PM2 ==="
             pm2 restart aniston-hrms
-            echo "=== Waiting for startup ==="
             sleep 5
 
             echo "=== Health checks ==="
-            echo "Backend:"
-            curl -s http://localhost:4000/api/health
+            echo "Backend API:"
+            curl -s http://localhost:4000/api/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('Status:', d.get('data',{}).get('status','?'))" || curl -s http://localhost:4000/api/health
+            echo ""
+            echo "OTA update endpoint:"
+            curl -s http://localhost:4000/api/app-updates/latest | python3 -c "import sys,json; d=json.load(sys.stdin); print('Latest bundle:', d.get('data',{}).get('version','?'))" || echo "Check manually"
             echo ""
             echo "AI Service:"
             curl -s http://localhost:8000/ai/health || echo "Not running (OCR uses fallback)"
             echo ""
-            echo "=== Deploy complete! ==="
+            echo "=== Deploy complete! Bundle v${{ github.run_number }} live. ==="

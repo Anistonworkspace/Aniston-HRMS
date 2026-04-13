@@ -1169,6 +1169,42 @@ export class AttendanceService {
       }
     }
 
+    // Notify HR/Admin users about the pending regularization request
+    try {
+      const employee = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { firstName: true, lastName: true, employeeCode: true, organizationId: true },
+      });
+      if (employee) {
+        const hrUsers = await prisma.user.findMany({
+          where: { organizationId: employee.organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' },
+          select: { email: true },
+        });
+        const dateStr = new Date(record.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+        for (const hr of hrUsers) {
+          if (!hr.email) continue;
+          await enqueueEmail({
+            to: hr.email,
+            subject: `Regularization Request — ${employee.firstName} ${employee.lastName} (${employee.employeeCode})`,
+            template: 'regularization-submitted',
+            context: {
+              employeeName: `${employee.firstName} ${employee.lastName}`,
+              employeeCode: employee.employeeCode,
+              date: dateStr,
+              reason,
+              requestedCheckIn: requestedCheckIn
+                ? new Date(requestedCheckIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                : null,
+              requestedCheckOut: requestedCheckOut
+                ? new Date(requestedCheckOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                : null,
+              reviewUrl: 'https://hr.anistonav.com/attendance',
+            },
+          });
+        }
+      }
+    } catch { /* non-blocking */ }
+
     return reg;
   }
 
@@ -1315,6 +1351,32 @@ export class AttendanceService {
 
       return updatedReg;
     });
+
+    // Notify the employee if the final decision is APPROVED or REJECTED
+    if (finalStatus === 'APPROVED' || finalStatus === 'REJECTED') {
+      try {
+        const empRecord = await prisma.employee.findUnique({
+          where: { id: reg.employeeId },
+          select: { firstName: true, lastName: true, user: { select: { email: true } } },
+        });
+        const empEmail = empRecord?.user?.email;
+        if (empEmail) {
+          const dateStr = new Date(reg.attendance.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+          await enqueueEmail({
+            to: empEmail,
+            subject: `Regularization ${finalStatus === 'APPROVED' ? 'Approved' : 'Rejected'} — ${dateStr}`,
+            template: 'regularization-reviewed',
+            context: {
+              employeeName: empRecord?.firstName,
+              date: dateStr,
+              status: finalStatus,
+              remarks: remarks || '',
+              appUrl: 'https://hr.anistonav.com/attendance',
+            },
+          });
+        }
+      } catch { /* non-blocking */ }
+    }
 
     return updated;
   }

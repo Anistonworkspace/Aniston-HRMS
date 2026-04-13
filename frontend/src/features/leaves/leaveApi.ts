@@ -150,6 +150,28 @@ export const leaveApi = api.injectEndpoints({
       query: (params) => ({ url: '/leaves/all', params }),
       providesTags: ['Leave'],
     }),
+
+    // All employees' leave balances + applied leave summary (HR view)
+    getAllEmployeeLeaveBalances: builder.query<any, { year?: number; search?: string }>({
+      query: (params) => ({ url: '/leaves/employee-balances', params }),
+      providesTags: ['Leave', 'LeaveBalance'],
+    }),
+
+    // Single employee full leave overview: balances + all requests for year
+    getEmployeeLeaveOverview: builder.query<any, { employeeId: string; year?: number }>({
+      query: ({ employeeId, year }) => ({ url: `/leaves/employee-overview/${employeeId}`, params: year ? { year } : {} }),
+      providesTags: (result, error, { employeeId }) => [{ type: 'Leave' as const, id: employeeId }, 'LeaveBalance'],
+    }),
+
+    // Org-level leave settings (working days)
+    getOrgLeaveSettings: builder.query<{ workingDays: string }, void>({
+      query: () => '/leaves/org-settings',
+      providesTags: ['Leave'],
+    }),
+    updateOrgLeaveSettings: builder.mutation<any, { workingDays: string }>({
+      query: (body) => ({ url: '/leaves/org-settings', method: 'PATCH', body }),
+      invalidatesTags: ['Leave'],
+    }),
   }),
 });
 
@@ -180,4 +202,8 @@ export const {
   useUpdateHandoverMutation,
   useGetLeaveAuditQuery,
   useGetAllLeavesQuery,
+  useGetAllEmployeeLeaveBalancesQuery,
+  useGetEmployeeLeaveOverviewQuery,
+  useGetOrgLeaveSettingsQuery,
+  useUpdateOrgLeaveSettingsMutation,
 } = leaveApi;

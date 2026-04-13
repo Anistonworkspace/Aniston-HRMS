@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import AppUpdateGuard from '../features/app-update/AppUpdateGuard';
 import AppShell from '../components/layout/AppShell';
 import ProtectedRoute from './ProtectedRoute';
 
@@ -31,6 +32,8 @@ const JobDetailPage = lazy(() => import('../features/recruitment/JobDetailPage')
 const CandidateDetailPage = lazy(() => import('../features/recruitment/CandidateDetailPage'));
 const PublicApplicationDetailPage = lazy(() => import('../features/recruitment/PublicApplicationDetailPage'));
 const DownloadPage = lazy(() => import('../features/pwa/DownloadPage'));
+const AndroidInstallPage = lazy(() => import('../features/pwa/AndroidInstallPage'));
+const IosInstallPage = lazy(() => import('../features/pwa/IosInstallPage'));
 const ShareTargetPage = lazy(() => import('../features/pwa/ShareTargetPage'));
 const OpenFilePage = lazy(() => import('../features/pwa/OpenFilePage'));
 const RosterPage = lazy(() => import('../features/roster/RosterPage'));
@@ -134,6 +137,7 @@ function PageLoader() {
 export default function AppRouter() {
   return (
     <BrowserRouter>
+      <AppUpdateGuard>
       <Suspense fallback={<PageLoader />}>
         <Routes>
           {/* Public routes */}
@@ -147,6 +151,8 @@ export default function AppRouter() {
           <Route path="/activate/:token" element={<ActivateAccountPage />} />
           <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
           <Route path="/download" element={<DownloadPage />} />
+          <Route path="/download/android" element={<AndroidInstallPage />} />
+          <Route path="/download/ios" element={<IosInstallPage />} />
           {/* PWA OS integrations — no auth required */}
           <Route path="/share-target" element={<ShareTargetPage />} />
           <Route path="/open-file" element={<OpenFilePage />} />
@@ -216,6 +222,7 @@ export default function AppRouter() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Suspense>
+      </AppUpdateGuard>
     </BrowserRouter>
   );
 }

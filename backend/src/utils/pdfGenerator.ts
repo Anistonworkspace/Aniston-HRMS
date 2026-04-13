@@ -30,6 +30,10 @@ interface PayrollRecordForPDF {
     email?: string;
     department?: { name: string } | null;
     designation?: { name: string } | null;
+    bankAccountNumber?: string | null;
+    bankName?: string | null;
+    ifscCode?: string | null;
+    accountHolderName?: string | null;
   };
   payrollRun: {
     month: number;
@@ -82,6 +86,14 @@ export function generateSalarySlipPDF(record: PayrollRecordForPDF): Promise<Buff
     doc.moveTo(leftCol, y + 12).lineTo(leftCol + pageWidth, y + 12).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
     y += 20;
 
+    // Mask account number: show only last 4 digits
+    const maskedAccount = record.employee.bankAccountNumber
+      ? `${'•'.repeat(Math.max(0, record.employee.bankAccountNumber.length - 4))}${record.employee.bankAccountNumber.slice(-4)}`
+      : 'Not provided';
+    const bankLabel = record.employee.bankName
+      ? `${maskedAccount} (${record.employee.bankName})`
+      : maskedAccount;
+
     const empDetails = [
       ['Employee Name', `${record.employee.firstName} ${record.employee.lastName}`],
       ['Employee Code', record.employee.employeeCode],
@@ -89,6 +101,8 @@ export function generateSalarySlipPDF(record: PayrollRecordForPDF): Promise<Buff
       ['Designation', record.employee.designation?.name || 'N/A'],
       ['Working Days', `${record.presentDays} / ${record.workingDays}`],
       ['LOP Days', `${record.lopDays}`],
+      ['Bank Account', bankLabel],
+      ['IFSC Code', record.employee.ifscCode || 'Not provided'],
     ];
 
     for (let i = 0; i < empDetails.length; i += 2) {

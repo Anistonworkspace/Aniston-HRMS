@@ -27,6 +27,7 @@ model Organization {
   settings  Json?
   adminNotificationEmail String?
   payrollEmail           String?  // Accounts department email for payroll reports
+  workingDays            String   @default("1,2,3,4,5,6") // Comma-separated day numbers: 0=Sun,1=Mon,...,6=Sat
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -49,7 +50,8 @@ model Organization {
   letters           Letter[]
   letterAssignments LetterAssignment[]
   databaseBackups   DatabaseBackup[]
-  deletionRequests  EmployeeDeletionRequest[]
+  deletionRequests         EmployeeDeletionRequest[]
+  payrollDeletionRequests  PayrollDeletionRequest[]
 }
 
 model User {
@@ -114,6 +116,13 @@ model Employee {
   address          Json?
   emergencyContact Json?
   fatherName       String?
+
+  // Bank Details (salary account)
+  bankAccountNumber   String?
+  bankName            String?
+  ifscCode            String?
+  accountHolderName   String?
+  accountType         String?       // SAVINGS / CURRENT
 
   // KYC extracted (auto-filled from verified documents)
   panNumber        String?          // From verified PAN document OCR
@@ -224,6 +233,7 @@ enum EmployeeStatus {
   ONBOARDING
   ACTIVE
   PROBATION
+  INTERN
   NOTICE_PERIOD
   SUSPENDED
   INACTIVE
@@ -729,10 +739,14 @@ model LeaveType {
   gender         Gender?
 
   // Leave policy configuration
-  applicableTo       String   @default("ALL")    // "ALL", "PROBATION", "CONFIRMED"
+  applicableTo           String   @default("ALL")    // "ALL", "PROBATION", "CONFIRMED", "INTERN", "NOTICE_PERIOD", "ONBOARDING"
+  applicableToRole       String?                      // null = all roles; "EMPLOYEE", "MANAGER", "HR", "ADMIN", "INTERN"
+  applicableToEmployeeIds String?                     // JSON array of specific employee IDs — if set, overrides status/role filters
   maxPerMonth        Int?                         // Max leaves per month (null = unlimited)
   allowWeekendAdjacent Boolean @default(true)     // Can apply adjacent to weekends
   allowSameDay       Boolean  @default(false)     // Can apply on same day (e.g. sick leave)
+  allowPastDates     Boolean  @default(false)     // Allow applying for past dates
+  maxAdvanceDays     Int?                         // Max days ahead leave can be applied (null = unlimited)
   probationMonths    Int      @default(3)         // Probation duration in months
   requiresApproval   Boolean  @default(true)      // Needs manager/HR approval
   isActive           Boolean  @default(true)      // Soft toggle
@@ -1044,10 +1058,34 @@ model PayrollRun {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  records     PayrollRecord[]
-  adjustments PayrollAdjustment[]
+  records          PayrollRecord[]
+  adjustments      PayrollAdjustment[]
+  deletionRequests PayrollDeletionRequest[]
 
   @@unique([month, year, organizationId])
+}
+
+model PayrollDeletionRequest {
+  id              String    @id @default(uuid())
+  payrollRunId    String?                          // nullable after run is deleted
+  organizationId  String
+  requestedById   String                           // User.id of the HR who requested
+  reason          String
+  notes           String?
+  status          String    @default("PENDING")    // PENDING | APPROVED | REJECTED
+  rejectionReason String?
+  reviewedById    String?                          // SuperAdmin User.id
+  reviewedAt      DateTime?
+  runMonth        Int                              // snapshot (kept after deletion)
+  runYear         Int
+  runLabel        String                           // e.g. "January 2025"
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  payrollRun   PayrollRun?   @relation(fields: [payrollRunId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
 }
 
 enum PayrollRunStatus {

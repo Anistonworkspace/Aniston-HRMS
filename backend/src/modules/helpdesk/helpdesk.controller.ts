@@ -53,7 +53,7 @@ export class HelpdeskController {
   async addComment(req: Request, res: Response, next: NextFunction) {
     try {
       const { content, isInternal } = addCommentSchema.parse(req.body);
-      const comment = await helpdeskService.addComment(req.params.id, req.user!.userId, content, isInternal, req.user!.organizationId);
+      const comment = await helpdeskService.addComment(req.params.id, req.user!.userId, content, isInternal, req.user!.organizationId, req.user!.role);
       res.status(201).json({ success: true, data: comment });
     } catch (err) { next(err); }
   }

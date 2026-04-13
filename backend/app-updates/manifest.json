@@ -1,0 +1,6 @@
+{
+  "version": "builtin",
+  "url": null,
+  "mandatory": false,
+  "notes": "No OTA bundle deployed yet. First bundle is created automatically on next CI/CD push."
+}

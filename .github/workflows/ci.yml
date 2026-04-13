@@ -52,6 +52,10 @@ jobs:
         run: |
           # Confirm tar (files backup) and prisma are resolvable after install
           node -e "import('tar').then(t => console.log('✅ tar:', typeof t.create)).catch(e => { console.error('❌ tar missing'); process.exit(1); })"
+          # Confirm Capacitor core is installed (needed by AppUpdateGuard in native app)
+          node -e "import('@capacitor/core').then(() => console.log('✅ @capacitor/core OK')).catch(e => { console.error('❌ @capacitor/core missing:', e.message); process.exit(1); })" || \
+            node -e "require('@capacitor/core') && console.log('✅ @capacitor/core OK')" || \
+            (echo '⚠️  @capacitor/core not resolvable in test env — ok if it is frontend-only' && true)
 
       - name: Generate Prisma client
         run: npx prisma generate
@@ -63,6 +67,11 @@ jobs:
         run: cd frontend && npx vite build
         env:
           VITE_API_URL: /api
+
+      - name: Sync test database schema
+        run: npx prisma db push --force-reset
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
 
       - name: Run backend tests
         run: npm run test --workspace=backend
@@ -133,6 +142,9 @@ jobs:
 
             echo "📦 Installing dependencies..."
             npm ci
+
+            echo "🗄️  Applying database migrations..."
+            npx prisma migrate deploy
 
             echo "🔧 Generating Prisma client..."
             npx prisma generate

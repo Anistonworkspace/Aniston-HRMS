@@ -450,6 +450,9 @@ function AttendancePersonalView() {
   const [liveTime, setLiveTime] = useState(new Date());
   const { download: downloadReport, downloading: reportDownloading } = useAuthDownload();
   const [locationStatus, setLocationStatus] = useState<'checking' | 'granted' | 'denied' | 'prompt'>('checking');
+
+  // Desktop users cannot mark attendance — only mobile app is allowed
+  const isDesktop = !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const [notificationStatus, setNotificationStatus] = useState<'checking' | 'granted' | 'denied' | 'default'>('checking');
   const [requestingLocation, setRequestingLocation] = useState(false);
   const [requestingNotification, setRequestingNotification] = useState(false);
@@ -793,8 +796,9 @@ function AttendancePersonalView() {
   // Detect work mode from today's status
   const workMode = today?.workMode || 'OFFICE';
 
+  // Desktop users skip all location gates — they see status-only UI
   // BLOCKING: Location permission denied — cannot use attendance at all
-  if (locationStatus === 'denied') {
+  if (!isDesktop && locationStatus === 'denied') {
     return (
       <div className="page-container">
         <div className="min-h-[70vh] flex items-center justify-center">
@@ -831,8 +835,8 @@ function AttendancePersonalView() {
     );
   }
 
-  // BLOCKING: Location permission not yet asked — prompt user to grant
-  if (locationStatus === 'prompt' || locationStatus === 'checking') {
+  // BLOCKING: Location permission not yet asked — prompt user to grant (mobile only)
+  if (!isDesktop && (locationStatus === 'prompt' || locationStatus === 'checking')) {
     return (
       <div className="page-container">
         <div className="min-h-[70vh] flex items-center justify-center">
@@ -879,12 +883,12 @@ function AttendancePersonalView() {
           </button>
         </div>
       )}
-      <h1 className="text-2xl font-display font-bold text-gray-900 mb-4">{t('nav.attendance')}</h1>
+      <h1 className="text-xl font-display font-bold text-gray-900 mb-3">{t('nav.attendance')}</h1>
 
       {/* Work Mode Indicator */}
       {(workMode === 'FIELD_SALES' || workMode === 'PROJECT_SITE') && (
-        <div className="mb-6">
-          <div className="flex gap-2 mb-4">
+        <div className="mb-4">
+          <div className="flex gap-2 mb-3">
             {['OFFICE', 'FIELD_SALES', 'PROJECT_SITE'].map(mode => (
               <span
                 key={mode}
@@ -900,41 +904,41 @@ function AttendancePersonalView() {
       )}
 
       {/* Office Mode (default) */}
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Left: Clock-in widget */}
-        <div className="lg:col-span-1 space-y-4">
+        <div className="md:col-span-1 space-y-3">
           {/* Time & Status Card */}
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="layer-card p-6 text-center"
+            className="layer-card p-5 text-center"
           >
             {/* Live time */}
-            <p className="text-4xl font-mono font-bold text-gray-900 mb-1" data-mono>
+            <p className="text-3xl font-mono font-bold text-gray-900 mb-0.5" data-mono>
               {liveTime.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' })}
             </p>
-            <p className="text-sm text-gray-400 mb-6">{formatDate(new Date(), 'long')}</p>
+            <p className="text-xs text-gray-400 mb-4">{formatDate(new Date(), 'long')}</p>
 
             {/* Status badge */}
             {today?.isCheckedIn && !today?.isCheckedOut && (
-              <div className="mb-4">
+              <div className="mb-3">
                 <span className="badge badge-success text-sm px-3 py-1">
                   {today.isOnBreak ? '☕ On Break' : '✅ Checked In'}
                 </span>
-                <p className="text-3xl font-mono font-bold text-brand-600 mt-3" data-mono>
+                <p className="text-2xl font-mono font-bold text-brand-600 mt-2" data-mono>
                   {getElapsedTime()}
                 </p>
-                <p className="text-xs text-gray-400 mt-1">Time elapsed</p>
+                <p className="text-xs text-gray-400 mt-0.5">Time elapsed</p>
               </div>
             )}
 
             {today?.isCheckedOut && (
-              <div className="mb-4">
+              <div className="mb-3">
                 <span className="badge badge-neutral text-sm px-3 py-1">{t('attendance.dayComplete')}</span>
-                <p className="text-2xl font-mono font-bold text-gray-600 mt-3" data-mono>
+                <p className="text-xl font-mono font-bold text-gray-600 mt-2" data-mono>
                   {Number(today.record?.totalHours || 0).toFixed(1)}h
                 </p>
-                <p className="text-xs text-gray-400 mt-1">{t('attendance.totalHours')}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{t('attendance.totalHours')}</p>
               </div>
             )}
 
@@ -950,19 +954,18 @@ function AttendancePersonalView() {
                     next.setDate(d.getDate() + i);
                     const key = next.toISOString().split('T')[0];
                     const isHoliday = monthData?.holidays?.some((h: any) => new Date(h.date).toISOString().split('T')[0] === key);
-                    // Check against all configured week-off days (default: Sunday only)
-                    const weekOffs = new Set(today?.weekOffDays || [0]); // 0=Sun
+                    const weekOffs = new Set(today?.weekOffDays || [0]);
                     if (!weekOffs.has(next.getDay()) && !isHoliday) return next;
                   }
                   return null;
                 })();
                 return (
-                  <div className="mb-4 p-3 bg-violet-50 rounded-xl border border-violet-200 text-center">
+                  <div className="mb-3 p-2.5 bg-violet-50 rounded-xl border border-violet-200 text-center">
                     <p className="text-sm font-semibold text-violet-800">
                       Today is {todayHoliday.name} — Holiday
                     </p>
-                    <p className="text-xs text-violet-500 mt-1">
-                      Enjoy your day off!{nextWorkday && ` Next working day: ${nextWorkday.toLocaleDateString(locale, { weekday: 'long', month: 'short', day: 'numeric' })}`}
+                    <p className="text-xs text-violet-500 mt-0.5">
+                      Enjoy your day off!{nextWorkday && ` Next: ${nextWorkday.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric' })}`}
                     </p>
                   </div>
                 );
@@ -972,110 +975,132 @@ function AttendancePersonalView() {
 
             {/* Shift info banner */}
             {today?.shift && (
-              <div className="mb-3 p-2.5 bg-blue-50 rounded-lg border border-blue-100">
+              <div className="mb-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
                 <p className="text-xs font-medium text-blue-700">
                   Shift: {today.shift.name} ({today.shift.startTime} – {today.shift.endTime})
                 </p>
               </div>
             )}
             {!today?.shift && today?.hasShift === false && (
-              <div className="mb-3 p-2.5 bg-amber-50 rounded-lg border border-amber-100">
+              <div className="mb-2 p-2 bg-amber-50 rounded-lg border border-amber-100">
                 <p className="text-xs font-medium text-amber-700">
                   No shift assigned — using default schedule
                 </p>
               </div>
             )}
 
-            {/* GPS readiness badge — shown above action buttons so employee knows signal quality */}
-            {(() => {
-              const readiness = gpsReadinessFrom(gpsAccuracy);
-              const badge: Record<GpsReadiness, { dot: string; label: string; text: string }> = {
-                acquiring: { dot: 'bg-gray-400 animate-pulse', label: 'Acquiring GPS…',   text: 'text-gray-500' },
-                poor:      { dot: 'bg-red-400 animate-pulse',  label: `GPS weak ±${Math.round(gpsAccuracy ?? 999)}m`, text: 'text-red-500' },
-                fair:      { dot: 'bg-amber-400',              label: `GPS fair ±${Math.round(gpsAccuracy!)}m`,       text: 'text-amber-600' },
-                good:      { dot: 'bg-emerald-500',            label: `GPS ready ±${Math.round(gpsAccuracy!)}m`,      text: 'text-emerald-600' },
-              };
-              const b = badge[readiness];
-              return (
-                <div className={`flex items-center justify-center gap-1.5 text-xs font-medium mb-3 ${b.text}`}>
-                  <span className={`w-2 h-2 rounded-full ${b.dot}`} />
-                  {b.label}
+            {/* Desktop: no marking allowed — show app download prompt */}
+            {isDesktop ? (
+              <div className="mt-2 p-3 bg-indigo-50 rounded-xl border border-indigo-100 text-left">
+                <p className="text-xs font-semibold text-indigo-800 mb-1 flex items-center gap-1">
+                  <MapPin size={11} /> Mark attendance on the app
+                </p>
+                <p className="text-[11px] text-indigo-600 leading-relaxed mb-2">
+                  Check-in and check-out is only available on the Aniston HRMS mobile app.
+                </p>
+                <div className="flex gap-2">
+                  <a href="/download/android" className="flex-1 text-center text-[11px] font-semibold bg-indigo-600 text-white py-1.5 rounded-lg hover:bg-indigo-700 transition-colors">
+                    Android App
+                  </a>
+                  <a href="/download/ios" className="flex-1 text-center text-[11px] font-semibold bg-gray-800 text-white py-1.5 rounded-lg hover:bg-gray-900 transition-colors">
+                    iOS App
+                  </a>
                 </div>
-              );
-            })()}
-
-            {/* Main CTA button */}
-            {!today?.isCheckedIn && !today?.isCheckedOut && (
-              <motion.button
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={handleClockIn}
-                disabled={clockingIn || statusLoading}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-semibold text-lg flex items-center justify-center gap-3 transition-colors disabled:opacity-50 shadow-lg shadow-emerald-200"
-              >
-                {clockingIn ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <LogIn size={22} />
-                )}
-                {t('attendance.checkIn')}
-              </motion.button>
-            )}
-
-            {/* Re-clock-in button (after accidental clock-out) */}
-            {today?.isCheckedOut && (
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleClockIn}
-                disabled={clockingIn}
-                className="w-full bg-amber-500 hover:bg-amber-400 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 mt-3"
-              >
-                {clockingIn ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <LogIn size={20} />
-                )}
-                {t('dashboard.reCheckIn')}
-              </motion.button>
-            )}
-
-            {today?.isCheckedIn && !today?.isCheckedOut && (
-              <div className="space-y-3">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleClockOut}
-                  disabled={clockingOut}
-                  className="w-full bg-red-500 hover:bg-red-400 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                >
-                  {clockingOut ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <LogOut size={20} />
-                  )}
-                  {t('attendance.checkOut')}
-                </motion.button>
-
-                <button
-                  onClick={handleBreak}
-                  aria-label={today.isOnBreak ? t('attendance.endBreak') : t('attendance.startBreak')}
-                  className={cn(
-                    'w-full py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors',
-                    today.isOnBreak
-                      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                      : 'bg-surface-2 text-gray-600 hover:bg-surface-3'
-                  )}
-                >
-                  {today.isOnBreak ? <Square size={16} /> : <Coffee size={16} />}
-                  {today.isOnBreak ? t('attendance.endBreak') : t('attendance.startBreak')}
-                </button>
               </div>
+            ) : (
+              <>
+                {/* GPS readiness badge — shown above action buttons so employee knows signal quality */}
+                {(() => {
+                  const readiness = gpsReadinessFrom(gpsAccuracy);
+                  const badge: Record<GpsReadiness, { dot: string; label: string; text: string }> = {
+                    acquiring: { dot: 'bg-gray-400 animate-pulse', label: 'Acquiring GPS…',   text: 'text-gray-500' },
+                    poor:      { dot: 'bg-red-400 animate-pulse',  label: `GPS weak ±${Math.round(gpsAccuracy ?? 999)}m`, text: 'text-red-500' },
+                    fair:      { dot: 'bg-amber-400',              label: `GPS fair ±${Math.round(gpsAccuracy!)}m`,       text: 'text-amber-600' },
+                    good:      { dot: 'bg-emerald-500',            label: `GPS ready ±${Math.round(gpsAccuracy!)}m`,      text: 'text-emerald-600' },
+                  };
+                  const b = badge[readiness];
+                  return (
+                    <div className={`flex items-center justify-center gap-1.5 text-xs font-medium mb-3 ${b.text}`}>
+                      <span className={`w-2 h-2 rounded-full ${b.dot}`} />
+                      {b.label}
+                    </div>
+                  );
+                })()}
+
+                {/* Main CTA button */}
+                {!today?.isCheckedIn && !today?.isCheckedOut && (
+                  <motion.button
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={handleClockIn}
+                    disabled={clockingIn || statusLoading}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-semibold text-lg flex items-center justify-center gap-3 transition-colors disabled:opacity-50 shadow-lg shadow-emerald-200"
+                  >
+                    {clockingIn ? (
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <LogIn size={22} />
+                    )}
+                    {t('attendance.checkIn')}
+                  </motion.button>
+                )}
+
+                {/* Re-clock-in button (after accidental clock-out) */}
+                {today?.isCheckedOut && (
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleClockIn}
+                    disabled={clockingIn}
+                    className="w-full bg-amber-500 hover:bg-amber-400 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 mt-3"
+                  >
+                    {clockingIn ? (
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <LogIn size={20} />
+                    )}
+                    {t('dashboard.reCheckIn')}
+                  </motion.button>
+                )}
+
+                {today?.isCheckedIn && !today?.isCheckedOut && (
+                  <div className="space-y-3">
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleClockOut}
+                      disabled={clockingOut}
+                      className="w-full bg-red-500 hover:bg-red-400 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                    >
+                      {clockingOut ? (
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <LogOut size={20} />
+                      )}
+                      {t('attendance.checkOut')}
+                    </motion.button>
+
+                    <button
+                      onClick={handleBreak}
+                      aria-label={today.isOnBreak ? t('attendance.endBreak') : t('attendance.startBreak')}
+                      className={cn(
+                        'w-full py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors',
+                        today.isOnBreak
+                          ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                          : 'bg-surface-2 text-gray-600 hover:bg-surface-3'
+                      )}
+                    >
+                      {today.isOnBreak ? <Square size={16} /> : <Coffee size={16} />}
+                      {today.isOnBreak ? t('attendance.endBreak') : t('attendance.startBreak')}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Work mode indicator */}
             {today?.workMode && (
-              <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-gray-400">
+              <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-gray-400">
                 <MapPin size={12} />
                 {today.workMode.replace('_', ' ')}
               </div>
@@ -1083,7 +1108,7 @@ function AttendancePersonalView() {
 
             {/* Geofence violation warning */}
             {today?.geofenceViolation && (
-              <div className="mt-3 p-2.5 bg-red-50 rounded-lg border border-red-100">
+              <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-100">
                 <p className="text-xs font-medium text-red-600 flex items-center gap-1">
                   <Shield size={12} /> {t('attendance.outsideGeofence')}
                 </p>
@@ -1097,10 +1122,10 @@ function AttendancePersonalView() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className="layer-card p-5"
+              className="layer-card p-4"
             >
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-700">{t('attendance.thisMonth')}</h3>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-semibold text-gray-700">{t('attendance.thisMonth')}</h3>
                 <button
                   onClick={() => {
                     const m = currentMonth.getMonth() + 1;
@@ -1108,13 +1133,13 @@ function AttendancePersonalView() {
                     downloadReport(`/attendance/my/report?month=${m}&year=${y}`, `my-attendance-${m}-${y}.xlsx`);
                   }}
                   disabled={!!reportDownloading}
-                  className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium"
+                  className="flex items-center gap-1 text-[11px] text-brand-600 hover:text-brand-700 font-medium"
                 >
-                  <Download size={12} />
-                  {reportDownloading ? 'Downloading...' : 'Download Report'}
+                  <Download size={11} />
+                  {reportDownloading ? 'Downloading...' : 'Download'}
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-1.5">
                 <SummaryItem label={t('attendance.present')} value={monthData.summary.present} color="text-emerald-600" />
                 <SummaryItem label={t('attendance.absent')} value={monthData.summary.absent} color="text-red-500" />
                 <SummaryItem label={t('attendance.halfDay')} value={monthData.summary.halfDay} color="text-amber-500" />
@@ -1131,54 +1156,55 @@ function AttendancePersonalView() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="lg:col-span-2 layer-card p-6"
+          className="md:col-span-2 layer-card p-4"
         >
           {/* Month navigation */}
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-lg font-display font-semibold text-gray-800 flex items-center gap-2">
-              <CalendarIcon size={18} className="text-brand-500" />
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-display font-semibold text-gray-800 flex items-center gap-1.5">
+              <CalendarIcon size={14} className="text-brand-500" />
               {monthName}
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <button
                 onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
                 aria-label={t('common.previousPage')}
-                className="p-2 rounded-lg hover:bg-surface-2 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-surface-2 transition-colors"
               >
-                <ChevronLeft size={18} />
+                <ChevronLeft size={14} />
               </button>
               <button
                 onClick={() => setCurrentMonth(new Date())}
-                className="text-sm text-brand-600 px-3 py-1.5 rounded-lg hover:bg-brand-50 transition-colors font-medium"
+                className="text-xs text-brand-600 px-2.5 py-1 rounded-lg hover:bg-brand-50 transition-colors font-medium"
               >
                 Today
               </button>
               <button
                 onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
                 aria-label={t('common.nextPage')}
-                className="p-2 rounded-lg hover:bg-surface-2 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-surface-2 transition-colors"
               >
-                <ChevronRight size={18} />
+                <ChevronRight size={14} />
               </button>
             </div>
           </div>
 
           {/* Day headers */}
-          <div className="grid grid-cols-7 gap-1 mb-1">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-              <div key={day} className="text-center text-xs font-semibold text-gray-400 py-2">
+          <div className="grid grid-cols-7 gap-0.5 mb-0.5">
+            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
+              <div key={i} className="text-center text-[10px] font-semibold text-gray-400 py-1">
                 {day}
               </div>
             ))}
           </div>
 
           {/* Calendar grid */}
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-7 gap-0.5">
             {calendarDays.map((day, idx) => (
               <div
                 key={idx}
                 className={cn(
-                  'aspect-square rounded-lg p-1.5 flex flex-col items-center justify-center text-sm transition-colors relative',
+                  'rounded-md p-1 flex flex-col items-center justify-center transition-colors relative',
+                  'min-h-[36px]',
                   day.date === 0 && 'invisible',
                   day.isToday && 'ring-2 ring-brand-500 ring-offset-1',
                   day.status === 'PRESENT' && 'bg-emerald-50',
@@ -1192,7 +1218,7 @@ function AttendancePersonalView() {
                 )}
               >
                 <span className={cn(
-                  'font-medium',
+                  'text-xs font-medium leading-none',
                   day.isToday ? 'text-brand-600' : 'text-gray-700',
                   day.status === 'WEEKEND' && 'text-gray-400',
                 )}>
@@ -1200,14 +1226,14 @@ function AttendancePersonalView() {
                 </span>
                 {day.status && day.date > 0 && (
                   <div className="flex items-center gap-0.5 mt-0.5">
-                    <div className={cn('w-1.5 h-1.5 rounded-full', STATUS_COLORS[day.status])} />
+                    <div className={cn('w-1 h-1 rounded-full', STATUS_COLORS[day.status])} />
                     {day.record?.geofenceViolation && (
-                      <Flag size={8} className="text-red-500" aria-label="Outside geofence" />
+                      <Flag size={6} className="text-red-500" aria-label="Outside geofence" />
                     )}
                   </div>
                 )}
                 {day.record?.totalHours && (
-                  <span className="text-[9px] font-mono text-gray-400 mt-0.5" data-mono>
+                  <span className="text-[8px] font-mono text-gray-400 leading-none mt-0.5 hidden sm:block" data-mono>
                     {Number(day.record.totalHours).toFixed(1)}h
                   </span>
                 )}
@@ -1216,7 +1242,7 @@ function AttendancePersonalView() {
           </div>
 
           {/* Legend */}
-          <div className="flex flex-wrap gap-4 mt-5 pt-4 border-t border-gray-100">
+          <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100">
             {[
               { labelKey: 'attendance.present', color: 'bg-emerald-500' },
               { labelKey: 'attendance.absent', color: 'bg-red-400' },
@@ -1226,14 +1252,14 @@ function AttendancePersonalView() {
               { labelKey: 'attendance.onLeave', color: 'bg-purple-400' },
               { labelKey: 'attendance.wfh', color: 'bg-teal-400' },
             ].map((item) => (
-              <div key={item.labelKey} className="flex items-center gap-1.5">
-                <div className={cn('w-2.5 h-2.5 rounded-full', item.color)} />
-                <span className="text-xs text-gray-500">{t(item.labelKey)}</span>
+              <div key={item.labelKey} className="flex items-center gap-1">
+                <div className={cn('w-2 h-2 rounded-full flex-shrink-0', item.color)} />
+                <span className="text-[10px] text-gray-500">{t(item.labelKey)}</span>
               </div>
             ))}
-            <div className="flex items-center gap-1.5">
-              <Flag size={10} className="text-red-500" />
-              <span className="text-xs text-gray-500">{t('attendance.outsideGeofence')}</span>
+            <div className="flex items-center gap-1">
+              <Flag size={8} className="text-red-500 flex-shrink-0" />
+              <span className="text-[10px] text-gray-500">{t('attendance.outsideGeofence')}</span>
             </div>
           </div>
         </motion.div>
@@ -1244,7 +1270,7 @@ function AttendancePersonalView() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="layer-card p-6 mt-6"
+        className="layer-card p-4 mt-4"
       >
         <SelfServiceReport />
       </motion.div>
@@ -1254,9 +1280,9 @@ function AttendancePersonalView() {
 
 function SummaryItem({ label, value, color }: { label: string; value: number | string; color: string }) {
   return (
-    <div className="text-center py-2 px-2 bg-surface-2 rounded-lg">
-      <p className={cn('text-lg font-bold font-mono', color)} data-mono>{value}</p>
-      <p className="text-xs text-gray-400">{label}</p>
+    <div className="text-center py-1.5 px-1 bg-surface-2 rounded-lg">
+      <p className={cn('text-sm font-bold font-mono', color)} data-mono>{value}</p>
+      <p className="text-[10px] text-gray-400 leading-tight mt-0.5">{label}</p>
     </div>
   );
 }

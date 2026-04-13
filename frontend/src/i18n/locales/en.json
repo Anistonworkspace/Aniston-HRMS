@@ -553,7 +553,7 @@
     "backOnline": "Back online",
     "limitedAccess": "You are in <strong>limited access mode</strong>. Only specific features are available. Contact HR for details.",
     "sessionExpiring": "Session Expiring Soon",
-    "sessionExpiryMessage": "Your session will expire in 60 seconds due to inactivity. Do you want to stay logged in?",
+    "sessionExpiryMessage": "Your session will expire in 2 minutes due to inactivity. Do you want to stay logged in?",
     "stayLoggedIn": "Stay Logged In",
     "hrRecruitmentAssistant": "HR Recruitment Assistant",
     "adminAssistant": "Admin Assistant",

@@ -704,7 +704,12 @@ export class PayrollService {
       where: { payrollRunId: runId },
       include: {
         employee: {
-          select: { firstName: true, lastName: true, employeeCode: true, department: { select: { name: true } } },
+          select: {
+            firstName: true, lastName: true, employeeCode: true,
+            department: { select: { name: true } },
+            bankAccountNumber: true, bankName: true, ifscCode: true,
+            accountHolderName: true, accountType: true,
+          },
         },
       },
       orderBy: { employee: { firstName: 'asc' } },
@@ -723,6 +728,8 @@ export class PayrollService {
             firstName: true, lastName: true, employeeCode: true, email: true,
             department: { select: { name: true } },
             designation: { select: { name: true } },
+            bankAccountNumber: true, bankName: true, ifscCode: true,
+            accountHolderName: true, accountType: true,
           },
         },
         payrollRun: { select: { month: true, year: true } },

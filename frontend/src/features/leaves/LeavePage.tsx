@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CalendarDays, Plus, X, Clock, CheckCircle, XCircle, AlertCircle,
   Search, FileText, ThumbsUp, ThumbsDown, Pencil, Trash2, Loader2,
+  Users, ChevronRight, TrendingUp, UserCheck, Info,
 } from 'lucide-react';
+import { useGetEmployeesQuery } from '../employee/employeeApi';
 import {
   useGetLeaveBalancesQuery,
   useGetLeaveTypesQuery,
@@ -21,6 +23,10 @@ import {
   useBulkCreateHolidaysMutation,
   useDeleteHolidayMutation,
   useGetHolidaySuggestionsQuery,
+  useGetAllEmployeeLeaveBalancesQuery,
+  useGetEmployeeLeaveOverviewQuery,
+  useGetOrgLeaveSettingsQuery,
+  useUpdateOrgLeaveSettingsMutation,
 } from './leaveApi';
 import { useGetPendingRegularizationsQuery, useHandleRegularizationMutation } from '../attendance/attendanceApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
@@ -75,7 +81,7 @@ export default function LeavePage() {
 
 function LeaveManagementView() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'regularizations'>('approvals');
+  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'regularizations' | 'employee-balances' | 'employee-leaves'>('approvals');
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -286,6 +292,31 @@ function LeaveManagementView() {
           )}
         >
           {t('attendance.regularizations')}
+        </button>
+        <button
+          role="tab" aria-selected={activeTab === 'employee-balances'}
+          onClick={() => setActiveTab('employee-balances')}
+          className={cn(
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+            activeTab === 'employee-balances'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          )}
+        >
+          Employee Balances
+        </button>
+        <button
+          role="tab" aria-selected={activeTab === 'employee-leaves'}
+          onClick={() => setActiveTab('employee-leaves')}
+          className={cn(
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5',
+            activeTab === 'employee-leaves'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          )}
+        >
+          <Users size={14} />
+          Employee Leaves
         </button>
       </div>
 
@@ -518,6 +549,9 @@ function LeaveManagementView() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
         >
+          {/* Org Working Days Settings */}
+          <OrgWorkingDaysCard />
+
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm text-gray-500">{leaveTypes.length} leave types configured</p>
             <motion.button
@@ -606,6 +640,10 @@ function LeaveManagementView() {
                     )}
                     <span>Same-day: <span className="text-gray-600 font-medium">{lt.allowSameDay ? 'Yes' : 'No'}</span></span>
                     <span>Wknd adj: <span className="text-gray-600 font-medium">{lt.allowWeekendAdjacent ? 'Yes' : 'No'}</span></span>
+                    {lt.allowPastDates && <span>Past dates: <span className="text-gray-600 font-medium">Allowed</span></span>}
+                    {lt.maxAdvanceDays != null && lt.maxAdvanceDays > 0 && (
+                      <span>Max advance: <span className="text-gray-600 font-medium">{lt.maxAdvanceDays}d</span></span>
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -619,6 +657,12 @@ function LeaveManagementView() {
 
       {/* Regularizations Tab */}
       {activeTab === 'regularizations' && <RegularizationApprovalTab />}
+
+      {/* Employee Balances Tab */}
+      {activeTab === 'employee-balances' && <EmployeeBalancesTab />}
+
+      {/* Employee Leaves Tab */}
+      {activeTab === 'employee-leaves' && <EmployeeOverviewTab />}
 
       {/* Create/Edit Leave Type Modal */}
       <AnimatePresence>
@@ -637,6 +681,103 @@ function LeaveManagementView() {
           : <HRReviewPanel leaveId={reviewLeaveId} onClose={() => setReviewLeaveId(null)} />
       )}
     </div>
+  );
+}
+
+/* =============================================================================
+   EMPLOYEE BALANCES TAB
+   ============================================================================= */
+
+function EmployeeBalancesTab() {
+  const [search, setSearch] = useState('');
+  const [year, setYear] = useState(new Date().getFullYear());
+  const { data, isLoading } = useGetAllEmployeeLeaveBalancesQuery({ year, search });
+  const employees: any[] = data?.data || [];
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+      {/* Controls */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search employee..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="input-glass pl-8 pr-3 py-1.5 text-xs w-48"
+          />
+        </div>
+        <select
+          value={year}
+          onChange={(e) => setYear(Number(e.target.value))}
+          className="input-glass text-xs py-1.5 px-3"
+        >
+          {[year - 1, year, year + 1].map((y) => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+        <span className="text-xs text-gray-400 ml-auto">{employees.length} employees</span>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="layer-card p-4 animate-pulse h-14" />
+          ))}
+        </div>
+      ) : employees.length === 0 ? (
+        <div className="layer-card p-12 text-center">
+          <p className="text-sm text-gray-400">No employees found</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-gray-100">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 text-gray-500 text-left">
+                <th className="px-4 py-3 font-medium">Employee</th>
+                <th className="px-4 py-3 font-medium">Department</th>
+                <th className="px-4 py-3 font-medium text-center">Allocated</th>
+                <th className="px-4 py-3 font-medium text-center">Used</th>
+                <th className="px-4 py-3 font-medium text-center">Pending</th>
+                <th className="px-4 py-3 font-medium text-center">Remaining</th>
+                <th className="px-4 py-3 font-medium">Leave Breakdown</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {employees.map((emp: any) => (
+                <tr key={emp.id} className="hover:bg-gray-50/50 transition-colors">
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-gray-800">{emp.firstName} {emp.lastName}</p>
+                    <p className="text-gray-400 font-mono text-[11px]" data-mono>{emp.employeeCode}</p>
+                  </td>
+                  <td className="px-4 py-3 text-gray-500">{emp.department}</td>
+                  <td className="px-4 py-3 text-center font-mono font-medium text-gray-700" data-mono>{emp.totalAllocated}</td>
+                  <td className="px-4 py-3 text-center font-mono font-medium text-amber-600" data-mono>{emp.totalUsed}</td>
+                  <td className="px-4 py-3 text-center font-mono font-medium text-blue-600" data-mono>{emp.totalPending}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`font-mono font-bold text-sm ${emp.totalRemaining < 2 ? 'text-red-600' : emp.totalRemaining < 5 ? 'text-amber-600' : 'text-emerald-600'}`} data-mono>
+                      {emp.totalRemaining}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-1">
+                      {emp.balances?.map((b: any) => (
+                        <span key={b.leaveTypeId} className="inline-flex items-center gap-1 bg-gray-100 text-gray-600 rounded px-1.5 py-0.5 text-[10px]">
+                          <span className="font-medium">{b.leaveTypeCode}</span>
+                          <span className="text-gray-400">:</span>
+                          <span className={b.remaining < 1 ? 'text-red-500 font-bold' : 'text-gray-700'}>{b.remaining}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </motion.div>
   );
 }
 
@@ -981,20 +1122,536 @@ function RegularizationApprovalTab() {
 }
 
 /* =============================================================================
+   EMPLOYEE OVERVIEW TAB
+   ============================================================================= */
+
+function EmployeeOverviewTab() {
+  const [search, setSearch] = useState('');
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
+
+  const { data, isLoading } = useGetAllEmployeeLeaveBalancesQuery({ year, search });
+  const employees: any[] = data?.data || [];
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+      {/* Controls */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search employee..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="input-glass pl-8 pr-3 py-1.5 text-xs w-52"
+          />
+        </div>
+        <select
+          value={year}
+          onChange={(e) => setYear(Number(e.target.value))}
+          className="input-glass text-xs py-1.5 px-3"
+        >
+          {[year - 1, year, year + 1].map((y) => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+        <span className="text-xs text-gray-400 ml-auto">{employees.length} employees — click any row to view full leave details</span>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="layer-card p-4 animate-pulse h-16" />
+          ))}
+        </div>
+      ) : employees.length === 0 ? (
+        <div className="layer-card p-12 text-center">
+          <Users size={36} className="mx-auto text-gray-200 mb-3" />
+          <p className="text-sm text-gray-400">No employees found</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-gray-100">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 text-gray-500 text-left">
+                <th className="px-4 py-3 font-medium">Employee</th>
+                <th className="px-4 py-3 font-medium">Department</th>
+                <th className="px-4 py-3 font-medium text-center">Allocated</th>
+                <th className="px-4 py-3 font-medium text-center">Used</th>
+                <th className="px-4 py-3 font-medium text-center">Pending</th>
+                <th className="px-4 py-3 font-medium text-center">Remaining</th>
+                <th className="px-4 py-3 font-medium text-center">Applied</th>
+                <th className="px-4 py-3 font-medium text-center">Approved</th>
+                <th className="px-4 py-3 font-medium w-8" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {employees.map((emp: any) => (
+                <tr
+                  key={emp.id}
+                  onClick={() => setSelectedEmployee(emp)}
+                  className="hover:bg-brand-50/40 transition-colors cursor-pointer group"
+                >
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-xs font-semibold text-brand-700 shrink-0">
+                        {(emp.firstName?.[0] || '') + (emp.lastName?.[0] || '')}
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-800">{emp.firstName} {emp.lastName}</p>
+                        <p className="text-gray-400 font-mono text-[11px]" data-mono>{emp.employeeCode}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-gray-500">{emp.department}</td>
+                  <td className="px-4 py-3 text-center font-mono font-medium text-gray-700" data-mono>{emp.totalAllocated}</td>
+                  <td className="px-4 py-3 text-center font-mono font-medium text-amber-600" data-mono>{emp.totalUsed}</td>
+                  <td className="px-4 py-3 text-center font-mono font-medium text-blue-600" data-mono>{emp.totalPending}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`font-mono font-bold ${emp.totalRemaining < 2 ? 'text-red-600' : emp.totalRemaining < 5 ? 'text-amber-600' : 'text-emerald-600'}`} data-mono>
+                      {emp.totalRemaining}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center font-mono text-gray-600" data-mono>{emp.leavesApplied}</td>
+                  <td className="px-4 py-3 text-center font-mono text-emerald-600 font-medium" data-mono>{emp.leavesApproved}</td>
+                  <td className="px-4 py-3 text-right">
+                    <ChevronRight size={14} className="text-gray-300 group-hover:text-brand-500 transition-colors" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <AnimatePresence>
+        {selectedEmployee && (
+          <EmployeeLeaveDetailModal
+            employeeId={selectedEmployee.id}
+            employeeName={`${selectedEmployee.firstName} ${selectedEmployee.lastName}`}
+            year={year}
+            onClose={() => setSelectedEmployee(null)}
+          />
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+/* =============================================================================
+   EMPLOYEE LEAVE DETAIL MODAL
+   ============================================================================= */
+
+const STATUS_COLORS: Record<string, string> = {
+  PENDING: 'bg-amber-100 text-amber-700',
+  MANAGER_APPROVED: 'bg-blue-100 text-blue-700',
+  APPROVED: 'bg-emerald-100 text-emerald-700',
+  APPROVED_WITH_CONDITION: 'bg-teal-100 text-teal-700',
+  REJECTED: 'bg-red-100 text-red-700',
+  CANCELLED: 'bg-gray-100 text-gray-500',
+  DRAFT: 'bg-gray-100 text-gray-400',
+};
+
+function EmployeeLeaveDetailModal({
+  employeeId,
+  employeeName,
+  year,
+  onClose,
+}: {
+  employeeId: string;
+  employeeName: string;
+  year: number;
+  onClose: () => void;
+}) {
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [modalYear, setModalYear] = useState(year);
+
+  const { data, isLoading, isFetching } = useGetEmployeeLeaveOverviewQuery(
+    { employeeId, year: modalYear },
+    { refetchOnMountOrArgChange: true }
+  );
+
+  const overview = data?.data;
+  const requests: any[] = overview?.requests || [];
+
+  const filteredRequests = statusFilter === 'ALL'
+    ? requests
+    : statusFilter === 'PENDING'
+    ? requests.filter((r: any) => r.status === 'PENDING' || r.status === 'MANAGER_APPROVED')
+    : requests.filter((r: any) => r.status === statusFilter);
+
+  const filterTabs = [
+    { key: 'ALL', label: 'All', count: requests.length },
+    { key: 'PENDING', label: 'Pending', count: overview?.summary?.leavesPending ?? 0 },
+    { key: 'APPROVED', label: 'Approved', count: overview?.summary?.leavesApproved ?? 0 },
+    { key: 'REJECTED', label: 'Rejected', count: overview?.summary?.leavesRejected ?? 0 },
+    { key: 'CANCELLED', label: 'Cancelled', count: overview?.summary?.leavesCancelled ?? 0 },
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div
+        initial={{ scale: 0.95, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.95, y: 20 }}
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-sm font-semibold text-brand-700">
+              {employeeName.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">{employeeName}</h2>
+              {overview?.employee && (
+                <p className="text-xs text-gray-400">
+                  {overview.employee.employeeCode} · {overview.employee.department} · {overview.employee.designation}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={modalYear}
+              onChange={(e) => setModalYear(Number(e.target.value))}
+              className="input-glass text-xs py-1 px-2"
+            >
+              {[modalYear - 1, modalYear, modalYear + 1].map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+            {isFetching && <Loader2 size={14} className="animate-spin text-brand-400" />}
+            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+              <X size={18} className="text-gray-500" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 size={28} className="animate-spin text-brand-400" />
+            </div>
+          ) : !overview ? (
+            <div className="text-center py-16 text-sm text-gray-400">Failed to load leave data</div>
+          ) : (
+            <>
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-5 pb-0">
+                {[
+                  { label: 'Allocated', value: overview.summary.totalAllocated, color: 'text-gray-700', bg: 'bg-gray-50' },
+                  { label: 'Used', value: overview.summary.totalUsed, color: 'text-amber-600', bg: 'bg-amber-50' },
+                  { label: 'Pending', value: overview.summary.totalPending, color: 'text-blue-600', bg: 'bg-blue-50' },
+                  { label: 'Remaining', value: overview.summary.totalRemaining,
+                    color: overview.summary.totalRemaining < 2 ? 'text-red-600' : overview.summary.totalRemaining < 5 ? 'text-amber-600' : 'text-emerald-600',
+                    bg: overview.summary.totalRemaining < 2 ? 'bg-red-50' : overview.summary.totalRemaining < 5 ? 'bg-amber-50' : 'bg-emerald-50' },
+                ].map((s) => (
+                  <div key={s.label} className={`${s.bg} rounded-xl p-3 text-center`}>
+                    <p className={`text-2xl font-bold font-mono ${s.color}`} data-mono>{s.value}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{s.label} Days</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Leave Type Breakdown */}
+              {overview.balances.length > 0 && (
+                <div className="px-5 pt-4">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Leave Balance by Type</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {overview.balances.map((b: any) => (
+                      <div key={b.leaveTypeId} className="bg-surface-2 rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">{LEAVE_ICONS[b.leaveTypeCode] || '📅'}</span>
+                            <div>
+                              <p className="text-xs font-semibold text-gray-800">{b.leaveTypeName}</p>
+                              <p className="text-[10px] text-gray-400">{b.leaveTypeCode} · {b.isPaid ? 'Paid' : 'Unpaid'}</p>
+                            </div>
+                          </div>
+                          <span className={`text-sm font-bold font-mono ${b.remaining < 1 ? 'text-red-600' : b.remaining < 3 ? 'text-amber-600' : 'text-emerald-600'}`} data-mono>
+                            {b.remaining}
+                          </span>
+                        </div>
+                        {/* Progress bar */}
+                        <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${b.remaining < 1 ? 'bg-red-400' : b.remaining < 3 ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                            style={{ width: `${Math.min(100, (b.remaining / Math.max(b.allocated + b.carriedForward, 1)) * 100)}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between mt-1.5 text-[10px] text-gray-400">
+                          <span>Used: <span className="font-medium text-gray-600">{b.used}</span></span>
+                          {b.carriedForward > 0 && <span>CF: <span className="font-medium text-blue-500">{b.carriedForward}</span></span>}
+                          <span>Alloc: <span className="font-medium text-gray-600">{b.allocated}</span></span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Leave Requests */}
+              <div className="px-5 pt-5 pb-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                    <TrendingUp size={12} /> Leave Requests — {modalYear}
+                  </p>
+                  <span className="text-xs text-gray-400">{overview.summary.totalApprovedDays} approved days total</span>
+                </div>
+
+                {/* Status filter pills */}
+                <div className="flex gap-1.5 flex-wrap mb-3">
+                  {filterTabs.map((ft) => (
+                    <button
+                      key={ft.key}
+                      onClick={() => setStatusFilter(ft.key)}
+                      className={cn(
+                        'px-3 py-1 rounded-full text-xs font-medium transition-colors',
+                        statusFilter === ft.key
+                          ? 'bg-brand-100 text-brand-700 ring-1 ring-brand-300'
+                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                      )}
+                    >
+                      {ft.label}
+                      {ft.count > 0 && (
+                        <span className="ml-1 font-bold">{ft.count}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {filteredRequests.length === 0 ? (
+                  <div className="text-center py-8 text-sm text-gray-400 bg-gray-50 rounded-xl">
+                    No {statusFilter === 'ALL' ? '' : statusFilter.toLowerCase()} leave requests for {modalYear}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredRequests.map((req: any) => (
+                      <div key={req.id} className="border border-gray-100 rounded-xl p-3.5 bg-white hover:bg-gray-50/50 transition-colors">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-medium text-gray-800">
+                                {req.leaveType?.name || 'Leave'}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                {formatDate(req.startDate)}
+                                {req.startDate !== req.endDate && ` – ${formatDate(req.endDate)}`}
+                              </span>
+                              <span className="text-xs font-mono font-medium text-gray-600" data-mono>
+                                {req.days} {req.days === 1 ? 'day' : 'days'}
+                              </span>
+                              {req.isHalfDay && (
+                                <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Half Day</span>
+                              )}
+                            </div>
+                            {req.reason && (
+                              <p className="text-[11px] text-gray-400 mt-1 italic line-clamp-1">"{req.reason}"</p>
+                            )}
+                            {(req.approverRemarks || req.managerRemarks) && (
+                              <p className="text-[11px] text-brand-500 mt-1">
+                                Remark: {req.approverRemarks || req.managerRemarks}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full', STATUS_COLORS[req.status] || 'bg-gray-100 text-gray-500')}>
+                              {req.status.replace(/_/g, ' ')}
+                            </span>
+                            <span className="text-[10px] text-gray-300">
+                              {new Date(req.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* =============================================================================
+   ORG WORKING DAYS SETTINGS CARD
+   ============================================================================= */
+
+const DAY_LABELS = [
+  { value: '0', label: 'Sun' },
+  { value: '1', label: 'Mon' },
+  { value: '2', label: 'Tue' },
+  { value: '3', label: 'Wed' },
+  { value: '4', label: 'Thu' },
+  { value: '5', label: 'Fri' },
+  { value: '6', label: 'Sat' },
+];
+
+function OrgWorkingDaysCard() {
+  const { data: settingsRes, isLoading } = useGetOrgLeaveSettingsQuery();
+  const [updateSettings, { isLoading: saving }] = useUpdateOrgLeaveSettingsMutation();
+  const [selected, setSelected] = useState<Set<string>>(new Set(['1', '2', '3', '4', '5', '6']));
+  const [dirty, setDirty] = useState(false);
+
+  const serverDays = settingsRes?.workingDays || '1,2,3,4,5,6';
+  const serverSet = new Set(serverDays.split(',').map((d: string) => d.trim()));
+
+  // Sync from server when data loads
+  useEffect(() => {
+    if (settingsRes?.workingDays) {
+      setSelected(new Set(settingsRes.workingDays.split(',').map((d: string) => d.trim())));
+      setDirty(false);
+    }
+  }, [settingsRes?.workingDays]);
+
+  const toggle = (val: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(val)) next.delete(val); else next.add(val);
+      return next;
+    });
+    setDirty(true);
+  };
+
+  const handleSave = async () => {
+    const sorted = DAY_LABELS.map((d) => d.value).filter((v) => selected.has(v));
+    if (sorted.length === 0) {
+      toast.error('At least one working day must be selected');
+      return;
+    }
+    try {
+      await updateSettings({ workingDays: sorted.join(',') }).unwrap();
+      toast.success('Working days updated');
+      setDirty(false);
+    } catch {
+      toast.error('Failed to update working days');
+    }
+  };
+
+  const displaySet = dirty ? selected : serverSet;
+
+  return (
+    <div className="layer-card p-5 mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-800">Working Days</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Set which days count as working days for leave calculations and sandwich rules</p>
+        </div>
+        {dirty && (
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="btn-primary text-xs px-3 py-1.5 flex items-center gap-1.5"
+          >
+            {saving && <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+            Save
+          </button>
+        )}
+      </div>
+      {isLoading ? (
+        <div className="flex gap-2">
+          {DAY_LABELS.map((d) => <div key={d.value} className="w-12 h-10 bg-gray-100 rounded-lg animate-pulse" />)}
+        </div>
+      ) : (
+        <div className="flex gap-2 flex-wrap">
+          {DAY_LABELS.map((d) => {
+            const active = displaySet.has(d.value);
+            return (
+              <button
+                key={d.value}
+                type="button"
+                onClick={() => toggle(d.value)}
+                className={`px-3 py-2 rounded-lg text-sm font-medium border transition-all ${
+                  active
+                    ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+                    : 'bg-white text-gray-500 border-gray-200 hover:border-brand-300 hover:text-brand-600'
+                }`}
+              >
+                {d.label}
+              </button>
+            );
+          })}
+          <div className="ml-auto flex items-center text-xs text-gray-400 gap-1.5">
+            <span className="font-medium text-gray-600">{displaySet.size}</span> working day{displaySet.size !== 1 ? 's' : ''} selected
+            <span className="mx-1">·</span>
+            {displaySet.size === 5 && <span className="text-emerald-600 font-medium">5-day week</span>}
+            {displaySet.size === 6 && <span className="text-amber-600 font-medium">6-day week</span>}
+            {displaySet.size === 7 && <span className="text-red-600 font-medium">7-day week</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =============================================================================
+   TOOLTIP COMPONENT
+   ============================================================================= */
+
+function Tip({ text }: { text: string }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <span
+      className="relative inline-flex items-center ml-1 align-middle"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      <span className="w-3.5 h-3.5 rounded-full bg-gray-200 hover:bg-brand-100 text-gray-400 hover:text-brand-600 text-[9px] flex items-center justify-center cursor-help font-bold transition-colors select-none">
+        ?
+      </span>
+      {visible && (
+        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 bg-gray-900 text-white text-[11px] rounded-xl px-3 py-2.5 z-[999] shadow-2xl leading-relaxed pointer-events-none whitespace-normal">
+          {text}
+          <span className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-gray-900" />
+        </span>
+      )}
+    </span>
+  );
+}
+
+/* =============================================================================
    LEAVE TYPE CREATE/EDIT MODAL
    ============================================================================= */
 
 const LEAVE_TYPE_DEFAULTS = {
   name: '', code: '', defaultDays: 0, maxDays: 0, minDays: 0.5,
   isPaid: true, isCarryForward: false, maxCarryForward: 0,
-  applicableTo: 'ALL', noticeDays: 0, maxPerMonth: 0, probationMonths: 0,
+  isActive: true,
+  applicableTo: 'ALL', applicableToRole: '', applicableToEmployeeIds: [] as string[],
+  noticeDays: 0, maxPerMonth: 0, probationMonths: 0,
   allowSameDay: false, allowWeekendAdjacent: true, requiresApproval: true,
+  allowPastDates: false, maxAdvanceDays: 0,
   genderRestriction: '',
 };
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${checked ? 'bg-brand-500' : 'bg-gray-300'}`}
+    >
+      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
+    </button>
+  );
+}
 
 function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose: () => void }) {
   const { t } = useTranslation();
   const isEditing = !!leaveType;
+
   const [formData, setFormData] = useState(() => {
     if (leaveType) {
       return {
@@ -1002,22 +1659,64 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
         code: leaveType.code || '',
         defaultDays: Number(leaveType.defaultBalance) || 0,
         maxDays: Number(leaveType.maxDays) || 0,
-        minDays: Number(leaveType.minDays) || 1,
+        minDays: Number(leaveType.minDays) || 0.5,
         isPaid: leaveType.isPaid ?? true,
         isCarryForward: leaveType.carryForward ?? false,
         maxCarryForward: Number(leaveType.maxCarryForward) || 0,
+        isActive: leaveType.isActive ?? true,
         applicableTo: leaveType.applicableTo || 'ALL',
+        applicableToRole: leaveType.applicableToRole || '',
+        applicableToEmployeeIds: (leaveType.applicableToEmployeeIds as string[]) || [],
         noticeDays: leaveType.noticeDays ?? 0,
         maxPerMonth: leaveType.maxPerMonth ?? 0,
         probationMonths: leaveType.probationMonths ?? 0,
         allowSameDay: leaveType.allowSameDay ?? false,
         allowWeekendAdjacent: leaveType.allowWeekendAdjacent ?? true,
         requiresApproval: leaveType.requiresApproval ?? true,
+        allowPastDates: leaveType.allowPastDates ?? false,
+        maxAdvanceDays: leaveType.maxAdvanceDays ?? 0,
         genderRestriction: leaveType.gender || '',
       };
     }
     return { ...LEAVE_TYPE_DEFAULTS };
   });
+
+  // Employee picker state
+  const [empSearch, setEmpSearch] = useState('');
+  const [showEmpDropdown, setShowEmpDropdown] = useState(false);
+  const empSearchRef = useRef<HTMLDivElement>(null);
+  const { data: empRes } = useGetEmployeesQuery({ limit: 500, status: 'ACTIVE' });
+  const allEmployees: any[] = empRes?.data || [];
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (empSearchRef.current && !empSearchRef.current.contains(e.target as Node)) {
+        setShowEmpDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filteredEmployees = allEmployees.filter((emp) => {
+    if (!empSearch.trim()) return false;
+    const q = empSearch.toLowerCase();
+    const name = `${emp.firstName} ${emp.lastName}`.toLowerCase();
+    const code = (emp.employeeCode || '').toLowerCase();
+    const dept = (emp.department || '').toLowerCase();
+    return (name.includes(q) || code.includes(q) || dept.includes(q))
+      && !formData.applicableToEmployeeIds.includes(emp.id);
+  });
+
+  const addEmployee = (emp: any) => {
+    setFormData((p) => ({ ...p, applicableToEmployeeIds: [...p.applicableToEmployeeIds, emp.id] }));
+    setEmpSearch('');
+    setShowEmpDropdown(false);
+  };
+  const removeEmployee = (id: string) => {
+    setFormData((p) => ({ ...p, applicableToEmployeeIds: p.applicableToEmployeeIds.filter((x) => x !== id) }));
+  };
 
   const [createLeaveType, { isLoading: creating }] = useCreateLeaveTypeMutation();
   const [updateLeaveType, { isLoading: updating }] = useUpdateLeaveTypeMutation();
@@ -1027,37 +1726,49 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.name.trim()) { toast.error('Leave type name is required'); return; }
+    if (!formData.code.trim()) { toast.error('Leave type code is required'); return; }
+    if (Number(formData.minDays) < 0.5) { toast.error('Minimum days must be at least 0.5'); return; }
+
     const payload: any = {
-      name: formData.name,
-      code: formData.code,
+      name: formData.name.trim(),
+      code: formData.code.trim().toUpperCase(),
       defaultBalance: Number(formData.defaultDays),
       maxDays: Number(formData.maxDays) || undefined,
       minDays: Number(formData.minDays),
       isPaid: formData.isPaid,
       carryForward: formData.isCarryForward,
       maxCarryForward: Number(formData.maxCarryForward) || undefined,
-      applicableTo: formData.applicableTo,
+      isActive: formData.isActive,
+      applicableTo: formData.applicableToEmployeeIds.length > 0 ? 'ALL' : formData.applicableTo,
+      applicableToRole: formData.applicableToEmployeeIds.length > 0 ? undefined : (formData.applicableToRole || undefined),
+      applicableToEmployeeIds: formData.applicableToEmployeeIds.length > 0 ? formData.applicableToEmployeeIds : undefined,
       noticeDays: Number(formData.noticeDays),
       maxPerMonth: Number(formData.maxPerMonth) || undefined,
       probationMonths: Number(formData.probationMonths),
       allowSameDay: formData.allowSameDay,
       allowWeekendAdjacent: formData.allowWeekendAdjacent,
       requiresApproval: formData.requiresApproval,
+      allowPastDates: formData.allowPastDates,
+      maxAdvanceDays: Number(formData.maxAdvanceDays) || undefined,
       gender: formData.genderRestriction || undefined,
     };
     try {
       if (isEditing) {
         await updateLeaveType({ id: leaveType.id, data: payload }).unwrap();
-        toast.success('Leave type updated');
+        toast.success('Leave type updated successfully');
       } else {
         await createLeaveType(payload).unwrap();
-        toast.success('Leave type created');
+        toast.success('Leave type created successfully');
       }
       onClose();
     } catch (err: any) {
       toast.error(err?.data?.error?.message || `Failed to ${isEditing ? 'update' : 'create'} leave type`);
     }
   };
+
+  // Whether specific-employee mode is active
+  const hasSpecificEmployees = formData.applicableToEmployeeIds.length > 0;
 
   return (
     <motion.div
@@ -1071,231 +1782,298 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto"
       >
+        {/* Header */}
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-display font-semibold text-gray-800">
-            {isEditing ? t('common.edit') + ' ' + t('leaves.leaveType') : t('leaves.createLeaveType')}
-          </h2>
+          <div>
+            <h2 className="text-lg font-display font-semibold text-gray-800">
+              {isEditing ? 'Edit Leave Type' : 'Create Leave Type'}
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">Configure all leave settings in one place</p>
+          </div>
           <button aria-label="Close" onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
             <X size={18} className="text-gray-400" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Row 1: Name, Code */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Name</label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => set('name', e.target.value)}
-                className="input-glass w-full"
-                placeholder="e.g. Casual Leave"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Code</label>
-              <input
-                type="text"
-                value={formData.code}
-                onChange={(e) => set('code', e.target.value.toUpperCase())}
-                className="input-glass w-full"
-                placeholder="e.g. CL"
-                required
-                maxLength={10}
-              />
-            </div>
-          </div>
+        <form onSubmit={handleSubmit} className="space-y-5">
 
-          {/* Row 2: Default Balance, Max Days, Min Days */}
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Default Balance</label>
-              <input
-                type="number"
-                value={formData.defaultDays}
-                onChange={(e) => set('defaultDays', e.target.value)}
-                className="input-glass w-full"
-                min={0}
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Max Days</label>
-              <input
-                type="number"
-                value={formData.maxDays}
-                onChange={(e) => set('maxDays', e.target.value)}
-                className="input-glass w-full"
-                min={0}
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Min Days</label>
-              <input
-                type="number"
-                value={formData.minDays}
-                onChange={(e) => set('minDays', e.target.value)}
-                className="input-glass w-full"
-                min={0.5}
-                step={0.5}
-              />
-            </div>
-          </div>
-
-          {/* Row 3: Is Paid, Carry Forward, Max Carry Forward */}
-          <div className="grid grid-cols-3 gap-3 items-end">
-            <div className="flex items-center gap-3 py-2">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.isPaid}
-                  onChange={(e) => set('isPaid', e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:bg-brand-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
-              </label>
-              <span className="text-sm text-gray-700">Is Paid</span>
-            </div>
-            <div className="flex items-center gap-3 py-2">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.isCarryForward}
-                  onChange={(e) => set('isCarryForward', e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:bg-brand-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
-              </label>
-              <span className="text-sm text-gray-700">Carry Forward</span>
-            </div>
-            {formData.isCarryForward && (
+          {/* ── BASIC INFO ── */}
+          <section>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Basic Info</h3>
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Max Carry Forward</label>
-                <input
-                  type="number"
-                  value={formData.maxCarryForward}
-                  onChange={(e) => set('maxCarryForward', e.target.value)}
-                  className="input-glass w-full"
-                  min={0}
-                />
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  Name *<Tip text="The display name employees see when applying (e.g. 'Casual Leave', 'Sick Leave')." />
+                </label>
+                <input type="text" value={formData.name} onChange={(e) => set('name', e.target.value)}
+                  className="input-glass w-full" placeholder="e.g. Casual Leave" required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Code *
+                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(short, e.g. CL)</span>
+                  <Tip text="Short unique identifier used in reports and payslips (e.g. CL, SL, EL). Max 10 characters, auto-uppercased." />
+                </label>
+                <input type="text" value={formData.code}
+                  onChange={(e) => set('code', e.target.value.toUpperCase())}
+                  className="input-glass w-full font-mono" placeholder="CL" required maxLength={10} />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mt-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Default Balance
+                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(days/year)</span>
+                  <Tip text="Number of leave days credited to each eligible employee at the start of the year (or on joining)." />
+                </label>
+                <input type="number" value={formData.defaultDays} onChange={(e) => set('defaultDays', e.target.value)}
+                  className="input-glass w-full" min={0} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Min Days
+                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(per request)</span>
+                  <Tip text="Minimum leave duration per request. Use 0.5 to allow half-day applications." />
+                </label>
+                <input type="number" value={formData.minDays} onChange={(e) => set('minDays', e.target.value)}
+                  className="input-glass w-full" min={0.5} step={0.5} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Max Days
+                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(0 = unlimited)</span>
+                  <Tip text="Maximum leave duration per single request. Leave 0 for no upper limit." />
+                </label>
+                <input type="number" value={formData.maxDays} onChange={(e) => set('maxDays', e.target.value)}
+                  className="input-glass w-full" min={0} />
+              </div>
+            </div>
+          </section>
+
+          {/* ── TOGGLES ── */}
+          <section>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Leave Behaviour</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { field: 'isPaid',              label: 'Paid Leave',          hint: 'Counts toward salary (uncheck = LWP/unpaid)' },
+                { field: 'isCarryForward',       label: 'Carry Forward',       hint: 'Unused balance rolls over to next year' },
+                { field: 'allowSameDay',         label: 'Same-Day Apply',      hint: 'Employee can apply on the day leave starts (e.g. Sick)' },
+                { field: 'allowWeekendAdjacent', label: 'Weekend Adjacent',    hint: 'Allow leave adjacent to non-working days (uncheck = sandwich rule)' },
+                { field: 'requiresApproval',     label: 'Requires Approval',   hint: 'Manager/HR must approve before leave is granted' },
+                { field: 'allowPastDates',       label: 'Allow Past Dates',    hint: 'Allow filing leave retroactively (e.g. sick leave filed next day)' },
+                { field: 'isActive',             label: 'Active',              hint: 'Inactive types are hidden from all employees' },
+              ] as { field: string; label: string; hint: string }[]).map(({ field, label, hint }) => (
+                <div key={field} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2.5 gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-700">{label}</p>
+                    <p className="text-[10px] text-gray-400 leading-tight mt-0.5">{hint}</p>
+                  </div>
+                  <Toggle checked={!!(formData as any)[field]} onChange={(v) => set(field, v)} />
+                </div>
+              ))}
+            </div>
+            {/* Max Carry Forward — shown when carry forward is on */}
+            {formData.isCarryForward && (
+              <div className="mt-2 max-w-xs">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Max Carry Forward Days
+                  <span className="ml-1 text-[10px] text-gray-400 font-normal">(0 = unlimited)</span>
+                </label>
+                <input type="number" value={formData.maxCarryForward} onChange={(e) => set('maxCarryForward', e.target.value)}
+                  className="input-glass w-full" min={0} />
               </div>
             )}
-          </div>
+          </section>
 
-          {/* Row 4: Applicable To, Notice Days */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Applicable To</label>
-              <select
-                value={formData.applicableTo}
-                onChange={(e) => set('applicableTo', e.target.value)}
-                className="input-glass w-full"
-              >
-                <option value="ALL">All Employees</option>
-                <option value="PROBATION">Probation Only</option>
-                <option value="CONFIRMED">Confirmed Only</option>
-              </select>
+          {/* ── LIMITS ── */}
+          <section>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Application Limits</h3>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Notice Days
+                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(0 = same-day OK)</span>
+                  <Tip text="How many calendar days in advance the employee must apply. 0 means they can apply on the same day the leave starts." />
+                </label>
+                <input type="number" value={formData.noticeDays} onChange={(e) => set('noticeDays', e.target.value)}
+                  className="input-glass w-full" min={0} placeholder="0" />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  {Number(formData.noticeDays) === 0 ? 'Can apply same-day' : `Must apply ${formData.noticeDays}d ahead`}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Max / Month
+                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(0 = unlimited)</span>
+                  <Tip text="Caps how many days of this leave type an employee can take within a single calendar month." />
+                </label>
+                <input type="number" value={formData.maxPerMonth} onChange={(e) => set('maxPerMonth', e.target.value)}
+                  className="input-glass w-full" min={0} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Max Advance
+                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(days, 0 = unlimited)</span>
+                  <Tip text="Furthest future date an employee can book. E.g. 90 means leave can only be planned up to 90 days from today." />
+                </label>
+                <input type="number" value={formData.maxAdvanceDays} onChange={(e) => set('maxAdvanceDays', e.target.value)}
+                  className="input-glass w-full" min={0} placeholder="0 = no limit" />
+                <p className="text-[10px] text-gray-400 mt-1">How far ahead employees can book</p>
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Notice Days</label>
-              <input
-                type="number"
-                value={formData.noticeDays}
-                onChange={(e) => set('noticeDays', e.target.value)}
-                className="input-glass w-full"
-                min={0}
-              />
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  Probation Months
+                  <Tip text="Employees must complete this many months of service before they can use this leave type. Set to 0 to allow from day 1." />
+                </label>
+                <input type="number" value={formData.probationMonths} onChange={(e) => set('probationMonths', e.target.value)}
+                  className="input-glass w-full" min={0} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  Gender Restriction
+                  <Tip text="Restrict this leave to a specific gender — useful for maternity/paternity leave. Leave blank to allow all genders." />
+                </label>
+                <select value={formData.genderRestriction} onChange={(e) => set('genderRestriction', e.target.value)}
+                  className="input-glass w-full">
+                  <option value="">No restriction</option>
+                  <option value="MALE">Male only</option>
+                  <option value="FEMALE">Female only</option>
+                </select>
+              </div>
             </div>
-          </div>
+          </section>
 
-          {/* Row 5: Max Per Month, Probation Months */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Max Per Month</label>
-              <input
-                type="number"
-                value={formData.maxPerMonth}
-                onChange={(e) => set('maxPerMonth', e.target.value)}
-                className="input-glass w-full"
-                min={0}
-              />
+          {/* ── WHO CAN APPLY ── */}
+          <section>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Who Can Apply</h3>
+            <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 mb-3 flex items-start gap-2">
+              <Info size={13} className="text-blue-500 mt-0.5 flex-shrink-0" />
+              <p className="text-[11px] text-blue-700 leading-relaxed">
+                <strong>Priority order:</strong> Specific Employees &gt; Role &gt; Status &gt; All.
+                If you add specific employees, status and role filters below are ignored.
+                At least one filter must match for an employee to see and apply this leave.
+              </p>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Probation Months</label>
-              <input
-                type="number"
-                value={formData.probationMonths}
-                onChange={(e) => set('probationMonths', e.target.value)}
-                className="input-glass w-full"
-                min={0}
-              />
-            </div>
-          </div>
 
-          {/* Row 6: Allow Same Day, Allow Weekend Adjacent, Requires Approval */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="flex items-center gap-3 py-2">
-              <label className="relative inline-flex items-center cursor-pointer">
+            {/* Specific Employees */}
+            <div className="bg-white border border-gray-200 rounded-xl p-3 mb-3" ref={empSearchRef}>
+              <div className="flex items-center gap-2 mb-2">
+                <UserCheck size={14} className="text-brand-500" />
+                <p className="text-sm font-medium text-gray-700">Specific Employees
+                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(optional — overrides status/role below)</span>
+                </p>
+              </div>
+              {/* Selected employee chips */}
+              {formData.applicableToEmployeeIds.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {formData.applicableToEmployeeIds.map((id) => {
+                    const emp = allEmployees.find((e) => e.id === id);
+                    return (
+                      <span key={id} className="flex items-center gap-1 bg-brand-50 border border-brand-200 text-brand-700 px-2 py-0.5 rounded-full text-xs font-medium">
+                        {emp ? `${emp.firstName} ${emp.lastName}` : id.slice(0, 8) + '…'}
+                        <button type="button" onClick={() => removeEmployee(id)}
+                          className="hover:text-red-500 transition-colors ml-0.5">
+                          <X size={11} />
+                        </button>
+                      </span>
+                    );
+                  })}
+                  <button type="button" onClick={() => setFormData((p) => ({ ...p, applicableToEmployeeIds: [] }))}
+                    className="text-[11px] text-red-400 hover:text-red-600 px-1.5 py-0.5 rounded-full border border-red-200 hover:border-red-300 transition-colors">
+                    Clear all
+                  </button>
+                </div>
+              )}
+              {/* Search input */}
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 <input
-                  type="checkbox"
-                  checked={formData.allowSameDay}
-                  onChange={(e) => set('allowSameDay', e.target.checked)}
-                  className="sr-only peer"
+                  type="text"
+                  value={empSearch}
+                  onChange={(e) => { setEmpSearch(e.target.value); setShowEmpDropdown(true); }}
+                  onFocus={() => setShowEmpDropdown(true)}
+                  placeholder="Search by name, code, or department…"
+                  className="input-glass w-full pl-8 text-sm"
                 />
-                <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:bg-brand-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
-              </label>
-              <span className="text-sm text-gray-700">Same Day</span>
+              </div>
+              {/* Dropdown results */}
+              {showEmpDropdown && filteredEmployees.length > 0 && (
+                <div className="border border-gray-200 rounded-xl mt-1 max-h-44 overflow-y-auto bg-white shadow-lg">
+                  {filteredEmployees.slice(0, 20).map((emp) => (
+                    <button key={emp.id} type="button" onClick={() => addEmployee(emp)}
+                      className="w-full text-left px-3 py-2 hover:bg-brand-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
+                      <div className="w-6 h-6 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                        {emp.firstName?.[0]}{emp.lastName?.[0]}
+                      </div>
+                      <div className="min-w-0">
+                        <span className="font-medium text-gray-800">{emp.firstName} {emp.lastName}</span>
+                        <span className="text-gray-400 text-xs ml-1.5">{emp.employeeCode}</span>
+                        {emp.department && <span className="text-gray-400 text-xs ml-1">· {emp.department}</span>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {showEmpDropdown && empSearch.trim() && filteredEmployees.length === 0 && (
+                <p className="text-xs text-gray-400 mt-1.5 px-1">No matching employees found</p>
+              )}
+              {hasSpecificEmployees && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-2">
+                  Only the {formData.applicableToEmployeeIds.length} selected employee(s) will see and can apply this leave.
+                  Status and role filters below are disabled.
+                </p>
+              )}
             </div>
-            <div className="flex items-center gap-3 py-2">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.allowWeekendAdjacent}
-                  onChange={(e) => set('allowWeekendAdjacent', e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:bg-brand-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
-              </label>
-              <span className="text-sm text-gray-700">Wknd Adjacent</span>
-            </div>
-            <div className="flex items-center gap-3 py-2">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.requiresApproval}
-                  onChange={(e) => set('requiresApproval', e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:bg-brand-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
-              </label>
-              <span className="text-sm text-gray-700">Approval</span>
-            </div>
-          </div>
 
-          {/* Row 7: Gender Restriction */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Gender Restriction</label>
-              <select
-                value={formData.genderRestriction}
-                onChange={(e) => set('genderRestriction', e.target.value)}
-                className="input-glass w-full"
-              >
-                <option value="">No restriction</option>
-                <option value="MALE">Male only</option>
-                <option value="FEMALE">Female only</option>
-              </select>
+            {/* Status filter — dimmed when specific employees selected */}
+            <div className={`grid grid-cols-2 gap-3 ${hasSpecificEmployees ? 'opacity-40 pointer-events-none' : ''}`}>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">By Status
+                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(employment status)</span>
+                  <Tip text="Filter by the employee's current employment status. 'All' means any status can apply. Ignored if specific employees are selected above." />
+                </label>
+                <select value={formData.applicableTo} onChange={(e) => set('applicableTo', e.target.value)}
+                  className="input-glass w-full">
+                  <option value="ALL">All Employees</option>
+                  <option value="PROBATION">Probation Only</option>
+                  <option value="CONFIRMED">Confirmed / Active Only</option>
+                  <option value="INTERN">Intern Status Only</option>
+                  <option value="NOTICE_PERIOD">Notice Period Only</option>
+                  <option value="ONBOARDING">Onboarding Only</option>
+                </select>
+                <p className="text-[10px] text-gray-400 mt-1">
+                  {formData.applicableTo === 'ALL' && 'Available to all employment statuses'}
+                  {formData.applicableTo === 'PROBATION' && 'Only employees in probation can apply'}
+                  {formData.applicableTo === 'CONFIRMED' && 'Only confirmed/active employees can apply'}
+                  {formData.applicableTo === 'INTERN' && 'Only intern-status employees can apply'}
+                  {formData.applicableTo === 'NOTICE_PERIOD' && 'Only employees serving notice can apply'}
+                  {formData.applicableTo === 'ONBOARDING' && 'Only employees in onboarding can apply'}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">By Role
+                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(system role — optional)</span>
+                  <Tip text="Restrict by the employee's system role. Leave blank to apply to all roles within the chosen status. Ignored if specific employees are selected above." />
+                </label>
+                <select value={formData.applicableToRole} onChange={(e) => set('applicableToRole', e.target.value)}
+                  className="input-glass w-full">
+                  <option value="">All Roles (no restriction)</option>
+                  <option value="EMPLOYEE">Employee Role Only</option>
+                  <option value="INTERN">Intern Role Only</option>
+                  <option value="MANAGER">Manager Role Only</option>
+                  <option value="HR">HR Role Only</option>
+                </select>
+                <p className="text-[10px] text-gray-400 mt-1">
+                  {!formData.applicableToRole && 'Combined with status filter above'}
+                  {formData.applicableToRole === 'EMPLOYEE' && 'Employee role users only'}
+                  {formData.applicableToRole === 'INTERN' && 'Intern role users only'}
+                  {formData.applicableToRole === 'MANAGER' && 'Manager role users only'}
+                  {formData.applicableToRole === 'HR' && 'HR role users only'}
+                </p>
+              </div>
             </div>
-          </div>
+          </section>
 
-          <div className="flex gap-3 pt-2">
+          {/* ── ACTIONS ── */}
+          <div className="flex gap-3 pt-1 border-t border-gray-100">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">
-              {t('common.cancel')}
+              Cancel
             </button>
             <motion.button
               whileHover={{ scale: 1.01 }}
@@ -1305,7 +2083,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
               className="btn-primary flex-1 flex items-center justify-center gap-2"
             >
               {isLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-              {isEditing ? t('common.save') : t('common.submit')}
+              {isEditing ? 'Save Changes' : 'Create Leave Type'}
             </motion.button>
           </div>
         </form>

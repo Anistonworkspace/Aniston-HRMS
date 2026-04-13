@@ -75,9 +75,9 @@ function phoneToChatId(phone: string): string {
   return `${normalizePhone(phone)}@c.us`;
 }
 
-/** Extract phone number from chat ID */
+/** Extract phone number from chat ID — strips all known WhatsApp suffixes */
 function chatIdToPhone(chatId: string): string {
-  return chatId.replace('@c.us', '').replace('@g.us', '');
+  return chatId.replace('@c.us', '').replace('@g.us', '').replace('@lid', '');
 }
 
 // =====================================================================

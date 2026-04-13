@@ -153,8 +153,16 @@ export class OnboardingService {
 
     // Step 5: Bank details
     if (step === 5) {
-      // Store as employee metadata — extend schema or use JSON field later
-      data.stepData[`step${step}`] = stepData;
+      await prisma.employee.update({
+        where: { id: data.employeeId },
+        data: {
+          bankAccountNumber: stepData.bankAccountNumber || undefined,
+          bankName: stepData.bankName || undefined,
+          ifscCode: stepData.ifscCode || undefined,
+          accountHolderName: stepData.accountHolderName || undefined,
+          accountType: stepData.accountType || undefined,
+        },
+      });
     }
 
     // Step 6: Emergency contact
@@ -264,7 +272,7 @@ export class OnboardingService {
         personalDetails: !!(employee.dateOfBirth && employee.gender !== 'PREFER_NOT_TO_SAY' && employee.address),
         documents: documentCount > 0,
         photo: !!employee.avatar,
-        bankDetails: false,
+        bankDetails: !!(employee.bankAccountNumber && employee.ifscCode),
         emergencyContact: !!employee.emergencyContact,
       },
     };

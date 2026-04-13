@@ -391,35 +391,29 @@ router.get('/runs/:id/bank-file',
     try {
       const records = await payrollService.getPayrollRecords(req.params.id, req.user!.organizationId);
       const run = await payrollService.getPayrollRunById(req.params.id);
-      const { prisma } = await import('../../lib/prisma.js');
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-      // Fetch employee details — bank fields may not exist in schema yet
-      const empIds = records.map((r: any) => r.employeeId);
-      const employees = await prisma.employee.findMany({
-        where: { id: { in: empIds } },
-        select: { id: true, firstName: true, lastName: true, employeeCode: true },
-      });
-      const empMap = new Map(employees.map(e => [e.id, e]));
-
-      // Generate CSV
+      // Generate CSV — bank details now included via getPayrollRecords employee select
       const lines: string[] = [];
-      lines.push('Txn Type,Beneficiary Code,Beneficiary Name,Bank Account No,IFSC Code,Amount,Narration');
+      lines.push('Txn Type,Beneficiary Code,Beneficiary Name,Bank Account No,IFSC Code,Bank Name,Amount,Narration,Bank Details Status');
 
       for (const rec of records as any[]) {
-        const emp = empMap.get(rec.employeeId);
-        const name = `${rec.employee?.firstName || emp?.firstName || ''} ${rec.employee?.lastName || emp?.lastName || ''}`.trim();
+        const emp = rec.employee;
+        const name = `${emp?.accountHolderName || emp?.firstName || ''} ${emp?.accountHolderName ? '' : (emp?.lastName || '')}`.trim();
         const netPay = Number(rec.netSalary || 0);
         if (netPay <= 0) continue;
 
+        const hasBank = !!(emp?.bankAccountNumber && emp?.ifscCode);
         lines.push([
           'NEFT',
-          rec.employee?.employeeCode || emp?.employeeCode || '',
+          emp?.employeeCode || '',
           `"${name}"`,
-          '', // Bank Account — to be filled by HR
-          '', // IFSC Code — to be filled by HR
+          emp?.bankAccountNumber || '',
+          emp?.ifscCode || '',
+          `"${emp?.bankName || ''}"`,
           netPay.toFixed(2),
           `"Salary ${monthNames[run.month - 1]} ${run.year}"`,
+          hasBank ? 'READY' : 'MISSING - Fill manually',
         ].join(','));
       }
 

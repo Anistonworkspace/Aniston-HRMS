@@ -4,6 +4,10 @@ import { applyLeaveSchema, leaveActionSchema, leaveQuerySchema, createLeaveTypeS
 import { prisma } from '../../lib/prisma.js';
 import { Role } from '@aniston/shared';
 
+// Roles that are system/admin accounts — cannot apply, save draft, or submit leave
+const SYSTEM_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR', 'GUEST_INTERVIEWER'];
+const SYSTEM_ROLE_ERROR = { code: 'SYSTEM_ACCOUNT_RESTRICTED', message: 'System accounts cannot apply employee leave. Only employee accounts can submit leave requests.' };
+
 export class LeaveController {
   async getLeaveTypes(req: Request, res: Response, next: NextFunction) {
     try {
@@ -27,10 +31,8 @@ export class LeaveController {
 
   async applyLeave(req: Request, res: Response, next: NextFunction) {
     try {
-      // System accounts (HR, Admin, Super Admin) cannot apply employee leave
-      const SYSTEM_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
       if (SYSTEM_ROLES.includes(req.user!.role)) {
-        res.status(403).json({ success: false, data: null, error: { code: 'SYSTEM_ACCOUNT_RESTRICTED', message: 'System accounts cannot apply employee leave. Only employee accounts can submit leave requests.' } });
+        res.status(403).json({ success: false, data: null, error: SYSTEM_ROLE_ERROR });
         return;
       }
       const data = applyLeaveSchema.parse(req.body);
@@ -141,9 +143,8 @@ export class LeaveController {
 
   async saveDraft(req: Request, res: Response, next: NextFunction) {
     try {
-      const SYSTEM_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
       if (SYSTEM_ROLES.includes(req.user!.role)) {
-        res.status(403).json({ success: false, data: null, error: { code: 'SYSTEM_ACCOUNT_RESTRICTED', message: 'System accounts cannot apply employee leave. Only employee accounts can submit leave requests.' } });
+        res.status(403).json({ success: false, data: null, error: SYSTEM_ROLE_ERROR });
         return;
       }
       const data = saveDraftSchema.parse(req.body);
@@ -158,9 +159,8 @@ export class LeaveController {
 
   async submitDraft(req: Request, res: Response, next: NextFunction) {
     try {
-      const SYSTEM_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
       if (SYSTEM_ROLES.includes(req.user!.role)) {
-        res.status(403).json({ success: false, data: null, error: { code: 'SYSTEM_ACCOUNT_RESTRICTED', message: 'System accounts cannot apply employee leave. Only employee accounts can submit leave requests.' } });
+        res.status(403).json({ success: false, data: null, error: SYSTEM_ROLE_ERROR });
         return;
       }
       const { acknowledgements } = submitDraftSchema.parse(req.body);

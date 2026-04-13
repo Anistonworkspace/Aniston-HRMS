@@ -132,12 +132,43 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
             </td>
             <td style="padding-left:12px;">
               <p style="color:#1E40AF;font-weight:700;margin:0 0 4px;font-size:14px;">Download Aniston HRMS App</p>
-              <p style="color:#1E3A5F;font-size:12px;margin:0 0 12px;line-height:1.5;">Install the app on your phone or desktop to mark attendance, apply for leaves, view payslips, and access all HR features on the go.</p>
-              ${ctaButton(ctx.downloadUrl || 'https://hr.anistonav.com/download', 'Install App', '#2563EB')}
+              <p style="color:#1E3A5F;font-size:12px;margin:0 0 14px;line-height:1.5;">Install the app on your phone to mark attendance, apply for leaves, view payslips and more.</p>
+
+              <!-- Android + iOS side-by-side buttons (table-based for email clients) -->
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                <tr><td style="padding:4px 0;color:#3B82F6;font-size:11px;">&#8226; Works on Android, iPhone, Windows &amp; Mac</td></tr>
-                <tr><td style="padding:4px 0;color:#3B82F6;font-size:11px;">&#8226; Tap "Install" or "Add to Home Screen" when prompted</td></tr>
-                <tr><td style="padding:4px 0;color:#3B82F6;font-size:11px;">&#8226; Allow Location &amp; Notification permissions (required)</td></tr>
+                <tr>
+                  <!-- Android button -->
+                  <td style="width:48%;padding-right:6px;vertical-align:top;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                      <tr>
+                        <td style="background:#16A34A;padding:10px 8px;text-align:center;">
+                          <a href="${ctx.androidDownloadUrl || 'https://hr.anistonav.com/download/android'}" style="color:#ffffff;font-size:13px;font-weight:700;text-decoration:none;font-family:'DM Sans',Arial,sans-serif;display:inline-block;">
+                            &#x1F4F1; Android
+                          </a>
+                          <p style="color:rgba(255,255,255,0.85);font-size:10px;margin:3px 0 0;font-family:'DM Sans',Arial,sans-serif;">Install Guide</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <!-- iOS button -->
+                  <td style="width:48%;padding-left:6px;vertical-align:top;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                      <tr>
+                        <td style="background:#1D1D1F;padding:10px 8px;text-align:center;">
+                          <a href="${ctx.iosDownloadUrl || 'https://hr.anistonav.com/download/ios'}" style="color:#ffffff;font-size:13px;font-weight:700;text-decoration:none;font-family:'DM Sans',Arial,sans-serif;display:inline-block;">
+                            &#x1F34E; iPhone / iPad
+                          </a>
+                          <p style="color:rgba(255,255,255,0.85);font-size:10px;margin:3px 0 0;font-family:'DM Sans',Arial,sans-serif;">Install Guide</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:12px;">
+                <tr><td style="padding:3px 0;color:#3B82F6;font-size:11px;">&#8226; Allow Location &amp; Notification permissions after install (required)</td></tr>
+                <tr><td style="padding:3px 0;color:#3B82F6;font-size:11px;">&#8226; App updates automatically when a new version is available</td></tr>
               </table>
             </td>
           </tr>
@@ -515,72 +546,505 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
 
   // ── Leave Notification Templates ──
 
+  // Sent to HR / Manager when an employee submits a leave request
   'leave-submitted': (ctx) => emailLayout(
-    '#4F46E5', '📋', 'Leave Request Submitted', `${esc(ctx.employeeName)} has applied for leave`,
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">A new leave request requires your attention.</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;padding:0;">
-      <tr><td style="padding:16px;">
+    'linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%)', '&#128203;', 'New Leave Request', `Action required — ${esc(ctx.employeeName)} applied for ${esc(ctx.leaveType)}`,
+    `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">A new leave request is pending your review and approval.</p>
+
+    <!-- Employee card -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EEF2FF;border:1px solid #C7D2FE;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#4338CA;font-weight:700;font-size:14px;margin:0 0 12px;">&#128100; Employee Details</p>
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Employee</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.employeeName)}</td></tr>
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Type</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.leaveType)}</td></tr>
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Duration</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.days} day(s)</td></tr>
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Dates</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${new Date(ctx.startDate).toLocaleDateString('en-IN')} — ${new Date(ctx.endDate).toLocaleDateString('en-IN')}</td></tr>
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Risk Level</td><td style="padding:4px 0;font-size:13px;font-weight:600;color:${ctx.riskLevel === 'CRITICAL' ? '#DC2626' : ctx.riskLevel === 'HIGH' ? '#EA580C' : ctx.riskLevel === 'MEDIUM' ? '#D97706' : '#16A34A'};">${ctx.riskLevel || 'LOW'}</td></tr>
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Reason</td><td style="padding:4px 0;color:#111827;font-size:13px;">${esc(ctx.reason || '—')}</td></tr>
+          <tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;width:130px;">Name</td>
+            <td style="padding:5px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.employeeName)}${ctx.employeeCode ? ` <span style="color:#6B7280;font-weight:400;">(${esc(ctx.employeeCode)})</span>` : ''}</td>
+          </tr>
+          ${ctx.department ? `<tr><td style="padding:5px 0;color:#6B7280;font-size:13px;">Department</td><td style="padding:5px 0;color:#111827;font-size:13px;">${esc(ctx.department)}</td></tr>` : ''}
+          ${ctx.designation ? `<tr><td style="padding:5px 0;color:#6B7280;font-size:13px;">Designation</td><td style="padding:5px 0;color:#111827;font-size:13px;">${esc(ctx.designation)}</td></tr>` : ''}
         </table>
       </td></tr>
     </table>
-    ${ctaButton(`${ctx.appUrl || 'https://hrms.anistonav.com'}/leaves`, 'Review Leave Request')}`,
+
+    <!-- Leave details -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#374151;font-weight:700;font-size:14px;margin:0 0 12px;">&#128197; Leave Details</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:130px;border-bottom:1px solid #F3F4F6;">Leave Type</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #F3F4F6;">${esc(ctx.leaveType)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">From</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #F3F4F6;">${new Date(ctx.startDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">To</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #F3F4F6;">${new Date(ctx.endDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Duration</td>
+            <td style="padding:6px 0;color:#4F46E5;font-size:15px;font-weight:700;border-bottom:1px solid #F3F4F6;">${ctx.days} day${ctx.days !== 1 ? 's' : ''}</td>
+          </tr>
+          ${ctx.reason ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;">Reason</td><td style="padding:6px 0;color:#4B5563;font-size:13px;font-style:italic;">"${esc(ctx.reason)}"</td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+
+    <!-- Risk badge -->
+    ${ctx.riskLevel && ctx.riskLevel !== 'LOW' ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${ctx.riskLevel === 'CRITICAL' ? '#FEF2F2' : ctx.riskLevel === 'HIGH' ? '#FFF7ED' : '#FFFBEB'};border:1px solid ${ctx.riskLevel === 'CRITICAL' ? '#FECACA' : ctx.riskLevel === 'HIGH' ? '#FED7AA' : '#FDE68A'};margin:0 0 20px;">
+      <tr><td style="padding:14px 16px;">
+        <p style="color:${ctx.riskLevel === 'CRITICAL' ? '#991B1B' : ctx.riskLevel === 'HIGH' ? '#9A3412' : '#92400E'};font-weight:700;font-size:13px;margin:0 0 4px;">&#9888; Risk Level: ${esc(ctx.riskLevel)}</p>
+        <p style="color:${ctx.riskLevel === 'CRITICAL' ? '#B91C1C' : ctx.riskLevel === 'HIGH' ? '#C2410C' : '#B45309'};font-size:12px;margin:0;">This leave request has been flagged with a ${esc(ctx.riskLevel.toLowerCase())} risk level. Please review carefully before approving.</p>
+      </td></tr>
+    </table>` : ''}
+
+    ${ctaButton(`${ctx.appUrl || 'https://hr.anistonav.com'}/leaves`, 'Review &amp; Approve Leave Request')}
+
+    <p style="color:#9CA3AF;font-size:12px;text-align:center;margin:8px 0 0;">You are receiving this because you are a manager or HR administrator.</p>`,
     standardFooter(ctx.orgName || 'Aniston Technologies')
   ),
 
+  // Sent to the employee confirming their leave was submitted
+  'leave-confirmation': (ctx) => emailLayout(
+    'linear-gradient(135deg,#0EA5E9 0%,#4F46E5 100%)', '&#10003;', 'Leave Request Submitted', `Your ${esc(ctx.leaveType)} request is now under review`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.employeeName)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">Your leave request has been <strong>successfully submitted</strong> and is now awaiting approval from your manager and HR team.</p>
+
+    <!-- Leave summary -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EFF6FF;border:1px solid #BFDBFE;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#1E40AF;font-weight:700;font-size:14px;margin:0 0 12px;">&#128197; Your Leave Summary</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:110px;border-bottom:1px solid #DBEAFE;">Leave Type</td>
+            <td style="padding:6px 0;color:#1E3A8A;font-size:13px;font-weight:600;border-bottom:1px solid #DBEAFE;">${esc(ctx.leaveType)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #DBEAFE;">From</td>
+            <td style="padding:6px 0;color:#1E3A8A;font-size:13px;font-weight:600;border-bottom:1px solid #DBEAFE;">${new Date(ctx.startDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #DBEAFE;">To</td>
+            <td style="padding:6px 0;color:#1E3A8A;font-size:13px;font-weight:600;border-bottom:1px solid #DBEAFE;">${new Date(ctx.endDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;">Duration</td>
+            <td style="padding:6px 0;color:#1D4ED8;font-size:16px;font-weight:700;">${ctx.days} day${ctx.days !== 1 ? 's' : ''}</td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+
+    <!-- What happens next -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0FDF4;border:1px solid #BBF7D0;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#166534;font-weight:700;font-size:14px;margin:0 0 12px;">What happens next?</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#166534;font-size:13px;vertical-align:top;width:24px;">1.</td>
+            <td style="padding:6px 0;color:#15803D;font-size:13px;">Your manager will review and approve / reject the request</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#166534;font-size:13px;vertical-align:top;">2.</td>
+            <td style="padding:6px 0;color:#15803D;font-size:13px;">HR will do the final approval</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#166534;font-size:13px;vertical-align:top;">3.</td>
+            <td style="padding:6px 0;color:#15803D;font-size:13px;">You will receive an email once the decision is made</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#166534;font-size:13px;vertical-align:top;">4.</td>
+            <td style="padding:6px 0;color:#15803D;font-size:13px;">You can track the status anytime in the HRMS portal</td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton(`${ctx.appUrl || 'https://hr.anistonav.com'}/leaves`, 'Track Your Leave Status')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
+
+  // Sent to employee when leave is approved
   'leave-approved': (ctx) => emailLayout(
-    '#16A34A', '✅', 'Leave Approved', `Your ${esc(ctx.leaveType)} has been approved`,
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Your leave request has been <strong style="color:#16A34A;">approved</strong>.</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0FDF4;padding:0;">
-      <tr><td style="padding:16px;">
+    'linear-gradient(135deg,#16A34A 0%,#059669 100%)', '&#10003;', 'Leave Approved!', `Your ${esc(ctx.leaveType)} has been approved`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.employeeName)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">Great news! Your leave request has been <strong style="color:#16A34A;">approved</strong>.</p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0FDF4;border:1px solid #BBF7D0;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Type</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.leaveType)}</td></tr>
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Duration</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.days} day(s)</td></tr>
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Dates</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${new Date(ctx.startDate).toLocaleDateString('en-IN')} — ${new Date(ctx.endDate).toLocaleDateString('en-IN')}</td></tr>
-          ${ctx.remarks ? `<tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Remarks</td><td style="padding:4px 0;color:#111827;font-size:13px;">${esc(ctx.remarks)}</td></tr>` : ''}
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:110px;border-bottom:1px solid #BBF7D0;">Leave Type</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #BBF7D0;">${esc(ctx.leaveType)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #BBF7D0;">From</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #BBF7D0;">${new Date(ctx.startDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #BBF7D0;">To</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #BBF7D0;">${new Date(ctx.endDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #BBF7D0;">Duration</td>
+            <td style="padding:6px 0;color:#16A34A;font-size:16px;font-weight:700;border-bottom:1px solid #BBF7D0;">${ctx.days} day${ctx.days !== 1 ? 's' : ''}</td>
+          </tr>
+          ${ctx.remarks ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;">Remarks</td><td style="padding:6px 0;color:#4B5563;font-size:13px;font-style:italic;">"${esc(ctx.remarks)}"</td></tr>` : ''}
         </table>
       </td></tr>
-    </table>`,
+    </table>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FFFBEB;border:1px solid #FDE68A;margin:0 0 20px;">
+      <tr><td style="padding:16px;">
+        <p style="color:#92400E;font-weight:600;font-size:13px;margin:0 0 6px;">Before you go</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:3px 0;color:#78350F;font-size:12px;">&#8226; Complete any handover notes and brief your backup colleague</td></tr>
+          <tr><td style="padding:3px 0;color:#78350F;font-size:12px;">&#8226; Set your out-of-office reply on email</td></tr>
+          <tr><td style="padding:3px 0;color:#78350F;font-size:12px;">&#8226; Ensure all pending tasks are handed over or rescheduled</td></tr>
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton(`${ctx.appUrl || 'https://hr.anistonav.com'}/leaves`, 'View Leave Details')}`,
     standardFooter(ctx.orgName || 'Aniston Technologies')
   ),
 
+  // Sent to employee when leave is rejected
   'leave-rejected': (ctx) => emailLayout(
-    '#DC2626', '❌', 'Leave Rejected', `Your ${esc(ctx.leaveType)} request was not approved`,
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Your leave request has been <strong style="color:#DC2626;">rejected</strong>.</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF2F2;padding:0;">
-      <tr><td style="padding:16px;">
+    '#DC2626', '&#10005;', 'Leave Not Approved', `Your ${esc(ctx.leaveType)} request was not approved`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.employeeName)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">We regret to inform you that your leave request has been <strong style="color:#DC2626;">rejected</strong>.</p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF2F2;border:1px solid #FECACA;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Type</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.leaveType)}</td></tr>
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Dates</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${new Date(ctx.startDate).toLocaleDateString('en-IN')} — ${new Date(ctx.endDate).toLocaleDateString('en-IN')}</td></tr>
-          ${ctx.remarks ? `<tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Reason</td><td style="padding:4px 0;color:#111827;font-size:13px;">${esc(ctx.remarks)}</td></tr>` : ''}
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:110px;border-bottom:1px solid #FECACA;">Leave Type</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #FECACA;">${esc(ctx.leaveType)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #FECACA;">Dates</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #FECACA;">${new Date(ctx.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} — ${new Date(ctx.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</td>
+          </tr>
+          ${ctx.remarks ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;">Reason</td><td style="padding:6px 0;color:#B91C1C;font-size:13px;font-weight:600;">${esc(ctx.remarks)}</td></tr>` : ''}
         </table>
       </td></tr>
     </table>
-    <p style="color:#6B7280;font-size:13px;margin:16px 0 0;">You may reapply with different dates or contact your manager for clarification.</p>`,
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0F9FF;border:1px solid #BAE6FD;margin:0 0 20px;">
+      <tr><td style="padding:16px;">
+        <p style="color:#0369A1;font-weight:600;font-size:13px;margin:0 0 6px;">What you can do</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:3px 0;color:#0C4A6E;font-size:12px;">&#8226; Contact your manager to discuss alternate dates</td></tr>
+          <tr><td style="padding:3px 0;color:#0C4A6E;font-size:12px;">&#8226; Reapply with different dates that suit business requirements</td></tr>
+          <tr><td style="padding:3px 0;color:#0C4A6E;font-size:12px;">&#8226; Reach out to HR if you believe this rejection was in error</td></tr>
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton(`${ctx.appUrl || 'https://hr.anistonav.com'}/leaves`, 'View Leave Status')}`,
     standardFooter(ctx.orgName || 'Aniston Technologies')
   ),
 
+  // Sent to backup employee when they are assigned
   'leave-backup-assigned': (ctx) => emailLayout(
-    '#7C3AED', '🔄', 'Backup Assignment', `You've been assigned as backup`,
-    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;"><strong>${esc(ctx.employeeName)}</strong> has assigned you as backup during their upcoming leave.</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F3FF;padding:0;">
-      <tr><td style="padding:16px;">
+    '#7C3AED', '&#8644;', 'Backup Assignment', `You have been assigned as backup for ${esc(ctx.employeeName)}`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">You have been designated as <strong>backup</strong> for <strong>${esc(ctx.employeeName)}</strong> during their upcoming approved leave.</p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F3FF;border:1px solid #DDD6FE;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Employee</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.employeeName)}</td></tr>
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Leave Dates</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${new Date(ctx.startDate).toLocaleDateString('en-IN')} — ${new Date(ctx.endDate).toLocaleDateString('en-IN')}</td></tr>
-          <tr><td style="padding:4px 0;color:#6B7280;font-size:13px;">Duration</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${ctx.days} day(s)</td></tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:110px;border-bottom:1px solid #DDD6FE;">Employee</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #DDD6FE;">${esc(ctx.employeeName)}${ctx.designation ? ` — ${esc(ctx.designation)}` : ''}</td>
+          </tr>
+          ${ctx.department ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #DDD6FE;">Department</td><td style="padding:6px 0;color:#111827;font-size:13px;border-bottom:1px solid #DDD6FE;">${esc(ctx.department)}</td></tr>` : ''}
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #DDD6FE;">Leave Dates</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #DDD6FE;">${new Date(ctx.startDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })} — ${new Date(ctx.endDate).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;">Duration</td>
+            <td style="padding:6px 0;color:#7C3AED;font-size:15px;font-weight:700;">${ctx.days} day${ctx.days !== 1 ? 's' : ''}</td>
+          </tr>
         </table>
       </td></tr>
     </table>
-    <p style="color:#6B7280;font-size:13px;margin:16px 0 0;">Please review the handover notes and ensure continuity of work during this period.</p>
-    ${ctaButton(`${ctx.appUrl || 'https://hrms.anistonav.com'}/leaves`, 'View Details')}`,
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FFFBEB;border:1px solid #FDE68A;margin:0 0 20px;">
+      <tr><td style="padding:16px;">
+        <p style="color:#92400E;font-weight:600;font-size:13px;margin:0 0 6px;">&#128203; Your responsibilities during this period</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:3px 0;color:#78350F;font-size:12px;">&#8226; Review the handover notes shared by the employee</td></tr>
+          <tr><td style="padding:3px 0;color:#78350F;font-size:12px;">&#8226; Handle any escalations or time-sensitive tasks from their queue</td></tr>
+          <tr><td style="padding:3px 0;color:#78350F;font-size:12px;">&#8226; Contact the manager if you need additional support or clarification</td></tr>
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton(`${ctx.appUrl || 'https://hr.anistonav.com'}/leaves`, 'View Handover Details')}`,
     standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
+
+  // ── Regularization Templates ──
+
+  // Sent to HR/Admin when employee submits an attendance regularization request
+  'regularization-submitted': (ctx) => emailLayout(
+    'linear-gradient(135deg,#0EA5E9 0%,#6366F1 100%)', '&#128338;', 'Regularization Request', `${esc(ctx.employeeName)} has submitted an attendance correction`,
+    `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">A new attendance regularization request requires your review.</p>
+
+    <!-- Employee details -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EFF6FF;border:1px solid #BFDBFE;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#1E40AF;font-weight:700;font-size:14px;margin:0 0 12px;">&#128100; Employee</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;width:130px;">Name</td>
+            <td style="padding:5px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.employeeName)}${ctx.employeeCode ? ` <span style="color:#6B7280;font-weight:400;">(${esc(ctx.employeeCode)})</span>` : ''}</td>
+          </tr>
+          ${ctx.department ? `<tr><td style="padding:5px 0;color:#6B7280;font-size:13px;">Department</td><td style="padding:5px 0;color:#111827;font-size:13px;">${esc(ctx.department)}</td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+
+    <!-- Request details -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#374151;font-weight:700;font-size:14px;margin:0 0 12px;">&#128197; Regularization Details</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:130px;border-bottom:1px solid #F3F4F6;">Attendance Date</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #F3F4F6;">${esc(ctx.date)}</td>
+          </tr>
+          ${ctx.requestedCheckIn ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Requested Check-In</td><td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #F3F4F6;">${esc(ctx.requestedCheckIn)}</td></tr>` : ''}
+          ${ctx.requestedCheckOut ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Requested Check-Out</td><td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #F3F4F6;">${esc(ctx.requestedCheckOut)}</td></tr>` : ''}
+          ${ctx.reason ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;">Reason</td><td style="padding:6px 0;color:#4B5563;font-size:13px;font-style:italic;">"${esc(ctx.reason)}"</td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton(ctx.reviewUrl || ctx.link || 'https://hr.anistonav.com/attendance', 'Review in HRMS Portal')}`,
+    standardFooter('Aniston HRMS', ctx.reviewUrl || ctx.link)
+  ),
+
+  // Sent to employee when HR approves or rejects their regularization request
+  'regularization-reviewed': (ctx) => emailLayout(
+    ctx.status === 'APPROVED' ? '#059669' : '#DC2626',
+    ctx.status === 'APPROVED' ? '&#10003;' : '&#10007;',
+    ctx.status === 'APPROVED' ? 'Regularization Approved' : 'Regularization Rejected',
+    `Your attendance correction request has been ${ctx.status === 'APPROVED' ? 'approved' : 'rejected'}`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.employeeName)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      Your attendance regularization request for <strong>${esc(ctx.date)}</strong> has been <strong>${ctx.status === 'APPROVED' ? 'approved' : 'rejected'}</strong>.
+    </p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${ctx.status === 'APPROVED' ? '#F0FDF4' : '#FEF2F2'};border:1px solid ${ctx.status === 'APPROVED' ? '#BBF7D0' : '#FECACA'};margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:130px;border-bottom:1px solid ${ctx.status === 'APPROVED' ? '#BBF7D0' : '#FECACA'};">Date</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid ${ctx.status === 'APPROVED' ? '#BBF7D0' : '#FECACA'};">${esc(ctx.date)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid ${ctx.status === 'APPROVED' ? '#BBF7D0' : '#FECACA'};">Status</td>
+            <td style="padding:6px 0;font-size:13px;font-weight:700;color:${ctx.status === 'APPROVED' ? '#166534' : '#991B1B'};border-bottom:1px solid ${ctx.status === 'APPROVED' ? '#BBF7D0' : '#FECACA'};">${esc(ctx.status)}</td>
+          </tr>
+          ${ctx.remarks ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;">Remarks</td><td style="padding:6px 0;color:#4B5563;font-size:13px;font-style:italic;">"${esc(ctx.remarks)}"</td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton('https://hr.anistonav.com/attendance', 'View Attendance')}`,
+    standardFooter('Aniston HRMS')
+  ),
+
+  // ── Payroll Deletion Templates ──
+
+  // Sent to SuperAdmin(s) when HR submits a payroll deletion request
+  // Context fields: requestorName, runLabel, reason, notes, reviewUrl
+  'payroll-deletion-request': (ctx) => emailLayout(
+    '#DC2626', '!', 'Payroll Deletion Request', `${esc(ctx.requestorName)} has requested deletion of a payroll run`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">A payroll deletion request is awaiting your approval.</p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF2F2;border:1px solid #FECACA;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#991B1B;font-weight:700;font-size:14px;margin:0 0 12px;">&#128203; Payroll Run Details</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:140px;border-bottom:1px solid #FECACA;">Payroll Period</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #FECACA;">${esc(ctx.runLabel)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #FECACA;">Requested By</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #FECACA;">${esc(ctx.requestorName)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #FECACA;">Reason</td>
+            <td style="padding:6px 0;color:#4B5563;font-size:13px;font-style:italic;border-bottom:1px solid #FECACA;">"${esc(ctx.reason)}"</td>
+          </tr>
+          ${ctx.notes ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;">Additional Notes</td><td style="padding:6px 0;color:#4B5563;font-size:13px;">${esc(ctx.notes)}</td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FFFBEB;border:1px solid #FDE68A;margin:0 0 20px;">
+      <tr><td style="padding:16px;">
+        <p style="color:#92400E;font-weight:600;font-size:13px;margin:0 0 6px;">&#9888; This will permanently delete the payroll run and all associated records.</p>
+        <p style="color:#78350F;font-size:12px;margin:0;">Please review carefully before approving. Deleted payroll data cannot be recovered.</p>
+      </td></tr>
+    </table>
+
+    ${ctaButton(ctx.reviewUrl || ctx.link || 'https://hr.anistonav.com/payroll', 'Review Request in HRMS', '#DC2626')}`,
+    standardFooter('Aniston HRMS', ctx.reviewUrl || ctx.link)
+  ),
+
+  // Sent to HR requestor when SuperAdmin approves or rejects the deletion request
+  // Context fields: firstName, runLabel, outcome, rejectionReason, appUrl
+  'payroll-deletion-reviewed': (ctx) => emailLayout(
+    ctx.outcome === 'APPROVED' ? '#059669' : '#4F46E5',
+    ctx.outcome === 'APPROVED' ? '&#10003;' : '&#10007;',
+    ctx.outcome === 'APPROVED' ? 'Payroll Deletion Approved' : 'Payroll Deletion Rejected',
+    `Your request to delete payroll run ${esc(ctx.runLabel)} has been ${ctx.outcome === 'APPROVED' ? 'approved' : 'rejected'}`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.firstName || 'there')}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      Your payroll deletion request for <strong>${esc(ctx.runLabel)}</strong> has been <strong>${ctx.outcome === 'APPROVED' ? 'approved and the payroll run has been permanently deleted' : 'rejected'}</strong>.
+    </p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${ctx.outcome === 'APPROVED' ? '#F0FDF4' : '#EEF2FF'};border:1px solid ${ctx.outcome === 'APPROVED' ? '#BBF7D0' : '#C7D2FE'};margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:140px;border-bottom:1px solid ${ctx.outcome === 'APPROVED' ? '#BBF7D0' : '#C7D2FE'};">Payroll Period</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid ${ctx.outcome === 'APPROVED' ? '#BBF7D0' : '#C7D2FE'};">${esc(ctx.runLabel)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid ${ctx.outcome === 'APPROVED' ? '#BBF7D0' : '#C7D2FE'};">Decision</td>
+            <td style="padding:6px 0;font-size:13px;font-weight:700;color:${ctx.outcome === 'APPROVED' ? '#166534' : '#3730A3'};border-bottom:1px solid ${ctx.outcome === 'APPROVED' ? '#BBF7D0' : '#C7D2FE'};">${ctx.outcome === 'APPROVED' ? 'APPROVED — Payroll run deleted' : 'REJECTED'}</td>
+          </tr>
+          ${ctx.rejectionReason ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;">Reason for Rejection</td><td style="padding:6px 0;color:#4B5563;font-size:13px;font-style:italic;">"${esc(ctx.rejectionReason)}"</td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctx.outcome === 'APPROVED'
+      ? `<p style="color:#374151;font-size:14px;line-height:1.6;margin:0 0 16px;">You may now create a new payroll run for the same period if needed.</p>`
+      : `<p style="color:#374151;font-size:14px;line-height:1.6;margin:0 0 16px;">If you have questions about this decision, please contact your Super Admin.</p>`
+    }
+
+    ${ctaButton(ctx.appUrl || 'https://hr.anistonav.com/payroll', 'Go to Payroll')}`,
+    standardFooter('Aniston HRMS')
+  ),
+
+  // ── Helpdesk Templates ──
+
+  // Sent to HR/Admin when an employee raises a new support ticket
+  'helpdesk-ticket-created': (ctx) => emailLayout(
+    'linear-gradient(135deg,#7C3AED 0%,#4F46E5 100%)', '&#127381;', 'New Support Ticket', `[${esc(ctx.ticketCode)}] ${esc(ctx.subject)}`,
+    `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">A new helpdesk ticket has been raised and requires your attention.</p>
+
+    <!-- Employee -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F3FF;border:1px solid #DDD6FE;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#5B21B6;font-weight:700;font-size:14px;margin:0 0 10px;">&#128100; Raised by</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:5px 0;color:#6B7280;font-size:13px;width:130px;">Employee</td>
+            <td style="padding:5px 0;color:#111827;font-size:13px;font-weight:600;">${esc(ctx.employeeName)}${ctx.employeeCode ? ` (${esc(ctx.employeeCode)})` : ''}</td>
+          </tr>
+          ${ctx.department ? `<tr><td style="padding:5px 0;color:#6B7280;font-size:13px;">Department</td><td style="padding:5px 0;color:#111827;font-size:13px;">${esc(ctx.department)}</td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+
+    <!-- Ticket details -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#374151;font-weight:700;font-size:14px;margin:0 0 12px;">&#128203; Ticket Details</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:130px;border-bottom:1px solid #F3F4F6;">Ticket #</td>
+            <td style="padding:6px 0;color:#4F46E5;font-size:13px;font-weight:700;border-bottom:1px solid #F3F4F6;">${esc(ctx.ticketCode)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Subject</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #F3F4F6;">${esc(ctx.subject)}</td>
+          </tr>
+          ${ctx.category ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Category</td><td style="padding:6px 0;color:#111827;font-size:13px;border-bottom:1px solid #F3F4F6;">${esc(ctx.category)}</td></tr>` : ''}
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Priority</td>
+            <td style="padding:6px 0;font-size:13px;font-weight:600;border-bottom:1px solid #F3F4F6;color:${ctx.priority === 'HIGH' || ctx.priority === 'CRITICAL' ? '#DC2626' : ctx.priority === 'MEDIUM' ? '#D97706' : '#059669'};">${esc(ctx.priority || 'MEDIUM')}</td>
+          </tr>
+          ${ctx.description ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;vertical-align:top;">Description</td><td style="padding:6px 0;color:#4B5563;font-size:13px;line-height:1.5;">${esc(ctx.description)}</td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton(ctx.link || 'https://hr.anistonav.com/helpdesk', 'View &amp; Respond in HRMS')}`,
+    standardFooter('Aniston HRMS', ctx.link)
+  ),
+
+  // Sent to employee when HR replies to their ticket OR changes its status
+  'helpdesk-ticket-updated': (ctx) => emailLayout(
+    '#4F46E5', '&#128236;', ctx.newStatus ? `Ticket ${ctx.newStatus === 'RESOLVED' ? 'Resolved' : 'Updated'}` : 'New Reply on Your Ticket',
+    `[${esc(ctx.ticketCode)}] ${esc(ctx.subject)}`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.employeeName)}</strong>,</p>
+    ${ctx.newStatus
+      ? `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">Your support ticket <strong>[${esc(ctx.ticketCode)}]</strong> has been <strong>${esc(ctx.newStatus.toLowerCase())}</strong>.</p>`
+      : `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">HR has replied to your support ticket <strong>[${esc(ctx.ticketCode)}]</strong>.</p>`
+    }
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EEF2FF;border:1px solid #C7D2FE;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:100px;border-bottom:1px solid #C7D2FE;">Ticket #</td>
+            <td style="padding:6px 0;color:#4F46E5;font-size:13px;font-weight:700;border-bottom:1px solid #C7D2FE;">${esc(ctx.ticketCode)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #C7D2FE;">Subject</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #C7D2FE;">${esc(ctx.subject)}</td>
+          </tr>
+          ${ctx.newStatus ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #C7D2FE;">Status</td><td style="padding:6px 0;color:#4F46E5;font-size:13px;font-weight:700;border-bottom:1px solid #C7D2FE;">${esc(ctx.newStatus)}</td></tr>` : ''}
+          ${ctx.commentPreview ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;vertical-align:top;">Reply</td><td style="padding:6px 0;color:#4B5563;font-size:13px;line-height:1.5;font-style:italic;">"${esc(ctx.commentPreview)}"</td></tr>` : ''}
+          ${ctx.resolution ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;vertical-align:top;">Resolution</td><td style="padding:6px 0;color:#059669;font-size:13px;line-height:1.5;">${esc(ctx.resolution)}</td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton(ctx.link || 'https://hr.anistonav.com/helpdesk', 'View Ticket')}`,
+    standardFooter('Aniston HRMS')
+  ),
+
+  // Sent to HR/Admin when an employee adds a comment on their own ticket
+  'helpdesk-comment-received': (ctx) => emailLayout(
+    '#7C3AED', '&#128172;', 'Employee Replied to Ticket', `[${esc(ctx.ticketCode)}] ${esc(ctx.subject)}`,
+    `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;"><strong>${esc(ctx.employeeName)}</strong> has added a new reply to their support ticket.</p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F3FF;border:1px solid #DDD6FE;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:100px;border-bottom:1px solid #DDD6FE;">Ticket #</td>
+            <td style="padding:6px 0;color:#7C3AED;font-size:13px;font-weight:700;border-bottom:1px solid #DDD6FE;">${esc(ctx.ticketCode)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #DDD6FE;">Subject</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #DDD6FE;">${esc(ctx.subject)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #DDD6FE;">Employee</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;border-bottom:1px solid #DDD6FE;">${esc(ctx.employeeName)}</td>
+          </tr>
+          ${ctx.commentPreview ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;vertical-align:top;">Comment</td><td style="padding:6px 0;color:#4B5563;font-size:13px;line-height:1.5;font-style:italic;">"${esc(ctx.commentPreview)}"</td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton(ctx.link || 'https://hr.anistonav.com/helpdesk', 'Reply in HRMS Portal')}`,
+    standardFooter('Aniston HRMS', ctx.link)
   ),
 };
 

@@ -108,7 +108,7 @@ export default function EmployeeOnboardingPage() {
 
 
   return (
-    <div className="h-screen overflow-y-auto bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4">
+    <div className="min-h-screen overflow-y-auto bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">

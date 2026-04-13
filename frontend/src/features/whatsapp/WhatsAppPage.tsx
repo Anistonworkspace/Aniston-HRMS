@@ -10,6 +10,7 @@ import {
   useGetWhatsAppStatusQuery,
   useGetWhatsAppChatsQuery,
   useGetWhatsAppChatMessagesQuery,
+  useGetWhatsAppContactsQuery,
   useSendWhatsAppMessageMutation,
   useSendWhatsAppToNumberMutation,
   useLazyResolveWhatsAppChatQuery,
@@ -23,7 +24,7 @@ import {
   useDeleteWhatsAppContactMutation,
 } from './whatsappApi';
 import type {
-  WhatsAppChat, WhatsAppMessage, WhatsAppDbContact,
+  WhatsAppChat, WhatsAppMessage, WhatsAppDbContact, WhatsAppContact,
 } from './whatsappApi';
 import { Link } from 'react-router-dom';
 import { cn } from '../../lib/utils';
@@ -450,8 +451,7 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewChat, setShowNewChat] = useState(hasPrefill);
   const [showContactInfo, setShowContactInfo] = useState(false);
-  // Only 2 tabs: chats and contacts (HRMS tab removed — all chats are unified)
-  const [leftTab, setLeftTab] = useState<'chats' | 'contacts'>('chats');
+  const [leftTab, setLeftTab] = useState<'chats' | 'contacts' | 'groups'>('chats');
   const [resolvingPhone, setResolvingPhone] = useState<string | null>(null);
   const [showAddContact, setShowAddContact] = useState(false);
   const [editingContact, setEditingContact] = useState<WhatsAppDbContact | null>(null);
@@ -463,7 +463,7 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
     refetch: refetchChats,
   } = useGetWhatsAppChatsQuery(undefined, { pollingInterval: POLLING.CHATS });
 
-  // DB contacts (WhatsAppContact model) — replaces live session contacts in the Contacts tab
+  // DB contacts (WhatsAppContact model) — application-layer contacts with full CRUD
   const {
     data: dbContactsRes,
     isLoading: loadingDbContacts,
@@ -474,12 +474,20 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
     { skip: leftTab !== 'contacts' }
   );
 
+  // Live WhatsApp session contacts (from phone address book)
+  const {
+    data: liveContactsRes,
+    isLoading: loadingLiveContacts,
+  } = useGetWhatsAppContactsQuery(undefined, { skip: leftTab !== 'contacts' });
+
   const [triggerResolve] = useLazyResolveWhatsAppChatQuery();
   const [markAsRead] = useMarkChatAsReadMutation();
   const [deleteContact] = useDeleteWhatsAppContactMutation();
 
   const chats: WhatsAppChat[] = chatsRes?.data || [];
   const dbContacts: WhatsAppDbContact[] = dbContactsRes?.data || [];
+  const liveContacts: WhatsAppContact[] = liveContactsRes?.data || [];
+  const groupChats: WhatsAppChat[] = chats.filter(c => c.isGroup);
 
   // Expose active chatId so API layer can suppress toast for active conversation
   useEffect(() => {
@@ -556,11 +564,34 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
   }, []);
 
   const filteredChats = useMemo(() => {
-    if (!searchQuery) return chats;
-    return chats.filter((c: WhatsAppChat) =>
+    const individualChats = chats.filter(c => !c.isGroup);
+    if (!searchQuery) return individualChats;
+    return individualChats.filter((c: WhatsAppChat) =>
       c.name?.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [chats, searchQuery]);
+
+  const filteredGroups = useMemo(() => {
+    if (!searchQuery) return groupChats;
+    return groupChats.filter((c: WhatsAppChat) =>
+      c.name?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [groupChats, searchQuery]);
+
+  // Live contacts filtered by search, excluding those already in DB contacts
+  const filteredLiveContacts = useMemo(() => {
+    const dbPhones = new Set(dbContacts.map(c => c.normalizedPhone));
+    const filtered = liveContacts.filter(c => {
+      const digits = c.number?.replace(/\D/g, '') || '';
+      if (dbPhones.has(digits)) return false; // already in DB, skip duplicate
+      if (searchQuery) {
+        return c.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          c.number?.includes(searchQuery);
+      }
+      return true;
+    });
+    return filtered;
+  }, [liveContacts, dbContacts, searchQuery]);
 
   // DB contacts are already filtered server-side via the search param
   const filteredDbContacts = dbContacts;
@@ -583,19 +614,21 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
         <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50">
           <div className="flex items-center gap-2 mb-2">
             <div className="flex bg-gray-100 rounded-lg p-0.5 flex-1">
-              {(['chats', 'contacts'] as const).map(tab => (
+              {(['chats', 'contacts', 'groups'] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => { setLeftTab(tab); setSearchQuery(''); }}
                   className={cn(
-                    'flex-1 text-xs font-medium py-1.5 rounded-md transition-all',
+                    'flex-1 text-[11px] font-medium py-1.5 rounded-md transition-all',
                     leftTab === tab ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                   )}
                   aria-label={`${tab} tab`}
                 >
                   {tab === 'chats'
-                    ? `Chats${chats.length > 0 ? ` (${chats.length})` : ''}`
-                    : `Contacts${dbContactsRes?.meta?.total ? ` (${dbContactsRes.meta.total})` : ''}`}
+                    ? `Chats${chats.filter(c => !c.isGroup).length > 0 ? ` (${chats.filter(c => !c.isGroup).length})` : ''}`
+                    : tab === 'contacts'
+                    ? `Contacts`
+                    : `Groups${groupChats.length > 0 ? ` (${groupChats.length})` : ''}`}
                 </button>
               ))}
             </div>
@@ -613,7 +646,7 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
                 >
                   <UserPlus size={15} className="text-white" />
                 </button>
-              ) : (
+              ) : leftTab === 'groups' ? null : (
                 <button
                   onClick={() => { setShowNewChat(true); setSelectedChat(null); }}
                   className="w-8 h-8 rounded-lg bg-brand-600 hover:bg-brand-700 transition-colors flex items-center justify-center"
@@ -629,16 +662,17 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
             <input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder={leftTab === 'chats' ? 'Search chats...' : 'Search contacts...'}
+              placeholder={leftTab === 'chats' ? 'Search chats...' : leftTab === 'contacts' ? 'Search contacts...' : 'Search groups...'}
               className="w-full text-xs bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-300"
               aria-label="Search"
             />
           </div>
         </div>
 
-        {/* Chat / Contact list */}
+        {/* Chat / Contact / Group list */}
         <div className="flex-1 overflow-y-auto" role="list" aria-label={`${leftTab} list`}>
           {leftTab === 'chats' ? (
+            /* ── Chats tab: individual 1-to-1 conversations ── */
             loadingChats ? <ChatListSkeleton /> :
             filteredChats.length === 0 ? (
               <EmptyState
@@ -649,7 +683,7 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
                 subtext={!searchQuery
                   ? isSyncing
                     ? 'WhatsApp is loading your conversations. This can take 10–30 seconds on first connect.'
-                    : 'All WhatsApp conversations — including HRMS invitations and job application messages — appear here'
+                    : 'All WhatsApp 1-to-1 conversations appear here. Groups are in the Groups tab.'
                   : undefined}
                 action={!searchQuery && !isSyncing ? (
                   <button onClick={() => refetchChats()} className="text-xs text-brand-600 hover:text-brand-700 font-medium mt-2 flex items-center gap-1 mx-auto">
@@ -670,37 +704,96 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
                 ))}
               </>
             )
-          ) : (
-            // Contacts tab — DB contacts (WhatsAppContact model)
-            loadingDbContacts ? <ChatListSkeleton /> :
-            filteredDbContacts.length === 0 ? (
+          ) : leftTab === 'groups' ? (
+            /* ── Groups tab: WhatsApp group conversations ── */
+            loadingChats ? <ChatListSkeleton /> :
+            filteredGroups.length === 0 ? (
               <EmptyState
-                icon={<User size={32} className="text-gray-200" />}
-                text={searchQuery ? 'No matching contacts' : 'No contacts yet'}
-                subtext={!searchQuery ? 'Add contacts to quickly start WhatsApp conversations' : undefined}
-                action={!searchQuery ? (
-                  <button
-                    onClick={() => setShowAddContact(true)}
-                    className="text-xs text-brand-600 hover:text-brand-700 font-medium mt-2 flex items-center gap-1 mx-auto"
-                  >
-                    <UserPlus size={12} /> Add Contact
-                  </button>
-                ) : undefined}
+                icon={<MessageCircle size={32} className="text-gray-200" />}
+                text={searchQuery ? 'No matching groups' : 'No groups yet'}
+                subtext={!searchQuery ? 'WhatsApp group chats will appear here automatically' : undefined}
               />
             ) : (
               <>
-                {fetchingDbContacts && !loadingDbContacts && <LoadingBanner text="Refreshing contacts..." />}
-                {filteredDbContacts.map((contact: WhatsAppDbContact) => (
-                  <DbContactListItem
-                    key={contact.id}
-                    contact={contact}
-                    isSelected={selectedChat === contact.providerChatId}
-                    isResolving={resolvingPhone === contact.normalizedPhone}
-                    onClick={() => handleContactClick(contact)}
-                    onDelete={e => handleDeleteContact(contact, e)}
-                    onEdit={e => handleEditContact(contact, e)}
+                {filteredGroups.map((chat: WhatsAppChat) => (
+                  <ChatListItem
+                    key={chat.id}
+                    chat={chat}
+                    isSelected={selectedChat === chat.id}
+                    onClick={() => { setSelectedChat(chat.id); setShowNewChat(false); }}
                   />
                 ))}
+              </>
+            )
+          ) : (
+            /* ── Contacts tab: DB contacts + live WhatsApp session contacts ── */
+            (loadingDbContacts || loadingLiveContacts) ? <ChatListSkeleton /> : (
+              <>
+                {/* DB Contacts (manually managed) */}
+                {filteredDbContacts.length > 0 && (
+                  <>
+                    <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-100">
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Saved Contacts ({filteredDbContacts.length})</p>
+                    </div>
+                    {fetchingDbContacts && !loadingDbContacts && <LoadingBanner text="Refreshing contacts..." />}
+                    {filteredDbContacts.map((contact: WhatsAppDbContact) => (
+                      <DbContactListItem
+                        key={contact.id}
+                        contact={contact}
+                        isSelected={selectedChat === contact.providerChatId}
+                        isResolving={resolvingPhone === contact.normalizedPhone}
+                        onClick={() => handleContactClick(contact)}
+                        onDelete={e => handleDeleteContact(contact, e)}
+                        onEdit={e => handleEditContact(contact, e)}
+                      />
+                    ))}
+                  </>
+                )}
+
+                {/* Live WhatsApp session contacts (from phone address book) */}
+                {filteredLiveContacts.length > 0 && (
+                  <>
+                    <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-100">
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">WhatsApp Contacts ({filteredLiveContacts.length})</p>
+                    </div>
+                    {filteredLiveContacts.map((contact: WhatsAppContact) => (
+                      <LiveContactListItem
+                        key={contact.id}
+                        contact={contact}
+                        isSelected={false}
+                        onClick={() => {
+                          const phone = contact.number?.replace(/\D/g, '') || contact.id.replace('@c.us', '');
+                          const liveChat = findChatForPhone(chats, phone);
+                          if (liveChat) {
+                            setSelectedChat(liveChat.id);
+                            setShowNewChat(false);
+                          } else {
+                            sessionStorage.setItem('whatsapp_prefill_phone', phone);
+                            setShowNewChat(true);
+                            setSelectedChat(null);
+                          }
+                        }}
+                      />
+                    ))}
+                  </>
+                )}
+
+                {/* Empty state: no contacts at all */}
+                {filteredDbContacts.length === 0 && filteredLiveContacts.length === 0 && (
+                  <EmptyState
+                    icon={<User size={32} className="text-gray-200" />}
+                    text={searchQuery ? 'No matching contacts' : 'No contacts yet'}
+                    subtext={!searchQuery ? 'Add contacts manually or they will appear here from your WhatsApp session' : undefined}
+                    action={!searchQuery ? (
+                      <button
+                        onClick={() => setShowAddContact(true)}
+                        className="text-xs text-brand-600 hover:text-brand-700 font-medium mt-2 flex items-center gap-1 mx-auto"
+                      >
+                        <UserPlus size={12} /> Add Contact
+                      </button>
+                    ) : undefined}
+                  />
+                )}
               </>
             )
           )}
@@ -721,7 +814,7 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
         ) : selectedChat ? (
           <ChatView
             chatId={selectedChat}
-            chatName={selectedChatData?.name || selectedChat.replace('@c.us', '').replace('@g.us', '')}
+            chatName={selectedChatData?.name || (selectedChat.includes('@g.us') ? 'Group Chat' : selectedChat.replace('@c.us', '').replace('@lid', ''))}
             onBack={() => setSelectedChat(null)}
             onToggleContactInfo={() => setShowContactInfo(prev => !prev)}
           />
@@ -811,9 +904,11 @@ const ChatListItem = memo(function ChatListItem({
         isSelected && 'bg-brand-50 hover:bg-brand-50'
       )}
     >
-      <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+      <div className={cn('w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0', chat.isGroup ? 'bg-indigo-100' : 'bg-green-100')}>
         {chat.profilePicUrl ? (
           <img src={chat.profilePicUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
+        ) : chat.isGroup ? (
+          <MessageCircle size={18} className="text-indigo-700" />
         ) : (
           <User size={18} className="text-green-700" />
         )}
@@ -936,6 +1031,41 @@ const DbContactListItem = memo(function DbContactListItem({
   );
 });
 
+/** Live WhatsApp session contact (from phone address book — read-only, no CRUD) */
+const LiveContactListItem = memo(function LiveContactListItem({
+  contact, isSelected, onClick,
+}: {
+  contact: WhatsAppContact;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  const displayName = contact.name || contact.pushname || contact.number || contact.id.replace('@c.us', '');
+  const initials = displayName.split(' ').map((w: string) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
+
+  return (
+    <button
+      role="listitem"
+      className={cn(
+        'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors border-b border-gray-50',
+        isSelected && 'bg-brand-50 hover:bg-brand-50'
+      )}
+      onClick={onClick}
+    >
+      <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+        <span className="text-sm font-bold text-green-700">{initials}</span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">{displayName}</p>
+        {contact.pushname && contact.name && contact.pushname !== contact.name && (
+          <p className="text-xs text-gray-400 truncate">{contact.pushname}</p>
+        )}
+        <p className="text-xs text-gray-400">{contact.number ? `+${contact.number}` : ''}</p>
+      </div>
+      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 flex-shrink-0">WA</span>
+    </button>
+  );
+});
+
 // =====================================================================
 // SMALL UI COMPONENTS
 // =====================================================================
@@ -973,7 +1103,8 @@ function ContactInfoPanel({
   dbContacts: WhatsAppDbContact[];
   onClose: () => void;
 }) {
-  const phoneNumber = chatId.replace('@c.us', '').replace('@g.us', '').replace(/@\S+/, '');
+  const isGroup = chatId.includes('@g.us');
+  const phoneNumber = isGroup ? '' : chatId.replace('@c.us', '').replace('@lid', '').replace(/@\S+/, '');
   const initials = chatName.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
 
   // Find matching DB contact if available
@@ -997,11 +1128,16 @@ function ContactInfoPanel({
       </div>
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col items-center py-8 border-b border-gray-100">
-          <div className="w-24 h-24 rounded-full bg-green-100 flex items-center justify-center mb-4">
-            <span className="text-2xl font-bold text-green-700">{initials}</span>
+          <div className={cn('w-24 h-24 rounded-full flex items-center justify-center mb-4', isGroup ? 'bg-indigo-100' : 'bg-green-100')}>
+            {isGroup
+              ? <MessageCircle size={36} className="text-indigo-700" />
+              : <span className="text-2xl font-bold text-green-700">{initials}</span>}
           </div>
           <h4 className="text-base font-semibold text-gray-800">{chatName}</h4>
-          {matchedContact && (
+          {isGroup && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full mt-1 bg-indigo-50 text-indigo-700">Group</span>
+          )}
+          {!isGroup && matchedContact && (
             <span className={cn('text-[10px] px-2 py-0.5 rounded-full mt-1', SOURCE_COLORS[matchedContact.source] || 'bg-gray-100 text-gray-600')}>
               {SOURCE_LABELS[matchedContact.source] || matchedContact.source}
             </span>
@@ -1062,6 +1198,7 @@ function ContactInfoPanel({
 function ChatView({
   chatId, chatName, onBack, onToggleContactInfo,
 }: { chatId: string; chatName: string; onBack?: () => void; onToggleContactInfo?: () => void }) {
+  const isGroup = chatId.includes('@g.us');
   const { data: messagesRes, isLoading, isFetching, isError, error, refetch } =
     useGetWhatsAppChatMessagesQuery({ chatId, limit: 50 });
   const [sendMessage] = useSendWhatsAppMessageMutation();
@@ -1194,13 +1331,15 @@ function ChatView({
           onClick={onToggleContactInfo}
           className="flex items-center gap-3 flex-1 min-w-0 hover:opacity-80 transition-opacity cursor-pointer"
         >
-          <div className="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-            <User size={16} className="text-green-700" />
+          <div className={cn('w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0', isGroup ? 'bg-indigo-100' : 'bg-green-100')}>
+            {isGroup
+              ? <MessageCircle size={16} className="text-indigo-700" />
+              : <User size={16} className="text-green-700" />}
           </div>
           <div className="flex-1 min-w-0 text-left">
             <p className="text-sm font-semibold text-gray-800 truncate">{chatName}</p>
             <p className="text-xs text-gray-400 truncate">
-              +{chatId.split('@')[0]}
+              {isGroup ? 'Group · WhatsApp' : `+${chatId.split('@')[0]}`}
             </p>
           </div>
         </button>

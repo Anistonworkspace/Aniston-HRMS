@@ -42,6 +42,11 @@ export const createEmployeeSchema = z.object({
     phone: z.string(),
     email: z.string().email().optional(),
   }).optional(),
+  bankAccountNumber: z.string().optional(),
+  bankName: z.string().optional(),
+  ifscCode: z.string().optional(),
+  accountHolderName: z.string().optional(),
+  accountType: z.enum(['SAVINGS', 'CURRENT']).optional(),
 });
 
 export const updateEmployeeSchema = createEmployeeSchema.partial();
