@@ -242,10 +242,37 @@ interface WebUpdateDetectorProps {
 function WebUpdateDetector({ onUpdateAvailable }: WebUpdateDetectorProps) {
   const { updateServiceWorker } = useRegisterSW({
     onRegisteredSW(_swUrl, registration) {
-      // Check for new SW every 60 seconds while the app is open
-      if (registration) {
-        setInterval(() => registration.update(), 60_000);
+      if (!registration) return;
+
+      // ① If a new SW is already waiting when this fires (e.g. user refreshed
+      //    after a deploy), show the modal immediately — we missed onNeedRefresh.
+      if (registration.waiting) {
+        onUpdateAvailable(() => updateServiceWorker(true));
+        return;
       }
+
+      // ② Poll every 30 s while the app is open
+      setInterval(() => registration.update(), 30_000);
+
+      // ③ Also check when user switches back to this tab (e.g. after hours away)
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          registration.update();
+        }
+      });
+
+      // ④ Check if a SW enters waiting state after we registered (covers the
+      //    case where the new SW finishes installing while the page is open)
+      registration.addEventListener('updatefound', () => {
+        const newSW = registration.installing;
+        if (!newSW) return;
+        newSW.addEventListener('statechange', () => {
+          if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+            // New SW installed and waiting — trigger modal
+            onUpdateAvailable(() => updateServiceWorker(true));
+          }
+        });
+      });
     },
     onNeedRefresh() {
       // A new SW has been downloaded and is waiting to activate.
@@ -253,7 +280,6 @@ function WebUpdateDetector({ onUpdateAvailable }: WebUpdateDetectorProps) {
       onUpdateAvailable(() => updateServiceWorker(true));
     },
     onOfflineReady() {
-      // SW is ready for offline use — no UI needed, just log
       console.info('[AppUpdateGuard] App is ready for offline use.');
     },
   });
