@@ -354,8 +354,11 @@ export default function AppUpdateGuard({ children }: { children: ReactNode }) {
         webTriggerRef.current(); // updateServiceWorker(true) → SKIP_WAITING + reload
       } else {
         // Fallback: tell SW directly then reload
-        if ('serviceWorker' in navigator && navigator.serviceWorker.waiting) {
-          navigator.serviceWorker.waiting.postMessage({ type: 'SKIP_WAITING' });
+        if ('serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.getRegistration();
+          if (reg?.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
         }
         // Listen for SW controller change then reload
         navigator.serviceWorker.addEventListener('controllerchange', () => {

@@ -84,6 +84,18 @@ jobs:
         working-directory: frontend
         run: npx cap sync android
 
+      - name: Patch Android compileSdk to 35 (required by androidx.work 2.10.x via capgo)
+        working-directory: frontend/android
+        run: |
+          # Bump compileSdk 34 → 35 in app/build.gradle (capgo requires work-runtime 2.10.x which needs 35)
+          sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' app/build.gradle || true
+          sed -i 's/compileSdk = 34/compileSdk = 35/g' app/build.gradle || true
+          sed -i 's/compileSdk 34/compileSdk 35/g' app/build.gradle || true
+          # Bump AGP 8.2.1 → 8.3.2 which supports compileSdk 35 without warnings
+          sed -i 's/com.android.tools.build:gradle:8.2.1/com.android.tools.build:gradle:8.3.2/g' build.gradle || true
+          echo "✅ Android compileSdk + AGP patched"
+          grep -E "compileSdk|com.android.tools.build" app/build.gradle build.gradle 2>/dev/null || true
+
       # ── Signed release (runs only when keystore secrets are set) ──────────
       - name: Decode keystore
         id: keystore
