@@ -57,7 +57,8 @@ jobs:
         with:
           java-version: '17'
           distribution: temurin
-          cache: gradle
+          # cache: gradle omitted — android/ folder is generated at runtime (npx cap add android)
+          # Gradle cache requires gradle files in the repo; re-enable after committing android/ folder
 
       - name: Install dependencies
         run: npm ci
