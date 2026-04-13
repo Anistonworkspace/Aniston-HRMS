@@ -93,8 +93,12 @@ jobs:
           sed -i 's/compileSdk 34/compileSdk 35/g' app/build.gradle || true
           # Bump AGP 8.2.1 → 8.3.2 which supports compileSdk 35 without warnings
           sed -i 's/com.android.tools.build:gradle:8.2.1/com.android.tools.build:gradle:8.3.2/g' build.gradle || true
-          echo "✅ Android compileSdk + AGP patched"
+          # Bump Gradle wrapper 8.2.1 → 8.4 (required by AGP 8.3.x — minimum Gradle is 8.4)
+          sed -i 's/gradle-8\.2\.1-all/gradle-8.4-all/g' gradle/wrapper/gradle-wrapper.properties || true
+          sed -i 's/gradle-8\.2\.1-bin/gradle-8.4-bin/g' gradle/wrapper/gradle-wrapper.properties || true
+          echo "✅ Android compileSdk + AGP + Gradle wrapper patched"
           grep -E "compileSdk|com.android.tools.build" app/build.gradle build.gradle 2>/dev/null || true
+          grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties 2>/dev/null || true
 
       # ── Signed release (runs only when keystore secrets are set) ──────────
       - name: Decode keystore
@@ -520,51 +524,36 @@ jobs:
             cd frontend && VITE_API_URL=/api npx vite build && cd ..
 
             echo "=== [12/16] Semantic versioning + OTA bundle ==="
-            # This entire step is best-effort — failures here must NOT block PM2 restart.
-            set +e
-
-            # Step A: Read the current live version (server may not be up yet → 0.0.0).
-            PREV_VERSION=$(curl -s http://localhost:4000/api/app-updates/latest 2>/dev/null \
-              | python3 -c "import sys,json;d=json.load(sys.stdin);v=d.get('data',{}).get('version','x');print(v if v and v[:1].isdigit() else '0.0.0')" 2>/dev/null)
-            PREV_VERSION=${PREV_VERSION:-0.0.0}
-            echo "Previous live version: ${PREV_VERSION}"
-
-            # Step B: Determine semver bump type — use python to avoid tr/head pipeline issues.
-            COMMIT_MSG=$(git log -1 --pretty=%B 2>/dev/null || echo "chore: update")
-            COMMIT_SUBJECT=$(git log -1 --pretty=%s 2>/dev/null | python3 -c "import sys,re; s=sys.stdin.read().strip(); print(re.sub(r'[^a-zA-Z0-9 .:()\-_]','',s)[:72])" 2>/dev/null || echo "update")
-            COMMIT_SUBJECT=${COMMIT_SUBJECT:-update}
-
-            BUMP_TYPE="patch"
-            echo "$COMMIT_MSG" | grep -qiE "(BREAKING CHANGE|feat!|fix!|refactor!)" && BUMP_TYPE="major"
-            if [ "$BUMP_TYPE" = "patch" ]; then
-              echo "$COMMIT_MSG" | grep -qE "^feat[:(]" && BUMP_TYPE="minor"
-            fi
-            echo "Bump type: ${BUMP_TYPE}  (commit: ${COMMIT_SUBJECT})"
-
-            # Step C: Compute new semver.
-            BUNDLE_VERSION=$(python3 -c "v='${PREV_VERSION}'.split('.'); a,b,c=(int(v[i]) if len(v)>i else 0 for i in range(3)); t='${BUMP_TYPE}'; print(str(a+1)+'.0.0' if t=='major' else str(a)+'.'+str(b+1)+'.0' if t=='minor' else str(a)+'.'+str(b)+'.'+str(c+1))" 2>/dev/null || echo "1.0.0")
-            echo "New version: ${BUNDLE_VERSION}"
-
-            # Step D: Create OTA bundle ZIP.
-            mkdir -p app-updates
-            if [ -d "frontend/dist" ]; then
-              cd frontend/dist
-              zip -r "../../app-updates/bundle-${BUNDLE_VERSION}.zip" . -q
-              cd ../..
-              BUNDLE_SIZE=$(du -sh "app-updates/bundle-${BUNDLE_VERSION}.zip" 2>/dev/null | cut -f1 || echo "?")
-              echo "Bundle v${BUNDLE_VERSION} created (${BUNDLE_SIZE})"
-            else
-              echo "WARNING: frontend/dist not found — skipping OTA zip"
-            fi
-
-            # Step E: Write manifest.json.
-            python3 -c "import json; m={'version':'${BUNDLE_VERSION}','url':'https://hr.anistonav.com/app-updates/bundle-${BUNDLE_VERSION}.zip','mandatory':True,'notes':'v${BUNDLE_VERSION} - ${COMMIT_SUBJECT}'}; open('app-updates/manifest.json','w').write(json.dumps(m,indent=2)); print('manifest.json updated to v${BUNDLE_VERSION}')" 2>/dev/null || echo "WARNING: manifest.json write failed"
-
-            # Ensure directories exist.
-            mkdir -p downloads app-updates uploads/ios-builds
-            chmod 755 downloads app-updates 2>/dev/null || true
-
-            set -e
+            # Entire step runs in a subshell — any failure exits the subshell only,
+            # never the outer deployment script. No set +e needed.
+            (
+              PREV_VERSION=$(curl -s http://localhost:4000/api/app-updates/latest 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);v=d.get('data',{}).get('version','x');print(v if v and v[:1].isdigit() else '0.0.0')" 2>/dev/null || echo "0.0.0")
+              PREV_VERSION=${PREV_VERSION:-0.0.0}
+              echo "Previous live version: ${PREV_VERSION}"
+              COMMIT_MSG=$(git log -1 --pretty=%B 2>/dev/null || echo "chore: update")
+              COMMIT_SUBJECT=$(git log -1 --pretty=%s 2>/dev/null | python3 -c "import sys,re; s=sys.stdin.read().strip(); print(re.sub(r'[^a-zA-Z0-9 .:()\-_]','',s)[:72])" 2>/dev/null || echo "update")
+              COMMIT_SUBJECT=${COMMIT_SUBJECT:-update}
+              BUMP_TYPE="patch"
+              if echo "$COMMIT_MSG" | grep -qiE "(BREAKING CHANGE|feat!|fix!|refactor!)"; then
+                BUMP_TYPE="major"
+              elif echo "$COMMIT_MSG" | grep -qE "^feat[:(]"; then
+                BUMP_TYPE="minor"
+              fi
+              echo "Bump type: ${BUMP_TYPE}  (commit: ${COMMIT_SUBJECT})"
+              BUNDLE_VERSION=$(python3 -c "v='${PREV_VERSION}'.split('.'); a,b,c=(int(v[i]) if len(v)>i else 0 for i in range(3)); t='${BUMP_TYPE}'; print(str(a+1)+'.0.0' if t=='major' else str(a)+'.'+str(b+1)+'.0' if t=='minor' else str(a)+'.'+str(b)+'.'+str(c+1))" 2>/dev/null || echo "1.0.0")
+              echo "New version: ${BUNDLE_VERSION}"
+              mkdir -p app-updates
+              if [ -d "frontend/dist" ]; then
+                (cd frontend/dist && zip -r "../../app-updates/bundle-${BUNDLE_VERSION}.zip" . -q)
+                BUNDLE_SIZE=$(du -sh "app-updates/bundle-${BUNDLE_VERSION}.zip" 2>/dev/null | cut -f1 || echo "?")
+                echo "Bundle v${BUNDLE_VERSION} created (${BUNDLE_SIZE})"
+              else
+                echo "WARNING: frontend/dist not found — skipping OTA zip"
+              fi
+              python3 -c "import json; m={'version':'${BUNDLE_VERSION}','url':'https://hr.anistonav.com/app-updates/bundle-${BUNDLE_VERSION}.zip','mandatory':True,'notes':'v${BUNDLE_VERSION} - ${COMMIT_SUBJECT}'}; open('app-updates/manifest.json','w').write(json.dumps(m,indent=2)); print('manifest.json updated to v${BUNDLE_VERSION}')" 2>/dev/null || echo "WARNING: manifest.json write failed"
+              mkdir -p downloads app-updates uploads/ios-builds
+              chmod 755 downloads app-updates 2>/dev/null || true
+            ) || echo "WARNING: OTA versioning step failed (non-blocking) — deployment continues"
 
             echo "=== [13/16] Verifying app binaries ==="
             ls -lh downloads/aniston-hrms.apk 2>/dev/null && echo "✅ Android APK present" || echo "ℹ️  Android APK not yet uploaded (will appear after first successful android build)"
