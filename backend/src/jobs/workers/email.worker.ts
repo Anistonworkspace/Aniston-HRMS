@@ -158,7 +158,7 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
                           <a href="${ctx.iosDownloadUrl || 'https://hr.anistonav.com/download/ios'}" style="color:#ffffff;font-size:13px;font-weight:700;text-decoration:none;font-family:'DM Sans',Arial,sans-serif;display:inline-block;">
                             &#x1F34E; iPhone / iPad
                           </a>
-                          <p style="color:rgba(255,255,255,0.85);font-size:10px;margin:3px 0 0;font-family:'DM Sans',Arial,sans-serif;">Install Guide</p>
+                          <p style="color:rgba(255,255,255,0.85);font-size:10px;margin:3px 0 0;font-family:'DM Sans',Arial,sans-serif;">Add to Home Screen</p>
                         </td>
                       </tr>
                     </table>

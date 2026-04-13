@@ -83,6 +83,48 @@ function SafariBarMockup() {
   );
 }
 
+// ── Safari address bar ⋯ mockup (alternative method) ─────────────────────────
+function SafariDotsMockup() {
+  return (
+    <div className="bg-gray-100 rounded-xl overflow-hidden max-w-xs mx-auto">
+      {/* Safari address bar with highlighted ⋯ */}
+      <div className="bg-gray-200 px-3 py-2 flex items-center gap-2">
+        <div className="flex-1 bg-white rounded-lg px-3 py-1.5 flex items-center gap-1">
+          <span className="text-xs text-gray-400">🔒</span>
+          <span className="text-xs text-gray-700 font-medium">hr.anistonav.com</span>
+        </div>
+        <motion.div
+          animate={{ scale: [1, 1.2, 1], backgroundColor: ['#EFF6FF', '#DBEAFE', '#EFF6FF'] }}
+          transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut' }}
+          className="w-8 h-8 rounded-lg flex items-center justify-center"
+        >
+          <span className="text-blue-600 font-bold text-base leading-none">⋯</span>
+        </motion.div>
+      </div>
+      {/* Dropdown from ⋯ */}
+      <div className="bg-white mx-2 mt-1 mb-2 rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        {['Reload Page', 'Show Reader View', 'Copy Link'].map(item => (
+          <div key={item} className="flex items-center gap-3 px-3 py-2 border-b border-gray-50">
+            <div className="w-5 h-5 rounded bg-gray-100" />
+            <span className="text-xs text-gray-500">{item}</span>
+          </div>
+        ))}
+        <motion.div
+          animate={{ backgroundColor: ['#EFF6FF', '#DBEAFE', '#EFF6FF'] }}
+          transition={{ repeat: Infinity, duration: 1.4 }}
+          className="flex items-center gap-3 px-3 py-2"
+        >
+          <div className="w-5 h-5 rounded bg-blue-100 flex items-center justify-center">
+            <Plus size={12} className="text-blue-600" />
+          </div>
+          <span className="text-xs font-semibold text-blue-700">Add to Home Screen</span>
+        </motion.div>
+      </div>
+      <p className="text-gray-400 text-xs text-center py-1.5">↑ Tap ⋯ → "Add to Home Screen"</p>
+    </div>
+  );
+}
+
 function ShareSheetMockup() {
   return (
     <div className="bg-gray-100 rounded-xl overflow-hidden max-w-xs mx-auto">
@@ -267,25 +309,54 @@ export default function IosInstallPage() {
             highlight
           />
 
+          {/* Two methods side-by-side label */}
+          <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
+            <p className="text-xs font-bold text-gray-700 text-center mb-3">Step 2 — Choose either method:</p>
+            <div className="grid grid-cols-2 gap-2 text-center">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                <Share2 size={18} className="text-blue-500 mx-auto mb-1" />
+                <p className="text-xs font-bold text-blue-800">Method A</p>
+                <p className="text-xs text-blue-600 mt-0.5">Share button<br/>at the bottom</p>
+              </div>
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3">
+                <span className="text-indigo-600 font-bold text-lg leading-none block mb-1">⋯</span>
+                <p className="text-xs font-bold text-indigo-800">Method B</p>
+                <p className="text-xs text-indigo-600 mt-0.5">3-dot button<br/>in address bar</p>
+              </div>
+            </div>
+          </div>
+
           <Step
             number={2}
-            title='Tap the Share button at the bottom'
-            subtitle='At the bottom of Safari, tap the Share button — the box with an arrow pointing upward.'
+            title='Method A — Tap the Share button at the bottom'
+            subtitle='At the bottom of Safari, tap the Share button — the box with an arrow pointing upward. Then scroll down and tap "Add to Home Screen".'
             icon={<Share2 size={20} />}
             screen={<SafariBarMockup />}
           />
 
           <Step
             number={3}
-            title='"Add to Home Screen" in the share sheet'
-            subtitle='A menu slides up from the bottom. Scroll down in the list until you see "Add to Home Screen" and tap it.'
+            title='Method B — Tap the ⋯ button in the address bar'
+            subtitle='In the Safari address bar, tap the ⋯ (three dots) button on the right side. A menu drops down — tap "Add to Home Screen" from the list.'
             icon={<Plus size={20} />}
             highlight
+            screen={<SafariDotsMockup />}
+          />
+
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1 pt-2">
+            Then continue with:
+          </p>
+
+          <Step
+            number={4}
+            title='"Add to Home Screen" in the share sheet'
+            subtitle='If using Method A: a menu slides up from the bottom — scroll down and tap "Add to Home Screen".'
+            icon={<Plus size={20} />}
             screen={<ShareSheetMockup />}
           />
 
           <Step
-            number={4}
+            number={5}
             title='Tap "Add" in the top right'
             subtitle='A preview screen appears showing the Aniston HRMS icon and name. Tap "Add" in the top-right corner to confirm.'
             icon={<Plus size={20} />}
@@ -293,7 +364,7 @@ export default function IosInstallPage() {
           />
 
           <Step
-            number={5}
+            number={6}
             title="Open from your Home Screen"
             subtitle='The Aniston HRMS icon now appears on your Home Screen. Tap it to open the app — it launches full screen, just like a native app.'
             icon={<CheckCircle2 size={20} />}
@@ -301,7 +372,7 @@ export default function IosInstallPage() {
           />
 
           <Step
-            number={6}
+            number={7}
             title="Sign in with your work email"
             subtitle="Enter the email and password you set during onboarding. Allow Location and Notification permissions when asked — these are required for attendance and alerts."
             icon={<CheckCircle2 size={20} />}

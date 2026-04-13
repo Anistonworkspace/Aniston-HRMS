@@ -143,12 +143,12 @@ export class InvitationService {
           `✅ *Step 1 — Accept your invitation:*`,
           `${inviteUrl}`,
           ``,
-          `📱 *Step 2 — Download the Aniston HRMS app:*`,
+          `📱 *Step 2 — Install the Aniston HRMS app:*`,
           ``,
-          `🤖 *Android (APK):*`,
+          `🤖 *Android — Download APK:*`,
           `${androidDownloadUrl}`,
           ``,
-          `🍎 *iPhone / iPad (App Store):*`,
+          `🍎 *iPhone / iPad — Add to Home Screen:*`,
           `${iosDownloadUrl}`,
           ``,
           `_Install the app to mark attendance, apply for leaves, view payslips and more._`,
@@ -517,8 +517,8 @@ export class InvitationService {
         });
 
         const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`;
-        const androidDownloadUrl = `https://hr.anistonav.com/downloads/aniston-hrms.apk`;
-        const iosDownloadUrl = `https://apps.apple.com/app/aniston-hrms/id000000000`;
+        const androidDownloadUrl = `https://hr.anistonav.com/download/android`;
+        const iosDownloadUrl = `https://hr.anistonav.com/download/ios`;
 
         // Fire-and-forget: don't let email queue failure abort the invitation creation
         enqueueEmail({
@@ -628,8 +628,8 @@ export class InvitationService {
     });
 
     const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${updated.inviteToken}`;
-    const androidDownloadUrl = `https://hr.anistonav.com/downloads/aniston-hrms.apk`;
-    const iosDownloadUrl = `https://apps.apple.com/app/aniston-hrms/id000000000`;
+    const androidDownloadUrl = `https://hr.anistonav.com/download/android`;
+    const iosDownloadUrl = `https://hr.anistonav.com/download/ios`;
 
     let emailStatus: string = invitation.email ? 'NOT_SENT' : 'NOT_SENT';
     let whatsappStatus: string = invitation.mobileNumber ? 'NOT_SENT' : 'NOT_SENT';
@@ -669,9 +669,9 @@ export class InvitationService {
           `✅ *Accept your invitation:*`,
           `${inviteUrl}`,
           ``,
-          `📱 *Download the Aniston HRMS app:*`,
-          `🤖 Android: ${androidDownloadUrl}`,
-          `🍎 iPhone / iPad: ${iosDownloadUrl}`,
+          `📱 *Install the Aniston HRMS app:*`,
+          `🤖 Android (APK): ${androidDownloadUrl}`,
+          `🍎 iPhone/iPad (Add to Home Screen): ${iosDownloadUrl}`,
           ``,
           `This link expires in 72 hours.`,
         ].join('\n');
