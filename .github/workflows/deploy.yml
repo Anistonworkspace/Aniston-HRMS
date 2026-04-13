@@ -84,20 +84,24 @@ jobs:
         working-directory: frontend
         run: npx cap sync android
 
-      - name: Patch Android compileSdk to 35 (required by androidx.work 2.10.x via capgo)
+      - name: Patch Android compileSdk 35 + AGP 8.7.3 + Gradle 8.9
         working-directory: frontend/android
         run: |
-          # Bump compileSdk 34 → 35 in app/build.gradle (capgo requires work-runtime 2.10.x which needs 35)
+          # Capacitor stores compileSdkVersion in variables.gradle (not app/build.gradle)
+          sed -i 's/compileSdkVersion = 34/compileSdkVersion = 35/g' variables.gradle || true
+          # Also patch app/build.gradle in case the project uses inline values
           sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' app/build.gradle || true
           sed -i 's/compileSdk = 34/compileSdk = 35/g' app/build.gradle || true
           sed -i 's/compileSdk 34/compileSdk 35/g' app/build.gradle || true
-          # Bump AGP 8.2.1 → 8.3.2 which supports compileSdk 35 without warnings
-          sed -i 's/com.android.tools.build:gradle:8.2.1/com.android.tools.build:gradle:8.3.2/g' build.gradle || true
-          # Bump Gradle wrapper 8.2.1 → 8.4 (required by AGP 8.3.x — minimum Gradle is 8.4)
-          sed -i 's/gradle-8\.2\.1-all/gradle-8.4-all/g' gradle/wrapper/gradle-wrapper.properties || true
-          sed -i 's/gradle-8\.2\.1-bin/gradle-8.4-bin/g' gradle/wrapper/gradle-wrapper.properties || true
-          echo "✅ Android compileSdk + AGP + Gradle wrapper patched"
-          grep -E "compileSdk|com.android.tools.build" app/build.gradle build.gradle 2>/dev/null || true
+          # Bump AGP to 8.7.3 — AGP 8.3.x max compileSdk is 34, 8.7.x supports 35
+          sed -i 's/com.android.tools.build:gradle:[0-9.]*/com.android.tools.build:gradle:8.7.3/g' build.gradle || true
+          # Bump Gradle wrapper to 8.9 — required by AGP 8.7.x (minimum Gradle is 8.9)
+          sed -i 's/gradle-[0-9.]*-all/gradle-8.9-all/g' gradle/wrapper/gradle-wrapper.properties || true
+          sed -i 's/gradle-[0-9.]*-bin/gradle-8.9-bin/g' gradle/wrapper/gradle-wrapper.properties || true
+          echo "✅ Patched — verifying:"
+          grep "compileSdkVersion" variables.gradle 2>/dev/null || true
+          grep -E "compileSdk" app/build.gradle 2>/dev/null || true
+          grep "com.android.tools.build" build.gradle 2>/dev/null || true
           grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties 2>/dev/null || true
 
       # ── Signed release (runs only when keystore secrets are set) ──────────
