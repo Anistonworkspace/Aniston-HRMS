@@ -87,8 +87,10 @@ jobs:
       - name: Patch Android compileSdk 35 + AGP 8.7.3 + Gradle 8.9
         working-directory: frontend/android
         run: |
-          # Capacitor stores compileSdkVersion in variables.gradle (not app/build.gradle)
+          # Capacitor stores SDK versions in variables.gradle (not app/build.gradle)
           sed -i 's/compileSdkVersion = 34/compileSdkVersion = 35/g' variables.gradle || true
+          # play-services-tasks:18.4.1 (via capgo) requires minSdk >= 23; bump from 22
+          sed -i 's/minSdkVersion = 22/minSdkVersion = 23/g' variables.gradle || true
           # Also patch app/build.gradle in case the project uses inline values
           sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' app/build.gradle || true
           sed -i 's/compileSdk = 34/compileSdk = 35/g' app/build.gradle || true
@@ -99,7 +101,7 @@ jobs:
           sed -i 's/gradle-[0-9.]*-all/gradle-8.9-all/g' gradle/wrapper/gradle-wrapper.properties || true
           sed -i 's/gradle-[0-9.]*-bin/gradle-8.9-bin/g' gradle/wrapper/gradle-wrapper.properties || true
           echo "✅ Patched — verifying:"
-          grep "compileSdkVersion" variables.gradle 2>/dev/null || true
+          grep -E "compileSdkVersion|minSdkVersion" variables.gradle 2>/dev/null || true
           grep -E "compileSdk" app/build.gradle 2>/dev/null || true
           grep "com.android.tools.build" build.gradle 2>/dev/null || true
           grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties 2>/dev/null || true
