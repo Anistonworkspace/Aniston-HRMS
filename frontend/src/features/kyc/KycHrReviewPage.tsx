@@ -419,7 +419,7 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
                 <div className="mt-2 p-2 bg-slate-50 rounded-lg">
                   <p className="text-xs font-semibold text-slate-600 mb-1.5">OCR Extracted Fields:</p>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                    {Object.entries(doc.ocrData.extractedFields).map(([k, v]) => v && (
+                    {Object.entries(doc.ocrData.extractedFields as Record<string, string | number | boolean | null>).map(([k, v]) => v != null && (
                       <div key={k} className="flex gap-1">
                         <span className="text-xs text-slate-500 capitalize">{k.replace(/([A-Z])/g, ' $1')}:</span>
                         <span className="text-xs font-medium text-slate-700 font-mono">{String(v)}</span>

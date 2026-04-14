@@ -15,6 +15,7 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
   const { data: res, isLoading } = useGetManagerReviewQuery(leaveId);
   const [handleAction, { isLoading: acting }] = useHandleLeaveActionMutation();
   const [remarks, setRemarks] = useState('');
+  const [conditionNote, setConditionNote] = useState('');
 
   const data = res?.data;
 

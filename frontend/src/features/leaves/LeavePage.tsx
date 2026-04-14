@@ -93,6 +93,7 @@ function LeaveManagementView() {
   const [liveNewCount, setLiveNewCount] = useState(0);
 
   const user = useAppSelector((state) => state.auth.user);
+  const isHRAdmin = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const dispatch = useAppDispatch();
 
   // Real-time: listen for new leave applications via Socket.io

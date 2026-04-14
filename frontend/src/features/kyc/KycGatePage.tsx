@@ -163,6 +163,10 @@ export default function KycGatePage() {
   const [uploadPhotoFile] = useUploadPhotoFileMutation();
   const [submitKyc, { isLoading: submitting }] = useSubmitKycMutation();
 
+  // Derive kyc state early so useEffects below can reference kycStatus
+  const kyc = kycRes?.data;
+  const kycStatus: string = kyc?.kycStatus || 'PENDING';
+
   // Real-time: refetch when HR verifies/rejects
   useEffect(() => {
     const handler = () => { refetch(); };
@@ -189,8 +193,6 @@ export default function KycGatePage() {
   const combinedPdfRef = useRef<HTMLInputElement | null>(null);
   const photoFileRef = useRef<HTMLInputElement | null>(null);
 
-  const kyc = kycRes?.data;
-  const kycStatus: string = kyc?.kycStatus || 'PENDING';
   const submittedDocs: string[] = (kyc?.submittedDocs || []) as string[];
   const photoUrl: string | null = kyc?.photoUrl || null;
   const combinedPdfUploaded = kyc?.combinedPdfUploaded || false;
@@ -387,8 +389,8 @@ export default function KycGatePage() {
                 onHideCamera={() => setShowCamera(false)}
                 combinedPdfRef={combinedPdfRef}
                 photoFileRef={photoFileRef}
-                onCombinedPdfChange={(file) => handleCombinedPdfUpload(file)}
-                onPhotoFileChange={(file) => handlePhotoFileUpload(file)}
+                onCombinedPdfChange={(file: File) => handleCombinedPdfUpload(file)}
+                onPhotoFileChange={(file: File) => handlePhotoFileUpload(file)}
                 onPhotoCapture={handlePhotoCapture}
                 onBack={() => setFlowStep('PROFILE_INFO')}
                 onSubmit={handleSubmitKyc}
@@ -414,11 +416,11 @@ export default function KycGatePage() {
                 reuploadDocTypes={reuploadDocTypes}
                 documentRejectReasons={documentRejectReasons}
                 openSections={openSections}
-                onToggleSection={(id) => setOpenSections(p => ({ ...p, [id]: !p[id] }))}
+                onToggleSection={(id: string) => setOpenSections(p => ({ ...p, [id]: !p[id] }))}
                 onShowCamera={() => setShowCamera(true)}
                 onHideCamera={() => setShowCamera(false)}
-                onFileChange={(docType, file, label) => handleFileUpload(docType, file, label)}
-                onPhotoFileChange={(file) => handlePhotoFileUpload(file)}
+                onFileChange={(docType: string, file: File, label: string) => handleFileUpload(docType, file, label)}
+                onPhotoFileChange={(file: File) => handlePhotoFileUpload(file)}
                 onPhotoCapture={handlePhotoCapture}
                 onBack={() => setFlowStep('PROFILE_INFO')}
                 onSubmit={handleSubmitKyc}
