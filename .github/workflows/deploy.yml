@@ -507,16 +507,56 @@ jobs:
               npx --no-install prisma db push 2>/dev/null || echo "Schema push skipped"
             }
 
-            echo "=== [8/16] Building & starting AI service (Docker) ==="
-            if command -v docker &> /dev/null; then
-              cd docker
-              docker compose build ai-service 2>/dev/null || docker-compose build ai-service 2>/dev/null || echo "WARNING: AI service Docker build failed"
-              docker compose up -d ai-service 2>/dev/null || docker-compose up -d ai-service 2>/dev/null || echo "WARNING: AI service Docker start failed"
-              cd ..
+            echo "=== [8/16] Building & starting AI service (Docker + OCR) ==="
+
+            # Install tesseract + poppler on the host so the Node.js fallback also works
+            sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-eng poppler-utils || true
+
+            # Install Docker if missing
+            if ! command -v docker &>/dev/null; then
+              echo "Docker not found — installing..."
+              curl -fsSL https://get.docker.com | sudo sh
+              sudo usermod -aG docker ubuntu
+              echo "Docker installed."
+            fi
+
+            # Use sudo docker because group membership requires a fresh login to take effect.
+            # Verify docker daemon is running.
+            sudo systemctl start docker || true
+            sudo docker info > /dev/null 2>&1 || { echo "⚠️  Docker daemon not accessible — skipping AI service"; }
+
+            cd /home/ubuntu/Aniston-HRMS/docker
+
+            echo "Building AI service Docker image (picks up any ai-service/ code changes)..."
+            sudo docker compose build ai-service \
+              || sudo docker-compose build ai-service \
+              || { echo "⚠️  AI service Docker build failed"; cd /home/ubuntu/Aniston-HRMS; }
+
+            echo "Starting AI service container (--no-deps avoids conflicting postgres/redis containers)..."
+            sudo docker compose up -d --no-deps --force-recreate ai-service \
+              || sudo docker-compose up -d --no-deps --force-recreate ai-service \
+              || echo "⚠️  AI service start failed"
+
+            cd /home/ubuntu/Aniston-HRMS
+
+            # Wait up to 90 s for the service to become healthy (it needs to load OCR models)
+            echo "Waiting for AI service health check (up to 90s)..."
+            AI_HEALTHY=false
+            for attempt in $(seq 1 18); do
               sleep 5
-              curl -s http://localhost:8000/ai/health || echo "WARNING: AI service not responding"
-            else
-              echo "WARNING: Docker not available"
+              if curl -sf http://localhost:8000/ai/health > /dev/null 2>&1; then
+                echo "✅ AI service healthy after $((attempt * 5))s"
+                AI_HEALTHY=true
+                break
+              fi
+              echo "  Attempt ${attempt}/18 — not ready yet..."
+            done
+
+            if [ "$AI_HEALTHY" != "true" ]; then
+              echo "⚠️  AI service did not become healthy within 90s. Last container logs:"
+              sudo docker logs aniston-ai-service --tail 50 2>/dev/null || true
+              echo "Deployment continues — OCR will use Node.js fallback for single docs;"
+              echo "combined KYC PDFs will be marked PENDING for manual HR review."
             fi
 
             echo "=== [9/16] Cleanup scripts ==="
@@ -593,6 +633,8 @@ jobs:
             curl -s http://localhost:4000/api/app-updates/latest | python3 -c "import sys,json; d=json.load(sys.stdin); print('Latest bundle:', d.get('data',{}).get('version','?'))" || echo "Check manually"
             echo ""
             echo "AI Service:"
-            curl -s http://localhost:8000/ai/health || echo "Not running (OCR uses fallback)"
+            AI_STATUS=$(curl -sf http://localhost:8000/ai/health 2>/dev/null && echo "✅ Running" || echo "⚠️  Not running — OCR uses Node.js fallback (combined KYC PDFs need manual HR review)")
+            echo "$AI_STATUS"
+            echo "AI container status: $(sudo docker ps --filter name=aniston-ai-service --format '{{.Status}}' 2>/dev/null || echo 'unknown')"
             echo ""
             echo "=== Deploy complete! Bundle v${{ github.run_number }} live. ==="

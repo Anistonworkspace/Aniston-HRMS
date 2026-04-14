@@ -218,18 +218,9 @@ export default function KycGatePage() {
     }
   }, [kyc, kycStatus, uploadMode]);
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-surface-1">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 size={24} className="animate-spin text-brand-600" />
-          <p className="text-sm text-gray-400">Loading KYC status...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Handlers ──────────────────────────────────────────────────────────────────
+  // ── Handlers ─────────────────────────────────────────────────────────────────
+  // NOTE: ALL hooks must be declared before any conditional early returns.
+  // useCallback is a hook and must be here, not below the isLoading guard.
 
   const handleSaveConfig = async () => {
     if (!uploadMode || !experience || !qualification) {
@@ -270,6 +261,18 @@ export default function KycGatePage() {
     }
     setUploading(null);
   }, [user, uploadDoc, refetch]);
+
+  // ── All hooks declared above. Early return is safe here. ────────────────────
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-surface-1">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 size={24} className="animate-spin text-brand-600" />
+          <p className="text-sm text-gray-400">Loading KYC status...</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleCombinedPdfUpload = async (file: File) => {
     if (!user?.employeeId) { toast.error('Employee profile not linked.'); return; }

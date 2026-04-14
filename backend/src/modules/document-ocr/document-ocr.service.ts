@@ -65,6 +65,49 @@ export class DocumentOcrService {
 
     // If AI service failed, use local Node.js OCR fallback (tesseract.js + pdf-parse)
     if (!ocrResult) {
+      // Combined KYC PDFs cannot be reliably processed by the local fallback —
+      // they contain multiple documents merged into one file. Mark as pending HR
+      // review instead of FLAGGED so employees are not alarmed.
+      const isCombinedKycPdf =
+        doc.type === 'OTHER' &&
+        typeof doc.name === 'string' &&
+        (doc.name.toLowerCase().includes('combined') || doc.name.toLowerCase().includes('kyc'));
+
+      if (isCombinedKycPdf) {
+        logger.info(`OCR: Combined KYC PDF detected for ${documentId} — skipping local fallback, setting pending HR review`);
+        const note = 'Combined KYC PDF — Python AI service is required for multi-document processing. HR must verify each constituent document (Aadhaar, PAN, education certs, etc.) manually by opening the PDF.';
+        const ocr = await prisma.documentOcrVerification.upsert({
+          where: { documentId },
+          create: {
+            documentId,
+            organizationId,
+            rawText: note,
+            detectedType: 'COMBINED_PDF',
+            confidence: 0,
+            ocrStatus: 'PENDING',
+            hrNotes: note,
+            processingMode: 'manual_review',
+            extractionSource: 'none',
+            suspicionScore: 0,
+          },
+          update: {
+            rawText: note,
+            detectedType: 'COMBINED_PDF',
+            confidence: 0,
+            ocrStatus: 'PENDING',
+            hrNotes: note,
+            processingMode: 'manual_review',
+            extractionSource: 'none',
+          },
+        });
+        // Keep document status as PENDING (not FLAGGED) — this is not a suspicious document
+        await prisma.document.update({
+          where: { id: documentId },
+          data: { status: 'PENDING', rejectionReason: null },
+        }).catch(() => {});
+        return ocr;
+      }
+
       logger.info(`OCR: Falling back to local Node.js OCR for document ${documentId}`);
       try {
         const { processDocumentLocally } = await import('../../services/document-processor.service.js');
