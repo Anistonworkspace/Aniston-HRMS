@@ -144,6 +144,21 @@ export class DocumentController {
         }
       }
 
+      // When HR rejects a document, reset KYC gate so employee must re-upload
+      if (status === 'REJECTED' && doc.employeeId) {
+        try {
+          const { documentGateService } = await import('../onboarding/document-gate.service.js');
+          await documentGateService.resetKycOnDocumentRejection(
+            doc.employeeId,
+            doc.type,
+            rejectionReason || 'Document rejected by HR',
+            req.user!.userId,
+          );
+        } catch (err) {
+          logger.warn('Failed to reset KYC gate on document rejection:', err);
+        }
+      }
+
       res.json({
         success: true,
         data: doc,
@@ -155,7 +170,20 @@ export class DocumentController {
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
+      // Fetch doc before deletion so we have employeeId + type for KYC reset
+      const docToDelete = await documentService.getById(req.params.id as string);
       await documentService.remove(req.params.id, req.user!.userId, req.user!.organizationId);
+
+      // Reset KYC gate if this doc was part of an employee's KYC submission
+      if (docToDelete?.employeeId) {
+        try {
+          const { documentGateService } = await import('../onboarding/document-gate.service.js');
+          await documentGateService.resetKycOnDocumentDeletion(docToDelete.employeeId, docToDelete.type);
+        } catch (err) {
+          logger.warn('Failed to reset KYC gate on document deletion:', err);
+        }
+      }
+
       res.json({ success: true, data: null, message: 'Document deleted' });
     } catch (err) { next(err); }
   }

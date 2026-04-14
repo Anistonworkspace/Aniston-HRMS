@@ -494,6 +494,116 @@ export class DocumentGateService {
     });
   }
 
+  /**
+   * Reset KYC status when HR deletes a document.
+   * Removes the doc type from submittedDocs and, if KYC was past PENDING,
+   * moves it back to REUPLOAD_REQUIRED so the employee sees the KYC gate again.
+   */
+  async resetKycOnDocumentDeletion(employeeId: string, docType: string) {
+    const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+    if (!gate) return;
+
+    // Remove the deleted doc type from submittedDocs
+    const newSubmitted = (gate.submittedDocs as string[]).filter((t) => t !== docType);
+    const allSubmitted = gate.requiredDocs.every((d: any) => newSubmitted.includes(d));
+
+    // Only revert if KYC was past PENDING — don't touch a gate already at PENDING
+    const shouldRevert = !['PENDING'].includes(gate.kycStatus);
+    const newStatus = shouldRevert ? 'REUPLOAD_REQUIRED' : gate.kycStatus;
+
+    const updated = await prisma.onboardingDocumentGate.update({
+      where: { employeeId },
+      data: {
+        submittedDocs: newSubmitted as any,
+        allSubmitted,
+        kycStatus: newStatus,
+        // If reverting, record which doc needs re-upload
+        ...(shouldRevert
+          ? {
+              reuploadRequested: true,
+              reuploadDocTypes: [...new Set([...(gate.reuploadDocTypes as string[]), docType])] as any,
+              documentRejectReasons: {
+                ...((gate.documentRejectReasons as Record<string, string>) || {}),
+                [docType]: 'Document was removed by HR — please re-upload',
+              } as any,
+            }
+          : {}),
+      },
+    });
+
+    if (shouldRevert) {
+      await this.emitKycUpdate(employeeId, 'REUPLOAD_REQUIRED');
+      // Notify employee
+      try {
+        const emp = await prisma.employee.findUnique({
+          where: { id: employeeId },
+          select: { userId: true, organizationId: true },
+        });
+        if (emp?.userId) {
+          const { enqueueNotification } = await import('../../jobs/queues.js');
+          await enqueueNotification({
+            userId: emp.userId,
+            organizationId: emp.organizationId,
+            title: 'Document Deleted — Action Required',
+            message: `HR removed your ${docType.replace(/_/g, ' ')}. Please re-upload it from the KYC page.`,
+            type: 'DOCUMENT_FLAGGED',
+            link: '/kyc-pending',
+          });
+        }
+      } catch { /* non-blocking */ }
+    }
+
+    return updated;
+  }
+
+  /**
+   * Reset KYC status when HR rejects a specific document.
+   * Sets kycStatus to REUPLOAD_REQUIRED with the rejected doc type flagged.
+   */
+  async resetKycOnDocumentRejection(employeeId: string, docType: string, rejectionReason: string, rejectedBy: string) {
+    const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+    if (!gate) return;
+
+    // Only act if KYC was past PENDING
+    if (gate.kycStatus === 'PENDING') return;
+
+    const updated = await prisma.onboardingDocumentGate.update({
+      where: { employeeId },
+      data: {
+        kycStatus: 'REUPLOAD_REQUIRED',
+        reuploadRequested: true,
+        reuploadDocTypes: [...new Set([...(gate.reuploadDocTypes as string[]), docType])] as any,
+        documentRejectReasons: {
+          ...((gate.documentRejectReasons as Record<string, string>) || {}),
+          [docType]: rejectionReason || 'Document rejected by HR',
+        } as any,
+        verifiedBy: rejectedBy,
+      },
+    });
+
+    await this.emitKycUpdate(employeeId, 'REUPLOAD_REQUIRED');
+
+    try {
+      const emp = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { userId: true, organizationId: true },
+      });
+      if (emp?.userId) {
+        const { enqueueNotification } = await import('../../jobs/queues.js');
+        await enqueueNotification({
+          userId: emp.userId,
+          organizationId: emp.organizationId,
+          title: 'Document Rejected — Re-upload Required',
+          message: `Your ${docType.replace(/_/g, ' ')} was rejected. Reason: ${rejectionReason || 'Please re-upload a clearer copy.'}`,
+          type: 'DOCUMENT_FLAGGED',
+          link: '/kyc-pending',
+        });
+      }
+    } catch { /* non-blocking */ }
+
+    return updated;
+  }
+
   async getPendingKyc(organizationId: string, page: number = 1, limit: number = 20) {
     const skip = (page - 1) * limit;
 

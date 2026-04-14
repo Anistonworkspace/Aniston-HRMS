@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText, Camera, Upload, CheckCircle2, Clock, XCircle, Loader2,
   AlertTriangle, Info, FileUp, GraduationCap, ShieldCheck, CreditCard,
   Home, Briefcase, Award, Image, ArrowRight, ArrowLeft, RefreshCw,
-  ChevronDown, ChevronUp, Eye,
+  ChevronDown, ChevronUp, Eye, LayoutDashboard,
 } from 'lucide-react';
 import { useAppSelector } from '../../app/store';
 import {
@@ -1140,6 +1141,7 @@ function StatusScreen({
   kycStatus, rejectionReason, reuploadDocTypes, documentRejectReasons,
   experience, qualification, submittedDocs, photoUrl, uploadMode, combinedPdfAnalysis, onStartReupload,
 }: any) {
+  const navigate = useNavigate();
   const cfg = KYC_STATUS_CONFIG[kycStatus] || KYC_STATUS_CONFIG.PENDING;
   const StatusIcon = cfg.icon;
   const hasPhoto = !!photoUrl || (submittedDocs || []).includes('PHOTO');
@@ -1259,7 +1261,28 @@ function StatusScreen({
         </button>
       )}
 
-      {/* Dashboard access note */}
+      {/* Go to Dashboard — shown when KYC is VERIFIED */}
+      {kycStatus === 'VERIFIED' && (
+        <div className="space-y-3">
+          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-3">
+            <CheckCircle2 size={20} className="text-emerald-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-700">All documents verified!</p>
+              <p className="text-xs text-emerald-600 mt-0.5">
+                Your KYC is complete. You now have full access to your Aniston HRMS dashboard.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate('/')}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm transition-colors shadow-sm"
+          >
+            <LayoutDashboard size={16} /> Go to Dashboard
+          </button>
+        </div>
+      )}
+
+      {/* Dashboard access note — only when not verified */}
       {!['VERIFIED'].includes(kycStatus) && (
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2 text-xs text-amber-700">
           <Clock size={13} className="mt-0.5 shrink-0" />

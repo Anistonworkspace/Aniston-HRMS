@@ -4,9 +4,9 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import 'leaflet/dist/leaflet.css';
 import {
-  ArrowLeft, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
+  ArrowLeft, ArrowRight, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
-  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2,
+  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload,
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery, useChangeEmployeeRoleMutation } from './employeeApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery } from '../attendance/attendanceApi';
@@ -463,7 +463,7 @@ export default function EmployeeDetailPage() {
             )}
 
             {activeTab === 'documents' && (
-              <DocumentsTab employeeId={id!} documents={employee.documents || []} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} />
+              <DocumentsTab employeeId={id!} documents={employee.documents || []} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} employeeName={`${employee.firstName} ${employee.lastName}`} />
             )}
 
             {activeTab === 'intern' && isIntern && (
@@ -2059,25 +2059,280 @@ function SalaryRow({ label, value, deduct, bold }: { label: string; value: numbe
    Documents Tab — Upload & View
    ============================================================================= */
 
+/* =============================================================================
+   HR KYC Upload Modal — mirrors employee onboarding flow for offline uploads
+   ============================================================================= */
+
+type HrUploadExperience = 'FRESHER' | 'EXPERIENCED';
+type HrUploadQual = 'TENTH' | 'TWELFTH' | 'GRADUATION' | 'POST_GRADUATION' | 'PHD';
+
+const HR_QUAL_ORDER = ['TENTH', 'TWELFTH', 'GRADUATION', 'POST_GRADUATION', 'PHD'];
+const HR_IDENTITY_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
+const HR_EMPLOYMENT_TYPES = ['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER_DOC', 'SALARY_SLIP_DOC'];
+
+interface HrRequiredDoc {
+  type: string;
+  label: string;
+  hint?: string;
+  required: boolean;
+  acceptsAnyOf?: string[];
+}
+
+function computeHrRequiredDocs(exp: HrUploadExperience, qual: HrUploadQual): HrRequiredDoc[] {
+  const docs: HrRequiredDoc[] = [];
+  const idx = HR_QUAL_ORDER.indexOf(qual);
+  if (idx >= 0) docs.push({ type: 'TENTH_CERTIFICATE',           label: '10th Marksheet / Certificate',              required: true });
+  if (idx >= 1) docs.push({ type: 'TWELFTH_CERTIFICATE',          label: '12th Marksheet / Certificate',              required: true });
+  if (idx >= 2) docs.push({ type: 'DEGREE_CERTIFICATE',           label: 'Graduation / Degree Certificate',           required: true });
+  if (idx >= 3) docs.push({ type: 'POST_GRADUATION_CERTIFICATE',  label: 'Post-Graduation Certificate',               required: true });
+  docs.push({ type: 'IDENTITY_PROOF', label: 'Identity Proof (any one)', hint: 'Aadhaar, Passport, Driving License, or Voter ID', required: true, acceptsAnyOf: HR_IDENTITY_TYPES });
+  docs.push({ type: 'PAN',            label: 'PAN Card',                                                              required: true });
+  docs.push({ type: 'RESIDENCE_PROOF', label: 'Residence Proof',  hint: 'Utility bill, rent agreement, or address proof', required: true });
+  if (exp === 'EXPERIENCED') {
+    docs.push({ type: 'EMPLOYMENT_PROOF', label: 'Employment Proof (any one)', hint: 'Experience Letter, Relieving Letter, Appointment Letter', required: false, acceptsAnyOf: HR_EMPLOYMENT_TYPES });
+  }
+  docs.push({ type: 'PHOTO', label: 'Passport Size Photograph', required: true });
+  return docs;
+}
+
+function isHrDocSubmitted(doc: HrRequiredDoc, submittedTypes: string[]): boolean {
+  if (doc.acceptsAnyOf) return doc.acceptsAnyOf.some(t => submittedTypes.includes(t));
+  return submittedTypes.includes(doc.type);
+}
+
+const HR_QUAL_LABELS: Record<string, string> = {
+  TENTH:           '10th / SSLC',
+  TWELFTH:         '12th / Intermediate / PUC',
+  GRADUATION:      'Graduation / Bachelor\'s Degree',
+  POST_GRADUATION: 'Post-Graduation / Master\'s Degree',
+  PHD:             'PhD / Doctorate',
+};
+
+function HrKycUploadModal({
+  employeeId,
+  employeeName,
+  existingDocs,
+  onClose,
+  onUploaded,
+}: {
+  employeeId: string;
+  employeeName: string;
+  existingDocs: any[];
+  onClose: () => void;
+  onUploaded: () => void;
+}) {
+  const [uploadDoc, { isLoading: uploading }] = useUploadDocumentMutation();
+  const [step, setStep] = useState<1 | 2>(1);
+  const [experience, setExperience] = useState<HrUploadExperience>('FRESHER');
+  const [qualification, setQualification] = useState<HrUploadQual>('GRADUATION');
+  const [currentUploadType, setCurrentUploadType] = useState<string | null>(null);
+  const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const existingTypes = existingDocs.map((d: any) => d.type);
+  const requiredDocs = computeHrRequiredDocs(experience, qualification);
+
+  const handleFileSelect = async (docSpec: HrRequiredDoc, file: File) => {
+    // Resolve actual doc type for "any one" groups
+    let resolvedType = docSpec.type;
+    let resolvedLabel = docSpec.label;
+    if (docSpec.acceptsAnyOf) {
+      // Use the first type in acceptsAnyOf (e.g. AADHAAR for IDENTITY_PROOF, EXPERIENCE_LETTER for EMPLOYMENT_PROOF)
+      if (docSpec.type === 'IDENTITY_PROOF') { resolvedType = 'AADHAAR'; resolvedLabel = 'Identity Proof'; }
+      else if (docSpec.type === 'EMPLOYMENT_PROOF') { resolvedType = 'EXPERIENCE_LETTER'; resolvedLabel = 'Employment Proof'; }
+    }
+    if (docSpec.type === 'PHOTO') { resolvedType = 'PHOTO'; resolvedLabel = 'Passport Size Photo'; }
+
+    setCurrentUploadType(docSpec.type);
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('type', resolvedType);
+    fd.append('name', resolvedLabel);
+    fd.append('employeeId', employeeId);
+    try {
+      await uploadDoc(fd).unwrap();
+      toast.success(`${resolvedLabel} uploaded — OCR verification started`);
+      onUploaded();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Upload failed');
+    }
+    setCurrentUploadType(null);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="text-base font-display font-bold text-gray-900">Upload KYC Documents</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Uploading for <span className="font-medium text-gray-700">{employeeName}</span> — same OCR verification as employee self-upload</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Step indicator */}
+        <div className="flex gap-4 px-6 pt-4">
+          {[{ n: 1, label: 'Employee Profile' }, { n: 2, label: 'Upload Documents' }].map(s => (
+            <div key={s.n} className="flex items-center gap-2">
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${step === s.n ? 'bg-brand-600 text-white' : step > s.n ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                {step > s.n ? <Check size={12} /> : s.n}
+              </div>
+              <span className={`text-xs ${step === s.n ? 'text-brand-600 font-medium' : 'text-gray-400'}`}>{s.label}</span>
+              {s.n < 2 && <div className="w-8 h-px bg-gray-200 mx-1" />}
+            </div>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {step === 1 && (
+            <div className="space-y-5">
+              <div>
+                <p className="text-sm font-semibold text-gray-700 mb-3">Is this employee a fresher or experienced?</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {(['FRESHER', 'EXPERIENCED'] as HrUploadExperience[]).map(opt => (
+                    <button
+                      key={opt}
+                      onClick={() => setExperience(opt)}
+                      className={`p-4 rounded-xl border-2 text-sm font-medium transition-all text-left ${experience === opt ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-100 text-gray-600 hover:border-brand-200'}`}
+                    >
+                      {opt === 'FRESHER' ? '🎓 Fresher' : '💼 Experienced'}
+                      <p className="text-xs font-normal text-gray-400 mt-1">
+                        {opt === 'FRESHER' ? 'No prior work experience' : 'Has previous employment'}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-gray-700 mb-3">Highest educational qualification</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {(Object.entries(HR_QUAL_LABELS) as [HrUploadQual, string][]).map(([val, label]) => (
+                    <button
+                      key={val}
+                      onClick={() => setQualification(val)}
+                      className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-sm transition-all ${qualification === val ? 'border-brand-600 bg-brand-50 text-brand-700 font-medium' : 'border-gray-100 text-gray-600 hover:border-brand-200'}`}
+                    >
+                      <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${qualification === val ? 'border-brand-600 bg-brand-600' : 'border-gray-300'}`} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={() => setStep(2)}
+                className="w-full btn-primary flex items-center justify-center gap-2"
+              >
+                Continue to Upload <ArrowRight size={16} />
+              </button>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 mb-4">
+                <button onClick={() => setStep(1)} className="text-gray-400 hover:text-gray-600">
+                  <ArrowLeft size={16} />
+                </button>
+                <p className="text-xs text-gray-500">
+                  {experience === 'FRESHER' ? 'Fresher' : 'Experienced'} · {HR_QUAL_LABELS[qualification]}
+                </p>
+              </div>
+
+              <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-700 flex items-start gap-2">
+                <Shield size={13} className="mt-0.5 shrink-0" />
+                <span>Each document upload triggers the same Python OCR + tamper-detection pipeline used during employee onboarding. HR will see OCR results in the Documents tab.</span>
+              </div>
+
+              {requiredDocs.map(doc => {
+                const isSubmitted = isHrDocSubmitted(doc, existingTypes);
+                const isUploading = currentUploadType === doc.type;
+
+                return (
+                  <div
+                    key={doc.type}
+                    className={`flex items-center gap-3 p-3 rounded-xl border ${isSubmitted ? 'border-emerald-200 bg-emerald-50' : 'border-gray-100 bg-gray-50'}`}
+                  >
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isSubmitted ? 'bg-emerald-100' : 'bg-white border border-gray-200'}`}>
+                      {isSubmitted
+                        ? <Check size={16} className="text-emerald-600" />
+                        : <FileText size={16} className="text-gray-400" />
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium truncate ${isSubmitted ? 'text-emerald-700' : 'text-gray-700'}`}>{doc.label}</p>
+                      {doc.hint && <p className="text-xs text-gray-400 mt-0.5 truncate">{doc.hint}</p>}
+                      {!doc.required && <span className="text-[10px] text-gray-400">(Optional)</span>}
+                    </div>
+                    <div className="shrink-0">
+                      {isSubmitted ? (
+                        <span className="text-xs text-emerald-600 font-medium">Uploaded</span>
+                      ) : (
+                        <>
+                          <input
+                            ref={el => { fileRefs.current[doc.type] = el; }}
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                            className="hidden"
+                            onChange={e => {
+                              const f = e.target.files?.[0];
+                              if (f) handleFileSelect(doc, f);
+                              e.target.value = '';
+                            }}
+                          />
+                          <button
+                            onClick={() => fileRefs.current[doc.type]?.click()}
+                            disabled={isUploading || uploading}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-60 transition-colors"
+                          >
+                            {isUploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                            {isUploading ? 'Uploading...' : 'Upload'}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="pt-2 flex items-center justify-between text-xs text-gray-400">
+                <span>{existingTypes.filter(t => requiredDocs.some(d => d.acceptsAnyOf ? d.acceptsAnyOf.includes(t) : d.type === t)).length} / {requiredDocs.length} uploaded</span>
+                <button onClick={onClose} className="text-brand-600 hover:text-brand-700 font-medium">Done</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =============================================================================
+   Documents Tab — Upload & View
+   ============================================================================= */
+
 const DOC_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID', 'BANK_STATEMENT', 'OFFER_LETTER', 'RELIEVING_LETTER', 'EDUCATION', 'EXPERIENCE', 'OTHER'];
 
-function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: string; documents: any[]; isManagement: boolean }) {
-  const [uploadDoc, { isLoading: uploading }] = useUploadDocumentMutation();
+function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { employeeId: string; documents: any[]; isManagement: boolean; employeeName?: string }) {
   const [verifyDoc] = useVerifyDocumentMutation();
   const [deleteDoc] = useDeleteDocumentMutation();
   const [verifyKyc, { isLoading: verifyingAll }] = useVerifyKycMutation();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const { data: ocrSummaryRes } = useGetEmployeeOcrSummaryQuery(employeeId, { skip: !isManagement });
-  const [showUpload, setShowUpload] = useState(false);
+  const { data: ocrSummaryRes, refetch: refetchOcr } = useGetEmployeeOcrSummaryQuery(employeeId, { skip: !isManagement });
+  const [showKycModal, setShowKycModal] = useState(false);
   const [ocrDocId, setOcrDocId] = useState<string | null>(null);
   const [ocrDocName, setOcrDocName] = useState('');
   const [ocrDocType, setOcrDocType] = useState('');
   const [ocrDocFileUrl, setOcrDocFileUrl] = useState('');
   const [ocrDocStatus, setOcrDocStatus] = useState('');
-  const [docName, setDocName] = useState('');
-  const [docType, setDocType] = useState('OTHER');
-  const fileRef = useRef<HTMLInputElement>(null);
 
   // Build OCR lookup by documentId for inline display
   const ocrByDocId: Record<string, any> = {};
@@ -2086,27 +2341,6 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
       if (item.ocr) ocrByDocId[item.documentId] = item.ocr;
     }
   }
-
-  const handleUpload = async () => {
-    const file = fileRef.current?.files?.[0];
-    if (!file) { toast.error('Please select a file'); return; }
-    if (!docName.trim()) { toast.error('Please enter document name'); return; }
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('name', docName.trim());
-    formData.append('type', docType);
-    formData.append('employeeId', employeeId);
-
-    try {
-      await uploadDoc(formData).unwrap();
-      toast.success('Document uploaded');
-      setShowUpload(false);
-      setDocName('');
-      setDocType('OTHER');
-      if (fileRef.current) fileRef.current.value = '';
-    } catch (err: any) { toast.error(err?.data?.error?.message || 'Upload failed'); }
-  };
 
   const handleVerify = async (docId: string, status: string) => {
     try {
@@ -2120,7 +2354,7 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
     setDeleting(true);
     try {
       await deleteDoc(confirmDeleteId).unwrap();
-      toast.success('Document deleted');
+      toast.success('Document deleted — employee KYC status updated');
       setConfirmDeleteId(null);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to delete document');
@@ -2134,18 +2368,27 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
 
   return (
     <div className="space-y-4">
+      {/* KYC Upload Modal (HR uploads on behalf of employee) */}
+      {showKycModal && isManagement && (
+        <HrKycUploadModal
+          employeeId={employeeId}
+          employeeName={employeeName || 'Employee'}
+          existingDocs={documents}
+          onClose={() => setShowKycModal(false)}
+          onUploaded={() => refetchOcr()}
+        />
+      )}
+
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-800">Documents ({documents.length})</h3>
         <div className="flex gap-2">
           {isManagement && documents.some((d: any) => d.status === 'PENDING') && (
             <button onClick={async () => {
               try {
-                // Verify all pending documents
                 const pending = documents.filter((d: any) => d.status === 'PENDING');
                 for (const doc of pending) {
                   await verifyDoc({ id: doc.id, status: 'VERIFIED' }).unwrap();
                 }
-                // Then approve KYC gate
                 await verifyKyc(employeeId).unwrap();
                 toast.success(`All ${pending.length} documents verified & KYC approved!`);
               } catch (err: any) {
@@ -2156,41 +2399,13 @@ function DocumentsTab({ employeeId, documents, isManagement }: { employeeId: str
               Verify All & Approve KYC
             </button>
           )}
-          <button onClick={() => setShowUpload(!showUpload)} className="btn-primary text-xs flex items-center gap-1.5">
-            <Plus size={14} /> Upload Document
-          </button>
+          {isManagement && (
+            <button onClick={() => setShowKycModal(true)} className="btn-primary text-xs flex items-center gap-1.5">
+              <Plus size={14} /> Upload Document
+            </button>
+          )}
         </div>
       </div>
-
-      {/* Upload form */}
-      {showUpload && (
-        <div className="layer-card p-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Document Name *</label>
-              <input value={docName} onChange={e => setDocName(e.target.value)} className="input-glass w-full text-sm" placeholder="e.g. Aadhaar Card" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Type</label>
-              <select value={docType} onChange={e => setDocType(e.target.value)} className="input-glass w-full text-sm">
-                {DOC_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">File (PDF, JPG, PNG) *</label>
-            <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" capture="environment"
-              className="input-glass w-full text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:bg-brand-50 file:text-brand-700" />
-          </div>
-          <div className="flex gap-2">
-            <button onClick={handleUpload} disabled={uploading} className="btn-primary text-sm flex items-center gap-1.5">
-              {uploading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
-              {uploading ? 'Uploading...' : 'Upload'}
-            </button>
-            <button onClick={() => setShowUpload(false)} className="btn-secondary text-sm">Cancel</button>
-          </div>
-        </div>
-      )}
 
       {/* Document list */}
       {documents.length > 0 ? (

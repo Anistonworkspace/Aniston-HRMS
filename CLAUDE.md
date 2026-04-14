@@ -7,17 +7,19 @@ Enterprise-grade Human Resource Management System (HRMS) as a Progressive Web Ap
 - **Frontend**: React 18 + Vite + TypeScript + Tailwind CSS v3 + shadcn/ui + Redux Toolkit (RTK Query) + Framer Motion
 - **Backend**: Node.js + Express + TypeScript + Prisma ORM + PostgreSQL 16 + Redis 7 + BullMQ + Socket.io
 - **AI Service**: Python FastAPI (OCR with pytesseract, DeepSeek scoring, RAGFlow search) — integrated via Docker Compose
-- **Infra**: Docker Compose (postgres:16-alpine, redis:7-alpine, ai-service Python FastAPI) + GitHub Actions CI
+- **Mobile**: Capacitor (Android APK build) — `frontend/capacitor.config.ts`
+- **Infra**: Docker Compose (postgres:16-alpine, redis:7-alpine, ai-service Python FastAPI) + GitHub Actions CI/CD
 
 ## Project Structure
 ```
 Aniston-hrms/
-├── frontend/          # React app (Vite)
+├── frontend/          # React app (Vite + Capacitor)
 ├── backend/           # Express API
 ├── shared/            # Shared TypeScript types & permissions (@aniston/shared)
-├── prisma/            # Prisma schema + seed
+├── prisma/            # Prisma schema + seed + migrations
 ├── docker/            # docker-compose.yml
-├── ai-service/        # Python FastAPI (future)
+├── ai-service/        # Python FastAPI (OCR + scoring)
+├── deploy/            # nginx.conf, deployment config
 ├── docs/              # Mega prompt & reference docs
 └── .env               # Environment variables (not committed)
 ```
@@ -49,6 +51,8 @@ npm run dev
 - Application Tracker: http://localhost:5173/track/:uid
 - WhatsApp UI: http://localhost:5173/whatsapp
 - Invite Onboarding: http://localhost:5173/onboarding/invite/:token
+- Android Install Guide: http://localhost:5173/download/android
+- iOS Install Guide: http://localhost:5173/download/ios
 
 ## Login Credentials (Dev)
 - Super Admin: `superadmin@anistonav.com` / `Superadmin@1234`
@@ -56,10 +60,10 @@ npm run dev
 
 ## Architecture Decisions
 1. **npm workspaces monorepo** — frontend, backend, shared packages
-2. **Module pattern** on backend — all 22 modules follow full MVC: controller/service/routes/validation in `backend/src/modules/<feature>/`
+2. **Module pattern** on backend — all 40+ modules follow full MVC: controller/service/routes/validation in `backend/src/modules/<feature>/`
 3. **RTK Query** for frontend API calls with auto-caching and tag-based invalidation
-4. **Single Prisma schema** at `prisma/schema.prisma` — all models in one file
-5. **RBAC** — 6 roles (SUPER_ADMIN, ADMIN, HR, MANAGER, EMPLOYEE, GUEST_INTERVIEWER) with permission map in `shared/src/permissions.ts`
+4. **Single Prisma schema** at `prisma/schema.prisma` — all models in one file (80+ models)
+5. **RBAC** — 7 roles (SUPER_ADMIN, ADMIN, HR, MANAGER, EMPLOYEE, GUEST_INTERVIEWER, INTERN) with permission map in `shared/src/permissions.ts`
 6. **Glassmorphism UI** — Monday.com-inspired layered design. CSS utilities in `frontend/src/styles/globals.css`
 7. **Fonts**: Sora (headings), DM Sans (body), JetBrains Mono (data/numbers)
 8. **File uploads** — Multer middleware at `backend/src/middleware/upload.middleware.ts` with type-specific handlers (uploadImage, uploadDocument, uploadResume)
@@ -70,8 +74,55 @@ npm run dev
 13. **Audit logging** — Centralized at `backend/src/utils/auditLogger.ts`, used in leave, payroll, performance, settings
 14. **API docs** — Swagger UI at `/api/docs`, OpenAPI spec at `/api/docs.json`
 15. **Testing** — Vitest + supertest, tests in `backend/src/**/__tests__/`, run with `npm run test --workspace=backend`
+16. **PWA** — vite-plugin-pwa with `registerType: 'prompt'` + `injectManifest` strategy; update detection via `AppUpdateGuard`
+17. **Android APK** — Capacitor build via GitHub Actions; APK served at `/downloads/aniston-hrms.apk`; nginx aliases to `downloads/apk-build/`
+18. **Task Integration** — Jira, Asana, ClickUp integration via `task-integration` module with encrypted API keys
 
-## New Backend Routes (Phase 6–8)
+## Backend Modules (40+)
+All modules in `backend/src/modules/<name>/` follow MVC pattern. Notable modules:
+
+| Module | Purpose |
+|---|---|
+| `agent` | Remote agent screenshots + activity monitoring |
+| `ai-assistant` | Context-aware FAB chat, Redis conversation history |
+| `ai-config` | Multi-provider AI config (OpenAI/DeepSeek/Anthropic/Gemini), AES-encrypted keys |
+| `announcement` | Org-wide announcements + social wall |
+| `asset` | Asset CRUD + assign/return workflow |
+| `attendance` | 3-mode attendance (OFFICE/FIELD_SALES/PROJECT_SITE) |
+| `auth` | JWT + refresh tokens + RBAC |
+| `backup` | Database backup management |
+| `branding` | Company branding (logo, colors, theme) |
+| `component-master` | Salary component master definitions |
+| `dashboard` | Stats + analytics aggregation |
+| `document` | Document upload, verification, management |
+| `document-ocr` | OCR extraction, AI verification, format validation |
+| `employee` | Employee CRUD, profile, documents, audit |
+| `employee-deletion` | Soft-delete workflow with approval |
+| `employee-permissions` | Granular permission overrides per employee |
+| `exit-access` | Exit/offboarding checklist + access revocation |
+| `helpdesk` | Support tickets + comments |
+| `holiday` | Holiday CRUD management |
+| `intern` | Intern profile, mentor assignment, achievement letters |
+| `invitation` | Token-based employee invites (72-hr TTL, email delivery) |
+| `leave` | Leave types, balances, requests, approvals, settings, policies |
+| `letter` | Letter templates + generation + assignments |
+| `onboarding` | 7-step wizard + document gate + KYC |
+| `payroll` | Indian statutory payroll (EPF/ESI/PT/TDS) + Excel export |
+| `payroll-adjustment` | One-off payroll adjustments |
+| `payroll-deletion` | Payroll record deletion with approval workflow |
+| `performance` | Goals, review cycles, enterprise dashboard + task integration |
+| `policy` | Company policy docs + acknowledgment tracking |
+| `public-apply` | Public job application (AI MCQ, tracking, interview rounds) |
+| `recruitment` | Job openings + Kanban pipeline + offers |
+| `report` | Reports + Excel/PDF exports |
+| `salary-template` | Salary template CRUD + structure assignment |
+| `settings` | Org settings, locations, audit logs, AI config |
+| `shift` | Shift definitions + rotation patterns + assignments |
+| `task-integration` | Jira/Asana/ClickUp integration for leave handover risk |
+| `walkIn` | Walk-in kiosk (5-step form) + HR management |
+| `whatsapp` | WhatsApp session, messages, OTP, conversations |
+
+## New Backend Routes (Phase 6–9)
 | Route prefix | Module | Notes |
 |---|---|---|
 | `POST /api/settings/ai-config` | ai-config | Upsert AI provider config (SUPER_ADMIN) |
@@ -91,20 +142,69 @@ npm run dev
 | `POST /api/jobs/:id/interview-rounds` | public-apply | Create interview round |
 | `POST /api/jobs/:id/schedule-interview` | public-apply | Schedule + AI message |
 | `POST /api/jobs/:id/finalize` | public-apply | Finalize with weighted score |
+| `GET /api/performance/summary/:id` | performance | Enterprise performance dashboard |
+| `DELETE /api/payroll/:id` | payroll-deletion | Delete payroll record (with approval) |
+| `GET /api/leave/settings` | leave | Leave settings per org |
+| `PATCH /api/leave/settings` | leave | Update leave settings |
+| `GET /api/onboarding/document-gate` | onboarding | Document gate status |
+| `POST /api/intern` | intern | Create intern profile |
+| `GET /api/intern/:id/letters` | intern | Get achievement letters |
+| `GET /api/task-integration/config` | task-integration | Get integration config |
+| `POST /api/task-integration/config` | task-integration | Save integration config |
+| `GET /api/task-integration/tasks/:employeeId` | task-integration | Fetch tasks for employee |
+| `GET /api/employee-permissions/:id` | employee-permissions | Get employee permission overrides |
+| `POST /api/employee-permissions/:id` | employee-permissions | Set permission overrides |
 
-## New Prisma Models (Phase 6–8)
+## Prisma Models (80+ total, key additions since Phase 8)
 | Model | Purpose |
 |---|---|
-| `AiApiConfig` | Stores per-org AI provider config with AES-256-GCM encrypted API key |
-| `EmployeeInvitation` | Token-based employee invite (72-hour TTL, tracks status: PENDING/ACCEPTED/EXPIRED) |
+| `AiApiConfig` | Multi-provider AI config with AES-256-GCM encrypted API key |
+| `EmployeeInvitation` | Token-based invite (72-hr TTL, PENDING/ACCEPTED/EXPIRED) |
 | `JobApplicationQuestion` | AI-generated MCQ questions linked to a job opening |
-| `PublicApplication` | Candidate submission via public apply form, with per-question responses |
-| `InterviewRound` | Interview round definition with AI-generated questions, scores, and scheduling |
+| `PublicApplication` | Candidate submission via public apply form |
+| `InterviewRound` | Interview round with AI questions, scores, scheduling |
+| `InternProfile` | Intern-specific data (mentor, stipend, duration, college) |
+| `InternAchievementLetter` | Generated letters for interns |
+| `ExitChecklist` | Offboarding checklist per employee |
+| `ExitChecklistItem` | Individual checklist items with completion status |
+| `ExitAccessConfig` | Post-exit access revocation rules |
+| `PayrollDeletionRequest` | Payroll deletion approval workflow |
+| `PayrollAdjustment` | One-off salary adjustments (bonus, deduction) |
+| `SalaryTemplate` | Reusable salary templates |
+| `SalaryStructure` | Employee salary structure (linked to template) |
+| `SalaryHistory` | Historical salary changes with change type |
+| `Shift` | Shift definitions (MORNING/EVENING/NIGHT/FLEXIBLE) |
+| `ShiftAssignment` | Employee shift assignments |
+| `ShiftRotationPattern` | Rotation schedule patterns |
+| `LeavePolicy` | Org-level leave policies |
+| `LeavePolicyRule` | Per-type leave policy rules |
+| `AttendancePolicy` | Org-level attendance policies |
+| `OvertimeRequest` | Overtime requests + approvals |
+| `TaskManagerConfig` | Jira/Asana/ClickUp credentials per org |
+| `LeaveTaskAudit` | Leave → task impact audit records |
+| `TaskIntegrationHealthLog` | Task integration health monitoring |
+| `LeaveHandover` | Leave handover task assignments |
+| `LeaveApprovalDecision` | Leave approval decision trail |
+| `PermissionPreset` | Named permission presets (e.g., "Team Lead") |
+| `PermissionOverride` | Per-employee permission overrides |
+| `CompanyBranding` | Logo, colors, theme settings per org |
+| `LetterTemplate` | Letter templates (OFFER/EXPERIENCE/etc.) |
+| `Letter` | Generated letters with PDF path |
+| `LetterAssignment` | Letters assigned to employees |
+| `EmployeeDeletionRequest` | Employee soft-delete approval workflow |
+| `DatabaseBackup` | Backup records (MANUAL/SCHEDULED/PRE_MIGRATION) |
+| `DeviceSession` | Device session tracking (mobile/desktop) |
+| `UserMFA` | MFA configuration per user |
+| `LocationVisit` | Field sales GPS visit clustering |
+| `AiKnowledgeBase` | RAG knowledge base entries |
+| `EmployeeActivation` | Employee activation token tracking |
+| `AgentScreenshot` | Remote monitoring screenshots |
+| `ActivityLog` | Detailed activity logs |
 
 ## Key Files
 | File | Purpose |
 |------|---------|
-| `prisma/schema.prisma` | All database models (35+ models) |
+| `prisma/schema.prisma` | All database models (80+ models) |
 | `shared/src/permissions.ts` | RBAC permissions map — consumed by both frontend & backend |
 | `shared/src/enums.ts` | All enums shared across the app |
 | `shared/src/types.ts` | API request/response TypeScript types |
@@ -119,13 +219,31 @@ npm run dev
 | `frontend/src/styles/globals.css` | Tailwind utilities + glassmorphism classes |
 | `backend/src/middleware/upload.middleware.ts` | Multer file upload middleware (image, document, resume) |
 | `backend/src/modules/document/` | Document upload, verification, management (full MVC) |
+| `backend/src/modules/document-ocr/` | OCR pipeline — extraction, AI verification, format validation |
 | `backend/src/modules/walkIn/` | Walk-in candidate self-registration (public kiosk + HR management) |
+| `backend/src/services/combined-pdf-processor.service.ts` | Combined multi-document PDF processing pipeline |
+| `backend/src/services/document-processor.service.ts` | Single-document OCR + AI processing pipeline |
+| `backend/src/utils/documentFormatValidator.ts` | Document format validation (Aadhaar/PAN/passport/etc.) |
+| `backend/src/utils/payrollExcelExporter.ts` | Payroll Excel report generation (exceljs) |
+| `backend/src/utils/attendanceExcelExporter.ts` | Attendance Excel report generation |
 | `frontend/src/lib/fileUpload.ts` | Frontend file upload utility with progress tracking |
 | `frontend/src/features/walkIn/` | Walk-in kiosk (5-step form) + HR management page |
 | `frontend/src/features/recruitment/KanbanBoard.tsx` | Recruitment pipeline Kanban with drag-to-move |
 | `frontend/src/features/attendance/FieldSalesView.tsx` | GPS trail tracking for field employees |
 | `frontend/src/features/attendance/ProjectSiteView.tsx` | Project site photo check-in |
 | `frontend/src/features/notifications/NotificationBell.tsx` | Real-time notification bell (Socket.io) |
+| `frontend/src/features/kyc/KycGatePage.tsx` | Employee KYC submission (Aadhaar, PAN, bank, photo) |
+| `frontend/src/features/kyc/KycHrReviewPage.tsx` | HR review panel for KYC document verification |
+| `frontend/src/features/performance/PerformancePage.tsx` | Enterprise performance dashboard with task integration |
+| `frontend/src/features/leaves/LeavePage.tsx` | Leave management — employee apply + HR/Manager review panels |
+| `frontend/src/features/app-update/AppUpdateGuard.tsx` | Forces app reload when new SW version detected |
+| `frontend/src/features/pwa/AndroidInstallPage.tsx` | Android install guide (PWA one-tap + APK fallback) |
+| `frontend/src/features/pwa/IosInstallPage.tsx` | iOS Safari install guide with browser detection |
+| `frontend/src/features/pwa/DownloadPage.tsx` | Platform-detection download landing page |
+| `frontend/src/features/intern/` | Intern portal (profile, achievements, mentor view) |
+| `frontend/src/features/task-integration/` | Task manager integration UI (Jira/Asana/ClickUp config) |
+| `frontend/src/features/my-documents/MyDocumentsPage.tsx` | Employee self-service document management |
+| `frontend/src/components/pwa/PWAUpdatePrompt.tsx` | PWA update notification banner/modal |
 | `backend/src/sockets/index.ts` | Socket.io server init, room management, emit helpers |
 | `backend/src/jobs/queues.ts` | BullMQ job queues (email, notification, payroll) |
 | `backend/src/utils/pdfGenerator.ts` | Salary slip PDF generation (pdfkit) |
@@ -134,16 +252,21 @@ npm run dev
 | `backend/src/utils/auditLogger.ts` | Centralized audit logging for all modules |
 | `backend/src/config/swagger.ts` | OpenAPI/Swagger configuration |
 | `backend/Dockerfile` | Multi-stage production Docker build (non-root) |
-| `.github/workflows/ci.yml` | CI pipeline (lint, typecheck, test, build) |
+| `.github/workflows/deploy.yml` | Full CI/CD — build frontend+backend, Android APK, Desktop Agent, deploy to EC2 |
+| `deploy/nginx.conf` | Nginx config — SPA, API proxy, PWA headers, APK download, OTA updates |
 | `backend/src/services/ai.service.ts` | Centralized AI service — routes chat/prompt/scoreResume to configured provider |
 | `backend/src/modules/ai-config/` | AI API Configuration MVC — provider selector, encrypted key storage, test connection |
 | `backend/src/modules/invitation/` | Employee invitation MVC — token creation, email delivery, invite-accept flow |
 | `backend/src/modules/ai-assistant/` | AI Assistant MVC — context-aware FAB chat with Redis conversation history |
 | `backend/src/modules/public-apply/` | Public job application MVC — AI MCQ generation, public form, tracking, interview rounds |
+| `backend/src/modules/task-integration/` | Jira/Asana/ClickUp integration — task fetch, leave risk scoring, handover audit |
 | `frontend/src/features/invitation/InviteAcceptPage.tsx` | Invite accept page — validates token, collects name/password, starts onboarding |
 | `frontend/src/features/whatsapp/WhatsAppPage.tsx` | WhatsApp Web UI — chat list, message view, new chat |
 | `frontend/src/features/public-apply/PublicApplyPage.tsx` | Public AI-enhanced job application form (public, no auth) |
 | `frontend/src/features/public-apply/TrackApplicationPage.tsx` | Application status tracking by UID (public, no auth) |
+| `frontend/src/sw.ts` | Service worker — cache strategy, offline fallback, background sync |
+| `frontend/index.html` | PWA prompt early capture (`window.__pwaInstallPrompt`) before React mounts |
+| `frontend/capacitor.config.ts` | Capacitor config for Android APK build |
 
 ## Backend Module Pattern
 Each module in `backend/src/modules/<name>/` has:
@@ -159,6 +282,20 @@ npm run db:push        # Push schema to DB (dev)
 npm run db:migrate     # Create migration (production)
 npm run db:seed        # Seed with sample data
 npm run db:studio      # Open Prisma Studio GUI
+```
+
+## CI/CD Pipeline (deploy.yml)
+Three parallel jobs:
+1. **Build Android APK** — Capacitor + AGP 8.7.3 + Gradle 8.9 + minSdk 23; uploads APK to EC2 at `downloads/apk-build/`
+2. **Build iOS IPA** — (placeholder, requires Apple Developer account)
+3. **Build Desktop Agent** — Electron app build
+4. **Build & Deploy** — lint → typecheck → test → build frontend+backend → SCP to EC2 → `pm2 reload` → `nginx -s reload`
+
+**Nginx serves APK via** exact match alias:
+```nginx
+location = /downloads/aniston-hrms.apk {
+    alias /home/ubuntu/Aniston-HRMS/downloads/apk-build/aniston-hrms.apk;
+}
 ```
 
 ## Key Features (by phase)
@@ -205,6 +342,29 @@ npm run db:studio      # Open Prisma Studio GUI
 - **AI Interview Execution & Scoring** — per-round question generation, scoring per answer, weighted final score calculation, candidate finalization
 - **Admin Email Configuration** — `adminNotificationEmail` field on Organization, exposed in Settings UI
 
+### Phase 9 (Complete) — Mobile, KYC, OCR, Performance & Leave Overhaul
+- **Android APK** — Capacitor build pipeline in GitHub Actions; APK downloadable at `https://hr.anistonav.com/downloads/aniston-hrms.apk`; minSdk 23, compileSdk 35, AGP 8.7.3
+- **PWA Android Install** — `AndroidInstallPage` with tab switcher: PWA one-tap (captures `beforeinstallprompt` early in `index.html` via `window.__pwaInstallPrompt`) + APK fallback with full instructions
+- **PWA iOS Install** — `IosInstallPage` with Safari browser detection (`isAlreadyInSafari`); skips bridge step if already in Safari; shows "Open in Safari" if in-app browser (WhatsApp/Instagram/etc.)
+- **PWA Update Guard** — `AppUpdateGuard` component detects new SW version via 4-path detection: `registration.waiting` on mount + `updatefound`+`statechange` + `visibilitychange` + 30s poll interval
+- **KYC System** — Employee KYC submission (`KycGatePage`) with Aadhaar, PAN, bank details, passport photo + HR review panel (`KycHrReviewPage`) with OCR-powered auto-verify; `KycStatus` enum (PENDING/SUBMITTED/VERIFIED/REJECTED)
+- **Document OCR Pipeline** — Improved `document-ocr` module + `combined-pdf-processor.service.ts` for multi-document batch processing; `documentFormatValidator` for Aadhaar/PAN/passport format rules; AI-service `ocr.py` + `ocr_service.py` improvements
+- **Performance Enterprise Dashboard** — `PerformancePage` major overhaul with employee performance summary, task risk scoring, OKR view, review cycle management; integrates with Jira/Asana/ClickUp via `task-integration` module
+- **Task Integration** — `task-integration` module: Jira/Asana/ClickUp API key config (AES-encrypted), task fetch per employee, leave risk assessment (CRITICAL/HIGH/MEDIUM/LOW), handover generation, health logging
+- **Leave Management Overhaul** — Intern role support, `LeavePolicy`/`LeavePolicyRule` models, leave settings API, applicable-employees scoping (ALL/PROBATION/CONFIRMED/INTERN/NOTICE_PERIOD), HR/Manager review panels
+- **Intern Module** — `InternProfile` model + `intern` backend module; intern portal with mentor assignment, stipend tracking, achievement letter generation; INTERN role added to RBAC
+- **Payroll Deletion** — `payroll-deletion` module with approval workflow; `PayrollDeletionRequest` model
+- **Salary Templates** — `SalaryTemplate` + `SalaryStructure` models; `SalaryTemplatesPage` UI for template management
+- **Shift Management** — `Shift`/`ShiftAssignment`/`ShiftRotationPattern` models; shift builder UI
+- **Employee Permissions** — `PermissionPreset`/`PermissionOverride` models; per-employee granular permission overrides beyond role defaults
+- **Exit/Offboarding** — `ExitChecklist`/`ExitChecklistItem`/`ExitAccessConfig` models; offboarding workflow
+- **Company Branding** — `CompanyBranding` model; logo/color/theme customization per org
+- **Letter Generator** — `LetterTemplate`/`Letter`/`LetterAssignment` models; offer/experience/NOC letter generation with PDF
+- **Database Backup** — `DatabaseBackup` model + backup module (MANUAL/SCHEDULED/PRE_MIGRATION types)
+- **MFA Support** — `UserMFA` model; TOTP-based 2FA infrastructure
+- **Device Sessions** — `DeviceSession` model for multi-device session tracking
+- **i18n** — Hindi (`hi.json`) + English (`en.json`) locale files; react-i18next integration
+
 ## Indian Payroll Compliance
 - EPF: 12% of basic (employee + employer), basic capped at 15,000
 - ESI: 0.75% employee + 3.25% employer, if gross <= 21,000
@@ -223,3 +383,4 @@ npm run db:studio      # Open Prisma Studio GUI
 - Timestamps: `createdAt`, `updatedAt` on all models
 - Employee codes: `EMP-001`, `EMP-002`, etc. (auto-generated)
 - Currency: INR, formatted with Indian locale (`en-IN`)
+- Enums: defined in BOTH `prisma/schema.prisma` AND `shared/src/enums.ts`
