@@ -1,14 +1,13 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard, FileText, Upload, Trash2, Eye } from 'lucide-react';
+import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setAccessToken } from '../auth/authSlice';
 import { useGetMeQuery, useChangePasswordMutation } from '../auth/authApi';
 import { useUpdateEmployeeMutation, useGetEmployeeQuery } from '../employee/employeeApi';
 import { useSubmitResignationMutation } from '../exit/exitApi';
-import { useUploadDocumentMutation, useGetDocumentsQuery, useDeleteDocumentMutation } from '../documents/documentApi';
 import { getInitials, formatDate, getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -107,29 +106,6 @@ export default function ProfilePage() {
     finally { setSavingBank(false); }
   };
 
-  const [uploadDocument, { isLoading: uploading }] = useUploadDocumentMutation();
-  const [deleteDocument] = useDeleteDocumentMutation();
-  const { data: docsRes, refetch: refetchDocs } = useGetDocumentsQuery(
-    { employeeId: user?.employeeId },
-    { skip: !user?.employeeId }
-  );
-  const myDocs = docsRes?.data || [];
-  const docFileRef = useRef<HTMLInputElement>(null);
-  const [docType, setDocType] = useState('');
-
-  const handleUploadDoc = async (file: File) => {
-    if (!docType) { toast.error('Please select a document type first'); return; }
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('type', docType);
-    fd.append('name', docType.replace(/_/g, ' '));
-    try {
-      await uploadDocument(fd).unwrap();
-      toast.success('Document uploaded');
-      refetchDocs();
-      setDocType('');
-    } catch (err: any) { toast.error(err?.data?.error?.message || 'Upload failed'); }
-  };
 
   if (isLoading) {
     return (
@@ -562,88 +538,6 @@ export default function ProfilePage() {
           )}
         </motion.div>
 
-        {/* Documents */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}
-          className="layer-card p-6 md:col-span-2">
-          <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <FileText size={16} className="text-brand-500" /> My Documents
-          </h3>
-
-          {/* Upload area */}
-          <div className="flex flex-wrap gap-3 mb-4 items-end">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Document Type</label>
-              <select value={docType} onChange={e => setDocType(e.target.value)}
-                className="input-glass text-sm">
-                <option value="">Select type...</option>
-                <option value="PAN">PAN Card</option>
-                <option value="AADHAAR">Aadhaar Card</option>
-                <option value="TENTH_CERTIFICATE">10th Certificate</option>
-                <option value="TWELFTH_CERTIFICATE">12th Certificate</option>
-                <option value="DEGREE_CERTIFICATE">Degree Certificate</option>
-                <option value="RESIDENCE_PROOF">Residence Proof</option>
-                <option value="BANK_STATEMENT">Bank Statement</option>
-                <option value="CANCELLED_CHEQUE">Cancelled Cheque</option>
-                <option value="OFFER_LETTER">Offer Letter</option>
-                <option value="EXPERIENCE_LETTER">Experience Letter</option>
-                <option value="OTHER">Other</option>
-              </select>
-            </div>
-            <div>
-              <input ref={docFileRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleUploadDoc(f); e.target.value = ''; }}
-              />
-              <button onClick={() => docFileRef.current?.click()} disabled={uploading || !docType}
-                className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50">
-                {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                {uploading ? 'Uploading...' : 'Upload Document'}
-              </button>
-            </div>
-          </div>
-
-          {/* Document list */}
-          {myDocs.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">No documents uploaded yet</p>
-          ) : (
-            <div className="space-y-2">
-              {myDocs.map((doc: any) => (
-                <div key={doc.id} className="flex items-center justify-between py-2.5 px-3 bg-surface-2 rounded-lg">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <FileText size={16} className="text-brand-400 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-700 truncate">{doc.name || doc.type?.replace(/_/g, ' ')}</p>
-                      <p className="text-xs text-gray-400">{doc.type?.replace(/_/g, ' ')} · {new Date(doc.createdAt).toLocaleDateString('en-IN')}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      doc.status === 'VERIFIED' ? 'bg-emerald-100 text-emerald-700' :
-                      doc.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
-                      'bg-amber-100 text-amber-700'
-                    }`}>
-                      {doc.status}
-                    </span>
-                    {doc.fileUrl && (
-                      <a href={getUploadUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer"
-                        className="text-gray-400 hover:text-brand-600 transition-colors">
-                        <Eye size={14} />
-                      </a>
-                    )}
-                    {doc.status !== 'VERIFIED' && (
-                      <button onClick={async () => {
-                        try { await deleteDocument(doc.id).unwrap(); toast.success('Document removed'); refetchDocs(); }
-                        catch { toast.error('Failed to remove'); }
-                      }} className="text-gray-400 hover:text-red-500 transition-colors">
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </motion.div>
       </div>
 
       {/* Change Password Modal */}

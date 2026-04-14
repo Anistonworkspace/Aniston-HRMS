@@ -92,7 +92,7 @@ export default function GeofenceMapModal({ isOpen, onClose, checkInData, officeL
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full flex flex-col" style={{ maxHeight: 'min(85dvh, calc(100dvh - 2rem))' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
           <div className="flex items-center gap-2">

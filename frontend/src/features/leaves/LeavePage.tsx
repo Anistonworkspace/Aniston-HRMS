@@ -30,7 +30,9 @@ import {
 } from './leaveApi';
 import { useGetPendingRegularizationsQuery, useHandleRegularizationMutation } from '../attendance/attendanceApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
-import { useAppSelector } from '../../app/store';
+import { useAppSelector, useAppDispatch } from '../../app/store';
+import { api } from '../../app/api';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import { useGetPoliciesQuery, useAcknowledgePolicyMutation } from '../policies/policyApi';
 import LeaveApplyWizard from './components/LeaveApplyWizard';
 import ManagerReviewPanel from './components/ManagerReviewPanel';
@@ -88,8 +90,42 @@ function LeaveManagementView() {
   const [showLeaveTypeModal, setShowLeaveTypeModal] = useState(false);
   const [editingLeaveType, setEditingLeaveType] = useState<any>(null);
   const [reviewLeaveId, setReviewLeaveId] = useState<string | null>(null);
+  const [liveNewCount, setLiveNewCount] = useState(0);
 
   const user = useAppSelector((state) => state.auth.user);
+  const dispatch = useAppDispatch();
+
+  // Real-time: listen for new leave applications via Socket.io
+  useEffect(() => {
+    const handler = (data: { employeeName?: string; leaveType?: string; days?: number }) => {
+      const name = data.employeeName || 'An employee';
+      const type = data.leaveType || 'leave';
+      const days = data.days ? ` (${data.days}d)` : '';
+      toast.custom((t) => (
+        <motion.div
+          initial={{ opacity: 0, y: -20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          className={cn(
+            'flex items-center gap-3 bg-white border border-brand-100 shadow-lg rounded-xl px-4 py-3 max-w-sm',
+            t.visible ? 'pointer-events-auto' : 'pointer-events-none'
+          )}
+        >
+          <span className="text-2xl">📋</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-800">New Leave Request</p>
+            <p className="text-xs text-gray-500 truncate">{name} applied for {type}{days}</p>
+          </div>
+        </motion.div>
+      ), { duration: 6000, position: 'top-right' });
+      // Bump the live counter (shown on Approvals tab)
+      setLiveNewCount((c) => c + 1);
+      // Invalidate RTK cache so the approvals list auto-refreshes
+      dispatch(api.util.invalidateTags(['Leave' as any]));
+    };
+    onSocketEvent('leave:applied', handler);
+    return () => offSocketEvent('leave:applied', handler);
+  }, [dispatch]);
 
   // Pending approvals (PENDING + MANAGER_APPROVED) — used for pending tab
   const { data: approvalsRes, isLoading: approvalsLoading } = useGetPendingApprovalsQuery(
@@ -132,19 +168,28 @@ function LeaveManagementView() {
       })
     : approvals;
 
-  const handleApprove = async (id: string) => {
+  const handleApprove = async (id: string, leave?: any) => {
+    // Managers do first-step approval; HR/Admin do final approval
+    const action = user?.role === 'MANAGER' ? 'MANAGER_APPROVED' : 'APPROVED';
+    const name = leave?.employee ? `${leave.employee.firstName} ${leave.employee.lastName}` : 'employee';
+    const leaveTypeName = leave?.leaveType?.name || 'Leave';
     try {
-      await handleAction({ id, action: 'APPROVED' }).unwrap();
-      toast.success(t('leaves.leaveApproved'));
+      await handleAction({ id, action }).unwrap();
+      toast.success(user?.role === 'MANAGER'
+        ? `${leaveTypeName} for ${name} forwarded to HR for final approval`
+        : `${leaveTypeName} for ${name} approved`
+      );
     } catch (err: any) {
       toast.error(err?.data?.error?.message || t('leaves.failedToApprove'));
     }
   };
 
-  const handleReject = async (id: string) => {
+  const handleReject = async (id: string, leave?: any) => {
+    const name = leave?.employee ? `${leave.employee.firstName} ${leave.employee.lastName}` : 'employee';
+    const leaveTypeName = leave?.leaveType?.name || 'Leave';
     try {
       await handleAction({ id, action: 'REJECTED' }).unwrap();
-      toast.success(t('leaves.leaveRejected'));
+      toast.success(`${leaveTypeName} for ${name} rejected`);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || t('leaves.failedToReject'));
     }
@@ -237,9 +282,9 @@ function LeaveManagementView() {
       <div role="tablist" className="flex gap-1 bg-surface-2 rounded-xl p-1 mb-6 w-fit">
         <button
           role="tab" aria-selected={activeTab === 'approvals'}
-          onClick={() => setActiveTab('approvals')}
+          onClick={() => { setActiveTab('approvals'); setLiveNewCount(0); }}
           className={cn(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5',
             activeTab === 'approvals'
               ? 'bg-white text-gray-900 shadow-sm'
               : 'text-gray-500 hover:text-gray-700'
@@ -247,8 +292,14 @@ function LeaveManagementView() {
         >
           {t('leaves.approvals')}
           {pendingCount > 0 && (
-            <span className="ml-2 bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">
+            <span className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">
               {pendingCount}
+            </span>
+          )}
+          {liveNewCount > 0 && (
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-500 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-600" />
             </span>
           )}
         </button>
@@ -403,6 +454,8 @@ function LeaveManagementView() {
                   (b: any) => b.leaveType?.code === leave.leaveType?.code
                 );
                 const canAct = leave.status === 'PENDING' || leave.status === 'MANAGER_APPROVED';
+                // HR/Admin can open the review panel on approved leaves to revoke them
+                const canRevoke = isHRAdmin && (leave.status === 'APPROVED' || leave.status === 'APPROVED_WITH_CONDITION');
 
                 return (
                   <motion.div
@@ -472,6 +525,18 @@ function LeaveManagementView() {
                         <span className={`badge ${getStatusColor(leave.status)} text-xs`}>
                           {leave.status.replace(/_/g, ' ')}
                         </span>
+                        {canRevoke && (
+                          <motion.button
+                            aria-label="Revoke approved leave"
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => setReviewLeaveId(leave.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
+                          >
+                            <XCircle size={14} />
+                            Revoke
+                          </motion.button>
+                        )}
                         {canAct && (
                           <>
                             <motion.button
@@ -488,7 +553,7 @@ function LeaveManagementView() {
                               aria-label="Approve leave"
                               whileHover={{ scale: 1.05 }}
                               whileTap={{ scale: 0.95 }}
-                              onClick={() => handleApprove(leave.id)}
+                              onClick={() => handleApprove(leave.id, leave)}
                               className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors"
                             >
                               <ThumbsUp size={14} />
@@ -498,7 +563,7 @@ function LeaveManagementView() {
                               aria-label="Reject leave"
                               whileHover={{ scale: 1.05 }}
                               whileTap={{ scale: 0.95 }}
-                              onClick={() => handleReject(leave.id)}
+                              onClick={() => handleReject(leave.id, leave)}
                               className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors"
                             >
                               <ThumbsDown size={14} />
@@ -1302,7 +1367,7 @@ function EmployeeLeaveDetailModal({
         initial={{ scale: 0.95, y: 20 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.95, y: 20 }}
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col overflow-hidden" style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
@@ -1782,10 +1847,11 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto"
+        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-2xl flex flex-col"
+        style={{ maxHeight: 'min(92dvh, calc(100dvh - 1rem))' }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-5">
+        {/* Sticky Header */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
           <div>
             <h2 className="text-lg font-display font-semibold text-gray-800">
               {isEditing ? 'Edit Leave Type' : 'Create Leave Type'}
@@ -1797,7 +1863,10 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Form — flex column so the scrollable body + sticky footer work */}
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+        {/* Scrollable form body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
           {/* ── BASIC INFO ── */}
           <section>
@@ -2070,8 +2139,10 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
             </div>
           </section>
 
-          {/* ── ACTIONS ── */}
-          <div className="flex gap-3 pt-1 border-t border-gray-100">
+        </div>{/* end scrollable body */}
+
+        {/* Sticky Action Footer */}
+        <div className="flex gap-3 px-6 py-4 border-t border-gray-100 flex-shrink-0 bg-white rounded-b-2xl">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">
               Cancel
             </button>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Loader2, CheckCircle, XCircle, AlertTriangle, Clock, Shield } from 'lucide-react';
+import { X, Loader2, CheckCircle, XCircle, Clock, Shield } from 'lucide-react';
 import { useGetManagerReviewQuery, useHandleLeaveActionMutation } from '../leaveApi';
 import TaskAuditPanel from './TaskAuditPanel';
 import HandoverSection from './HandoverSection';
@@ -15,8 +15,6 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
   const { data: res, isLoading } = useGetManagerReviewQuery(leaveId);
   const [handleAction, { isLoading: acting }] = useHandleLeaveActionMutation();
   const [remarks, setRemarks] = useState('');
-  const [conditionNote, setConditionNote] = useState('');
-  const [showCondition, setShowCondition] = useState(false);
 
   const data = res?.data;
 
@@ -52,7 +50,7 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl" style={{ maxHeight: 'min(90dvh, calc(100dvh - 1rem))' }}>
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <h2 className="text-base font-display font-bold text-gray-900">Manager Review</h2>
@@ -182,29 +180,16 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
             />
           </div>
 
-          {/* Condition Note (if approve with condition) */}
-          {showCondition && (
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Condition Note *</label>
-              <textarea
-                value={conditionNote}
-                onChange={(e) => setConditionNote(e.target.value)}
-                className="input-glass w-full text-sm"
-                rows={2}
-                placeholder="Specify the condition for approval..."
-              />
-            </div>
-          )}
         </div>
 
-        {/* Action Bar */}
+        {/* Action Bar — managers can only do first-step approval or rejection */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center gap-2 shrink-0 flex-wrap">
           <button
-            onClick={() => onAction('APPROVED')}
+            onClick={() => onAction('MANAGER_APPROVED')}
             disabled={acting || (isHighRisk && !remarks)}
             className="btn-primary text-sm flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
           >
-            <CheckCircle size={14} /> Approve
+            <CheckCircle size={14} /> Approve & Forward to HR
           </button>
           <button
             onClick={() => onAction('REJECTED')}
@@ -212,23 +197,6 @@ export default function ManagerReviewPanel({ leaveId, onClose }: ManagerReviewPa
             className="text-sm px-4 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 font-medium flex items-center gap-1"
           >
             <XCircle size={14} /> Reject
-          </button>
-          <button
-            onClick={() => {
-              if (!showCondition) {
-                setShowCondition(true);
-                return;
-              }
-              if (!conditionNote) {
-                toast.error('Condition note is required');
-                return;
-              }
-              onAction('APPROVED_WITH_CONDITION');
-            }}
-            disabled={acting}
-            className="text-sm px-4 py-2 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 font-medium flex items-center gap-1"
-          >
-            <AlertTriangle size={14} /> {showCondition ? 'Confirm Conditional' : 'Approve with Condition'}
           </button>
           {acting && <Loader2 size={16} className="animate-spin text-gray-400 ml-2" />}
         </div>

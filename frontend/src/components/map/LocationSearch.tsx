@@ -126,7 +126,7 @@ export default function LocationSearch({ onSelect, placeholder = 'Search locatio
       </div>
 
       {showDropdown && results.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-lg border border-gray-200 z-[1000] max-h-64 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-lg border border-gray-200 z-[80] max-h-64 overflow-y-auto">
           {results.map((r) => (
             <button key={r.place_id} onClick={() => handleSelect(r)}
               className="w-full text-left px-3 py-2.5 hover:bg-brand-50 transition-colors flex items-start gap-2 border-b border-gray-50 last:border-0">

@@ -528,8 +528,8 @@ function ScoreModal({ round, onClose }: { round: any; onClose: () => void }) {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
       <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-        onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-5">
+        onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-y-auto" style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}>
+        <div className="flex items-center justify-between sticky top-0 bg-white z-10 px-6 pt-6 pb-4 border-b border-gray-100">
           <div>
             <h3 className="text-lg font-display font-semibold text-gray-800">Score Interview</h3>
             <p className="text-sm text-gray-400">{round.walkIn?.fullName} -- R{round.roundNumber}: {round.roundName}</p>
@@ -537,7 +537,7 @@ function ScoreModal({ round, onClose }: { round: any; onClose: () => void }) {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
 
-        <div className="space-y-4">
+        <div className="px-6 py-5 space-y-4">
           {/* Score Inputs */}
           <div className="grid grid-cols-5 gap-3">
             {[

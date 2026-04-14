@@ -84,7 +84,7 @@ export class LeaveService {
 
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { organizationId: true, gender: true, status: true, user: { select: { role: true } } },
+      select: { organizationId: true, gender: true, status: true, joiningDate: true, user: { select: { role: true } } },
     });
     if (!employee) throw new NotFoundError('Employee');
 
@@ -116,6 +116,16 @@ export class LeaveService {
 
       // Role check — if applicableToRole is set, only that role can see this leave
       if ((lt as any).applicableToRole && (lt as any).applicableToRole !== userRole) return false;
+
+      // Probation months check — employee must have completed N months before seeing this leave
+      const probationMonths = (lt as any).probationMonths ?? 0;
+      if (probationMonths > 0 && (employee as any).joiningDate) {
+        const joined = new Date((employee as any).joiningDate);
+        const now = new Date();
+        const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
+        if (monthsWorked < probationMonths) return false;
+      }
+
       // Applicability check (status-based) — driven entirely by HR settings
       const app = lt.applicableTo;
       if (app === 'ALL') return true;
@@ -337,6 +347,17 @@ export class LeaveService {
           EMPLOYEE: 'Employees', MANAGER: 'Managers', HR: 'HR team', ADMIN: 'Administrators', INTERN: 'Interns',
         };
         throw new BadRequestError(`${leaveType.name} is restricted to ${roleLabels[roleRestriction] || roleRestriction} only. Your role does not qualify.`);
+      }
+    }
+
+    // 10b. Probation months check — employee must have completed N months of service
+    const probMonths = (leaveType as any).probationMonths ?? 0;
+    if (probMonths > 0 && employee.joiningDate) {
+      const joined = new Date(employee.joiningDate);
+      const now = new Date();
+      const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
+      if (monthsWorked < probMonths) {
+        throw new BadRequestError(`${leaveType.name} is available after ${probMonths} month(s) of service. You have completed ${monthsWorked} month(s). Please contact HR if you need an exception.`);
       }
     }
 
@@ -941,6 +962,17 @@ export class LeaveService {
       }
     }
 
+    // 14b. Probation months check
+    const probMonthsDraft = (leaveType as any).probationMonths ?? 0;
+    if (probMonthsDraft > 0 && employee.joiningDate) {
+      const joined = new Date(employee.joiningDate);
+      const now = new Date();
+      const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
+      if (monthsWorked < probMonthsDraft) {
+        throw new BadRequestError(`${leaveType.name} is available after ${probMonthsDraft} month(s) of service. You have completed ${monthsWorked} month(s). Please contact HR if you need an exception.`);
+      }
+    }
+
     // 15. Weekend adjacent check
     if (!leaveType.allowWeekendAdjacent) {
       const dayBefore = new Date(startDate);
@@ -1274,8 +1306,14 @@ export class LeaveService {
       'MANAGER_APPROVED': ['PENDING'],
       'APPROVED': ['PENDING', 'MANAGER_APPROVED'],
       'APPROVED_WITH_CONDITION': ['PENDING', 'MANAGER_APPROVED'],
-      'REJECTED': ['PENDING', 'MANAGER_APPROVED'],
+      // HR can revoke an already-approved leave by rejecting it
+      'REJECTED': ['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'],
     };
+
+    // Only HR/Admin can reject an already-approved leave (managers cannot revoke)
+    if (action === 'REJECTED' && (request.status === 'APPROVED' || request.status === 'APPROVED_WITH_CONDITION') && !isHRAdmin) {
+      throw new BadRequestError('Only HR or Admin can revoke an already-approved leave request.');
+    }
 
     if (!validFromStates[action]?.includes(request.status)) {
       throw new BadRequestError(`Cannot ${action.toLowerCase().replace(/_/g, ' ')} a ${request.status} request`);
@@ -1356,12 +1394,30 @@ export class LeaveService {
             current.setDate(current.getDate() + 1);
           }
         } else if (finalStatus === 'REJECTED') {
-          // Guard: only decrement pending if it is actually ≥ requested days
-          const safePendingDecrement = Math.min(Number(balance.pending), Number(request.days));
-          await tx.leaveBalance.update({
-            where: { id: balance.id },
-            data: { pending: { decrement: safePendingDecrement } },
-          });
+          if (request.status === 'APPROVED' || request.status === 'APPROVED_WITH_CONDITION') {
+            // Revoking an approved leave — reverse used balance and remove attendance records
+            const safeUsedDecrement = Math.min(Number(balance.used), Number(request.days));
+            await tx.leaveBalance.update({
+              where: { id: balance.id },
+              data: { used: { decrement: safeUsedDecrement } },
+            });
+            // Delete the ON_LEAVE attendance records created when the leave was approved
+            await tx.attendanceRecord.deleteMany({
+              where: {
+                employeeId: request.employeeId,
+                date: { gte: new Date(request.startDate), lte: new Date(request.endDate) },
+                status: 'ON_LEAVE',
+                source: 'MANUAL_HR',
+              },
+            });
+          } else {
+            // Standard rejection from PENDING/MANAGER_APPROVED — reverse pending balance
+            const safePendingDecrement = Math.min(Number(balance.pending), Number(request.days));
+            await tx.leaveBalance.update({
+              where: { id: balance.id },
+              data: { pending: { decrement: safePendingDecrement } },
+            });
+          }
         }
       }
 

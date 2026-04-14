@@ -29,6 +29,7 @@ import {
   Send,
   FileCog,
   CheckCircle2,
+  ShieldCheck,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -60,6 +61,7 @@ const navItems: NavItem[] = [
   { nameKey: 'nav.payslips', path: '/payroll', icon: DollarSign, roles: ['EMPLOYEE', 'INTERN', 'MANAGER'], permissionKey: 'canViewPayslips' },
   { nameKey: 'nav.roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { nameKey: 'nav.recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
+  { nameKey: 'nav.kycReview', path: '/kyc-review', icon: ShieldCheck, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { nameKey: 'nav.employeeExit', path: '/exit-management', icon: UserMinus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { nameKey: 'nav.interviewTasks', path: '/interview-assignments', icon: ClipboardCheck, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'GUEST_INTERVIEWER'] },
   { nameKey: 'nav.assets', managementNameKey: 'nav.assetManagement', path: '/assets', icon: Monitor, roles: ['SUPER_ADMIN', 'ADMIN'] },
@@ -134,7 +136,7 @@ export default function Sidebar() {
     <motion.aside
       animate={{ width: collapsed ? 72 : 260 }}
       transition={{ duration: 0.3, ease: 'easeInOut' }}
-      className="hidden md:flex flex-col bg-white border-r border-gray-200 h-screen sticky top-0 z-40"
+      className="hidden md:flex flex-col bg-white border-r border-gray-200 h-full z-40"
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-100">

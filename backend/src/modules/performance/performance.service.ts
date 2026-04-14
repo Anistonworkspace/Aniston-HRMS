@@ -2,6 +2,8 @@ import { prisma } from '../../lib/prisma.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { aiService } from '../../services/ai.service.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { taskIntegrationService } from '../task-integration/task-integration.service.js';
+import { calculateLeaveDisciplineScore, calculateWorkContinuityScore } from '../../utils/leavePerformance.js';
 import type {
   CreateReviewCycleInput,
   UpdateReviewCycleInput,
@@ -180,6 +182,195 @@ export class PerformanceService {
     } catch {
       return { rawResponse: result.data };
     }
+  }
+
+  // ==================
+  // PERFORMANCE SUMMARY (Enterprise Dashboard)
+  // ==================
+
+  async getEmployeePerformanceSummary(employeeId: string, organizationId: string) {
+    const now = new Date();
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+    const period = { start: yearStart, end: now };
+    const currentYear = now.getFullYear();
+
+    // Fetch employee info (for email to look up tasks)
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId },
+      select: {
+        id: true, firstName: true, lastName: true,
+        user: { select: { email: true } },
+        designation: { select: { name: true } },
+        department: { select: { name: true } },
+      },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    // Run all fetches in parallel
+    const [
+      goals,
+      reviews,
+      leaveBalances,
+      leaveCounts,
+      taskResult,
+      disciplineScore,
+      continuityScore,
+    ] = await Promise.all([
+      prisma.goal.findMany({
+        where: { employeeId, organizationId },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.performanceReview.findMany({
+        where: { employeeId, reviewCycle: { organizationId } },
+        orderBy: { createdAt: 'desc' },
+        include: { reviewCycle: { select: { name: true, type: true, status: true } } },
+        take: 5,
+      }),
+      prisma.leaveBalance.findMany({
+        where: { employeeId, year: currentYear },
+        include: { leaveType: { select: { name: true, code: true, isPaid: true } } },
+      }),
+      prisma.leaveRequest.groupBy({
+        by: ['status'],
+        where: { employeeId, createdAt: { gte: yearStart } },
+        _count: true,
+        _sum: { days: true },
+      }),
+      taskIntegrationService.getTasksForEmployee(
+        organizationId, employeeId, employee.user?.email
+      ),
+      calculateLeaveDisciplineScore(employeeId, period),
+      calculateWorkContinuityScore(employeeId, period),
+    ]);
+
+    // ── Goal Stats ──
+    const goalTotal = goals.length;
+    const goalCompleted = goals.filter((g: any) => g.status === 'COMPLETED').length;
+    const goalInProgress = goals.filter((g: any) => g.status === 'IN_PROGRESS').length;
+    const goalNotStarted = goals.filter((g: any) => g.status === 'NOT_STARTED').length;
+    const goalOnHold = goals.filter((g: any) => g.status === 'ON_HOLD').length;
+    const goalCompletionRate = goalTotal > 0 ? Math.round((goalCompleted / goalTotal) * 100) : 100;
+
+    // ── Task Stats (from Monday.com / external) ──
+    const tasks = taskResult.tasks;
+    const overdueTaskCount = tasks.filter((t: any) => t.dueDate && new Date(t.dueDate) < now).length;
+    const blockedTaskCount = tasks.filter((t: any) => t.blockerFlag).length;
+    const criticalTaskCount = tasks.filter((t: any) =>
+      ['critical', 'urgent', 'highest'].includes((t.priority || '').toLowerCase())
+    ).length;
+    // Task health: start at 100, deduct for mismanagement signals
+    let taskHealthScore = 100;
+    taskHealthScore -= overdueTaskCount * 8;
+    taskHealthScore -= blockedTaskCount * 6;
+    taskHealthScore -= Math.min(criticalTaskCount * 4, 20); // cap critical penalty
+    taskHealthScore = Math.max(0, Math.min(100, Math.round(taskHealthScore)));
+
+    // ── Leave Stats ──
+    const leavesByType = leaveBalances.map((lb: any) => ({
+      typeId: lb.leaveTypeId,
+      typeName: lb.leaveType?.name || '',
+      typeCode: lb.leaveType?.code || '',
+      isPaid: lb.leaveType?.isPaid ?? true,
+      allocated: lb.allocated,
+      used: Number(lb.used) || 0,
+      pending: Number(lb.pending) || 0,
+      carriedForward: Number(lb.carriedForward) || 0,
+      remaining: Math.max(0, lb.allocated + (lb.carriedForward || 0) - (lb.used || 0) - (lb.pending || 0)),
+    }));
+
+    const totalAllocated = leavesByType.reduce((s: number, l: any) => s + l.allocated, 0);
+    const totalUsed = leavesByType.reduce((s: number, l: any) => s + l.used, 0);
+    const totalPending = leavesByType.reduce((s: number, l: any) => s + l.pending, 0);
+
+    const approvedLeaveRequests = leaveCounts
+      .filter((c: any) => ['APPROVED', 'APPROVED_WITH_CONDITION'].includes(c.status))
+      .reduce((s: number, c: any) => s + c._count, 0);
+    const pendingLeaveRequests = leaveCounts
+      .filter((c: any) => c.status === 'PENDING')
+      .reduce((s: number, c: any) => s + c._count, 0);
+    const rejectedLeaveRequests = leaveCounts
+      .filter((c: any) => c.status === 'REJECTED')
+      .reduce((s: number, c: any) => s + c._count, 0);
+
+    // ── Composite Performance Score ──
+    // Weights: Goals 35%, Leave Discipline 25%, Work Continuity 15%, Task Health 25%
+    const overallScore = Math.round(
+      (goalCompletionRate * 0.35) +
+      (disciplineScore * 0.25) +
+      (continuityScore * 0.15) +
+      (taskHealthScore * 0.25)
+    );
+
+    // ── Star Rating ──
+    const rating =
+      overallScore >= 90 ? 5 :
+      overallScore >= 75 ? 4 :
+      overallScore >= 60 ? 3 :
+      overallScore >= 45 ? 2 : 1;
+
+    const ratingLabel =
+      rating === 5 ? 'Exceptional' :
+      rating === 4 ? 'Above Average' :
+      rating === 3 ? 'Meets Expectations' :
+      rating === 2 ? 'Needs Improvement' : 'Unsatisfactory';
+
+    // ── Recent Review ──
+    const recentReview = reviews[0] || null;
+
+    return {
+      employee: {
+        id: employee.id,
+        name: `${employee.firstName} ${employee.lastName}`,
+        designation: employee.designation?.name || null,
+        department: employee.department?.name || null,
+      },
+      scores: {
+        overall: overallScore,
+        goalCompletion: goalCompletionRate,
+        leaveDiscipline: disciplineScore,
+        workContinuity: continuityScore,
+        taskHealth: taskHealthScore,
+      },
+      rating,
+      ratingLabel,
+      goals: {
+        total: goalTotal,
+        completed: goalCompleted,
+        inProgress: goalInProgress,
+        notStarted: goalNotStarted,
+        onHold: goalOnHold,
+        completionRate: goalCompletionRate,
+        items: goals.slice(0, 10),
+      },
+      tasks: {
+        configured: taskResult.configured,
+        provider: taskResult.provider,
+        total: tasks.length,
+        overdue: overdueTaskCount,
+        blocked: blockedTaskCount,
+        critical: criticalTaskCount,
+        healthScore: taskHealthScore,
+        items: tasks.slice(0, 20),
+      },
+      leaves: {
+        totalAllocated,
+        totalUsed,
+        totalPending,
+        approvedRequests: approvedLeaveRequests,
+        pendingRequests: pendingLeaveRequests,
+        rejectedRequests: rejectedLeaveRequests,
+        byType: leavesByType,
+      },
+      recentReview: recentReview ? {
+        cycleName: (recentReview as any).reviewCycle?.name,
+        cycleType: (recentReview as any).reviewCycle?.type,
+        selfRating: recentReview.selfRating ? Number(recentReview.selfRating) : null,
+        managerRating: recentReview.managerRating ? Number(recentReview.managerRating) : null,
+        overallRating: recentReview.overallRating ? Number(recentReview.overallRating) : null,
+        status: recentReview.status,
+      } : null,
+      period: { start: yearStart.toISOString(), end: now.toISOString(), year: currentYear },
+    };
   }
 
   async generateReviewSummary(reviewId: string, organizationId: string) {

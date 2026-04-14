@@ -19,68 +19,99 @@
   }
   body {
     @apply bg-surface-1 text-gray-900 font-body antialiased;
-    min-height: 100vh;
+    min-height: 100%;
     min-height: -webkit-fill-available;
-    /* Prevent iOS rubber-band bounce on body — scroll happens inside main */
-    overflow: hidden;
-    position: fixed;
-    width: 100%;
+    /* Body scrolls naturally — the AppShell outer container owns the scroll-lock
+       for authenticated pages. Public / standalone pages scroll at the document level. */
   }
   #root {
-    height: 100dvh;
-    overflow: hidden;
+    /* Full-height anchor so flex children can use h-full.
+       Do NOT set overflow:hidden here — standalone pages need natural scroll. */
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
   }
   h1, h2, h3, h4, h5, h6 {
     @apply font-display;
   }
 
+  /* ===== Prevent iOS Safari input auto-zoom (triggered when font-size < 16px) ===== */
+  /* Applied globally so any input/select/textarea gets the minimum safe font-size.
+     The visual size is controlled by Tailwind text-sm etc. — this only sets the
+     minimum to avoid the auto-zoom that fires when iOS detects a sub-16px input. */
+  input, select, textarea {
+    font-size: max(1rem, 16px);
+  }
+
   /* ===== Mobile-first touch behaviors (all mobile, not just standalone) ===== */
-  @media (max-width: 767px) {
+  @media (max-width: 1024px) {
+    /* Disable pull-to-refresh & bounce in all mobile browsers (not just PWA).
+       This is the #1 reason a web app doesn't feel native in the browser. */
+    html, body, #root {
+      overscroll-behavior: none;
+      overscroll-behavior-y: none;
+    }
+
+    /* Disable tap highlight & double-tap zoom */
     * {
       -webkit-tap-highlight-color: transparent;
+      /* manipulation = allow scroll + pinch-zoom, but disable double-tap zoom */
       touch-action: manipulation;
+    }
+
+    /* Smooth momentum scrolling for scrollable containers */
+    .page-container, .overflow-y-auto, .overflow-y-scroll,
+    .overflow-auto, .overflow-scroll, main, [data-scroll] {
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Hide scrollbars on mobile (native apps don't show them) */
+    ::-webkit-scrollbar {
+      display: none;
+    }
+    * {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    /* Native button / tap feedback on all mobile — not just standalone */
+    button, a, [role="button"], .clickable, label[for] {
+      cursor: pointer;
+    }
+    button:active, a:active, [role="button"]:active, .clickable:active {
+      opacity: 0.8;
     }
   }
 
-  /* ===== PWA Native Mobile App Feel ===== */
+  /* ===== PWA Standalone Mode — extra native behaviors on top of mobile rules ===== */
   @media (display-mode: standalone) {
-    /* Disable text selection (app-like behavior) */
+    /* Disable text selection (installed app behavior — browser mode keeps selection) */
     body, p, span, div, td, th, label {
       -webkit-user-select: none;
       user-select: none;
     }
-    /* Allow text selection only on inputs, textareas, and editable content */
+    /* Allow text selection only in inputs and editable content */
     input, textarea, [contenteditable="true"], .selectable, pre, code {
       -webkit-user-select: text;
       user-select: text;
     }
 
-    /* Disable long-press context menu */
+    /* Disable iOS long-press context menu (installed PWA only) */
     body {
       -webkit-touch-callout: none;
     }
 
-    /* Disable tap highlight on Android */
-    * {
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    /* Overscroll behavior */
-    html, body {
-      overscroll-behavior: none;
-    }
-
-    /* Safe area insets for notch/home indicator */
+    /* Safe area insets — account for notch / home indicator / status bar.
+       Applied in standalone only; browser already handles this via its chrome. */
     body {
       padding-top: env(safe-area-inset-top);
       padding-left: env(safe-area-inset-left);
       padding-right: env(safe-area-inset-right);
     }
 
-    /* Native button press effect */
+    /* Stronger press effect for installed PWA (overrides the browser opacity-only rule) */
     button, a, [role="button"], .clickable {
       transition: transform 0.1s ease, opacity 0.1s ease;
-      cursor: pointer;
     }
     button:active, a:active, [role="button"]:active, .clickable:active {
       transform: scale(0.97);
@@ -144,6 +175,8 @@
     @apply bg-white/60 backdrop-blur-sm border border-gray-200 rounded-lg px-4 py-2.5
            focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500
            transition-all duration-200 placeholder:text-gray-400;
+    /* font-size ≥ 16px prevents iOS Safari from auto-zooming on input focus */
+    font-size: max(1rem, 16px);
   }
 
   /* Button variants */

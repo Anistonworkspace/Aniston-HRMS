@@ -136,7 +136,8 @@ router.get('/runs/:id/export',
   }
 );
 
-// Attendance salary summary Excel (HR report: First Name, Provided L, Paid, Unpaid, Working Days, Salary Issued Days, Leaves Balance)
+// Attendance salary summary Excel
+// Columns: Employee Name | Emp Code | Total Days (Work+Sun) | Working Days | Sundays | Present | Paid Leave | Absent | Half Days | LOP | Total Paid Days | Comments
 router.get('/runs/:id/attendance-export',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
@@ -147,39 +148,58 @@ router.get('/runs/:id/attendance-export',
 
       const startOfMonth = new Date(run.year, run.month - 1, 1);
       const endOfMonth = new Date(run.year, run.month, 0);
+      const empIds = (records as any[]).map((r: any) => r.employeeId);
 
-      const leaveData = await Promise.all(records.map(async (record: any) => {
-        // Annual leave balances for this employee
-        const balances = await prisma.leaveBalance.findMany({
-          where: { employeeId: record.employeeId, year: run.year },
-        });
-        const providedL = balances.reduce((s: number, b: any) => s + Number(b.allocated || 0), 0);
-        const leavesBalance = balances.reduce((s: number, b: any) => {
-          const remaining = Number(b.allocated || 0) + Number(b.carriedForward || 0) - Number(b.used || 0) - Number(b.pending || 0);
-          return s + remaining;
-        }, 0);
-
-        // Approved paid leave days that overlap with this month
-        const paidLeaves = await prisma.leaveRequest.findMany({
+      // Batch all DB queries in parallel instead of N+1
+      const [leaveBalances, paidLeaveRequests, attendanceGroups] = await Promise.all([
+        prisma.leaveBalance.findMany({
+          where: { employeeId: { in: empIds }, year: run.year },
+        }),
+        prisma.leaveRequest.findMany({
           where: {
-            employeeId: record.employeeId,
+            employeeId: { in: empIds },
             status: 'APPROVED',
             startDate: { lte: endOfMonth },
             endDate: { gte: startOfMonth },
             leaveType: { isPaid: true },
           },
-          select: { days: true },
-        });
-        const paidLeaveDays = paidLeaves.reduce((s: number, lr: any) => s + Number(lr.days || 0), 0);
+          select: { employeeId: true, days: true },
+        }),
+        // Group attendance by employeeId + status for efficient counting
+        prisma.attendanceRecord.groupBy({
+          by: ['employeeId', 'status'],
+          where: { employeeId: { in: empIds }, date: { gte: startOfMonth, lte: endOfMonth } },
+          _count: { _all: true },
+        }),
+      ]);
 
-        return { employeeId: record.employeeId, providedL, leavesBalance, paidLeaveDays };
-      }));
+      // Build per-employee leave data
+      const leaveData = empIds.map((empId: string) => {
+        const balances = leaveBalances.filter((b: any) => b.employeeId === empId);
+        const providedL = balances.reduce((s: number, b: any) => s + Number(b.allocated || 0), 0);
+        const leavesBalance = balances.reduce((s: number, b: any) => {
+          return s + Number(b.allocated || 0) + Number(b.carriedForward || 0) - Number(b.used || 0) - Number(b.pending || 0);
+        }, 0);
+        const paidLeaveDays = paidLeaveRequests
+          .filter((lr: any) => lr.employeeId === empId)
+          .reduce((s: number, lr: any) => s + Number(lr.days || 0), 0);
+        return { employeeId: empId, providedL, leavesBalance, paidLeaveDays };
+      });
+
+      // Build per-employee attendance counts
+      const attendanceDetails = empIds.map((empId: string) => {
+        const empStats = (attendanceGroups as any[]).filter((s: any) => s.employeeId === empId);
+        const presentCount = empStats.find((s: any) => s.status === 'PRESENT')?._count._all || 0;
+        const absentCount = empStats.find((s: any) => s.status === 'ABSENT')?._count._all || 0;
+        const halfDayCount = empStats.find((s: any) => s.status === 'HALF_DAY')?._count._all || 0;
+        return { employeeId: empId, presentCount, absentCount, halfDayCount };
+      });
 
       const org = await prisma.organization.findUnique({
         where: { id: req.user!.organizationId }, select: { name: true },
       });
       const { generateAttendanceSalaryExcel } = await import('../../utils/payrollExcelExporter.js');
-      const buffer = await generateAttendanceSalaryExcel(run, records, leaveData, org?.name || 'Aniston Technologies LLP');
+      const buffer = await generateAttendanceSalaryExcel(run, records, leaveData, attendanceDetails, org?.name || 'Aniston Technologies LLP');
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="attendance-salary-${monthNames[run.month - 1]}-${run.year}.xlsx"`);
@@ -305,14 +325,70 @@ router.post('/runs/:id/send-email',
         return;
       }
 
-      // Generate Excel
+      // Fetch records once, reuse for all 3 exports
       const records = await payrollService.getPayrollRecords(req.params.id, req.user!.organizationId);
-      const { generatePayrollExcel } = await import('../../utils/payrollExcelExporter.js');
-      const excelBuffer = await generatePayrollExcel(run, records, org.name || 'Aniston Technologies LLP');
 
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
-      const filename = `payroll-report-${monthNames[run.month - 1]}-${run.year}.xlsx`;
+      const shortPeriod = `${shortMonths[run.month - 1]}-${run.year}`;
+
+      const {
+        generatePayrollExcel,
+        generateAttendanceSalaryExcel,
+        generateBankFileExcel,
+      } = await import('../../utils/payrollExcelExporter.js');
+
+      // Generate all 3 Excel files in parallel
+      const startOfMonth = new Date(run.year, run.month - 1, 1);
+      const endOfMonth = new Date(run.year, run.month, 0);
+      const empIds = (records as any[]).map((r: any) => r.employeeId);
+
+      const [leaveBalances, paidLeaveRequests, attendanceGroups] = await Promise.all([
+        prisma.leaveBalance.findMany({ where: { employeeId: { in: empIds }, year: run.year } }),
+        prisma.leaveRequest.findMany({
+          where: {
+            employeeId: { in: empIds }, status: 'APPROVED',
+            startDate: { lte: endOfMonth }, endDate: { gte: startOfMonth },
+            leaveType: { isPaid: true },
+          },
+          select: { employeeId: true, days: true },
+        }),
+        prisma.attendanceRecord.groupBy({
+          by: ['employeeId', 'status'],
+          where: { employeeId: { in: empIds }, date: { gte: startOfMonth, lte: endOfMonth } },
+          _count: { _all: true },
+        }),
+      ]);
+
+      const leaveData = empIds.map((empId: string) => {
+        const balances = leaveBalances.filter((b: any) => b.employeeId === empId);
+        const providedL = balances.reduce((s: number, b: any) => s + Number(b.allocated || 0), 0);
+        const leavesBalance = balances.reduce((s: number, b: any) =>
+          s + Number(b.allocated || 0) + Number(b.carriedForward || 0) - Number(b.used || 0) - Number(b.pending || 0), 0);
+        const paidLeaveDays = paidLeaveRequests
+          .filter((lr: any) => lr.employeeId === empId)
+          .reduce((s: number, lr: any) => s + Number(lr.days || 0), 0);
+        return { employeeId: empId, providedL, leavesBalance, paidLeaveDays };
+      });
+
+      const attendanceDetails = empIds.map((empId: string) => {
+        const empStats = (attendanceGroups as any[]).filter((s: any) => s.employeeId === empId);
+        return {
+          employeeId: empId,
+          presentCount: empStats.find((s: any) => s.status === 'PRESENT')?._count._all || 0,
+          absentCount: empStats.find((s: any) => s.status === 'ABSENT')?._count._all || 0,
+          halfDayCount: empStats.find((s: any) => s.status === 'HALF_DAY')?._count._all || 0,
+        };
+      });
+
+      const [payrollBuffer, attendanceBuffer, bankBuffer] = await Promise.all([
+        generatePayrollExcel(run, records, org.name || 'Aniston Technologies LLP'),
+        generateAttendanceSalaryExcel(run, records, leaveData, attendanceDetails, org.name || 'Aniston Technologies LLP'),
+        generateBankFileExcel(run, records, org.name || 'Aniston Technologies LLP'),
+      ]);
+
+      const filename = `payroll-report-${shortPeriod}.xlsx`;
 
       // Send email via nodemailer — decrypt SMTP password
       const nodemailer = await import('nodemailer');
@@ -355,17 +431,35 @@ router.post('/runs/:id/send-email',
                 <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Deductions</td><td style="text-align: right; font-weight: bold; color: #dc2626; border-top: 1px solid #f1f5f9;">&#8377;${Number(run.totalDeductions || 0).toLocaleString('en-IN')}</td></tr>
                 <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px; border-top: 1px solid #f1f5f9;">Total Net Payable</td><td style="text-align: right; font-weight: bold; color: #059669; font-size: 16px; border-top: 1px solid #f1f5f9;">&#8377;${Number(run.totalNet || 0).toLocaleString('en-IN')}</td></tr>
               </table>
-              <p style="color: #6b7280; font-size: 13px;">The detailed payroll report is attached as an Excel file. Please handle this document with appropriate confidentiality.</p>
+              <p style="color: #374151; font-size: 13px; font-weight: 600; margin-bottom: 8px;">3 files attached:</p>
+              <ul style="margin: 0 0 16px; padding-left: 20px; color: #6b7280; font-size: 13px; line-height: 1.8;">
+                <li><strong style="color: #059669;">payroll-report-${escHtml(shortPeriod)}.xlsx</strong> — Full payroll report with statutory deductions</li>
+                <li><strong style="color: #4F46E5;">attendance-salary-${escHtml(shortPeriod)}.xlsx</strong> — Attendance summary: present / leave / LOP / paid days</li>
+                <li><strong style="color: #065F46;">bank-transfer-${escHtml(shortPeriod)}.xlsx</strong> — NEFT bank transfer file for salary disbursement</li>
+              </ul>
+              <p style="color: #6b7280; font-size: 13px;">Please handle these documents with appropriate confidentiality.</p>
               <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 16px 0;">
               <p style="color: #9ca3af; font-size: 11px;">This is an automated email from Aniston HRMS. Do not reply to this email.</p>
             </div>
           </div>
         `,
-        attachments: [{
-          filename,
-          content: excelBuffer,
-          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        }],
+        attachments: [
+          {
+            filename,
+            content: payrollBuffer,
+            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          },
+          {
+            filename: `attendance-salary-${shortPeriod}.xlsx`,
+            content: attendanceBuffer,
+            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          },
+          {
+            filename: `bank-transfer-${shortPeriod}.xlsx`,
+            content: bankBuffer,
+            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          },
+        ],
       });
 
       // Audit log
@@ -384,43 +478,23 @@ router.post('/runs/:id/send-email',
   }
 );
 
-// Bank transfer file (NEFT/RTGS format CSV)
+// Bank transfer file (NEFT/RTGS format Excel)
 router.get('/runs/:id/bank-file',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
     try {
       const records = await payrollService.getPayrollRecords(req.params.id, req.user!.organizationId);
       const run = await payrollService.getPayrollRunById(req.params.id);
+      const { prisma } = await import('../../lib/prisma.js');
+      const org = await prisma.organization.findUnique({
+        where: { id: req.user!.organizationId }, select: { name: true },
+      });
+      const { generateBankFileExcel } = await import('../../utils/payrollExcelExporter.js');
+      const buffer = await generateBankFileExcel(run, records, org?.name || 'Aniston Technologies LLP');
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-      // Generate CSV — bank details now included via getPayrollRecords employee select
-      const lines: string[] = [];
-      lines.push('Txn Type,Beneficiary Code,Beneficiary Name,Bank Account No,IFSC Code,Bank Name,Amount,Narration,Bank Details Status');
-
-      for (const rec of records as any[]) {
-        const emp = rec.employee;
-        const name = `${emp?.accountHolderName || emp?.firstName || ''} ${emp?.accountHolderName ? '' : (emp?.lastName || '')}`.trim();
-        const netPay = Number(rec.netSalary || 0);
-        if (netPay <= 0) continue;
-
-        const hasBank = !!(emp?.bankAccountNumber && emp?.ifscCode);
-        lines.push([
-          'NEFT',
-          emp?.employeeCode || '',
-          `"${name}"`,
-          emp?.bankAccountNumber || '',
-          emp?.ifscCode || '',
-          `"${emp?.bankName || ''}"`,
-          netPay.toFixed(2),
-          `"Salary ${monthNames[run.month - 1]} ${run.year}"`,
-          hasBank ? 'READY' : 'MISSING - Fill manually',
-        ].join(','));
-      }
-
-      const csv = lines.join('\n');
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="bank-transfer-${monthNames[run.month - 1]}-${run.year}.csv"`);
-      res.send(csv);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="bank-transfer-${monthNames[run.month - 1]}-${run.year}.xlsx"`);
+      res.send(buffer);
     } catch (err) { next(err); }
   }
 );

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Calendar, User, Clock, Loader2, MapPin, Video, Mail, MessageCircle, RefreshCw, AlertTriangle, Send } from 'lucide-react';
+import { X, Calendar, User, Clock, Loader2, MapPin, Video, Mail, MessageCircle, RefreshCw, AlertTriangle, Send, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useScheduleInterviewMutation, usePreviewScheduleMessageMutation } from '../public-apply/publicApplyApi';
 import { useGetWhatsAppStatusQuery } from '../whatsapp/whatsappApi';
@@ -15,6 +15,7 @@ interface Props {
 }
 
 export default function InterviewScheduleModal({ isOpen, onClose, applicationId, candidateName, jobTitle, companyName = 'Aniston Technologies LLP' }: Props) {
+  const [showPreview, setShowPreview] = useState(false); // mobile: preview collapsed by default
   const [form, setForm] = useState({
     interviewerName: '',
     date: '',
@@ -98,7 +99,7 @@ export default function InterviewScheduleModal({ isOpen, onClose, applicationId,
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
+            className="bg-white rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden flex flex-col" style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}
           >
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -109,10 +110,10 @@ export default function InterviewScheduleModal({ isOpen, onClose, applicationId,
               <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
 
-            {/* Body — two columns */}
-            <div className="flex flex-1 overflow-hidden">
+            {/* Body — stacks on mobile, side-by-side on md+ */}
+            <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
               {/* LEFT — Form */}
-              <div className="w-1/2 p-6 overflow-y-auto border-r border-gray-100 space-y-4">
+              <div className="w-full md:w-1/2 p-4 sm:p-6 overflow-y-auto md:border-r border-gray-100 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Interviewer Name</label>
                   <div className="relative">
@@ -219,10 +220,30 @@ export default function InterviewScheduleModal({ isOpen, onClose, applicationId,
                 </div>
               </div>
 
-              {/* RIGHT — AI Preview */}
-              <div className="w-1/2 p-6 overflow-y-auto bg-gray-50/50 space-y-4">
-                <div className="flex items-center justify-between">
+              {/* RIGHT — AI Preview (full width below form on mobile, half on desktop) */}
+              <div className="w-full md:w-1/2 bg-gray-50/50 border-t md:border-t-0 border-gray-100">
+                {/* Mobile: collapsible toggle */}
+                <button
+                  type="button"
+                  onClick={() => setShowPreview(v => !v)}
+                  className="md:hidden w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-700"
+                >
+                  <span>AI Message Preview</span>
+                  <ChevronDown className={`w-4 h-4 transition-transform ${showPreview ? 'rotate-180' : ''}`} />
+                </button>
+
+                <div className={`md:block p-4 sm:p-6 space-y-4 overflow-y-auto ${showPreview ? 'block' : 'hidden'}`}
+                  style={{ maxHeight: 'inherit' }}>
+                <div className="hidden md:flex items-center justify-between">
                   <h4 className="text-sm font-semibold text-gray-700">AI Message Preview</h4>
+                  <button onClick={fetchPreview} disabled={previewing}
+                    className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700">
+                    {previewing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                    Regenerate
+                  </button>
+                </div>
+                {/* Mobile regenerate button */}
+                <div className="flex md:hidden justify-end">
                   <button onClick={fetchPreview} disabled={previewing}
                     className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700">
                     {previewing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -277,11 +298,12 @@ export default function InterviewScheduleModal({ isOpen, onClose, applicationId,
                     Click "Regenerate" or update form fields to see preview
                   </div>
                 )}
+                </div>{/* end collapsible inner */}
               </div>
             </div>
 
             {/* Footer */}
-            <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/30">
+            <div className="flex justify-end gap-3 px-4 sm:px-6 py-4 border-t border-gray-100 bg-gray-50/30">
               <button onClick={onClose} className="btn-secondary">Cancel</button>
               <button onClick={handleSubmit} disabled={scheduling || !canSubmit}
                 className="btn-primary flex items-center gap-2">

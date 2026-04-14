@@ -80,6 +80,17 @@ function chatIdToPhone(chatId: string): string {
   return chatId.replace('@c.us', '').replace('@g.us', '').replace('@lid', '');
 }
 
+/**
+ * Detect base64 binary blobs stored as message text.
+ * whatsapp-web.js sets msg.body = base64 thumbnail for media messages.
+ * These should never be rendered as readable text.
+ */
+function isBase64Blob(s: string): boolean {
+  if (!s || s.length < 100) return false;
+  // Base64 strings: only [A-Za-z0-9+/=], no spaces, very long
+  return /^[A-Za-z0-9+/=\r\n]{100,}$/.test(s.trim());
+}
+
 // =====================================================================
 // SERVICE CLASS
 // =====================================================================
@@ -299,6 +310,9 @@ export class WhatsAppService {
           if (existing) return;
         }
 
+        // For media messages, msg.body contains base64 thumbnail data — use caption or empty string
+        const inboundText = msg.hasMedia ? (msg.caption || '') : (msg.body || '');
+
         await prisma.whatsAppMessage.create({
           data: {
             externalMessageId: externalId,
@@ -306,7 +320,7 @@ export class WhatsAppService {
             direction: 'INBOUND',
             fromNumber,
             to: toNumber,
-            message: msg.body || '',
+            message: inboundText,
             templateType: 'GENERAL',
             status: 'RECEIVED',
             sentAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
@@ -317,8 +331,9 @@ export class WhatsAppService {
         // Upsert conversation and increment unread count
         const fromPhone = chatIdToPhone(msg.from || ''); // strip @c.us — already digits-only
         const fromPhoneNorm = normalizePhone(fromPhone);  // add 91 prefix for 10-digit Indian numbers
-        const msgPreview = msg.body?.trim()
-          ? msg.body.slice(0, 100)
+        // Use sanitized text (not raw msg.body which may be base64 for media)
+        const msgPreview = inboundText.trim()
+          ? inboundText.slice(0, 100)
           : msg.hasMedia
             ? (msg.type === 'image' ? '📷 Photo' : msg.type === 'video' ? '🎥 Video' : msg.type === 'audio' || msg.type === 'ptt' ? '🎵 Audio' : msg.type === 'document' ? '📄 Document' : '📎 Attachment')
             : '';
@@ -338,7 +353,7 @@ export class WhatsAppService {
         emitToOrg(organizationId, 'whatsapp:message:new', {
           chatId: msg.from,
           messageId: externalId,
-          body: msg.body,
+          body: inboundText,   // sanitized — no base64
           fromMe: false,
           timestamp: msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : new Date().toISOString(),
           type: msg.type,
@@ -360,6 +375,75 @@ export class WhatsAppService {
         });
       } catch (err) {
         logger.error('Failed to emit message ack:', err);
+      }
+    });
+
+    // ===== Outgoing messages sent from the linked phone (not via HRMS UI) =====
+    // message_create fires for ALL created messages including fromMe: true.
+    // This captures replies the HR sends directly from their phone so they
+    // appear in the chat history even when the live session falls back to DB.
+    client.on('message_create', async (msg: any) => {
+      // Only handle outgoing messages — incoming are handled by 'message' above
+      if (!msg.fromMe) return;
+
+      try {
+        const externalId = msg.id?._serialized || null;
+        const toPhone = chatIdToPhone(msg.to || '');
+        const toPhoneNorm = normalizePhone(toPhone);
+
+        const session = await prisma.whatsAppSession.findFirst({ where: { organizationId } });
+        if (!session) return;
+
+        // Use caption-safe body — msg.body may be base64 for media
+        const outboundText = msg.hasMedia ? (msg.caption || '') : (msg.body || '');
+
+        // Upsert to DB — unique constraint on (organizationId, externalMessageId)
+        // will silently reject duplicates already saved by sendMessage()
+        if (externalId) {
+          await prisma.whatsAppMessage.upsert({
+            where: { organizationId_externalMessageId: { organizationId, externalMessageId: externalId } },
+            update: {},  // already exists — no-op
+            create: {
+              externalMessageId: externalId,
+              sessionId: session.id,
+              direction: 'OUTBOUND',
+              fromNumber: session.phoneNumber || '',
+              to: toPhoneNorm,
+              message: outboundText,
+              templateType: 'GENERAL',
+              status: 'SENT',
+              sentAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
+              organizationId,
+            },
+          }).catch(() => {}); // ignore any constraint errors
+        }
+
+        // Update conversation preview for phone-sent message
+        await this._upsertConversation(toPhoneNorm, organizationId, msg.to, {
+          lastMessagePreview: outboundText.trim()
+            ? outboundText.slice(0, 100)
+            : msg.hasMedia
+              ? (msg.type === 'image' ? '📷 Photo' : msg.type === 'video' ? '🎥 Video' : msg.type === 'audio' || msg.type === 'ptt' ? '🎵 Audio' : msg.type === 'document' ? '📄 Document' : '📎 Attachment')
+              : '',
+          lastMessageAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
+          lastMessageDirection: 'OUTBOUND',
+        }).catch(() => {});
+
+        await redis.del(`wa:chats:${organizationId}`);
+
+        // Emit so frontend chat view updates in real-time
+        emitToOrg(organizationId, 'whatsapp:message:new', {
+          chatId: msg.to,
+          messageId: externalId,
+          body: outboundText,
+          fromMe: true,
+          timestamp: msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : new Date().toISOString(),
+          type: msg.type,
+          hasMedia: msg.hasMedia,
+          quotedMsg: null,
+        });
+      } catch (err) {
+        logger.error('WhatsApp: failed to save phone-sent message:', err);
       }
     });
   }
@@ -698,6 +782,14 @@ export class WhatsAppService {
         let messages: any[] = [];
         try {
           messages = await chat.fetchMessages({ limit: fetchLimit });
+
+          // Warm-up: if session returned 0 messages, the chat history may not be loaded yet.
+          // Wait briefly and retry once — this handles freshly connected sessions.
+          if (messages.length === 0 && !before) {
+            logger.info(`WhatsApp: warm-up wait for ${normalizedChatId} — retrying fetchMessages in 1.5s`);
+            await new Promise(r => setTimeout(r, 1500));
+            messages = await chat.fetchMessages({ limit: fetchLimit });
+          }
         } catch (fetchErr: any) {
           logger.warn(`WhatsApp: fetchMessages failed for ${normalizedChatId}, retrying — ${fetchErr.message}`);
           await new Promise(r => setTimeout(r, 1200));
@@ -749,9 +841,12 @@ export class WhatsAppService {
                 }
               }
 
+              // For media messages, msg.body is a base64 thumbnail — use caption or empty string
+              const liveBody = msg.hasMedia ? (msg.caption || '') : (msg.body || '');
+
               return {
                 id: msg.id._serialized,
-                body: msg.body,
+                body: liveBody,
                 fromMe: msg.fromMe,
                 timestamp: msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : null,
                 type: msg.type,
@@ -772,6 +867,58 @@ export class WhatsAppService {
             this._backfillMessagesToDb(filtered, phone, organizationId).catch((e) =>
               logger.warn('WhatsApp: backfill failed:', e?.message)
             );
+          }
+
+          // Merge: pull any HRMS-sent (OUTBOUND) messages from DB that are NOT in the live set.
+          // This fills the gap when WhatsApp Web session memory hasn't loaded sent messages yet.
+          if (organizationId && phone) {
+            try {
+              const liveIds = new Set(results.map((m) => m.id));
+              const dbWhere: any = {
+                organizationId,
+                direction: 'OUTBOUND',
+                OR: [
+                  { to: phone },
+                  ...(phone.length === 10 ? [{ to: `91${phone}` }] : []),
+                  ...(phone.startsWith('91') && phone.length === 12 ? [{ to: phone.slice(2) }] : []),
+                ],
+              };
+              if (before) dbWhere.sentAt = { lt: new Date(before) };
+
+              const dbOutbound = await prisma.whatsAppMessage.findMany({
+                where: dbWhere,
+                orderBy: { sentAt: 'desc' },
+                take: limit,
+              });
+
+              const ackMap: Record<string, number> = { READ: 3, DELIVERED: 2, SENT: 1, PENDING: 0, FAILED: -1, RECEIVED: 3 };
+              const extra = dbOutbound
+                .filter((m) => !liveIds.has(m.externalMessageId || m.id))
+                .map((m) => ({
+                  id: m.externalMessageId || m.id,
+                  body: isBase64Blob(m.message) ? '' : m.message,
+                  fromMe: true,
+                  timestamp: (m.sentAt || m.createdAt).toISOString(),
+                  type: 'chat',
+                  hasMedia: !!m.mediaUrl,
+                  ack: ackMap[m.status] ?? 1,
+                  mediaUrl: m.mediaUrl || null,
+                  mediaFilename: m.mediaUrl ? m.mediaUrl.split('/').pop() || null : null,
+                  mediaMimetype: m.mediaMimetype || null,
+                  quotedMsg: null,
+                  author: null,
+                  notifyName: null,
+                }));
+
+              if (extra.length > 0) {
+                const merged = [...results, ...extra].sort(
+                  (a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime()
+                );
+                return merged.slice(-limit);
+              }
+            } catch (mergeErr: any) {
+              logger.warn('WhatsApp: DB outbound merge failed:', mergeErr?.message);
+            }
           }
 
           return results;
@@ -813,7 +960,8 @@ export class WhatsAppService {
           const ackMap: Record<string, number> = { READ: 3, DELIVERED: 2, SENT: 1, PENDING: 0, FAILED: -1, RECEIVED: 3 };
           return dbMessages.map((msg) => ({
             id: msg.externalMessageId || msg.id,
-            body: msg.message,
+            // Strip any legacy base64 blobs stored before this fix
+            body: isBase64Blob(msg.message) ? '' : msg.message,
             fromMe: msg.direction === 'OUTBOUND',
             timestamp: (msg.sentAt || msg.createdAt).toISOString(),
             type: 'chat',
@@ -865,6 +1013,9 @@ export class WhatsAppService {
         else status = 'SENT';
       }
 
+      // For media messages, msg.body contains base64 thumbnail — use caption or empty string
+      const backfillText = msg.hasMedia ? (msg.caption || '') : (msg.body || '');
+
       await prisma.whatsAppMessage.create({
         data: {
           externalMessageId: externalId,
@@ -872,7 +1023,7 @@ export class WhatsAppService {
           direction: msg.fromMe ? 'OUTBOUND' : 'INBOUND',
           fromNumber: msg.fromMe ? (session.phoneNumber || '') : phone,
           to: msg.fromMe ? phone : (session.phoneNumber || ''),
-          message: msg.body || '',
+          message: backfillText,
           templateType: 'GENERAL',
           status,
           sentAt: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),

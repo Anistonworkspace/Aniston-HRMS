@@ -88,10 +88,12 @@ export default function AppShell() {
       {/* Sidebar — desktop only */}
       <Sidebar />
 
-      {/* Main area */}
-      <div className="flex-1 flex flex-col h-[100dvh] min-w-0">
+      {/* Main area — min-h-0 lets the flex column shrink below content height,
+          enabling the <main> scroll container to work correctly */}
+      <div className="flex-1 flex flex-col min-h-0 min-w-0">
         <Topbar />
-        <main className="flex-1 pb-20 md:pb-0 overflow-y-auto overflow-x-hidden min-w-0 overscroll-y-contain">
+        {/* pb-[calc(5rem+env(safe-area-inset-bottom,0px))]: accounts for 64px mobile nav + iOS safe area */}
+        <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain pb-[calc(5rem+env(safe-area-inset-bottom,0px))] md:pb-0">
           {/* Offline banner */}
           <AnimatePresence>
             {!isOnline && (

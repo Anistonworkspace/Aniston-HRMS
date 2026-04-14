@@ -34,12 +34,31 @@ cleanupOutdatedCaches();
 // Do NOT call self.skipWaiting() here.
 // The new SW waits until AppUpdateGuard shows the mandatory "Update Now" modal
 // and the user clicks the button. Only then is SKIP_WAITING sent.
+//
+// However, the browser will auto-activate a waiting SW when ALL tabs are closed
+// (standard browser behavior — can't be prevented). On that path, we still
+// clear runtime caches so the user never sees stale API data or stale assets.
+// Workbox precache is preserved — it contains the new hashed JS/CSS files.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
+      // Clear all runtime caches on every activation.
+      // Covers both:
+      //   (a) User clicked "Update Now" — AppUpdateGuard already cleared these
+      //       before SKIP_WAITING, so this is a harmless no-op on that path.
+      //   (b) Browser auto-activated (all tabs closed) — ensures the user never
+      //       sees stale API responses or stale JS/CSS after reopening the app.
+      // Workbox precache keys start with "workbox-precache" — we keep those
+      // so the new SW can serve the SPA shell offline immediately.
+      const cacheKeys = await caches.keys();
+      await Promise.all(
+        cacheKeys
+          .filter((k) => !k.startsWith('workbox-precache'))
+          .map((k) => caches.delete(k))
+      );
+
+      // Claim all open clients so new SW takes control without a reload.
       await self.clients.claim();
-      // Do NOT auto-navigate clients — AppUpdateGuard controls the reload
-      // after caches are cleared and the user has confirmed the update.
     })()
   );
 });

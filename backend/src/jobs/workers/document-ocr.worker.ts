@@ -69,14 +69,23 @@ const worker = new Worker<DocumentOcrJob>(
           });
 
           if (!formatResult.valid) {
-            // Flag the document (NOT reject — let HR decide)
-            await prisma.document.update({
-              where: { id: documentId },
-              data: {
-                status: 'FLAGGED',
-                rejectionReason: `Document number format issue: ${formatResult.errors.join('; ')}. Please verify.`,
-              },
-            });
+            // Flag both Document and OcrVerification so statuses stay in sync
+            await Promise.all([
+              prisma.document.update({
+                where: { id: documentId },
+                data: {
+                  status: 'FLAGGED',
+                  rejectionReason: `Document number format issue: ${formatResult.errors.join('; ')}. Please verify.`,
+                },
+              }),
+              prisma.documentOcrVerification.update({
+                where: { documentId },
+                data: {
+                  ocrStatus: 'FLAGGED',
+                  hrNotes: `Format validation failed: ${formatResult.errors.join('; ')}`,
+                },
+              }),
+            ]);
 
             if (doc.employee.userId) {
               await enqueueNotification({
@@ -147,29 +156,46 @@ const worker = new Worker<DocumentOcrJob>(
           });
         }
 
-        // Mark OCR status as FLAGGED (NOT document status — let HR decide)
-        await prisma.documentOcrVerification.update({
-          where: { documentId },
-          data: { ocrStatus: 'FLAGGED' },
-        });
+        // Sync both OCR status and Document status to FLAGGED
+        await Promise.all([
+          prisma.documentOcrVerification.update({
+            where: { documentId },
+            data: { ocrStatus: 'FLAGGED' },
+          }),
+          prisma.document.update({
+            where: { id: documentId },
+            data: {
+              status: 'FLAGGED',
+              tamperDetected: true,
+              rejectionReason: `Suspicious indicators detected: ${issues[0]}. HR review required.`,
+            },
+          }),
+        ]);
 
         logger.warn(`[OCR Worker] Suspicious document alert sent for ${documentId}`);
       }
 
-      // 8. NEVER auto-reject — mark as NEEDS_REVIEW for HR to decide
-      // (Previously auto-rejected low confidence docs — now HR always reviews)
+      // 8. NEVER auto-reject — flag for HR when quality is low
       const lowConfidence = ocrResult.confidence < 0.3;
       const isLowQuality = ocrResult.resolutionQuality === 'LOW';
       if ((lowConfidence || isLowQuality) && !hasIssues) {
-        await prisma.documentOcrVerification.update({
-          where: { documentId },
-          data: {
-            ocrStatus: 'FLAGGED',
-            hrNotes: lowConfidence
-              ? 'Auto-flagged: Low OCR confidence. Document may be unclear — needs manual review.'
-              : 'Auto-flagged: Low resolution image. Please verify document quality.',
-          },
-        });
+        const flagNote = lowConfidence
+          ? 'Auto-flagged: Low OCR confidence. Document may be unclear — needs manual review.'
+          : 'Auto-flagged: Low resolution image. Please verify document quality.';
+
+        await Promise.all([
+          prisma.documentOcrVerification.update({
+            where: { documentId },
+            data: { ocrStatus: 'FLAGGED', hrNotes: flagNote },
+          }),
+          prisma.document.update({
+            where: { id: documentId },
+            data: {
+              status: 'FLAGGED',
+              rejectionReason: flagNote,
+            },
+          }),
+        ]);
         logger.info(`[OCR Worker] Document ${documentId} flagged for HR review (low quality/confidence)`);
       }
 

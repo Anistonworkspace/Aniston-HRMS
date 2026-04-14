@@ -191,13 +191,22 @@ export async function generatePayrollExcel(
 }
 
 /**
- * Generate attendance-salary summary Excel matching HR report format:
- * First Name | Provided L | Paid | Unpaid | Working Days | Salary Issued Days | Leaves Balance | Comments
+ * Generate attendance-salary summary Excel.
+ *
+ * Column layout:
+ *   Employee Name | Emp Code | Total Days (Mon–Sun) | Working Days (Mon–Sat) | Sundays (Paid Week-off)
+ *   | Present Days | Paid Leave | Absent Days | Half Days | LOP / Unpaid Leaves | Total Paid Days | Comments
+ *
+ * Formula:
+ *   Total Days       = Working Days (Mon–Sat) + Sundays
+ *   Total Paid Days  = Total Days − LOP  (LOP already includes 0.5 per half-day)
+ *   LOP              = Absent days not covered by paid leave / holidays (may be fractional due to half-days)
  */
 export async function generateAttendanceSalaryExcel(
   run: any,
   records: any[],
   leaveData: Array<{ employeeId: string; providedL: number; leavesBalance: number; paidLeaveDays: number }>,
+  attendanceDetails: Array<{ employeeId: string; presentCount: number; absentCount: number; halfDayCount: number }>,
   orgName: string
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -207,6 +216,11 @@ export async function generateAttendanceSalaryExcel(
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
 
+  // Total calendar days in month; Working Days stored in PayrollRecord excludes Sundays
+  const totalDaysInMonth = new Date(run.year, run.month, 0).getDate();
+
+  const NUM_COLS = 12;
+
   const sheet = workbook.addWorksheet('Attendance Salary', {
     views: [{ state: 'frozen', ySplit: 2 }],
   });
@@ -214,69 +228,235 @@ export async function generateAttendanceSalaryExcel(
   // Title row
   sheet.addRow([`${orgName} — Attendance Salary Report — ${periodLabel}`]);
   sheet.getRow(1).font = { bold: true, size: 13, color: { argb: BRAND } };
-  sheet.mergeCells(1, 1, 1, 8);
+  sheet.mergeCells(1, 1, 1, NUM_COLS);
   sheet.getRow(1).height = 24;
 
-  // Header row — light blue to match screenshot
-  const LIGHT_BLUE = '1E3A8A';
+  // Sub-heading: formula explanation
+  sheet.addRow([`Total Paid Days = (Working Days + Sundays) − LOP  |  LOP = Absent days not covered by paid leave (0.5 per half-day)`]);
+  sheet.getRow(2).font = { italic: true, size: 9, color: { argb: GRAY } };
+  sheet.mergeCells(2, 1, 2, NUM_COLS);
+
+  // Header row
+  const DARK_BLUE = '1E3A8A';
   const headers = [
-    'First name', 'Provided L', 'Paid', 'Unpaid',
-    'Working Days', 'Salary Issued Days', 'Leaves Balance', 'Comments',
+    'Employee Name',
+    'Emp Code',
+    'Total Days\n(Work+Sun)',
+    'Working Days\n(Mon–Sat)',
+    'Sundays\n(Paid Week-off)',
+    'Present\nDays',
+    'Paid Leave\nDays',
+    'Absent\nDays',
+    'Half\nDays',
+    'LOP / Unpaid\nLeaves',
+    'Total Paid\nDays',
+    'Comments',
   ];
   const headerRow = sheet.addRow(headers);
-  styleHeaderRow(headerRow, LIGHT_BLUE);
+  styleHeaderRow(headerRow, DARK_BLUE);
 
   // Column widths
-  [22, 12, 10, 10, 14, 18, 15, 30].forEach((w, i) => {
+  [26, 13, 13, 14, 16, 12, 13, 12, 10, 14, 13, 28].forEach((w, i) => {
     sheet.getColumn(i + 1).width = w;
   });
 
   const leaveMap = new Map(leaveData.map((d) => [d.employeeId, d]));
+  const attMap = new Map(attendanceDetails.map((d) => [d.employeeId, d]));
+
+  let totWorkDays = 0, totSundays = 0, totTotal = 0, totPresent = 0;
+  let totPaidLeave = 0, totAbsent = 0, totHalf = 0, totLop = 0, totPaidDays = 0;
 
   records.forEach((rec: any) => {
     const ld = leaveMap.get(rec.employeeId) || { providedL: 0, leavesBalance: 0, paidLeaveDays: 0 };
-    const workingDays = Number(rec.workingDays || 0);
-    const unpaid = Number(rec.lopDays || 0);
-    const salaryIssuedDays = workingDays - unpaid;
+    const att = attMap.get(rec.employeeId) || { presentCount: 0, absentCount: 0, halfDayCount: 0 };
+
+    const workingDays = Number(rec.workingDays || 0);        // Mon–Sat scheduled days
+    const sundaysCount = totalDaysInMonth - workingDays;     // Sundays = total − Mon-Sat
+    const totalDays = workingDays + sundaysCount;            // = totalDaysInMonth
+    const lopDays = Number(rec.lopDays || 0);               // already includes 0.5/half-day
+    const paidLeave = Number(ld.paidLeaveDays || 0);
+    const absentDays = att.absentCount;
+    const halfDays = att.halfDayCount;
+    const presentDays = att.presentCount;                   // raw PRESENT attendance records
+    // Total Paid Days = all scheduled days (including Sundays) − LOP deduction
+    const totalPaidDays = Math.max(0, totalDays - lopDays);
+
+    totWorkDays += workingDays;
+    totSundays += sundaysCount;
+    totTotal += totalDays;
+    totPresent += presentDays;
+    totPaidLeave += paidLeave;
+    totAbsent += absentDays;
+    totHalf += halfDays;
+    totLop += lopDays;
+    totPaidDays += totalPaidDays;
+
+    const empName = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim();
 
     const row = sheet.addRow([
-      rec.employee?.firstName || '',
-      ld.providedL,
-      ld.paidLeaveDays,
-      unpaid,
+      empName,
+      rec.employee?.employeeCode || '',
+      totalDays,
       workingDays,
-      salaryIssuedDays,
-      ld.leavesBalance,
+      sundaysCount,
+      presentDays,
+      paidLeave,
+      absentDays,
+      halfDays,
+      lopDays,
+      totalPaidDays,
       '', // Comments — blank for HR to fill
     ]);
 
     row.font = { size: 10, name: 'Calibri' };
     row.alignment = { horizontal: 'center', vertical: 'middle' };
-    // Left-align name
     row.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+    row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
 
-    // Highlight unpaid (LOP) in red if > 0
-    if (unpaid > 0) {
-      row.getCell(4).font = { bold: true, color: { argb: RED }, size: 10 };
+    // LOP in red
+    if (lopDays > 0) {
+      row.getCell(10).font = { bold: true, color: { argb: RED }, size: 10 };
     }
-
-    // Highlight paid leave in green if > 0
-    if (ld.paidLeaveDays > 0) {
-      row.getCell(3).font = { bold: true, color: { argb: GREEN }, size: 10 };
+    // Absent in red
+    if (absentDays > 0) {
+      row.getCell(8).font = { bold: true, color: { argb: RED }, size: 10 };
     }
+    // Half days in orange
+    if (halfDays > 0) {
+      row.getCell(9).font = { bold: true, color: { argb: 'D97706' }, size: 10 };
+    }
+    // Paid leave in green
+    if (paidLeave > 0) {
+      row.getCell(7).font = { bold: true, color: { argb: GREEN }, size: 10 };
+    }
+    // Total paid days always bold green
+    row.getCell(11).font = { bold: true, color: { argb: GREEN }, size: 10 };
+    // Sundays in blue
+    row.getCell(5).font = { color: { argb: BRAND }, size: 10 };
   });
 
   // Totals row
   const dataRows = records.length;
   const totalsRow = sheet.addRow([
-    'TOTAL', '', '', '', '', '', '', '',
+    'TOTAL', '',
+    totTotal, totWorkDays, totSundays,
+    totPresent, totPaidLeave, totAbsent, totHalf, totLop,
+    totPaidDays, '',
   ]);
   totalsRow.font = { bold: true, size: 11 };
   totalsRow.eachCell((cell) => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EEF2FF' } };
   });
+  totalsRow.getCell(8).font = { bold: true, color: { argb: RED }, size: 11 };
+  totalsRow.getCell(10).font = { bold: true, color: { argb: RED }, size: 11 };
+  totalsRow.getCell(11).font = { bold: true, color: { argb: GREEN }, size: 11 };
 
-  sheet.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2 + dataRows, column: 8 } };
+  sheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3 + dataRows, column: NUM_COLS } };
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+/**
+ * Generate bank transfer Excel (NEFT/RTGS format) for salary disbursement
+ */
+export async function generateBankFileExcel(
+  run: any,
+  records: any[],
+  orgName: string
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Aniston HRMS';
+  workbook.created = new Date();
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
+
+  const sheet = workbook.addWorksheet('Bank Transfer', {
+    views: [{ state: 'frozen', ySplit: 2 }],
+  });
+
+  // Title
+  sheet.addRow([`${orgName} — Salary Bank Transfer — ${periodLabel}`]);
+  sheet.getRow(1).font = { bold: true, size: 13, color: { argb: BRAND } };
+  sheet.mergeCells(1, 1, 1, 9);
+  sheet.getRow(1).height = 24;
+
+  const headers = [
+    'Txn Type', 'Emp Code', 'Beneficiary Name',
+    'Bank Account No', 'IFSC Code', 'Bank Name', 'Account Type',
+    'Amount (₹)', 'Narration', 'Status',
+  ];
+  const headerRow = sheet.addRow(headers);
+  styleHeaderRow(headerRow, '065F46');
+
+  [10, 12, 26, 20, 14, 22, 12, 14, 26, 22].forEach((w, i) => {
+    sheet.getColumn(i + 1).width = w;
+  });
+
+  let totalNet = 0;
+  let readyCount = 0;
+  let missingCount = 0;
+
+  for (const rec of records as any[]) {
+    const emp = rec.employee;
+    const netPay = Number(rec.netSalary || 0);
+    if (netPay <= 0) continue;
+
+    const hasBank = !!(emp?.bankAccountNumber && emp?.ifscCode);
+    const name = emp?.accountHolderName
+      ? emp.accountHolderName
+      : `${emp?.firstName || ''} ${emp?.lastName || ''}`.trim();
+
+    if (hasBank) readyCount++; else missingCount++;
+    totalNet += netPay;
+
+    const row = sheet.addRow([
+      'NEFT',
+      emp?.employeeCode || '',
+      name,
+      emp?.bankAccountNumber || '',
+      emp?.ifscCode || '',
+      emp?.bankName || '',
+      emp?.accountType || '',
+      netPay,
+      `Salary ${shortMonths[run.month - 1]} ${run.year}`,
+      hasBank ? 'READY' : 'MISSING — Fill manually',
+    ]);
+
+    row.font = { size: 10, name: 'Calibri' };
+    row.alignment = { horizontal: 'center', vertical: 'middle' };
+    row.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+    row.getCell(8).numFmt = '₹#,##0.00';
+
+    if (!hasBank) {
+      // Highlight rows with missing bank details in light red
+      for (let c = 1; c <= 10; c++) {
+        row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
+      }
+      row.getCell(10).font = { bold: true, color: { argb: RED }, size: 10 };
+    } else {
+      row.getCell(10).font = { bold: true, color: { argb: GREEN }, size: 10 };
+    }
+  }
+
+  // Summary row
+  const summaryRow = sheet.addRow([
+    '', '', `Total: ${readyCount + missingCount} employees`,
+    '', '', '', '',
+    totalNet,
+    `Ready: ${readyCount} | Missing bank: ${missingCount}`,
+    '',
+  ]);
+  summaryRow.font = { bold: true, size: 11 };
+  summaryRow.getCell(8).numFmt = '₹#,##0.00';
+  summaryRow.getCell(8).font = { bold: true, color: { argb: GREEN }, size: 12 };
+  summaryRow.eachCell((cell) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'ECFDF5' } };
+  });
+
+  sheet.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2 + (records as any[]).length, column: 10 } };
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);

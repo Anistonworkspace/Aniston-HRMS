@@ -96,8 +96,27 @@ export default function SettingsPage() {
       <div className="page-container">
         <h1 className="text-2xl font-display font-bold text-gray-900 mb-6">{t('settings.title')}</h1>
 
+        {/* Mobile: horizontal scrollable tab strip */}
+        <div className="md:hidden mb-5 -mx-4 px-4 overflow-x-auto">
+          <div className="flex gap-1 pb-1 w-max">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0',
+                  activeTab === tab.key ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                )}
+              >
+                <tab.icon size={14} />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="flex gap-6">
-          {/* Sidebar tabs */}
+          {/* Desktop: Sidebar tabs */}
           <div className="w-56 flex-shrink-0 hidden md:block">
             <div className="space-y-1">
               {tabs.map((tab) => (
@@ -117,7 +136,7 @@ export default function SettingsPage() {
           </div>
 
           {/* Content */}
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             {activeTab === 'organization' && <OrgSettings />}
             {activeTab === 'locations' && <LocationSettings />}
             {activeTab === 'shifts' && <ShiftSettings />}
@@ -1928,6 +1947,18 @@ function ExternalApiIntegrationTab() {
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800">{intg.name}</h4>
                     <p className="text-xs text-gray-400">{intg.description}</p>
+                    {/* Show saved config summary when not editing */}
+                    {i === 0 && taskConfigRes?.data && editingIndex !== i && (
+                      <div className="flex items-center gap-3 mt-1.5">
+                        <span className="text-xs text-gray-500 font-mono truncate max-w-[200px]">
+                          {taskConfigRes.data.baseUrl || '—'}
+                        </span>
+                        <span className="text-xs text-gray-400 flex items-center gap-1">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                          Key saved
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1936,7 +1967,7 @@ function ExternalApiIntegrationTab() {
                   )}
                   <button onClick={() => setEditingIndex(editingIndex === i ? null : i)}
                     className="text-xs text-brand-600 hover:text-brand-700 font-medium">
-                    {editingIndex === i ? 'Close' : 'Configure'}
+                    {editingIndex === i ? 'Close' : (i === 0 && taskConfigRes?.data ? 'Edit' : 'Configure')}
                   </button>
                 </div>
               </div>
@@ -1952,10 +1983,16 @@ function ExternalApiIntegrationTab() {
                           placeholder="https://api.example.com" className="input-glass w-full text-sm" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">API Key (optional)</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          API Key (optional)
+                          {i === 0 && taskConfigRes?.data && (
+                            <span className="ml-2 text-[10px] text-green-600 font-normal">✓ key saved</span>
+                          )}
+                        </label>
                         <input type="password" value={intg.apiKey}
                           onChange={e => { const n = [...integrations]; n[i].apiKey = e.target.value; setIntegrations(n); }}
-                          placeholder="Leave blank if not required" className="input-glass w-full text-sm" />
+                          placeholder={i === 0 && taskConfigRes?.data ? '••••••••  (leave blank to keep existing)' : 'Leave blank if not required'}
+                          className="input-glass w-full text-sm" />
                         <p className="text-[10px] text-gray-400 mt-1">
                           {i === 0 && taskConfigRes?.data ? 'Key is encrypted on server. Enter a new key to update, or leave blank to keep existing.' : 'Leave empty if the service doesn\'t require authentication'}
                         </p>

@@ -53,6 +53,7 @@ const TrackApplicationPage = lazy(() => import('../features/public-apply/TrackAp
 const ActivateAccountPage = lazy(() => import('../features/auth/ActivateAccountPage'));
 const ResetPasswordPage = lazy(() => import('../features/auth/ResetPasswordPage'));
 const KycGatePage = lazy(() => import('../features/kyc/KycGatePage'));
+const KycHrReviewPage = lazy(() => import('../features/kyc/KycHrReviewPage'));
 const MyDocumentsPage = lazy(() => import('../features/my-documents/MyDocumentsPage'));
 const EmployeeOnboardingPage = lazy(() => import('../features/onboarding/EmployeeOnboardingPage'));
 const SendBulkEmailPage = lazy(() => import('../features/employee/SendBulkEmailPage'));
@@ -208,6 +209,7 @@ export default function AppRouter() {
             <Route path="/assets" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN']}><AssetManagementPage /></ProtectedRoute>} />
             <Route path="/my-assets" element={<MyAssetsPage />} />
             <Route path="/my-documents" element={<MyDocumentsPage />} />
+            <Route path="/kyc-review" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><KycHrReviewPage /></ProtectedRoute>} />
             <Route path="/walk-in-management" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><WalkInManagementPage /></ProtectedRoute>} />
             <Route path="/walk-in-management/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><WalkInDetailPage /></ProtectedRoute>} />
             <Route path="/send-bulk-email" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><SendBulkEmailPage /></ProtectedRoute>} />

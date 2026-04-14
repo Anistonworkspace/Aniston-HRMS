@@ -1114,12 +1114,14 @@ function EditCandidateModal({ candidate, onSave, onClose }: any) {
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-y-auto"
+        style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}
       >
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center justify-between sticky top-0 bg-white z-10 px-6 pt-6 pb-4 border-b border-gray-100">
           <h3 className="text-lg font-display font-bold text-gray-900">Edit Candidate Details</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
         </div>
+        <div className="px-6 py-5">
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -1184,7 +1186,8 @@ function EditCandidateModal({ candidate, onSave, onClose }: any) {
             <textarea value={form.aboutMe} onChange={e => setForm({ ...form, aboutMe: e.target.value })} className="input-glass w-full text-sm h-16 resize-none" />
           </div>
         </div>
-        <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
+        </div>{/* end body wrapper */}
+        <div className="flex justify-end gap-3 px-6 pb-5 pt-4 border-t border-gray-100">
           <button onClick={onClose} className="btn-secondary text-sm">Cancel</button>
           <button onClick={handleSubmit} className="btn-primary text-sm flex items-center gap-1.5">
             <Save className="w-3.5 h-3.5" /> Save Changes

@@ -923,12 +923,12 @@ function ModalWrapper({ onClose, title, children, wide }: { onClose: () => void;
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}>
       <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
-        className={cn('bg-white rounded-2xl shadow-glass-lg p-6 max-h-[90vh] overflow-y-auto', wide ? 'w-full max-w-2xl' : 'w-full max-w-lg')}>
-        <div className="flex items-center justify-between mb-5">
+        className={cn('bg-white rounded-2xl shadow-glass-lg overflow-y-auto', wide ? 'w-full max-w-2xl' : 'w-full max-w-lg')} style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}>
+        <div className="flex items-center justify-between sticky top-0 bg-white z-10 px-6 pt-6 pb-4 border-b border-gray-100">
           <h2 className="text-lg font-display font-semibold text-gray-800">{title}</h2>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} className="text-gray-400" /></button>
         </div>
-        {children}
+        <div className="px-6 py-5">{children}</div>
       </motion.div>
     </motion.div>
   );

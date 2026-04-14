@@ -418,6 +418,14 @@ model DocumentOcrVerification {
   llmExtractedData      Json?        // LLM extraction result (parallel to OCR)
   llmConfidence         Float?       // LLM confidence score
 
+  // Processing mode tracking
+  processingMode        String?      // python_advanced | node_fallback | manual_review
+  extractionSource      String?      // tesseract | llm | python | node_fallback
+
+  // Suspicion scoring
+  suspicionScore        Float        @default(0)
+  suspicionFlags        Json?        // string[] of suspicion reasons
+
   // HR review
   hrReviewedBy          String?
   hrReviewedAt          DateTime?
@@ -1405,6 +1413,35 @@ model OnboardingDocumentGate {
   verifiedBy          String?
   rejectionReason     String?
 
+  // Upload mode selection — set by employee at start of KYC
+  uploadMode            String?      // COMBINED | SEPARATE
+  fresherOrExperienced  String?      // FRESHER | EXPERIENCED
+  highestQualification  String?      // TENTH | TWELFTH | GRADUATION | POST_GRADUATION | PHD
+
+  // HR actions per-doc
+  reuploadRequested     Boolean      @default(false)
+  reuploadDocTypes      String[]     @default([])  // which doc types HR flagged for re-upload
+
+  // Combined PDF intelligence results (from Python OCR classifier)
+  combinedPdfAnalysis   Json?        // { detectedDocs: string[], missingDocs: string[], pageGroups: [...], suspicionScore: number, flags: [...] }
+
+  // Per-document employee-visible reasons (HR sets these when rejecting individual docs)
+  documentRejectReasons Json?        // { "PAN": "Blurred image", "AADHAAR": "Invalid format" }
+
+  // HR review notes (internal only)
+  hrReviewNotes         String?
+
+  // Processing mode tracking
+  processingMode        String?      // PYTHON_ADVANCED | NODE_FALLBACK | MANUAL_REVIEW_ONLY
+  fallbackUsed          Boolean      @default(false)
+
+  // Employee-visible simple status messages (set by system or HR)
+  employeeVisibleReasons Json?       // string[] of plain-language reasons for employee
+
+  // Missing / duplicate doc tracking
+  missingDocuments      String[]     @default([])
+  duplicateDocuments    String[]     @default([])
+
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
 
@@ -1414,6 +1451,9 @@ model OnboardingDocumentGate {
 enum KycStatus {
   PENDING
   SUBMITTED
+  PROCESSING
+  PENDING_HR_REVIEW
+  REUPLOAD_REQUIRED
   VERIFIED
   REJECTED
 }

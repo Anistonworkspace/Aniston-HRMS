@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { X, Loader2, CheckCircle, XCircle, AlertTriangle, Clock, Shield, AlertCircle } from 'lucide-react';
+import { X, Loader2, CheckCircle, XCircle, AlertTriangle, Clock, Shield, AlertCircle, Star, BarChart2, ChevronDown, ChevronUp } from 'lucide-react';
 import { useGetHrReviewQuery, useHandleLeaveActionMutation } from '../leaveApi';
+import { useGetPerformanceSummaryQuery } from '../../performance/performanceApi';
 import TaskAuditPanel from './TaskAuditPanel';
 import HandoverSection from './HandoverSection';
-import { formatDate, getInitials, getUploadUrl } from '../../../lib/utils';
+import { formatDate, getInitials, getUploadUrl, cn } from '../../../lib/utils';
 import toast from 'react-hot-toast';
 
 interface HRReviewPanelProps {
@@ -17,6 +18,7 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
   const [remarks, setRemarks] = useState('');
   const [conditionNote, setConditionNote] = useState('');
   const [showCondition, setShowCondition] = useState(false);
+  const [showPerfSnapshot, setShowPerfSnapshot] = useState(true);
 
   const data = res?.data;
 
@@ -50,10 +52,11 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
   const audit = data.taskAudits?.[0] || null;
   const isHighRisk = data.riskLevel === 'HIGH' || data.riskLevel === 'CRITICAL';
   const { compliance } = data;
+  const employeeId = data.employeeId as string | undefined;
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl" style={{ maxHeight: 'min(90dvh, calc(100dvh - 1rem))' }}>
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <h2 className="text-base font-display font-bold text-gray-900">HR Review</h2>
@@ -74,6 +77,15 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
               <p className="text-xs text-gray-400">{data.employee?.employeeCode} · {data.employee?.department?.name || ''}</p>
             </div>
           </div>
+
+          {/* Performance Snapshot */}
+          {employeeId && (
+            <PerformanceSnapshot
+              employeeId={employeeId}
+              expanded={showPerfSnapshot}
+              onToggle={() => setShowPerfSnapshot((v) => !v)}
+            />
+          )}
 
           {/* Leave Summary */}
           <div className="layer-card p-4">
@@ -193,36 +205,147 @@ export default function HRReviewPanel({ leaveId, onClose }: HRReviewPanelProps) 
           )}
         </div>
 
-        {/* Actions */}
+        {/* Actions — status-aware */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center gap-2 shrink-0 flex-wrap">
-          <button
-            onClick={() => onAction('APPROVED')}
-            disabled={acting || (isHighRisk && !remarks)}
-            className="btn-primary text-sm flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
-          >
-            <CheckCircle size={14} /> Approve
-          </button>
-          <button
-            onClick={() => onAction('REJECTED')}
-            disabled={acting}
-            className="text-sm px-4 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 font-medium flex items-center gap-1"
-          >
-            <XCircle size={14} /> Reject
-          </button>
-          <button
-            onClick={() => {
-              if (!showCondition) { setShowCondition(true); return; }
-              if (!conditionNote) { toast.error('Condition note required'); return; }
-              onAction('APPROVED_WITH_CONDITION');
-            }}
-            disabled={acting}
-            className="text-sm px-4 py-2 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 font-medium flex items-center gap-1"
-          >
-            <AlertTriangle size={14} /> {showCondition ? 'Confirm' : 'Conditional'}
-          </button>
-          {acting && <Loader2 size={16} className="animate-spin text-gray-400 ml-2" />}
+          {(data.status === 'APPROVED' || data.status === 'APPROVED_WITH_CONDITION') ? (
+            /* ── Revoke mode: leave already approved, HR can revoke it ── */
+            <>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-emerald-700 flex items-center gap-1.5">
+                  <CheckCircle size={13} /> This leave is <strong>Approved</strong>. You can revoke it below.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  if (!remarks.trim()) { toast.error('Remarks are required when revoking an approved leave'); return; }
+                  onAction('REJECTED');
+                }}
+                disabled={acting || !remarks.trim()}
+                className="text-sm px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 font-medium flex items-center gap-1 disabled:opacity-50"
+              >
+                <XCircle size={14} /> Revoke Approval
+              </button>
+              {acting && <Loader2 size={16} className="animate-spin text-gray-400 ml-2" />}
+            </>
+          ) : (
+            /* ── Normal mode: PENDING or MANAGER_APPROVED ── */
+            <>
+              <button
+                onClick={() => onAction('APPROVED')}
+                disabled={acting || (isHighRisk && !remarks)}
+                className="btn-primary text-sm flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+              >
+                <CheckCircle size={14} /> Approve
+              </button>
+              <button
+                onClick={() => onAction('REJECTED')}
+                disabled={acting}
+                className="text-sm px-4 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 font-medium flex items-center gap-1"
+              >
+                <XCircle size={14} /> Reject
+              </button>
+              <button
+                onClick={() => {
+                  if (!showCondition) { setShowCondition(true); return; }
+                  if (!conditionNote) { toast.error('Condition note required'); return; }
+                  onAction('APPROVED_WITH_CONDITION');
+                }}
+                disabled={acting}
+                className="text-sm px-4 py-2 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 font-medium flex items-center gap-1"
+              >
+                <AlertTriangle size={14} /> {showCondition ? 'Confirm' : 'Conditional'}
+              </button>
+              {acting && <Loader2 size={16} className="animate-spin text-gray-400 ml-2" />}
+            </>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Performance Snapshot (inside HR Review) ───────────────────────────
+function PerformanceSnapshot({
+  employeeId, expanded, onToggle,
+}: { employeeId: string; expanded: boolean; onToggle: () => void }) {
+  const { data: perfRes, isLoading } = useGetPerformanceSummaryQuery(
+    { employeeId },
+    { skip: !employeeId }
+  );
+  const perf = perfRes?.data;
+
+  const scoreColor = !perf ? '' :
+    perf.scores.overall >= 75 ? 'text-emerald-600' :
+    perf.scores.overall >= 60 ? 'text-amber-600' : 'text-red-500';
+
+  return (
+    <div className="layer-card overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <BarChart2 size={14} className="text-brand-500" />
+          <span className="text-xs font-semibold text-gray-700">Employee Performance Snapshot</span>
+          {isLoading && <Loader2 size={12} className="animate-spin text-gray-400" />}
+          {perf && (
+            <span className={cn('text-xs font-bold font-mono ml-1', scoreColor)} data-mono>
+              {perf.scores.overall}/100
+            </span>
+          )}
+        </div>
+        {expanded ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+      </button>
+
+      {expanded && perf && (
+        <div className="px-4 pb-4 space-y-3 border-t border-gray-100">
+          {/* Rating */}
+          <div className="flex items-center gap-3 pt-3">
+            <div className="flex items-center gap-1">
+              {[1, 2, 3, 4, 5].map((s) => (
+                <Star key={s} size={14}
+                  className={s <= perf.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-200 fill-gray-200'} />
+              ))}
+            </div>
+            <span className="text-xs font-medium text-gray-600">{perf.ratingLabel}</span>
+          </div>
+
+          {/* Score grid */}
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: 'Goal Completion', value: perf.scores.goalCompletion, color: 'text-brand-600' },
+              { label: 'Leave Discipline', value: perf.scores.leaveDiscipline, color: 'text-emerald-600' },
+              { label: 'Work Continuity', value: perf.scores.workContinuity, color: 'text-blue-600' },
+              { label: 'Task Health', value: perf.scores.taskHealth, color: 'text-amber-600' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="bg-gray-50 rounded-lg p-2">
+                <p className="text-[10px] text-gray-500">{label}</p>
+                <p className={cn('text-base font-bold font-mono', color)} data-mono>{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Leave stats */}
+          <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+            <span>Leaves taken ({new Date().getFullYear()})</span>
+            <span className="font-bold font-mono text-gray-700" data-mono>
+              {perf.leaves.totalUsed} / {perf.leaves.totalAllocated} days
+            </span>
+          </div>
+
+          {perf.tasks.configured && (
+            <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+              <span>Active tasks</span>
+              <div className="flex items-center gap-2">
+                <span className="font-bold font-mono text-gray-700" data-mono>{perf.tasks.total}</span>
+                {perf.tasks.overdue > 0 && (
+                  <span className="text-red-500 text-[10px]">{perf.tasks.overdue} overdue</span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

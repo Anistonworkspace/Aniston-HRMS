@@ -134,7 +134,7 @@ export default function OnboardingPortal() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.2 }}
-            className="layer-card p-6 sm:p-8"
+            className="layer-card p-4 sm:p-8"
           >
             <h2 className="text-lg font-display font-semibold text-gray-800 mb-1">
               {STEPS[currentStep - 1].title}
@@ -208,20 +208,20 @@ function Step2Personal({ onSave, saving, employee }: { onSave: (data: any) => vo
   });
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })}
           placeholder="First Name *" className="input-glass" required />
         <input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })}
           placeholder="Last Name *" className="input-glass" required />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <input type="date" value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })}
           className="input-glass" />
         <select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} className="input-glass">
           <option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option>
         </select>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}
           placeholder="Phone Number *" className="input-glass" required />
         <input value={form.bloodGroup} onChange={(e) => setForm({ ...form, bloodGroup: e.target.value })}
@@ -489,7 +489,7 @@ function Step4Photo({ onSave, saving }: { onSave: (data: any) => void; saving: b
       </label>
       <div className="border-t border-gray-100 pt-6">
         <p className="text-sm text-gray-500 mb-3">Digital Signature</p>
-        <div className="w-64 h-24 mx-auto rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center">
+        <div className="w-full max-w-xs h-24 mx-auto rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center">
           <p className="text-xs text-gray-400">Draw or upload signature</p>
         </div>
       </div>
@@ -506,7 +506,7 @@ function Step5Bank({ onSave, saving }: { onSave: (data: any) => void; saving: bo
     <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="space-y-4">
       <input value={form.accountNumber} onChange={(e) => setForm({ ...form, accountNumber: e.target.value })}
         placeholder="Account Number *" className="input-glass w-full" required />
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <input value={form.ifsc} onChange={(e) => setForm({ ...form, ifsc: e.target.value })}
           placeholder="IFSC Code *" className="input-glass" required />
         <input value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })}
@@ -526,7 +526,7 @@ function Step6Emergency({ onSave, saving }: { onSave: (data: any) => void; savin
     <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="space-y-4">
       <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
         placeholder="Contact Person Name *" className="input-glass w-full" required />
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <input value={form.relationship} onChange={(e) => setForm({ ...form, relationship: e.target.value })}
           placeholder="Relationship *" className="input-glass" required />
         <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}

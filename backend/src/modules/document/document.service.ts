@@ -373,10 +373,10 @@ export class DocumentService {
           filledFields.push('Bank Account Number');
         }
       }
-      if (!employee.bankIfsc && llmData.ifscCode) {
+      if (!employee.ifscCode && llmData.ifscCode) {
         const ifsc = llmData.ifscCode.toUpperCase().replace(/[\s\-]/g, '');
         if (/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) {
-          updates.bankIfsc = ifsc;
+          updates.ifscCode = ifsc;
           filledFields.push('Bank IFSC Code');
         }
       }

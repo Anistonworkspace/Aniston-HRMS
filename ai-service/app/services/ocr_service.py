@@ -1,6 +1,6 @@
 import re
 import logging
-from typing import Optional, List
+from typing import List
 from PIL import Image
 from io import BytesIO
 
@@ -103,12 +103,14 @@ def extract_text_from_pdf_native(pdf_bytes: bytes) -> str:
         return ""
 
 
-def convert_pdf_to_images(pdf_bytes: bytes) -> List[Image.Image]:
-    """Convert PDF pages to images for OCR."""
+MAX_PDF_PAGES_FOR_OCR = 50  # Reasonable limit — combined KYC PDFs rarely exceed 30 pages
+
+def convert_pdf_to_images(pdf_bytes: bytes, last_page: int = MAX_PDF_PAGES_FOR_OCR) -> List[Image.Image]:
+    """Convert PDF pages to images for OCR. Processes up to last_page pages (default 50)."""
     if not HAS_PDF2IMAGE:
         return []
     try:
-        images = convert_from_bytes(pdf_bytes, dpi=300, first_page=1, last_page=10)
+        images = convert_from_bytes(pdf_bytes, dpi=300, first_page=1, last_page=last_page)
         return images
     except Exception as e:
         logger.warning(f"pdf2image conversion failed: {e}")
@@ -354,6 +356,330 @@ def extract_generic_fields(text: str) -> dict:
         fields["pan_number"] = pan.group(1)
 
     return fields
+
+
+# ===== QUALITY / SUSPICION HEURISTICS =====
+
+def assess_page_quality(image: "Image.Image", raw_text: str, page_idx: int) -> dict:
+    """
+    Assess whether a page looks like a legitimate scan vs a low-quality/screenshot/blank page.
+
+    Returns a dict with:
+      - quality: HIGH | MEDIUM | LOW
+      - flags: list of suspicion signals
+      - is_blank: bool
+      - is_likely_screenshot: bool
+    """
+    flags = []
+    text_len = len(raw_text.strip())
+
+    # Blank / near-blank page detection
+    is_blank = text_len < 15
+    if is_blank:
+        flags.append(f"Page {page_idx + 1}: Blank or near-blank — no readable text")
+
+    # Very short text but not blank — possibly image-only or heavily corrupted
+    if 15 <= text_len < 60:
+        flags.append(f"Page {page_idx + 1}: Very little text extracted — may be a photo, graphic-only, or blurred page")
+
+    # Screenshot heuristics — real scanned docs rarely have perfectly even pixel distributions
+    is_likely_screenshot = False
+    if HAS_OPENCV:
+        try:
+            import numpy as np
+            import cv2
+            img_array = np.array(image)
+            if len(img_array.shape) == 3:
+                gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = img_array
+
+            h, w = gray.shape[:2]
+
+            # Very uniform backgrounds (screenshots often have solid background)
+            unique_vals = len(set(gray.flatten().tolist()[::100]))  # sample every 100th px
+            if unique_vals < 20 and text_len > 50:
+                is_likely_screenshot = True
+                flags.append(f"Page {page_idx + 1}: Uniform background — possible screenshot")
+
+            # Very low resolution (< 300x300)
+            if w < 300 or h < 300:
+                flags.append(f"Page {page_idx + 1}: Very low resolution ({w}x{h}px)")
+
+        except Exception:
+            pass
+
+    # Determine quality tier
+    if is_blank or is_likely_screenshot:
+        quality = "LOW"
+    elif text_len < 80:
+        quality = "LOW"
+    elif text_len < 200:
+        quality = "MEDIUM"
+    else:
+        quality = "HIGH"
+
+    return {
+        "quality": quality,
+        "flags": flags,
+        "is_blank": is_blank,
+        "is_likely_screenshot": is_likely_screenshot,
+        "text_length": text_len,
+    }
+
+
+def detect_page_document_type(text: str, page_idx: int) -> dict:
+    """
+    Detect the Indian document type from a single page's OCR text.
+    Returns detected type + confidence score.
+    """
+    doc_type = detect_document_type(text)
+
+    # Compute a simple confidence for the detection
+    text_len = len(text.strip())
+
+    if text_len < 20:
+        confidence = 0.1
+    elif doc_type == "OTHER":
+        confidence = 0.3
+    elif doc_type in ("AADHAAR", "PAN"):
+        # These have very distinctive patterns — high confidence if detected
+        confidence = 0.9
+    elif doc_type in ("PASSPORT", "VOTER_ID", "DRIVING_LICENSE"):
+        confidence = 0.8
+    elif doc_type == "CERTIFICATE":
+        confidence = 0.7
+    else:
+        confidence = 0.5
+
+    return {
+        "page": page_idx + 1,
+        "detected_type": doc_type,
+        "confidence": confidence,
+    }
+
+
+# ===== COMBINED PDF CLASSIFIER =====
+
+# Document types that map from OCR-detected to our system's DocumentType enum
+OCR_TYPE_TO_DOC_TYPE: dict = {
+    "AADHAAR": "AADHAAR",
+    "PAN": "PAN",
+    "PASSPORT": "PASSPORT",
+    "VOTER_ID": "VOTER_ID",
+    "DRIVING_LICENSE": "DRIVING_LICENSE",
+    "CERTIFICATE": "DEGREE_CERTIFICATE",   # generic education cert — HR disambiguates
+    "BANK_STATEMENT": "BANK_STATEMENT",
+    "OTHER": "OTHER",
+}
+
+# Suspicion: if a detected type appears more than this many times, likely duplicated
+MAX_REASONABLE_PAGES_PER_TYPE = {
+    "AADHAAR": 2,        # front + back
+    "PAN": 2,            # front + back
+    "PASSPORT": 6,       # multiple pages
+    "VOTER_ID": 2,
+    "DRIVING_LICENSE": 2,
+    "CERTIFICATE": 10,   # many certificates are ok
+    "BANK_STATEMENT": 8, # multi-page statement
+    "OTHER": 20,
+}
+
+
+async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
+    """
+    Classify a multi-document combined PDF page by page.
+
+    Returns:
+      {
+        total_pages: int,
+        page_results: [{ page, detected_type, confidence, text_snippet, quality, flags }],
+        detected_docs: ["AADHAAR", "PAN", ...],            # unique types found
+        page_groups: [{ doc_type, pages: [1,2], confidence }],
+        quality_flags: ["Page 3: Blank", ...],
+        suspicion_flags: [...],
+        suspicion_score: 0-100,
+        summary: "..."
+      }
+    """
+    if not HAS_PDF2IMAGE:
+        return {
+            "error": "pdf2image not available — cannot classify combined PDF",
+            "total_pages": 0,
+            "page_results": [],
+            "detected_docs": [],
+            "page_groups": [],
+            "quality_flags": ["pdf2image library not installed — OCR-based page classification unavailable"],
+            "suspicion_flags": [],
+            "suspicion_score": 0,
+            "summary": "Combined PDF classification unavailable (pdf2image not installed).",
+        }
+
+    try:
+        images = convert_pdf_to_images(pdf_bytes)
+    except Exception as e:
+        return {
+            "error": f"Failed to render PDF: {str(e)}",
+            "total_pages": 0,
+            "page_results": [],
+            "detected_docs": [],
+            "page_groups": [],
+            "quality_flags": [f"PDF rendering failed: {str(e)}"],
+            "suspicion_flags": [],
+            "suspicion_score": 50,
+            "summary": "Could not process the combined PDF. It may be corrupt, password-protected, or in an unsupported format.",
+        }
+
+    total_pages = len(images)
+    page_results = []
+    quality_flags = []
+    suspicion_flags = []
+
+    # Also try native text extraction for digital PDFs (faster, more accurate)
+    native_text = extract_text_from_pdf_native(pdf_bytes)
+    native_pages = [p.strip() for p in native_text.split("\x0c")] if native_text else []
+
+    for idx, image in enumerate(images):
+        # Use native text if available, else OCR
+        if idx < len(native_pages) and len(native_pages[idx]) > 50:
+            raw_text = native_pages[idx]
+            source = "pdf_native"
+        else:
+            # Fall back to image OCR
+            processed = preprocess_image(image)
+            raw_text = ""
+            if HAS_TESSERACT:
+                try:
+                    import pytesseract
+                    raw_text = pytesseract.image_to_string(processed, lang="eng+hin")
+                except Exception:
+                    try:
+                        raw_text = pytesseract.image_to_string(processed, lang="eng")
+                    except Exception as e:
+                        raw_text = ""
+                        quality_flags.append(f"Page {idx + 1}: OCR failed — {str(e)}")
+            source = "image_ocr"
+
+        # Quality assessment
+        quality_info = assess_page_quality(image, raw_text, idx)
+        quality_flags.extend(quality_info["flags"])
+
+        # Document type detection
+        type_info = detect_page_document_type(raw_text, idx)
+
+        # Add to results
+        page_results.append({
+            "page": idx + 1,
+            "detected_type": type_info["detected_type"],
+            "confidence": type_info["confidence"],
+            "text_snippet": raw_text[:300].strip() if raw_text else "",
+            "quality": quality_info["quality"],
+            "is_blank": quality_info["is_blank"],
+            "is_likely_screenshot": quality_info["is_likely_screenshot"],
+            "source": source,
+        })
+
+    # Group consecutive pages by detected type
+    page_groups = []
+    if page_results:
+        current_type = page_results[0]["detected_type"]
+        current_pages = [page_results[0]["page"]]
+        current_confidences = [page_results[0]["confidence"]]
+
+        for pr in page_results[1:]:
+            if pr["detected_type"] == current_type and pr["detected_type"] != "OTHER":
+                current_pages.append(pr["page"])
+                current_confidences.append(pr["confidence"])
+            else:
+                if current_type != "OTHER" or len(current_pages) > 1:
+                    page_groups.append({
+                        "doc_type": current_type,
+                        "system_doc_type": OCR_TYPE_TO_DOC_TYPE.get(current_type, "OTHER"),
+                        "pages": current_pages,
+                        "avg_confidence": round(sum(current_confidences) / len(current_confidences), 2),
+                    })
+                current_type = pr["detected_type"]
+                current_pages = [pr["page"]]
+                current_confidences = [pr["confidence"]]
+
+        # Flush last group
+        page_groups.append({
+            "doc_type": current_type,
+            "system_doc_type": OCR_TYPE_TO_DOC_TYPE.get(current_type, "OTHER"),
+            "pages": current_pages,
+            "avg_confidence": round(sum(current_confidences) / len(current_confidences), 2),
+        })
+
+    # Unique detected doc types (excluding blanks and low confidence)
+    detected_docs = list(set(
+        OCR_TYPE_TO_DOC_TYPE.get(pr["detected_type"], "OTHER")
+        for pr in page_results
+        if not pr["is_blank"] and pr["confidence"] >= 0.4
+    ))
+
+    # Suspicion analysis
+    suspicion_score = 0
+
+    # Count blank pages
+    blank_pages = [pr["page"] for pr in page_results if pr["is_blank"]]
+    if blank_pages:
+        suspicion_flags.append(f"Blank page(s) detected: {blank_pages}")
+        suspicion_score += len(blank_pages) * 5
+
+    # Screenshot pages
+    screenshot_pages = [pr["page"] for pr in page_results if pr["is_likely_screenshot"]]
+    if screenshot_pages:
+        suspicion_flags.append(f"Possible screenshot on page(s): {screenshot_pages} — genuine scans are preferred")
+        suspicion_score += len(screenshot_pages) * 15
+
+    # Very low quality pages
+    low_quality_pages = [pr["page"] for pr in page_results if pr["quality"] == "LOW" and not pr["is_blank"]]
+    if low_quality_pages:
+        suspicion_flags.append(f"Low quality page(s): {low_quality_pages}")
+        suspicion_score += len(low_quality_pages) * 10
+
+    # Duplicate document types (same type detected many times)
+    from collections import Counter
+    type_counts = Counter(pr["detected_type"] for pr in page_results if not pr["is_blank"])
+    for t, count in type_counts.items():
+        max_allowed = MAX_REASONABLE_PAGES_PER_TYPE.get(t, 5)
+        if count > max_allowed:
+            suspicion_flags.append(f"'{t}' appears on {count} pages — possible duplicate submission")
+            suspicion_score += 20
+
+    suspicion_score = min(100, suspicion_score)
+
+    # Determine risk tier
+    if suspicion_score >= 50:
+        risk_level = "HIGH"
+    elif suspicion_score >= 20:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "LOW"
+
+    # Summary
+    if total_pages == 0:
+        summary = "No pages found in the PDF."
+    else:
+        summary = (
+            f"Combined PDF contains {total_pages} page(s). "
+            f"Detected document types: {', '.join(detected_docs) if detected_docs else 'None clearly identified'}. "
+            f"Risk level: {risk_level}."
+        )
+        if suspicion_flags:
+            summary += f" Issues: {'; '.join(suspicion_flags[:2])}."
+
+    return {
+        "total_pages": total_pages,
+        "page_results": page_results,
+        "detected_docs": detected_docs,
+        "page_groups": page_groups,
+        "quality_flags": quality_flags,
+        "suspicion_flags": suspicion_flags,
+        "suspicion_score": suspicion_score,
+        "risk_level": risk_level,
+        "summary": summary,
+    }
 
 
 # ===== MAIN PIPELINE =====

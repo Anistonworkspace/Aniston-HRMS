@@ -6,6 +6,14 @@ interface PerformanceQuery {
 
 export const performanceApi = api.injectEndpoints({
   endpoints: (builder) => ({
+    getPerformanceSummary: builder.query<any, { employeeId?: string } | void>({
+      query: (params) => ({
+        url: (params as any)?.employeeId
+          ? `/performance/summary/${(params as any).employeeId}`
+          : '/performance/summary',
+      }),
+      providesTags: [{ type: 'Performance', id: 'SUMMARY' }],
+    }),
     getGoals: builder.query<any, PerformanceQuery | void>({
       query: (params) => ({ url: '/performance/goals', params: params || {} }),
       providesTags: [{ type: 'Performance', id: 'GOALS' }],
@@ -46,6 +54,7 @@ export const performanceApi = api.injectEndpoints({
 });
 
 export const {
+  useGetPerformanceSummaryQuery,
   useGetGoalsQuery,
   useCreateGoalMutation,
   useUpdateGoalMutation,

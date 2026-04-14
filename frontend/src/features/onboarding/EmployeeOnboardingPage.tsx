@@ -151,7 +151,7 @@ export default function EmployeeOnboardingPage() {
         </div>
 
         {/* Step Content */}
-        <div className="bg-white rounded-2xl shadow-lg p-8">
+        <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-1">{STEPS[currentStep - 1]?.title}</h2>
           <p className="text-sm text-gray-500 mb-6">{STEPS[currentStep - 1]?.desc}</p>
 
@@ -163,7 +163,7 @@ export default function EmployeeOnboardingPage() {
               {/* Step 1: Personal Details */}
               {currentStep === 1 && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
                       <input value={personal.firstName} onChange={e => setPersonal(p => ({ ...p, firstName: e.target.value }))}
@@ -175,7 +175,7 @@ export default function EmployeeOnboardingPage() {
                         className="input-glass w-full text-sm" />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
                       <input type="date" value={personal.dateOfBirth} onChange={e => setPersonal(p => ({ ...p, dateOfBirth: e.target.value }))}
@@ -192,7 +192,7 @@ export default function EmployeeOnboardingPage() {
                       </select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Blood Group</label>
                       <select value={personal.bloodGroup} onChange={e => setPersonal(p => ({ ...p, bloodGroup: e.target.value }))}
@@ -214,7 +214,7 @@ export default function EmployeeOnboardingPage() {
                     <input value={personal.address.line1} onChange={e => setPersonal(p => ({ ...p, address: { ...p.address, line1: e.target.value } }))}
                       className="input-glass w-full text-sm" />
                   </div>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
                       <input value={personal.address.city} onChange={e => setPersonal(p => ({ ...p, address: { ...p.address, city: e.target.value } }))}
@@ -237,7 +237,7 @@ export default function EmployeeOnboardingPage() {
               {/* Step 2: Emergency Contact */}
               {currentStep === 2 && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Contact Name</label>
                       <input value={emergency.name} onChange={e => setEmergency(p => ({ ...p, name: e.target.value }))}
@@ -256,7 +256,7 @@ export default function EmployeeOnboardingPage() {
                       </select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
                       <input value={emergency.phone} onChange={e => setEmergency(p => ({ ...p, phone: e.target.value }))}

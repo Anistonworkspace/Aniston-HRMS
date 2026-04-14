@@ -39,21 +39,26 @@ export class DocumentOcrService {
       return this.createFallbackOcr(documentId, organizationId, `Unsupported file format (.${ext}). Supported: images, PDF`);
     }
 
-    // Call AI service (now handles both images AND PDFs)
+    // Call AI service (now handles both images AND PDFs) — native fetch, no axios dependency
     let ocrResult: any = null;
     try {
-      const FormData = (await import('form-data')).default;
-      const formData = new FormData();
       const mimeType = ext === 'pdf' ? 'application/pdf' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
-      formData.append('file', fileBuffer, { filename: `document.${ext}`, contentType: mimeType });
+      const blob = new Blob([new Uint8Array(fileBuffer)], { type: mimeType });
+      const formData = new FormData();
+      formData.append('file', blob, `document.${ext}`);
 
-      const axios = (await import('axios')).default;
-      const response = await axios.post(`${AI_SERVICE_URL}/ai/ocr/extract`, formData, {
-        headers: formData.getHeaders(),
-        timeout: 60000, // 60s for PDF processing
+      const response = await fetch(`${AI_SERVICE_URL}/ai/ocr/extract`, {
+        method: 'POST',
+        body: formData,
+        signal: AbortSignal.timeout(60_000),
       });
 
-      ocrResult = response.data?.data;
+      if (response.ok) {
+        const json = await response.json() as { data: any };
+        ocrResult = json?.data;
+      } else {
+        logger.warn(`OCR: AI service returned ${response.status} for document ${documentId}`);
+      }
     } catch (err: any) {
       logger.warn(`OCR: AI service call failed for document ${documentId}: ${err.message}`);
     }
@@ -65,6 +70,13 @@ export class DocumentOcrService {
         const { processDocumentLocally } = await import('../../services/document-processor.service.js');
         const localResult = await processDocumentLocally(filePath, doc.type);
 
+        const allWarnings = [...localResult.warnings, ...localResult.formatWarnings, ...localResult.suspicionFlags];
+        const localOcrStatus = 'FLAGGED'; // Node fallback is never fully trusted — always needs HR review
+        const localHrNote = [
+          'Processed by Node.js OCR fallback (Python AI service was unavailable).',
+          ...(allWarnings.length > 0 ? [`Warnings: ${allWarnings.join('; ')}`] : []),
+        ].join(' ');
+
         const ocrVerification = await prisma.documentOcrVerification.upsert({
           where: { documentId },
           create: {
@@ -72,18 +84,25 @@ export class DocumentOcrService {
             organizationId,
             rawText: localResult.rawText,
             detectedType: localResult.detectedType,
-            confidence: localResult.confidence / 100, // normalize to 0-1
+            confidence: localResult.confidence / 100,
             extractedName: localResult.extractedFields.extractedName || null,
             extractedDob: localResult.extractedFields.extractedDob || null,
             extractedDocNumber: localResult.extractedFields.extractedDocNumber || null,
+            extractedFatherName: localResult.extractedFields.extractedFatherName || null,
+            extractedMotherName: localResult.extractedFields.extractedMotherName || null,
             extractedGender: localResult.extractedFields.extractedGender || null,
+            extractedAddress: localResult.extractedFields.extractedAddress || null,
             isScreenshot: localResult.isScreenshot,
             isOriginalScan: localResult.isOriginalScan,
             resolutionQuality: localResult.resolutionQuality,
             formatValid: localResult.formatValid,
             formatErrors: localResult.formatErrors as any,
-            ocrStatus: localResult.warnings.length > 0 ? 'FLAGGED' : 'PENDING',
-            hrNotes: localResult.warnings.length > 0 ? `Local OCR: ${localResult.warnings.join('; ')}` : null,
+            ocrStatus: localOcrStatus,
+            hrNotes: localHrNote,
+            processingMode: 'node_fallback',
+            extractionSource: 'tesseract',
+            suspicionScore: localResult.suspicionFlags.length * 10,
+            suspicionFlags: localResult.suspicionFlags as any,
           },
           update: {
             rawText: localResult.rawText,
@@ -92,15 +111,31 @@ export class DocumentOcrService {
             extractedName: localResult.extractedFields.extractedName || null,
             extractedDob: localResult.extractedFields.extractedDob || null,
             extractedDocNumber: localResult.extractedFields.extractedDocNumber || null,
+            extractedFatherName: localResult.extractedFields.extractedFatherName || null,
+            extractedMotherName: localResult.extractedFields.extractedMotherName || null,
             extractedGender: localResult.extractedFields.extractedGender || null,
+            extractedAddress: localResult.extractedFields.extractedAddress || null,
             isScreenshot: localResult.isScreenshot,
             isOriginalScan: localResult.isOriginalScan,
             resolutionQuality: localResult.resolutionQuality,
             formatValid: localResult.formatValid,
             formatErrors: localResult.formatErrors as any,
+            ocrStatus: localOcrStatus,
+            hrNotes: localHrNote,
+            processingMode: 'node_fallback',
+            extractionSource: 'tesseract',
+            suspicionScore: localResult.suspicionFlags.length * 10,
+            suspicionFlags: localResult.suspicionFlags as any,
           },
         });
-        logger.info(`OCR: Local fallback completed for ${documentId} — confidence: ${localResult.confidence}%`);
+
+        // Sync Document.status → FLAGGED so employee UI shows it clearly
+        await prisma.document.update({
+          where: { id: documentId },
+          data: { status: 'FLAGGED', rejectionReason: 'Processed by Node.js OCR fallback. HR review required.' },
+        });
+
+        logger.info(`OCR: Node.js fallback completed for ${documentId} — confidence: ${localResult.confidence}%`);
         return ocrVerification;
       } catch (localErr: any) {
         logger.warn(`OCR: Local fallback also failed for ${documentId}: ${localErr.message}`);
@@ -133,6 +168,8 @@ export class DocumentOcrService {
         resolutionQuality: qualityReport.resolutionQuality,
         tamperingIndicators: qualityReport.tamperingIndicators,
         ocrStatus: 'PENDING',
+        processingMode: 'python_advanced',
+        extractionSource: 'python',
       },
       update: {
         rawText: (ocrResult.raw_text || '').substring(0, 10000),
@@ -149,6 +186,8 @@ export class DocumentOcrService {
         isOriginalScan: qualityReport.isOriginalScan,
         resolutionQuality: qualityReport.resolutionQuality,
         tamperingIndicators: qualityReport.tamperingIndicators,
+        processingMode: 'python_advanced',
+        extractionSource: 'python',
       },
     });
 
@@ -204,23 +243,41 @@ export class DocumentOcrService {
   }
 
   /**
-   * Create a minimal OCR record when AI service is unavailable.
+   * Create a minimal OCR record when both AI service and Node.js OCR are unavailable.
+   * Documents in this state require full manual HR review.
    */
   private async createFallbackOcr(documentId: string, organizationId: string, reason: string) {
-    return prisma.documentOcrVerification.upsert({
+    const note = `Manual review required. OCR could not be performed: ${reason}`;
+    const ocr = await prisma.documentOcrVerification.upsert({
       where: { documentId },
       create: {
         documentId,
         organizationId,
-        rawText: reason,
+        rawText: note,
         confidence: 0,
-        ocrStatus: 'PENDING',
+        ocrStatus: 'FLAGGED',
+        hrNotes: note,
+        processingMode: 'manual_review',
+        extractionSource: 'none',
+        suspicionScore: 0,
       },
       update: {
-        rawText: reason,
+        rawText: note,
         confidence: 0,
+        ocrStatus: 'FLAGGED',
+        hrNotes: note,
+        processingMode: 'manual_review',
+        extractionSource: 'none',
       },
     });
+
+    // Sync Document.status → FLAGGED so the employee sees a clear status
+    await prisma.document.update({
+      where: { id: documentId },
+      data: { status: 'FLAGGED', rejectionReason: 'OCR processing could not be completed. HR will review manually.' },
+    }).catch(() => { /* non-blocking — document may not exist yet */ });
+
+    return ocr;
   }
 
   /**
@@ -287,7 +344,7 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
 
       let llmData: any;
       try {
-        const content = aiResponse.content || '';
+        const content = aiResponse.data || '';
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         llmData = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
       } catch {
@@ -387,7 +444,108 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
   }
 
   /**
-   * Cross-validate all documents for an employee.
+   * Jaro-Winkler similarity between two strings (0-1).
+   * Handles OCR noise, initials, and partial middle names better than exact match.
+   */
+  private jaroSimilarity(s1: string, s2: string): number {
+    if (s1 === s2) return 1;
+    const len1 = s1.length, len2 = s2.length;
+    if (len1 === 0 || len2 === 0) return 0;
+
+    const matchDist = Math.floor(Math.max(len1, len2) / 2) - 1;
+    const s1Matches = new Array(len1).fill(false);
+    const s2Matches = new Array(len2).fill(false);
+    let matches = 0, transpositions = 0;
+
+    for (let i = 0; i < len1; i++) {
+      const start = Math.max(0, i - matchDist);
+      const end = Math.min(i + matchDist + 1, len2);
+      for (let j = start; j < end; j++) {
+        if (s2Matches[j] || s1[i] !== s2[j]) continue;
+        s1Matches[i] = true;
+        s2Matches[j] = true;
+        matches++;
+        break;
+      }
+    }
+    if (matches === 0) return 0;
+
+    let k = 0;
+    for (let i = 0; i < len1; i++) {
+      if (!s1Matches[i]) continue;
+      while (!s2Matches[k]) k++;
+      if (s1[i] !== s2[k]) transpositions++;
+      k++;
+    }
+
+    const jaro = (matches / len1 + matches / len2 + (matches - transpositions / 2) / matches) / 3;
+    // Winkler boost: reward common prefix (up to 4 chars)
+    let prefix = 0;
+    for (let i = 0; i < Math.min(4, len1, len2); i++) {
+      if (s1[i] === s2[i]) prefix++;
+      else break;
+    }
+    return jaro + prefix * 0.1 * (1 - jaro);
+  }
+
+  /**
+   * Normalize a name string for comparison:
+   * - lowercase
+   * - collapse whitespace
+   * - remove punctuation
+   * - handle initials (e.g. "R." → "r")
+   */
+  private normalizeName(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/\./g, ' ')       // expand initials dots
+      .replace(/[^a-z\s]/g, '')  // remove non-alpha
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * Compare two names using Jaro-Winkler similarity.
+   * Returns { match, similarity, reason }.
+   * PASS >= 0.92 (allows middle name difference, minor OCR noise)
+   * PARTIAL 0.80-0.91 (likely same person — middle name or OCR issue)
+   * FAIL < 0.80 (likely different people)
+   */
+  private compareNames(a: string, b: string): { match: 'PASS' | 'PARTIAL' | 'FAIL'; similarity: number; reason: string } {
+    const na = this.normalizeName(a);
+    const nb = this.normalizeName(b);
+
+    if (na === nb) return { match: 'PASS', similarity: 1.0, reason: 'Exact match after normalization' };
+
+    const sim = this.jaroSimilarity(na, nb);
+
+    // Also try token-based comparison (handles middle name insertion/omission)
+    const tokensA = new Set(na.split(' ').filter(t => t.length > 1));
+    const tokensB = new Set(nb.split(' ').filter(t => t.length > 1));
+    const intersection = [...tokensA].filter(t => tokensB.has(t));
+    const tokenSim = intersection.length / Math.max(tokensA.size, tokensB.size);
+
+    const effectiveSim = Math.max(sim, tokenSim * 0.95);
+
+    if (effectiveSim >= 0.92) return { match: 'PASS', similarity: effectiveSim, reason: 'High similarity — names match' };
+    if (effectiveSim >= 0.80) return { match: 'PARTIAL', similarity: effectiveSim, reason: `Possible middle name difference or OCR noise (similarity: ${(effectiveSim * 100).toFixed(0)}%)` };
+    return { match: 'FAIL', similarity: effectiveSim, reason: `Name mismatch: "${a}" vs "${b}" (similarity: ${(effectiveSim * 100).toFixed(0)}%)` };
+  }
+
+  /**
+   * Normalize a date string: strip separators, handle DD/MM/YYYY vs YYYY-MM-DD.
+   */
+  private normalizeDate(d: string): string {
+    const stripped = d.replace(/[-\/\.]/g, '');
+    // If it looks like YYYYMMDD (8 digits starting with 19xx or 20xx), keep as-is
+    if (/^(19|20)\d{6}$/.test(stripped)) return stripped;
+    // If it looks like DDMMYYYY, convert to YYYYMMDD for comparison
+    if (/^\d{8}$/.test(stripped)) return stripped.slice(4) + stripped.slice(2, 4) + stripped.slice(0, 2);
+    return stripped;
+  }
+
+  /**
+   * Cross-validate all documents for an employee using fuzzy matching.
    */
   async crossValidateEmployee(employeeId: string, organizationId: string) {
     const docs = await prisma.document.findMany({
@@ -400,44 +558,86 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       return { status: 'PENDING', message: 'Need at least 2 documents with OCR data to cross-validate', details: [] };
     }
 
-    const details: { field: string; values: { docType: string; value: string | null }[]; match: boolean }[] = [];
+    const details: Array<{
+      field: string;
+      values: { docType: string; value: string | null }[];
+      match: boolean;
+      matchDetail?: string;
+      similarity?: number;
+    }> = [];
 
-    // Compare names
-    const names = ocrDocs.map(d => ({
-      docType: d.type,
-      value: d.ocrVerification!.extractedName,
-    })).filter(n => n.value);
+    // ---- Name comparison (fuzzy) ----
+    const names = ocrDocs
+      .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedName }))
+      .filter(n => n.value && n.value.trim().length > 2);
 
     if (names.length >= 2) {
-      const normalized = names.map(n => n.value!.toLowerCase().replace(/\s+/g, ' ').trim());
-      const allMatch = normalized.every(n => n === normalized[0]);
-      details.push({ field: 'Name', values: names, match: allMatch });
+      // Compare all pairs; overall match = worst pairwise result
+      let worstMatch: 'PASS' | 'PARTIAL' | 'FAIL' = 'PASS';
+      let worstReason = '';
+      let lowestSim = 1.0;
+
+      for (let i = 0; i < names.length; i++) {
+        for (let j = i + 1; j < names.length; j++) {
+          const result = this.compareNames(names[i].value!, names[j].value!);
+          if (result.similarity < lowestSim) {
+            lowestSim = result.similarity;
+            worstReason = result.reason;
+          }
+          if (result.match === 'FAIL' || (result.match === 'PARTIAL' && worstMatch === 'PASS')) {
+            worstMatch = result.match;
+          }
+        }
+      }
+
+      details.push({
+        field: 'Name',
+        values: names,
+        match: worstMatch !== 'FAIL',
+        matchDetail: worstReason,
+        similarity: lowestSim,
+      });
     }
 
-    // Compare DOB
-    const dobs = ocrDocs.map(d => ({
-      docType: d.type,
-      value: d.ocrVerification!.extractedDob,
-    })).filter(n => n.value);
+    // ---- DOB comparison ----
+    const dobs = ocrDocs
+      .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedDob }))
+      .filter(n => n.value && n.value.trim().length > 0);
 
     if (dobs.length >= 2) {
-      const normalized = dobs.map(d => d.value!.replace(/[-\/\.]/g, ''));
-      const allMatch = normalized.every(n => n === normalized[0]);
-      details.push({ field: 'Date of Birth', values: dobs, match: allMatch });
+      const normalized = dobs.map(d => this.normalizeDate(d.value!));
+      // Some docs only have year-of-birth — handle gracefully
+      const allMatch = normalized.every(n => {
+        // If lengths differ greatly, extract just year component
+        const yearA = n.length >= 4 ? n.slice(-4) : n;
+        const yearB = normalized[0].length >= 4 ? normalized[0].slice(-4) : normalized[0];
+        return n === normalized[0] || yearA === yearB;
+      });
+      details.push({
+        field: 'Date of Birth',
+        values: dobs,
+        match: allMatch,
+        matchDetail: allMatch ? 'DOB consistent across documents' : `DOB mismatch detected: ${normalized.join(' vs ')}`,
+      });
     }
 
-    // Compare father name
-    const fatherNames = ocrDocs.map(d => ({
-      docType: d.type,
-      value: d.ocrVerification!.extractedFatherName,
-    })).filter(n => n.value);
+    // ---- Father name comparison (fuzzy) ----
+    const fatherNames = ocrDocs
+      .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedFatherName }))
+      .filter(n => n.value && n.value.trim().length > 2);
 
     if (fatherNames.length >= 2) {
-      const normalized = fatherNames.map(n => n.value!.toLowerCase().replace(/\s+/g, ' ').trim());
-      const allMatch = normalized.every(n => n === normalized[0]);
-      details.push({ field: 'Father Name', values: fatherNames, match: allMatch });
+      const result = this.compareNames(fatherNames[0].value!, fatherNames[1].value!);
+      details.push({
+        field: 'Father Name',
+        values: fatherNames,
+        match: result.match !== 'FAIL',
+        matchDetail: result.reason,
+        similarity: result.similarity,
+      });
     }
 
+    // Overall status
     const allPass = details.every(d => d.match);
     const anyFail = details.some(d => !d.match);
     const overallStatus = details.length === 0 ? 'PENDING' : allPass ? 'PASS' : anyFail ? 'FAIL' : 'PARTIAL';
@@ -447,7 +647,7 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
         where: { documentId: doc.id },
         data: {
           crossValidationStatus: overallStatus,
-          crossValidationDetails: details,
+          crossValidationDetails: details as any,
         },
       });
     }

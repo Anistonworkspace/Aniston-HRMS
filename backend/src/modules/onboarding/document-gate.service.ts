@@ -1,10 +1,83 @@
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError } from '../../middleware/errorHandler.js';
+import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { emitToOrg } from '../../sockets/index.js';
 import { logger } from '../../lib/logger.js';
 
-const DEFAULT_REQUIRED_DOCS = ['PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO'];
+// =====================
+// CONSTANTS
+// =====================
+
 const IDENTITY_PROOF_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
+const EMPLOYMENT_PROOF_TYPES = ['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER_DOC', 'SALARY_SLIP_DOC'];
+
+// Education levels ordered lowest → highest
+const QUALIFICATION_ORDER = ['TENTH', 'TWELFTH', 'GRADUATION', 'POST_GRADUATION', 'PHD'];
+
+// Document type label map for human-readable messages
+const DOC_LABELS: Record<string, string> = {
+  PAN: 'PAN Card',
+  AADHAAR: 'Aadhaar Card',
+  PASSPORT: 'Passport',
+  DRIVING_LICENSE: 'Driving License',
+  VOTER_ID: 'Voter ID',
+  TENTH_CERTIFICATE: '10th Marksheet / Certificate',
+  TWELFTH_CERTIFICATE: '12th Marksheet / Certificate',
+  DEGREE_CERTIFICATE: 'Graduation / Degree Certificate',
+  POST_GRADUATION_CERTIFICATE: 'Post-Graduation Certificate',
+  PHOTO: 'Passport Size Photograph',
+  RESIDENCE_PROOF: 'Residence Proof',
+  EXPERIENCE_LETTER: 'Experience / Relieving Letter',
+  RELIEVING_LETTER: 'Relieving Letter',
+  OFFER_LETTER_DOC: 'Appointment / Offer Letter',
+  SALARY_SLIP_DOC: 'Salary Slips',
+  BANK_STATEMENT: 'Bank Statement',
+  CANCELLED_CHEQUE: 'Cancelled Cheque',
+};
+
+// =====================
+// DYNAMIC REQUIRED DOCS COMPUTATION
+// =====================
+
+/**
+ * Compute which document types are required given fresher/experienced status and highest qualification.
+ * Returns the minimal set that MUST be submitted (excluding identity proof — that is handled as "any one").
+ * Identity proof requirement is tracked separately via the `needsIdentityProof` flag in the result.
+ */
+export function computeRequiredDocs(
+  fresherOrExperienced: string,
+  highestQualification: string
+): { requiredDocs: string[]; needsIdentityProof: boolean; needsEmploymentProof: boolean } {
+  const required: string[] = ['PAN', 'PHOTO', 'RESIDENCE_PROOF'];
+
+  // Education chain — always require all levels up to and including highest
+  const qualIdx = QUALIFICATION_ORDER.indexOf(highestQualification);
+
+  if (qualIdx >= 0) required.push('TENTH_CERTIFICATE');           // Tenth required for all
+  if (qualIdx >= 1) required.push('TWELFTH_CERTIFICATE');          // Twelfth if 12th+
+  if (qualIdx >= 2) required.push('DEGREE_CERTIFICATE');           // Degree if graduation+
+  if (qualIdx >= 3) required.push('POST_GRADUATION_CERTIFICATE');  // PG if PG+
+  // PhD doc not a standard DocumentType enum — falls under DEGREE_CERTIFICATE or OTHER
+
+  const needsEmploymentProof = fresherOrExperienced === 'EXPERIENCED';
+  // Employment proof is expected but not hard-blocked (handled as "at least one of" in submission check)
+
+  return {
+    requiredDocs: required,
+    needsIdentityProof: true, // always require at least one identity proof
+    needsEmploymentProof,
+  };
+}
+
+/**
+ * Human-readable label for a required doc type.
+ */
+export function docLabel(docType: string): string {
+  return DOC_LABELS[docType] || docType.replace(/_/g, ' ');
+}
+
+// =====================
+// SERVICE CLASS
+// =====================
 
 export class DocumentGateService {
   async createGate(employeeId: string, requiredDocs?: string[]) {
@@ -14,7 +87,7 @@ export class DocumentGateService {
     return prisma.onboardingDocumentGate.create({
       data: {
         employeeId,
-        requiredDocs: (requiredDocs || DEFAULT_REQUIRED_DOCS) as any,
+        requiredDocs: (requiredDocs || ['PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO']) as any,
       },
     });
   }
@@ -26,6 +99,56 @@ export class DocumentGateService {
         employee: {
           select: { firstName: true, lastName: true, employeeCode: true },
         },
+      },
+    });
+  }
+
+  /**
+   * Save initial KYC configuration: upload mode, fresher/experienced, highest qualification.
+   * This recomputes and stores the required docs list for that employee.
+   */
+  async saveKycConfig(
+    employeeId: string,
+    uploadMode: string,
+    fresherOrExperienced: string,
+    highestQualification: string
+  ) {
+    // Validate inputs
+    if (!['COMBINED', 'SEPARATE'].includes(uploadMode)) {
+      throw new BadRequestError('uploadMode must be COMBINED or SEPARATE');
+    }
+    if (!['FRESHER', 'EXPERIENCED'].includes(fresherOrExperienced)) {
+      throw new BadRequestError('fresherOrExperienced must be FRESHER or EXPERIENCED');
+    }
+    if (!QUALIFICATION_ORDER.includes(highestQualification)) {
+      throw new BadRequestError(`highestQualification must be one of: ${QUALIFICATION_ORDER.join(', ')}`);
+    }
+
+    // Compute required docs
+    const { requiredDocs } = computeRequiredDocs(fresherOrExperienced, highestQualification);
+
+    const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+    if (!gate) {
+      return prisma.onboardingDocumentGate.create({
+        data: {
+          employeeId,
+          requiredDocs: requiredDocs as any,
+          uploadMode,
+          fresherOrExperienced,
+          highestQualification,
+        },
+      });
+    }
+
+    return prisma.onboardingDocumentGate.update({
+      where: { employeeId },
+      data: {
+        uploadMode,
+        fresherOrExperienced,
+        highestQualification,
+        requiredDocs: requiredDocs as any,
+        // Reset submission state if config changes
+        kycStatus: gate.kycStatus === 'PENDING' ? 'PENDING' : gate.kycStatus,
       },
     });
   }
@@ -65,6 +188,7 @@ export class DocumentGateService {
       },
     });
   }
+
   // ==================
   // KYC METHODS
   // ==================
@@ -80,11 +204,10 @@ export class DocumentGateService {
 
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) {
-      // Auto-create gate if it doesn't exist
       return prisma.onboardingDocumentGate.create({
         data: {
           employeeId,
-          requiredDocs: DEFAULT_REQUIRED_DOCS as any,
+          requiredDocs: ['PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO'] as any,
           photoUrl,
         },
       });
@@ -96,16 +219,29 @@ export class DocumentGateService {
     });
   }
 
+  /**
+   * Employee submits KYC for HR review.
+   * Validates that required docs are uploaded based on their profile config.
+   */
   async submitKyc(employeeId: string) {
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) throw new NotFoundError('Document gate');
 
-    // If combined PDF is uploaded, only require a photo as well
-    if (gate.combinedPdfUploaded) {
-      const hasPhoto = !!gate.photoUrl || (gate.submittedDocs as string[]).includes('PHOTO');
-      if (!hasPhoto) {
-        const { BadRequestError } = await import('../../middleware/errorHandler.js');
-        throw new BadRequestError('Please also upload your passport size photo before submitting.');
+    const submitted = gate.submittedDocs as string[];
+    const fresher = gate.fresherOrExperienced || 'FRESHER';
+    const qualification = gate.highestQualification || 'GRADUATION';
+    const uploadMode = gate.uploadMode || 'SEPARATE';
+
+    // Photo is always required
+    const hasPhoto = !!gate.photoUrl || submitted.includes('PHOTO');
+    if (!hasPhoto) {
+      throw new BadRequestError('Please upload your passport size photograph before submitting.');
+    }
+
+    if (uploadMode === 'COMBINED') {
+      // Combined mode: just need combined PDF + photo
+      if (!gate.combinedPdfUploaded) {
+        throw new BadRequestError('Please upload your combined PDF before submitting.');
       }
       const updated = await prisma.onboardingDocumentGate.update({
         where: { employeeId },
@@ -115,48 +251,50 @@ export class DocumentGateService {
       return updated;
     }
 
-    // Verify all mandatory documents
-    const submitted = gate.submittedDocs as string[];
+    // Separate mode: validate required docs
+    const { requiredDocs, needsIdentityProof, needsEmploymentProof } = computeRequiredDocs(fresher, qualification);
     const missing: string[] = [];
 
-    // Use stored required docs if available, otherwise fall back to defaults
-    const requiredDocTypes: string[] = gate.requiredDocs?.length > 0
-      ? (gate.requiredDocs as string[])
-      : DEFAULT_REQUIRED_DOCS;
-
-    for (const docType of requiredDocTypes) {
-      if (docType === 'PHOTO') {
-        if (!gate.photoUrl && !submitted.includes('PHOTO')) missing.push('Photograph');
-      } else if (['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'].includes(docType)) {
-        // Any identity proof type satisfies an identity proof requirement
-        if (!IDENTITY_PROOF_TYPES.some(t => submitted.includes(t))) missing.push('Identity Proof (Aadhaar/Passport/DL/Voter ID)');
-      } else if (!submitted.includes(docType)) {
-        const labelMap: Record<string, string> = {
-          PAN: 'PAN Card',
-          TENTH_CERTIFICATE: '10th Certificate',
-          TWELFTH_CERTIFICATE: '12th Certificate',
-          DEGREE_CERTIFICATE: 'Degree Certificate',
-          RESIDENCE_PROOF: 'Residence Proof',
-        };
-        missing.push(labelMap[docType] || docType);
+    for (const docType of requiredDocs) {
+      if (docType === 'PHOTO') continue; // already checked above
+      if (!submitted.includes(docType)) {
+        missing.push(docLabel(docType));
       }
     }
 
+    // Identity proof — at least one of the allowed types
+    if (needsIdentityProof) {
+      const hasIdentity = IDENTITY_PROOF_TYPES.some(t => submitted.includes(t));
+      if (!hasIdentity) {
+        missing.push('Identity Proof (Aadhaar Card, Passport, Driving License, or Voter ID)');
+      }
+    }
+
+    // Employment proof — soft warning only (not hard-blocked) for experienced
+    // HR will flag if missing; we only hard-block if truly mandatory
+    const employmentWarning = needsEmploymentProof && !EMPLOYMENT_PROOF_TYPES.some(t => submitted.includes(t));
+
     if (missing.length > 0) {
-      const { BadRequestError } = await import('../../middleware/errorHandler.js');
-      throw new BadRequestError(`Missing mandatory documents: ${missing.join(', ')}`);
+      throw new BadRequestError(`Missing required documents: ${missing.join(', ')}`);
+    }
+
+    const updatedData: any = { kycStatus: 'SUBMITTED' };
+    if (employmentWarning) {
+      // Add a soft note to HR review notes that employment proof was not submitted
+      updatedData.hrReviewNotes = (gate.hrReviewNotes ? gate.hrReviewNotes + '\n' : '') +
+        '[System] Employee declared as EXPERIENCED but no employment proof was uploaded.';
     }
 
     const updated = await prisma.onboardingDocumentGate.update({
       where: { employeeId },
-      data: { kycStatus: 'SUBMITTED' },
+      data: updatedData,
     });
     await this.emitKycUpdate(employeeId, 'SUBMITTED');
     return updated;
   }
 
   /**
-   * Emit real-time socket event when KYC status changes — HR sees updates instantly.
+   * Emit real-time socket event when KYC status changes.
    */
   private async emitKycUpdate(employeeId: string, status: string) {
     try {
@@ -177,24 +315,58 @@ export class DocumentGateService {
     }
   }
 
-  async setCombinedPdfUploaded(employeeId: string) {
+  async setCombinedPdfUploaded(employeeId: string, analysisResult?: any) {
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+    const updateData: any = { combinedPdfUploaded: true };
+    if (analysisResult) {
+      updateData.combinedPdfAnalysis = analysisResult;
+    }
+
     if (!gate) {
       return prisma.onboardingDocumentGate.create({
         data: {
           employeeId,
-          requiredDocs: DEFAULT_REQUIRED_DOCS as any,
-          combinedPdfUploaded: true,
+          requiredDocs: ['PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO'] as any,
+          ...updateData,
         },
       });
     }
     return prisma.onboardingDocumentGate.update({
       where: { employeeId },
-      data: { combinedPdfUploaded: true },
+      data: updateData,
     });
   }
 
-  async verifyKyc(employeeId: string, verifiedBy: string) {
+  /**
+   * Set the kycStatus and processingMode after combined PDF classification completes.
+   * Called from onboarding.routes.ts after Python or Node.js fallback classification.
+   */
+  async setCombinedPdfClassified(
+    employeeId: string,
+    opts: {
+      analysisResult: any;
+      processingMode: 'PYTHON_ADVANCED' | 'NODE_FALLBACK' | 'MANUAL_REVIEW_ONLY';
+      fallbackUsed: boolean;
+      missingDocuments?: string[];
+      duplicateDocuments?: string[];
+      employeeVisibleReasons?: string[];
+    }
+  ) {
+    return prisma.onboardingDocumentGate.update({
+      where: { employeeId },
+      data: {
+        kycStatus: 'PENDING_HR_REVIEW',
+        combinedPdfAnalysis: opts.analysisResult,
+        processingMode: opts.processingMode,
+        fallbackUsed: opts.fallbackUsed,
+        missingDocuments: (opts.missingDocuments || []) as any,
+        duplicateDocuments: (opts.duplicateDocuments || []) as any,
+        employeeVisibleReasons: (opts.employeeVisibleReasons || []) as any,
+      },
+    });
+  }
+
+  async verifyKyc(employeeId: string, verifiedBy: string, organizationId?: string) {
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) throw new NotFoundError('Document gate');
 
@@ -205,8 +377,30 @@ export class DocumentGateService {
         verifiedAt: new Date(),
         verifiedBy,
         rejectionReason: null,
+        reuploadRequested: false,
       },
     });
+
+    // Auto-fill employee profile fields from approved OCR data.
+    // Only runs on VERIFIED documents — never on FLAGGED/PENDING to avoid pushing bad data.
+    if (organizationId) {
+      try {
+        const { documentService } = await import('../document/document.service.js');
+        const docs = await prisma.document.findMany({
+          where: { employeeId, deletedAt: null, status: 'VERIFIED' },
+          select: { id: true },
+        });
+        for (const doc of docs) {
+          try {
+            await documentService.autoFillFromOcr(doc.id, employeeId, verifiedBy, organizationId);
+          } catch { /* skip individual doc errors */ }
+        }
+        logger.info(`[KYC] autoFillFromOcr ran for ${docs.length} VERIFIED document(s) for employee ${employeeId}`);
+      } catch (err: any) {
+        logger.warn(`[KYC] autoFillFromOcr failed for employee ${employeeId}: ${err.message}`);
+      }
+    }
+
     await this.emitKycUpdate(employeeId, 'VERIFIED');
     return updated;
   }
@@ -227,13 +421,86 @@ export class DocumentGateService {
     return updated;
   }
 
+  /**
+   * HR requests re-upload of specific document types.
+   * Sets kycStatus back to REUPLOAD_REQUIRED and records which docs need re-upload.
+   */
+  async requestReupload(
+    employeeId: string,
+    docTypes: string[],
+    reasons: Record<string, string>,
+    requestedBy: string
+  ) {
+    const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+    if (!gate) throw new NotFoundError('Document gate');
+
+    const updated = await prisma.onboardingDocumentGate.update({
+      where: { employeeId },
+      data: {
+        kycStatus: 'REUPLOAD_REQUIRED',
+        reuploadRequested: true,
+        reuploadDocTypes: docTypes,
+        documentRejectReasons: reasons,
+        verifiedBy: requestedBy,
+      },
+    });
+    await this.emitKycUpdate(employeeId, 'REUPLOAD_REQUIRED');
+
+    // Notify employee via socket
+    try {
+      const emp = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { userId: true, organizationId: true },
+      });
+      if (emp?.userId) {
+        const { enqueueNotification } = await import('../../jobs/queues.js');
+        await enqueueNotification({
+          userId: emp.userId,
+          organizationId: emp.organizationId,
+          title: 'Re-upload Required',
+          message: `HR has requested you re-upload: ${docTypes.map(t => docLabel(t)).join(', ')}`,
+          type: 'DOCUMENT_FLAGGED',
+          link: '/kyc-pending',
+        });
+      }
+    } catch { /* non-blocking */ }
+
+    return updated;
+  }
+
+  /**
+   * HR updates internal review notes.
+   */
+  async updateHrNotes(employeeId: string, notes: string, reviewerId: string) {
+    const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+    if (!gate) throw new NotFoundError('Document gate');
+
+    return prisma.onboardingDocumentGate.update({
+      where: { employeeId },
+      data: { hrReviewNotes: notes },
+    });
+  }
+
+  /**
+   * Store combined PDF analysis result from Python OCR.
+   */
+  async saveCombinedPdfAnalysis(employeeId: string, analysis: any) {
+    const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+    if (!gate) throw new NotFoundError('Document gate');
+
+    return prisma.onboardingDocumentGate.update({
+      where: { employeeId },
+      data: { combinedPdfAnalysis: analysis },
+    });
+  }
+
   async getPendingKyc(organizationId: string, page: number = 1, limit: number = 20) {
     const skip = (page - 1) * limit;
 
     const [items, total] = await Promise.all([
       prisma.onboardingDocumentGate.findMany({
         where: {
-          kycStatus: 'SUBMITTED',
+          kycStatus: { in: ['SUBMITTED', 'REUPLOAD_REQUIRED', 'PENDING_HR_REVIEW'] },
           employee: { organizationId },
         },
         include: {
@@ -255,7 +522,7 @@ export class DocumentGateService {
       }),
       prisma.onboardingDocumentGate.count({
         where: {
-          kycStatus: 'SUBMITTED',
+          kycStatus: { in: ['SUBMITTED', 'REUPLOAD_REQUIRED', 'PENDING_HR_REVIEW'] },
           employee: { organizationId },
         },
       }),
@@ -270,6 +537,62 @@ export class DocumentGateService {
         totalPages: Math.ceil(total / limit),
         hasNext: page * limit < total,
         hasPrev: page > 1,
+      },
+    };
+  }
+
+  /**
+   * Get KYC gate with full document OCR data for HR review.
+   */
+  async getKycForHrReview(employeeId: string, organizationId: string) {
+    const gate = await prisma.onboardingDocumentGate.findUnique({
+      where: { employeeId },
+      include: {
+        employee: {
+          select: {
+            id: true, firstName: true, lastName: true, employeeCode: true, email: true,
+            avatar: true, organizationId: true,
+            department: { select: { name: true } },
+            designation: { select: { name: true } },
+          },
+        },
+      },
+    });
+    if (!gate) throw new NotFoundError('KYC record');
+    if (gate.employee.organizationId !== organizationId) throw new NotFoundError('KYC record');
+
+    // Fetch all documents with OCR data
+    const documents = await prisma.document.findMany({
+      where: { employeeId, deletedAt: null },
+      include: { ocrVerification: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Compute what's required vs present
+    const { requiredDocs, needsIdentityProof, needsEmploymentProof } = computeRequiredDocs(
+      gate.fresherOrExperienced || 'FRESHER',
+      gate.highestQualification || 'GRADUATION'
+    );
+
+    const submittedDocTypes = gate.submittedDocs as string[];
+    const missingDocs = requiredDocs.filter(d => d !== 'PHOTO' && !submittedDocTypes.includes(d));
+    const hasIdentityProof = IDENTITY_PROOF_TYPES.some(t => submittedDocTypes.includes(t));
+    const hasEmploymentProof = EMPLOYMENT_PROOF_TYPES.some(t => submittedDocTypes.includes(t));
+
+    if (needsIdentityProof && !hasIdentityProof) {
+      missingDocs.push('IDENTITY_PROOF');
+    }
+
+    return {
+      gate,
+      documents,
+      analysis: {
+        requiredDocs,
+        missingDocs,
+        hasIdentityProof,
+        hasEmploymentProof,
+        needsEmploymentProof,
+        hasPhoto: !!(gate.photoUrl || submittedDocTypes.includes('PHOTO')),
       },
     };
   }

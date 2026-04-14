@@ -182,6 +182,12 @@ function findChatForPhone(chats: WhatsAppChat[], phone: string): WhatsAppChat | 
   return chats.find(c => phoneMatchesChatId(phone, c.id)) || null;
 }
 
+/** Detect base64 binary blobs that whatsapp-web.js puts in msg.body for media messages */
+function isBase64Blob(s: string): boolean {
+  if (!s || s.length < 100) return false;
+  return /^[A-Za-z0-9+/=\r\n]{100,}$/.test(s.trim());
+}
+
 const SOURCE_LABELS: Record<string, string> = {
   MANUAL: 'Added',
   WHATSAPP_IMPORT: 'WhatsApp',
@@ -1200,7 +1206,7 @@ function ChatView({
 }: { chatId: string; chatName: string; onBack?: () => void; onToggleContactInfo?: () => void }) {
   const isGroup = chatId.includes('@g.us');
   const { data: messagesRes, isLoading, isFetching, isError, error, refetch } =
-    useGetWhatsAppChatMessagesQuery({ chatId, limit: 50 });
+    useGetWhatsAppChatMessagesQuery({ chatId, limit: 50 }, { pollingInterval: 15000 });
   const [sendMessage] = useSendWhatsAppMessageMutation();
   const [downloadMedia] = useDownloadWhatsAppMediaMutation();
   const [sendMedia] = useSendWhatsAppMediaMutation();
@@ -1305,15 +1311,27 @@ function ChatView({
     e.target.value = '';
   };
 
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
+
   const handleMediaDownload = async (msg: WhatsAppMessage) => {
+    setDownloadingIds(prev => new Set(prev).add(msg.id));
     try {
       const result = await downloadMedia({ messageId: msg.id, chatId }).unwrap();
       if (result?.data?.mediaUrl) {
+        // Trigger browser save-to-device
+        const a = document.createElement('a');
+        a.href = result.data.mediaUrl;
+        a.download = result.data.mediaFilename || 'whatsapp-media';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
         refetch();
         toast.success('Media downloaded');
       }
     } catch {
       toast.error('Failed to download media');
+    } finally {
+      setDownloadingIds(prev => { const s = new Set(prev); s.delete(msg.id); return s; });
     }
   };
 
@@ -1488,6 +1506,7 @@ function ChatView({
               msg={msg}
               renderTick={renderTick}
               onDownloadMedia={handleMediaDownload}
+              isDownloading={downloadingIds.has(msg.id)}
             />
           ))
         )}
@@ -1552,61 +1571,103 @@ function ChatView({
 // =====================================================================
 
 const MessageBubble = memo(function MessageBubble({
-  msg, renderTick, onDownloadMedia,
+  msg, renderTick, onDownloadMedia, isDownloading,
 }: {
   msg: WhatsAppMessage;
   renderTick: (ack?: number) => React.ReactNode;
   onDownloadMedia: (msg: WhatsAppMessage) => void;
+  isDownloading?: boolean;
 }) {
   const renderMedia = () => {
     if (!msg.hasMedia) return null;
+
+    // Shared: pending-download button shown while server fetches from WhatsApp
+    const fetchBtn = (icon: React.ReactNode, label: string) => (
+      <button
+        onClick={() => onDownloadMedia(msg)}
+        disabled={isDownloading}
+        className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2 hover:bg-gray-200 transition-colors w-full disabled:opacity-60"
+      >
+        {icon}
+        <span>{label}</span>
+        {isDownloading
+          ? <Loader2 size={12} className="ml-auto animate-spin text-brand-600" />
+          : <Download size={12} className="ml-auto text-brand-600" />}
+      </button>
+    );
+
+    // Shared: save-to-device anchor (triggers browser download)
+    const saveBtn = (url: string, filename?: string | null) => (
+      <a
+        href={url}
+        download={filename || 'whatsapp-media'}
+        className="flex items-center gap-1 text-[10px] text-brand-600 hover:text-brand-700 mt-1 w-fit"
+        onClick={e => e.stopPropagation()}
+      >
+        <Download size={10} />Save
+      </a>
+    );
+
     if (msg.type === 'image' || msg.type === 'sticker') {
       if (msg.mediaUrl) {
         return (
-          <div className="mb-1 rounded-lg overflow-hidden">
-            <img src={msg.mediaUrl} alt="Image" className="max-w-full max-h-64 rounded-lg object-cover" loading="lazy" />
+          <div className="mb-1">
+            <div className="rounded-lg overflow-hidden">
+              <img src={msg.mediaUrl} alt="Image" className="max-w-full max-h-64 rounded-lg object-cover" loading="lazy" />
+            </div>
+            {saveBtn(msg.mediaUrl, msg.mediaFilename)}
           </div>
         );
       }
-      return (
-        <button onClick={() => onDownloadMedia(msg)} className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2 hover:bg-gray-200 transition-colors w-full">
-          <ImageIcon size={14} /><span>Image</span><Download size={12} className="ml-auto text-brand-600" />
-        </button>
-      );
+      return fetchBtn(<ImageIcon size={14} />, 'Image');
     }
+
     if (msg.type === 'document') {
       if (msg.mediaUrl) {
         return (
-          <a href={msg.mediaUrl} target="_blank" rel="noopener noreferrer" className="mb-1 flex items-center gap-2 text-xs bg-gray-100 rounded-lg px-3 py-2 hover:bg-gray-200 transition-colors">
+          <a
+            href={msg.mediaUrl}
+            download={msg.mediaFilename || 'document'}
+            className="mb-1 flex items-center gap-2 text-xs bg-gray-100 rounded-lg px-3 py-2 hover:bg-gray-200 transition-colors"
+            onClick={e => e.stopPropagation()}
+          >
             <FileText size={14} className="text-brand-600 flex-shrink-0" />
             <span className="truncate text-gray-700">{msg.mediaFilename || 'Document'}</span>
             <Download size={12} className="ml-auto text-brand-600 flex-shrink-0" />
           </a>
         );
       }
-      return (
-        <button onClick={() => onDownloadMedia(msg)} className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2 hover:bg-gray-200 transition-colors w-full">
-          <FileText size={14} /><span>{msg.mediaFilename || 'Document'}</span><Download size={12} className="ml-auto text-brand-600" />
-        </button>
-      );
+      return fetchBtn(<FileText size={14} />, msg.mediaFilename || 'Document');
     }
+
     if (msg.type === 'audio' || msg.type === 'ptt') {
       if (msg.mediaUrl) {
-        return <div className="mb-1"><audio controls preload="none" className="max-w-full h-10"><source src={msg.mediaUrl} /></audio></div>;
+        return (
+          <div className="mb-1">
+            <audio controls preload="none" className="max-w-full h-10">
+              <source src={msg.mediaUrl} />
+            </audio>
+            {saveBtn(msg.mediaUrl, msg.mediaFilename)}
+          </div>
+        );
       }
-      return (
-        <button onClick={() => onDownloadMedia(msg)} className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2 hover:bg-gray-200 transition-colors w-full">
-          <Play size={14} /><span>Voice message</span><Download size={12} className="ml-auto text-brand-600" />
-        </button>
-      );
+      return fetchBtn(<Play size={14} />, 'Voice message');
     }
+
     if (msg.type === 'video') {
-      return (
-        <button onClick={() => onDownloadMedia(msg)} className="mb-1 flex items-center gap-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2 hover:bg-gray-200 transition-colors w-full">
-          <Play size={14} /><span>Video</span><Download size={12} className="ml-auto text-brand-600" />
-        </button>
-      );
+      if (msg.mediaUrl) {
+        return (
+          <div className="mb-1">
+            <video controls className="max-w-full max-h-48 rounded-lg" preload="metadata">
+              <source src={msg.mediaUrl} />
+            </video>
+            {saveBtn(msg.mediaUrl, msg.mediaFilename)}
+          </div>
+        );
+      }
+      return fetchBtn(<Play size={14} />, 'Video');
     }
+
     return null;
   };
 
@@ -1623,7 +1684,7 @@ const MessageBubble = memo(function MessageBubble({
           </div>
         )}
         {renderMedia()}
-        {msg.body && (
+        {msg.body && !isBase64Blob(msg.body) && (
           <p className="whitespace-pre-wrap break-words" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
             {msg.body}
           </p>

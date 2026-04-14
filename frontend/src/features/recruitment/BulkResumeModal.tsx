@@ -85,8 +85,8 @@ export default function BulkResumeModal({ onClose }: Props) {
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}>
       <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }}
-        className="bg-white rounded-2xl shadow-glass-lg p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-5">
+        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-3xl overflow-y-auto" style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}>
+        <div className="flex items-center justify-between sticky top-0 bg-white z-10 px-6 pt-6 pb-4 border-b border-gray-100">
           <div>
             <h2 className="text-lg font-display font-semibold text-gray-800">Bulk Resume Upload</h2>
             <p className="text-xs text-gray-400">Upload multiple resumes for AI-powered scoring</p>
@@ -96,6 +96,7 @@ export default function BulkResumeModal({ onClose }: Props) {
           </button>
         </div>
 
+        <div className="px-6 py-5">
         {/* Step indicator */}
         <div className="flex items-center gap-2 mb-6">
           {['Select Job', 'Upload Files', 'Processing', 'Results'].map((label, i) => {
@@ -268,6 +269,7 @@ export default function BulkResumeModal({ onClose }: Props) {
             <button onClick={onClose} className="btn-primary w-full">Done</button>
           </div>
         )}
+        </div>{/* end body wrapper */}
       </motion.div>
     </motion.div>
   );

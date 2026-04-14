@@ -63,6 +63,30 @@ router.patch('/reviews/:id', requirePermission('performance', 'update'), (req, r
   performanceController.updateReview(req, res, next)
 );
 
+// Performance Summary — self (any authenticated employee)
+router.get('/summary', authenticate, async (req, res, next) => {
+  try {
+    const { prisma: db } = await import('../../lib/prisma.js');
+    const employee = await db.employee.findFirst({
+      where: { userId: req.user!.userId, organizationId: req.user!.organizationId },
+    });
+    if (!employee) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Employee profile not found' } });
+    const summary = await performanceService.getEmployeePerformanceSummary(employee.id, req.user!.organizationId);
+    res.json({ success: true, data: summary });
+  } catch (err) { next(err); }
+});
+
+// Performance Summary — by employee ID (HR/Admin/Manager)
+router.get('/summary/:employeeId',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
+  async (req, res, next) => {
+    try {
+      const summary = await performanceService.getEmployeePerformanceSummary(req.params.employeeId, req.user!.organizationId);
+      res.json({ success: true, data: summary });
+    } catch (err) { next(err); }
+  }
+);
+
 // Leave Performance Score
 router.get('/leave-score/:employeeId',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),

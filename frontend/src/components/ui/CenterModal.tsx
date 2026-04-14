@@ -28,10 +28,9 @@ export default function CenterModal({
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', handler);
-    document.body.style.overflow = 'hidden';
+    // Body scroll is locked by the AppShell container — no direct body manipulation needed
     return () => {
       document.removeEventListener('keydown', handler);
-      document.body.style.overflow = '';
     };
   }, [open, onClose]);
 
@@ -47,7 +46,8 @@ export default function CenterModal({
       />
       {/* Modal */}
       <div
-        className={`relative ${maxWidth} w-full bg-white rounded-2xl shadow-2xl border border-gray-200 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col`}
+        className={`relative ${maxWidth} w-full bg-white rounded-2xl shadow-2xl border border-gray-200 animate-in fade-in zoom-in-95 duration-200 flex flex-col`}
+        style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}
       >
         {/* Header */}
         <div className="flex items-start justify-between px-6 pt-6 pb-4 border-b border-gray-100">

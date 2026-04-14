@@ -4,11 +4,25 @@
     <meta charset="UTF-8" />
 
     <!-- ===== Viewport & PWA core ===== -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#4f46e5" />
+    <!-- viewport-fit=cover → content fills the notch/home-indicator area (safe-area CSS handles padding)
+         maximum-scale=5.0  → allows accessibility zoom while preventing unintentional zoom
+         user-scalable=no   → locks scale in PWA mode (JS in main.tsx handles touch events for accessibility)
+         Double-tap zoom disabled via touch-action:manipulation in globals.css
+         iOS input auto-zoom prevented by font-size ≥ 16px on all inputs (see globals.css) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#4f46e5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#4f46e5" media="(prefers-color-scheme: dark)" />
     <meta name="description" content="Aniston HRMS — Enterprise Human Resource Management System" />
     <meta name="application-name" content="Aniston HRMS" />
     <meta name="format-detection" content="telephone=no" />
+
+    <!-- ===== Force mobile layout — prevents Android "Request Desktop Site" rendering ===== -->
+    <!-- HandheldFriendly + MobileOptimized tell older Android WebViews and Samsung browser
+         to render the mobile layout. Modern Chrome ignores these but they don't hurt. -->
+    <meta name="HandheldFriendly" content="true" />
+    <meta name="MobileOptimized" content="width" />
+    <!-- Prevent browsers from requesting the desktop version automatically -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 
     <!-- ===== Android / Chrome PWA ===== -->
     <meta name="mobile-web-app-capable" content="yes" />

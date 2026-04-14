@@ -201,10 +201,10 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col"
+        className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col" style={{ maxHeight: 'min(90dvh, calc(100dvh - 2rem))' }}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+        <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-base font-display font-bold text-gray-900">Apply for Leave</h2>
             <p className="text-xs text-gray-400 mt-0.5">{STEPS[step]}</p>
@@ -213,14 +213,14 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
         </div>
 
         {/* Step Indicator */}
-        <div className="px-6 py-3 flex gap-1 shrink-0">
+        <div className="px-4 sm:px-6 py-3 flex gap-1 shrink-0">
           {STEPS.map((s, i) => (
             <div key={s} className={`h-1 flex-1 rounded-full transition-colors ${i <= step ? 'bg-brand-600' : 'bg-gray-200'}`} />
           ))}
         </div>
 
         {/* Content */}
-        <div className="px-6 py-4 overflow-y-auto flex-1">
+        <div className="px-4 sm:px-6 py-4 overflow-y-auto flex-1">
           <AnimatePresence mode="wait">
 
             {/* ── Step 0: Leave Details ── */}
@@ -465,7 +465,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between shrink-0">
+        <div className="px-4 sm:px-6 py-4 border-t border-gray-100 flex items-center justify-between shrink-0">
           <button
             onClick={() => {
               if (step === 0) {

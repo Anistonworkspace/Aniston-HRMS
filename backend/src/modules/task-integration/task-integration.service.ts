@@ -551,6 +551,32 @@ export class TaskIntegrationService {
     return audit;
   }
 
+  // ── Public: Fetch tasks for performance dashboard ──
+
+  async getTasksForEmployee(
+    organizationId: string,
+    employeeId: string,
+    employeeEmail?: string
+  ): Promise<{ tasks: TaskItem[]; configured: boolean; provider: string | null }> {
+    const config = await prisma.taskManagerConfig.findFirst({
+      where: { organizationId, isActive: true },
+    });
+
+    if (!config) return { tasks: [], configured: false, provider: null };
+
+    try {
+      const apiKey = decrypt(config.apiKeyEncrypted);
+      const tasks = await this.fetchEmployeeTasks(
+        config.provider, apiKey, config.baseUrl,
+        employeeId, config.employeeMapping, employeeEmail
+      );
+      return { tasks, configured: true, provider: config.provider };
+    } catch (err: any) {
+      logger.warn(`[Performance] Failed to fetch tasks for ${employeeId}: ${err.message}`);
+      return { tasks: [], configured: true, provider: config.provider };
+    }
+  }
+
   // ── Integration Health Status ──
 
   async getHealthStatus(organizationId: string) {

@@ -91,10 +91,13 @@ export async function enqueueNotification(data: {
 }
 
 // Helper to enqueue document OCR processing
+// timeout: 120s — enough for a large multi-page PDF (images: 60s, PDFs: 120s)
 export async function enqueueDocumentOcr(documentId: string, organizationId: string) {
   return documentOcrQueue.add('process-document-ocr', { documentId, organizationId }, {
     attempts: 2,
     backoff: { type: 'exponential', delay: 5000 },
+    removeOnComplete: { age: 24 * 3600, count: 1000 },
+    removeOnFail: { age: 7 * 24 * 3600 },
   });
 }
 

@@ -137,7 +137,8 @@ function calculateTDS(annualCTC: number, regime: string): number {
       remaining -= slabAmount;
       prevLimit = slab.limit;
     }
-    tax = Math.round(tax * 1.04);
+    const cess1 = Math.round(tax * 0.04);
+    tax = tax + cess1;
     if (taxable <= 700000) tax = 0;
     return Math.round(tax / 12);
   }
@@ -158,7 +159,8 @@ function calculateTDS(annualCTC: number, regime: string): number {
     remaining -= slabAmount;
     prevLimit = slab.limit;
   }
-  tax = Math.round(tax * 1.04);
+  const cess2 = Math.round(tax * 0.04);
+  tax = tax + cess2;
   if (taxable <= 500000) tax = 0;
   return Math.round(tax / 12);
 }
@@ -549,7 +551,12 @@ export class PayrollService {
           lopDays += halfDayLop;
 
           const sundaysWorked = presentRecords.filter(r => new Date(r.date).getDay() === 0).length;
-          const presentDays = totalWorkingDays - lopDays;
+          // Compute actual present days: scheduled days minus LOP and paid leave days (excludes weekends/holidays)
+          const paidLeaveCount = Array.from(paidLeaveDates).filter(d => {
+            const dow = new Date(d).getDay();
+            return dow !== 0 && !holidayDates.has(d);
+          }).length;
+          const presentDays = Math.max(0, totalWorkingDays - lopDays - paidLeaveCount);
 
           // Use dynamic components if available, else legacy columns
           const components: SalaryComponent[] = (sal.components as SalaryComponent[] | null) || legacyToComponents(sal);
@@ -864,10 +871,29 @@ export class PayrollService {
     if (data.lopDays !== undefined) updateData.lopDays = data.lopDays;
     if (data.lopDeduction !== undefined) updateData.lopDeduction = data.lopDeduction;
 
-    const updated = await prisma.payrollRecord.update({
-      where: { id: recordId },
-      data: updateData,
-      include: { employee: { select: { firstName: true, lastName: true, employeeCode: true } } },
+    const updated = await prisma.$transaction(async (tx) => {
+      const amendedRecord = await tx.payrollRecord.update({
+        where: { id: recordId },
+        data: updateData,
+        include: { employee: { select: { firstName: true, lastName: true, employeeCode: true } } },
+      });
+
+      // Recalculate and sync PayrollRun totals after amendment
+      const allRecords = await tx.payrollRecord.findMany({
+        where: { payrollRunId: record.payrollRun.id },
+        select: { grossSalary: true, netSalary: true, epfEmployee: true, esiEmployee: true, professionalTax: true, tds: true, lopDeduction: true },
+      });
+      const newTotalGross = allRecords.reduce((s, r) => s + Number(r.grossSalary || 0), 0);
+      const newTotalNet = allRecords.reduce((s, r) => s + Number(r.netSalary || 0), 0);
+      const newTotalDeductions = allRecords.reduce((s, r) =>
+        s + Number(r.epfEmployee || 0) + Number(r.esiEmployee || 0) +
+        Number(r.professionalTax || 0) + Number(r.tds || 0) + Number(r.lopDeduction || 0), 0);
+      await tx.payrollRun.update({
+        where: { id: record.payrollRun.id },
+        data: { totalGross: newTotalGross, totalNet: newTotalNet, totalDeductions: newTotalDeductions },
+      });
+
+      return amendedRecord;
     });
 
     await createAuditLog({

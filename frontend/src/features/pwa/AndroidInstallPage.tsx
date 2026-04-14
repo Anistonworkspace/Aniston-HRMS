@@ -156,6 +156,28 @@ export default function AndroidInstallPage() {
 
   // Capture the beforeinstallprompt event (Chrome fires this when PWA is installable)
   useEffect(() => {
+    // ── Critical fix for Oppo A53 / older Android ────────────────────────────
+    // beforeinstallprompt fires once during page load, BEFORE this lazy-loaded
+    // component mounts.  main.tsx captures it immediately and stores it on
+    // window.__pwaInstallPrompt.  Read that first so we never miss it.
+    const earlyPrompt = (window as any).__pwaInstallPrompt;
+    if (earlyPrompt) {
+      promptRef.current = earlyPrompt;
+      setPwaPrompt(earlyPrompt);
+    }
+
+    // Also listen for the custom event dispatched by main.tsx (edge case: prompt
+    // fires at exactly the same time as this component finishes mounting)
+    const onPromptReady = () => {
+      const p = (window as any).__pwaInstallPrompt;
+      if (p && !promptRef.current) {
+        promptRef.current = p;
+        setPwaPrompt(p);
+      }
+    };
+    window.addEventListener('pwa-prompt-ready', onPromptReady);
+
+    // Direct listener as a final fallback
     const handler = (e: Event) => {
       e.preventDefault();
       promptRef.current = e;
@@ -169,7 +191,10 @@ export default function AndroidInstallPage() {
     }
     window.addEventListener('appinstalled', () => setPwaInstalled(true));
 
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('pwa-prompt-ready', onPromptReady);
+    };
   }, []);
 
   const handlePwaInstall = async () => {
