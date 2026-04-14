@@ -8,7 +8,7 @@ import { logger } from '../../lib/logger.js';
 const CONFIG_CACHE_KEY = 'task-config';
 const CACHE_TTL = 3600;
 
-interface TaskItem {
+export interface TaskItem {
   externalTaskId: string;
   taskTitle: string;
   projectName?: string;
