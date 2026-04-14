@@ -424,7 +424,11 @@ export class TaskIntegrationService {
 
   private async customHealth(apiKey: string, baseUrl: string): Promise<boolean> {
     const res = await fetch(`${baseUrl}/api/external/employees?limit=1`, {
-      headers: { 'X-API-Key': apiKey, 'Accept': 'application/json' },
+      headers: {
+        'X-API-Key': apiKey,
+        'Authorization': `Bearer ${apiKey}`,
+        'Accept': 'application/json',
+      },
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) throw new Error(`Custom API returned ${res.status}`);
@@ -454,7 +458,7 @@ export class TaskIntegrationService {
       try {
         const searchRes = await fetch(
           `${baseUrl}/api/external/employees?search=${encodeURIComponent(employeeEmail)}&limit=10`,
-          { headers: { 'X-API-Key': apiKey, 'Accept': 'application/json' }, signal: AbortSignal.timeout(10000) }
+          { headers: { 'X-API-Key': apiKey, 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' }, signal: AbortSignal.timeout(10000) }
         );
         if (searchRes.ok) {
           const searchJson = await searchRes.json();
@@ -480,7 +484,7 @@ export class TaskIntegrationService {
 
     // Step 4: fetch individual employee tasks
     const res = await fetch(`${baseUrl}/api/external/employees/${externalUserId}`, {
-      headers: { 'X-API-Key': apiKey, 'Accept': 'application/json' },
+      headers: { 'X-API-Key': apiKey, 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
       signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) throw new Error(`Custom API fetch failed: ${res.status}`);

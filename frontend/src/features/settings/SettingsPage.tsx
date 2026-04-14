@@ -1885,6 +1885,12 @@ function ExternalApiIntegrationTab() {
           apiKey: intg.apiKey || '',
           baseUrl: intg.baseUrl,
         }).unwrap();
+        // Clear the typed key from state (never leave secrets in form state)
+        setIntegrations(prev => {
+          const n = [...prev];
+          n[0] = { ...n[0], apiKey: '' };
+          return n;
+        });
         toast.success('Task Manager configuration saved');
         setEditingIndex(null);
       } catch (err: any) {
@@ -1937,43 +1943,58 @@ function ExternalApiIntegrationTab() {
         <p className="text-sm text-gray-500 mb-5">Connect third-party services to extend HRMS functionality. API keys are optional — leave blank if the service doesn't require authentication.</p>
 
         <div className="space-y-4">
-          {integrations.map((intg, i) => (
-            <div key={intg.name} className={cn('border rounded-xl p-4 transition-all', intg.enabled ? 'border-brand-200 bg-brand-50/30' : 'border-gray-200')}>
-              <div className="flex items-center justify-between mb-2">
+          {integrations.map((intg, i) => {
+            const isSaved = i === 0 && !!taskConfigRes?.data;
+            const isEditing = editingIndex === i;
+            return (
+            <div key={intg.name} className={cn('border rounded-xl p-4 transition-all', isSaved ? 'border-brand-200 bg-brand-50/30' : 'border-gray-200')}>
+              {/* Header row */}
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center', intg.enabled ? 'bg-brand-100' : 'bg-gray-100')}>
-                    <ExternalLink size={18} className={intg.enabled ? 'text-brand-600' : 'text-gray-400'} />
+                  <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0', isSaved ? 'bg-brand-100' : 'bg-gray-100')}>
+                    <ExternalLink size={18} className={isSaved ? 'text-brand-600' : 'text-gray-400'} />
                   </div>
                   <div>
                     <h4 className="text-sm font-semibold text-gray-800">{intg.name}</h4>
                     <p className="text-xs text-gray-400">{intg.description}</p>
-                    {/* Show saved config summary when not editing */}
-                    {i === 0 && taskConfigRes?.data && editingIndex !== i && (
-                      <div className="flex items-center gap-3 mt-1.5">
-                        <span className="text-xs text-gray-500 font-mono truncate max-w-[200px]">
-                          {taskConfigRes.data.baseUrl || '—'}
-                        </span>
-                        <span className="text-xs text-gray-400 flex items-center gap-1">
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                          Key saved
-                        </span>
-                      </div>
-                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {(i === 0 ? taskConfigRes?.data?.isActive : intg.baseUrl) && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">Connected</span>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {isSaved && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Connected</span>
                   )}
-                  <button onClick={() => setEditingIndex(editingIndex === i ? null : i)}
-                    className="text-xs text-brand-600 hover:text-brand-700 font-medium">
-                    {editingIndex === i ? 'Close' : (i === 0 && taskConfigRes?.data ? 'Edit' : 'Configure')}
+                  <button
+                    onClick={() => setEditingIndex(isEditing ? null : i)}
+                    className={cn('text-xs font-medium px-3 py-1 rounded-lg border transition-colors',
+                      isEditing
+                        ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                        : 'border-brand-200 text-brand-600 hover:bg-brand-50'
+                    )}>
+                    {isEditing ? 'Close' : (isSaved ? 'Edit' : 'Configure')}
                   </button>
                 </div>
               </div>
 
+              {/* Read-only summary — shown when NOT editing and config exists */}
+              {isSaved && !isEditing && (
+                <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1">Base URL</p>
+                    <p className="text-xs text-gray-700 font-mono truncate">{taskConfigRes!.data.baseUrl || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1">API Key</p>
+                    <p className="text-xs text-gray-500 font-mono flex items-center gap-1.5">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-500"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                      ••••••••••••  <span className="text-green-600 font-medium">Saved</span>
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Edit form — shown only when editing */}
               <AnimatePresence>
-                {editingIndex === i && (
+                {isEditing && (
                   <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                     <div className="pt-3 mt-3 border-t border-gray-100 space-y-3">
                       <div>
@@ -1983,19 +2004,22 @@ function ExternalApiIntegrationTab() {
                           placeholder="https://api.example.com" className="input-glass w-full text-sm" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          API Key (optional)
-                          {i === 0 && taskConfigRes?.data && (
-                            <span className="ml-2 text-[10px] text-green-600 font-normal">✓ key saved</span>
+                        <label className="block text-xs font-medium text-gray-600 mb-1 flex items-center gap-2">
+                          API Key
+                          {isSaved && (
+                            <span className="text-[10px] text-green-600 font-normal bg-green-50 px-1.5 py-0.5 rounded">✓ encrypted &amp; saved</span>
                           )}
                         </label>
-                        <input type="password" value={intg.apiKey}
-                          onChange={e => { const n = [...integrations]; n[i].apiKey = e.target.value; setIntegrations(n); }}
-                          placeholder={i === 0 && taskConfigRes?.data ? '••••••••  (leave blank to keep existing)' : 'Leave blank if not required'}
-                          className="input-glass w-full text-sm" />
-                        <p className="text-[10px] text-gray-400 mt-1">
-                          {i === 0 && taskConfigRes?.data ? 'Key is encrypted on server. Enter a new key to update, or leave blank to keep existing.' : 'Leave empty if the service doesn\'t require authentication'}
-                        </p>
+                        <div className="relative">
+                          <input type="password" value={intg.apiKey}
+                            onChange={e => { const n = [...integrations]; n[i].apiKey = e.target.value; setIntegrations(n); }}
+                            placeholder={isSaved ? 'Leave blank to keep existing key, or paste new key to replace' : 'Enter API key'}
+                            className="input-glass w-full text-sm pr-8" />
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        </div>
+                        {isSaved && (
+                          <p className="text-[10px] text-gray-400 mt-1">Your key is stored encrypted on the server. Leave blank to keep it unchanged.</p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <button onClick={() => handleSaveIntegration(i)} disabled={i === 0 && savingTask} className="btn-primary text-xs flex items-center gap-1.5 disabled:opacity-50">
@@ -2004,13 +2028,17 @@ function ExternalApiIntegrationTab() {
                         <button onClick={() => handleTestIntegration(i)} disabled={i === 0 && testingTask} className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50">
                           {i === 0 && testingTask ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />} Test Connection
                         </button>
+                        <button onClick={() => setEditingIndex(null)} className="text-xs text-gray-400 hover:text-gray-600 ml-auto">
+                          Cancel
+                        </button>
                       </div>
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
