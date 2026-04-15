@@ -29,7 +29,7 @@ import { getInitials, getStatusColor, formatDate, formatCurrency, getUploadUrl }
 import toast from 'react-hot-toast';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
-type TabKey = 'overview' | 'attendance' | 'personal' | 'salary' | 'documents' | 'connections' | 'intern' | 'permissions';
+type TabKey = 'overview' | 'attendance' | 'salary' | 'documents' | 'connections' | 'intern' | 'permissions';
 
 export default function EmployeeDetailPage() {
   const { t } = useTranslation();
@@ -115,7 +115,6 @@ export default function EmployeeDetailPage() {
     { key: 'overview', label: t('employees.overview') },
     { key: 'attendance', label: t('employees.attendanceLeaves') },
     ...(isManagement ? [{ key: 'salary' as TabKey, label: t('employees.salary') }] : []),
-    { key: 'personal', label: t('employees.personal') },
     { key: 'documents', label: t('employees.documents') },
     ...(isIntern ? [{ key: 'intern' as TabKey, label: t('employees.internProfile') }] : []),
     { key: 'connections', label: t('employees.connections') },
@@ -303,11 +302,16 @@ export default function EmployeeDetailPage() {
               <div className="w-12 h-12 rounded-xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-lg font-display">
                 {getInitials(employee.firstName, employee.lastName)}
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <h2 className="font-display font-bold text-gray-900">{employee.firstName} {employee.lastName}</h2>
                 <p className="text-xs text-gray-400">{employee.employeeCode} · {employee.designation?.name || ''}</p>
               </div>
-              <span className={`badge ${getStatusColor(employee.status)}`}>{employee.status}</span>
+              <span className={`badge ${getStatusColor(employee.status)}`}>{employee.status?.replace(/_/g, ' ')}</span>
+              {isManagement && (
+                <button onClick={() => setShowEditModal(true)} className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1 shrink-0">
+                  <Save size={12} /> Edit
+                </button>
+              )}
             </div>
           </div>
 
@@ -342,15 +346,11 @@ export default function EmployeeDetailPage() {
 
             {activeTab === 'overview' && (
               <div className="grid md:grid-cols-2 gap-6">
+                {/* Employment Details */}
                 <div className="layer-card p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                      <Building2 size={15} className="text-purple-500" /> Employment Details
-                    </h3>
-                    {isManagement && (
-                      <button onClick={() => setShowEditModal(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Edit</button>
-                    )}
-                  </div>
+                  <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
+                    <Building2 size={15} className="text-purple-500" /> Employment Details
+                  </h3>
                   <dl className="space-y-2.5">
                     <InfoRow label="Department" value={employee.department?.name || '—'} />
                     <InfoRow label="Designation" value={employee.designation?.name || '—'} />
@@ -359,34 +359,75 @@ export default function EmployeeDetailPage() {
                     <InfoRow label="Office" value={employee.officeLocation?.name || '—'} />
                     <InfoRow label="Current Shift" value={employee.currentShift ? `${employee.currentShift.name} (${employee.currentShift.startTime}–${employee.currentShift.endTime})` : 'No shift assigned'} />
                     <InfoRow label="Joining Date" value={formatDate(employee.joiningDate, 'long')} />
+                    <InfoRow label="Status" value={employee.status?.replace(/_/g, ' ')} />
                     {isManagement && employee.ctc && <InfoRow label="CTC" value={formatCurrency(Number(employee.ctc))} mono />}
                   </dl>
                 </div>
+
+                {/* Personal Information */}
                 <div className="layer-card p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                      <Shield size={15} className="text-brand-500" /> Personal Information
-                    </h3>
-                    {isManagement && (
-                      <button onClick={() => setShowEditModal(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Edit</button>
-                    )}
-                  </div>
+                  <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
+                    <User size={15} className="text-brand-500" /> Personal Information
+                  </h3>
                   <dl className="space-y-2.5">
-                    <InfoRow label="Gender" value={employee.gender} />
+                    <InfoRow label="Full Name" value={`${employee.firstName} ${employee.lastName}`} />
                     <InfoRow label="Date of Birth" value={employee.dateOfBirth ? formatDate(employee.dateOfBirth) : '—'} />
+                    <InfoRow label="Gender" value={employee.gender?.replace(/_/g, ' ') || '—'} />
                     <InfoRow label="Blood Group" value={employee.bloodGroup || '—'} />
                     <InfoRow label="Marital Status" value={employee.maritalStatus || '—'} />
+                    <InfoRow label="Official Email" value={employee.email} />
                     <InfoRow label="Personal Email" value={employee.personalEmail || '—'} />
+                    <InfoRow label="Phone" value={employee.phone || '—'} />
                   </dl>
                 </div>
-                {employee.emergencyContact && (
-                  <div className="layer-card p-5">
-                    <h3 className="text-sm font-semibold text-gray-800 mb-3">Emergency Contact</h3>
-                    <dl className="space-y-2.5">
+
+                {/* Address */}
+                <div className="layer-card p-5">
+                  <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
+                    <MapPin size={15} className="text-sky-500" /> Address & Emergency Contact
+                  </h3>
+                  {employee.address ? (
+                    <div className="mb-3">
+                      <p className="text-xs text-gray-400 mb-1">Address</p>
+                      <p className="text-sm text-gray-700">
+                        {(employee.address as any).line1 && `${(employee.address as any).line1}, `}
+                        {(employee.address as any).city && `${(employee.address as any).city}, `}
+                        {(employee.address as any).state && `${(employee.address as any).state} `}
+                        {(employee.address as any).pincode}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 mb-3">No address on file</p>
+                  )}
+                  {employee.emergencyContact ? (
+                    <dl className="space-y-2">
+                      <p className="text-xs text-gray-400">Emergency Contact</p>
                       <InfoRow label="Name" value={(employee.emergencyContact as any).name || '—'} />
                       <InfoRow label="Relationship" value={(employee.emergencyContact as any).relationship || '—'} />
                       <InfoRow label="Phone" value={(employee.emergencyContact as any).phone || '—'} />
                     </dl>
+                  ) : (
+                    <p className="text-xs text-gray-400">No emergency contact on file</p>
+                  )}
+                </div>
+
+                {/* Bank Details — HR only */}
+                {isManagement && (
+                  <div className="layer-card p-5">
+                    <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
+                      <DollarSign size={15} className="text-emerald-500" /> Bank Details
+                    </h3>
+                    {employee.bankAccountNumber ? (
+                      <dl className="space-y-2.5">
+                        <InfoRow label="Account Holder" value={employee.accountHolderName || '—'} />
+                        <InfoRow label="Bank" value={employee.bankName || '—'} />
+                        <InfoRow label="Account No." value={`••••${employee.bankAccountNumber.slice(-4)}`} mono />
+                        <InfoRow label="IFSC" value={employee.ifscCode || '—'} mono />
+                        <InfoRow label="Account Type" value={employee.accountType || '—'} />
+                      </dl>
+                    ) : (
+                      <p className="text-xs text-gray-400">No bank details on file</p>
+                    )}
                   </div>
                 )}
 
@@ -421,39 +462,6 @@ export default function EmployeeDetailPage() {
                       ].filter(Boolean).length * 20}%` }}
                     />
                   </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'personal' && (
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="layer-card p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-800">Personal Details</h3>
-                    {isManagement && (
-                      <button onClick={() => setShowEditModal(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Edit</button>
-                    )}
-                  </div>
-                  <dl className="space-y-2.5">
-                    <InfoRow label="Full Name" value={`${employee.firstName} ${employee.lastName}`} />
-                    <InfoRow label="Gender" value={employee.gender} />
-                    <InfoRow label="Date of Birth" value={employee.dateOfBirth ? formatDate(employee.dateOfBirth) : '—'} />
-                    <InfoRow label="Blood Group" value={employee.bloodGroup || '—'} />
-                    <InfoRow label="Marital Status" value={employee.maritalStatus || '—'} />
-                  </dl>
-                </div>
-                <div className="layer-card p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-800">Contact Information</h3>
-                    {isManagement && (
-                      <button onClick={() => setShowEditModal(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">Edit</button>
-                    )}
-                  </div>
-                  <dl className="space-y-2.5">
-                    <InfoRow label="Official Email" value={employee.email} />
-                    <InfoRow label="Personal Email" value={employee.personalEmail || '—'} />
-                    <InfoRow label="Phone" value={employee.phone} />
-                  </dl>
                 </div>
               </div>
             )}

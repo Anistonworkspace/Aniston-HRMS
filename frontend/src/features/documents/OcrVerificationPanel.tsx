@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Shield, Save, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle, ScanLine, Eye, Pencil, Check } from 'lucide-react';
+import {
+  Shield, Save, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle,
+  ScanLine, Eye, Pencil, Check, FileText, Ban, Unlock, Lock, Info, ChevronDown, ChevronUp,
+} from 'lucide-react';
 import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation } from './documentOcrApi';
 import { useVerifyDocumentMutation } from './documentApi';
-import { useVerifyKycMutation } from '../kyc/kycApi';
+import { useVerifyKycMutation, useRejectKycMutation, useGetKycHrReviewQuery } from '../kyc/kycApi';
 import toast from 'react-hot-toast';
 import { cn, getUploadUrl } from '../../lib/utils';
 
@@ -16,6 +19,7 @@ interface Props {
   onClose: () => void;
 }
 
+// Static typed fields (standard across most Indian documents)
 const OCR_FIELDS = [
   { key: 'extractedName', label: 'Name' },
   { key: 'extractedDob', label: 'Date of Birth' },
@@ -28,18 +32,357 @@ const OCR_FIELDS = [
 
 type FieldKey = typeof OCR_FIELDS[number]['key'];
 
-export default function OcrVerificationPanel({ documentId, documentName, documentType, documentStatus, employeeId, fileUrl, onClose }: Props) {
-  const { data: ocrRes, isLoading, isError, refetch } = useGetDocumentOcrQuery(documentId);
+// ─── Confidence badge helper ──────────────────────────────────────────────────
+function ConfidenceBadge({ confidence }: { confidence: number }) {
+  const pct = Math.round((confidence || 0) * 100);
+  const isFlagged = pct < 60;
+  const isWarn = pct >= 60 && pct < 75;
+  return (
+    <span className={cn(
+      'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold',
+      isFlagged ? 'bg-red-100 text-red-700 ring-1 ring-red-300' :
+      isWarn ? 'bg-amber-100 text-amber-700' :
+      'bg-emerald-100 text-emerald-700'
+    )}>
+      {isFlagged && <AlertTriangle size={11} />}
+      Confidence: {pct}%{isFlagged ? ' — FLAGGED' : ''}
+    </span>
+  );
+}
+
+// ─── Validation Reasons panel ─────────────────────────────────────────────────
+function ValidationReasons({ reasons }: { reasons: string[] }) {
+  const [open, setOpen] = useState(true);
+  if (!reasons || reasons.length === 0) return null;
+
+  const hasFlagged = reasons.some(r => r.startsWith('🚩') || r.startsWith('✗'));
+  const hasWarning = reasons.some(r => r.startsWith('⚠'));
+
+  return (
+    <div className={cn(
+      'layer-card overflow-hidden border',
+      hasFlagged ? 'border-red-200 bg-red-50/30' :
+      hasWarning ? 'border-amber-200 bg-amber-50/20' :
+      'border-emerald-200 bg-emerald-50/20',
+    )}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <span className={cn(
+          'text-xs font-semibold flex items-center gap-1.5',
+          hasFlagged ? 'text-red-700' : hasWarning ? 'text-amber-700' : 'text-emerald-700',
+        )}>
+          <Shield size={13} />
+          AI Validation Analysis
+          <span className="ml-1 px-1.5 py-0.5 rounded bg-white/60 text-[10px]">
+            {reasons.length} check{reasons.length !== 1 ? 's' : ''}
+          </span>
+        </span>
+        {open ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+      </button>
+      {open && (
+        <div className="px-4 pb-3 space-y-1">
+          {reasons.map((reason, i) => {
+            const isFail = reason.startsWith('✗') || reason.startsWith('🚩');
+            const isWarn = reason.startsWith('⚠');
+            const isPass = reason.startsWith('✓');
+            return (
+              <div key={i} className={cn(
+                'flex items-start gap-2 text-xs px-2.5 py-1.5 rounded',
+                isFail ? 'bg-red-50 text-red-700' :
+                isWarn ? 'bg-amber-50 text-amber-700' :
+                isPass ? 'bg-emerald-50 text-emerald-700' :
+                'bg-gray-50 text-gray-600',
+              )}>
+                <span className="shrink-0 mt-0.5">
+                  {isFail ? <XCircle size={11} /> : isWarn ? <AlertTriangle size={11} /> : isPass ? <CheckCircle2 size={11} /> : <Info size={11} />}
+                </span>
+                <span className="leading-relaxed">{reason}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Reject document dialog ───────────────────────────────────────────────────
+function RejectDocumentDialog({
+  docType, onConfirm, onCancel, loading,
+}: {
+  docType: string;
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  const [reason, setReason] = useState('');
+  return (
+    <div className="layer-card p-4 border border-red-200 bg-red-50/40">
+      <p className="text-sm font-semibold text-red-700 mb-2 flex items-center gap-1.5">
+        <Ban size={14} /> Reject Document
+      </p>
+      <p className="text-xs text-red-600 mb-3">
+        This will mark <strong>{docType.replace(/_/g, ' ')}</strong> as rejected and notify the employee to re-upload.
+      </p>
+      <textarea
+        value={reason}
+        onChange={e => setReason(e.target.value)}
+        placeholder="Enter reason for rejection (shown to employee)..."
+        className="input-glass text-sm w-full h-20 resize-none mb-3"
+        autoFocus
+      />
+      <div className="flex gap-2">
+        <button onClick={onCancel} className="flex-1 text-sm text-gray-600 border border-gray-200 rounded-lg py-2 hover:bg-gray-50">
+          Cancel
+        </button>
+        <button
+          onClick={() => reason.trim() && onConfirm(reason.trim())}
+          disabled={!reason.trim() || loading}
+          className="flex-1 flex items-center justify-center gap-1.5 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg py-2 disabled:opacity-50"
+        >
+          {loading ? <Loader2 size={13} className="animate-spin" /> : <Ban size={13} />}
+          Confirm Rejection
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Combined PDF Review Panel ────────────────────────────────────────────────
+const COMBINED_PDF_REQUIRED_DOCS = [
+  { type: 'AADHAAR', label: 'Aadhaar Card', group: 'identity' },
+  { type: 'PAN', label: 'PAN Card', group: 'identity' },
+  { type: 'TENTH_CERTIFICATE', label: '10th Certificate / Marksheet', group: 'education' },
+  { type: 'TWELFTH_CERTIFICATE', label: '12th Certificate / Marksheet', group: 'education' },
+  { type: 'DEGREE_CERTIFICATE', label: 'Degree / Graduation Certificate', group: 'education' },
+  { type: 'RESIDENCE_PROOF', label: 'Residence Proof', group: 'other' },
+  { type: 'BANK_STATEMENT', label: 'Bank Statement / Cancelled Cheque', group: 'other' },
+  { type: 'PHOTO', label: 'Passport Size Photograph', group: 'other' },
+  { type: 'EXPERIENCE_LETTER', label: 'Experience / Employment Proof', group: 'employment' },
+];
+
+function CombinedPdfReviewPanel({
+  documentId, documentStatus, employeeId, fileUrl, ocr,
+  onVerifyDoc, onApproveKyc, onRetrigger, triggering, verifyingDoc, verifyingKyc,
+}: {
+  documentId: string;
+  documentStatus?: string;
+  employeeId?: string;
+  fileUrl?: string;
+  ocr: any;
+  onVerifyDoc: () => void;
+  onApproveKyc: () => void;
+  onRetrigger: () => void;
+  triggering: boolean;
+  verifyingDoc: boolean;
+  verifyingKyc: boolean;
+}) {
+  const { data: hrReviewRes } = useGetKycHrReviewQuery(employeeId!, { skip: !employeeId });
+  const gate = hrReviewRes?.data?.gate;
+  const submittedSeparateDocs: string[] = (gate?.submittedDocs || []) as string[];
+  const combinedPdfUploaded: boolean = gate?.combinedPdfUploaded || false;
+  const experience: string = gate?.fresherOrExperienced || 'FRESHER';
+  const qualification: string = gate?.highestQualification || 'GRADUATION';
+
+  const QUAL_ORDER = ['TENTH', 'TWELFTH', 'GRADUATION', 'POST_GRADUATION', 'PHD'];
+  const qualIdx = QUAL_ORDER.indexOf(qualification);
+  const relevantDocs = COMBINED_PDF_REQUIRED_DOCS.filter(d => {
+    if (d.type === 'TWELFTH_CERTIFICATE' && qualIdx < 1) return false;
+    if (d.type === 'DEGREE_CERTIFICATE' && qualIdx < 2) return false;
+    if (d.type === 'EXPERIENCE_LETTER' && experience !== 'EXPERIENCED') return false;
+    return true;
+  });
+
+  const combinedPdfAnalysis = gate?.combinedPdfAnalysis as any;
+  const detectedDocTypes: string[] = combinedPdfAnalysis?.detectedDocs || combinedPdfAnalysis?.detected_docs || [];
+  const suspicionFlags: string[] = combinedPdfAnalysis?.suspicionFlags || combinedPdfAnalysis?.suspicion_flags || [];
+  const totalPages: number = combinedPdfAnalysis?.totalPages || combinedPdfAnalysis?.total_pages || 0;
+  const missingDocs = relevantDocs.filter(d => !detectedDocTypes.some(t => t === d.type || t.includes(d.type) || d.type.includes(t)));
+
+  void submittedSeparateDocs;
+
+  return (
+    <div className="space-y-4">
+      {/* Combined PDF banner */}
+      <div className="layer-card p-4 border border-blue-200 bg-blue-50/40">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
+            <FileText size={18} className="text-blue-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-blue-800">Combined KYC PDF — Manual Verification Required</p>
+            <p className="text-xs text-blue-600 mt-0.5">
+              This employee submitted all KYC documents as a single combined PDF.
+              Open the document and verify each document is present, legible, and matches the employee's details.
+            </p>
+            {totalPages > 0 && (
+              <p className="text-xs text-blue-500 mt-1">PDF has {totalPages} page(s) detected by the classifier.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Missing documents alert */}
+        {missingDocs.length > 0 && (
+          <div className="mt-3 p-2.5 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-xs font-medium text-red-700 mb-1 flex items-center gap-1">
+              <AlertTriangle size={11} /> Missing Documents Detected:
+            </p>
+            {missingDocs.map(d => (
+              <p key={d.type} className="text-xs text-red-600 ml-3">• {d.label} — not detected in PDF</p>
+            ))}
+          </div>
+        )}
+
+        {/* Suspicion flags */}
+        {suspicionFlags.length > 0 && (
+          <div className="mt-3 p-2.5 bg-orange-50 border border-orange-200 rounded-lg">
+            <p className="text-xs font-medium text-orange-700 mb-1">Classifier Warnings:</p>
+            {suspicionFlags.map((f: string, i: number) => (
+              <p key={i} className="text-xs text-orange-600 ml-2">• {f}</p>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Document preview link */}
+      {fileUrl && (
+        <div className="layer-card p-4">
+          <p className="text-xs font-medium text-gray-500 mb-2">Document Preview</p>
+          <a href={getUploadUrl(fileUrl)} target="_blank" rel="noopener noreferrer"
+            className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1.5 font-medium">
+            <Eye size={14} /> Open Combined PDF — Verify All Documents Inside
+          </a>
+        </div>
+      )}
+
+      {/* Employee KYC profile */}
+      <div className="layer-card p-4">
+        <p className="text-xs font-semibold text-gray-600 mb-2">Employee KYC Profile</p>
+        <div className="flex gap-3 flex-wrap">
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
+            {experience === 'EXPERIENCED' ? '💼 Experienced' : '🎓 Fresher'}
+          </span>
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700">
+            📚 {qualification.replace(/_/g, ' ')}
+          </span>
+          {combinedPdfUploaded && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
+              <CheckCircle2 size={10} /> Combined PDF Uploaded
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Document checklist */}
+      <div className="layer-card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold text-gray-600">Required Documents Checklist</p>
+          <span className="text-xs text-gray-400">
+            {detectedDocTypes.length}/{relevantDocs.length} detected
+          </span>
+        </div>
+
+        <div className="space-y-2">
+          {relevantDocs.map(doc => {
+            const detected = detectedDocTypes.some(t =>
+              t === doc.type || t.includes(doc.type) || doc.type.includes(t)
+            );
+            return (
+              <div key={doc.type} className={cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg border',
+                detected ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-100'
+              )}>
+                {detected
+                  ? <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
+                  : <XCircle size={15} className="text-red-400 shrink-0" />
+                }
+                <span className="text-xs text-gray-700 flex-1">{doc.label}</span>
+                <span className={cn(
+                  'text-[10px] font-medium',
+                  detected ? 'text-emerald-600' : 'text-red-500',
+                )}>
+                  {detected ? 'Detected by AI' : 'Not found'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="mt-3 text-xs text-gray-400">
+          Checkmarks show documents detected by the AI classifier. Always verify manually before approving KYC.
+        </p>
+      </div>
+
+      {/* OCR Notes */}
+      {ocr.hrNotes && !ocr.hrNotes.includes('Combined KYC PDF') && (
+        <div className="layer-card p-4">
+          <p className="text-xs font-semibold text-gray-600 mb-1">OCR Notes</p>
+          <p className="text-xs text-gray-500">{ocr.hrNotes}</p>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="space-y-2">
+        <button onClick={onRetrigger} disabled={triggering}
+          className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors">
+          {triggering ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+          Re-run OCR Classifier
+        </button>
+
+        {(documentStatus === 'PENDING' || documentStatus === 'FLAGGED') && (
+          <button onClick={onVerifyDoc} disabled={verifyingDoc}
+            className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors">
+            {verifyingDoc ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+            Mark Combined PDF as Verified
+          </button>
+        )}
+
+        {employeeId && (
+          <button onClick={onApproveKyc} disabled={verifyingKyc}
+            className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors">
+            {verifyingKyc ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+            Approve KYC & Grant Portal Access
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main OCR Verification Panel ──────────────────────────────────────────────
+export default function OcrVerificationPanel({
+  documentId, documentName, documentType, documentStatus, employeeId, fileUrl, onClose,
+}: Props) {
+  // Poll every 6s until OCR data arrives, then stop
+  const [pollInterval, setPollInterval] = useState(6000);
+  const { data: ocrRes, isLoading, isError, refetch } = useGetDocumentOcrQuery(documentId, {
+    pollingInterval: pollInterval,
+  });
+
   const [triggerOcr, { isLoading: triggering }] = useTriggerDocumentOcrMutation();
   const [updateOcr, { isLoading: saving }] = useUpdateDocumentOcrMutation();
   const [verifyDoc, { isLoading: verifyingDoc }] = useVerifyDocumentMutation();
   const [verifyKyc, { isLoading: verifyingKyc }] = useVerifyKycMutation();
+  const [rejectKyc, { isLoading: revokingKyc }] = useRejectKycMutation();
+
   const [editing, setEditing] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [hrNotes, setHrNotes] = useState('');
   const [ocrStatus, setOcrStatus] = useState('PENDING');
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectingDoc, setRejectingDoc] = useState(false);
+
+  const { data: hrReviewRes } = useGetKycHrReviewQuery(employeeId!, { skip: !employeeId });
+  const kycStatus: string = hrReviewRes?.data?.gate?.kycStatus || '';
 
   const ocr = ocrRes?.data;
+
+  // Stop polling once OCR data is available
+  useEffect(() => {
+    if (ocr) setPollInterval(0);
+  }, [ocr]);
 
   useEffect(() => {
     if (ocr) {
@@ -63,16 +406,45 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
 
   const handleSave = async () => {
     try {
-      await updateOcr({
-        documentId,
-        body: { ...fields, hrNotes, ocrStatus },
-      }).unwrap();
+      await updateOcr({ documentId, body: { ...fields, hrNotes, ocrStatus } }).unwrap();
       toast.success('OCR data saved');
       setEditing(false);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to save');
     }
   };
+
+  const handleRejectDocument = async (reason: string) => {
+    setRejectingDoc(true);
+    try {
+      await verifyDoc({ id: documentId, status: 'REJECTED' }).unwrap();
+      // If employee ID exists, also set KYC to re-upload state
+      if (employeeId) {
+        // requestReupload is handled by the parent; just update OCR status
+      }
+      toast.success('Document rejected — employee notified to re-upload');
+      setShowRejectDialog(false);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to reject document');
+    } finally {
+      setRejectingDoc(false);
+    }
+  };
+
+  // Validation reasons from Python AI (stored in llmExtractedData)
+  const aiData = ocr?.llmExtractedData as any;
+  const validationReasons: string[] = aiData?.validation_reasons || [];
+  const dynamicFields: Record<string, string> = aiData?.dynamic_fields || {};
+
+  const isCombinedPdf =
+    ocr?.detectedType === 'COMBINED_PDF' ||
+    (documentType === 'OTHER' && (
+      documentName?.toLowerCase().includes('combined') ||
+      documentName?.toLowerCase().includes('kyc')
+    ));
+
+  const confidence = ocr?.confidence || 0;
+  const isFlaggedByScore = confidence > 0 && confidence < 0.60;
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -87,13 +459,13 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
             <ScanLine size={20} className="text-brand-600" />
             <div>
               <h2 className="text-lg font-display font-bold text-gray-900">OCR Verification</h2>
-              <p className="text-xs text-gray-400">{documentName} - {documentType?.replace(/_/g, ' ')}</p>
+              <p className="text-xs text-gray-400">{documentName} — {documentType?.replace(/_/g, ' ')}</p>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-5">
           {/* Document Preview */}
           {fileUrl && (
             <div className="layer-card p-4">
@@ -106,7 +478,7 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
           )}
 
           {/* No OCR data yet */}
-          {isError && (
+          {isError && !triggering && (
             <div className="layer-card p-6 text-center">
               <ScanLine size={32} className="text-gray-200 mx-auto mb-3" />
               <p className="text-sm text-gray-500 mb-4">No OCR data available for this document</p>
@@ -118,15 +490,73 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
             </div>
           )}
 
-          {isLoading && (
+          {/* Loading: initial fetch */}
+          {isLoading && !ocr && (
             <div className="flex items-center justify-center py-12">
               <Loader2 size={20} className="animate-spin text-gray-400 mr-2" />
               <span className="text-sm text-gray-400">Loading OCR data...</span>
             </div>
           )}
 
-          {ocr && (
+          {/* Loading: OCR currently running */}
+          {triggering && (
+            <div className="layer-card flex flex-col items-center justify-center py-14 gap-3 bg-indigo-50/40 border border-indigo-100">
+              <div className="relative">
+                <ScanLine size={32} className="text-brand-400" />
+                <Loader2 size={18} className="animate-spin text-brand-600 absolute -bottom-1 -right-1" />
+              </div>
+              <p className="text-sm font-semibold text-brand-700">Extracting details...</p>
+              <p className="text-xs text-brand-500">Scanning document with AI OCR. This may take 10–30 seconds.</p>
+            </div>
+          )}
+
+          {ocr && !triggering && (
             <>
+              {/* ── COMBINED PDF ── */}
+              {isCombinedPdf ? (
+                <CombinedPdfReviewPanel
+                  documentId={documentId}
+                  documentStatus={documentStatus}
+                  employeeId={employeeId}
+                  fileUrl={fileUrl}
+                  ocr={ocr}
+                  onVerifyDoc={async () => {
+                    try {
+                      await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
+                      toast.success('Combined PDF verified!');
+                    } catch { toast.error('Failed to verify'); }
+                  }}
+                  onApproveKyc={async () => {
+                    try {
+                      if (documentStatus === 'PENDING' || documentStatus === 'FLAGGED') {
+                        await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
+                      }
+                      await verifyKyc(employeeId!).unwrap();
+                      toast.success('KYC approved! Employee now has full portal access.');
+                      onClose();
+                    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to approve KYC'); }
+                  }}
+                  onRetrigger={handleTriggerOcr}
+                  triggering={triggering}
+                  verifyingDoc={verifyingDoc}
+                  verifyingKyc={verifyingKyc}
+                />
+              ) : (
+              <>
+              {/* ── Red flag banner for low-confidence docs ── */}
+              {isFlaggedByScore && (
+                <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2.5">
+                  <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-700">Low Confidence — Manual Review Required</p>
+                    <p className="text-xs text-red-600 mt-0.5">
+                      OCR confidence is {Math.round(confidence * 100)}%, below the 60% threshold.
+                      The extracted data may be inaccurate. Please open the original document to verify all fields manually.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Quality Indicators */}
               <div className="layer-card p-4">
                 <p className="text-xs font-semibold text-gray-600 mb-3">Image Quality Analysis</p>
@@ -153,14 +583,7 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
                   )}>
                     Resolution: {ocr.resolutionQuality || 'Unknown'}
                   </span>
-                  <span className={cn(
-                    'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
-                    ocr.confidence >= 0.7 ? 'bg-emerald-50 text-emerald-700'
-                      : ocr.confidence >= 0.4 ? 'bg-amber-50 text-amber-700'
-                      : 'bg-red-50 text-red-700'
-                  )}>
-                    Confidence: {Math.round(ocr.confidence * 100)}%
-                  </span>
+                  <ConfidenceBadge confidence={ocr.confidence} />
                 </div>
 
                 {/* Tampering warnings */}
@@ -182,49 +605,33 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
                 <p className="text-sm font-medium text-gray-800">{ocr.detectedType?.replace(/_/g, ' ') || 'Unknown'}</p>
               </div>
 
-              {/* AI Extraction Results (from DeepSeek/configured AI) */}
-              {ocr.llmExtractedData && (
-                <div className="layer-card p-4 border border-blue-100 bg-blue-50/30">
-                  <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-1.5">
-                    <Shield size={12} /> AI-Assisted Verification
+              {/* AI Validation Reasons (from Python OCR service) */}
+              {validationReasons.length > 0 && (
+                <ValidationReasons reasons={validationReasons} />
+              )}
+
+              {/* AI-Assisted Verification (from LLM, if available) */}
+              {ocr.llmExtractedData && (ocr.llmExtractedData as any).issues?.length > 0 && (
+                <div className="layer-card p-4 border border-red-100 bg-red-50/20">
+                  <p className="text-xs font-semibold text-red-700 mb-2 flex items-center gap-1.5">
+                    <Shield size={12} /> AI LLM Issues Found
                     {ocr.llmConfidence != null && (
                       <span className={cn(
                         'ml-2 px-2 py-0.5 rounded-full text-[10px] font-medium',
-                        ocr.llmConfidence >= 0.7 ? 'bg-emerald-100 text-emerald-700' : ocr.llmConfidence >= 0.4 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                        ocr.llmConfidence >= 0.7 ? 'bg-emerald-100 text-emerald-700' :
+                        ocr.llmConfidence >= 0.4 ? 'bg-amber-100 text-amber-700' :
+                        'bg-red-100 text-red-700'
                       )}>
-                        AI Confidence: {Math.round(ocr.llmConfidence * 100)}%
+                        LLM: {Math.round(ocr.llmConfidence * 100)}%
                       </span>
                     )}
                   </p>
-
-                  {/* Issues found by AI */}
-                  {(ocr.llmExtractedData as any).issues?.length > 0 && (
-                    <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg">
-                      <p className="text-xs font-medium text-red-700 mb-1">Issues Detected:</p>
-                      {((ocr.llmExtractedData as any).issues as string[]).map((issue: string, i: number) => (
-                        <p key={i} className="text-xs text-red-600 ml-3">• {issue}</p>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* OCR corrections applied */}
-                  {(ocr.llmExtractedData as any).corrections?.length > 0 && (
-                    <div className="mb-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
-                      <p className="text-xs font-medium text-amber-700 mb-1">OCR Corrections Applied:</p>
-                      {((ocr.llmExtractedData as any).corrections as string[]).map((c: string, i: number) => (
-                        <p key={i} className="text-xs text-amber-600 ml-3">• {c}</p>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* No issues = all clear */}
-                  {!(ocr.llmExtractedData as any).issues?.length && !(ocr.llmExtractedData as any).corrections?.length && ocr.llmConfidence != null && ocr.llmConfidence >= 0.6 && (
-                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg">
-                      <p className="text-xs text-emerald-700 flex items-center gap-1">
-                        <CheckCircle2 size={12} /> AI verification passed — no issues found
-                      </p>
-                    </div>
-                  )}
+                  {((ocr.llmExtractedData as any).issues as string[]).map((issue: string, i: number) => (
+                    <p key={i} className="text-xs text-red-600 ml-3">• {issue}</p>
+                  ))}
+                  {((ocr.llmExtractedData as any).corrections || []).map((c: string, i: number) => (
+                    <p key={i} className="text-xs text-amber-600 ml-3 mt-1">↳ Correction: {c}</p>
+                  ))}
                 </div>
               )}
 
@@ -247,8 +654,8 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
 
                 <div className="space-y-2.5">
                   {OCR_FIELDS.map(({ key, label }) => (
-                    <div key={key} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                      <label className="text-xs text-gray-500 w-32 flex-shrink-0">{label}</label>
+                    <div key={key} className="flex items-start justify-between py-2 border-b border-gray-50 last:border-0">
+                      <label className="text-xs text-gray-500 w-32 flex-shrink-0 pt-0.5">{label}</label>
                       {editing ? (
                         <input
                           value={fields[key] || ''}
@@ -257,7 +664,10 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
                           placeholder={`Enter ${label.toLowerCase()}`}
                         />
                       ) : (
-                        <span className={cn('text-sm font-medium', fields[key] ? 'text-gray-800' : 'text-gray-300')}>
+                        <span className={cn(
+                          'text-sm font-medium min-w-0 ml-3 break-words',
+                          fields[key] ? 'text-gray-800' : 'text-gray-300'
+                        )}>
                           {fields[key] || '—'}
                         </span>
                       )}
@@ -266,28 +676,68 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
                 </div>
               </div>
 
-              {/* Cross-Validation Status */}
+              {/* Dynamic Fields (extra label:value pairs from Python AI) */}
+              {Object.keys(dynamicFields).length > 0 && (
+                <div className="layer-card p-4">
+                  <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1.5">
+                    <Info size={12} /> Additional Detected Fields
+                    <span className="text-[10px] text-gray-400 font-normal">— captured dynamically by AI</span>
+                  </p>
+                  <div className="space-y-2">
+                    {Object.entries(dynamicFields).map(([k, v]) => (
+                      <div key={k} className="flex items-start justify-between py-1.5 border-b border-gray-50 last:border-0">
+                        <span className="text-xs text-gray-500 w-36 flex-shrink-0">{k}</span>
+                        <span className="text-xs font-medium text-gray-700 min-w-0 ml-3 break-words">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Cross-Validation Status — fixed overflow layout */}
               {ocr.crossValidationStatus && (
                 <div className="layer-card p-4">
                   <p className="text-xs font-semibold text-gray-600 mb-2">Cross-Document Validation</p>
                   <span className={cn(
-                    'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
+                    'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium mb-3',
                     ocr.crossValidationStatus === 'PASS' ? 'bg-emerald-50 text-emerald-700'
                       : ocr.crossValidationStatus === 'FAIL' ? 'bg-red-50 text-red-700'
                       : 'bg-amber-50 text-amber-700'
                   )}>
-                    {ocr.crossValidationStatus === 'PASS' ? <CheckCircle2 size={12} /> : ocr.crossValidationStatus === 'FAIL' ? <XCircle size={12} /> : <AlertTriangle size={12} />}
+                    {ocr.crossValidationStatus === 'PASS' ? <CheckCircle2 size={12} /> :
+                     ocr.crossValidationStatus === 'FAIL' ? <XCircle size={12} /> :
+                     <AlertTriangle size={12} />}
                     {ocr.crossValidationStatus}
                   </span>
                   {ocr.crossValidationDetails && (
-                    <div className="mt-2 space-y-1">
+                    <div className="space-y-2">
                       {(ocr.crossValidationDetails as any[]).map((d: any, i: number) => (
-                        <div key={i} className="flex items-center gap-2 text-xs">
-                          {d.match ? <CheckCircle2 size={12} className="text-emerald-500" /> : <XCircle size={12} className="text-red-500" />}
-                          <span className="text-gray-600 font-medium">{d.field}:</span>
-                          {d.values?.map((v: any, j: number) => (
-                            <span key={j} className="text-gray-500">{v.docType}: <strong>{v.value || '—'}</strong>{j < d.values.length - 1 ? ', ' : ''}</span>
-                          ))}
+                        <div key={i} className="flex flex-col gap-1 text-xs py-2 border-b border-gray-50 last:border-0">
+                          <div className="flex items-center gap-1.5">
+                            {d.match
+                              ? <CheckCircle2 size={12} className="text-emerald-500 shrink-0" />
+                              : <XCircle size={12} className="text-red-500 shrink-0" />}
+                            <span className="text-gray-700 font-medium">{d.field}</span>
+                            {d.similarity != null && (
+                              <span className="ml-auto text-[10px] text-gray-400">
+                                Similarity: {Math.round(d.similarity * 100)}%
+                              </span>
+                            )}
+                          </div>
+                          {/* Values — each in its own chip to prevent overflow */}
+                          {d.values?.length > 0 && (
+                            <div className="ml-4 flex flex-wrap gap-1.5">
+                              {d.values.map((v: any, j: number) => (
+                                <span key={j} className="bg-gray-100 px-2 py-0.5 rounded text-[10px] text-gray-700 font-mono break-all max-w-full">
+                                  <span className="text-gray-400">{v.docType?.replace(/_/g, ' ')}: </span>
+                                  {v.value || '—'}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {d.matchDetail && (
+                            <p className="ml-4 text-[10px] text-gray-400 italic">{d.matchDetail}</p>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -303,8 +753,8 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
                     <label className="block text-xs text-gray-500 mb-1">Status</label>
                     <select value={ocrStatus} onChange={e => setOcrStatus(e.target.value)} className="input-glass text-sm w-full">
                       <option value="PENDING">Pending Review</option>
-                      <option value="REVIEWED">Reviewed - OK</option>
-                      <option value="FLAGGED">Flagged - Issue Found</option>
+                      <option value="REVIEWED">Reviewed — OK</option>
+                      <option value="FLAGGED">Flagged — Issue Found</option>
                     </select>
                   </div>
                   <div>
@@ -323,49 +773,104 @@ export default function OcrVerificationPanel({ documentId, documentName, documen
                 {saving ? 'Saving...' : 'Save Review'}
               </button>
 
-              {/* Verify This Document */}
-              {documentStatus === 'PENDING' && (
-                <button onClick={async () => {
-                  try {
-                    await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
-                    toast.success('Document verified!');
-                  } catch { toast.error('Failed to verify document'); }
-                }} disabled={verifyingDoc}
-                  className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors">
-                  {verifyingDoc ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                  Verify This Document
-                </button>
-              )}
-
-              {/* Verify All & Approve KYC */}
-              {employeeId && (
-                <button onClick={async () => {
-                  try {
-                    // First verify this document if pending
-                    if (documentStatus === 'PENDING') {
+              {/* Per-document actions */}
+              <div className="space-y-2">
+                {/* Verify */}
+                {(documentStatus === 'PENDING' || documentStatus === 'FLAGGED') && !showRejectDialog && (
+                  <button onClick={async () => {
+                    try {
                       await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
+                      toast.success('Document verified!');
+                    } catch { toast.error('Failed to verify document'); }
+                  }} disabled={verifyingDoc}
+                    className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors">
+                    {verifyingDoc ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                    Approve This Document
+                  </button>
+                )}
+
+                {/* Reject with reason */}
+                {!showRejectDialog && documentStatus !== 'REJECTED' && (
+                  <button onClick={() => setShowRejectDialog(true)}
+                    className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
+                    <Ban size={14} /> Reject Document & Request Re-upload
+                  </button>
+                )}
+
+                {/* Reject dialog inline */}
+                {showRejectDialog && (
+                  <RejectDocumentDialog
+                    docType={documentType}
+                    onConfirm={handleRejectDocument}
+                    onCancel={() => setShowRejectDialog(false)}
+                    loading={rejectingDoc}
+                  />
+                )}
+
+                {/* Portal access — approve KYC & grant access */}
+                {employeeId && kycStatus !== 'VERIFIED' && (
+                  <button onClick={async () => {
+                    try {
+                      if (documentStatus === 'PENDING' || documentStatus === 'FLAGGED') {
+                        await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
+                      }
+                      await verifyKyc(employeeId).unwrap();
+                      toast.success('KYC approved! Employee can now access the portal.');
+                      onClose();
+                    } catch (err: any) {
+                      toast.error(err?.data?.error?.message || 'Failed to approve KYC');
                     }
-                    // Then approve KYC
-                    await verifyKyc(employeeId).unwrap();
-                    toast.success('KYC approved! Employee can now access the portal.');
-                    onClose();
-                  } catch (err: any) {
-                    toast.error(err?.data?.error?.message || 'Failed to approve KYC');
-                  }
-                }} disabled={verifyingKyc}
-                  className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors">
-                  {verifyingKyc ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                  Approve KYC & Grant Portal Access
-                </button>
-              )}
+                  }} disabled={verifyingKyc}
+                    className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors">
+                    {verifyingKyc ? <Loader2 size={14} className="animate-spin" /> : <Unlock size={14} />}
+                    Approve KYC & Grant Portal Access
+                  </button>
+                )}
+
+                {/* Revoke portal access (reversible toggle) */}
+                {employeeId && kycStatus === 'VERIFIED' && (
+                  <button onClick={async () => {
+                    try {
+                      await rejectKyc({ employeeId: employeeId!, reason: 'Portal access revoked by HR' }).unwrap();
+                      toast.success('Portal access revoked. Employee cannot log in until re-verified.');
+                    } catch (err: any) {
+                      toast.error(err?.data?.error?.message || 'Failed to revoke access');
+                    }
+                  }} disabled={revokingKyc}
+                    className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
+                    {revokingKyc ? <Loader2 size={14} className="animate-spin" /> : <Lock size={14} />}
+                    Revoke Portal Access
+                  </button>
+                )}
+
+                {/* Restore portal access (revoked → active) */}
+                {employeeId && kycStatus === 'REJECTED' && (
+                  <button onClick={async () => {
+                    try {
+                      await verifyKyc(employeeId!).unwrap();
+                      toast.success('Portal access restored. Employee can log in again.');
+                    } catch (err: any) {
+                      toast.error(err?.data?.error?.message || 'Failed to restore access');
+                    }
+                  }} disabled={verifyingKyc}
+                    className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors">
+                    {verifyingKyc ? <Loader2 size={14} className="animate-spin" /> : <Unlock size={14} />}
+                    Restore Portal Access
+                  </button>
+                )}
+              </div>
 
               {/* HR reviewed info */}
-              {ocr.hrReviewedBy && (
+              {ocr.hrReviewedBy && ocr.hrReviewedAt && (
                 <p className="text-xs text-gray-400 text-center">
-                  Last reviewed on {new Date(ocr.hrReviewedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  Last reviewed on {new Date(ocr.hrReviewedAt).toLocaleDateString('en-IN', {
+                    day: 'numeric', month: 'short', year: 'numeric',
+                  })}
                 </p>
               )}
             </>
+            )}
+          </>
           )}
         </div>
       </div>

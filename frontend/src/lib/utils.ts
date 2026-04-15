@@ -57,21 +57,27 @@ export function getUploadUrl(path: string | null | undefined): string {
 
 export function getStatusColor(status: string): string {
   const map: Record<string, string> = {
+    // Employment statuses
     ACTIVE: 'badge-success',
     PROBATION: 'badge-warning',
     NOTICE_PERIOD: 'badge-warning',
+    ONBOARDING: 'badge-info',
+    INTERN: 'bg-purple-50 text-purple-700 border-purple-200',
+    SUSPENDED: 'badge-danger',
     INACTIVE: 'badge-neutral',
     TERMINATED: 'badge-danger',
     ABSCONDED: 'badge-danger',
+    // Attendance
     PRESENT: 'badge-success',
     ABSENT: 'badge-danger',
     HALF_DAY: 'badge-warning',
     ON_LEAVE: 'badge-info',
+    NOT_CHECKED_IN: 'badge-neutral',
+    // Leave / approval
     PENDING: 'badge-warning',
     APPROVED: 'badge-success',
     REJECTED: 'badge-danger',
     CANCELLED: 'badge-neutral',
-    NOT_CHECKED_IN: 'badge-neutral',
   };
   return map[status] || 'badge-neutral';
 }

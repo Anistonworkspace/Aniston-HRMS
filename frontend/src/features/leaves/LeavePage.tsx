@@ -1695,7 +1695,7 @@ const LEAVE_TYPE_DEFAULTS = {
   name: '', code: '', defaultDays: 0, maxDays: 0, minDays: 0.5,
   isPaid: true, isCarryForward: false, maxCarryForward: 0,
   isActive: true,
-  applicableTo: 'ALL', applicableToRole: '', applicableToEmployeeIds: [] as string[],
+  applicableTo: 'ALL',
   noticeDays: 0, maxPerMonth: 0, probationMonths: 0,
   allowSameDay: false, allowWeekendAdjacent: true, requiresApproval: true,
   allowPastDates: false, maxAdvanceDays: 0,
@@ -1731,8 +1731,6 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
         maxCarryForward: Number(leaveType.maxCarryForward) || 0,
         isActive: leaveType.isActive ?? true,
         applicableTo: leaveType.applicableTo || 'ALL',
-        applicableToRole: leaveType.applicableToRole || '',
-        applicableToEmployeeIds: (leaveType.applicableToEmployeeIds as string[]) || [],
         noticeDays: leaveType.noticeDays ?? 0,
         maxPerMonth: leaveType.maxPerMonth ?? 0,
         probationMonths: leaveType.probationMonths ?? 0,
@@ -1746,43 +1744,6 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
     }
     return { ...LEAVE_TYPE_DEFAULTS };
   });
-
-  // Employee picker state
-  const [empSearch, setEmpSearch] = useState('');
-  const [showEmpDropdown, setShowEmpDropdown] = useState(false);
-  const empSearchRef = useRef<HTMLDivElement>(null);
-  const { data: empRes } = useGetEmployeesQuery({ limit: 500, status: 'ACTIVE' });
-  const allEmployees: any[] = empRes?.data || [];
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (empSearchRef.current && !empSearchRef.current.contains(e.target as Node)) {
-        setShowEmpDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const filteredEmployees = allEmployees.filter((emp) => {
-    if (!empSearch.trim()) return false;
-    const q = empSearch.toLowerCase();
-    const name = `${emp.firstName} ${emp.lastName}`.toLowerCase();
-    const code = (emp.employeeCode || '').toLowerCase();
-    const dept = (emp.department || '').toLowerCase();
-    return (name.includes(q) || code.includes(q) || dept.includes(q))
-      && !formData.applicableToEmployeeIds.includes(emp.id);
-  });
-
-  const addEmployee = (emp: any) => {
-    setFormData((p) => ({ ...p, applicableToEmployeeIds: [...p.applicableToEmployeeIds, emp.id] }));
-    setEmpSearch('');
-    setShowEmpDropdown(false);
-  };
-  const removeEmployee = (id: string) => {
-    setFormData((p) => ({ ...p, applicableToEmployeeIds: p.applicableToEmployeeIds.filter((x) => x !== id) }));
-  };
 
   const [createLeaveType, { isLoading: creating }] = useCreateLeaveTypeMutation();
   const [updateLeaveType, { isLoading: updating }] = useUpdateLeaveTypeMutation();
@@ -1806,9 +1767,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
       carryForward: formData.isCarryForward,
       maxCarryForward: Number(formData.maxCarryForward) || undefined,
       isActive: formData.isActive,
-      applicableTo: formData.applicableToEmployeeIds.length > 0 ? 'ALL' : formData.applicableTo,
-      applicableToRole: formData.applicableToEmployeeIds.length > 0 ? undefined : (formData.applicableToRole || undefined),
-      applicableToEmployeeIds: formData.applicableToEmployeeIds.length > 0 ? formData.applicableToEmployeeIds : undefined,
+      applicableTo: formData.applicableTo,
       noticeDays: Number(formData.noticeDays),
       maxPerMonth: Number(formData.maxPerMonth) || undefined,
       probationMonths: Number(formData.probationMonths),
@@ -1832,9 +1791,6 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
       toast.error(err?.data?.error?.message || `Failed to ${isEditing ? 'update' : 'create'} leave type`);
     }
   };
-
-  // Whether specific-employee mode is active
-  const hasSpecificEmployees = formData.applicableToEmployeeIds.length > 0;
 
   return (
     <motion.div
@@ -2015,129 +1971,30 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
             <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 mb-3 flex items-start gap-2">
               <Info size={13} className="text-blue-500 mt-0.5 flex-shrink-0" />
               <p className="text-[11px] text-blue-700 leading-relaxed">
-                <strong>Priority order:</strong> Specific Employees &gt; Role &gt; Status &gt; All.
-                If you add specific employees, status and role filters below are ignored.
-                At least one filter must match for an employee to see and apply this leave.
+                Leave visibility is controlled by the employee's current employment status.
+                Employees in <strong>Onboarding</strong> status cannot see or apply for any leave.
               </p>
             </div>
 
-            {/* Specific Employees */}
-            <div className="bg-white border border-gray-200 rounded-xl p-3 mb-3" ref={empSearchRef}>
-              <div className="flex items-center gap-2 mb-2">
-                <UserCheck size={14} className="text-brand-500" />
-                <p className="text-sm font-medium text-gray-700">Specific Employees
-                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(optional — overrides status/role below)</span>
-                </p>
-              </div>
-              {/* Selected employee chips */}
-              {formData.applicableToEmployeeIds.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {formData.applicableToEmployeeIds.map((id) => {
-                    const emp = allEmployees.find((e) => e.id === id);
-                    return (
-                      <span key={id} className="flex items-center gap-1 bg-brand-50 border border-brand-200 text-brand-700 px-2 py-0.5 rounded-full text-xs font-medium">
-                        {emp ? `${emp.firstName} ${emp.lastName}` : id.slice(0, 8) + '…'}
-                        <button type="button" onClick={() => removeEmployee(id)}
-                          className="hover:text-red-500 transition-colors ml-0.5">
-                          <X size={11} />
-                        </button>
-                      </span>
-                    );
-                  })}
-                  <button type="button" onClick={() => setFormData((p) => ({ ...p, applicableToEmployeeIds: [] }))}
-                    className="text-[11px] text-red-400 hover:text-red-600 px-1.5 py-0.5 rounded-full border border-red-200 hover:border-red-300 transition-colors">
-                    Clear all
-                  </button>
-                </div>
-              )}
-              {/* Search input */}
-              <div className="relative">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                <input
-                  type="text"
-                  value={empSearch}
-                  onChange={(e) => { setEmpSearch(e.target.value); setShowEmpDropdown(true); }}
-                  onFocus={() => setShowEmpDropdown(true)}
-                  placeholder="Search by name, code, or department…"
-                  className="input-glass w-full pl-8 text-sm"
-                />
-              </div>
-              {/* Dropdown results */}
-              {showEmpDropdown && filteredEmployees.length > 0 && (
-                <div className="border border-gray-200 rounded-xl mt-1 max-h-44 overflow-y-auto bg-white shadow-lg">
-                  {filteredEmployees.slice(0, 20).map((emp) => (
-                    <button key={emp.id} type="button" onClick={() => addEmployee(emp)}
-                      className="w-full text-left px-3 py-2 hover:bg-brand-50 text-sm flex items-center gap-2 border-b border-gray-50 last:border-0">
-                      <div className="w-6 h-6 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
-                        {emp.firstName?.[0]}{emp.lastName?.[0]}
-                      </div>
-                      <div className="min-w-0">
-                        <span className="font-medium text-gray-800">{emp.firstName} {emp.lastName}</span>
-                        <span className="text-gray-400 text-xs ml-1.5">{emp.employeeCode}</span>
-                        {emp.department && <span className="text-gray-400 text-xs ml-1">· {emp.department}</span>}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {showEmpDropdown && empSearch.trim() && filteredEmployees.length === 0 && (
-                <p className="text-xs text-gray-400 mt-1.5 px-1">No matching employees found</p>
-              )}
-              {hasSpecificEmployees && (
-                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-2">
-                  Only the {formData.applicableToEmployeeIds.length} selected employee(s) will see and can apply this leave.
-                  Status and role filters below are disabled.
-                </p>
-              )}
-            </div>
-
-            {/* Status filter — dimmed when specific employees selected */}
-            <div className={`grid grid-cols-2 gap-3 ${hasSpecificEmployees ? 'opacity-40 pointer-events-none' : ''}`}>
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">By Status
-                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(employment status)</span>
-                  <Tip text="Filter by the employee's current employment status. 'All' means any status can apply. Ignored if specific employees are selected above." />
-                </label>
-                <select value={formData.applicableTo} onChange={(e) => set('applicableTo', e.target.value)}
-                  className="input-glass w-full">
-                  <option value="ALL">All Employees</option>
-                  <option value="PROBATION">Probation Only</option>
-                  <option value="CONFIRMED">Confirmed / Active Only</option>
-                  <option value="INTERN">Intern Status Only</option>
-                  <option value="NOTICE_PERIOD">Notice Period Only</option>
-                  <option value="ONBOARDING">Onboarding Only</option>
-                </select>
-                <p className="text-[10px] text-gray-400 mt-1">
-                  {formData.applicableTo === 'ALL' && 'Available to all employment statuses'}
-                  {formData.applicableTo === 'PROBATION' && 'Only employees in probation can apply'}
-                  {formData.applicableTo === 'CONFIRMED' && 'Only confirmed/active employees can apply'}
-                  {formData.applicableTo === 'INTERN' && 'Only intern-status employees can apply'}
-                  {formData.applicableTo === 'NOTICE_PERIOD' && 'Only employees serving notice can apply'}
-                  {formData.applicableTo === 'ONBOARDING' && 'Only employees in onboarding can apply'}
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">By Role
-                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(system role — optional)</span>
-                  <Tip text="Restrict by the employee's system role. Leave blank to apply to all roles within the chosen status. Ignored if specific employees are selected above." />
-                </label>
-                <select value={formData.applicableToRole} onChange={(e) => set('applicableToRole', e.target.value)}
-                  className="input-glass w-full">
-                  <option value="">All Roles (no restriction)</option>
-                  <option value="EMPLOYEE">Employee Role Only</option>
-                  <option value="INTERN">Intern Role Only</option>
-                  <option value="MANAGER">Manager Role Only</option>
-                  <option value="HR">HR Role Only</option>
-                </select>
-                <p className="text-[10px] text-gray-400 mt-1">
-                  {!formData.applicableToRole && 'Combined with status filter above'}
-                  {formData.applicableToRole === 'EMPLOYEE' && 'Employee role users only'}
-                  {formData.applicableToRole === 'INTERN' && 'Intern role users only'}
-                  {formData.applicableToRole === 'MANAGER' && 'Manager role users only'}
-                  {formData.applicableToRole === 'HR' && 'HR role users only'}
-                </p>
-              </div>
-            </div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">By Status
+              <span className="ml-1 text-[11px] text-gray-400 font-normal">(employment status)</span>
+              <Tip text="Filter by the employee's current employment status. Employees in Onboarding status never see any leaves regardless of this setting." />
+            </label>
+            <select value={formData.applicableTo} onChange={(e) => set('applicableTo', e.target.value)}
+              className="input-glass w-full">
+              <option value="ALL">All Employees (except Onboarding)</option>
+              <option value="PROBATION">Probation Only</option>
+              <option value="CONFIRMED">Confirmed / Active Only</option>
+              <option value="INTERN">Intern Status Only</option>
+              <option value="NOTICE_PERIOD">Notice Period Only</option>
+            </select>
+            <p className="text-[10px] text-gray-400 mt-1">
+              {formData.applicableTo === 'ALL' && 'Visible to all employees except those in Onboarding status'}
+              {formData.applicableTo === 'PROBATION' && 'Only employees in probation can apply'}
+              {formData.applicableTo === 'CONFIRMED' && 'Only confirmed/active employees can apply'}
+              {formData.applicableTo === 'INTERN' && 'Only intern-status employees can apply'}
+              {formData.applicableTo === 'NOTICE_PERIOD' && 'Only employees serving notice can apply'}
+            </p>
           </section>
 
         </div>{/* end scrollable body */}

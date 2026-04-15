@@ -39,6 +39,49 @@ export class DocumentOcrService {
       return this.createFallbackOcr(documentId, organizationId, `Unsupported file format (.${ext}). Supported: images, PDF`);
     }
 
+    // Combined KYC PDFs must NOT be processed by the single-document OCR pipeline.
+    // They have their own pipeline via /ai/ocr/classify-combined-pdf called from onboarding.routes.ts.
+    // Running them through /ai/ocr/extract produces meaningless 0%-confidence results and FLAGGED status.
+    const isCombinedKycPdf =
+      doc.type === 'OTHER' &&
+      typeof doc.name === 'string' &&
+      (doc.name.toLowerCase().includes('combined') || doc.name.toLowerCase().includes('kyc'));
+
+    if (isCombinedKycPdf) {
+      logger.info(`OCR: Skipping single-doc OCR for combined KYC PDF ${documentId} — processed by combined-pdf pipeline`);
+      const note = 'Combined KYC PDF — processed separately by the combined-PDF classifier. HR must open the document and manually verify each constituent document (Aadhaar/PAN, education certificates, residence proof, photo, etc.) is present, legible, and matches the employee\'s details.';
+      const ocr = await prisma.documentOcrVerification.upsert({
+        where: { documentId },
+        create: {
+          documentId,
+          organizationId,
+          rawText: note,
+          detectedType: 'COMBINED_PDF',
+          confidence: 0,
+          ocrStatus: 'PENDING',
+          hrNotes: note,
+          processingMode: 'manual_review',
+          extractionSource: 'none',
+          suspicionScore: 0,
+        },
+        update: {
+          rawText: note,
+          detectedType: 'COMBINED_PDF',
+          confidence: 0,
+          ocrStatus: 'PENDING',
+          hrNotes: note,
+          processingMode: 'manual_review',
+          extractionSource: 'none',
+        },
+      });
+      // Ensure document status is PENDING (not FLAGGED) — combined PDFs are not suspicious
+      await prisma.document.update({
+        where: { id: documentId },
+        data: { status: 'PENDING', rejectionReason: null, tamperDetected: false, tamperDetails: null },
+      }).catch(() => {});
+      return ocr;
+    }
+
     // Call AI service (now handles both images AND PDFs) — native fetch, no axios dependency
     let ocrResult: any = null;
     try {
@@ -190,6 +233,21 @@ export class DocumentOcrService {
     const qualityReport = this.analyzeImageQuality(fileBuffer, ocrResult, ext);
     const fields = ocrResult.extracted_fields || {};
 
+    // Confidence-based automatic status: < 60% → FLAGGED, requires HR review
+    const confidence = ocrResult.confidence || 0;
+    const isLowConfidence = confidence < 0.60;
+    const isPythonFlagged = ocrResult.is_flagged === true;
+    const hasTamperIssues = qualityReport.tamperingIndicators.length > 0 || qualityReport.isScreenshot;
+    const autoOcrStatus = (isLowConfidence || isPythonFlagged || hasTamperIssues) ? 'FLAGGED' : 'PENDING';
+
+    // Store validation reasons from Python AI in hrNotes for HR display
+    const validationReasons: string[] = ocrResult.validation_reasons || [];
+    const dynamicFields: Record<string, string> = ocrResult.dynamic_fields || {};
+    const authenticityScore: number = typeof ocrResult.authenticity_score === 'number' ? ocrResult.authenticity_score : 1.0;
+    const hrNotesFromAI = validationReasons.length > 0
+      ? `AI Analysis (Authenticity: ${Math.round(authenticityScore * 100)}%):\n${validationReasons.join('\n')}`
+      : null;
+
     // Upsert the OCR verification record
     const ocrVerification = await prisma.documentOcrVerification.upsert({
       where: { documentId },
@@ -198,51 +256,72 @@ export class DocumentOcrService {
         organizationId,
         rawText: (ocrResult.raw_text || '').substring(0, 10000),
         detectedType: ocrResult.document_type || doc.type,
-        confidence: ocrResult.confidence || 0,
-        extractedName: fields.name || null,
+        confidence,
+        extractedName: fields.name || fields.account_holder_name || fields.student_name || null,
         extractedDob: fields.date_of_birth || null,
         extractedFatherName: fields.father_name || null,
         extractedMotherName: fields.mother_name || null,
-        extractedDocNumber: fields.aadhaar_number || fields.pan_number || fields.passport_number || null,
+        extractedDocNumber: fields.aadhaar_number || fields.pan_number || fields.passport_number || fields.epic_number || fields.dl_number || fields.account_number || null,
         extractedGender: fields.gender || null,
         extractedAddress: fields.address || null,
         isScreenshot: qualityReport.isScreenshot,
         isOriginalScan: qualityReport.isOriginalScan,
         resolutionQuality: qualityReport.resolutionQuality,
         tamperingIndicators: qualityReport.tamperingIndicators,
-        ocrStatus: 'PENDING',
+        ocrStatus: autoOcrStatus,
+        hrNotes: hrNotesFromAI,
         processingMode: 'python_advanced',
         extractionSource: 'python',
+        suspicionScore: hasTamperIssues ? 60 : isLowConfidence ? 30 : 0,
+        // Store validation reasons + dynamic fields in llmExtractedData for frontend access
+        llmExtractedData: {
+          validation_reasons: validationReasons,
+          dynamic_fields: dynamicFields,
+          authenticity_score: authenticityScore,
+          is_flagged: isPythonFlagged,
+        } as any,
       },
       update: {
         rawText: (ocrResult.raw_text || '').substring(0, 10000),
         detectedType: ocrResult.document_type || doc.type,
-        confidence: ocrResult.confidence || 0,
-        extractedName: fields.name || null,
+        confidence,
+        extractedName: fields.name || fields.account_holder_name || fields.student_name || null,
         extractedDob: fields.date_of_birth || null,
         extractedFatherName: fields.father_name || null,
         extractedMotherName: fields.mother_name || null,
-        extractedDocNumber: fields.aadhaar_number || fields.pan_number || fields.passport_number || null,
+        extractedDocNumber: fields.aadhaar_number || fields.pan_number || fields.passport_number || fields.epic_number || fields.dl_number || fields.account_number || null,
         extractedGender: fields.gender || null,
         extractedAddress: fields.address || null,
         isScreenshot: qualityReport.isScreenshot,
         isOriginalScan: qualityReport.isOriginalScan,
         resolutionQuality: qualityReport.resolutionQuality,
         tamperingIndicators: qualityReport.tamperingIndicators,
+        ocrStatus: autoOcrStatus,
+        hrNotes: hrNotesFromAI,
         processingMode: 'python_advanced',
         extractionSource: 'python',
+        suspicionScore: hasTamperIssues ? 60 : isLowConfidence ? 30 : 0,
+        llmExtractedData: {
+          validation_reasons: validationReasons,
+          dynamic_fields: dynamicFields,
+          authenticity_score: authenticityScore,
+          is_flagged: isPythonFlagged,
+        } as any,
       },
     });
 
-    // Update the Document record
-    const hasTamperIssues = qualityReport.tamperingIndicators.length > 0 || qualityReport.isScreenshot;
+    // Update the Document record — auto-flag if confidence is low
     await prisma.document.update({
       where: { id: documentId },
       data: {
         ocrData: ocrResult,
+        status: (hasTamperIssues || isLowConfidence) ? 'FLAGGED' : undefined,
         tamperDetected: hasTamperIssues,
         tamperDetails: hasTamperIssues
           ? qualityReport.tamperingIndicators.join('; ') || 'Possible screenshot detected'
+          : null,
+        rejectionReason: isLowConfidence && !hasTamperIssues
+          ? `OCR confidence is ${Math.round(confidence * 100)}% (below 60% threshold). HR review required.`
           : null,
       },
     });
@@ -333,6 +412,15 @@ export class DocumentOcrService {
       include: { ocrVerification: true },
     });
     if (!doc) throw new NotFoundError('Document');
+
+    // Never run LLM OCR on combined PDFs — the raw text is a mix of multiple docs and confuses the LLM
+    const isCombined = doc.type === 'OTHER' &&
+      typeof doc.name === 'string' &&
+      (doc.name.toLowerCase().includes('combined') || doc.name.toLowerCase().includes('kyc'));
+    if (isCombined || doc.ocrVerification?.detectedType === 'COMBINED_PDF') {
+      logger.info(`[LLM OCR] Skipped for ${documentId} — combined KYC PDF, not suitable for single-doc LLM analysis`);
+      return doc.ocrVerification;
+    }
 
     const docType = doc.type;
     const existingOcrText = doc.ocrVerification?.rawText || '';

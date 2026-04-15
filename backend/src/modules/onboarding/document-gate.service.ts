@@ -352,10 +352,13 @@ export class DocumentGateService {
       employeeVisibleReasons?: string[];
     }
   ) {
+    // After OCR classification completes, set status back to PENDING so the employee
+    // can review the identified documents and explicitly click "Submit for HR Review".
+    // We do NOT auto-submit here — that happens only when the employee calls submitKyc().
     return prisma.onboardingDocumentGate.update({
       where: { employeeId },
       data: {
-        kycStatus: 'PENDING_HR_REVIEW',
+        kycStatus: 'PENDING',
         combinedPdfAnalysis: opts.analysisResult,
         processingMode: opts.processingMode,
         fallbackUsed: opts.fallbackUsed,

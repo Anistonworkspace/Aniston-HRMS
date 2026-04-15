@@ -207,13 +207,14 @@ export default function KycGatePage() {
       setUploadMode(kyc.uploadMode as UploadMode);
       setExperience((kyc.fresherOrExperienced || 'FRESHER') as Experience);
       setQualification((kyc.highestQualification || 'GRADUATION') as Qualification);
-      // If already configured, go to upload step
-      if (kycStatus === 'PENDING' || kycStatus === 'REUPLOAD_REQUIRED') {
+      // Stay on upload step for PENDING/PROCESSING/REUPLOAD — only jump to STATUS when truly submitted
+      if (['PENDING', 'PROCESSING', 'REUPLOAD_REQUIRED'].includes(kycStatus)) {
         setFlowStep(kyc.uploadMode === 'COMBINED' ? 'COMBINED_UPLOAD' : 'SEPARATE_UPLOAD');
       } else {
         setFlowStep('STATUS');
       }
-    } else if (!kyc?.uploadMode && ['SUBMITTED', 'PROCESSING', 'PENDING_HR_REVIEW', 'VERIFIED', 'REJECTED'].includes(kycStatus)) {
+    } else if (!kyc?.uploadMode && ['SUBMITTED', 'PENDING_HR_REVIEW', 'VERIFIED', 'REJECTED'].includes(kycStatus)) {
+      // Only jump to STATUS when the employee has actually submitted (not during upload/processing)
       setFlowStep('STATUS');
     }
   }, [kyc, kycStatus, uploadMode]);
@@ -335,7 +336,7 @@ export default function KycGatePage() {
   // ── Render ─────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-surface-1 py-8 px-4">
+    <div className="min-h-screen overflow-y-auto bg-surface-1 py-8 px-4 pb-16">
       <div className="max-w-2xl mx-auto">
 
         {/* Header */}
@@ -508,7 +509,7 @@ function StepIndicator({ flowStep, uploadMode }: { flowStep: FlowStep; uploadMod
               )}>
                 {done ? <CheckCircle2 size={16} /> : idx + 1}
               </div>
-              <span className={cn('text-[10px] whitespace-nowrap hidden sm:block', active ? 'text-brand-600 font-medium' : 'text-gray-400')}>
+              <span className={cn('text-[9px] sm:text-[10px] whitespace-nowrap', active ? 'text-brand-600 font-medium' : 'text-gray-400')}>
                 {step.label}
               </span>
             </div>
@@ -528,26 +529,35 @@ function ModeSelectScreen({ uploadMode, onSelect }: {
   uploadMode: UploadMode;
   onSelect: (mode: UploadMode) => void;
 }) {
+  const [selected, setSelected] = useState<UploadMode>(uploadMode);
+  const [showError, setShowError] = useState(false);
+
   return (
-    <div className="layer-card p-8">
+    <div className="layer-card p-6 sm:p-8">
       <h2 className="text-lg font-display font-bold text-gray-900 mb-1">How would you like to submit your documents?</h2>
       <p className="text-sm text-gray-500 mb-6">Choose the method that works best for you.</p>
 
+      {showError && !selected && (
+        <div className="mb-4 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2">
+          <AlertTriangle size={13} /> Please select an upload method to continue.
+        </div>
+      )}
+
       <div className="grid gap-4">
         <ModeCard
-          selected={uploadMode === 'COMBINED'}
+          selected={selected === 'COMBINED'}
           icon={FileUp}
           title="Upload Combined PDF"
           description="Scan all your documents into one PDF file and upload it together with your photo. Our OCR will automatically identify each document inside."
           recommended
-          onSelect={() => onSelect('COMBINED')}
+          onSelect={() => setSelected('COMBINED')}
         />
         <ModeCard
-          selected={uploadMode === 'SEPARATE'}
+          selected={selected === 'SEPARATE'}
           icon={FileText}
           title="Upload Documents Separately"
           description="Upload each document one by one using the guided checklist. Recommended if you have individual scans for each document."
-          onSelect={() => onSelect('SEPARATE')}
+          onSelect={() => setSelected('SEPARATE')}
         />
       </div>
 
@@ -555,6 +565,16 @@ function ModeSelectScreen({ uploadMode, onSelect }: {
         <Info size={14} className="mt-0.5 shrink-0" />
         <span>All documents are reviewed by HR. Make sure scans are clear and complete. Avoid screenshots — use proper scans or photographs of original documents.</span>
       </div>
+
+      <button
+        onClick={() => {
+          if (!selected) { setShowError(true); return; }
+          onSelect(selected);
+        }}
+        className="btn-primary w-full mt-5 flex items-center justify-center gap-2 text-sm"
+      >
+        Continue <ArrowRight size={15} />
+      </button>
     </div>
   );
 }
@@ -691,8 +711,8 @@ function CombinedUploadScreen({
   onBack, onSubmit, submitting, experience, qualification,
 }: any) {
   const isProcessing = kycStatus === 'PROCESSING';
-  const isPendingHrReview = kycStatus === 'PENDING_HR_REVIEW';
-  const canSubmit = combinedPdfUploaded && hasPhoto && !isProcessing && !isPendingHrReview;
+  // Submit enabled only when PDF + photo are uploaded AND OCR is not currently running
+  const canSubmit = combinedPdfUploaded && hasPhoto && !isProcessing;
 
   return (
     <div className="space-y-4">
@@ -704,20 +724,20 @@ function CombinedUploadScreen({
             <p className="text-sm font-semibold text-indigo-800">Classifying your documents…</p>
             <p className="text-xs text-indigo-600 mt-0.5">
               Our OCR engine is identifying each document in your PDF. This usually takes 30–90 seconds.
-              You can leave this page — we'll notify you when it's ready.
+              Once done, you can review and click "Submit for HR Review".
             </p>
           </div>
         </div>
       )}
 
-      {/* PENDING_HR_REVIEW banner — classification done, waiting for HR */}
-      {isPendingHrReview && (
-        <div className="layer-card p-4 border border-purple-200 bg-purple-50 flex items-start gap-3">
-          <CheckCircle2 size={18} className="text-purple-600 mt-0.5 shrink-0" />
+      {/* OCR complete banner — PDF uploaded and processed, ready to submit */}
+      {combinedPdfUploaded && !isProcessing && (
+        <div className="layer-card p-4 border border-emerald-200 bg-emerald-50 flex items-start gap-3">
+          <CheckCircle2 size={18} className="text-emerald-600 mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-semibold text-purple-800">Documents submitted for HR review</p>
-            <p className="text-xs text-purple-600 mt-0.5">
-              Your documents have been classified and are pending HR review. No further action needed.
+            <p className="text-sm font-semibold text-emerald-800">Documents identified — ready to submit</p>
+            <p className="text-xs text-emerald-600 mt-0.5">
+              OCR has processed your PDF. Upload your photo below, then click "Submit for HR Review".
             </p>
           </div>
         </div>
@@ -812,9 +832,8 @@ function CombinedUploadScreen({
       {!canSubmit && (
         <p className="text-xs text-center text-gray-400">
           {isProcessing ? 'Waiting for OCR to finish classifying your documents…'
-            : isPendingHrReview ? 'Documents are already submitted for HR review'
             : !combinedPdfUploaded ? 'Upload combined PDF to continue'
-            : 'Upload your photo to continue'}
+            : 'Upload your photo to submit'}
         </p>
       )}
     </div>

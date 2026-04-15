@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard } from 'lucide-react';
+import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard, MessageSquare } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setAccessToken } from '../auth/authSlice';
 import { useGetMeQuery, useChangePasswordMutation } from '../auth/authApi';
 import { useUpdateEmployeeMutation, useGetEmployeeQuery } from '../employee/employeeApi';
 import { useSubmitResignationMutation } from '../exit/exitApi';
+import { useCreateTicketMutation } from '../helpdesk/helpdeskApi';
 import { getInitials, formatDate, getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -26,8 +27,15 @@ export default function ProfilePage() {
 
   const [updateEmployee, { isLoading: updating }] = useUpdateEmployeeMutation();
   const [submitResignation, { isLoading: resigning }] = useSubmitResignationMutation();
+  const [createTicket, { isLoading: requestingEdit }] = useCreateTicketMutation();
   const [showEdit, setShowEdit] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+
+  // One-time edit: employee can only edit profile freely once.
+  // After the first save (when dateOfBirth+phone are filled), they must request HR approval.
+  const hasFilledProfile = !!(employee?.phone && employee?.dateOfBirth &&
+    employee?.phone !== '0000000000');
+
   const [showResignModal, setShowResignModal] = useState(false);
   const [resignForm, setResignForm] = useState({ reason: '', lastWorkingDate: '' });
 
@@ -93,6 +101,20 @@ export default function ProfilePage() {
       toast.success(t('profile.profileUpdated'));
       setShowEdit(false);
     } catch { toast.error(t('profile.failedToUpdate')); }
+  };
+
+  const handleRequestEdit = async () => {
+    try {
+      await createTicket({
+        subject: 'Profile Edit Request',
+        description: 'I would like to update my profile details. Please approve this request.',
+        category: 'HR',
+        priority: 'MEDIUM',
+      }).unwrap();
+      toast.success('Edit request submitted to HR');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to submit request');
+    }
   };
 
   const handleSaveBankDetails = async () => {
@@ -215,10 +237,22 @@ export default function ProfilePage() {
               )}
             </div>
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => setShowEdit(!showEdit)} className="btn-secondary flex items-center gap-2 text-sm">
-              {showEdit ? <><X size={14} /> {t('common.cancel')}</> : <><Edit2 size={14} /> {t('profile.editProfile')}</>}
-            </button>
+          <div className="flex gap-2 flex-wrap">
+            {hasFilledProfile ? (
+              <button
+                onClick={handleRequestEdit}
+                disabled={requestingEdit}
+                className="btn-secondary flex items-center gap-2 text-sm"
+                title="Your profile is complete. Submit a request to HR to edit it again."
+              >
+                {requestingEdit ? <Loader2 size={14} className="animate-spin" /> : <MessageSquare size={14} />}
+                Request Edit
+              </button>
+            ) : (
+              <button onClick={() => setShowEdit(true)} className="btn-secondary flex items-center gap-2 text-sm">
+                <Edit2 size={14} /> {t('profile.editProfile')}
+              </button>
+            )}
             {employee && !employee.exitStatus && employee.status !== 'TERMINATED' && (
               <button onClick={() => setShowResignModal(true)} className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
                 <UserMinus size={14} /> {t('profile.submitResignation')}
@@ -303,74 +337,83 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Edit profile form */}
+      {/* Edit Profile Modal */}
       {showEdit && (
-        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-          className="layer-card p-6 mb-6">
-          <h3 className="text-sm font-semibold text-gray-800 mb-4">{t('profile.editProfile')} — {t('profile.personalInfo')}</h3>
-          <div className="space-y-4 max-w-2xl">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">{t('common.phone')}</label>
-                <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})}
-                  className="input-glass w-full text-sm" placeholder="+91 XXXXXXXXXX" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={() => setShowEdit(false)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            onClick={e => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 flex flex-col"
+            style={{ maxHeight: 'min(90dvh, 640px)' }}
+          >
+            <div className="flex items-center justify-between p-5 border-b border-gray-100 shrink-0">
+              <h3 className="text-base font-display font-semibold text-gray-800">{t('profile.editProfile')}</h3>
+              <button onClick={() => setShowEdit(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{t('common.phone')} *</label>
+                  <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})}
+                    className="input-glass w-full text-sm" placeholder="+91 XXXXXXXXXX" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{t('profile.personalEmail')}</label>
+                  <input value={form.personalEmail} onChange={e => setForm({...form, personalEmail: e.target.value})}
+                    className="input-glass w-full text-sm" placeholder="personal@email.com" />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">{t('profile.personalEmail')}</label>
-                <input value={form.personalEmail} onChange={e => setForm({...form, personalEmail: e.target.value})}
-                  className="input-glass w-full text-sm" placeholder="personal@email.com" />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{t('profile.bloodGroup')}</label>
+                  <select value={form.bloodGroup} onChange={e => setForm({...form, bloodGroup: e.target.value})} className="input-glass w-full text-sm">
+                    <option value="">{t('common.selectOption')}</option>
+                    {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(bg => <option key={bg} value={bg}>{bg}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{t('profile.maritalStatus')}</label>
+                  <select value={form.maritalStatus} onChange={e => setForm({...form, maritalStatus: e.target.value})} className="input-glass w-full text-sm">
+                    <option value="">{t('common.selectOption')}</option>
+                    <option value="Single">{t('profile.single')}</option>
+                    <option value="Married">{t('profile.married')}</option>
+                    <option value="Divorced">{t('profile.divorced')}</option>
+                    <option value="Widowed">{t('profile.widowed')}</option>
+                  </select>
+                </div>
+              </div>
+              <h4 className="text-xs font-semibold text-gray-600">{t('common.address')}</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <input value={form.address.street} onChange={e => setForm({...form, address: {...form.address, street: e.target.value}})}
+                    className="input-glass w-full text-sm" placeholder={t('profile.streetAddress')} />
+                </div>
+                <input value={form.address.city} onChange={e => setForm({...form, address: {...form.address, city: e.target.value}})}
+                  className="input-glass w-full text-sm" placeholder={t('common.city')} />
+                <input value={form.address.state} onChange={e => setForm({...form, address: {...form.address, state: e.target.value}})}
+                  className="input-glass w-full text-sm" placeholder={t('common.state')} />
+                <input value={form.address.pincode} onChange={e => setForm({...form, address: {...form.address, pincode: e.target.value}})}
+                  className="input-glass w-full text-sm" placeholder={t('common.pincode')} />
+              </div>
+              <h4 className="text-xs font-semibold text-gray-600">{t('profile.emergencyContact')}</h4>
+              <div className="grid grid-cols-3 gap-3">
+                <input value={form.emergencyContact.name} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, name: e.target.value}})}
+                  className="input-glass w-full text-sm" placeholder={t('common.name')} />
+                <input value={form.emergencyContact.phone} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, phone: e.target.value}})}
+                  className="input-glass w-full text-sm" placeholder={t('common.phone')} />
+                <input value={form.emergencyContact.relationship} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, relationship: e.target.value}})}
+                  className="input-glass w-full text-sm" placeholder={t('profile.relationship')} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">{t('profile.bloodGroup')}</label>
-                <select value={form.bloodGroup} onChange={e => setForm({...form, bloodGroup: e.target.value})} className="input-glass w-full text-sm">
-                  <option value="">{t('common.selectOption')}</option>
-                  {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(bg => <option key={bg} value={bg}>{bg}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">{t('profile.maritalStatus')}</label>
-                <select value={form.maritalStatus} onChange={e => setForm({...form, maritalStatus: e.target.value})} className="input-glass w-full text-sm">
-                  <option value="">{t('common.selectOption')}</option>
-                  <option value="Single">{t('profile.single')}</option>
-                  <option value="Married">{t('profile.married')}</option>
-                  <option value="Divorced">{t('profile.divorced')}</option>
-                  <option value="Widowed">{t('profile.widowed')}</option>
-                </select>
-              </div>
+            <div className="p-5 border-t border-gray-100 shrink-0">
+              <button onClick={handleSaveProfile} disabled={updating} className="btn-primary w-full flex items-center justify-center gap-2 text-sm">
+                {updating ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                {t('profile.saveChanges')}
+              </button>
             </div>
-
-            <h4 className="text-xs font-semibold text-gray-600 pt-2">{t('common.address')}</h4>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <input value={form.address.street} onChange={e => setForm({...form, address: {...form.address, street: e.target.value}})}
-                  className="input-glass w-full text-sm" placeholder={t('profile.streetAddress')} />
-              </div>
-              <input value={form.address.city} onChange={e => setForm({...form, address: {...form.address, city: e.target.value}})}
-                className="input-glass w-full text-sm" placeholder={t('common.city')} />
-              <input value={form.address.state} onChange={e => setForm({...form, address: {...form.address, state: e.target.value}})}
-                className="input-glass w-full text-sm" placeholder={t('common.state')} />
-              <input value={form.address.pincode} onChange={e => setForm({...form, address: {...form.address, pincode: e.target.value}})}
-                className="input-glass w-full text-sm" placeholder={t('common.pincode')} />
-            </div>
-
-            <h4 className="text-xs font-semibold text-gray-600 pt-2">{t('profile.emergencyContact')}</h4>
-            <div className="grid grid-cols-3 gap-4">
-              <input value={form.emergencyContact.name} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, name: e.target.value}})}
-                className="input-glass w-full text-sm" placeholder={t('common.name')} />
-              <input value={form.emergencyContact.phone} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, phone: e.target.value}})}
-                className="input-glass w-full text-sm" placeholder={t('common.phone')} />
-              <input value={form.emergencyContact.relationship} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, relationship: e.target.value}})}
-                className="input-glass w-full text-sm" placeholder={t('profile.relationship')} />
-            </div>
-
-            <button onClick={handleSaveProfile} disabled={updating} className="btn-primary flex items-center gap-2 text-sm">
-              {updating ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              {t('profile.saveChanges')}
-            </button>
-          </div>
-        </motion.div>
+          </motion.div>
+        </div>
       )}
 
       <div className="grid md:grid-cols-2 gap-6">

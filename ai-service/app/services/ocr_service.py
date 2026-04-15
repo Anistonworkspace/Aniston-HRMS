@@ -32,7 +32,10 @@ try:
 except ImportError:
     HAS_PYPDF2 = False
 
-from ..models.ocr_models import OCRResult, AadhaarData, PANData, PassportData
+from ..models.ocr_models import (
+    OCRResult, AadhaarData, PANData, PassportData,
+    VoterIdData, DrivingLicenseData, BankStatementData, EducationCertificateData,
+)
 
 
 # ===== IMAGE PREPROCESSING =====
@@ -253,15 +256,23 @@ def extract_aadhaar_fields(text: str) -> dict:
     elif re.search(r"\b(female|महिला|FEMALE)\b", text, re.IGNORECASE):
         data.gender = "FEMALE"
 
-    # Name — usually first prominent text line
+    # Name — usually first prominent text line after government headers
     lines = [l.strip() for l in text.split("\n") if l.strip() and len(l.strip()) > 3]
-    skip_words = {"government", "india", "aadhaar", "unique", "dob", "male", "female", "uid", "enrollment",
-                  "year", "birth", "address", "uidai", "help", "www", "http", "your", "aadhaar"}
-    for line in lines[1:8]:
-        if not re.search(r"\d{3}", line) and not any(kw in line.lower() for kw in skip_words):
-            if re.match(r"^[A-Za-z\s\.]+$", line) and len(line) > 3:
-                data.name = line.strip()
-                break
+    AADHAAR_SKIP = {
+        "government", "india", "aadhaar", "unique", "dob", "male", "female",
+        "uid", "enrollment", "enrolment", "year", "birth", "address", "uidai",
+        "help", "www", "http", "your", "republic", "of", "identification",
+        "authority", "आधार", "भारत", "सरकार", "आयोग",
+    }
+    for line in lines[:12]:
+        if not re.search(r"\d{3}", line) and not any(kw in line.lower() for kw in AADHAAR_SKIP):
+            if re.match(r"^[A-Za-z\s\.]+$", line):
+                stripped = line.strip()
+                # Require at least 2 words OR a single long word >= 5 chars (some people have single names)
+                words = [w for w in stripped.split() if len(w) >= 2]
+                if (len(words) >= 2 or (len(words) == 1 and len(stripped) >= 5)) and len(stripped) >= 4:
+                    data.name = stripped
+                    break
 
     # Address — lines after "Address" keyword
     addr_match = re.search(r"(?:Address|addr)[:\s]*(.*?)(?:\n\n|\Z)", text, re.IGNORECASE | re.DOTALL)
@@ -273,34 +284,67 @@ def extract_aadhaar_fields(text: str) -> dict:
 
 
 def extract_pan_fields(text: str) -> dict:
-    """Extract fields from PAN card text."""
+    """
+    Extract fields from PAN card text.
+
+    PAN card layout (top → bottom):
+      INCOME TAX DEPARTMENT / GOVT. OF INDIA (header)
+      [Cardholder Name — prominent, large text]
+      [Father's / Mother's Name — smaller]
+      [Date of Birth DD/MM/YYYY]
+      [PAN number ABCDE1234F]
+
+    Key fix: require name lines to have ≥2 words (single-word OCR artifacts like
+    "ARR" or "ST" are filtered out).
+    """
     data = PANData()
 
-    # PAN number (tolerant)
-    cleaned = text.replace("O", "0").replace("o", "0")
-    pan_match = re.search(r"([A-Z]{5}\d{4}[A-Z])", cleaned)
+    # PAN number — most reliable field (strict format ABCDE1234F)
+    pan_match = re.search(r"\b([A-Z]{5}\d{4}[A-Z])\b", text)
     if not pan_match:
-        pan_match = re.search(r"([A-Z]{3}[A-Z0-9]{2}\d{4}[A-Z0-9])", cleaned)
+        # Tolerant OCR: O→0 substitution already baked in source, try anyway
+        cleaned = text.replace("O", "0")
+        pan_match = re.search(r"\b([A-Z]{5}\d{4}[A-Z])\b", cleaned)
     if pan_match:
         data.pan_number = pan_match.group(1)
 
-    # DOB
+    # DOB — DD/MM/YYYY or DD-MM-YYYY
     dob_match = re.search(r"(\d{2}[/\-\.]\d{2}[/\-\.]\d{4})", text)
     if dob_match:
         data.date_of_birth = dob_match.group(1)
 
-    # Name lines — skip header keywords
-    lines = [l.strip() for l in text.split("\n") if l.strip() and len(l.strip()) > 2]
-    skip_words = {"income", "tax", "govt", "india", "permanent", "account", "department", "number", "card"}
-    name_lines = []
+    # Name extraction — structural approach for PAN card layout
+    # Skip government header keywords
+    SKIP_WORDS = {
+        "income", "tax", "govt", "government", "india", "permanent",
+        "account", "department", "number", "card", "आयकर", "विभाग",
+        "भारत", "सरकार", "signature", "हस्ताक्षर", "date", "birth",
+        "father", "mother", "sthayi", "lekha", "sankhya", "of",
+    }
+
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    name_candidates = []
     for line in lines:
-        if not re.search(r"\d{3}", line) and not any(kw in line.lower() for kw in skip_words):
-            if re.match(r"^[A-Za-z\s\.]+$", line):
-                name_lines.append(line)
-    if len(name_lines) >= 1:
-        data.name = name_lines[0]
-    if len(name_lines) >= 2:
-        data.father_name = name_lines[1]
+        # Must consist only of letters, spaces, and dots (no digits, symbols)
+        if not re.match(r"^[A-Za-z\s\.]+$", line):
+            continue
+        stripped = line.strip()
+        # CRITICAL FIX: require at least 2 words (filters "ARR", "ST", single-word OCR artifacts)
+        words = [w for w in stripped.split() if len(w) >= 2]
+        if len(words) < 2:
+            continue
+        # Min total length — "A B" (3) would slip through word check, so add floor
+        if len(stripped) < 6:
+            continue
+        # Skip if any word matches a header keyword
+        if any(kw in stripped.lower() for kw in SKIP_WORDS):
+            continue
+        name_candidates.append(stripped)
+
+    if len(name_candidates) >= 1:
+        data.name = name_candidates[0]
+    if len(name_candidates) >= 2:
+        data.father_name = name_candidates[1]
 
     return data.model_dump(exclude_none=True)
 
@@ -356,6 +400,406 @@ def extract_generic_fields(text: str) -> dict:
         fields["pan_number"] = pan.group(1)
 
     return fields
+
+
+# ===== ADDITIONAL INDIAN DOCUMENT EXTRACTORS =====
+
+def extract_voter_id_fields(text: str) -> dict:
+    """Extract fields from Voter ID (EPIC) card."""
+    data = VoterIdData()
+
+    # EPIC number: typically 3 letters + 7 digits, e.g. ABC1234567
+    epic_match = re.search(r"\b([A-Z]{3}\d{7})\b", text)
+    if epic_match:
+        data.epic_number = epic_match.group(1)
+
+    # DOB or Year of Birth
+    dob_match = re.search(r"(?:DOB|Date of Birth|Birth)[:\s]*(\d{2}[/\-\.]\d{2}[/\-\.]\d{4})", text, re.IGNORECASE)
+    if not dob_match:
+        dob_match = re.search(r"(\d{2}[/\-\.]\d{2}[/\-\.]\d{4})", text)
+    if dob_match:
+        data.date_of_birth = dob_match.group(1)
+
+    # Gender
+    if re.search(r"\b(male|MALE|पुरुष)\b", text, re.IGNORECASE):
+        data.gender = "MALE"
+    elif re.search(r"\b(female|FEMALE|महिला)\b", text, re.IGNORECASE):
+        data.gender = "FEMALE"
+
+    # Name — after "Name:" label
+    name_match = re.search(r"(?:Name|नाम)[:\s]+([A-Za-z][A-Za-z\s\.]{4,50})", text, re.IGNORECASE)
+    if name_match:
+        data.name = name_match.group(1).strip()
+
+    # Father / Husband name
+    father_match = re.search(r"(?:Father|Husband|Father's Name|पिता)[:\s/]+([A-Za-z][A-Za-z\s\.]{4,50})", text, re.IGNORECASE)
+    if father_match:
+        data.father_name = father_match.group(1).strip()
+
+    # Address
+    addr_match = re.search(r"(?:Address|पता)[:\s]*(.*?)(?:\n\n|\Z)", text, re.IGNORECASE | re.DOTALL)
+    if addr_match:
+        data.address = addr_match.group(1).strip().replace("\n", ", ")[:200]
+
+    return data.model_dump(exclude_none=True)
+
+
+def extract_driving_license_fields(text: str) -> dict:
+    """Extract fields from Indian Driving License."""
+    data = DrivingLicenseData()
+
+    # DL number — format varies by state, e.g. MH0120201234567 or DL-1420110012345
+    dl_match = re.search(r"\b([A-Z]{2}[\-\s]?\d{2}[\-\s]?\d{4}[\-\s]?\d{7})\b", text)
+    if not dl_match:
+        # Alternate shorter format
+        dl_match = re.search(r"\b([A-Z]{2}\d{13})\b", text)
+    if dl_match:
+        data.dl_number = dl_match.group(1).replace(" ", "").replace("-", "")
+
+    # Dates
+    dates = re.findall(r"(\d{2}[/\-\.]\d{2}[/\-\.]\d{4})", text)
+    if dates:
+        data.date_of_birth = dates[0]
+    if len(dates) >= 2:
+        data.issue_date = dates[1]
+    if len(dates) >= 3:
+        data.expiry_date = dates[-1]
+
+    # Name — after "Name:" label
+    name_match = re.search(r"(?:Name|नाम)[:\s]+([A-Za-z][A-Za-z\s\.]{4,50})", text, re.IGNORECASE)
+    if name_match:
+        data.name = name_match.group(1).strip()
+
+    # Class of Vehicle (COV)
+    cov_match = re.search(r"(?:COV|Class of Vehicle|Authorisation)[:\s]+([A-Z0-9,\s/]{2,40})", text, re.IGNORECASE)
+    if cov_match:
+        data.class_of_vehicle = cov_match.group(1).strip()
+
+    # Address
+    addr_match = re.search(r"(?:Address|पता)[:\s]*(.*?)(?:\n\n|\Z)", text, re.IGNORECASE | re.DOTALL)
+    if addr_match:
+        data.address = addr_match.group(1).strip().replace("\n", ", ")[:200]
+
+    return data.model_dump(exclude_none=True)
+
+
+def extract_bank_statement_fields(text: str) -> dict:
+    """Extract fields from bank statement / cancelled cheque."""
+    data = BankStatementData()
+
+    # IFSC code — standard format XXXX0XXXXXX (4 letters, 0, 6 alphanumeric)
+    ifsc_match = re.search(r"\b([A-Z]{4}0[A-Z0-9]{6})\b", text)
+    if ifsc_match:
+        data.ifsc_code = ifsc_match.group(1)
+
+    # Account number — 9-18 digit sequence (labeled)
+    acc_match = re.search(
+        r"(?:Account\s*(?:Number|No\.?)|A/C\s*(?:No\.?)|Acc\.?\s*No\.?)[:\s]*(\d{9,18})",
+        text, re.IGNORECASE
+    )
+    if acc_match:
+        data.account_number = acc_match.group(1)
+
+    # Bank name — look for common Indian bank names
+    BANKS = [
+        "State Bank of India", "SBI", "HDFC Bank", "ICICI Bank", "Axis Bank",
+        "Punjab National Bank", "PNB", "Bank of Baroda", "Canara Bank",
+        "Union Bank", "Kotak Mahindra", "YES Bank", "IDBI Bank", "Federal Bank",
+        "IndusInd Bank", "Bank of India", "UCO Bank", "Central Bank",
+        "Indian Bank", "Indian Overseas Bank",
+    ]
+    text_lower = text.lower()
+    for bank in BANKS:
+        if bank.lower() in text_lower:
+            data.bank_name = bank
+            break
+
+    # Account holder name — after "Name:" or "Account Holder" label
+    name_match = re.search(
+        r"(?:Account\s*Holder|Name|Customer\s*Name)[:\s]+([A-Za-z][A-Za-z\s\.]{4,60})",
+        text, re.IGNORECASE
+    )
+    if name_match:
+        candidate = name_match.group(1).strip()
+        if len(candidate.split()) >= 1:
+            data.account_holder_name = candidate
+
+    # Branch
+    branch_match = re.search(r"(?:Branch)[:\s]+([A-Za-z0-9\s,\-\.]{4,60})", text, re.IGNORECASE)
+    if branch_match:
+        data.branch = branch_match.group(1).strip()
+
+    return data.model_dump(exclude_none=True)
+
+
+def extract_education_certificate_fields(text: str) -> dict:
+    """Extract fields from education certificates (marksheets, degrees)."""
+    data = EducationCertificateData()
+
+    # Student name — after "Name:", "Student:", "This is to certify that"
+    name_match = re.search(
+        r"(?:Name\s*of\s*(?:the\s*)?(?:Student|Candidate)|Name|This is to certify that)[:\s]+([A-Za-z][A-Za-z\s\.]{4,60})",
+        text, re.IGNORECASE
+    )
+    if name_match:
+        candidate = name_match.group(1).strip()
+        # Trim if it hits a next sentence keyword
+        for stopper in ["has", "passed", "appeared", "of", "in", "for", "with", "to"]:
+            idx = candidate.lower().find(f" {stopper} ")
+            if idx > 0:
+                candidate = candidate[:idx]
+        data.student_name = candidate.strip()
+
+    # Roll number / Enrollment number
+    roll_match = re.search(
+        r"(?:Roll\s*(?:Number|No\.?)|Enrollment\s*(?:No\.?|Number)|Registration\s*(?:No\.?|Number))[:\s]+([A-Z0-9\-/]{4,20})",
+        text, re.IGNORECASE
+    )
+    if roll_match:
+        data.roll_number = roll_match.group(1).strip()
+
+    # Year of passing
+    year_match = re.search(r"\b((?:19|20)\d{2})\b", text)
+    if year_match:
+        data.year_of_passing = year_match.group(1)
+
+    # Grade / Percentage / CGPA
+    grade_match = re.search(
+        r"(?:Percentage|%|CGPA|GPA|Grade)[:\s]+([0-9\.]+\s*%?)",
+        text, re.IGNORECASE
+    )
+    if grade_match:
+        data.percentage_or_cgpa = grade_match.group(1).strip()
+
+    # Institution name — look for University/Board/School/Institute keywords
+    lines = [l.strip() for l in text.split("\n") if l.strip() and len(l.strip()) > 5]
+    for line in lines[:8]:
+        if any(kw in line.lower() for kw in ["university", "board", "institute", "college", "school", "vidyalaya"]):
+            data.institution = line.strip()
+            break
+
+    # Board / University (from "Board of" patterns)
+    board_match = re.search(r"(?:Board of|University of|Affiliated to)\s+([A-Za-z\s,\.]{5,80})", text, re.IGNORECASE)
+    if board_match:
+        data.board_or_university = board_match.group(1).strip()
+
+    # Degree / Course name
+    degree_match = re.search(
+        r"(?:Degree|Course|Programme|This is to certify.*?\s)(Bachelor|Master|B\.?(?:Sc|A|E|Tech|Com)|M\.?(?:Sc|A|E|Tech|Com|BA)|MBA|MCA|BCA|Ph\.?D|Diploma)\b",
+        text, re.IGNORECASE
+    )
+    if degree_match:
+        data.degree_or_course = degree_match.group(1).strip()
+
+    return data.model_dump(exclude_none=True)
+
+
+def extract_dynamic_fields(text: str) -> dict:
+    """
+    Capture any label: value pairs present in the OCR text that are NOT
+    covered by the typed extractors. Useful for edge-case fields and
+    country-specific document formats.
+
+    Returns up to 20 key-value pairs.
+    """
+    # Match patterns like "Field Name: Value text" or "Field Name - Value"
+    pattern = re.compile(
+        r"^([A-Za-z][A-Za-z0-9 /\-\.]{2,35})\s*[:\-]\s*([A-Za-z0-9][^\n]{1,80})",
+        re.MULTILINE,
+    )
+    matches = pattern.findall(text)
+
+    # Filter out noise: skip keys that are too generic or values that look like OCR artifacts
+    NOISE_KEYS = {
+        "note", "signature", "stamp", "seal", "page", "total", "number", "name",
+        "date", "address", "www", "http", "the", "this", "that",
+    }
+    result = {}
+    for key, value in matches:
+        key_clean = key.strip().lower()
+        if key_clean in NOISE_KEYS:
+            continue
+        value_clean = value.strip()
+        if len(value_clean) < 2 or len(value_clean) > 100:
+            continue
+        # Skip pure number values that are just noise
+        if re.match(r"^\d{1,3}$", value_clean):
+            continue
+        result[key.strip()] = value_clean
+        if len(result) >= 20:
+            break
+
+    return result
+
+
+def generate_validation_reasons(
+    doc_type: str,
+    fields: dict,
+    confidence: float,
+    raw_text: str,
+    quality_flags: list = None,
+) -> list:
+    """
+    Generate human-readable validation reasons explaining why a document
+    passed, has warnings, or is flagged as suspicious. Used by HR to
+    understand the OCR result without reading raw text.
+
+    Returns a list of strings prefixed with ✓ (pass), ⚠ (warning), or ✗ (fail).
+    """
+    reasons = []
+    quality_flags = quality_flags or []
+
+    # ---- Confidence ----
+    pct = int(confidence * 100)
+    if confidence >= 0.80:
+        reasons.append(f"✓ OCR confidence is high ({pct}%) — text extracted clearly")
+    elif confidence >= 0.60:
+        reasons.append(f"⚠ OCR confidence is moderate ({pct}%) — some fields may need manual review")
+    else:
+        reasons.append(f"✗ OCR confidence is low ({pct}%) — document may be unclear, blurred, or a screenshot")
+
+    # ---- Document-specific validations ----
+    if doc_type == "PAN":
+        pan_no = fields.get("pan_number", "")
+        if pan_no and re.match(r"^[A-Z]{5}\d{4}[A-Z]$", pan_no):
+            # Check 4th char of PAN encodes entity type: P=individual, C=company, H=HUF, etc.
+            entity_type = {"P": "Individual", "C": "Company", "H": "HUF", "F": "Firm",
+                           "A": "AOP", "T": "Trust", "B": "BOI", "L": "Local Authority",
+                           "J": "AOP/BOI", "G": "Government"}.get(pan_no[3], "Unknown")
+            reasons.append(f"✓ PAN number {pan_no} is valid — format [A-Z]{{5}}[0-9]{{4}}[A-Z] confirmed")
+            reasons.append(f"✓ PAN entity type: {entity_type} (4th character '{pan_no[3]}')")
+        elif pan_no:
+            reasons.append(f"✗ PAN number '{pan_no}' does not match standard format — may be corrupted by OCR")
+        else:
+            reasons.append("✗ PAN number could not be extracted — document may be low quality or not a PAN card")
+
+        name = fields.get("name", "")
+        if name and len(name.split()) >= 2:
+            reasons.append(f"✓ Name extracted successfully: '{name}'")
+        elif name:
+            reasons.append(f"⚠ Only partial name extracted: '{name}' — may be a single-name holder or OCR artifact")
+        else:
+            reasons.append("✗ Name could not be extracted from PAN card")
+
+        father = fields.get("father_name", "")
+        if father and len(father.split()) >= 2:
+            reasons.append(f"✓ Father's name extracted: '{father}'")
+        elif father:
+            reasons.append(f"⚠ Father's name appears partial: '{father}'")
+        else:
+            reasons.append("⚠ Father's name not found — may be on reverse side or not visible in scan")
+
+        dob = fields.get("date_of_birth", "")
+        if dob:
+            reasons.append(f"✓ Date of Birth extracted: {dob}")
+        else:
+            reasons.append("⚠ Date of Birth not found in PAN text")
+
+    elif doc_type == "AADHAAR":
+        aadhaar_no = fields.get("aadhaar_number", "")
+        if aadhaar_no and len(re.sub(r"\D", "", aadhaar_no)) == 12:
+            reasons.append(f"✓ Aadhaar number found with correct 12-digit length")
+            # First digit cannot be 0 or 1
+            digits = re.sub(r"\D", "", aadhaar_no)
+            if digits[0] in "01":
+                reasons.append(f"⚠ Aadhaar first digit is {digits[0]} — valid Aadhaar numbers start with 2-9")
+            else:
+                reasons.append(f"✓ Aadhaar number format appears valid (starts with {digits[0]})")
+        elif aadhaar_no:
+            reasons.append(f"✗ Aadhaar number '{aadhaar_no}' does not have 12 digits — possible OCR error")
+        else:
+            reasons.append("✗ Aadhaar 12-digit number not detected in text")
+
+        if fields.get("name"):
+            reasons.append(f"✓ Name extracted: '{fields['name']}'")
+        else:
+            reasons.append("⚠ Name not extracted from Aadhaar")
+
+        if fields.get("date_of_birth"):
+            reasons.append(f"✓ Date of Birth: {fields['date_of_birth']}")
+
+        if fields.get("gender"):
+            reasons.append(f"✓ Gender detected: {fields['gender']}")
+
+        if fields.get("address"):
+            reasons.append("✓ Address field detected on Aadhaar")
+
+    elif doc_type == "PASSPORT":
+        pp_no = fields.get("passport_number", "")
+        if pp_no and re.match(r"^[A-Z]\d{7}$", pp_no):
+            reasons.append(f"✓ Passport number {pp_no} matches Indian passport format")
+        elif pp_no:
+            reasons.append(f"⚠ Passport number '{pp_no}' — verify manually against document")
+        else:
+            reasons.append("✗ Passport number could not be extracted")
+
+        if fields.get("expiry_date"):
+            reasons.append(f"✓ Expiry date found: {fields['expiry_date']} — verify it has not expired")
+
+    elif doc_type == "VOTER_ID":
+        epic = fields.get("epic_number", "")
+        if epic and re.match(r"^[A-Z]{3}\d{7}$", epic):
+            reasons.append(f"✓ Voter ID (EPIC) number {epic} matches expected format")
+        elif epic:
+            reasons.append(f"⚠ EPIC number '{epic}' — verify manually")
+        else:
+            reasons.append("⚠ EPIC number not detected — check if document is a Voter ID card")
+
+    elif doc_type == "DRIVING_LICENSE":
+        dl_no = fields.get("dl_number", "")
+        if dl_no:
+            reasons.append(f"✓ Driving License number extracted: {dl_no}")
+        else:
+            reasons.append("⚠ DL number not clearly detected — verify manually")
+        if fields.get("expiry_date"):
+            reasons.append(f"✓ Expiry date: {fields['expiry_date']} — check if license is still valid")
+
+    elif doc_type == "BANK_STATEMENT":
+        ifsc = fields.get("ifsc_code", "")
+        if ifsc and re.match(r"^[A-Z]{4}0[A-Z0-9]{6}$", ifsc):
+            reasons.append(f"✓ IFSC code {ifsc} matches standard format (bank: {ifsc[:4]})")
+        elif ifsc:
+            reasons.append(f"⚠ IFSC code '{ifsc}' — verify against bank records")
+        else:
+            reasons.append("⚠ IFSC code not found — check if this is a bank statement or cancelled cheque")
+
+        if fields.get("account_number"):
+            reasons.append(f"✓ Account number detected (length: {len(fields['account_number'])} digits)")
+        if fields.get("account_holder_name"):
+            reasons.append(f"✓ Account holder name: '{fields['account_holder_name']}'")
+
+    elif doc_type == "CERTIFICATE":
+        if fields.get("student_name"):
+            reasons.append(f"✓ Student name extracted: '{fields['student_name']}'")
+        else:
+            reasons.append("⚠ Student name not clearly detected in certificate text")
+        if fields.get("year_of_passing"):
+            reasons.append(f"✓ Year of passing: {fields['year_of_passing']}")
+        if fields.get("institution"):
+            reasons.append(f"✓ Institution identified: '{fields['institution']}'")
+        if fields.get("percentage_or_cgpa"):
+            reasons.append(f"✓ Grade/Percentage found: {fields['percentage_or_cgpa']}")
+
+    else:
+        # Generic / OTHER
+        field_count = len([v for v in fields.values() if v])
+        if field_count > 0:
+            reasons.append(f"✓ {field_count} field(s) extracted from unrecognized document type")
+        else:
+            reasons.append("⚠ Document type not recognized — HR should manually review")
+
+    # ---- Quality / Authenticity flags ----
+    for flag in quality_flags:
+        reasons.append(f"⚠ {flag}")
+
+    # ---- Minimum text check ----
+    text_len = len(raw_text.strip())
+    if text_len < 50:
+        reasons.append("✗ Very little text extracted — document may be a photograph of a photograph, or heavily blurred")
+    elif text_len < 150:
+        reasons.append("⚠ Limited text extracted — document scan quality may be poor")
+
+    return reasons
 
 
 # ===== QUALITY / SUSPICION HEURISTICS =====
@@ -684,39 +1128,103 @@ async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
 
 # ===== MAIN PIPELINE =====
 
-async def process_document(file_bytes: bytes, filename: str = "document.jpg") -> OCRResult:
-    """Main document processing pipeline — handles images and PDFs."""
+# Dispatch table — maps detected type to specialized extractor
+_TYPE_EXTRACTORS = {
+    "AADHAAR":         extract_aadhaar_fields,
+    "PAN":             extract_pan_fields,
+    "PASSPORT":        extract_passport_fields,
+    "VOTER_ID":        extract_voter_id_fields,
+    "DRIVING_LICENSE": extract_driving_license_fields,
+    "BANK_STATEMENT":  extract_bank_statement_fields,
+    "CERTIFICATE":     extract_education_certificate_fields,
+}
 
-    # Extract text from any document type
+
+async def process_document(file_bytes: bytes, filename: str = "document.jpg") -> OCRResult:
+    """
+    Main document processing pipeline — handles images and PDFs.
+
+    Returns an OCRResult with:
+    - extracted_fields  : typed fields for the detected document type
+    - dynamic_fields    : any extra label:value pairs found in the text
+    - validation_reasons: human-readable HR-facing pass/warn/fail explanations
+    - confidence        : 0.0-1.0
+    - is_flagged        : True if confidence < 0.60 or authenticity issues
+    """
+
+    # 1. Extract raw text
     raw_text, source = extract_text_from_document(file_bytes, filename)
 
-    # Detect document type
+    # 2. Detect document type
     doc_type = detect_document_type(raw_text)
 
-    # Extract structured fields
-    extracted = {}
-    if doc_type == "AADHAAR":
-        extracted = extract_aadhaar_fields(raw_text)
-    elif doc_type == "PAN":
-        extracted = extract_pan_fields(raw_text)
-    elif doc_type == "PASSPORT":
-        extracted = extract_passport_fields(raw_text)
-    else:
-        extracted = extract_generic_fields(raw_text)
+    # 3. Extract structured fields using the appropriate extractor
+    extractor = _TYPE_EXTRACTORS.get(doc_type, extract_generic_fields)
+    extracted = extractor(raw_text)
 
-    # Calculate confidence
-    text_len = len(raw_text)
+    # 4. Dynamic field extraction (label:value pairs not covered by typed extractor)
+    dynamic = extract_dynamic_fields(raw_text)
+    # Remove keys that are already in structured extracted fields
+    existing_values = set(str(v).lower() for v in extracted.values() if v)
+    dynamic = {k: v for k, v in dynamic.items() if str(v).lower() not in existing_values}
+
+    # 5. Calculate confidence
+    text_len = len(raw_text.strip())
     field_count = len([v for v in extracted.values() if v])
-    if field_count >= 3:
-        confidence = 0.85
+
+    # Base confidence from field extraction success
+    if field_count >= 4:
+        confidence = 0.90
+    elif field_count >= 3:
+        confidence = 0.82
+    elif field_count >= 2:
+        confidence = 0.70
     elif field_count >= 1:
-        confidence = 0.65
-    elif text_len > 100:
-        confidence = 0.45
-    elif text_len > 20:
-        confidence = 0.3
+        confidence = 0.58
+    elif text_len > 200:
+        confidence = 0.42
+    elif text_len > 50:
+        confidence = 0.28
     else:
-        confidence = 0.1
+        confidence = 0.10
+
+    # Penalize if doc type is OTHER (couldn't identify the document)
+    if doc_type == "OTHER":
+        confidence = min(confidence, 0.45)
+
+    # 6. Authenticity score — starts at 1.0, reduced by issues
+    authenticity_score = 1.0
+    quality_flags: list = []
+
+    # Check for very low text (could be photo-of-photo or blank)
+    if text_len < 30:
+        authenticity_score -= 0.4
+        quality_flags.append("Extremely little text extracted — document may be blurred or a photo of a printed copy")
+    elif text_len < 80:
+        authenticity_score -= 0.15
+        quality_flags.append("Limited text extracted — scan quality may be low")
+
+    # Confidence penalty feeds into authenticity
+    if confidence < 0.40:
+        authenticity_score -= 0.3
+    elif confidence < 0.60:
+        authenticity_score -= 0.1
+
+    authenticity_score = max(0.0, min(1.0, authenticity_score))
+
+    # 7. Generate human-readable validation reasons for HR
+    validation_reasons = generate_validation_reasons(
+        doc_type=doc_type,
+        fields=extracted,
+        confidence=confidence,
+        raw_text=raw_text,
+        quality_flags=quality_flags,
+    )
+
+    # 8. Flag if below 60% confidence threshold
+    is_flagged = confidence < 0.60 or authenticity_score < 0.50
+    if is_flagged and confidence < 0.60:
+        validation_reasons.insert(0, f"🚩 FLAGGED: Confidence {int(confidence * 100)}% is below the 60% threshold — HR manual review required")
 
     return OCRResult(
         raw_text=raw_text,
@@ -724,4 +1232,8 @@ async def process_document(file_bytes: bytes, filename: str = "document.jpg") ->
         extracted_fields=extracted,
         confidence=confidence,
         extraction_source=source,
+        validation_reasons=validation_reasons,
+        dynamic_fields=dynamic,
+        authenticity_score=authenticity_score,
+        is_flagged=is_flagged,
     )
