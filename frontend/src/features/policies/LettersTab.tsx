@@ -1,15 +1,14 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { FileText, Plus, Search, Loader2, Eye, Download, Trash2, Shield, ShieldOff, ChevronDown, X, Award } from 'lucide-react';
+import { FileText, Plus, Search, Loader2, Eye, Trash2, Shield, ShieldOff, X, Award, UserPlus, Check } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useSelector } from 'react-redux';
-import type { RootState } from '../../app/store';
 import {
   useGetLettersQuery,
   useGetLetterTemplatesQuery,
   useCreateLetterMutation,
   useDeleteLetterMutation,
   useUpdateLetterAssignmentMutation,
+  useAssignLetterMutation,
 } from './letterApi';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
 import SecureDocumentViewer from './SecureDocumentViewer';
@@ -39,10 +38,12 @@ const TEMPLATE_COLORS: Record<string, string> = {
 export default function LettersTab() {
   const { data: lettersRes, isLoading } = useGetLettersQuery();
   const { data: templatesRes, isLoading: templatesLoading } = useGetLetterTemplatesQuery();
-  const { data: employeesRes } = useGetEmployeesQuery({});
+  // limit: 500 to load all employees — default pagination is 20 which would miss most employees
+  const { data: employeesRes } = useGetEmployeesQuery({ limit: 500 });
   const [createLetter, { isLoading: creating }] = useCreateLetterMutation();
   const [deleteLetter] = useDeleteLetterMutation();
   const [updateAssignment] = useUpdateLetterAssignmentMutation();
+  const [assignLetter, { isLoading: assigning }] = useAssignLetterMutation();
 
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
@@ -58,6 +59,13 @@ export default function LettersTab() {
   const [empSearch, setEmpSearch] = useState('');
   const [showEmpDropdown, setShowEmpDropdown] = useState(false);
   const empDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Assign-to-more state
+  const [assigningLetterId, setAssigningLetterId] = useState<string | null>(null);
+  const [assignSearch, setAssignSearch] = useState('');
+  const [assignEmpIds, setAssignEmpIds] = useState<string[]>([]);
+  const [assignDownload, setAssignDownload] = useState(false);
+  const assignDropdownRef = useRef<HTMLDivElement>(null);
 
   // Close employee dropdown on outside click
   useEffect(() => {
@@ -157,6 +165,37 @@ export default function LettersTab() {
       toast.success(`Download ${!current ? 'enabled' : 'disabled'}`);
     } catch { toast.error('Failed to update'); }
   };
+
+  const handleAssign = async () => {
+    if (!assigningLetterId || assignEmpIds.length === 0) {
+      toast.error('Select at least one employee');
+      return;
+    }
+    try {
+      await assignLetter({ id: assigningLetterId, body: { employeeIds: assignEmpIds, downloadAllowed: assignDownload } }).unwrap();
+      toast.success(`Letter assigned to ${assignEmpIds.length} employee${assignEmpIds.length > 1 ? 's' : ''}`);
+      setAssigningLetterId(null);
+      setAssignEmpIds([]);
+      setAssignSearch('');
+      setAssignDownload(false);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to assign');
+    }
+  };
+
+  const assignFilteredEmployees = useMemo(() => {
+    // Exclude employees already assigned to the letter being assigned
+    const currentLetter = assigningLetterId ? letters.find((l: any) => l.id === assigningLetterId) : null;
+    const alreadyAssigned = new Set((currentLetter?.assignments || []).map((a: any) => a.employee.id));
+    const available = employees.filter((e: any) => !alreadyAssigned.has(e.id));
+    if (!assignSearch) return available.slice(0, 20);
+    const q = assignSearch.toLowerCase();
+    return available.filter((e: any) =>
+      `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) ||
+      e.employeeCode.toLowerCase().includes(q) ||
+      e.email.toLowerCase().includes(q)
+    ).slice(0, 20);
+  }, [employees, assignSearch, assigningLetterId, letters]);
 
   const getTypeInfo = (type: string) => LETTER_TYPES.find((t) => t.value === type) || LETTER_TYPES[8];
 
@@ -371,6 +410,7 @@ export default function LettersTab() {
         <div className="space-y-3">
           {filteredLetters.map((letter: any) => {
             const typeInfo = getTypeInfo(letter.type);
+            const isAssigning = assigningLetterId === letter.id;
             return (
               <div key={letter.id} className="layer-card p-4 hover:shadow-md transition-shadow">
                 <div className="flex items-start justify-between">
@@ -405,10 +445,27 @@ export default function LettersTab() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 ml-3">
+                  <div className="flex items-center gap-1 ml-3 shrink-0">
                     <button onClick={() => setViewLetter(letter)} title="View"
                       className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
                       <Eye size={16} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (isAssigning) {
+                          setAssigningLetterId(null);
+                          setAssignEmpIds([]);
+                          setAssignSearch('');
+                        } else {
+                          setAssigningLetterId(letter.id);
+                          setAssignEmpIds([]);
+                          setAssignSearch('');
+                        }
+                      }}
+                      title="Assign to more employees"
+                      className={`p-1.5 rounded-lg transition-colors ${isAssigning ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
+                    >
+                      <UserPlus size={16} />
                     </button>
                     <button onClick={() => handleDelete(letter.id)} title="Delete"
                       className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
@@ -416,6 +473,92 @@ export default function LettersTab() {
                     </button>
                   </div>
                 </div>
+
+                {/* Inline assign panel */}
+                <AnimatePresence>
+                  {isAssigning && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-3 pt-3 border-t border-gray-100 space-y-3">
+                        <p className="text-xs font-semibold text-gray-600">Assign to more employees</p>
+
+                        {/* Employee search */}
+                        <div className="relative" ref={assignDropdownRef}>
+                          <input
+                            value={assignSearch}
+                            onChange={(e) => setAssignSearch(e.target.value)}
+                            placeholder="Search employee by name or code..."
+                            className="input-glass w-full text-sm"
+                          />
+                          {assignFilteredEmployees.length > 0 && (
+                            <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                              {assignFilteredEmployees.map((emp: any) => {
+                                const selected = assignEmpIds.includes(emp.id);
+                                return (
+                                  <button key={emp.id}
+                                    onClick={() => setAssignEmpIds(prev =>
+                                      selected ? prev.filter(id => id !== emp.id) : [...prev, emp.id]
+                                    )}
+                                    className={`w-full text-left px-3 py-2 hover:bg-indigo-50 text-sm flex items-center justify-between ${selected ? 'bg-indigo-50' : ''}`}
+                                  >
+                                    <span>
+                                      <span className="font-medium">{emp.firstName} {emp.lastName}</span>
+                                      <span className="text-gray-400 ml-2 text-xs">{emp.employeeCode}</span>
+                                    </span>
+                                    {selected && <Check size={14} className="text-indigo-600 shrink-0" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Selected employees chips */}
+                        {assignEmpIds.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {assignEmpIds.map(id => {
+                              const emp = employees.find((e: any) => e.id === id);
+                              if (!emp) return null;
+                              return (
+                                <span key={id} className="flex items-center gap-1 bg-indigo-50 text-indigo-700 text-xs rounded-full px-2.5 py-1">
+                                  {emp.firstName} {emp.lastName}
+                                  <button onClick={() => setAssignEmpIds(prev => prev.filter(i => i !== id))}
+                                    className="hover:text-red-500 ml-0.5">
+                                    <X size={11} />
+                                  </button>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600">
+                            <input type="checkbox" checked={assignDownload} onChange={e => setAssignDownload(e.target.checked)}
+                              className="accent-indigo-600 w-3.5 h-3.5" />
+                            Allow download
+                          </label>
+                          <button
+                            onClick={handleAssign}
+                            disabled={assigning || assignEmpIds.length === 0}
+                            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors"
+                          >
+                            {assigning ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} />}
+                            {assigning ? 'Assigning...' : `Assign${assignEmpIds.length > 0 ? ` (${assignEmpIds.length})` : ''}`}
+                          </button>
+                          <button onClick={() => { setAssigningLetterId(null); setAssignEmpIds([]); setAssignSearch(''); }}
+                            className="text-xs text-gray-400 hover:text-gray-600">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             );
           })}

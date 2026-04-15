@@ -8,7 +8,7 @@ import { setAccessToken } from '../auth/authSlice';
 import { useGetMeQuery, useChangePasswordMutation } from '../auth/authApi';
 import { useUpdateEmployeeMutation, useGetEmployeeQuery } from '../employee/employeeApi';
 import { useSubmitResignationMutation } from '../exit/exitApi';
-import { useCreateTicketMutation } from '../helpdesk/helpdeskApi';
+import { useCreateTicketMutation, useGetMyTicketsQuery, useUpdateTicketMutation } from '../helpdesk/helpdeskApi';
 import { getInitials, formatDate, getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -18,8 +18,7 @@ export default function ProfilePage() {
   const user = useAppSelector((s) => s.auth.user);
   const [searchParams] = useSearchParams();
   const isOnboarding = searchParams.get('onboarding') === 'true';
-  const { data: meRes, isLoading } = useGetMeQuery();
-  const me = meRes?.data;
+  const { isLoading } = useGetMeQuery();
 
   // Fetch full employee data if employeeId exists
   const { data: empRes } = useGetEmployeeQuery(user?.employeeId || '', { skip: !user?.employeeId });
@@ -28,13 +27,25 @@ export default function ProfilePage() {
   const [updateEmployee, { isLoading: updating }] = useUpdateEmployeeMutation();
   const [submitResignation, { isLoading: resigning }] = useSubmitResignationMutation();
   const [createTicket, { isLoading: requestingEdit }] = useCreateTicketMutation();
+  const [updateTicket] = useUpdateTicketMutation();
   const [showEdit, setShowEdit] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
 
-  // One-time edit: employee can only edit profile freely once.
-  // After the first save (when dateOfBirth+phone are filled), they must request HR approval.
+  // One-time edit flow:
+  // - First fill (no phone/DOB yet): "Edit Profile" → opens modal directly
+  // - After fill: "Request Edit" → creates helpdesk ticket
+  // - Ticket OPEN/IN_PROGRESS: "Request Pending" (disabled)
+  // - Ticket RESOLVED (HR approved): "Edit Profile" → opens modal; on save, ticket is CLOSED
   const hasFilledProfile = !!(employee?.phone && employee?.dateOfBirth &&
     employee?.phone !== '0000000000');
+
+  // Only fetch tickets for employee/intern roles — admins/HR don't need this
+  const isEmployeeRole = ['EMPLOYEE', 'INTERN'].includes(user?.role || '');
+  const { data: ticketsRes } = useGetMyTicketsQuery(undefined, { skip: !isEmployeeRole });
+  const myTickets: any[] = (ticketsRes?.data as any[]) || [];
+  const editRequestTickets = myTickets.filter((t: any) => t.subject === 'Profile Edit Request');
+  const openEditTicket = editRequestTickets.find((t: any) => ['OPEN', 'IN_PROGRESS'].includes(t.status));
+  const resolvedEditTicket = !openEditTicket && editRequestTickets.find((t: any) => ['RESOLVED'].includes(t.status));
 
   const [showResignModal, setShowResignModal] = useState(false);
   const [resignForm, setResignForm] = useState({ reason: '', lastWorkingDate: '' });
@@ -45,7 +56,7 @@ export default function ProfilePage() {
     bloodGroup: '',
     maritalStatus: '',
     emergencyContact: { name: '', phone: '', relationship: '' },
-    address: { street: '', city: '', state: '', pincode: '' },
+    address: { line1: '', city: '', state: '', pincode: '' },
   });
   const [bankForm, setBankForm] = useState({
     bankAccountNumber: '',
@@ -82,7 +93,7 @@ export default function ProfilePage() {
         bloodGroup: employee.bloodGroup || '',
         maritalStatus: employee.maritalStatus || '',
         emergencyContact: (employee.emergencyContact as any) || { name: '', phone: '', relationship: '' },
-        address: (employee.address as any) || { street: '', city: '', state: '', pincode: '' },
+        address: (employee.address as any) || { line1: '', city: '', state: '', pincode: '' },
       });
       setBankForm({
         bankAccountNumber: employee.bankAccountNumber || '',
@@ -98,6 +109,11 @@ export default function ProfilePage() {
     if (!user?.employeeId) return;
     try {
       await updateEmployee({ id: user.employeeId, data: form as any }).unwrap();
+      // If this edit was granted via a resolved helpdesk ticket, close it so the
+      // employee must request again for any future edits.
+      if (resolvedEditTicket?.id) {
+        try { await updateTicket({ id: resolvedEditTicket.id, data: { status: 'CLOSED' } }).unwrap(); } catch { /* non-blocking */ }
+      }
       toast.success(t('profile.profileUpdated'));
       setShowEdit(false);
     } catch { toast.error(t('profile.failedToUpdate')); }
@@ -238,19 +254,36 @@ export default function ProfilePage() {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {hasFilledProfile ? (
+            {/* State 1: Profile not filled yet — free first edit */}
+            {!hasFilledProfile && (
+              <button onClick={() => setShowEdit(true)} className="btn-secondary flex items-center gap-2 text-sm">
+                <Edit2 size={14} /> {t('profile.editProfile')}
+              </button>
+            )}
+            {/* State 2: Profile filled, open ticket pending HR review */}
+            {hasFilledProfile && openEditTicket && (
+              <button disabled className="btn-secondary flex items-center gap-2 text-sm opacity-60 cursor-not-allowed"
+                title="Your edit request is pending HR approval.">
+                <Clock size={14} /> Request Pending
+              </button>
+            )}
+            {/* State 3: Profile filled, HR approved (resolved ticket) — allow one edit */}
+            {hasFilledProfile && resolvedEditTicket && (
+              <button onClick={() => setShowEdit(true)} className="btn-secondary flex items-center gap-2 text-sm ring-2 ring-emerald-400"
+                title="HR has approved your edit request. You can edit your profile once.">
+                <Edit2 size={14} /> Edit Profile
+              </button>
+            )}
+            {/* State 4: Profile filled, no open/resolved ticket — must request */}
+            {hasFilledProfile && !openEditTicket && !resolvedEditTicket && (
               <button
                 onClick={handleRequestEdit}
                 disabled={requestingEdit}
                 className="btn-secondary flex items-center gap-2 text-sm"
-                title="Your profile is complete. Submit a request to HR to edit it again."
+                title="Your profile is complete. Submit a request to HR to edit it."
               >
                 {requestingEdit ? <Loader2 size={14} className="animate-spin" /> : <MessageSquare size={14} />}
                 Request Edit
-              </button>
-            ) : (
-              <button onClick={() => setShowEdit(true)} className="btn-secondary flex items-center gap-2 text-sm">
-                <Edit2 size={14} /> {t('profile.editProfile')}
               </button>
             )}
             {employee && !employee.exitStatus && employee.status !== 'TERMINATED' && (
@@ -386,7 +419,7 @@ export default function ProfilePage() {
               <h4 className="text-xs font-semibold text-gray-600">{t('common.address')}</h4>
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
-                  <input value={form.address.street} onChange={e => setForm({...form, address: {...form.address, street: e.target.value}})}
+                  <input value={form.address.line1} onChange={e => setForm({...form, address: {...form.address, line1: e.target.value}})}
                     className="input-glass w-full text-sm" placeholder={t('profile.streetAddress')} />
                 </div>
                 <input value={form.address.city} onChange={e => setForm({...form, address: {...form.address, city: e.target.value}})}
@@ -486,7 +519,7 @@ export default function ProfilePage() {
             <div className="mb-4">
               <p className="text-xs text-gray-400 mb-1">{t('common.address')}</p>
               <p className="text-sm text-gray-700">
-                {(employee.address as any).street && `${(employee.address as any).street}, `}
+                {(employee.address as any).line1 && `${(employee.address as any).line1}, `}
                 {(employee.address as any).city && `${(employee.address as any).city}, `}
                 {(employee.address as any).state && `${(employee.address as any).state} `}
                 {(employee.address as any).pincode}

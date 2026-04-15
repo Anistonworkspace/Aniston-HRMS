@@ -137,7 +137,7 @@ model Employee {
   joiningDate      DateTime
   probationEndDate DateTime?
   ctc              Decimal?       @db.Decimal(12, 2)
-  status           EmployeeStatus @default(ACTIVE)
+  status           EmployeeStatus @default(ONBOARDING)
   organizationId   String
 
   // Police Verification

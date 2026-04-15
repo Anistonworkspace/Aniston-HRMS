@@ -84,6 +84,30 @@ export function requirePermission(resource: Resource, action: Action) {
 }
 
 /**
+ * Allow access if user has full permission OR has :own permission AND is acting on their own record.
+ * Used for routes like PATCH /employees/:id where employees can update their own profile.
+ * The :id param must be the employee's ID (compared against req.user.employeeId).
+ */
+export function requirePermissionOrOwn(resource: Resource, action: Action) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return next(new UnauthorizedError('Not authenticated'));
+    }
+    // Full permission — allow
+    if (hasPermission(req.user.role, resource, action)) {
+      return next();
+    }
+    // Own-record permission — allow only if acting on their own employee record
+    const ownAction = `${action}:own` as Action;
+    const isSelf = req.user.employeeId && req.user.employeeId === req.params.id;
+    if (isSelf && hasPermission(req.user.role, resource, ownAction)) {
+      return next();
+    }
+    return next(new ForbiddenError(`No permission to ${action} on ${resource}`));
+  };
+}
+
+/**
  * Route-to-feature mapping for exit access control
  */
 const EXIT_ACCESS_ROUTE_MAP: Record<string, string> = {

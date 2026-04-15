@@ -188,16 +188,17 @@ export class OnboardingService {
     const data = await getTokenData(token);
     if (!data) throw new BadRequestError('Invalid token');
 
-    // Mark employee as fully onboarded
+    // Mark employee as fully onboarded — do NOT auto-promote status.
+    // HR must manually assign the employment status (PROBATION, INTERN, ACTIVE, etc.).
     await prisma.employee.update({
       where: { id: data.employeeId },
-      data: { status: 'ACTIVE', onboardingComplete: true },
+      data: { onboardingComplete: true },
     });
 
     // Clean up token
     await deleteToken(token);
 
-    return { completed: true, message: 'Welcome to the team!' };
+    return { completed: true, message: 'Onboarding complete! Your HR team will assign your employment status shortly.' };
   }
 
   /**
@@ -312,6 +313,20 @@ export class OnboardingService {
       });
     }
 
+    // Step: Bank details
+    if (step === 5) {
+      await prisma.employee.update({
+        where: { id: employeeId },
+        data: {
+          bankAccountNumber: stepData.bankAccountNumber || undefined,
+          bankName: stepData.bankName || undefined,
+          ifscCode: stepData.ifscCode || undefined,
+          accountHolderName: stepData.accountHolderName || undefined,
+          accountType: stepData.accountType || undefined,
+        },
+      });
+    }
+
     // Step: Emergency contact
     if (step === 6) {
       await prisma.employee.update({
@@ -327,12 +342,15 @@ export class OnboardingService {
    * Complete authenticated onboarding — marks the employee as fully onboarded.
    */
   async completeMyOnboarding(employeeId: string) {
+    // Mark onboarding complete but do NOT auto-promote status.
+    // HR must manually assign the employment status (PROBATION, INTERN, ACTIVE, etc.)
+    // before the employee can see and apply for leaves.
     await prisma.employee.update({
       where: { id: employeeId },
-      data: { onboardingComplete: true, status: 'ACTIVE' },
+      data: { onboardingComplete: true },
     });
 
-    return { completed: true, message: 'Welcome to the team!' };
+    return { completed: true, message: 'Onboarding complete! Your HR team will assign your employment status shortly.' };
   }
 }
 

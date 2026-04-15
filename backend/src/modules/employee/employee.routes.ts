@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { employeeController } from './employee.controller.js';
-import { authenticate, requirePermission } from '../../middleware/auth.middleware.js';
+import { authenticate, requirePermission, requirePermissionOrOwn } from '../../middleware/auth.middleware.js';
 import { employeeDeletionController } from '../employee-deletion/employee-deletion.controller.js';
 
 const router = Router();
@@ -98,7 +98,7 @@ router.get('/:id', requirePermission('employee', 'read'), (req, res, next) =>
   employeeController.getById(req, res, next)
 );
 
-router.patch('/:id', requirePermission('employee', 'update'), (req, res, next) =>
+router.patch('/:id', requirePermissionOrOwn('employee', 'update'), (req, res, next) =>
   employeeController.update(req, res, next)
 );
 

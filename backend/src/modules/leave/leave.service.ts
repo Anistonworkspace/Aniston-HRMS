@@ -88,10 +88,11 @@ export class LeaveService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    // Employees with non-active statuses see no leave balances
-    const BLOCKED_STATUSES = ['SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'];
+    // Employees in these statuses see no leave balances.
+    // ONBOARDING: HR must assign an employment status (PROBATION/INTERN/ACTIVE etc.) first.
+    const BLOCKED_STATUSES = ['ONBOARDING', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'];
     if (BLOCKED_STATUSES.includes(employee.status)) {
-      return []; // No leave balances for suspended/terminated employees
+      return [];
     }
 
     const userRole = employee.user?.role;
@@ -202,6 +203,7 @@ export class LeaveService {
 
     // Block leave for non-active employment statuses
     const BLOCKED_STATUSES: Record<string, string> = {
+      ONBOARDING: 'Your employment status has not been set yet. Please wait for HR to assign your status (Probation, Intern, or Active) before applying for leave.',
       SUSPENDED: 'Your account is currently suspended. Contact HR to resolve your employment status before applying for leave.',
       INACTIVE: 'Your employment is marked as inactive. Please contact HR.',
       TERMINATED: 'Terminated employees cannot apply for leave.',
