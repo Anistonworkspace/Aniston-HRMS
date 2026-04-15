@@ -167,9 +167,9 @@ const COMBINED_PDF_REQUIRED_DOCS = [
 // Per-page validation accordion item
 function PageValidationRow({ pv }: { pv: any }) {
   const [open, setOpen] = useState(false);
-  const reasons: string[] = pv.reasons || [];
-  const hasFail = reasons.some((r: string) => r.startsWith('✗') || r.startsWith('🚩'));
-  const hasWarn = reasons.some((r: string) => r.startsWith('⚠'));
+  const reasons: any[] = pv.reasons || [];
+  const hasFail = reasons.some((r: any) => { const s = typeof r === 'string' ? r : (r?.message ?? ''); return s.startsWith('✗') || s.startsWith('🚩'); });
+  const hasWarn = reasons.some((r: any) => { const s = typeof r === 'string' ? r : (r?.message ?? ''); return s.startsWith('⚠'); });
   const isWrong = pv.is_wrong_upload;
 
   const rowColor = isWrong || hasFail
@@ -352,8 +352,8 @@ function CombinedPdfReviewPanel({
             <p className="text-xs font-medium text-orange-700 mb-1 flex items-center gap-1">
               <AlertTriangle size={11} /> Classifier Warnings ({suspicionFlags.length}):
             </p>
-            {suspicionFlags.map((f: string, i: number) => (
-              <p key={i} className="text-xs text-orange-600 ml-2">• {f}</p>
+            {suspicionFlags.map((f: any, i: number) => (
+              <p key={i} className="text-xs text-orange-600 ml-2">• {typeof f === 'string' ? f : (f?.message ?? JSON.stringify(f))}</p>
             ))}
           </div>
         )}

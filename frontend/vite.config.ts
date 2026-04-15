@@ -282,10 +282,13 @@ export default defineConfig({
           '**/node_modules/**',
           '**/pdf.worker.min.mjs',
           '**/apple-splash/**',
+          // offline.html is added manually via additionalManifestEntries below
+          // to avoid duplicate entries (globPatterns also matches *.html)
+          '**/offline.html',
         ],
-        // Precache the offline fallback
+        // Precache the offline fallback with a controlled revision
         additionalManifestEntries: [
-          { url: '/offline.html', revision: '3' },
+          { url: '/offline.html', revision: '4' },
         ],
       },
 
