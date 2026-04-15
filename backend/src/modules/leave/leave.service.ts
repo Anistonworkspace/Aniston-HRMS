@@ -131,10 +131,12 @@ export class LeaveService {
       const app = lt.applicableTo;
       if (app === 'ALL') return true;
       if (app === 'PROBATION') return employee.status === 'PROBATION';
-      if (app === 'CONFIRMED') return employee.status === 'ACTIVE';
+      if (app === 'ACTIVE' || app === 'CONFIRMED') return employee.status === 'ACTIVE'; // CONFIRMED kept for backward compat
       if (app === 'NOTICE_PERIOD') return employee.status === 'NOTICE_PERIOD';
       if (app === 'ONBOARDING') return employee.status === 'ONBOARDING';
       if (app === 'INTERN') return employee.status === 'INTERN' || userRole === 'INTERN';
+      if (app === 'SUSPENDED') return employee.status === 'SUSPENDED';
+      if (app === 'INACTIVE') return employee.status === 'INACTIVE';
       return true;
     });
 
@@ -323,20 +325,25 @@ export class LeaveService {
 
         const allowed = (() => {
           if (app === 'PROBATION') return status === 'PROBATION';
-          if (app === 'CONFIRMED') return status === 'ACTIVE';
+          if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE';
           if (app === 'NOTICE_PERIOD') return status === 'NOTICE_PERIOD';
           if (app === 'ONBOARDING') return status === 'ONBOARDING';
           if (app === 'INTERN') return status === 'INTERN' || empUserRole === 'INTERN';
+          if (app === 'SUSPENDED') return status === 'SUSPENDED';
+          if (app === 'INACTIVE') return status === 'INACTIVE';
           return true;
         })();
 
         if (!allowed) {
           const labels: Record<string, string> = {
             PROBATION: 'employees in probation period',
-            CONFIRMED: 'confirmed/active employees',
+            ACTIVE: 'active/full-time employees',
+            CONFIRMED: 'active/full-time employees',
             NOTICE_PERIOD: 'employees serving notice period',
             ONBOARDING: 'employees in onboarding',
             INTERN: 'interns',
+            SUSPENDED: 'suspended employees',
+            INACTIVE: 'inactive employees',
           };
           throw new BadRequestError(`${leaveType.name} is available for ${labels[app] || app} only. Your current status does not qualify. Contact HR to check your eligibility.`);
         }
@@ -940,16 +947,24 @@ export class LeaveService {
         const status = employee.status;
         const allowed = (() => {
           if (app === 'PROBATION') return status === 'PROBATION';
-          if (app === 'CONFIRMED') return status === 'ACTIVE';
+          if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE';
           if (app === 'NOTICE_PERIOD') return status === 'NOTICE_PERIOD';
           if (app === 'ONBOARDING') return status === 'ONBOARDING';
           if (app === 'INTERN') return status === 'INTERN' || empUserRole === 'INTERN';
+          if (app === 'SUSPENDED') return status === 'SUSPENDED';
+          if (app === 'INACTIVE') return status === 'INACTIVE';
           return true;
         })();
         if (!allowed) {
           const labels: Record<string, string> = {
-            PROBATION: 'employees in probation period', CONFIRMED: 'confirmed/active employees',
-            NOTICE_PERIOD: 'employees serving notice period', ONBOARDING: 'employees in onboarding', INTERN: 'interns',
+            PROBATION: 'employees in probation period',
+            ACTIVE: 'active/full-time employees',
+            CONFIRMED: 'active/full-time employees',
+            NOTICE_PERIOD: 'employees serving notice period',
+            ONBOARDING: 'employees in onboarding',
+            INTERN: 'interns',
+            SUSPENDED: 'suspended employees',
+            INACTIVE: 'inactive employees',
           };
           throw new BadRequestError(`${leaveType.name} is available for ${labels[app] || app} only. Your current status does not qualify.`);
         }

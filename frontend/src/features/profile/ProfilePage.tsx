@@ -51,6 +51,10 @@ export default function ProfilePage() {
   const [resignForm, setResignForm] = useState({ reason: '', lastWorkingDate: '' });
 
   const [form, setForm] = useState({
+    firstName: '',
+    lastName: '',
+    dateOfBirth: '',
+    gender: '',
     phone: '',
     personalEmail: '',
     bloodGroup: '',
@@ -88,6 +92,10 @@ export default function ProfilePage() {
   useEffect(() => {
     if (employee) {
       setForm({
+        firstName: employee.firstName || '',
+        lastName: employee.lastName || '',
+        dateOfBirth: employee.dateOfBirth ? (employee.dateOfBirth as string).split('T')[0] : '',
+        gender: employee.gender || '',
         phone: employee.phone || '',
         personalEmail: employee.personalEmail || '',
         bloodGroup: employee.bloodGroup || '',
@@ -385,6 +393,35 @@ export default function ProfilePage() {
               <button onClick={() => setShowEdit(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
             <div className="overflow-y-auto flex-1 p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">First Name *</label>
+                  <input value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})}
+                    className="input-glass w-full text-sm" placeholder="First name" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Last Name *</label>
+                  <input value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})}
+                    className="input-glass w-full text-sm" placeholder="Last name" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{t('profile.dateOfBirth')}</label>
+                  <input type="date" value={form.dateOfBirth} onChange={e => setForm({...form, dateOfBirth: e.target.value})}
+                    className="input-glass w-full text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Gender</label>
+                  <select value={form.gender} onChange={e => setForm({...form, gender: e.target.value})} className="input-glass w-full text-sm">
+                    <option value="">{t('common.selectOption')}</option>
+                    <option value="MALE">Male</option>
+                    <option value="FEMALE">Female</option>
+                    <option value="OTHER">Other</option>
+                    <option value="PREFER_NOT_TO_SAY">Prefer not to say</option>
+                  </select>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">{t('common.phone')} *</label>

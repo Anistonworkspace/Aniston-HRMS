@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Check, ChevronRight, ChevronLeft, Loader2, AlertTriangle,
-  User, Phone, ClipboardCheck, Building2
+  User, Phone, ClipboardCheck, Building2, CreditCard
 } from 'lucide-react';
 import { useGetMyOnboardingStatusQuery, useSaveMyStepMutation, useCompleteMyOnboardingMutation } from './onboardingApi';
 import { useAppDispatch, useAppSelector } from '../../app/store';
@@ -19,6 +19,9 @@ function canProceedStep1(p: typeof PERSONAL_INIT): boolean {
 function canProceedStep2(e: typeof EMERGENCY_INIT): boolean {
   return !!(e.name.trim() && e.relationship && e.phone.trim());
 }
+function canProceedStep3(b: typeof BANK_INIT): boolean {
+  return !!(b.bankAccountNumber.trim() && b.bankName.trim() && b.ifscCode.trim() && b.accountHolderName.trim());
+}
 
 const PERSONAL_INIT = {
   firstName: '', lastName: '', dateOfBirth: '', gender: '', bloodGroup: '',
@@ -26,12 +29,15 @@ const PERSONAL_INIT = {
   address: { line1: '', line2: '', city: '', state: '', pincode: '', country: 'India' },
 };
 const EMERGENCY_INIT = { name: '', relationship: '', phone: '', email: '' };
+const BANK_INIT = {
+  bankAccountNumber: '', bankName: '', ifscCode: '', accountHolderName: '', accountType: 'SAVINGS' as const,
+};
 
-// Only 3 steps — removed placeholder steps (Documents, Photo, Bank Details)
 const STEPS = [
   { num: 1, title: 'Personal Details', desc: 'Basic personal information', icon: User },
   { num: 2, title: 'Emergency Contact', desc: 'Emergency contact person', icon: Phone },
-  { num: 3, title: 'Review & Submit', desc: 'Confirm and complete', icon: ClipboardCheck },
+  { num: 3, title: 'Bank Details', desc: 'Salary account information', icon: CreditCard },
+  { num: 4, title: 'Review & Submit', desc: 'Confirm and complete', icon: ClipboardCheck },
 ];
 
 export default function EmployeeOnboardingPage() {
@@ -46,6 +52,7 @@ export default function EmployeeOnboardingPage() {
   // Form states
   const [personal, setPersonal] = useState(PERSONAL_INIT);
   const [emergency, setEmergency] = useState(EMERGENCY_INIT);
+  const [bank, setBank] = useState(BANK_INIT);
   const [showErrors, setShowErrors] = useState(false);
 
   const status = statusRes?.data;
@@ -121,7 +128,7 @@ export default function EmployeeOnboardingPage() {
 
 
   return (
-    <div className="min-h-screen overflow-y-auto bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4 pb-16">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4 pb-16">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
@@ -298,8 +305,58 @@ export default function EmployeeOnboardingPage() {
                 </div>
               )}
 
-              {/* Step 3: Review & Submit */}
+              {/* Step 3: Bank Details */}
               {currentStep === 3 && (
+                <div className="space-y-4">
+                  {showErrors && !canProceedStep3(bank) && (
+                    <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                      <AlertTriangle size={13} /> Please fill all required fields marked with *
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Account Holder Name <span className="text-red-500">*</span></label>
+                      <input value={bank.accountHolderName} onChange={e => setBank(b => ({ ...b, accountHolderName: e.target.value }))}
+                        className={cn('input-glass w-full text-sm', showErrors && !bank.accountHolderName.trim() && 'border-red-400 ring-red-200')}
+                        placeholder="As per bank records" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Account Number <span className="text-red-500">*</span></label>
+                      <input value={bank.bankAccountNumber} onChange={e => setBank(b => ({ ...b, bankAccountNumber: e.target.value }))}
+                        className={cn('input-glass w-full text-sm', showErrors && !bank.bankAccountNumber.trim() && 'border-red-400 ring-red-200')}
+                        placeholder="Bank account number" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name <span className="text-red-500">*</span></label>
+                      <input value={bank.bankName} onChange={e => setBank(b => ({ ...b, bankName: e.target.value }))}
+                        className={cn('input-glass w-full text-sm', showErrors && !bank.bankName.trim() && 'border-red-400 ring-red-200')}
+                        placeholder="e.g. State Bank of India" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">IFSC Code <span className="text-red-500">*</span></label>
+                      <input value={bank.ifscCode} onChange={e => setBank(b => ({ ...b, ifscCode: e.target.value.toUpperCase() }))}
+                        className={cn('input-glass w-full text-sm font-mono', showErrors && !bank.ifscCode.trim() && 'border-red-400 ring-red-200')}
+                        placeholder="SBIN0001234" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
+                    <select value={bank.accountType} onChange={e => setBank(b => ({ ...b, accountType: e.target.value as 'SAVINGS' | 'CURRENT' }))}
+                      className="input-glass w-full text-sm">
+                      <option value="SAVINGS">Savings</option>
+                      <option value="CURRENT">Current</option>
+                    </select>
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    Your bank details are encrypted and used only for payroll processing.
+                  </p>
+                </div>
+              )}
+
+              {/* Step 4: Review & Submit */}
+              {currentStep === 4 && (
                 <div className="space-y-4">
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                     <h3 className="text-sm font-semibold text-green-800 mb-1">Ready to submit!</h3>
@@ -323,6 +380,19 @@ export default function EmployeeOnboardingPage() {
                         <ReviewRow label="Relationship" value={emergency.relationship} />
                         <ReviewRow label="Phone" value={emergency.phone} />
                         {emergency.email && <ReviewRow label="Email" value={emergency.email} />}
+                      </>
+                    ) : (
+                      <p className="text-xs text-gray-400">Not provided</p>
+                    )}
+                    <div className="border-t border-gray-200 my-2" />
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Bank Details</p>
+                    {bank.bankAccountNumber ? (
+                      <>
+                        <ReviewRow label="Account Holder" value={bank.accountHolderName} />
+                        <ReviewRow label="Bank" value={bank.bankName} />
+                        <ReviewRow label="Account No." value={`****${bank.bankAccountNumber.slice(-4)}`} />
+                        <ReviewRow label="IFSC" value={bank.ifscCode} />
+                        <ReviewRow label="Account Type" value={bank.accountType} />
                       </>
                     ) : (
                       <p className="text-xs text-gray-400">Not provided</p>
@@ -355,6 +425,9 @@ export default function EmployeeOnboardingPage() {
                   } else if (currentStep === 2) {
                     if (!canProceedStep2(emergency)) { toast.error('Please fill all required fields'); return; }
                     handleSaveStep(6, emergency);
+                  } else if (currentStep === 3) {
+                    if (!canProceedStep3(bank)) { toast.error('Please fill all required bank fields'); return; }
+                    handleSaveStep(5, bank);
                   } else {
                     setCurrentStep(s => s + 1);
                   }

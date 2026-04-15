@@ -405,8 +405,10 @@ export class EmployeeService {
       }
     }
 
-    // Enforce valid status transitions
-    if (data.status && data.status !== existing.status) {
+    // Enforce valid status transitions for non-management roles only.
+    // HR, ADMIN, and SUPER_ADMIN can freely set any status.
+    const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+    if (data.status && data.status !== existing.status && !MANAGEMENT_ROLES.includes(callerRole || '')) {
       const VALID_TRANSITIONS: Record<string, string[]> = {
         'ONBOARDING': ['PROBATION', 'ACTIVE', 'INTERN', 'INACTIVE'],
         'PROBATION': ['ACTIVE', 'INTERN', 'NOTICE_PERIOD', 'INACTIVE', 'TERMINATED'],

@@ -548,6 +548,22 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose }: { employee: 
     departmentId: employee.department?.id || '',
     designationId: employee.designation?.id || '',
     managerId: employee.manager?.id || '',
+    address: {
+      line1: (employee.address as any)?.line1 || '',
+      city: (employee.address as any)?.city || '',
+      state: (employee.address as any)?.state || '',
+      pincode: (employee.address as any)?.pincode || '',
+    },
+    emergencyContact: {
+      name: (employee.emergencyContact as any)?.name || '',
+      phone: (employee.emergencyContact as any)?.phone || '',
+      relationship: (employee.emergencyContact as any)?.relationship || '',
+    },
+    bankAccountNumber: employee.bankAccountNumber || '',
+    bankName: employee.bankName || '',
+    ifscCode: employee.ifscCode || '',
+    accountHolderName: employee.accountHolderName || '',
+    accountType: employee.accountType || 'SAVINGS',
   });
 
   const { data: deptData } = useGetDepartmentsQuery();
@@ -693,6 +709,94 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose }: { employee: 
                   {selectedRole.replace(/_/g, ' ')}
                 </div>
               )}
+            </div>
+          </div>
+          {/* Address */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Address</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="block text-xs text-gray-500 mb-1">Street Address</label>
+                <input value={form.address.line1} onChange={e => setForm({ ...form, address: { ...form.address, line1: e.target.value } })}
+                  className="input-glass w-full text-sm" placeholder="House / Street" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">City</label>
+                <input value={form.address.city} onChange={e => setForm({ ...form, address: { ...form.address, city: e.target.value } })}
+                  className="input-glass w-full text-sm" placeholder="City" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">State</label>
+                <input value={form.address.state} onChange={e => setForm({ ...form, address: { ...form.address, state: e.target.value } })}
+                  className="input-glass w-full text-sm" placeholder="State" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Pincode</label>
+                <input value={form.address.pincode} onChange={e => setForm({ ...form, address: { ...form.address, pincode: e.target.value } })}
+                  className="input-glass w-full text-sm" placeholder="Pincode" />
+              </div>
+            </div>
+          </div>
+          {/* Emergency Contact */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Emergency Contact</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Name</label>
+                <input value={form.emergencyContact.name} onChange={e => setForm({ ...form, emergencyContact: { ...form.emergencyContact, name: e.target.value } })}
+                  className="input-glass w-full text-sm" placeholder="Full name" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Phone</label>
+                <input value={form.emergencyContact.phone} onChange={e => setForm({ ...form, emergencyContact: { ...form.emergencyContact, phone: e.target.value } })}
+                  className="input-glass w-full text-sm" placeholder="+91 XXXXXXXXXX" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Relationship</label>
+                <select value={form.emergencyContact.relationship} onChange={e => setForm({ ...form, emergencyContact: { ...form.emergencyContact, relationship: e.target.value } })}
+                  className="input-glass w-full text-sm">
+                  <option value="">Select</option>
+                  <option value="SPOUSE">Spouse</option>
+                  <option value="PARENT">Parent</option>
+                  <option value="SIBLING">Sibling</option>
+                  <option value="FRIEND">Friend</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          {/* Bank Details */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Bank Details</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Account Holder Name</label>
+                <input value={form.accountHolderName} onChange={e => setForm({ ...form, accountHolderName: e.target.value })}
+                  className="input-glass w-full text-sm" placeholder="As per bank records" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Account Type</label>
+                <select value={form.accountType} onChange={e => setForm({ ...form, accountType: e.target.value })}
+                  className="input-glass w-full text-sm">
+                  <option value="SAVINGS">Savings</option>
+                  <option value="CURRENT">Current</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Bank Name</label>
+                <input value={form.bankName} onChange={e => setForm({ ...form, bankName: e.target.value })}
+                  className="input-glass w-full text-sm" placeholder="e.g. State Bank of India" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Account Number</label>
+                <input value={form.bankAccountNumber} onChange={e => setForm({ ...form, bankAccountNumber: e.target.value })}
+                  className="input-glass w-full text-sm font-mono" placeholder="Account number" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">IFSC Code</label>
+                <input value={form.ifscCode} onChange={e => setForm({ ...form, ifscCode: e.target.value.toUpperCase() })}
+                  className="input-glass w-full text-sm font-mono" placeholder="e.g. SBIN0001234" />
+              </div>
             </div>
           </div>
           <div className="flex gap-3 pt-3">

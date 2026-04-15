@@ -121,7 +121,7 @@ router.get('/runs/:id/export',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
     try {
-      const records = await payrollService.getPayrollRecords(req.params.id);
+      const records = await payrollService.getPayrollRecords(req.params.id, req.user!.organizationId);
       const run = await payrollService.getPayrollRunById(req.params.id);
       const org = await (await import('../../lib/prisma.js')).prisma.organization.findUnique({
         where: { id: req.user!.organizationId }, select: { name: true },
@@ -143,7 +143,7 @@ router.get('/runs/:id/attendance-export',
   async (req, res, next) => {
     try {
       const run = await payrollService.getPayrollRunById(req.params.id);
-      const records = await payrollService.getPayrollRecords(req.params.id);
+      const records = await payrollService.getPayrollRecords(req.params.id, req.user!.organizationId);
       const { prisma } = await import('../../lib/prisma.js');
 
       const startOfMonth = new Date(run.year, run.month - 1, 1);

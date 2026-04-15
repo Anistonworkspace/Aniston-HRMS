@@ -1982,18 +1982,28 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
             </label>
             <select value={formData.applicableTo} onChange={(e) => set('applicableTo', e.target.value)}
               className="input-glass w-full">
-              <option value="ALL">All Employees (except Onboarding)</option>
-              <option value="PROBATION">Probation Only</option>
-              <option value="CONFIRMED">Confirmed / Active Only</option>
-              <option value="INTERN">Intern Status Only</option>
-              <option value="NOTICE_PERIOD">Notice Period Only</option>
+              <optgroup label="General">
+                <option value="ALL">All Employees (except Onboarding)</option>
+              </optgroup>
+              <optgroup label="Active States">
+                <option value="PROBATION">Probation Only</option>
+                <option value="ACTIVE">Active / Full-time Only</option>
+                <option value="INTERN">Intern Only</option>
+              </optgroup>
+              <optgroup label="Other States">
+                <option value="NOTICE_PERIOD">Notice Period Only</option>
+                <option value="SUSPENDED">Suspended Only</option>
+                <option value="INACTIVE">Inactive Only</option>
+              </optgroup>
             </select>
             <p className="text-[10px] text-gray-400 mt-1">
-              {formData.applicableTo === 'ALL' && 'Visible to all employees except those in Onboarding status'}
-              {formData.applicableTo === 'PROBATION' && 'Only employees in probation can apply'}
-              {formData.applicableTo === 'CONFIRMED' && 'Only confirmed/active employees can apply'}
-              {formData.applicableTo === 'INTERN' && 'Only intern-status employees can apply'}
-              {formData.applicableTo === 'NOTICE_PERIOD' && 'Only employees serving notice can apply'}
+              {formData.applicableTo === 'ALL' && 'Visible to all employees except those in Onboarding'}
+              {formData.applicableTo === 'PROBATION' && 'Only employees with Probation status can apply'}
+              {formData.applicableTo === 'ACTIVE' && 'Only Active / Full-time employees can apply'}
+              {formData.applicableTo === 'INTERN' && 'Only Intern-status employees can apply'}
+              {formData.applicableTo === 'NOTICE_PERIOD' && 'Only employees serving Notice Period can apply'}
+              {formData.applicableTo === 'SUSPENDED' && 'Only Suspended employees can apply'}
+              {formData.applicableTo === 'INACTIVE' && 'Only Inactive employees can apply'}
             </p>
           </section>
 
