@@ -55,8 +55,8 @@ function ValidationReasons({ reasons }: { reasons: string[] }) {
   const [open, setOpen] = useState(true);
   if (!reasons || reasons.length === 0) return null;
 
-  const hasFlagged = reasons.some(r => r.startsWith('🚩') || r.startsWith('✗'));
-  const hasWarning = reasons.some(r => r.startsWith('⚠'));
+  const hasFlagged = reasons.some((r: any) => { const s = typeof r === 'string' ? r : (r?.message ?? ''); return s.startsWith('🚩') || s.startsWith('✗'); });
+  const hasWarning = reasons.some((r: any) => { const s = typeof r === 'string' ? r : (r?.message ?? ''); return s.startsWith('⚠'); });
 
   return (
     <div className={cn(
@@ -83,10 +83,11 @@ function ValidationReasons({ reasons }: { reasons: string[] }) {
       </button>
       {open && (
         <div className="px-4 pb-3 space-y-1">
-          {reasons.map((reason, i) => {
-            const isFail = reason.startsWith('✗') || reason.startsWith('🚩');
-            const isWarn = reason.startsWith('⚠');
-            const isPass = reason.startsWith('✓');
+          {reasons.map((reason: any, i) => {
+            const reasonStr = typeof reason === 'string' ? reason : (reason?.message ?? JSON.stringify(reason));
+            const isFail = reasonStr.startsWith('✗') || reasonStr.startsWith('🚩');
+            const isWarn = reasonStr.startsWith('⚠');
+            const isPass = reasonStr.startsWith('✓');
             return (
               <div key={i} className={cn(
                 'flex items-start gap-2 text-xs px-2.5 py-1.5 rounded',
@@ -98,7 +99,7 @@ function ValidationReasons({ reasons }: { reasons: string[] }) {
                 <span className="shrink-0 mt-0.5">
                   {isFail ? <XCircle size={11} /> : isWarn ? <AlertTriangle size={11} /> : isPass ? <CheckCircle2 size={11} /> : <Info size={11} />}
                 </span>
-                <span className="leading-relaxed">{reason}</span>
+                <span className="leading-relaxed">{reasonStr}</span>
               </div>
             );
           })}
@@ -206,12 +207,13 @@ function PageValidationRow({ pv }: { pv: any }) {
       </button>
       {open && reasons.length > 0 && (
         <div className="px-3 pb-2 space-y-0.5">
-          {reasons.map((r: string, i: number) => {
-            const isSep = r.startsWith('──');
-            if (isSep) return <p key={i} className="text-[10px] text-gray-400 pt-1 pb-0.5 border-t border-gray-100 mt-1">{r}</p>;
-            const isFl = r.startsWith('✗') || r.startsWith('🚩');
-            const isWn = r.startsWith('⚠');
-            const isPa = r.startsWith('✓');
+          {reasons.map((r: any, i: number) => {
+            const rs = typeof r === 'string' ? r : (r?.message ?? JSON.stringify(r));
+            const isSep = rs.startsWith('──');
+            if (isSep) return <p key={i} className="text-[10px] text-gray-400 pt-1 pb-0.5 border-t border-gray-100 mt-1">{rs}</p>;
+            const isFl = rs.startsWith('✗') || rs.startsWith('🚩');
+            const isWn = rs.startsWith('⚠');
+            const isPa = rs.startsWith('✓');
             return (
               <div key={i} className={cn(
                 'flex items-start gap-1.5 text-[10px] px-2 py-1 rounded',
@@ -223,7 +225,7 @@ function PageValidationRow({ pv }: { pv: any }) {
                 <span className="shrink-0 mt-0.5">
                   {isFl ? <XCircle size={9} /> : isWn ? <AlertTriangle size={9} /> : isPa ? <CheckCircle2 size={9} /> : <Info size={9} />}
                 </span>
-                <span className="leading-relaxed">{r}</span>
+                <span className="leading-relaxed">{rs}</span>
               </div>
             );
           })}
@@ -714,8 +716,10 @@ export default function OcrVerificationPanel({
                     <p className="text-xs font-medium text-red-700 flex items-center gap-1.5 mb-1">
                       <AlertTriangle size={12} /> Tampering Indicators
                     </p>
-                    {(ocr.tamperingIndicators as string[]).map((t: string, i: number) => (
-                      <p key={i} className="text-xs text-red-600 ml-5">- {t}</p>
+                    {(ocr.tamperingIndicators as any[]).map((t: any, i: number) => (
+                      <p key={i} className="text-xs text-red-600 ml-5">
+                        - {typeof t === 'string' ? t : (t?.message ?? JSON.stringify(t))}
+                      </p>
                     ))}
                   </div>
                 )}
@@ -748,11 +752,11 @@ export default function OcrVerificationPanel({
                       </span>
                     )}
                   </p>
-                  {((ocr.llmExtractedData as any).issues as string[]).map((issue: string, i: number) => (
-                    <p key={i} className="text-xs text-red-600 ml-3">• {issue}</p>
+                  {((ocr.llmExtractedData as any).issues as any[]).map((issue: any, i: number) => (
+                    <p key={i} className="text-xs text-red-600 ml-3">• {typeof issue === 'string' ? issue : (issue?.message ?? JSON.stringify(issue))}</p>
                   ))}
-                  {((ocr.llmExtractedData as any).corrections || []).map((c: string, i: number) => (
-                    <p key={i} className="text-xs text-amber-600 ml-3 mt-1">↳ Correction: {c}</p>
+                  {((ocr.llmExtractedData as any).corrections || []).map((c: any, i: number) => (
+                    <p key={i} className="text-xs text-amber-600 ml-3 mt-1">↳ Correction: {typeof c === 'string' ? c : (c?.message ?? JSON.stringify(c))}</p>
                   ))}
                 </div>
               )}
@@ -809,7 +813,9 @@ export default function OcrVerificationPanel({
                     {Object.entries(dynamicFields).map(([k, v]) => (
                       <div key={k} className="flex items-start justify-between py-1.5 border-b border-gray-50 last:border-0">
                         <span className="text-xs text-gray-500 w-36 flex-shrink-0">{k}</span>
-                        <span className="text-xs font-medium text-gray-700 min-w-0 ml-3 break-words">{v}</span>
+                        <span className="text-xs font-medium text-gray-700 min-w-0 ml-3 break-words">
+                          {typeof v === 'string' ? v : (v != null ? JSON.stringify(v) : '—')}
+                        </span>
                       </div>
                     ))}
                   </div>
