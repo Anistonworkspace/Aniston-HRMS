@@ -641,7 +641,7 @@ jobs:
               sleep 3
               STATUS=$(curl -sf http://localhost:4000/api/health 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('status','?'))" 2>/dev/null || echo "starting")
               echo "  [$((i*3))s] backend status: $STATUS"
-              [ "$STATUS" = "ok" ] && echo "✅ Backend is live!" && break
+              if [ "$STATUS" = "ok" ]; then echo "✅ Backend is live!"; break; fi
             done
 
             echo "=== Health checks ==="

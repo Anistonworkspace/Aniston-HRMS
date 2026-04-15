@@ -738,7 +738,7 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
               })()}
 
               {/* Suspicion flags — from ocrVerification or ocrData (combined PDF stores in ocrData.suspicionFlags) */}
-              {((doc.ocrVerification?.suspicionFlags ?? doc.ocrData?.suspicionFlags) as string[] | undefined)?.length > 0 && (
+              {(((doc.ocrVerification?.suspicionFlags ?? doc.ocrData?.suspicionFlags) as string[] | undefined) ?? []).length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {(doc.ocrVerification?.suspicionFlags ?? doc.ocrData?.suspicionFlags as string[]).map((f: string, i: number) => (
                     <span key={i} className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">{f}</span>
