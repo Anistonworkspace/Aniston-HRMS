@@ -1327,6 +1327,8 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
   const templates = templatesRes?.data || [];
   const [saveSalaryDynamic, { isLoading: saving }] = useSaveSalaryStructureDynamicMutation();
   const structure = salRes?.data;
+  // salaryMode: 'default' = payroll uses component master at runtime; 'custom' = per-employee saved components
+  const [salaryMode, setSalaryMode] = useState<'default' | 'custom'>((structure as any)?.isCustom ? 'custom' : 'default');
   const [editing, setEditing] = useState(false);
   const [annualCtc, setAnnualCtc] = useState(ctc ? Number(ctc) : 0);
   const [taxRegime, setTaxRegime] = useState<'OLD_REGIME' | 'NEW_REGIME'>(structure?.incomeTaxRegime || 'NEW_REGIME');
@@ -1375,13 +1377,20 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
       const annual = structure.ctc ? Number(structure.ctc) : (ctc ? Number(ctc) : 0);
       setAnnualCtc(annual);
       setTaxRegime(structure.incomeTaxRegime || 'NEW_REGIME');
-      const builtEarnings = buildComponentsFromStructure(structure, annual, componentMaster);
-      setEarnings(builtEarnings);
+      const mode = (structure as any).isCustom ? 'custom' : 'default';
+      setSalaryMode(mode);
+      // For display, always show component master defaults for default mode
+      if (mode === 'default') {
+        setEarnings(componentMaster.length > 0 ? buildDefaultsFromMaster(componentMaster, annual) : FALLBACK_DEFAULTS);
+      } else {
+        setEarnings(buildComponentsFromStructure(structure, annual, componentMaster));
+      }
       setCustomDeductions(buildDeductionsFromStructure(structure, annual));
-    } else if (!structure) {
-      // No structure yet — use component master defaults
+    } else {
+      // No structure yet — default mode, use component master defaults
       const annual = ctc ? Number(ctc) : 0;
       setAnnualCtc(annual);
+      setSalaryMode('default');
       const defaults = componentMaster.length > 0
         ? buildDefaultsFromMaster(componentMaster, annual)
         : FALLBACK_DEFAULTS.map(e => {
@@ -1543,6 +1552,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
           ctcAnnual: annualCtc,
           components,
           incomeTaxRegime: taxRegime,
+          isCustom: salaryMode === 'custom',
           confirmOverwrite: true,
           changeType: structure ? 'REVISION' : 'INITIAL',
           reason: 'Updated from employee detail page',
@@ -1568,11 +1578,18 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
       const annual = structure.ctc ? Number(structure.ctc) : (ctc ? Number(ctc) : 0);
       setAnnualCtc(annual);
       setTaxRegime(structure.incomeTaxRegime || 'NEW_REGIME');
-      setEarnings(buildComponentsFromStructure(structure, annual, componentMaster));
+      const mode = (structure as any).isCustom ? 'custom' : 'default';
+      setSalaryMode(mode);
+      if (mode === 'default') {
+        setEarnings(componentMaster.length > 0 ? buildDefaultsFromMaster(componentMaster, annual) : FALLBACK_DEFAULTS);
+      } else {
+        setEarnings(buildComponentsFromStructure(structure, annual, componentMaster));
+      }
       setCustomDeductions(buildDeductionsFromStructure(structure, annual));
     } else {
       const annual = ctc ? Number(ctc) : 0;
       setAnnualCtc(annual);
+      setSalaryMode('default');
       setEarnings(componentMaster.length > 0 ? buildDefaultsFromMaster(componentMaster, annual) : FALLBACK_DEFAULTS);
       setCustomDeductions([]);
     }
@@ -1620,6 +1637,50 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
         </div>
       </div>
 
+      {/* Salary Mode Switcher */}
+      {isManagement && (
+        <div className="layer-card p-3 flex items-center gap-3">
+          <div className="flex-1">
+            <p className="text-xs font-semibold text-gray-700">Salary Mode</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              {salaryMode === 'default'
+                ? 'Uses org-wide component master. Settings changes auto-apply at payroll time.'
+                : 'Custom per-employee components. Not affected by settings changes.'}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg">
+            <button
+              onClick={() => {
+                if (salaryMode !== 'default') {
+                  setSalaryMode('default');
+                  // Reset to master defaults when switching to default mode
+                  const defaults = componentMaster.length > 0
+                    ? buildDefaultsFromMaster(componentMaster, annualCtc)
+                    : FALLBACK_DEFAULTS;
+                  setEarnings(defaults);
+                  setCustomDeductions([]);
+                  if (!editing) setEditing(true);
+                }
+              }}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${salaryMode === 'default' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Default
+            </button>
+            <button
+              onClick={() => {
+                if (salaryMode !== 'custom') {
+                  setSalaryMode('custom');
+                  if (!editing) setEditing(true);
+                }
+              }}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${salaryMode === 'custom' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Customized
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Actions bar — always visible */}
       {isManagement && (
         <div className="flex items-center justify-between">
@@ -1635,7 +1696,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
             ) : (
               <div className="flex items-center gap-2">
                 <button onClick={() => setEditing(true)} className="btn-primary text-xs flex items-center gap-1.5 py-1.5">
-                  <DollarSign size={12} /> Edit Salary Structure
+                  <DollarSign size={12} /> {salaryMode === 'custom' ? 'Edit Custom Components' : 'Edit CTC / Structure'}
                 </button>
                 {/* Apply Template dropdown */}
                 <div className="relative">
@@ -1680,8 +1741,13 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
         {/* LEFT: Earnings */}
         <div className="layer-card p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Earnings (Monthly)</h3>
-            {editing && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Earnings (Monthly)</h3>
+              {salaryMode === 'default' && (
+                <p className="text-[10px] text-amber-600 mt-0.5">From component master — switch to Customized to edit</p>
+              )}
+            </div>
+            {editing && salaryMode === 'custom' && (
               <div className="flex items-center gap-1.5">
                 <button onClick={() => setShowComponentPicker(true)} className="text-[10px] text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-0.5">
                   <Plus size={11} /> Library
@@ -1726,7 +1792,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
 
           <div className="space-y-0.5">
             {earnings.map(comp => (
-              <SalaryComponentRow key={comp.id} component={comp} editing={editing} monthly={monthly}
+              <SalaryComponentRow key={comp.id} component={comp} editing={editing && salaryMode === 'custom'} monthly={monthly}
                 error={errors[comp.id]} onUpdate={(u) => updateEarning(comp.id, u)}
                 onRemove={comp.isRequired ? undefined : () => removeEarning(comp.id)} />
             ))}
@@ -1741,7 +1807,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
         <div className="layer-card p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Deductions (Monthly)</h3>
-            {editing && (
+            {editing && salaryMode === 'custom' && (
               <button onClick={addDeduction} className="text-[10px] text-brand-600 hover:text-brand-700 font-medium flex items-center gap-0.5">
                 <Plus size={11} /> Add
               </button>
@@ -2456,49 +2522,121 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
               )}
 
               {/* Auto OCR extracted data — HR/Admin/SuperAdmin only */}
-              {isManagement && ocr && (
-                <div className="mt-2 p-3 bg-gray-50 border border-gray-100 rounded-lg space-y-2">
-                  {/* Quality badges */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {ocr.ocrStatus === 'FLAGGED' && (
-                      <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">FLAGGED</span>
-                    )}
-                    {ocr.isScreenshot && (
-                      <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-50 text-red-600">Screenshot</span>
-                    )}
-                    {ocr.isOriginalScan && !ocr.isScreenshot && (
-                      <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-600">Original Scan</span>
-                    )}
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                      ocr.resolutionQuality === 'HIGH' ? 'bg-emerald-50 text-emerald-600' : ocr.resolutionQuality === 'MEDIUM' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'
-                    }`}>{ocr.resolutionQuality || '?'} Quality</span>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                      ocr.confidence >= 0.7 ? 'bg-emerald-50 text-emerald-600' : ocr.confidence >= 0.4 ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'
-                    }`}>{Math.round(ocr.confidence * 100)}% conf</span>
-                    {ocr.crossValidationStatus && (
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                        ocr.crossValidationStatus === 'PASS' ? 'bg-emerald-50 text-emerald-600' : ocr.crossValidationStatus === 'FAIL' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'
-                      }`}>Cross: {ocr.crossValidationStatus}</span>
-                    )}
-                  </div>
+              {isManagement && ocr && (() => {
+                const conf = Math.round((ocr.confidence || 0) * 100);
+                const isFlagged = ocr.ocrStatus === 'FLAGGED' || conf < 60;
+                const hasName = !!ocr.extractedName;
+                const hasDocNum = !!ocr.extractedDocNumber;
+                const noTamper = !doc.tamperDetected && !(ocr.tamperingIndicators?.length);
+                const crossOk = ocr.crossValidationStatus === 'PASS';
+                const crossFail = ocr.crossValidationStatus === 'FAIL';
+                // Build 4 KYC pointers
+                const pointers: Array<{ ok: boolean | null; text: string }> = [
+                  {
+                    ok: conf >= 70 ? true : conf >= 40 ? null : false,
+                    text: conf >= 70 ? `AI confidence: ${conf}% — reliable extraction`
+                        : conf >= 40 ? `AI confidence: ${conf}% — verify manually`
+                        : `Low confidence: ${conf}% — manual review required`,
+                  },
+                  {
+                    ok: ocr.isScreenshot ? false : ocr.isOriginalScan ? true : null,
+                    text: ocr.isScreenshot ? 'Screenshot detected — original scan required'
+                        : ocr.isOriginalScan ? 'Original scan — not a screenshot or photocopy'
+                        : 'Scan quality unverified — check original',
+                  },
+                  {
+                    ok: noTamper ? true : false,
+                    text: noTamper ? 'No tampering or forgery indicators detected'
+                        : 'Potential tampering detected — review carefully',
+                  },
+                  ocr.crossValidationStatus
+                    ? {
+                        ok: crossOk ? true : crossFail ? false : null,
+                        text: crossOk ? 'Name/DOB matches other uploaded documents'
+                            : crossFail ? 'Name or DOB mismatch with other documents'
+                            : 'Cross-document validation: partial match',
+                      }
+                    : hasDocNum
+                    ? { ok: true, text: `Document number extracted: ${ocr.extractedDocNumber}` }
+                    : { ok: hasName ? true : null, text: hasName ? `Name on document: ${ocr.extractedName}` : 'No name extracted — document may be unclear' },
+                ];
+                return (
+                  <div className="mt-3 rounded-xl border border-gray-100 overflow-hidden bg-white shadow-sm">
+                    {/* Card header */}
+                    <div className={`px-3 py-2 flex items-center justify-between ${isFlagged ? 'bg-red-50 border-b border-red-100' : 'bg-indigo-50 border-b border-indigo-100'}`}>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {isFlagged && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">
+                            <Shield size={9} /> FLAGGED
+                          </span>
+                        )}
+                        {ocr.isOriginalScan && !ocr.isScreenshot && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">Original Scan</span>
+                        )}
+                        {ocr.isScreenshot && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700">Screenshot</span>
+                        )}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                          ocr.resolutionQuality === 'HIGH' ? 'bg-emerald-100 text-emerald-700'
+                          : ocr.resolutionQuality === 'MEDIUM' ? 'bg-amber-100 text-amber-700'
+                          : 'bg-red-100 text-red-700'
+                        }`}>{ocr.resolutionQuality || '?'} Quality</span>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                          conf >= 70 ? 'bg-emerald-100 text-emerald-700'
+                          : conf >= 40 ? 'bg-amber-100 text-amber-700'
+                          : 'bg-red-100 text-red-700'
+                        }`}>{conf}% conf</span>
+                        {ocr.crossValidationStatus && (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                            crossOk ? 'bg-emerald-100 text-emerald-700'
+                            : crossFail ? 'bg-red-100 text-red-700'
+                            : 'bg-amber-100 text-amber-700'
+                          }`}>Cross-val: {ocr.crossValidationStatus}</span>
+                        )}
+                      </div>
+                      <span className="text-[9px] text-gray-400 font-mono shrink-0">OCR AI</span>
+                    </div>
 
-                  {/* Extracted fields */}
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                    {ocr.extractedName && <div><span className="text-[10px] text-gray-400">Name</span><p className="text-xs font-medium text-gray-700 truncate">{ocr.extractedName}</p></div>}
-                    {ocr.extractedDob && <div><span className="text-[10px] text-gray-400">DOB</span><p className="text-xs font-medium text-gray-700">{ocr.extractedDob}</p></div>}
-                    {ocr.extractedFatherName && <div><span className="text-[10px] text-gray-400">Father</span><p className="text-xs font-medium text-gray-700 truncate">{ocr.extractedFatherName}</p></div>}
-                    {ocr.extractedDocNumber && <div><span className="text-[10px] text-gray-400">Doc No.</span><p className="text-xs font-medium text-gray-700 font-mono">{ocr.extractedDocNumber}</p></div>}
-                    {ocr.extractedGender && <div><span className="text-[10px] text-gray-400">Gender</span><p className="text-xs font-medium text-gray-700">{ocr.extractedGender}</p></div>}
-                    {ocr.extractedMotherName && <div><span className="text-[10px] text-gray-400">Mother</span><p className="text-xs font-medium text-gray-700 truncate">{ocr.extractedMotherName}</p></div>}
-                  </div>
+                    {/* Extracted fields (compact) */}
+                    {(hasName || ocr.extractedDob || ocr.extractedFatherName || hasDocNum) && (
+                      <div className="px-3 pt-2 pb-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                        {ocr.extractedName && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">Name</span><p className="text-[11px] font-semibold text-gray-800 truncate">{ocr.extractedName}</p></div>}
+                        {ocr.extractedDob && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">DOB</span><p className="text-[11px] font-semibold text-gray-800">{ocr.extractedDob}</p></div>}
+                        {ocr.extractedFatherName && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">Father</span><p className="text-[11px] font-semibold text-gray-800 truncate">{ocr.extractedFatherName}</p></div>}
+                        {ocr.extractedDocNumber && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">Doc No.</span><p className="text-[11px] font-semibold text-gray-800 font-mono">{ocr.extractedDocNumber}</p></div>}
+                        {ocr.extractedGender && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">Gender</span><p className="text-[11px] font-semibold text-gray-800">{ocr.extractedGender}</p></div>}
+                        {ocr.extractedAddress && <div className="col-span-2"><span className="text-[9px] text-gray-400 uppercase tracking-wide">Address</span><p className="text-[11px] text-gray-700 line-clamp-1">{ocr.extractedAddress}</p></div>}
+                      </div>
+                    )}
 
-                  {/* Detail panel link */}
-                  <button onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); setOcrDocStatus(doc.status); }}
-                    className="text-[10px] text-brand-600 hover:text-brand-700 font-medium">
-                    View full OCR details &rarr;
-                  </button>
-                </div>
-              )}
+                    {/* KYC verification pointers */}
+                    <div className="px-3 py-2 border-t border-gray-50 space-y-1">
+                      <p className="text-[9px] text-gray-400 uppercase tracking-widest font-semibold mb-1">KYC Verification Checks</p>
+                      {pointers.map((p, i) => (
+                        <div key={i} className="flex items-start gap-1.5">
+                          <span className={`shrink-0 mt-0.5 w-3 h-3 rounded-full flex items-center justify-center text-white text-[8px] font-bold
+                            ${p.ok === true ? 'bg-emerald-500' : p.ok === false ? 'bg-red-500' : 'bg-amber-400'}`}>
+                            {p.ok === true ? '✓' : p.ok === false ? '✗' : '!'}
+                          </span>
+                          <span className={`text-[10px] leading-relaxed ${p.ok === false ? 'text-red-700 font-medium' : p.ok === null ? 'text-amber-700' : 'text-gray-600'}`}>
+                            {p.text}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* View full details button */}
+                    <div className="px-3 pb-3">
+                      <button
+                        onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); setOcrDocStatus(doc.status); }}
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold transition-colors shadow-sm"
+                      >
+                        <Eye size={12} /> View Full OCR Details & Validation
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* HR verify/reject/delete actions */}
               {isManagement && (

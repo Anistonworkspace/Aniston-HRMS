@@ -973,6 +973,7 @@ model SalaryStructure {
   employeeId       String   @unique
   templateId       String?  // SalaryTemplate used (null = manual entry)
   templateName     String?  // snapshot of template name at time of application
+  isCustom         Boolean  @default(false) // false = use component master defaults; true = custom per-employee components
   ctc              Decimal  @db.Decimal(12, 2)
   // Dynamic salary components stored as JSON array
   // Each: { name: string, type: "earning"|"deduction", value: number, isPercentage: boolean, percentage?: number }

@@ -194,6 +194,47 @@ function legacyToComponents(sal: any): SalaryComponent[] {
   return comps;
 }
 
+/**
+ * Build SalaryComponent[] from org's component master for "default" salary mode.
+ * Computes values based on CTC/Basic using each component's calculationRule.
+ */
+function buildComponentsFromMaster(masterComps: any[], annualCtc: number): SalaryComponent[] {
+  const monthly = annualCtc / 12;
+  const earningComps = masterComps
+    .filter((c: any) => c.type === 'EARNING' && c.isActive)
+    .sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+  const result: SalaryComponent[] = [];
+
+  // First pass: compute basic so PERCENTAGE_BASIC components can reference it
+  let basicMonthly = 0;
+  for (const mc of earningComps) {
+    if (mc.code === 'BASIC') {
+      const pct = mc.defaultPercentage ? Number(mc.defaultPercentage) : 50;
+      basicMonthly = Math.round(monthly * pct / 100);
+      break;
+    }
+  }
+  if (basicMonthly === 0 && monthly > 0) basicMonthly = Math.round(monthly * 0.5);
+
+  for (const mc of earningComps) {
+    let value = 0;
+    if (mc.calculationRule === 'PERCENTAGE_CTC') {
+      const pct = mc.defaultPercentage ? Number(mc.defaultPercentage) : 0;
+      value = Math.round(monthly * pct / 100);
+    } else if (mc.calculationRule === 'PERCENTAGE_BASIC') {
+      const pct = mc.defaultPercentage ? Number(mc.defaultPercentage) : 0;
+      value = Math.round(basicMonthly * pct / 100);
+    } else {
+      value = mc.defaultValue ? Number(mc.defaultValue) : 0;
+    }
+    if (value > 0) {
+      result.push({ name: mc.name, type: 'earning', value, isPercentage: mc.calculationRule !== 'FIXED' });
+    }
+  }
+  return result;
+}
+
 // ────────────────────────────────────────────────────────────────────
 // Service
 // ────────────────────────────────────────────────────────────────────
@@ -274,7 +315,7 @@ export class PayrollService {
       };
     }
 
-    const { ctcAnnual, components, incomeTaxRegime, statutoryConfig } = data;
+    const { ctcAnnual, components, incomeTaxRegime, statutoryConfig, isCustom } = data as any;
     const regime = incomeTaxRegime || 'NEW_REGIME';
 
     // Compute totals from components
@@ -307,6 +348,7 @@ export class PayrollService {
 
     const upsertData = {
       ctc: ctcAnnual,
+      isCustom: isCustom ?? false,
       components: components as any,
       statutoryConfig: statutoryConfig as any || undefined,
       basic: basicValue || null,
@@ -481,7 +523,8 @@ export class PayrollService {
     const allLeaves = await prisma.leaveRequest.findMany({
       where: {
         employeeId: { in: empIds },
-        status: 'APPROVED',
+        // Include all terminal-approved statuses so manager-approved leaves reduce LOP
+        status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
         startDate: { lte: endDate },
         endDate: { gte: startDate },
       },
@@ -517,6 +560,12 @@ export class PayrollService {
       select: { date: true },
     }).catch(() => []);
     const holidayDates = new Set(holidays.map(h => new Date(h.date).toISOString().split('T')[0]));
+
+    // Pre-fetch component master for "default" salary mode employees
+    const componentMaster = await prisma.salaryComponentMaster.findMany({
+      where: { organizationId, deletedAt: null, isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
 
     try {
       const result = await prisma.$transaction(async (tx) => {
@@ -559,7 +608,14 @@ export class PayrollService {
           const presentDays = Math.max(0, totalWorkingDays - lopDays - paidLeaveCount);
 
           // Use dynamic components if available, else legacy columns
-          const components: SalaryComponent[] = (sal.components as SalaryComponent[] | null) || legacyToComponents(sal);
+          // For "default" employees (isCustom=false), re-compute from component master at payroll time
+          // so any settings changes are automatically reflected without per-employee edits
+          let components: SalaryComponent[];
+          if ((sal as any).isCustom === false && componentMaster.length > 0) {
+            components = buildComponentsFromMaster(componentMaster, Number(sal.ctc));
+          } else {
+            components = (sal.components as SalaryComponent[] | null) || legacyToComponents(sal);
+          }
           const earningsTotal = sumComponentsByType(components, 'earning');
           const componentDeductions = sumComponentsByType(components, 'deduction');
 
@@ -567,9 +623,17 @@ export class PayrollService {
           const lopDeduction = Math.round(dailyRate * lopDays);
           const sundayBonus = Math.round(dailyRate * sundaysWorked);
 
-          // Statutory deductions (from pre-calculated fields on structure)
-          const statutoryDeductions = Number(sal.pfEmployee || 0) + Number(sal.esiEmployee || 0) +
-            Number(sal.professionalTax || 0) + Number(sal.tds || 0);
+          // Statutory deductions — re-compute live for default employees; use stored values for custom
+          let statutoryDeductions: number;
+          if ((sal as any).isCustom === false && componentMaster.length > 0) {
+            const basicComp2 = findComponent(components, 'Basic') || findComponent(components, 'Basic Salary');
+            const basicVal2 = basicComp2?.value ?? 0;
+            const cfg2 = calculateStatutory(basicVal2, earningsTotal, Number(sal.ctc), sal.incomeTaxRegime as any, null);
+            statutoryDeductions = cfg2.epfEmployee + cfg2.esiEmployee + cfg2.professionalTax + cfg2.tds;
+          } else {
+            statutoryDeductions = Number(sal.pfEmployee || 0) + Number(sal.esiEmployee || 0) +
+              Number(sal.professionalTax || 0) + Number(sal.tds || 0);
+          }
 
           // Calculate adjustments (additions and deductions)
           let adjustmentAdditions = 0;
@@ -786,7 +850,12 @@ export class PayrollService {
     if (absentRecords.length === 0) return 0;
 
     const approvedLeaves = await prisma.leaveRequest.findMany({
-      where: { employeeId, status: 'APPROVED', startDate: { lte: endDate }, endDate: { gte: startDate } },
+      where: {
+        employeeId,
+        status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+      },
       select: { startDate: true, endDate: true, leaveType: { select: { isPaid: true } } },
     });
 

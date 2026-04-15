@@ -498,14 +498,15 @@ jobs:
             npm ci || (echo "Retrying npm ci..." && rm -rf node_modules && npm ci)
             node -e "import('tar').then(t => console.log('✅ tar package OK:', typeof t.create)).catch(e => console.error('❌ tar missing:', e.message))" || true
 
-            echo "=== [6/16] Generating Prisma client ==="
-            npx --no-install prisma generate
-
-            echo "=== [7/16] Syncing database schema ==="
+            echo "=== [6/16] Syncing database schema ==="
             npx --no-install prisma db push --accept-data-loss || {
               echo "WARNING: Schema push failed. Trying without flag..."
-              npx --no-install prisma db push 2>/dev/null || echo "Schema push skipped"
+              npx --no-install prisma db push 2>/dev/null || echo "Schema push skipped (schema may already be up to date)"
             }
+
+            echo "=== [7/16] Generating Prisma client (after schema sync) ==="
+            npx --no-install prisma generate
+            echo "✅ Prisma client regenerated"
 
             echo "=== [8/16] Building & starting AI service (Docker + OCR) ==="
 
@@ -621,9 +622,27 @@ jobs:
             sudo timedatectl set-timezone UTC || true
             echo "Server time: $(date)"
 
-            echo "=== [16/16] Restarting PM2 ==="
-            pm2 restart aniston-hrms
-            sleep 5
+            echo "=== [16/16] Restarting backend via PM2 ==="
+            mkdir -p /home/ubuntu/Aniston-HRMS/logs
+            # pm2 reload = graceful zero-downtime restart (waits for new process ready before killing old)
+            # Falls back to fresh start if app is not yet registered (first deploy)
+            if pm2 show aniston-hrms > /dev/null 2>&1; then
+              pm2 reload aniston-hrms --update-env
+              echo "✅ Backend reloaded (zero-downtime)"
+            else
+              echo "ℹ️  App not found in PM2 — starting fresh via ecosystem config"
+              pm2 start ecosystem.config.cjs --env production 2>/dev/null || \
+              pm2 start backend/dist/server.js --name aniston-hrms
+            fi
+            pm2 save --force
+            # Wait for process to be fully ready (up to 30s)
+            echo "Waiting for backend to come online..."
+            for i in $(seq 1 12); do
+              sleep 3
+              STATUS=$(curl -sf http://localhost:4000/api/health 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('status','?'))" 2>/dev/null || echo "starting")
+              echo "  [$((i*3))s] backend status: $STATUS"
+              [ "$STATUS" = "ok" ] && echo "✅ Backend is live!" && break
+            done
 
             echo "=== Health checks ==="
             echo "Backend API:"
@@ -636,5 +655,11 @@ jobs:
             AI_STATUS=$(curl -sf http://localhost:8000/ai/health 2>/dev/null && echo "✅ Running" || echo "⚠️  Not running — OCR uses Node.js fallback (combined KYC PDFs need manual HR review)")
             echo "$AI_STATUS"
             echo "AI container status: $(sudo docker ps --filter name=aniston-ai-service --format '{{.Status}}' 2>/dev/null || echo 'unknown')"
+            echo ""
+            echo "PM2 process list:"
+            pm2 list
+            echo ""
+            echo "Last 15 backend log lines:"
+            pm2 logs aniston-hrms --nostream --lines 15 2>/dev/null || true
             echo ""
             echo "=== Deploy complete! Bundle v${{ github.run_number }} live. ==="

@@ -174,76 +174,98 @@ export default function SalaryComponentsTab() {
         </div>
       </div>
 
-      {/* Create/Edit Form */}
+      {/* Create/Edit Modal Popup */}
       <AnimatePresence>
         {showForm && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="layer-card overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-gray-700">{editingId ? 'Edit Component' : 'New Salary Component'}</h4>
-              <button onClick={resetForm} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
-            </div>
-            <div className="p-4 space-y-3">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={resetForm}>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              onClick={e => e.stopPropagation()}
+              className="relative w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden bg-white"
+            >
+              {/* Modal Header */}
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Name *</label>
-                  <input className="input-glass w-full text-sm" placeholder="e.g. Night Premium" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+                  <h4 className="text-base font-semibold text-gray-800">{editingId ? 'Edit Component' : 'New Salary Component'}</h4>
+                  <p className="text-xs text-gray-500 mt-0.5">{editingId ? 'Update component details' : 'Add a new salary component to the library'}</p>
                 </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Code *</label>
-                  <input className="input-glass w-full text-sm font-mono uppercase" placeholder="e.g. NIGHT_PREMIUM" value={form.code} onChange={e => setForm({ ...form, code: e.target.value.toUpperCase() })} />
+                <button onClick={resetForm} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"><X size={18} /></button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 mb-1.5 block">Component Name *</label>
+                    <input className="input-glass w-full text-sm" placeholder="e.g. Night Premium" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 mb-1.5 block">Code *</label>
+                    <input className="input-glass w-full text-sm font-mono" placeholder="e.g. NIGHT_PREMIUM" value={form.code} onChange={e => setForm({ ...form, code: e.target.value.toUpperCase() })} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 mb-1.5 block">Type</label>
+                    <select className="input-glass w-full text-sm" value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
+                      {COMPONENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 mb-1.5 block">Category</label>
+                    <select className="input-glass w-full text-sm" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
+                      {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 mb-1.5 block">Calculation Rule</label>
+                    <select className="input-glass w-full text-sm" value={form.calculationRule} onChange={e => setForm({ ...form, calculationRule: e.target.value })}>
+                      {CALC_RULES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 mb-1.5 block">Default Value (₹)</label>
+                    <input type="number" className="input-glass w-full text-sm font-mono" placeholder="0.00" value={form.defaultValue} onChange={e => setForm({ ...form, defaultValue: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 mb-1.5 block">Default Percentage (%)</label>
+                    <input type="number" className="input-glass w-full text-sm font-mono" placeholder="0.00" value={form.defaultPercentage} onChange={e => setForm({ ...form, defaultPercentage: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 mb-1.5 block">Description</label>
+                    <input className="input-glass w-full text-sm" placeholder="Optional description" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Type</label>
-                  <select className="input-glass w-full text-sm" value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
-                    {COMPONENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Category</label>
-                  <select className="input-glass w-full text-sm" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
-                    {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                  </select>
+
+                <div className="flex items-center gap-6 pt-1">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input type="checkbox" checked={form.isTaxable} onChange={e => setForm({ ...form, isTaxable: e.target.checked })} className="w-4 h-4 rounded border-gray-300 text-brand-600" />
+                    <span className="text-sm text-gray-700">Taxable</span>
+                  </label>
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input type="checkbox" checked={form.isStatutory} onChange={e => setForm({ ...form, isStatutory: e.target.checked })} className="w-4 h-4 rounded border-gray-300 text-brand-600" />
+                    <span className="text-sm text-gray-700">Statutory <span className="text-xs text-gray-400">(cannot be deleted)</span></span>
+                  </label>
                 </div>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Calculation</label>
-                  <select className="input-glass w-full text-sm" value={form.calculationRule} onChange={e => setForm({ ...form, calculationRule: e.target.value })}>
-                    {CALC_RULES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Default Value</label>
-                  <input type="number" className="input-glass w-full text-sm font-mono" placeholder="0" value={form.defaultValue} onChange={e => setForm({ ...form, defaultValue: e.target.value })} />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Default %</label>
-                  <input type="number" className="input-glass w-full text-sm font-mono" placeholder="0" value={form.defaultPercentage} onChange={e => setForm({ ...form, defaultPercentage: e.target.value })} />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Description</label>
-                  <input className="input-glass w-full text-sm" placeholder="Optional" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-                  <input type="checkbox" checked={form.isTaxable} onChange={e => setForm({ ...form, isTaxable: e.target.checked })} className="rounded border-gray-300" />
-                  Taxable
-                </label>
-                <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-                  <input type="checkbox" checked={form.isStatutory} onChange={e => setForm({ ...form, isStatutory: e.target.checked })} className="rounded border-gray-300" />
-                  Statutory (cannot be deleted)
-                </label>
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button onClick={handleSave} disabled={saving} className="btn-primary text-xs px-4 py-2 flex items-center gap-1">
-                  {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-                  {editingId ? 'Update' : 'Create'}
+
+              {/* Modal Footer */}
+              <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3">
+                <button onClick={resetForm} className="btn-secondary text-sm px-5 py-2">Cancel</button>
+                <button onClick={handleSave} disabled={saving} className="btn-primary text-sm px-5 py-2 flex items-center gap-2">
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  {editingId ? 'Update Component' : 'Create Component'}
                 </button>
-                <button onClick={resetForm} className="btn-secondary text-xs px-4 py-2">Cancel</button>
               </div>
-            </div>
-          </motion.div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
@@ -277,7 +299,8 @@ export default function SalaryComponentsTab() {
                 <th className="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Code</th>
                 <th className="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Type</th>
                 <th className="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Calculation</th>
-                <th className="text-right text-xs font-semibold text-gray-500 uppercase px-4 py-3">Default</th>
+                <th className="text-right text-xs font-semibold text-gray-500 uppercase px-4 py-3">Default Value</th>
+                <th className="text-right text-xs font-semibold text-gray-500 uppercase px-4 py-3">Default %</th>
                 <th className="text-center text-xs font-semibold text-gray-500 uppercase px-4 py-3">Active</th>
                 <th className="text-right text-xs font-semibold text-gray-500 uppercase px-4 py-3">Actions</th>
               </tr>
@@ -296,8 +319,14 @@ export default function SalaryComponentsTab() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-600">{comp.calculationRule?.replace(/_/g, ' ')}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs text-gray-700" data-mono>
+                    {comp.defaultValue ? formatCurrency(Number(comp.defaultValue)) : <span className="text-gray-300">—</span>}
+                  </td>
                   <td className="px-4 py-3 text-right font-mono text-xs" data-mono>
-                    {comp.defaultPercentage ? `${Number(comp.defaultPercentage)}%` : comp.defaultValue ? formatCurrency(Number(comp.defaultValue)) : '—'}
+                    {comp.defaultPercentage
+                      ? <span className="text-brand-600 font-semibold">{Number(comp.defaultPercentage)}%</span>
+                      : <span className="text-gray-300">—</span>
+                    }
                   </td>
                   <td className="px-4 py-3 text-center">
                     <button onClick={() => handleToggle(comp.id)} className="text-gray-400 hover:text-gray-600">

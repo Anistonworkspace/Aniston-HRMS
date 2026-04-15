@@ -40,7 +40,7 @@ export default function SettingsPage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   // Tabs visible to HR (non-admin) users
-  const HR_VISIBLE_TABS: Tab[] = ['organization', 'locations', 'shifts', 'attendance-policy', 'email', 'whatsapp'];
+  const HR_VISIBLE_TABS: Tab[] = ['organization', 'locations', 'shifts', 'attendance-policy', 'salary-components', 'email', 'whatsapp'];
   // Tabs visible only to Super Admin
   const SUPER_ADMIN_ONLY_TABS: Tab[] = ['deletion-requests'];
 

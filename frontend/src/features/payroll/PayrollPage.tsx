@@ -512,14 +512,31 @@ function PayrollAdminView() {
         </table>
       </div>
 
-      {/* Payroll Records / Adjustments Panel */}
+      {/* Payroll Records Modal Popup */}
       <AnimatePresence>
         {viewingRunId && (
-          <PayrollRecordsPanel
-            runId={viewingRunId}
-            runStatus={runs.find((r: any) => r.id === viewingRunId)?.status || 'DRAFT'}
-            onClose={() => setViewingRunId(null)}
-          />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setViewingRunId(null)}>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              onClick={e => e.stopPropagation()}
+              className="relative w-full max-w-6xl max-h-[90vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden bg-white"
+            >
+              <PayrollRecordsPanel
+                runId={viewingRunId}
+                runStatus={runs.find((r: any) => r.id === viewingRunId)?.status || 'DRAFT'}
+                onClose={() => setViewingRunId(null)}
+              />
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 

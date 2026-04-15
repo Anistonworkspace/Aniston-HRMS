@@ -17,7 +17,7 @@ router.post('/', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, r
     const result = await payrollDeletionService.createRequest(
       payrollRunId,
       req.user!.organizationId,
-      req.user!.id,
+      req.user!.userId,
       reason,
       notes,
     );
@@ -42,7 +42,7 @@ router.post('/:id/approve', authorize(Role.SUPER_ADMIN), async (req, res, next) 
     const result = await payrollDeletionService.approveRequest(
       req.params.id,
       req.user!.organizationId,
-      req.user!.id,
+      req.user!.userId,
     );
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
@@ -56,7 +56,7 @@ router.post('/:id/reject', authorize(Role.SUPER_ADMIN), async (req, res, next) =
     const result = await payrollDeletionService.rejectRequest(
       req.params.id,
       req.user!.organizationId,
-      req.user!.id,
+      req.user!.userId,
       rejectionReason,
     );
     res.json({ success: true, data: result });

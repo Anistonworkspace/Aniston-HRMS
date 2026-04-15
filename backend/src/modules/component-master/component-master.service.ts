@@ -39,13 +39,17 @@ export class ComponentMasterService {
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
 
-    // Auto-seed defaults if empty
+    // Auto-seed defaults only if this org has NEVER had any components (even deleted ones)
+    // Checking total count (incl. deleted) prevents re-seeding after intentional deletions
     if (components.length === 0 && !type) {
-      await this.seedDefaults(organizationId, 'system');
-      components = await prisma.salaryComponentMaster.findMany({
-        where: { organizationId, deletedAt: null },
-        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-      });
+      const totalEver = await prisma.salaryComponentMaster.count({ where: { organizationId } });
+      if (totalEver === 0) {
+        await this.seedDefaults(organizationId, 'system');
+        components = await prisma.salaryComponentMaster.findMany({
+          where: { organizationId, deletedAt: null },
+          orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        });
+      }
     }
 
     return components;
@@ -136,10 +140,8 @@ export class ComponentMasterService {
     if (!existing) throw new NotFoundError('Salary component');
     if (existing.isStatutory) throw new BadRequestError('Cannot delete statutory components');
 
-    await prisma.salaryComponentMaster.update({
-      where: { id },
-      data: { deletedAt: new Date(), isActive: false },
-    });
+    // Hard delete — component is permanently removed and will NOT reappear on server restart
+    await prisma.salaryComponentMaster.delete({ where: { id } });
 
     await createAuditLog({
       userId, organizationId,
@@ -185,8 +187,9 @@ export class ComponentMasterService {
    * Seed default salary components for an organization
    */
   async seedDefaults(organizationId: string, userId: string) {
+    // Count ALL (including deleted) — never re-seed if the org has had components before
     const existing = await prisma.salaryComponentMaster.count({
-      where: { organizationId, deletedAt: null },
+      where: { organizationId },
     });
     if (existing > 0) return { seeded: 0 };
 
