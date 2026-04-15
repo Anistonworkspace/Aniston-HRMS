@@ -25,9 +25,8 @@ import { logger } from '../lib/logger.js';
 // pdf-parse is a CommonJS module — use createRequire to avoid ESM/CJS interop issues
 const _require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const _pdfParse = _require('pdf-parse') as (buf: Buffer, opts?: any) => Promise<{
-  text: string; numpages: number; info: any; metadata: any;
-}>;
+// pdf-parse v2.x: class-based API
+const { PDFParse: PdfParseV2 } = _require('pdf-parse') as { PDFParse: new (opts: { data: Buffer }) => any };
 import {
   validatePAN, validateAadhaar, validatePassport, validateVoterID, validateDrivingLicense,
 } from '../utils/documentFormatValidator.js';
@@ -162,13 +161,14 @@ export async function extractTextFromPDF(
 ): Promise<{ text: string; pageCount: number; isScanned: boolean; metadata: any }> {
   const dataBuffer = readFileSync(pdfPath);
   try {
-    const data = await _pdfParse(dataBuffer);
-    const text = data.text.trim();
+    const parser = new PdfParseV2({ data: dataBuffer });
+    const result = await parser.getText({});
+    const text = (result?.text ?? '').trim();
     return {
       text,
-      pageCount: data.numpages,
+      pageCount: result?.total ?? result?.pages?.length ?? 0,
       isScanned: text.length < 100,
-      metadata: data.info || {},
+      metadata: {},
     };
   } catch (error: any) {
     if (error.message?.includes('password')) {

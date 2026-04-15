@@ -30,12 +30,11 @@ import { randomUUID } from 'crypto';
 import { createRequire } from 'module';
 import { logger } from '../lib/logger.js';
 
+// pdf-parse v2.x uses a class-based API: new PDFParse({ data }) → parser.getText({})
 // pdf-parse is a CommonJS module — use createRequire to avoid ESM/CJS interop issues
 const _require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = _require('pdf-parse') as (buf: Buffer, opts?: any) => Promise<{
-  text: string; numpages: number; info: any; metadata: any;
-}>;
+const { PDFParse: PdfParseV2 } = _require('pdf-parse') as { PDFParse: new (opts: { data: Buffer }) => any };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -938,28 +937,22 @@ export async function processCombinedPdfFallback(
   let pageTexts: string[] = [];
 
   try {
-    // pdfParse loaded at module level via createRequire — no dynamic import needed
+    // pdf-parse v2.x: class-based API — new PdfParseV2({ data }) → parser.getText({})
+    // Returns { pages: [{text: string, num: number}], text: string, total: number }
+    const parser = new PdfParseV2({ data: pdfBuffer });
+    const result = await parser.getText({});
+    const pages: Array<{ text: string; num: number }> = result?.pages ?? [];
 
-    // Render each page separately by overriding pagerender
-    const perPageTexts: string[] = [];
-    await pdfParse(pdfBuffer, {
-      pagerender: (pageData: any) => {
-        return pageData.getTextContent().then((content: any) => {
-          const text = content.items.map((item: any) => item.str).join(' ');
-          perPageTexts.push(text);
-          return text;
-        });
-      },
-    });
-
-    if (perPageTexts.length > 0) {
-      pageTexts = perPageTexts;
+    if (pages.length > 0) {
+      pageTexts = pages.map((p: { text: string; num: number }) =>
+        typeof p.text === 'string' ? p.text : '',
+      );
     } else {
-      // Fallback: split full text by form-feed character (some PDFs use \f as page separator)
-      const fullResult = await pdfParse(pdfBuffer);
-      pdfData = fullResult;
-      const byFormFeed = fullResult.text.split('\f').filter((t: string) => t.trim().length > 0);
-      pageTexts = byFormFeed.length > 1 ? byFormFeed : [fullResult.text];
+      // Fallback: use combined text, split by form-feed
+      const fullText: string = result?.text ?? '';
+      pdfData = { text: fullText, numpages: result?.total ?? 0 };
+      const byFormFeed = fullText.split('\f').filter((t: string) => t.trim().length > 0);
+      pageTexts = byFormFeed.length > 1 ? byFormFeed : [fullText];
     }
   } catch (err: any) {
     if (err.message?.includes('password')) {
