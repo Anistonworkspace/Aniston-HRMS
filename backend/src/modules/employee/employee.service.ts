@@ -284,7 +284,7 @@ export class EmployeeService {
             gender: 'PREFER_NOT_TO_SAY',
             workMode: 'OFFICE',
             joiningDate: new Date(),
-            status: 'PROBATION',
+            status: 'ONBOARDING',
             organizationId,
           },
         });
@@ -408,8 +408,9 @@ export class EmployeeService {
     // Enforce valid status transitions
     if (data.status && data.status !== existing.status) {
       const VALID_TRANSITIONS: Record<string, string[]> = {
-        'ONBOARDING': ['PROBATION', 'ACTIVE', 'INACTIVE'],
-        'PROBATION': ['ACTIVE', 'NOTICE_PERIOD', 'INACTIVE', 'TERMINATED'],
+        'ONBOARDING': ['PROBATION', 'ACTIVE', 'INTERN', 'INACTIVE'],
+        'PROBATION': ['ACTIVE', 'INTERN', 'NOTICE_PERIOD', 'INACTIVE', 'TERMINATED'],
+        'INTERN': ['PROBATION', 'ACTIVE', 'NOTICE_PERIOD', 'INACTIVE', 'TERMINATED'],
         'ACTIVE': ['NOTICE_PERIOD', 'INACTIVE', 'SUSPENDED'],
         'NOTICE_PERIOD': ['TERMINATED', 'ACTIVE'],
         'SUSPENDED': ['ACTIVE', 'TERMINATED'],

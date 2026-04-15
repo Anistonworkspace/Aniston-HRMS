@@ -543,7 +543,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose }: { employee: 
     maritalStatus: employee.maritalStatus || '',
     workMode: employee.workMode || 'OFFICE',
     joiningDate: employee.joiningDate ? employee.joiningDate.split('T')[0] : '',
-    status: employee.status || 'ACTIVE',
+    status: employee.status || 'ONBOARDING',
     ctc: employee.ctc ? Number(employee.ctc) : '',
     departmentId: employee.department?.id || '',
     designationId: employee.designation?.id || '',

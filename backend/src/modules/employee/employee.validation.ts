@@ -18,24 +18,9 @@ export const createEmployeeSchema = z.object({
   joiningDate: z.string().min(1, 'Joining date is required'),
   probationEndDate: z.string().optional(),
   ctc: z.number().positive().optional(),
-  address: z.object({
-    current: z.object({
-      line1: z.string(),
-      line2: z.string().optional(),
-      city: z.string(),
-      state: z.string(),
-      pincode: z.string(),
-      country: z.string().default('India'),
-    }).optional(),
-    permanent: z.object({
-      line1: z.string(),
-      line2: z.string().optional(),
-      city: z.string(),
-      state: z.string(),
-      pincode: z.string(),
-      country: z.string().default('India'),
-    }).optional(),
-  }).optional(),
+  // Accept any JSON shape — onboarding saves flat { line1, city, state, pincode }
+  // while some flows use nested { current: {...}, permanent: {...} }
+  address: z.any().optional(),
   emergencyContact: z.object({
     name: z.string(),
     relationship: z.string(),
@@ -49,7 +34,13 @@ export const createEmployeeSchema = z.object({
   accountType: z.enum(['SAVINGS', 'CURRENT']).optional(),
 });
 
-export const updateEmployeeSchema = createEmployeeSchema.partial();
+export const updateEmployeeSchema = createEmployeeSchema.partial().extend({
+  // status is HR-only; stripped by service for non-management roles
+  status: z.enum([
+    'ONBOARDING', 'PROBATION', 'ACTIVE', 'INTERN', 'NOTICE_PERIOD',
+    'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED',
+  ]).optional(),
+});
 
 export const employeeQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),

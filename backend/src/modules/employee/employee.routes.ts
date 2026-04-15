@@ -95,7 +95,7 @@ router.post('/me/resign', (req, res, next) =>
 //   employeeController.create(req, res, next)
 // );
 
-router.get('/:id', requirePermission('employee', 'read'), (req, res, next) =>
+router.get('/:id', requirePermissionOrOwn('employee', 'read'), (req, res, next) =>
   employeeController.getById(req, res, next)
 );
 
