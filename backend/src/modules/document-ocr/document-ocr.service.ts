@@ -207,6 +207,14 @@ export class DocumentOcrService {
           ...(allWarnings.length > 0 ? [`Warnings: ${allWarnings.join('; ')}`] : []),
         ].join(' ');
 
+        // Bank-specific fields from Node.js extractor — stored for autoFillFromOcr
+        const localBankExtras = (localResult.extractedFields.ifscCode || localResult.extractedFields.bankName) ? {
+          accountNumber: localResult.extractedFields.extractedDocNumber || null,
+          ifscCode: localResult.extractedFields.ifscCode || null,
+          bankName: localResult.extractedFields.bankName || null,
+          micrCode: localResult.extractedFields.micrCode || null,
+        } : {};
+
         const ocrVerification = await prisma.documentOcrVerification.upsert({
           where: { documentId },
           create: {
@@ -233,6 +241,7 @@ export class DocumentOcrService {
             extractionSource: 'tesseract',
             suspicionScore: localResult.suspicionFlags.length * 10,
             suspicionFlags: localResult.suspicionFlags as any,
+            ...(Object.keys(localBankExtras).length > 0 ? { llmExtractedData: localBankExtras as any } : {}),
           },
           update: {
             rawText: localResult.rawText,
@@ -256,6 +265,7 @@ export class DocumentOcrService {
             extractionSource: 'tesseract',
             suspicionScore: localResult.suspicionFlags.length * 10,
             suspicionFlags: localResult.suspicionFlags as any,
+            ...(Object.keys(localBankExtras).length > 0 ? { llmExtractedData: localBankExtras as any } : {}),
           },
         });
 
@@ -292,6 +302,14 @@ export class DocumentOcrService {
       ? `AI Analysis (Authenticity: ${Math.round(authenticityScore * 100)}%):\n${validationReasons.join('\n')}`
       : null;
 
+    // Bank-specific fields extracted by Python — stored at root of llmExtractedData for autoFillFromOcr
+    const bankExtras = (fields.ifsc_code || fields.bank_name || fields.account_number) ? {
+      accountNumber: fields.account_number || null,
+      ifscCode: fields.ifsc_code || null,
+      bankName: fields.bank_name || null,
+      branch: fields.branch || null,
+    } : {};
+
     // Upsert the OCR verification record
     const ocrVerification = await prisma.documentOcrVerification.upsert({
       where: { documentId },
@@ -323,6 +341,7 @@ export class DocumentOcrService {
           dynamic_fields: dynamicFields,
           authenticity_score: authenticityScore,
           is_flagged: isPythonFlagged,
+          ...bankExtras,
         } as any,
       },
       update: {
@@ -350,6 +369,7 @@ export class DocumentOcrService {
           dynamic_fields: dynamicFields,
           authenticity_score: authenticityScore,
           is_flagged: isPythonFlagged,
+          ...bankExtras,
         } as any,
       },
     });

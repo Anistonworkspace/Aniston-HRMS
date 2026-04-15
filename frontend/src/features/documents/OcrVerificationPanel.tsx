@@ -164,6 +164,26 @@ const COMBINED_PDF_REQUIRED_DOCS = [
   { type: 'EXPERIENCE_LETTER', label: 'Experience / Employment Proof', group: 'employment' },
 ];
 
+// Alias table: which detected types satisfy each required doc type
+// Must mirror the backend DOC_TYPE_ALIASES and Python REQUIRED_DOC_ALIASES
+const FRONTEND_DOC_ALIASES: Record<string, string[]> = {
+  RESIDENCE_PROOF: ['UTILITY_BILL', 'BANK_STATEMENT', 'CANCELLED_CHEQUE', 'VOTER_ID', 'DRIVING_LICENSE', 'RENT_AGREEMENT'],
+  BANK_STATEMENT: ['BANK_STATEMENT', 'CANCELLED_CHEQUE'],
+  EXPERIENCE_LETTER: ['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER_DOC', 'SALARY_SLIP_DOC', 'OFFER_LETTER', 'SALARY_SLIP'],
+  DEGREE_CERTIFICATE: ['DEGREE_CERTIFICATE', 'CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'],
+  PHOTO: ['PHOTO', 'PROFILE_PHOTO'],
+};
+
+function isDocDetected(docType: string, detectedTypes: string[]): boolean {
+  const aliases = FRONTEND_DOC_ALIASES[docType] || [docType];
+  return aliases.some(a => detectedTypes.includes(a));
+}
+
+function getDetectedAlias(docType: string, detectedTypes: string[]): string | null {
+  const aliases = FRONTEND_DOC_ALIASES[docType] || [docType];
+  return aliases.find(a => detectedTypes.includes(a)) ?? null;
+}
+
 // Per-page validation accordion item
 function PageValidationRow({ pv }: { pv: any }) {
   const [open, setOpen] = useState(false);
@@ -276,9 +296,7 @@ function CombinedPdfReviewPanel({
   const wrongUploadPages: number[] = analysis?.wrongUploadPages || analysis?.wrong_upload_pages || [];
   const wrongUploadCount: number = analysis?.wrongUploadCount || analysis?.wrong_upload_count || 0;
 
-  const missingDocs = relevantDocs.filter(
-    d => !detectedDocTypes.some(t => t === d.type || t.includes(d.type) || d.type.includes(t))
-  );
+  const missingDocs = relevantDocs.filter(d => !isDocDetected(d.type, detectedDocTypes));
 
   const riskColor = riskLevel === 'HIGH' ? 'text-red-700 bg-red-100'
     : riskLevel === 'MEDIUM' ? 'text-amber-700 bg-amber-100'
@@ -341,8 +359,24 @@ function CombinedPdfReviewPanel({
               <AlertTriangle size={11} /> Missing Documents ({missingDocs.length}):
             </p>
             {missingDocs.map(d => (
-              <p key={d.type} className="text-xs text-red-600 ml-3">• {d.label} — not detected in PDF</p>
+              <p key={d.type} className="text-xs text-red-600 ml-3">• {d.label} — not detected</p>
             ))}
+          </div>
+        )}
+
+        {/* Detected documents summary */}
+        {detectedDocTypes.length > 0 && (
+          <div className="mt-3 p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg">
+            <p className="text-xs font-medium text-emerald-700 mb-1 flex items-center gap-1">
+              <CheckCircle2 size={11} /> Detected ({detectedDocTypes.length}):
+            </p>
+            <div className="flex flex-wrap gap-1 ml-1">
+              {detectedDocTypes.map((t: string) => (
+                <span key={t} className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-medium">
+                  {t.replace(/_/g, ' ')}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
@@ -414,9 +448,9 @@ function CombinedPdfReviewPanel({
         </div>
         <div className="space-y-2">
           {relevantDocs.map(doc => {
-            const detected = detectedDocTypes.some(t =>
-              t === doc.type || t.includes(doc.type) || doc.type.includes(t)
-            );
+            const detected = isDocDetected(doc.type, detectedDocTypes);
+            const alias = getDetectedAlias(doc.type, detectedDocTypes);
+            const aliasLabel = alias && alias !== doc.type ? alias.replace(/_/g, ' ') : null;
             return (
               <div key={doc.type} className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg border',
@@ -427,7 +461,7 @@ function CombinedPdfReviewPanel({
                   : <XCircle size={15} className="text-red-400 shrink-0" />}
                 <span className="text-xs text-gray-700 flex-1">{doc.label}</span>
                 <span className={cn('text-[10px] font-medium', detected ? 'text-emerald-600' : 'text-red-500')}>
-                  {detected ? 'Detected by AI' : 'Not found'}
+                  {detected ? (aliasLabel ? `via ${aliasLabel}` : 'Detected') : 'Not found'}
                 </span>
               </div>
             );

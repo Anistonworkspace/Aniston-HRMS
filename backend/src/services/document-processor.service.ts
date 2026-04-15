@@ -19,7 +19,15 @@
 import { createWorker, Worker as TessWorker } from 'tesseract.js';
 import { readFileSync, existsSync, unlinkSync } from 'fs';
 import { extname } from 'path';
+import { createRequire } from 'module';
 import { logger } from '../lib/logger.js';
+
+// pdf-parse is a CommonJS module — use createRequire to avoid ESM/CJS interop issues
+const _require = createRequire(import.meta.url);
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const _pdfParse = _require('pdf-parse') as (buf: Buffer, opts?: any) => Promise<{
+  text: string; numpages: number; info: any; metadata: any;
+}>;
 import {
   validatePAN, validateAadhaar, validatePassport, validateVoterID, validateDrivingLicense,
 } from '../utils/documentFormatValidator.js';
@@ -154,9 +162,7 @@ export async function extractTextFromPDF(
 ): Promise<{ text: string; pageCount: number; isScanned: boolean; metadata: any }> {
   const dataBuffer = readFileSync(pdfPath);
   try {
-    const pdfParseModule = await import('pdf-parse');
-    const pdfParse = (pdfParseModule as any).default || pdfParseModule;
-    const data = await pdfParse(dataBuffer);
+    const data = await _pdfParse(dataBuffer);
     const text = data.text.trim();
     return {
       text,
@@ -543,6 +549,44 @@ export async function processDocumentLocally(
       if (companyName) extractedFields.companyName = companyName;
       if (designation) extractedFields.designation = designation;
       if (dateRange) extractedFields.dateRange = dateRange;
+      break;
+    }
+
+    case 'BANK_STATEMENT':
+    case 'CANCELLED_CHEQUE': {
+      const accMatch = rawText.match(/(?:Account\s+(?:Number|No\.?)|A\/c\s+No\.?)[:\s]+([0-9]{9,18})/i);
+      const nameMatch = rawText.match(/(?:Account\s+Holder(?:'s)?\s+(?:Name)?|Name)[:\s]+([A-Z][A-Za-z\s.]{2,40})/i);
+      const ifscMatch = rawText.match(/(?:IFSC|IFSC\s+Code)[:\s]+([A-Z]{4}0[A-Z0-9]{6})/i);
+      const bankMatch = rawText.match(/(?:Bank\s+(?:Name|:)|Banker)[:\s]*([A-Z][A-Za-z\s&.,]{2,50})/i);
+      const micrMatch = rawText.match(/\b([0-9]{9})\b/);  // MICR code on cancelled cheques
+      extractedFields.extractedName = nameMatch ? nameMatch[1].trim() : null;
+      extractedFields.extractedDocNumber = accMatch ? accMatch[1] : null;
+      if (ifscMatch) extractedFields.ifscCode = ifscMatch[1];
+      if (bankMatch) extractedFields.bankName = bankMatch[1].trim();
+      if (micrMatch && detectedType === 'CANCELLED_CHEQUE') extractedFields.micrCode = micrMatch[1];
+      if (extractedFields.extractedDocNumber) {
+        formatValid = true;
+      } else {
+        formatErrors.push('Bank account number not detectable — verify manually');
+      }
+      if (ifscMatch?.[1]) {
+        const ifscOk = /^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscMatch[1]);
+        if (!ifscOk) formatErrors.push(`IFSC code format invalid: ${ifscMatch[1]}`);
+      }
+      break;
+    }
+
+    case 'SALARY_SLIP_DOC': {
+      const nameMatch = rawText.match(/(?:Employee\s+Name|Name\s*:)[:\s]+([A-Z][A-Za-z\s.]{2,40})/i);
+      const empCodeMatch = rawText.match(/(?:Employee\s+(?:Code|ID|No\.?)|Emp\.?\s+(?:Code|ID))[:\s]+([A-Z0-9\-]+)/i);
+      const netPayMatch = rawText.match(/(?:Net\s+(?:Pay|Salary)|Take\s+Home)[:\s]+(?:Rs\.?|₹)?\s*([0-9,]+)/i);
+      const monthMatch = rawText.match(/(?:(?:For\s+)?(?:the\s+)?Month\s+(?:of\s+)?|Pay\s+Period)[:\s]*([A-Za-z]+\s+\d{4}|\d{1,2}[\/\-]\d{4})/i);
+      extractedFields.extractedName = nameMatch ? nameMatch[1].trim() : null;
+      if (empCodeMatch) extractedFields.employeeCode = empCodeMatch[1];
+      if (netPayMatch) extractedFields.netPay = netPayMatch[1].replace(/,/g, '');
+      if (monthMatch) extractedFields.payMonth = monthMatch[1].trim();
+      formatValid = !!extractedFields.extractedName;
+      if (!extractedFields.extractedName) formatErrors.push('Employee name not detectable in salary slip');
       break;
     }
 

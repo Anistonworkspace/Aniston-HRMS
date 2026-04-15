@@ -957,18 +957,32 @@ def generate_validation_reasons(
             reasons.append(f"✓ Expiry date: {fields['expiry_date']} — check if license is still valid")
 
     elif doc_type == "BANK_STATEMENT":
+        reasons.append("✓ Bank statement / passbook detected — valid as bank proof and residence proof")
         ifsc = fields.get("ifsc_code", "")
         if ifsc and re.match(r"^[A-Z]{4}0[A-Z0-9]{6}$", ifsc):
             reasons.append(f"✓ IFSC code {ifsc} matches standard format (bank: {ifsc[:4]})")
         elif ifsc:
             reasons.append(f"⚠ IFSC code '{ifsc}' — verify against bank records")
         else:
-            reasons.append("⚠ IFSC code not found — check if this is a bank statement or cancelled cheque")
+            # Try to detect IFSC directly from raw text as fallback
+            ifsc_match = re.search(r'\b([A-Z]{4}0[A-Z0-9]{6})\b', raw_text)
+            if ifsc_match:
+                reasons.append(f"✓ IFSC code found in document: {ifsc_match.group(1)} (bank: {ifsc_match.group(1)[:4]})")
+            else:
+                reasons.append("⚠ IFSC code not found — verify account details manually")
 
         if fields.get("account_number"):
-            reasons.append(f"✓ Account number detected (length: {len(fields['account_number'])} digits)")
+            reasons.append(f"✓ Account number detected ({len(fields['account_number'])} digits)")
+        else:
+            acc_match = re.search(r"(?:account\s+no|a/c\s+no|acc\s+no)[:\s.]*([0-9]{9,18})", raw_text, re.IGNORECASE)
+            if acc_match:
+                reasons.append(f"✓ Account number found in document ({len(acc_match.group(1))} digits)")
+            else:
+                reasons.append("⚠ Account number not clearly extracted — verify manually")
         if fields.get("account_holder_name"):
             reasons.append(f"✓ Account holder name: '{fields['account_holder_name']}'")
+        if fields.get("bank_name"):
+            reasons.append(f"✓ Bank identified: {fields['bank_name']}")
 
     elif doc_type in ("TENTH_CERTIFICATE", "TWELFTH_CERTIFICATE"):
         grade_label = "10th / SSC" if doc_type == "TENTH_CERTIFICATE" else "12th / HSC / Intermediate"
@@ -1326,11 +1340,11 @@ OCR_TYPE_TO_DOC_TYPE: dict = {
     "CERTIFICATE": "DEGREE_CERTIFICATE",   # generic education cert — HR disambiguates
     "BANK_STATEMENT": "BANK_STATEMENT",
     "CANCELLED_CHEQUE": "CANCELLED_CHEQUE",
-    "OFFER_LETTER": "OFFER_LETTER",
+    "OFFER_LETTER": "OFFER_LETTER_DOC",
     "RESIGNATION_LETTER": "RESIGNATION_LETTER",
     "EXPERIENCE_LETTER": "EXPERIENCE_LETTER",
     "RELIEVING_LETTER": "EXPERIENCE_LETTER",
-    "SALARY_SLIP": "SALARY_SLIP",
+    "SALARY_SLIP": "SALARY_SLIP_DOC",
     "UTILITY_BILL": "UTILITY_BILL",
     "RENT_AGREEMENT": "RENT_AGREEMENT",
     "OTHER": "OTHER",
@@ -1349,9 +1363,9 @@ REQUIRED_DOC_ALIASES: dict = {
     "DEGREE_CERTIFICATE": ["DEGREE_CERTIFICATE", "CERTIFICATE", "POST_GRADUATION_CERTIFICATE"],
     "POST_GRADUATION_CERTIFICATE": ["POST_GRADUATION_CERTIFICATE", "DEGREE_CERTIFICATE", "CERTIFICATE"],
     # Experience proof: any employment document works
-    "EXPERIENCE_LETTER": ["EXPERIENCE_LETTER", "RELIEVING_LETTER", "OFFER_LETTER", "SALARY_SLIP", "RESIGNATION_LETTER"],
-    "OFFER_LETTER": ["OFFER_LETTER", "EXPERIENCE_LETTER", "RELIEVING_LETTER"],
-    "SALARY_SLIP": ["SALARY_SLIP"],
+    "EXPERIENCE_LETTER": ["EXPERIENCE_LETTER", "RELIEVING_LETTER", "OFFER_LETTER_DOC", "SALARY_SLIP_DOC", "RESIGNATION_LETTER"],
+    "OFFER_LETTER_DOC": ["OFFER_LETTER_DOC", "EXPERIENCE_LETTER", "RELIEVING_LETTER"],
+    "SALARY_SLIP_DOC": ["SALARY_SLIP_DOC"],
     # Residence proof: utility bill, bank statement, cancelled cheque, rent agreement, or address-bearing govt ID
     "RESIDENCE_PROOF": ["UTILITY_BILL", "BANK_STATEMENT", "CANCELLED_CHEQUE", "VOTER_ID", "DRIVING_LICENSE", "RENT_AGREEMENT"],
     "BANK_STATEMENT": ["BANK_STATEMENT", "CANCELLED_CHEQUE"],
@@ -1862,9 +1876,13 @@ async def process_document(file_bytes: bytes, filename: str = "document.jpg") ->
     if authenticity_score < 0.50 and confidence >= 0.60:
         validation_reasons.insert(0, f"🚩 FLAGGED: Authenticity score {int(authenticity_score * 100)}% — deep validation raised integrity concerns")
 
+    # Map raw OCR type to the shared system DocumentType enum so the stored
+    # detectedType is consistent with what Document.type uses everywhere
+    system_doc_type = OCR_TYPE_TO_DOC_TYPE.get(doc_type, doc_type)
+
     return OCRResult(
         raw_text=raw_text,
-        document_type=doc_type,
+        document_type=system_doc_type,
         extracted_fields=extracted,
         confidence=confidence,
         extraction_source=source,

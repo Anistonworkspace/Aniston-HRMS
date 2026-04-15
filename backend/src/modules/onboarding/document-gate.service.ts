@@ -696,6 +696,17 @@ export class DocumentGateService {
       missingDocs.push('IDENTITY_PROOF');
     }
 
+    // Run cross-document OCR validation on-demand (non-blocking — skipped if < 2 docs have OCR data)
+    let crossValidation: any = null;
+    try {
+      const { documentOcrService } = await import('../document-ocr/document-ocr.service.js');
+      crossValidation = await documentOcrService.crossValidateEmployee(employeeId, organizationId);
+      // Only include if there's meaningful data (at least 2 docs compared)
+      if (crossValidation?.status === 'PENDING') crossValidation = null;
+    } catch {
+      // Non-blocking — cross-validation failure should not block HR review
+    }
+
     return {
       gate,
       documents,
@@ -707,6 +718,7 @@ export class DocumentGateService {
         needsEmploymentProof,
         hasPhoto: !!(gate.photoUrl || submittedDocTypes.includes('PHOTO')),
       },
+      crossValidation,
     };
   }
 }

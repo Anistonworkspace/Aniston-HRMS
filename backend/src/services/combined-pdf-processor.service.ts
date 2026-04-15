@@ -27,7 +27,15 @@ import { readFileSync, existsSync, unlinkSync, writeFileSync } from 'fs';
 import { join, extname } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
+import { createRequire } from 'module';
 import { logger } from '../lib/logger.js';
+
+// pdf-parse is a CommonJS module — use createRequire to avoid ESM/CJS interop issues
+const _require = createRequire(import.meta.url);
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = _require('pdf-parse') as (buf: Buffer, opts?: any) => Promise<{
+  text: string; numpages: number; info: any; metadata: any;
+}>;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -184,7 +192,7 @@ const CLASSIFICATION_RULES: ClassRule[] = [
   },
   // Salary slip: PAYSLIP is the most common keyword, not SALARY
   {
-    type: 'SALARY_SLIP',
+    type: 'SALARY_SLIP_DOC',
     required: ['PAYSLIP'],
     optional: ['BASIC', 'HRA', 'PF', 'GROSS', 'NET PAY', 'DEDUCTION', 'EPF', 'ESI', 'EMPLOYEE', 'EARNINGS'],
     negative: ['UNIVERSITY', 'PASSPORT', 'AADHAAR'],
@@ -192,7 +200,7 @@ const CLASSIFICATION_RULES: ClassRule[] = [
   },
   // Salary slip alternative: "PAY SLIP" or "NET PAY" with earnings structure
   {
-    type: 'SALARY_SLIP',
+    type: 'SALARY_SLIP_DOC',
     required: ['NET PAY'],
     optional: ['BASIC', 'HRA', 'GROSS', 'DEDUCTION', 'EARNINGS', 'SALARY', 'EMPLOYEE'],
     negative: ['UNIVERSITY', 'PASSPORT', 'AADHAAR', 'UIDAI'],
@@ -214,14 +222,14 @@ const CLASSIFICATION_RULES: ClassRule[] = [
   },
   // Offer letter: only needs ONE of these terms (was wrongly requiring BOTH)
   {
-    type: 'OFFER_LETTER',
+    type: 'OFFER_LETTER_DOC',
     required: ['OFFER LETTER'],
     optional: ['DESIGNATION', 'JOINING DATE', 'SALARY', 'POSITION', 'WELCOME', 'SELECTED', 'PLEASED TO INFORM'],
     negative: ['RELIEVING', 'EXPERIENCE LETTER', 'RESIGNATION'],
     baseScore: 0.75,
   },
   {
-    type: 'OFFER_LETTER',
+    type: 'OFFER_LETTER_DOC',
     required: ['APPOINTMENT LETTER'],
     optional: ['DESIGNATION', 'JOINING DATE', 'SALARY', 'POSITION', 'PROBATION'],
     negative: ['RELIEVING', 'RESIGNATION'],
@@ -488,7 +496,7 @@ function classifyPage(text: string): { type: string; confidence: number; keyword
   // Offer letter: any document that explicitly says "OFFER LETTER" (standalone, not needing another keyword)
   if (upper.includes('OFFER LETTER') || upper.includes('APPOINTMENT LETTER') ||
       upper.includes('OFFER OF EMPLOYMENT')) {
-    return { type: 'OFFER_LETTER', confidence: 0.88, keywords: ['OFFER_LETTER_SHORTCUT'] };
+    return { type: 'OFFER_LETTER_DOC', confidence: 0.88, keywords: ['OFFER_LETTER_SHORTCUT'] };
   }
 
   // Salary slip / payslip: common payroll document patterns
@@ -496,7 +504,7 @@ function classifyPage(text: string): { type: string; confidence: number; keyword
       (upper.includes('NET PAY') && upper.includes('BASIC')) ||
       (upper.includes('PAYSLIP FOR THE MONTH') || upper.includes('PAY SLIP FOR THE MONTH')) ||
       (upper.includes('GROSS') && upper.includes('NET PAY') && upper.includes('DEDUCTION'))) {
-    return { type: 'SALARY_SLIP', confidence: 0.88, keywords: ['SALARY_SLIP_SHORTCUT'] };
+    return { type: 'SALARY_SLIP_DOC', confidence: 0.88, keywords: ['SALARY_SLIP_SHORTCUT'] };
   }
 
   // Utility bills: electricity, water, gas, telephone
@@ -754,7 +762,7 @@ function extractFieldsFromPage(text: string, docType: string): Record<string, st
   }
 
   // Employment documents
-  if (['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER'].includes(docType)) {
+  if (['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER_DOC'].includes(docType)) {
     const nameMatch = text.match(/(?:Employee|Candidate|Dear|Mr\.|Ms\.|Mrs\.)\s+([A-Z][A-Za-z\s]{2,40})/i);
     if (nameMatch) fields.employeeName = nameMatch[1].trim();
     const companyMatch = text.match(/(?:Company|Organisation|Organization|Employer)[:\s]+([A-Z][A-Za-z\s&.,]{2,60})/i);
@@ -829,9 +837,9 @@ const DOC_TYPE_ALIASES: Record<string, string[]> = {
   DEGREE_CERTIFICATE: ['DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'],
   POST_GRADUATION_CERTIFICATE: ['POST_GRADUATION_CERTIFICATE', 'DEGREE_CERTIFICATE'],
   // Experience proof: offer letter, salary slip, relieving letter, resignation are all valid
-  EXPERIENCE_LETTER: ['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER', 'SALARY_SLIP', 'RESIGNATION_LETTER'],
-  OFFER_LETTER: ['OFFER_LETTER', 'EXPERIENCE_LETTER', 'RELIEVING_LETTER'],
-  SALARY_SLIP: ['SALARY_SLIP'],
+  EXPERIENCE_LETTER: ['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER_DOC', 'SALARY_SLIP_DOC', 'RESIGNATION_LETTER'],
+  OFFER_LETTER_DOC: ['OFFER_LETTER_DOC', 'EXPERIENCE_LETTER', 'RELIEVING_LETTER'],
+  SALARY_SLIP_DOC: ['SALARY_SLIP_DOC'],
   PHOTO: ['PHOTO'],
   // Residence proof: utility bills, bank statement, cancelled cheque, rent agreement, or govt-issued address doc
   RESIDENCE_PROOF: ['BANK_STATEMENT', 'CANCELLED_CHEQUE', 'VOTER_ID', 'DRIVING_LICENSE', 'UTILITY_BILL', 'RENT_AGREEMENT'],
@@ -930,16 +938,7 @@ export async function processCombinedPdfFallback(
   let pageTexts: string[] = [];
 
   try {
-    const pdfParseModule = await import('pdf-parse');
-    // pdf-parse is a CJS package — handle ESM interop correctly
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rawMod = pdfParseModule as any;
-    const pdfParse: (buf: Buffer, opts?: any) => Promise<any> =
-      typeof rawMod === 'function' ? rawMod :
-      typeof rawMod.default === 'function' ? rawMod.default :
-      typeof rawMod.parse === 'function' ? rawMod.parse :
-      null;
-    if (!pdfParse) throw new TypeError('pdf-parse did not export a callable function — check installation');
+    // pdfParse loaded at module level via createRequire — no dynamic import needed
 
     // Render each page separately by overriding pagerender
     const perPageTexts: string[] = [];

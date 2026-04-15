@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText, User, CheckCircle, XCircle, AlertTriangle, Clock,
   Eye, RefreshCw, ArrowLeft, ChevronDown, ChevronUp, MessageSquare,
-  Shield, Download, Cpu, Server, ClipboardList,
+  Shield, Download, Cpu, Server, ClipboardList, Award, Briefcase,
+  GraduationCap, Flag, Info,
 } from 'lucide-react';
 import {
   useGetPendingKycQuery,
@@ -114,6 +115,94 @@ function ProcessingModeBadge({ mode }: { mode?: string | null }) {
   );
 }
 
+// ─── Document Score Badge (confidence-based flag) ─────────────────────────────
+function DocumentScoreBadge({ confidence }: { confidence?: number | null }) {
+  if (confidence == null) return null;
+  const pct = Math.round(confidence * 100);
+
+  if (pct >= 99) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+        <CheckCircle className="w-3 h-3" />
+        {pct}% — All fields correct
+      </span>
+    );
+  }
+  if (pct >= 80) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+        <CheckCircle className="w-3 h-3" />
+        {pct}% — High confidence
+      </span>
+    );
+  }
+  if (pct >= 50) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700 border border-yellow-200">
+        <AlertTriangle className="w-3 h-3" />
+        {pct}% — Verify key fields
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
+      <XCircle className="w-3 h-3" />
+      {pct}% — Manual review required
+    </span>
+  );
+}
+
+// ─── Validation Reasons List (AI pointers for HR) ─────────────────────────────
+function ValidationReasonsList({ reasons, title }: { reasons: string[]; title?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!reasons || reasons.length === 0) return null;
+
+  // Show first 4 items collapsed, all when expanded
+  const PREVIEW = 4;
+  const visible = expanded ? reasons : reasons.slice(0, PREVIEW);
+
+  return (
+    <div className="mt-2 p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+      {title && <p className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1"><Info className="w-3 h-3" />{title}</p>}
+      <ul className="space-y-1">
+        {visible.map((r, i) => {
+          const isSep = r.startsWith('──');
+          const isPass = !isSep && (r.startsWith('✓'));
+          const isWarn = !isSep && (r.startsWith('⚠'));
+          const isFail = !isSep && (r.startsWith('✗') || r.startsWith('🚩'));
+          return (
+            <li
+              key={i}
+              className={`text-xs flex items-start gap-1.5 leading-relaxed ${
+                isSep ? 'text-slate-400 font-mono pt-1 border-t border-slate-200 mt-1' :
+                isPass ? 'text-green-700' :
+                isWarn ? 'text-amber-700' :
+                isFail ? 'text-red-700' :
+                'text-slate-600'
+              }`}
+            >
+              {!isSep && (
+                <span className="shrink-0 mt-px">
+                  {isPass ? '✓' : isWarn ? '⚠' : isFail ? '✗' : '·'}
+                </span>
+              )}
+              <span>{isSep ? r : r.replace(/^[✓⚠✗🚩·]\s*/, '')}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {reasons.length > PREVIEW && (
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="mt-2 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+        >
+          {expanded ? 'Show less' : `+${reasons.length - PREVIEW} more pointers`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── HR Review Detail Panel ───────────────────────────────────────────────────
 function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: () => void }) {
   const { data, isLoading, refetch } = useGetKycHrReviewQuery(employeeId);
@@ -143,12 +232,14 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
   const review = data?.data;
   if (!review) return <p className="text-slate-500">No data available.</p>;
 
-  const { gate, employee, documents, crossValidation } = review;
-  const analysis = gate?.combinedPdfAnalysis;
+  const { gate, documents, crossValidation, analysis: docAnalysis } = review;
+  const employee = gate?.employee;
+  const employeeName = [employee?.firstName, employee?.lastName].filter(Boolean).join(' ') || employee?.name || 'Unknown';
+  const combinedAnalysis = gate?.combinedPdfAnalysis;
   const docRejectReasons = gate?.documentRejectReasons || {};
 
   const handleApprove = async () => {
-    if (!confirm(`Approve KYC for ${employee?.name}? This will unlock their dashboard and auto-fill verified profile fields.`)) return;
+    if (!confirm(`Approve KYC for ${employeeName}? This will unlock their dashboard and auto-fill verified profile fields.`)) return;
     try {
       await verifyKyc(employeeId).unwrap();
       onBack();
@@ -205,7 +296,7 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
         </button>
         <div className="flex-1">
           <h1 className="text-xl font-bold text-slate-900 font-sora">
-            KYC Review — {employee?.name}
+            KYC Review — {employeeName}
           </h1>
           <p className="text-sm text-slate-500">{employee?.employeeCode} · {employee?.email}</p>
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
@@ -276,49 +367,82 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
         </div>
       )}
 
-      {/* Cross-Validation Matrix */}
-      {crossValidation && (
+      {/* Cross-Validation Matrix — reads actual service shape: { status, details[] } */}
+      {crossValidation && crossValidation.status !== 'PENDING' && (
         <Section title="Cross-Document Validation">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Name Matches</p>
-              {Object.entries(crossValidation.nameMatches || {}).map(([pair, result]: [string, any]) => (
-                <div key={pair} className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
-                  <span className="text-sm text-slate-600">{pair.replace('_vs_', ' vs ')}</span>
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                    result.verdict === 'PASS' ? 'bg-green-100 text-green-700' :
-                    result.verdict === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-red-100 text-red-700'
-                  }`}>
-                    {result.verdict} ({Math.round((result.score || 0) * 100)}%)
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">DOB Matches</p>
-              {Object.entries(crossValidation.dobMatches || {}).map(([pair, result]: [string, any]) => (
-                <div key={pair} className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
-                  <span className="text-sm text-slate-600">{pair.replace('_vs_', ' vs ')}</span>
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                    result === 'MATCH' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                  }`}>{result}</span>
-                </div>
-              ))}
-              {crossValidation.overallRisk && (
-                <div className="mt-3">
-                  <RiskBadge level={crossValidation.overallRisk} />
-                </div>
-              )}
-            </div>
+          {/* Overall verdict */}
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold ${
+              crossValidation.status === 'PASS'    ? 'bg-green-100 text-green-800' :
+              crossValidation.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-800' :
+                                                     'bg-red-100 text-red-800'
+            }`}>
+              {crossValidation.status === 'PASS'
+                ? <CheckCircle className="w-4 h-4" />
+                : crossValidation.status === 'PARTIAL'
+                  ? <AlertTriangle className="w-4 h-4" />
+                  : <XCircle className="w-4 h-4" />}
+              Cross-validation: {crossValidation.status}
+            </span>
+            <RiskBadge level={
+              crossValidation.status === 'PASS' ? 'LOW' :
+              crossValidation.status === 'PARTIAL' ? 'MEDIUM' : 'HIGH'
+            } />
           </div>
-          {crossValidation.flags?.length > 0 && (
-            <div className="mt-3 p-3 bg-red-50 rounded-lg">
-              <p className="text-xs font-semibold text-red-700 mb-1">Flags:</p>
-              <ul className="list-disc list-inside space-y-0.5">
-                {crossValidation.flags.map((f: string, i: number) => (
-                  <li key={i} className="text-xs text-red-600">{f}</li>
-                ))}
+
+          {/* Per-field breakdown */}
+          <div className="space-y-3">
+            {(crossValidation.details || []).map((detail: any, i: number) => {
+              const isPass = detail.match;
+              return (
+                <div key={i} className={`p-3 rounded-xl border ${
+                  isPass ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold text-slate-700">{detail.field}</span>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      isPass ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    }`}>
+                      {isPass ? '✓ MATCH' : '✗ MISMATCH'}
+                      {detail.similarity != null && ` · ${Math.round(detail.similarity * 100)}% similarity`}
+                    </span>
+                  </div>
+                  {/* What each document said */}
+                  <div className="space-y-1 mb-2">
+                    {(detail.values || []).map((v: any, j: number) => (
+                      <div key={j} className="flex items-center gap-2">
+                        <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-mono shrink-0">
+                          {String(v.docType).replace(/_/g, ' ')}
+                        </span>
+                        <span className="text-xs text-slate-700 font-medium">{v.value || '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {detail.matchDetail && (
+                    <p className={`text-xs ${isPass ? 'text-green-700' : 'text-red-700'}`}>
+                      {detail.matchDetail}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Action flags — only for failed fields */}
+          {(crossValidation.details || []).some((d: any) => !d.match) && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl">
+              <p className="text-xs font-semibold text-red-700 mb-1.5">Action Required — Mismatches Detected:</p>
+              <ul className="space-y-1">
+                {(crossValidation.details || [])
+                  .filter((d: any) => !d.match)
+                  .map((d: any, i: number) => (
+                    <li key={i} className="text-xs text-red-600 flex items-start gap-1.5">
+                      <span className="shrink-0">•</span>
+                      <span>
+                        <strong>{d.field}</strong>: {d.matchDetail || 'Values do not match across documents. Verify the document is genuine.'}
+                      </span>
+                    </li>
+                  ))}
               </ul>
             </div>
           )}
@@ -326,56 +450,199 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
       )}
 
       {/* Combined PDF Analysis */}
-      {analysis && (
+      {combinedAnalysis && (
         <Section title="Combined PDF Analysis">
-          <div className="flex flex-wrap gap-3 mb-4">
-            <div className="bg-slate-50 rounded-lg px-3 py-2 text-center">
-              <p className="text-2xl font-bold font-mono text-slate-800">{analysis.total_pages}</p>
-              <p className="text-xs text-slate-500">Total Pages</p>
+          {(() => {
+            // Support both Python (snake_case) and Node.js fallback (camelCase) field names
+            const totalPages = combinedAnalysis.total_pages ?? combinedAnalysis.totalPages;
+            const detectedDocs: string[] = combinedAnalysis.detected_docs ?? combinedAnalysis.detectedDocs ?? [];
+            const suspicionScore = combinedAnalysis.suspicion_score ?? combinedAnalysis.suspicionScore ?? 0;
+            const riskLevel = combinedAnalysis.risk_level ?? combinedAnalysis.riskLevel;
+            const suspicionFlags: string[] = combinedAnalysis.suspicion_flags ?? combinedAnalysis.suspicionFlags ?? [];
+            const missingDocs: string[] = combinedAnalysis.missing_from_required ?? combinedAnalysis.missing_docs ?? combinedAnalysis.missingFromRequired ?? [];
+            // Per-page validation summary from Python AI (stored in first doc's ocrVerification.llmExtractedData)
+            const pageValidations: any[] = combinedAnalysis.page_validations ?? combinedAnalysis.pageValidations ?? [];
+            return (
+              <>
+                <div className="flex flex-wrap gap-3 mb-4">
+                  <div className="bg-slate-50 rounded-lg px-3 py-2 text-center">
+                    <p className="text-2xl font-bold font-mono text-slate-800">{totalPages ?? '—'}</p>
+                    <p className="text-xs text-slate-500">Total Pages</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-lg px-3 py-2 text-center">
+                    <p className="text-2xl font-bold font-mono text-slate-800">{detectedDocs.length}</p>
+                    <p className="text-xs text-slate-500">Doc Types Found</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-lg px-3 py-2 text-center">
+                    <p className="text-2xl font-bold font-mono text-slate-800">{suspicionScore}</p>
+                    <p className="text-xs text-slate-500">Suspicion Score</p>
+                  </div>
+                  {riskLevel && <RiskBadge level={riskLevel} />}
+                </div>
+
+                {detectedDocs.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Detected Documents</p>
+                    <div className="flex flex-wrap gap-2">
+                      {detectedDocs.map((d: string) => (
+                        <span key={d} className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{d}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {suspicionFlags.length > 0 && (
+                  <div className="p-3 bg-red-50 rounded-lg">
+                    <p className="text-xs font-semibold text-red-700 mb-1">Suspicion Flags:</p>
+                    <ul className="list-disc list-inside space-y-0.5">
+                      {suspicionFlags.map((f: string, i: number) => (
+                        <li key={i} className="text-xs text-red-600">{f}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {missingDocs.length > 0 && (
+                  <div className="p-3 bg-orange-50 rounded-lg mt-2">
+                    <p className="text-xs font-semibold text-orange-700 mb-1">Missing Required Docs:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {missingDocs.map((d: string) => (
+                        <span key={d} className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{d.replace(/_/g, ' ')}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Per-page validation from Python AI */}
+                {pageValidations.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Per-Page AI Validation:</p>
+                    <div className="space-y-2">
+                      {pageValidations.map((pv: any, i: number) => {
+                        const reasons: string[] = pv.reasons || [];
+                        const hasIssues = reasons.some((r: string) => r.startsWith('✗') || r.startsWith('🚩'));
+                        const hasWarnings = reasons.some((r: string) => r.startsWith('⚠'));
+                        const borderColor = pv.is_wrong_upload ? 'border-red-300' : hasIssues ? 'border-red-200' : hasWarnings ? 'border-yellow-200' : 'border-green-200';
+                        return (
+                          <div key={i} className={`p-2 rounded-lg bg-white border ${borderColor}`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-mono font-semibold text-slate-500">Page {pv.page}</span>
+                              <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
+                                {String(pv.detected_type).replace(/_/g, ' ')}
+                              </span>
+                              <span className="text-xs text-slate-400">({Math.round((pv.confidence ?? 0) * 100)}%)</span>
+                              {pv.is_wrong_upload && (
+                                <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-semibold">
+                                  ⚠ WRONG DOC: {pv.wrong_upload_category}
+                                </span>
+                              )}
+                            </div>
+                            {reasons.length > 0 && <ValidationReasonsList reasons={reasons} />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </Section>
+      )}
+
+      {/* Document Requirements — computed from fresher/experienced + qualification */}
+      {docAnalysis && (
+        <Section title="Document Requirements">
+          <div className="space-y-3">
+            {/* Employee profile row */}
+            <div className="flex flex-wrap gap-3">
+              <div className="flex items-center gap-2 bg-indigo-50 rounded-lg px-3 py-2">
+                {gate?.fresherOrExperienced === 'EXPERIENCED'
+                  ? <Briefcase className="w-4 h-4 text-indigo-600" />
+                  : <GraduationCap className="w-4 h-4 text-indigo-600" />}
+                <span className="text-sm font-semibold text-indigo-800">
+                  {gate?.fresherOrExperienced === 'EXPERIENCED' ? 'Experienced' : 'Fresher'}
+                </span>
+              </div>
+              {gate?.highestQualification && (
+                <div className="flex items-center gap-2 bg-purple-50 rounded-lg px-3 py-2">
+                  <Award className="w-4 h-4 text-purple-600" />
+                  <span className="text-sm font-semibold text-purple-800">
+                    {gate.highestQualification.replace(/_/g, ' ')}
+                  </span>
+                </div>
+              )}
+              {docAnalysis.hasPhoto && (
+                <div className="flex items-center gap-2 bg-green-50 rounded-lg px-3 py-2">
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                  <span className="text-sm font-semibold text-green-800">Photo uploaded</span>
+                </div>
+              )}
             </div>
-            <div className="bg-slate-50 rounded-lg px-3 py-2 text-center">
-              <p className="text-2xl font-bold font-mono text-slate-800">{analysis.detected_docs?.length ?? 0}</p>
-              <p className="text-xs text-slate-500">Doc Types Found</p>
+
+            {/* Experienced but no employment proof — prominent warning */}
+            {docAnalysis.needsEmploymentProof && !docAnalysis.hasEmploymentProof && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                <Flag className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-red-800">Employment proof missing</p>
+                  <p className="text-xs text-red-700 mt-0.5">
+                    Employee declared as EXPERIENCED but has not uploaded any employment document
+                    (Experience Letter, Relieving Letter, Offer Letter, or Salary Slips).
+                    HR should request re-upload before approving.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Required docs checklist */}
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Required Documents Checklist</p>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                {(docAnalysis.requiredDocs || []).map((req: string) => {
+                  const submitted = (gate?.submittedDocs as string[] || []).includes(req);
+                  return (
+                    <div
+                      key={req}
+                      className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium border ${
+                        submitted
+                          ? 'bg-green-50 border-green-200 text-green-800'
+                          : 'bg-red-50 border-red-200 text-red-700'
+                      }`}
+                    >
+                      {submitted
+                        ? <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                        : <XCircle className="w-3.5 h-3.5 shrink-0" />}
+                      {req.replace(/_/g, ' ')}
+                    </div>
+                  );
+                })}
+                {/* Identity proof — at least one of */}
+                <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium border ${
+                  docAnalysis.hasIdentityProof
+                    ? 'bg-green-50 border-green-200 text-green-800'
+                    : 'bg-red-50 border-red-200 text-red-700'
+                }`}>
+                  {docAnalysis.hasIdentityProof
+                    ? <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                    : <XCircle className="w-3.5 h-3.5 shrink-0" />}
+                  Identity Proof (Aadhaar/PAN/Passport/DL/Voter ID)
+                </div>
+                {docAnalysis.needsEmploymentProof && (
+                  <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium border ${
+                    docAnalysis.hasEmploymentProof
+                      ? 'bg-green-50 border-green-200 text-green-800'
+                      : 'bg-red-50 border-red-200 text-red-700'
+                  }`}>
+                    {docAnalysis.hasEmploymentProof
+                      ? <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                      : <XCircle className="w-3.5 h-3.5 shrink-0" />}
+                    Employment Proof
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="bg-slate-50 rounded-lg px-3 py-2 text-center">
-              <p className="text-2xl font-bold font-mono text-slate-800">{analysis.suspicion_score ?? 0}</p>
-              <p className="text-xs text-slate-500">Suspicion Score</p>
-            </div>
-            {analysis.risk_level && <RiskBadge level={analysis.risk_level} />}
           </div>
-
-          {analysis.detected_docs?.length > 0 && (
-            <div className="mb-3">
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Detected Documents</p>
-              <div className="flex flex-wrap gap-2">
-                {analysis.detected_docs.map((d: string) => (
-                  <span key={d} className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{d}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {analysis.suspicion_flags?.length > 0 && (
-            <div className="p-3 bg-red-50 rounded-lg">
-              <p className="text-xs font-semibold text-red-700 mb-1">Suspicion Flags:</p>
-              <ul className="list-disc list-inside space-y-0.5">
-                {analysis.suspicion_flags.map((f: string, i: number) => (
-                  <li key={i} className="text-xs text-red-600">{f}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {analysis.missing_from_required?.length > 0 && (
-            <div className="p-3 bg-orange-50 rounded-lg mt-2">
-              <p className="text-xs font-semibold text-orange-700 mb-1">Missing Required Docs:</p>
-              <div className="flex flex-wrap gap-2">
-                {analysis.missing_from_required.map((d: string) => (
-                  <span key={d} className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{d}</span>
-                ))}
-              </div>
-            </div>
-          )}
         </Section>
       )}
 
@@ -393,12 +660,13 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
                   <p className="text-xs text-slate-500">{doc.type} · {new Date(doc.createdAt).toLocaleDateString('en-IN')}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {doc.verificationStatus && (
+                  {doc.status && (
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                      doc.verificationStatus === 'VERIFIED' ? 'bg-green-100 text-green-700' :
-                      doc.verificationStatus === 'SUSPICIOUS' ? 'bg-red-100 text-red-700' :
+                      doc.status === 'VERIFIED' ? 'bg-green-100 text-green-700' :
+                      doc.status === 'FLAGGED' ? 'bg-red-100 text-red-700' :
+                      doc.status === 'REJECTED' ? 'bg-red-100 text-red-700' :
                       'bg-slate-100 text-slate-600'
-                    }`}>{doc.verificationStatus}</span>
+                    }`}>{doc.status}</span>
                   )}
                   {doc.fileUrl && (
                     <a
@@ -414,25 +682,65 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
                 </div>
               </div>
 
-              {/* OCR Extracted Fields */}
-              {doc.ocrData?.extractedFields && Object.keys(doc.ocrData.extractedFields).length > 0 && (
-                <div className="mt-2 p-2 bg-slate-50 rounded-lg">
-                  <p className="text-xs font-semibold text-slate-600 mb-1.5">OCR Extracted Fields:</p>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                    {Object.entries(doc.ocrData.extractedFields as Record<string, string | number | boolean | null>).map(([k, v]) => v != null && (
-                      <div key={k} className="flex gap-1">
-                        <span className="text-xs text-slate-500 capitalize">{k.replace(/([A-Z])/g, ' $1')}:</span>
-                        <span className="text-xs font-medium text-slate-700 font-mono">{String(v)}</span>
-                      </div>
-                    ))}
-                  </div>
+              {/* Confidence score badge — color-coded flag system */}
+              {doc.ocrVerification?.confidence != null && (
+                <div className="mt-2">
+                  <DocumentScoreBadge confidence={doc.ocrVerification.confidence} />
                 </div>
               )}
 
-              {/* Suspicion flags */}
-              {doc.ocrData?.suspicionFlags?.length > 0 && (
+              {/* OCR Extracted Fields — read from ocrVerification (Prisma relation with flat fields) */}
+              {doc.ocrVerification && (() => {
+                const ocr = doc.ocrVerification;
+                const fields: Record<string, string | null> = {
+                  Name: ocr.extractedName,
+                  'Date of Birth': ocr.extractedDob,
+                  'Doc Number': ocr.extractedDocNumber,
+                  'Father Name': ocr.extractedFatherName,
+                  'Mother Name': ocr.extractedMotherName,
+                  Gender: ocr.extractedGender,
+                  Address: ocr.extractedAddress,
+                };
+                const nonEmpty = Object.entries(fields).filter(([, v]) => v != null && v !== '');
+                if (nonEmpty.length === 0) return null;
+                return (
+                  <div className="mt-2 p-2 bg-slate-50 rounded-lg">
+                    <p className="text-xs font-semibold text-slate-600 mb-1.5">OCR Extracted Fields:</p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                      {nonEmpty.map(([k, v]) => (
+                        <div key={k} className="flex gap-1">
+                          <span className="text-xs text-slate-500">{k}:</span>
+                          <span className="text-xs font-medium text-slate-700 font-mono">{String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* AI Validation Reasons — the real pointers HR uses to decide */}
+              {doc.ocrVerification && (() => {
+                const llm = doc.ocrVerification.llmExtractedData as any;
+                // Python AI path: validation_reasons in llmExtractedData
+                const reasons: string[] = llm?.validation_reasons ?? [];
+                // Node.js fallback: hrNotes contains the text — parse it into lines
+                const hrNoteLines: string[] = (!reasons.length && doc.ocrVerification.hrNotes)
+                  ? doc.ocrVerification.hrNotes.split('\n').filter(Boolean)
+                  : [];
+                const allReasons = reasons.length > 0 ? reasons : hrNoteLines;
+                if (allReasons.length === 0) return null;
+                return (
+                  <ValidationReasonsList
+                    reasons={allReasons}
+                    title="AI Verification Pointers"
+                  />
+                );
+              })()}
+
+              {/* Suspicion flags — from ocrVerification or ocrData (combined PDF stores in ocrData.suspicionFlags) */}
+              {((doc.ocrVerification?.suspicionFlags ?? doc.ocrData?.suspicionFlags) as string[] | undefined)?.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {doc.ocrData.suspicionFlags.map((f: string, i: number) => (
+                  {(doc.ocrVerification?.suspicionFlags ?? doc.ocrData?.suspicionFlags as string[]).map((f: string, i: number) => (
                     <span key={i} className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">{f}</span>
                   ))}
                 </div>
@@ -577,7 +885,8 @@ export default function KycHrReviewPage() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const { data, isLoading, isFetching } = useGetPendingKycQuery({ page });
 
-  const employees: PendingEmployee[] = data?.data || [];
+  // Backend returns OnboardingDocumentGate records with nested employee relation
+  const gates: any[] = data?.data || [];
   const meta = data?.meta;
 
   if (selectedEmployeeId) {
@@ -608,7 +917,7 @@ export default function KycHrReviewPage() {
             <div className="flex items-center justify-center h-48">
               <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
             </div>
-          ) : employees.length === 0 ? (
+          ) : gates.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-center">
               <CheckCircle className="w-12 h-12 text-green-400 mb-3" />
               <p className="text-slate-700 font-medium">All caught up!</p>
@@ -627,11 +936,14 @@ export default function KycHrReviewPage() {
                 </tr>
               </thead>
               <tbody>
-                {employees.map((emp: PendingEmployee) => (
+                {gates.map((gate: any) => {
+                  const emp = gate.employee;
+                  const empName = [emp?.firstName, emp?.lastName].filter(Boolean).join(' ') || '—';
+                  return (
                   <tr
-                    key={emp.id}
+                    key={gate.id}
                     className="border-b border-slate-100 hover:bg-indigo-50/30 transition-colors cursor-pointer"
-                    onClick={() => setSelectedEmployeeId(emp.id)}
+                    onClick={() => setSelectedEmployeeId(gate.employeeId)}
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
@@ -639,27 +951,27 @@ export default function KycHrReviewPage() {
                           <User className="w-4 h-4 text-indigo-600" />
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-slate-800">{emp.name}</p>
-                          <p className="text-xs text-slate-500">{emp.employeeCode}</p>
+                          <p className="text-sm font-medium text-slate-800">{empName}</p>
+                          <p className="text-xs text-slate-500">{emp?.employeeCode}</p>
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
-                      <span className="text-sm text-slate-600">{emp.department || '—'}</span>
+                      <span className="text-sm text-slate-600">{emp?.department?.name || '—'}</span>
                     </td>
                     <td className="px-4 py-3">
-                      {emp.uploadMode ? (
+                      {gate.uploadMode ? (
                         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                          emp.uploadMode === 'COMBINED' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                          gate.uploadMode === 'COMBINED' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
                         }`}>
-                          {emp.uploadMode === 'COMBINED' ? 'Combined PDF' : 'Separate'}
+                          {gate.uploadMode === 'COMBINED' ? 'Combined PDF' : 'Separate'}
                         </span>
                       ) : <span className="text-slate-400 text-xs">—</span>}
                     </td>
-                    <td className="px-4 py-3"><StatusBadge status={emp.kycStatus} /></td>
+                    <td className="px-4 py-3"><StatusBadge status={gate.kycStatus} /></td>
                     <td className="px-4 py-3 hidden md:table-cell">
                       <span className="text-xs text-slate-500">
-                        {emp.submittedAt ? new Date(emp.submittedAt).toLocaleDateString('en-IN') : '—'}
+                        {gate.updatedAt ? new Date(gate.updatedAt).toLocaleDateString('en-IN') : '—'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -669,7 +981,8 @@ export default function KycHrReviewPage() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}

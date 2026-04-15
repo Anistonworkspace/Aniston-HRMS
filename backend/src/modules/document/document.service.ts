@@ -363,26 +363,38 @@ export class DocumentService {
       }
     }
 
-    // Bank details from cancelled cheque OCR (LLM extracts IFSC, account number)
-    if ((doc.type === 'CANCELLED_CHEQUE' || doc.type === 'BANK_STATEMENT') && ocrData.llmExtractedData) {
-      const llmData = typeof ocrData.llmExtractedData === 'string' ? JSON.parse(ocrData.llmExtractedData) : ocrData.llmExtractedData;
-      if (!employee.bankAccountNumber && llmData.accountNumber) {
-        const accNo = llmData.accountNumber.replace(/[\s\-]/g, '');
+    // Bank details from bank statement / cancelled cheque OCR
+    if (doc.type === 'CANCELLED_CHEQUE' || doc.type === 'BANK_STATEMENT') {
+      // Account number: stored in extractedDocNumber (primary) or llmExtractedData.accountNumber
+      const rawAccNo = ocrData.extractedDocNumber ||
+        ((ocrData.llmExtractedData as any)?.accountNumber) || null;
+      if (!employee.bankAccountNumber && rawAccNo) {
+        const accNo = rawAccNo.replace(/[\s\-]/g, '');
         if (/^\d{9,18}$/.test(accNo)) {
           updates.bankAccountNumber = accNo;
           filledFields.push('Bank Account Number');
         }
       }
-      if (!employee.ifscCode && llmData.ifscCode) {
-        const ifsc = llmData.ifscCode.toUpperCase().replace(/[\s\-]/g, '');
-        if (/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) {
-          updates.ifscCode = ifsc;
-          filledFields.push('Bank IFSC Code');
+
+      // IFSC and bank name: stored in llmExtractedData (set by OCR service for both Python and Node.js paths)
+      if (ocrData.llmExtractedData) {
+        const llmData = typeof ocrData.llmExtractedData === 'string'
+          ? JSON.parse(ocrData.llmExtractedData)
+          : ocrData.llmExtractedData;
+        const rawIfsc = llmData.ifscCode || llmData.ifsc_code || null;
+        const rawBank = llmData.bankName || llmData.bank_name || null;
+
+        if (!employee.ifscCode && rawIfsc) {
+          const ifsc = rawIfsc.toUpperCase().replace(/[\s\-]/g, '');
+          if (/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) {
+            updates.ifscCode = ifsc;
+            filledFields.push('Bank IFSC Code');
+          }
         }
-      }
-      if (!employee.bankName && llmData.bankName) {
-        updates.bankName = llmData.bankName;
-        filledFields.push('Bank Name');
+        if (!employee.bankName && rawBank) {
+          updates.bankName = rawBank;
+          filledFields.push('Bank Name');
+        }
       }
     }
 
