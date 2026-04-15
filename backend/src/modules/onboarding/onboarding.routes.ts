@@ -6,6 +6,51 @@ import { getEmployeeKycUrl } from '../../middleware/upload.middleware.js';
 
 const router = Router();
 
+// ─── Utility: Normalize Combined PDF Analysis ─────────────────────────────────
+/**
+ * Converts a classification result to a consistent camelCase shape regardless
+ * of whether it came from Python (snake_case) or the Node.js fallback (camelCase).
+ *
+ * Storing a normalized result means:
+ * - Frontend never needs `analysis?.detectedDocs || analysis?.detected_docs` chains.
+ * - New fields added to either tier are handled in one place.
+ * - Debugging is simpler because the stored JSON is always the same shape.
+ */
+function normalizeCombinedPdfAnalysis(data: any, source: 'python' | 'node_fallback'): any {
+  return {
+    _source: source,
+    totalPages: data.total_pages ?? data.totalPages ?? 0,
+    detectedDocs: data.detected_docs ?? data.detectedDocs ?? [],
+    pageResults: data.page_results ?? data.pageResults ?? [],
+    pageGroups: data.page_groups ?? data.pageGroups ?? [],
+    qualityFlags: data.quality_flags ?? data.qualityFlags ?? [],
+    suspicionFlags: data.suspicion_flags ?? data.suspicionFlags ?? [],
+    suspicionScore: data.suspicion_score ?? data.suspicionScore ?? 0,
+    riskLevel: data.risk_level ?? data.riskLevel ?? 'LOW',
+    summary: data.summary ?? '',
+    missingDocuments: data.missing_docs ?? data.missingDocuments ?? data.missingFromRequired ?? [],
+    presentDocs: data.present_docs ?? data.presentDocs ?? [],
+    // Per-page deep validation results for HR panel
+    pageValidations: data.page_validations ?? data.pageValidations ?? [],
+    wrongUploadPages: data.wrong_upload_pages ?? data.wrongUploadPages ?? [],
+    wrongUploadCount: data.wrong_upload_count ?? data.wrongUploadCount
+      ?? (data.wrong_upload_pages ?? data.wrongUploadPages ?? []).length,
+    // Node.js fallback-specific enrichment fields
+    ...(source === 'node_fallback' ? {
+      overallConfidence: data.overallConfidence,
+      requiresManualReview: data.requiresManualReview ?? false,
+      manualReviewReasons: data.manualReviewReasons ?? [],
+      employeeVisibleReasons: data.employeeVisibleReasons ?? [],
+      hrVisibleFindings: data.hrVisibleFindings ?? [],
+      duplicateDocs: data.duplicateDocs ?? [],
+      blankPages: data.blankPages ?? [],
+      unknownPages: data.unknownPages ?? [],
+      processingMode: 'node_fallback',
+      fallbackUsed: true,
+    } : {}),
+  };
+}
+
 // HR: Create invite
 router.post('/invite/:employeeId', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   (req, res, next) => onboardingController.createInvite(req, res, next)
@@ -240,9 +285,27 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
 
               // ── Try Python AI service (primary) ──
               try {
+                // Fetch gate to get employee-specific required docs for accurate missing-doc detection.
+                // Python will use this list instead of STANDARD_REQUIRED_DOCS.
+                const gateForDocs = await (await import('../../lib/prisma.js')).prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+                const { computeRequiredDocs } = await import('./document-gate.service.js');
+                const fresher = gateForDocs?.fresherOrExperienced || 'FRESHER';
+                const qual = gateForDocs?.highestQualification || 'GRADUATION';
+                const { requiredDocs: computedRequired, needsIdentityProof, needsEmploymentProof } = computeRequiredDocs(fresher, qual);
+                // Build the effective list Python should check:
+                // - replace the generic RESIDENCE_PROOF with itself (aliases handled on Python side)
+                // - add IDENTITY_PROOF as a virtual key Python understands via REQUIRED_DOC_ALIASES
+                const pythonRequiredDocs = [
+                  ...(needsIdentityProof ? ['AADHAAR'] : []),  // Python REQUIRED_DOC_ALIASES maps AADHAAR to just AADHAAR; identity-proof matching is alias-driven
+                  ...computedRequired.filter((d: string) => d !== 'PHOTO'),  // PHOTO is KYC-gate side, not combined PDF
+                  ...(needsEmploymentProof ? ['EXPERIENCE_LETTER'] : []),
+                ].filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i);  // deduplicate
+
                 const blob = new Blob([fileBuffer], { type: 'application/pdf' });
                 const formData = new FormData();
                 formData.append('file', blob, req.file!.originalname || 'combined.pdf');
+                // Pass employee-specific required-doc list so Python uses real requirements
+                formData.append('required_docs', JSON.stringify(pythonRequiredDocs));
                 const classifyRes = await fetch(`${AI_URL}/ai/ocr/classify-combined-pdf`, {
                   method: 'POST',
                   body: formData,
@@ -250,10 +313,14 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
                 });
                 if (classifyRes.ok) {
                   const classifyJson = await classifyRes.json() as { success: boolean; data: any };
-                  if (classifyJson.success && classifyJson.data) {
-                    analysisResult = classifyJson.data;
+                  // Only treat as success if Python actually processed pages — not an error/empty result.
+                  // pdf2image failures return { success:true, data:{ error:"...", total_pages:0, detected_docs:[] } }
+                  if (classifyJson.success && classifyJson.data && !classifyJson.data.error) {
+                    analysisResult = normalizeCombinedPdfAnalysis(classifyJson.data, 'python');
                     pythonSuccess = true;
                     console.log('[KYC Combined PDF] Python AI classification succeeded');
+                  } else if (classifyJson.data?.error) {
+                    console.warn('[KYC Combined PDF] Python returned processing error (falling back to Node.js):', classifyJson.data.error);
                   }
                 }
               } catch (pythonErr: any) {
@@ -267,7 +334,7 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
                   const gate = await (await import('../../lib/prisma.js')).prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
                   const requiredDocs = (gate?.requiredDocs as string[]) || ['PAN', 'AADHAAR', 'TENTH_CERTIFICATE'];
                   const nodeResult = await processCombinedPdfFallback(fileBuffer, requiredDocs);
-                  analysisResult = { ...nodeResult, _source: 'node_fallback' };
+                  analysisResult = normalizeCombinedPdfAnalysis(nodeResult, 'node_fallback');
                   console.log('[KYC Combined PDF] Node.js fallback classification succeeded');
                 } catch (nodeErr: any) {
                   console.warn('[KYC Combined PDF] Node.js fallback also failed:', nodeErr.message);
@@ -282,24 +349,14 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
                 }
               }
 
-              // ── Persist result and transition to PENDING_HR_REVIEW ──
-              // Node fallback uses 'missingFromRequired'; Python uses 'missing_docs'; handle both
-              const missingDocs: string[] = analysisResult?.missingDocuments ||
-                analysisResult?.missing_docs ||
-                analysisResult?.missingFromRequired || [];
-              const duplicateDocs: string[] = analysisResult?.duplicateDocuments ||
-                analysisResult?.duplicate_docs ||
-                analysisResult?.duplicateDocs || [];
-              const employeeReasons: string[] = analysisResult?.employeeVisibleReasons ||
-                analysisResult?.employee_visible_reasons || [];
-
+              // ── Persist normalized result ──
               await documentGateService.setCombinedPdfClassified(employeeId, {
                 analysisResult,
                 processingMode: pythonSuccess ? 'PYTHON_ADVANCED' : 'NODE_FALLBACK',
                 fallbackUsed: !pythonSuccess,
-                missingDocuments: missingDocs,
-                duplicateDocuments: duplicateDocs,
-                employeeVisibleReasons: employeeReasons,
+                missingDocuments: analysisResult?.missingDocuments ?? [],
+                duplicateDocuments: analysisResult?.duplicateDocs ?? analysisResult?.duplicateDocuments ?? [],
+                employeeVisibleReasons: analysisResult?.employeeVisibleReasons ?? [],
               });
             } catch (classifyErr: any) {
               console.error('[KYC Combined PDF] Classification pipeline failed:', classifyErr.message);
@@ -474,6 +531,120 @@ router.patch('/kyc/:employeeId/hr-notes', authenticate, authorize(Role.SUPER_ADM
       const { documentGateService } = await import('./document-gate.service.js');
       const gate = await documentGateService.updateHrNotes(req.params.employeeId, req.body.notes, req.user!.userId);
       res.json({ success: true, data: gate, message: 'Notes saved' });
+    } catch (err) { next(err); }
+  }
+);
+
+// HR: Re-run combined PDF classification (Python → Node.js fallback, synchronous)
+router.post('/kyc/:employeeId/reclassify-combined-pdf', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      // Express params can technically be string|string[] — cast to string
+      const employeeId = req.params.employeeId as string;
+      const { prisma } = await import('../../lib/prisma.js');
+      const { join } = await import('path');
+      const { readFileSync } = await import('fs');
+
+      // Find the most recent combined KYC PDF document for this employee.
+      // The upload route stores these with name 'Combined KYC Documents' and type 'OTHER'.
+      const doc = await prisma.document.findFirst({
+        where: {
+          employeeId,
+          deletedAt: null,
+          type: 'OTHER',
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (!doc) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'No combined PDF found for this employee' } });
+        return;
+      }
+
+      let basePath = process.cwd();
+      if (basePath.endsWith('backend') || basePath.endsWith('backend/') || basePath.endsWith('backend\\')) {
+        basePath = join(basePath, '..');
+      }
+      const filePath = join(basePath, doc.fileUrl);
+      let fileBuffer: Buffer;
+      try {
+        fileBuffer = Buffer.from(readFileSync(filePath));
+      } catch {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Combined PDF file not found on disk — employee may need to re-upload' } });
+        return;
+      }
+
+      const AI_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+      let pythonSuccess = false;
+      let analysisResult: any = null;
+
+      // ── Build employee-specific required-docs for Python ──
+      const gateForReclass = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+      const { computeRequiredDocs: computeReclassRequired } = await import('./document-gate.service.js');
+      const fresherR = gateForReclass?.fresherOrExperienced || 'FRESHER';
+      const qualR = gateForReclass?.highestQualification || 'GRADUATION';
+      const { requiredDocs: reclassRequired, needsIdentityProof: reclassNeedsId, needsEmploymentProof: reclassNeedsEmp } = computeReclassRequired(fresherR, qualR);
+      const reclassPythonDocs = [
+        ...(reclassNeedsId ? ['AADHAAR'] : []),
+        ...reclassRequired.filter((d: string) => d !== 'PHOTO'),
+        ...(reclassNeedsEmp ? ['EXPERIENCE_LETTER'] : []),
+      ].filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i);
+
+      // ── Try Python AI service ──
+      try {
+        const blob = new Blob([new Uint8Array(fileBuffer)], { type: 'application/pdf' });
+        const formData = new FormData();
+        formData.append('file', blob, 'combined.pdf');
+        formData.append('required_docs', JSON.stringify(reclassPythonDocs));
+        const classifyRes = await fetch(`${AI_URL}/ai/ocr/classify-combined-pdf`, {
+          method: 'POST',
+          body: formData,
+          signal: AbortSignal.timeout(120_000),
+        });
+        if (classifyRes.ok) {
+          const classifyJson = await classifyRes.json() as { success: boolean; data: any };
+          if (classifyJson.success && classifyJson.data && !classifyJson.data.error) {
+            analysisResult = normalizeCombinedPdfAnalysis(classifyJson.data, 'python');
+            pythonSuccess = true;
+            console.log(`[Reclassify] Python AI succeeded for employee ${employeeId}`);
+          } else if (classifyJson.data?.error) {
+            console.warn(`[Reclassify] Python returned error (falling back to Node.js): ${classifyJson.data.error}`);
+          }
+        }
+      } catch (pythonErr: any) {
+        console.warn(`[Reclassify] Python unavailable: ${pythonErr.message}`);
+      }
+
+      // ── Node.js fallback ──
+      if (!pythonSuccess) {
+        const { processCombinedPdfFallback } = await import('../../services/combined-pdf-processor.service.js');
+        const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+        const requiredDocs = (gate?.requiredDocs as string[]) || ['PAN', 'AADHAAR', 'TENTH_CERTIFICATE'];
+        const nodeResult = await processCombinedPdfFallback(fileBuffer, requiredDocs);
+        analysisResult = normalizeCombinedPdfAnalysis(nodeResult, 'node_fallback');
+        console.log(`[Reclassify] Node.js fallback used for employee ${employeeId}`);
+      }
+
+      // ── Persist normalized result ──
+      const { documentGateService } = await import('./document-gate.service.js');
+      await documentGateService.setCombinedPdfClassified(employeeId, {
+        analysisResult,
+        processingMode: pythonSuccess ? 'PYTHON_ADVANCED' : 'NODE_FALLBACK',
+        fallbackUsed: !pythonSuccess,
+        missingDocuments: analysisResult?.missingDocuments ?? [],
+        duplicateDocuments: analysisResult?.duplicateDocs ?? analysisResult?.duplicateDocuments ?? [],
+        employeeVisibleReasons: analysisResult?.employeeVisibleReasons ?? [],
+      });
+
+      res.json({
+        success: true,
+        data: {
+          message: `Reclassified via ${pythonSuccess ? 'Python AI' : 'Node.js fallback'}`,
+          detectedDocs: analysisResult?.detectedDocs ?? [],
+          totalPages: analysisResult?.totalPages ?? 0,
+          source: pythonSuccess ? 'python' : 'node_fallback',
+        },
+      });
     } catch (err) { next(err); }
   }
 );

@@ -370,66 +370,91 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
       {/* Cross-Validation Matrix — reads actual service shape: { status, details[] } */}
       {crossValidation && crossValidation.status !== 'PENDING' && (
         <Section title="Cross-Document Validation">
-          {/* Overall verdict */}
+          {/* Overall verdict badge */}
           <div className="flex items-center gap-3 mb-4 flex-wrap">
             <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold ${
               crossValidation.status === 'PASS'    ? 'bg-green-100 text-green-800' :
               crossValidation.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-800' :
+              crossValidation.status === 'ERROR'   ? 'bg-gray-100 text-gray-700' :
                                                      'bg-red-100 text-red-800'
             }`}>
               {crossValidation.status === 'PASS'
                 ? <CheckCircle className="w-4 h-4" />
                 : crossValidation.status === 'PARTIAL'
                   ? <AlertTriangle className="w-4 h-4" />
-                  : <XCircle className="w-4 h-4" />}
+                  : crossValidation.status === 'ERROR'
+                    ? <AlertTriangle className="w-4 h-4" />
+                    : <XCircle className="w-4 h-4" />}
               Cross-validation: {crossValidation.status}
             </span>
-            <RiskBadge level={
-              crossValidation.status === 'PASS' ? 'LOW' :
-              crossValidation.status === 'PARTIAL' ? 'MEDIUM' : 'HIGH'
-            } />
+            {crossValidation.status !== 'ERROR' && (
+              <RiskBadge level={
+                crossValidation.status === 'PASS' ? 'LOW' :
+                crossValidation.status === 'PARTIAL' ? 'MEDIUM' : 'HIGH'
+              } />
+            )}
           </div>
 
-          {/* Per-field breakdown */}
-          <div className="space-y-3">
-            {(crossValidation.details || []).map((detail: any, i: number) => {
-              const isPass = detail.match;
-              return (
-                <div key={i} className={`p-3 rounded-xl border ${
-                  isPass ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'
-                }`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-slate-700">{detail.field}</span>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                      isPass ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                    }`}>
-                      {isPass ? '✓ MATCH' : '✗ MISMATCH'}
-                      {detail.similarity != null && ` · ${Math.round(detail.similarity * 100)}% similarity`}
-                    </span>
-                  </div>
-                  {/* What each document said */}
-                  <div className="space-y-1 mb-2">
-                    {(detail.values || []).map((v: any, j: number) => (
-                      <div key={j} className="flex items-center gap-2">
-                        <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-mono shrink-0">
-                          {String(v.docType).replace(/_/g, ' ')}
-                        </span>
-                        <span className="text-xs text-slate-700 font-medium">{v.value || '—'}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {detail.matchDetail && (
-                    <p className={`text-xs ${isPass ? 'text-green-700' : 'text-red-700'}`}>
-                      {detail.matchDetail}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          {/* ERROR state — validation was unavailable, show actionable guidance */}
+          {crossValidation.status === 'ERROR' && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
+              <p className="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                Validation Unavailable
+              </p>
+              <p className="text-sm text-amber-700">{crossValidation.message}</p>
+              {crossValidation.manualReviewRequired && (
+                <p className="text-xs text-amber-600 border-t border-amber-200 pt-2">
+                  <strong>Manual check required:</strong> Open each document and confirm that the name,
+                  date of birth, and document number are consistent across Aadhaar, PAN, and any other
+                  identity documents submitted.
+                </p>
+              )}
+            </div>
+          )}
 
-          {/* Action flags — only for failed fields */}
-          {(crossValidation.details || []).some((d: any) => !d.match) && (
+          {/* Per-field breakdown — only for PASS / PARTIAL / FAIL */}
+          {crossValidation.status !== 'ERROR' && (
+            <div className="space-y-3">
+              {(crossValidation.details || []).map((detail: any, i: number) => {
+                const isPass = detail.match;
+                return (
+                  <div key={i} className={`p-3 rounded-xl border ${
+                    isPass ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-slate-700">{detail.field}</span>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        isPass ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      }`}>
+                        {isPass ? '✓ MATCH' : '✗ MISMATCH'}
+                        {detail.similarity != null && ` · ${Math.round(detail.similarity * 100)}% similarity`}
+                      </span>
+                    </div>
+                    {/* What each document said */}
+                    <div className="space-y-1 mb-2">
+                      {(detail.values || []).map((v: any, j: number) => (
+                        <div key={j} className="flex items-center gap-2">
+                          <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-mono shrink-0">
+                            {String(v.docType).replace(/_/g, ' ')}
+                          </span>
+                          <span className="text-xs text-slate-700 font-medium">{v.value || '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {detail.matchDetail && (
+                      <p className={`text-xs ${isPass ? 'text-green-700' : 'text-red-700'}`}>
+                        {detail.matchDetail}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Action flags — only for fields with mismatches */}
+          {crossValidation.status !== 'ERROR' && (crossValidation.details || []).some((d: any) => !d.match) && (
             <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl">
               <p className="text-xs font-semibold text-red-700 mb-1.5">Action Required — Mismatches Detected:</p>
               <ul className="space-y-1">

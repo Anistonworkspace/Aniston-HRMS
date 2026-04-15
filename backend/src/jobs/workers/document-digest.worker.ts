@@ -40,7 +40,7 @@ const worker = new Worker<DigestJob>(
     if (!employee) return;
 
     const hrEmail = org?.adminNotificationEmail || 'hr@anistonav.com';
-    const frontendUrl = env.FRONTEND_URL;
+    const frontendUrl = 'https://hr.anistonav.com';
 
     await enqueueEmail({
       to: hrEmail,

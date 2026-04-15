@@ -1402,7 +1402,7 @@ MAX_REASONABLE_PAGES_PER_TYPE = {
 }
 
 
-async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
+async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) -> dict:
     """
     Classify a multi-document combined PDF page by page.
 
@@ -1679,10 +1679,22 @@ async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
         if not pr["is_blank"] and pr.get("validation_reasons")
     ]
 
-    # Compute which required docs are missing (using alias table)
+    # Compute which required docs are missing (using alias table).
+    # Use the employee-specific list passed from Node.js when available;
+    # fall back to the conservative hardcoded list only when no context was provided.
+    if required_docs and isinstance(required_docs, list) and len(required_docs) > 0:
+        effective_required_docs = required_docs
+    else:
+        effective_required_docs = STANDARD_REQUIRED_DOCS
+        logger.warning(
+            "classify_combined_pdf: no required_docs provided by caller — "
+            "using hardcoded STANDARD_REQUIRED_DOCS fallback. "
+            "Pass employee-specific required_docs for accurate missing-doc detection."
+        )
+
     missing_docs = []
     present_docs = []
-    for req_doc in STANDARD_REQUIRED_DOCS:
+    for req_doc in effective_required_docs:
         aliases = REQUIRED_DOC_ALIASES.get(req_doc, [req_doc])
         # Check if any alias appears in detected_docs OR page_results detected types
         detected_raw_types = [pr["detected_type"] for pr in page_results if not pr["is_blank"]]

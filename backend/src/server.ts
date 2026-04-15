@@ -23,6 +23,17 @@ async function main() {
     // Fix any stale default leave settings (SL/EL must be same-day)
     await initDefaultLeaveSettings();
 
+    // Recover KYC gates that were stuck in PROCESSING before the last shutdown/crash.
+    // Runs deferred so it doesn't block the server from accepting requests.
+    setTimeout(async () => {
+      try {
+        const { recoverStaleProcessingKyc } = await import('./services/kyc-recovery.service.js');
+        await recoverStaleProcessingKyc();
+      } catch (err: any) {
+        logger.warn('[KYC Recovery] Startup recovery encountered an error:', err?.message);
+      }
+    }, 5_000);
+
     // Initialize Socket.io
     initSocketServer(server);
 

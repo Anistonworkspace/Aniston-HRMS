@@ -327,7 +327,7 @@ export class EmployeeService {
       template: 'onboarding-invite',
       context: {
         name: firstName || normalizedEmail.split('@')[0],
-        link: `${env.FRONTEND_URL}${onboardingUrl}`,
+        link: `https://hr.anistonav.com${onboardingUrl}`,
       },
     }).catch((err) => logger.error(`[Employee] Failed to queue onboarding invite email to ${normalizedEmail}:`, err));
 
@@ -800,7 +800,7 @@ export class EmployeeService {
 
     // Email HR users — non-blocking: resignation must succeed even if email fails
     const hrUsers = await prisma.user.findMany({ where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' }, select: { id: true, email: true } });
-    const link = `${env.FRONTEND_URL}/exit-management`;
+    const link = `https://hr.anistonav.com/exit-management`;
     for (const hr of hrUsers) {
       if (!hr.email) continue;
       enqueueEmail({ to: hr.email, subject: `Resignation: ${employee.firstName} ${employee.lastName}`, template: 'resignation-submitted', context: { name: `${employee.firstName} ${employee.lastName}`, employeeCode: employee.employeeCode, department: employee.department?.name, lastWorkingDate: new Date(data.lastWorkingDate).toLocaleDateString('en-IN'), reason: data.reason, link } })
@@ -1010,7 +1010,7 @@ export class EmployeeService {
     });
 
     // Enqueue activation email
-    const activationUrl = `${env.FRONTEND_URL}/activate/${token}`;
+    const activationUrl = `https://hr.anistonav.com/activate/${token}`;
     await enqueueEmail({
       to: employee.email,
       subject: 'Activate your Aniston HRMS account',

@@ -135,6 +135,15 @@ export const kycApi = api.injectEndpoints({
       }),
       invalidatesTags: [{ type: 'Kyc' }],
     }),
+
+    // HR: re-run combined PDF classification (Python → Node.js fallback, synchronous)
+    reclassifyCombinedPdf: builder.mutation<any, string>({
+      query: (employeeId) => ({
+        url: `/onboarding/kyc/${employeeId}/reclassify-combined-pdf`,
+        method: 'POST',
+      }),
+      invalidatesTags: [{ type: 'Kyc' }],
+    }),
   }),
 });
 
@@ -153,4 +162,5 @@ export const {
   useRequestReuploadMutation,
   useUpdateHrNotesMutation,
   useRetriggerOcrMutation,
+  useReclassifyCombinedPdfMutation,
 } = kycApi;

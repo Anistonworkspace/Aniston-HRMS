@@ -8,6 +8,7 @@ import { createAuditLog } from '../../utils/auditLogger.js';
 import { generateEmployeeCode } from '../../utils/employeeCode.js';
 import { whatsAppService } from '../whatsapp/whatsapp.service.js';
 import { logger } from '../../lib/logger.js';
+import { env } from '../../config/env.js';
 import type { CreateInvitationInput } from './invitation.validation.js';
 
 /**

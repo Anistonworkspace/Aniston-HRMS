@@ -1,4 +1,6 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+import json
+from typing import Optional
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from ..services.ocr_service import process_document, classify_combined_pdf
 
 router = APIRouter(prefix="/ocr", tags=["OCR"])
@@ -28,7 +30,10 @@ async def extract_document(file: UploadFile = File(...)):
 
 
 @router.post("/classify-combined-pdf")
-async def classify_combined_pdf_endpoint(file: UploadFile = File(...)):
+async def classify_combined_pdf_endpoint(
+    file: UploadFile = File(...),
+    required_docs: Optional[str] = Form(None),
+):
     """
     Classify a combined PDF that contains multiple documents.
 
@@ -39,6 +44,11 @@ async def classify_combined_pdf_endpoint(file: UploadFile = File(...)):
       - missingFromRequired: which required docs appear absent
       - suspicionFlags: pages that look blank/low-quality/screenshot
       - confidence: per-page confidence scores
+
+    Optional form field `required_docs`: JSON-encoded list of required doc type strings
+    (e.g. '["PAN","TENTH_CERTIFICATE","RESIDENCE_PROOF"]').
+    When provided, missing-doc detection uses this employee-specific list instead of
+    the hardcoded STANDARD_REQUIRED_DOCS fallback.
     """
     if file.content_type and file.content_type not in ["application/pdf", "application/octet-stream"]:
         raise HTTPException(status_code=400, detail="Only PDF files are accepted for combined classification")
@@ -47,7 +57,17 @@ async def classify_combined_pdf_endpoint(file: UploadFile = File(...)):
     if len(contents) > 100 * 1024 * 1024:  # 100MB limit for combined PDFs
         raise HTTPException(status_code=400, detail="File too large (max 100MB)")
 
-    result = await classify_combined_pdf(contents)
+    # Parse employee-specific required docs list if provided
+    parsed_required_docs: Optional[list] = None
+    if required_docs:
+        try:
+            parsed_required_docs = json.loads(required_docs)
+            if not isinstance(parsed_required_docs, list):
+                parsed_required_docs = None
+        except (json.JSONDecodeError, TypeError):
+            parsed_required_docs = None
+
+    result = await classify_combined_pdf(contents, required_docs=parsed_required_docs)
     return {
         "success": True,
         "data": result,

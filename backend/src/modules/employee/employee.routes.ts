@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { employeeController } from './employee.controller.js';
 import { authenticate, requirePermission, requirePermissionOrOwn } from '../../middleware/auth.middleware.js';
 import { employeeDeletionController } from '../employee-deletion/employee-deletion.controller.js';
+import { env } from '../../config/env.js';
 
 const router = Router();
 
@@ -55,7 +56,7 @@ router.post('/invite-whatsapp', requirePermission('employee', 'create'), async (
     });
 
     const org = await prisma.organization.findUnique({ where: { id: req.user!.organizationId } });
-    const inviteUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/onboarding/invite/${token}`;
+    const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${token}`;
     const message = `🎉 *You're invited to join ${org?.name || 'the team'}!*\n\nHi ${firstName}! Your HR has set up your account.\n\n📱 *Set up your account:*\n${inviteUrl}\n\n⏰ Link expires in *72 hours*\n🎯 *Role:* ${role}`;
 
     let whatsappSent = false;

@@ -232,6 +232,13 @@ export class DocumentGateService {
     const qualification = gate.highestQualification || 'GRADUATION';
     const uploadMode = gate.uploadMode || 'SEPARATE';
 
+    // Block submission while combined PDF classification is still running.
+    // This is the server-side guard — the frontend also disables the button,
+    // but this prevents a race condition if the UI guard is bypassed.
+    if (gate.kycStatus === 'PROCESSING') {
+      throw new BadRequestError('Your documents are still being classified by OCR. Please wait a moment, then try again.');
+    }
+
     // Photo is always required
     const hasPhoto = !!gate.photoUrl || submitted.includes('PHOTO');
     if (!hasPhoto) {
@@ -243,9 +250,26 @@ export class DocumentGateService {
       if (!gate.combinedPdfUploaded) {
         throw new BadRequestError('Please upload your combined PDF before submitting.');
       }
+
+      // If classification ran but detected 0 document types, add a system note to HR review.
+      // We still allow submission — HR can manually review. But they need a clear warning.
+      const analysis = gate.combinedPdfAnalysis as any;
+      const classificationRan = analysis && !analysis.error && analysis._source !== 'manual_review';
+      const detectedDocsCount = (analysis?.detectedDocs ?? analysis?.detected_docs ?? []).length;
+      const hrSystemNote = classificationRan && detectedDocsCount === 0
+        ? '[System] Combined PDF was processed but 0 document types were detected. ' +
+          'The PDF may be image-only without embedded text, very low quality, or the wrong file. ' +
+          'HR should request re-upload unless documents can be verified by opening the PDF manually.'
+        : null;
+
+      const updateData: any = { kycStatus: 'SUBMITTED' };
+      if (hrSystemNote) {
+        updateData.hrReviewNotes = (gate.hrReviewNotes ? gate.hrReviewNotes + '\n' : '') + hrSystemNote;
+      }
+
       const updated = await prisma.onboardingDocumentGate.update({
         where: { employeeId },
-        data: { kycStatus: 'SUBMITTED' },
+        data: updateData,
       });
       await this.emitKycUpdate(employeeId, 'SUBMITTED');
       return updated;
@@ -355,7 +379,7 @@ export class DocumentGateService {
     // After OCR classification completes, set status back to PENDING so the employee
     // can review the identified documents and explicitly click "Submit for HR Review".
     // We do NOT auto-submit here — that happens only when the employee calls submitKyc().
-    return prisma.onboardingDocumentGate.update({
+    const updated = await prisma.onboardingDocumentGate.update({
       where: { employeeId },
       data: {
         kycStatus: 'PENDING',
@@ -367,6 +391,12 @@ export class DocumentGateService {
         employeeVisibleReasons: (opts.employeeVisibleReasons || []) as any,
       },
     });
+
+    // Push real-time notification to the employee so their page refreshes immediately
+    // without waiting for the 3-second polling cycle.
+    await this.emitKycUpdate(employeeId, 'PENDING');
+
+    return updated;
   }
 
   async verifyKyc(employeeId: string, verifiedBy: string, organizationId?: string) {
@@ -473,6 +503,8 @@ export class DocumentGateService {
 
   /**
    * HR updates internal review notes.
+   * The reviewerId is persisted in verifiedBy so there is an audit trail of
+   * who last touched the notes, even before a final verify/reject action.
    */
   async updateHrNotes(employeeId: string, notes: string, reviewerId: string) {
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
@@ -480,7 +512,11 @@ export class DocumentGateService {
 
     return prisma.onboardingDocumentGate.update({
       where: { employeeId },
-      data: { hrReviewNotes: notes },
+      data: {
+        hrReviewNotes: notes,
+        // Track who last updated notes — does not change kycStatus, just records reviewer
+        verifiedBy: reviewerId,
+      },
     });
   }
 
@@ -696,15 +732,32 @@ export class DocumentGateService {
       missingDocs.push('IDENTITY_PROOF');
     }
 
-    // Run cross-document OCR validation on-demand (non-blocking — skipped if < 2 docs have OCR data)
+    // Run cross-document OCR validation on-demand (non-blocking — skipped if < 2 docs have OCR data).
+    // On failure, return a structured ERROR state so HR knows validation was unavailable
+    // (not that documents passed — an empty result is ambiguous and dangerous).
     let crossValidation: any = null;
     try {
       const { documentOcrService } = await import('../document-ocr/document-ocr.service.js');
       crossValidation = await documentOcrService.crossValidateEmployee(employeeId, organizationId);
-      // Only include if there's meaningful data (at least 2 docs compared)
+      // Treat PENDING (< 2 OCR docs) as "not enough data" — surface null so UI shows nothing
       if (crossValidation?.status === 'PENDING') crossValidation = null;
-    } catch {
-      // Non-blocking — cross-validation failure should not block HR review
+    } catch (err: any) {
+      // Return structured error so HR sees that validation was attempted but unavailable.
+      // Never expose raw stack traces — only the sanitized message.
+      crossValidation = {
+        status: 'ERROR',
+        message:
+          'Cross-document validation could not run. ' +
+          'Manually verify that the name, date of birth, and document numbers match across all submitted documents.',
+        technicalReason: err?.message
+          ? err.message.slice(0, 300)
+          : 'Unknown internal error',
+        manualReviewRequired: true,
+        details: [],
+      };
+      logger.warn(
+        `[KYC HR Review] Cross-validation failed for employee ${employeeId}: ${err?.message}`
+      );
     }
 
     return {

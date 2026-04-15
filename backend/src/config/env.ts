@@ -16,8 +16,12 @@ const envSchema = z.object({
   ENCRYPTION_KEY: z.string().min(32).optional(), // Required for production; falls back to JWT_SECRET in dev/test via encryption.ts
   JWT_ACCESS_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
-  FRONTEND_URL: z.string().default('http://localhost:5173'),
-  API_URL: z.string().default('http://localhost:4000'),
+  FRONTEND_URL: z.string().default(
+    process.env.NODE_ENV === 'production' ? 'https://hr.anistonav.com' : 'http://localhost:5173'
+  ),
+  API_URL: z.string().default(
+    process.env.NODE_ENV === 'production' ? 'https://hr.anistonav.com/api' : 'http://localhost:4000'
+  ),
   AI_SERVICE_URL: z.string().default('http://localhost:8000'),
   AI_SERVICE_API_KEY: z.string().optional(),
   STORAGE_ENDPOINT: z.string().optional(),

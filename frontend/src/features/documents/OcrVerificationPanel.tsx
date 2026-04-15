@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation } from './documentOcrApi';
 import { useVerifyDocumentMutation } from './documentApi';
-import { useVerifyKycMutation, useRejectKycMutation, useGetKycHrReviewQuery } from '../kyc/kycApi';
+import { useVerifyKycMutation, useRejectKycMutation, useGetKycHrReviewQuery, useReclassifyCombinedPdfMutation } from '../kyc/kycApi';
 import toast from 'react-hot-toast';
 import { cn, getUploadUrl } from '../../lib/utils';
 
@@ -152,21 +152,27 @@ function RejectDocumentDialog({
 }
 
 // ─── Combined PDF Review Panel ────────────────────────────────────────────────
+// `optional: true` means the doc is expected / HR will look for it, but its
+// absence does NOT count toward the "missing required documents" tally.
 const COMBINED_PDF_REQUIRED_DOCS = [
-  { type: 'AADHAAR', label: 'Aadhaar Card', group: 'identity' },
+  // Identity: any one of Aadhaar / Passport / Voter ID / Driving License satisfies this
+  { type: 'IDENTITY_PROOF', label: 'Identity Proof (Aadhaar / Passport / Voter ID / DL)', group: 'identity' },
   { type: 'PAN', label: 'PAN Card', group: 'identity' },
   { type: 'TENTH_CERTIFICATE', label: '10th Certificate / Marksheet', group: 'education' },
   { type: 'TWELFTH_CERTIFICATE', label: '12th Certificate / Marksheet', group: 'education' },
   { type: 'DEGREE_CERTIFICATE', label: 'Degree / Graduation Certificate', group: 'education' },
   { type: 'RESIDENCE_PROOF', label: 'Residence Proof', group: 'other' },
-  { type: 'BANK_STATEMENT', label: 'Bank Statement / Cancelled Cheque', group: 'other' },
+  // Bank statement is strongly recommended for salary disbursement but not hard-blocked by the backend
+  { type: 'BANK_STATEMENT', label: 'Bank Statement / Cancelled Cheque', group: 'other', optional: true },
   { type: 'PHOTO', label: 'Passport Size Photograph', group: 'other' },
   { type: 'EXPERIENCE_LETTER', label: 'Experience / Employment Proof', group: 'employment' },
 ];
 
-// Alias table: which detected types satisfy each required doc type
-// Must mirror the backend DOC_TYPE_ALIASES and Python REQUIRED_DOC_ALIASES
+// Alias table: which detected types satisfy each required doc type.
+// Must mirror the backend DOC_TYPE_ALIASES and Python REQUIRED_DOC_ALIASES.
 const FRONTEND_DOC_ALIASES: Record<string, string[]> = {
+  // Any government-issued identity document satisfies the identity proof requirement.
+  IDENTITY_PROOF: ['AADHAAR', 'PASSPORT', 'VOTER_ID', 'DRIVING_LICENSE'],
   RESIDENCE_PROOF: ['UTILITY_BILL', 'BANK_STATEMENT', 'CANCELLED_CHEQUE', 'VOTER_ID', 'DRIVING_LICENSE', 'RENT_AGREEMENT'],
   BANK_STATEMENT: ['BANK_STATEMENT', 'CANCELLED_CHEQUE'],
   EXPERIENCE_LETTER: ['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER_DOC', 'SALARY_SLIP_DOC', 'OFFER_LETTER', 'SALARY_SLIP'],
@@ -296,7 +302,9 @@ function CombinedPdfReviewPanel({
   const wrongUploadPages: number[] = analysis?.wrongUploadPages || analysis?.wrong_upload_pages || [];
   const wrongUploadCount: number = analysis?.wrongUploadCount || analysis?.wrong_upload_count || 0;
 
-  const missingDocs = relevantDocs.filter(d => !isDocDetected(d.type, detectedDocTypes));
+  // Only count non-optional docs as "missing required" — optional docs (e.g. bank statement)
+  // are shown in the checklist but don't contribute to the missing-docs alert.
+  const missingDocs = relevantDocs.filter(d => !(d as any).optional && !isDocDetected(d.type, detectedDocTypes));
 
   const riskColor = riskLevel === 'HIGH' ? 'text-red-700 bg-red-100'
     : riskLevel === 'MEDIUM' ? 'text-amber-700 bg-amber-100'
@@ -444,25 +452,39 @@ function CombinedPdfReviewPanel({
       <div className="layer-card p-4">
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-semibold text-gray-600">Required Documents Checklist</p>
-          <span className="text-xs text-gray-400">{detectedDocTypes.length}/{relevantDocs.length} detected</span>
+          <span className="text-xs text-gray-400">
+            {relevantDocs.filter(d => isDocDetected(d.type, detectedDocTypes)).length}/
+            {relevantDocs.filter(d => !(d as any).optional).length} required detected
+          </span>
         </div>
         <div className="space-y-2">
           {relevantDocs.map(doc => {
             const detected = isDocDetected(doc.type, detectedDocTypes);
+            const isOptional = (doc as any).optional === true;
             const alias = getDetectedAlias(doc.type, detectedDocTypes);
             const aliasLabel = alias && alias !== doc.type ? alias.replace(/_/g, ' ') : null;
             return (
               <div key={doc.type} className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg border',
-                detected ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-100',
+                detected
+                  ? 'bg-emerald-50 border-emerald-200'
+                  : isOptional
+                  ? 'bg-gray-50 border-gray-100'
+                  : 'bg-red-50 border-red-100',
               )}>
                 {detected
                   ? <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
+                  : isOptional
+                  ? <Info size={15} className="text-gray-400 shrink-0" />
                   : <XCircle size={15} className="text-red-400 shrink-0" />}
                 <span className="text-xs text-gray-700 flex-1">{doc.label}</span>
-                <span className={cn('text-[10px] font-medium', detected ? 'text-emerald-600' : 'text-red-500')}>
-                  {detected ? (aliasLabel ? `via ${aliasLabel}` : 'Detected') : 'Not found'}
-                </span>
+                {isOptional && !detected ? (
+                  <span className="text-[10px] font-medium text-gray-400">Recommended</span>
+                ) : (
+                  <span className={cn('text-[10px] font-medium', detected ? 'text-emerald-600' : 'text-red-500')}>
+                    {detected ? (aliasLabel ? `via ${aliasLabel}` : 'Detected') : 'Not found'}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -521,6 +543,7 @@ export default function OcrVerificationPanel({
   });
 
   const [triggerOcr, { isLoading: triggering }] = useTriggerDocumentOcrMutation();
+  const [reclassifyCombinedPdf, { isLoading: reclassifying }] = useReclassifyCombinedPdfMutation();
   const [updateOcr, { isLoading: saving }] = useUpdateDocumentOcrMutation();
   const [verifyDoc, { isLoading: verifyingDoc }] = useVerifyDocumentMutation();
   const [verifyKyc, { isLoading: verifyingKyc }] = useVerifyKycMutation();
@@ -560,6 +583,22 @@ export default function OcrVerificationPanel({
       refetch();
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'OCR failed');
+    }
+  };
+
+  const handleReclassify = async () => {
+    if (!employeeId) return;
+    try {
+      const result = await reclassifyCombinedPdf(employeeId).unwrap();
+      const detected: string[] = result?.data?.detectedDocs ?? [];
+      if (detected.length > 0) {
+        toast.success(`Re-classification complete — ${detected.length} document type(s) detected`);
+      } else {
+        toast.success('Re-classification complete — results updated');
+      }
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Re-classification failed');
     }
   };
 
@@ -694,8 +733,8 @@ export default function OcrVerificationPanel({
                       onClose();
                     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to approve KYC'); }
                   }}
-                  onRetrigger={handleTriggerOcr}
-                  triggering={triggering}
+                  onRetrigger={employeeId ? handleReclassify : handleTriggerOcr}
+                  triggering={employeeId ? reclassifying : triggering}
                   verifyingDoc={verifyingDoc}
                   verifyingKyc={verifyingKyc}
                 />

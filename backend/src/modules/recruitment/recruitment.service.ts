@@ -306,7 +306,7 @@ export class RecruitmentService {
             template: 'onboarding-invite',
             context: {
               name: offer.application.candidateName || offer.candidateEmail.split('@')[0],
-              link: `${process.env.FRONTEND_URL || 'https://hr.anistonav.com'}/onboarding/invite/${invitation.inviteToken}`,
+              link: `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`,
             },
           });
 

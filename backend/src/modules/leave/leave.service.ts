@@ -1595,7 +1595,7 @@ export class LeaveService {
         riskScore: leaveRequest.riskScore || 0,
         status: leaveRequest.status,
         remarks: leaveRequest.approverRemarks || leaveRequest.managerRemarks || '',
-        appUrl: env.FRONTEND_URL,
+        appUrl: 'https://hr.anistonav.com',
         orgName: org?.name || 'Aniston Technologies',
       };
 
