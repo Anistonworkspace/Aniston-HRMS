@@ -572,14 +572,14 @@ export default function OcrVerificationPanel({
   const isFlaggedByScore = confidence > 0 && confidence < 0.60;
 
   return (
-    <div className="fixed inset-0 z-50 flex">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Panel */}
-      <div className="ml-auto relative w-full max-w-2xl bg-white shadow-2xl overflow-y-auto animate-in slide-in-from-right">
+      {/* Centered popup */}
+      <div className="relative w-full max-w-4xl max-h-[92vh] bg-white shadow-2xl overflow-y-auto rounded-2xl animate-in zoom-in-95 duration-200 flex flex-col">
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between rounded-t-2xl">
           <div className="flex items-center gap-3">
             <ScanLine size={20} className="text-brand-600" />
             <div>
@@ -587,10 +587,10 @@ export default function OcrVerificationPanel({
               <p className="text-xs text-gray-400">{documentName} — {documentType?.replace(/_/g, ' ')}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-700 transition-colors text-lg font-bold">&times;</button>
         </div>
 
-        <div className="p-6 space-y-5">
+        <div className="p-6 space-y-5 overflow-y-auto flex-1">
           {/* Document Preview */}
           {fileUrl && (
             <div className="layer-card p-4">

@@ -109,6 +109,14 @@ const CLASSIFICATION_RULES: ClassRule[] = [
     negative: ['INCOME TAX', 'PASSPORT', 'ELECTION COMMISSION', 'DRIVING'],
     baseScore: 0.70,
   },
+  // Aadhaar back side: "Unique Identification Authority" without UIDAI header
+  {
+    type: 'AADHAAR',
+    required: ['UNIQUE IDENTIFICATION AUTHORITY'],
+    optional: ['AADHAAR', 'आधार', 'ENROLMENT', 'VID', 'ADDRESS'],
+    negative: ['INCOME TAX', 'PASSPORT', 'ELECTION COMMISSION'],
+    baseScore: 0.72,
+  },
   {
     type: 'PASSPORT',
     required: ['PASSPORT', 'REPUBLIC OF INDIA'],
@@ -130,31 +138,33 @@ const CLASSIFICATION_RULES: ClassRule[] = [
     negative: ['INCOME TAX', 'PASSPORT', 'AADHAAR', 'DRIVING'],
     baseScore: 0.75,
   },
+  // 10th cert: "Secondary Education" but NOT 12th cert indicators
   {
     type: 'TENTH_CERTIFICATE',
     required: ['SECONDARY EDUCATION'],
-    optional: ['CLASS X', 'CLASS 10', 'CBSE', 'ICSE', 'BOARD', 'ROLL NUMBER', 'MARKS OBTAINED', 'HIGH SCHOOL'],
-    negative: ['UNIVERSITY', 'BACHELOR', 'MASTER', 'SENIOR SECONDARY', 'CLASS XII'],
+    optional: ['CLASS X', 'CLASS 10', 'CBSE', 'ICSE', 'BOARD', 'ROLL NUMBER', 'MARKS OBTAINED', 'HIGH SCHOOL', 'EXAMINATION RESULTS'],
+    negative: ['UNIVERSITY', 'BACHELOR', 'MASTER', 'SENIOR SCHOOL CERTIFICATE', 'CLASS XII', 'MARKS STATEMENT'],
     baseScore: 0.65,
   },
+  // 12th cert: CBSE uses "Senior School Certificate Examination", not "Senior Secondary"
   {
     type: 'TWELFTH_CERTIFICATE',
-    required: ['SENIOR SECONDARY', 'CLASS XII'],
-    optional: ['CBSE', 'INTERMEDIATE', 'HIGHER SECONDARY', 'HSC', 'CLASS 12', '+2'],
-    negative: ['UNIVERSITY', 'BACHELOR', 'MASTER'],
-    baseScore: 0.65,
+    required: ['SECONDARY EDUCATION'],
+    optional: ['SENIOR SCHOOL CERTIFICATE', 'SENIOR SECONDARY', 'CLASS XII', 'MARKS STATEMENT', 'CBSE', 'INTERMEDIATE', 'HIGHER SECONDARY', 'HSC', '12TH'],
+    negative: ['UNIVERSITY', 'BACHELOR', 'MASTER', 'EXAMINATION RESULTS', 'CLASS X'],
+    baseScore: 0.60,
   },
   {
     type: 'DEGREE_CERTIFICATE',
     required: ['UNIVERSITY'],
-    optional: ['BACHELOR', 'MASTER', 'CONVOCATION', 'AWARDED', 'CHANCELLOR', 'REGISTRAR', 'DEGREE'],
-    negative: ['BOARD OF SECONDARY', 'CBSE', 'ICSE', 'ELECTION', 'INCOME TAX'],
+    optional: ['BACHELOR', 'CONVOCATION', 'AWARDED', 'CHANCELLOR', 'REGISTRAR', 'DEGREE', 'STATEMENT OF MARKS', 'GRADES'],
+    negative: ['BOARD OF SECONDARY', 'CBSE', 'ICSE', 'ELECTION', 'INCOME TAX', 'MASTER OF', 'POST GRADUATE'],
     baseScore: 0.60,
   },
   {
     type: 'POST_GRADUATION_CERTIFICATE',
     required: ['UNIVERSITY'],
-    optional: ['MASTER OF', 'POST GRADUATE', 'MBA', 'MCA', 'M.TECH', 'M.SC', 'M.COM', 'CONVOCATION'],
+    optional: ['MASTER OF', 'POST GRADUATE', 'MBA', 'MCA', 'M.TECH', 'M.SC', 'M.COM', 'CONVOCATION', 'MA ', 'MASTER OF ARTS', 'IGNOU'],
     negative: ['BACHELOR', 'SECONDARY', 'CBSE'],
     baseScore: 0.60,
   },
@@ -172,11 +182,20 @@ const CLASSIFICATION_RULES: ClassRule[] = [
     negative: ['UNIVERSITY', 'INCOME TAX', 'UIDAI'],
     baseScore: 0.65,
   },
+  // Salary slip: PAYSLIP is the most common keyword, not SALARY
   {
     type: 'SALARY_SLIP',
-    required: ['SALARY'],
-    optional: ['BASIC', 'HRA', 'PF', 'GROSS', 'NET PAY', 'DEDUCTION', 'EPF', 'ESI', 'EMPLOYEE'],
+    required: ['PAYSLIP'],
+    optional: ['BASIC', 'HRA', 'PF', 'GROSS', 'NET PAY', 'DEDUCTION', 'EPF', 'ESI', 'EMPLOYEE', 'EARNINGS'],
     negative: ['UNIVERSITY', 'PASSPORT', 'AADHAAR'],
+    baseScore: 0.70,
+  },
+  // Salary slip alternative: "PAY SLIP" or "NET PAY" with earnings structure
+  {
+    type: 'SALARY_SLIP',
+    required: ['NET PAY'],
+    optional: ['BASIC', 'HRA', 'GROSS', 'DEDUCTION', 'EARNINGS', 'SALARY', 'EMPLOYEE'],
+    negative: ['UNIVERSITY', 'PASSPORT', 'AADHAAR', 'UIDAI'],
     baseScore: 0.65,
   },
   {
@@ -193,12 +212,226 @@ const CLASSIFICATION_RULES: ClassRule[] = [
     negative: ['INCOME TAX', 'AADHAAR'],
     baseScore: 0.70,
   },
+  // Offer letter: only needs ONE of these terms (was wrongly requiring BOTH)
   {
     type: 'OFFER_LETTER',
-    required: ['OFFER LETTER', 'APPOINTMENT LETTER'],
-    optional: ['DESIGNATION', 'JOINING DATE', 'SALARY', 'POSITION', 'WELCOME'],
+    required: ['OFFER LETTER'],
+    optional: ['DESIGNATION', 'JOINING DATE', 'SALARY', 'POSITION', 'WELCOME', 'SELECTED', 'PLEASED TO INFORM'],
     negative: ['RELIEVING', 'EXPERIENCE LETTER', 'RESIGNATION'],
+    baseScore: 0.75,
+  },
+  {
+    type: 'OFFER_LETTER',
+    required: ['APPOINTMENT LETTER'],
+    optional: ['DESIGNATION', 'JOINING DATE', 'SALARY', 'POSITION', 'PROBATION'],
+    negative: ['RELIEVING', 'RESIGNATION'],
+    baseScore: 0.75,
+  },
+  // Utility bills (electricity, water, gas) as residence proof
+  {
+    type: 'UTILITY_BILL',
+    required: ['ELECTRICITY BILL'],
+    optional: ['METER', 'UNITS', 'AMOUNT PAYABLE', 'BILL DATE', 'ACCOUNT ID', 'CONSUMER'],
+    negative: ['INCOME TAX', 'AADHAAR', 'PASSPORT'],
+    baseScore: 0.80,
+  },
+  {
+    type: 'UTILITY_BILL',
+    required: ['WATER BILL'],
+    optional: ['METER', 'CONSUMER', 'ACCOUNT', 'AMOUNT'],
+    negative: ['INCOME TAX', 'AADHAAR'],
+    baseScore: 0.80,
+  },
+  {
+    type: 'UTILITY_BILL',
+    required: ['GAS BILL'],
+    optional: ['CONSUMER', 'METER', 'AMOUNT'],
+    negative: ['INCOME TAX', 'AADHAAR'],
+    baseScore: 0.80,
+  },
+  // Telephone / broadband / cable bills
+  {
+    type: 'UTILITY_BILL',
+    required: ['TELEPHONE BILL'],
+    optional: ['CONSUMER', 'ACCOUNT', 'AMOUNT'],
+    negative: ['INCOME TAX', 'AADHAAR'],
+    baseScore: 0.75,
+  },
+  // Resignation / employment emails as experience proof
+  {
+    type: 'RESIGNATION_LETTER',
+    required: ['RESIGNATION'],
+    optional: ['LAST WORKING DAY', 'NOTICE PERIOD', 'FORMALLY INFORM', 'MANAGEMENT TRAINEE', 'ACCEPTED', 'ACKNOWLEDGE'],
+    negative: ['UNIVERSITY', 'INCOME TAX', 'UIDAI', 'ELECTION'],
     baseScore: 0.70,
+  },
+  // ICSE 10th — "Indian Certificate of Secondary Education"
+  {
+    type: 'TENTH_CERTIFICATE',
+    required: ['INDIAN CERTIFICATE OF SECONDARY EDUCATION'],
+    optional: ['ICSE', 'CLASS 10', 'CISCE', 'MARKS', 'CANDIDATE'],
+    negative: ['INDIAN SCHOOL CERTIFICATE', 'UNIVERSITY', 'BACHELOR'],
+    baseScore: 0.85,
+  },
+  // ICSE 12th — "Indian School Certificate"
+  {
+    type: 'TWELFTH_CERTIFICATE',
+    required: ['INDIAN SCHOOL CERTIFICATE'],
+    optional: ['ISC', 'CLASS 12', 'CISCE', 'MARKS', 'CANDIDATE'],
+    negative: ['UNIVERSITY', 'BACHELOR'],
+    baseScore: 0.85,
+  },
+  // Maharashtra SSC / State Board 10th
+  {
+    type: 'TENTH_CERTIFICATE',
+    required: ['SECONDARY SCHOOL CERTIFICATE'],
+    optional: ['MAHARASHTRA', 'BOARD', 'SSC', 'MSBSHSE', 'MARKS', 'PERCENTAGE'],
+    negative: ['HIGHER SECONDARY', 'HSC', 'UNIVERSITY', 'BACHELOR', 'MASTER'],
+    baseScore: 0.80,
+  },
+  // Maharashtra HSC / State Board 12th
+  {
+    type: 'TWELFTH_CERTIFICATE',
+    required: ['HIGHER SECONDARY CERTIFICATE'],
+    optional: ['MAHARASHTRA', 'BOARD', 'HSC', 'MSBSHSE', 'MARKS', 'PERCENTAGE'],
+    negative: ['SECONDARY SCHOOL CERTIFICATE', 'SSC', 'UNIVERSITY', 'BACHELOR'],
+    baseScore: 0.80,
+  },
+  // Karnataka PUC (12th)
+  {
+    type: 'TWELFTH_CERTIFICATE',
+    required: ['PRE-UNIVERSITY'],
+    optional: ['KARNATAKA', 'PUC', 'II PUC', 'SECOND PUC', 'MARKS', 'DEPT OF PRE'],
+    negative: ['UNIVERSITY DEGREE', 'BACHELOR'],
+    baseScore: 0.80,
+  },
+  // Tamil Nadu / Andhra SSLC (10th)
+  {
+    type: 'TENTH_CERTIFICATE',
+    required: ['SSLC'],
+    optional: ['TAMIL NADU', 'ANDHRA', 'KERALA', 'SCHOOL', 'MARKS', 'PASS CERTIFICATE'],
+    negative: ['HSC', 'PLUS TWO', 'UNIVERSITY'],
+    baseScore: 0.82,
+  },
+  // UP Board / Intermediate (12th)
+  {
+    type: 'TWELFTH_CERTIFICATE',
+    required: ['INTERMEDIATE EDUCATION'],
+    optional: ['UTTAR PRADESH', 'UP BOARD', 'MADHYAMIK', 'MARKS', 'PERCENTAGE'],
+    negative: ['HIGH SCHOOL EDUCATION', 'UNIVERSITY', 'BACHELOR'],
+    baseScore: 0.80,
+  },
+  // UP Board High School (10th)
+  {
+    type: 'TENTH_CERTIFICATE',
+    required: ['HIGH SCHOOL EDUCATION'],
+    optional: ['UTTAR PRADESH', 'UP BOARD', 'MADHYAMIK', 'MARKS', 'PERCENTAGE'],
+    negative: ['INTERMEDIATE EDUCATION', 'UNIVERSITY', 'BACHELOR'],
+    baseScore: 0.80,
+  },
+  // IGNOU Masters / PG certificate
+  {
+    type: 'POST_GRADUATION_CERTIFICATE',
+    required: ['INDIRA GANDHI NATIONAL OPEN UNIVERSITY'],
+    optional: ['MASTER OF', 'M.A.', 'M.SC', 'M.COM', 'MBA', 'IGNOU', 'SAMARTH', 'REGIONAL CENTRE'],
+    negative: ['BACHELOR', 'SECONDARY', 'CBSE'],
+    baseScore: 0.85,
+  },
+  // Provisional degree certificate
+  {
+    type: 'DEGREE_CERTIFICATE',
+    required: ['PROVISIONAL CERTIFICATE'],
+    optional: ['UNIVERSITY', 'BACHELOR', 'DEGREE', 'CONVOCATION', 'EXAMINATION'],
+    negative: ['INCOME TAX', 'AADHAAR', 'SECONDARY'],
+    baseScore: 0.78,
+  },
+  // Cancelled cheque
+  {
+    type: 'CANCELLED_CHEQUE',
+    required: ['CANCELLED'],
+    optional: ['CHEQUE', 'BANK', 'ACCOUNT', 'IFSC', 'MICR', 'ACCOUNT NUMBER'],
+    negative: ['INCOME TAX', 'AADHAAR', 'PASSPORT'],
+    baseScore: 0.75,
+  },
+  // Bank passbook page
+  {
+    type: 'BANK_STATEMENT',
+    required: ['PASSBOOK'],
+    optional: ['ACCOUNT', 'IFSC', 'BANK', 'BRANCH', 'BALANCE', 'SBI', 'HDFC', 'ICICI'],
+    negative: ['INCOME TAX', 'AADHAAR'],
+    baseScore: 0.70,
+  },
+  // DISCOM utility bills (all major Indian electricity companies)
+  {
+    type: 'UTILITY_BILL',
+    required: ['TPDDL'],
+    optional: ['UNITS', 'AMOUNT', 'METER', 'CONSUMER', 'BILL'],
+    negative: [],
+    baseScore: 0.88,
+  },
+  {
+    type: 'UTILITY_BILL',
+    required: ['TNEB'],
+    optional: ['UNITS', 'AMOUNT', 'METER', 'CONSUMER', 'BILL', 'TANGEDCO'],
+    negative: [],
+    baseScore: 0.88,
+  },
+  {
+    type: 'UTILITY_BILL',
+    required: ['PSPCL'],
+    optional: ['UNITS', 'AMOUNT', 'METER', 'CONSUMER', 'BILL', 'PUNJAB'],
+    negative: [],
+    baseScore: 0.88,
+  },
+  {
+    type: 'UTILITY_BILL',
+    required: ['WESCO'],
+    optional: ['UNITS', 'AMOUNT', 'METER', 'CONSUMER', 'BILL', 'ODISHA'],
+    negative: [],
+    baseScore: 0.85,
+  },
+  {
+    type: 'UTILITY_BILL',
+    required: ['MSEB'],
+    optional: ['UNITS', 'AMOUNT', 'METER', 'CONSUMER', 'BILL', 'MAHARASHTRA'],
+    negative: [],
+    baseScore: 0.85,
+  },
+  {
+    type: 'UTILITY_BILL',
+    required: ['PGVCL'],
+    optional: ['UNITS', 'AMOUNT', 'METER', 'CONSUMER', 'BILL', 'GUJARAT'],
+    negative: [],
+    baseScore: 0.85,
+  },
+  {
+    type: 'UTILITY_BILL',
+    required: ['CESCOM'],
+    optional: ['UNITS', 'AMOUNT', 'METER', 'CONSUMER', 'BILL', 'KARNATAKA'],
+    negative: [],
+    baseScore: 0.85,
+  },
+  {
+    type: 'UTILITY_BILL',
+    required: ['HESCOM'],
+    optional: ['UNITS', 'AMOUNT', 'METER', 'CONSUMER', 'BILL', 'KARNATAKA'],
+    negative: [],
+    baseScore: 0.85,
+  },
+  // Rent agreement as residence proof
+  {
+    type: 'RENT_AGREEMENT',
+    required: ['RENT AGREEMENT'],
+    optional: ['LANDLORD', 'TENANT', 'MONTHLY RENT', 'LEASE', 'LICENCE'],
+    negative: ['INCOME TAX', 'AADHAAR'],
+    baseScore: 0.80,
+  },
+  {
+    type: 'RENT_AGREEMENT',
+    required: ['LEAVE AND LICENCE'],
+    optional: ['LANDLORD', 'TENANT', 'MONTHLY RENT', 'RENT'],
+    negative: ['INCOME TAX', 'AADHAAR'],
+    baseScore: 0.80,
   },
 ];
 
@@ -219,16 +452,149 @@ function classifyPage(text: string): { type: string; confidence: number; keyword
     return { type: 'PAN', confidence: 0.90, keywords: ['PERMANENT ACCOUNT NUMBER', 'PAN_REGEX_MATCH'] };
   }
 
-  // Aadhaar regex shortcut: 12-digit sequence with UIDAI/आधार
+  // Aadhaar regex shortcut: 12-digit sequence with UIDAI/आधार/Unique Identification
   const AADHAAR_PATTERN = /\b\d{4}\s?\d{4}\s?\d{4}\b/;
-  if (AADHAAR_PATTERN.test(text) && (upper.includes('UIDAI') || upper.includes('AADHAAR') || text.includes('आधार'))) {
-    return { type: 'AADHAAR', confidence: 0.88, keywords: ['UIDAI', 'AADHAAR_REGEX_MATCH'] };
+  if (AADHAAR_PATTERN.test(text) && (
+    upper.includes('UIDAI') || upper.includes('AADHAAR') || text.includes('आधार') ||
+    upper.includes('UNIQUE IDENTIFICATION AUTHORITY') || upper.includes('GOVERNMENT OF INDIA') && upper.includes('ENROLMENT')
+  )) {
+    return { type: 'AADHAAR', confidence: 0.88, keywords: ['AADHAAR_REGEX_MATCH'] };
   }
 
   // MRZ detection (Passport)
   const MRZ_PATTERN = /^[A-Z0-9<]{44}$/m;
   if (MRZ_PATTERN.test(upper)) {
     return { type: 'PASSPORT', confidence: 0.92, keywords: ['MRZ_DETECTED'] };
+  }
+
+  // ── Strong domain shortcuts (bypass rule scoring for unambiguous patterns) ──
+
+  // 12th certificate: CBSE says "Senior School Certificate Examination" (NOT "Senior Secondary")
+  if (upper.includes('SENIOR SCHOOL CERTIFICATE') ||
+      (upper.includes('SECONDARY') && upper.includes('MARKS STATEMENT')) ||
+      upper.includes('CLASS XII') || upper.includes('CLASS 12TH') ||
+      upper.includes('AISSCE') || upper.includes('HIGHER SECONDARY CERTIFICATE')) {
+    return { type: 'TWELFTH_CERTIFICATE', confidence: 0.87, keywords: ['TWELFTH_SHORTCUT'] };
+  }
+
+  // 10th certificate: "Secondary Examination" / "Class X" / "SSLC"
+  if (upper.includes('SECONDARY EXAMINATION') ||
+      upper.includes('CLASS-X') || upper.includes(' CLASS X ') ||
+      upper.includes('SSLC') || upper.includes('MATRICULATION EXAMINATION') ||
+      (upper.includes('EXAMINATION RESULTS') && upper.includes('SECONDARY'))) {
+    return { type: 'TENTH_CERTIFICATE', confidence: 0.87, keywords: ['TENTH_SHORTCUT'] };
+  }
+
+  // Offer letter: any document that explicitly says "OFFER LETTER" (standalone, not needing another keyword)
+  if (upper.includes('OFFER LETTER') || upper.includes('APPOINTMENT LETTER') ||
+      upper.includes('OFFER OF EMPLOYMENT')) {
+    return { type: 'OFFER_LETTER', confidence: 0.88, keywords: ['OFFER_LETTER_SHORTCUT'] };
+  }
+
+  // Salary slip / payslip: common payroll document patterns
+  if (upper.includes('PAYSLIP') || upper.includes('PAY SLIP') ||
+      (upper.includes('NET PAY') && upper.includes('BASIC')) ||
+      (upper.includes('PAYSLIP FOR THE MONTH') || upper.includes('PAY SLIP FOR THE MONTH')) ||
+      (upper.includes('GROSS') && upper.includes('NET PAY') && upper.includes('DEDUCTION'))) {
+    return { type: 'SALARY_SLIP', confidence: 0.88, keywords: ['SALARY_SLIP_SHORTCUT'] };
+  }
+
+  // Utility bills: electricity, water, gas, telephone
+  if (upper.includes('ELECTRICITY BILL') || upper.includes('ELECTRIC BILL') ||
+      upper.includes('WATER BILL') || upper.includes('GAS BILL') ||
+      upper.includes('TELEPHONE BILL') || upper.includes('BROADBAND BILL') ||
+      (upper.includes('BILL') && (upper.includes('PVVNL') || upper.includes('BESCOM') ||
+        upper.includes('MSEDCL') || upper.includes('BSES') || upper.includes('TATA POWER') ||
+        upper.includes('DISCOMS'))) ||
+      (upper.includes('METER') && upper.includes('UNITS') && upper.includes('AMOUNT PAYABLE'))) {
+    return { type: 'UTILITY_BILL', confidence: 0.88, keywords: ['UTILITY_BILL_SHORTCUT'] };
+  }
+
+  // Resignation / formal exit email as employment/experience proof
+  if ((upper.includes('RESIGNATION') && (
+    upper.includes('LAST WORKING DAY') || upper.includes('FORMALLY INFORM') ||
+    upper.includes('NOTICE PERIOD') || upper.includes('ACKNOWLEDGE')
+  )) || upper.includes('ACCEPTANCE OF RESIGNATION')) {
+    return { type: 'RESIGNATION_LETTER', confidence: 0.82, keywords: ['RESIGNATION_SHORTCUT'] };
+  }
+
+  // ICSE 10th shortcut
+  if (upper.includes('INDIAN CERTIFICATE OF SECONDARY EDUCATION') || upper.includes('CISCE') && upper.includes('CLASS 10')) {
+    return { type: 'TENTH_CERTIFICATE', confidence: 0.90, keywords: ['ICSE_TENTH_SHORTCUT'] };
+  }
+
+  // ICSE 12th shortcut
+  if (upper.includes('INDIAN SCHOOL CERTIFICATE') || upper.includes('ISC EXAMINATION')) {
+    return { type: 'TWELFTH_CERTIFICATE', confidence: 0.90, keywords: ['ICSE_TWELFTH_SHORTCUT'] };
+  }
+
+  // Maharashtra board shortcut
+  if (upper.includes('MSBSHSE') || upper.includes('SECONDARY SCHOOL CERTIFICATE') && upper.includes('BOARD')) {
+    return { type: 'TENTH_CERTIFICATE', confidence: 0.87, keywords: ['MAHARASHTRA_SSC_SHORTCUT'] };
+  }
+  if (upper.includes('HIGHER SECONDARY CERTIFICATE') && (upper.includes('BOARD') || upper.includes('HSC'))) {
+    return { type: 'TWELFTH_CERTIFICATE', confidence: 0.87, keywords: ['HSC_SHORTCUT'] };
+  }
+
+  // Karnataka PUC shortcut (12th)
+  if ((upper.includes('II PUC') || upper.includes('SECOND PUC') || upper.includes('PRE-UNIVERSITY COURSE')) &&
+      !upper.includes('BACHELOR')) {
+    return { type: 'TWELFTH_CERTIFICATE', confidence: 0.87, keywords: ['PUC_SHORTCUT'] };
+  }
+
+  // SSLC shortcut (10th — South India)
+  if (upper.includes('SSLC') && !upper.includes('HSC') && !upper.includes('PLUS TWO')) {
+    return { type: 'TENTH_CERTIFICATE', confidence: 0.87, keywords: ['SSLC_SHORTCUT'] };
+  }
+
+  // IGNOU shortcut
+  if (upper.includes('INDIRA GANDHI NATIONAL OPEN UNIVERSITY') || upper.includes('IGNOU')) {
+    const isBachelor = upper.includes('BACHELOR') || upper.includes('B.A.') || upper.includes('B.SC');
+    return {
+      type: isBachelor ? 'DEGREE_CERTIFICATE' : 'POST_GRADUATION_CERTIFICATE',
+      confidence: 0.88,
+      keywords: ['IGNOU_SHORTCUT'],
+    };
+  }
+
+  // Provisional certificate shortcut
+  if (upper.includes('PROVISIONAL CERTIFICATE') && upper.includes('UNIVERSITY')) {
+    return { type: 'DEGREE_CERTIFICATE', confidence: 0.85, keywords: ['PROVISIONAL_CERT_SHORTCUT'] };
+  }
+
+  // IFSC code shortcut — bank statement / cancelled cheque
+  const IFSC_PATTERN = /\b[A-Z]{4}0[A-Z0-9]{6}\b/;
+  if (IFSC_PATTERN.test(upper)) {
+    if (upper.includes('CANCELLED')) {
+      return { type: 'CANCELLED_CHEQUE', confidence: 0.88, keywords: ['IFSC_CANCELLED_SHORTCUT'] };
+    }
+    if (upper.includes('ACCOUNT') || upper.includes('STATEMENT') || upper.includes('PASSBOOK')) {
+      return { type: 'BANK_STATEMENT', confidence: 0.85, keywords: ['IFSC_BANK_SHORTCUT'] };
+    }
+  }
+
+  // MICR code shortcut (bank cheque — 9 digits at bottom)
+  const MICR_PATTERN = /\b\d{9}\b/;
+  if (MICR_PATTERN.test(text) && (upper.includes('CHEQUE') || upper.includes('CHECK') || upper.includes('BANK'))) {
+    return { type: 'CANCELLED_CHEQUE', confidence: 0.80, keywords: ['MICR_SHORTCUT'] };
+  }
+
+  // Additional DISCOM shortcuts for utility bills
+  if (upper.includes('TPDDL') || upper.includes('TANGEDCO') || upper.includes('TNEB') ||
+      upper.includes('PSPCL') || upper.includes('MSEB') || upper.includes('PGVCL') ||
+      upper.includes('CESCOM') || upper.includes('HESCOM') || upper.includes('WESCO') ||
+      upper.includes('SOUTHCO') || upper.includes('NESCO') || upper.includes('CESC') ||
+      upper.includes('TPWODL') || upper.includes('TSSPDCL') || upper.includes('APEPDCL') ||
+      upper.includes('DHBVNL') || upper.includes('UHBVNL') || upper.includes('JVVNL') ||
+      upper.includes('AVVNL') || upper.includes('APDCL') || upper.includes('NBPDCL') ||
+      upper.includes('SBPDCL') || upper.includes('UGVCL') || upper.includes('DGVCL') ||
+      upper.includes('MGVCL') || upper.includes('TORRENT POWER') || upper.includes('ADANI ELECTRICITY')) {
+    return { type: 'UTILITY_BILL', confidence: 0.90, keywords: ['DISCOM_SHORTCUT'] };
+  }
+
+  // Passbook page shortcut
+  if (upper.includes('PASSBOOK') && (upper.includes('ACCOUNT') || upper.includes('BANK'))) {
+    return { type: 'BANK_STATEMENT', confidence: 0.82, keywords: ['PASSBOOK_SHORTCUT'] };
   }
 
   // Score against all rules
@@ -260,11 +626,25 @@ function classifyPage(text: string): { type: string; confidence: number; keyword
     }
   }
 
-  // Post-classification: check for degree vs PG disambiguation
+  // Post-classification disambiguation
+
+  // Degree vs PG
   if (bestType === 'DEGREE_CERTIFICATE' || bestType === 'POST_GRADUATION_CERTIFICATE') {
-    const isPG = /\b(MASTER OF|MBA|MCA|M\.TECH|M\.SC|M\.COM|MASTER'S|POST.?GRAD)\b/i.test(text);
+    const isPG = /\b(MASTER OF|MBA|MCA|M\.TECH|M\.SC|M\.COM|MASTER'S|POST.?GRAD|IGNOU|M\.A\.|MA\s)\b/i.test(text);
     if (isPG) bestType = 'POST_GRADUATION_CERTIFICATE';
-    else if (/\b(BACHELOR OF|B\.TECH|B\.SC|B\.COM|B\.E\.|BACHELOR'S)\b/i.test(text)) bestType = 'DEGREE_CERTIFICATE';
+    else if (/\b(BACHELOR OF|B\.TECH|B\.SC|B\.COM|B\.E\.|BACHELOR'S|BCA|BBA)\b/i.test(text)) bestType = 'DEGREE_CERTIFICATE';
+  }
+
+  // 10th vs 12th disambiguation (both can match 'SECONDARY EDUCATION')
+  if (bestType === 'TENTH_CERTIFICATE' || bestType === 'TWELFTH_CERTIFICATE') {
+    const is12th = upper.includes('SENIOR SCHOOL CERTIFICATE') ||
+      upper.includes('CLASS XII') || upper.includes('MARKS STATEMENT') ||
+      upper.includes('SENIOR SECONDARY') || /\b(XII|12TH)\b/.test(upper);
+    const is10th = upper.includes('CLASS X ') || upper.includes('CLASS-X') ||
+      upper.includes('HIGH SCHOOL') || upper.includes('EXAMINATION RESULTS') ||
+      /\b(CLASS X|10TH)\b/.test(upper);
+    if (is12th && !is10th) bestType = 'TWELFTH_CERTIFICATE';
+    else if (is10th && !is12th) bestType = 'TENTH_CERTIFICATE';
   }
 
   return { type: bestType, confidence: bestScore, keywords: matchedKeywords };
@@ -446,11 +826,20 @@ const DOC_TYPE_ALIASES: Record<string, string[]> = {
   VOTER_ID: ['VOTER_ID'],
   TENTH_CERTIFICATE: ['TENTH_CERTIFICATE'],
   TWELFTH_CERTIFICATE: ['TWELFTH_CERTIFICATE'],
-  DEGREE_CERTIFICATE: ['DEGREE_CERTIFICATE'],
-  POST_GRADUATION_CERTIFICATE: ['POST_GRADUATION_CERTIFICATE'],
-  EXPERIENCE_LETTER: ['EXPERIENCE_LETTER', 'RELIEVING_LETTER'],
+  DEGREE_CERTIFICATE: ['DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'],
+  POST_GRADUATION_CERTIFICATE: ['POST_GRADUATION_CERTIFICATE', 'DEGREE_CERTIFICATE'],
+  // Experience proof: offer letter, salary slip, relieving letter, resignation are all valid
+  EXPERIENCE_LETTER: ['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER', 'SALARY_SLIP', 'RESIGNATION_LETTER'],
+  OFFER_LETTER: ['OFFER_LETTER', 'EXPERIENCE_LETTER', 'RELIEVING_LETTER'],
+  SALARY_SLIP: ['SALARY_SLIP'],
   PHOTO: ['PHOTO'],
-  RESIDENCE_PROOF: ['BANK_STATEMENT', 'CANCELLED_CHEQUE', 'VOTER_ID', 'DRIVING_LICENSE'],
+  // Residence proof: utility bills, bank statement, cancelled cheque, rent agreement, or govt-issued address doc
+  RESIDENCE_PROOF: ['BANK_STATEMENT', 'CANCELLED_CHEQUE', 'VOTER_ID', 'DRIVING_LICENSE', 'UTILITY_BILL', 'RENT_AGREEMENT'],
+  UTILITY_BILL: ['UTILITY_BILL', 'BANK_STATEMENT', 'RENT_AGREEMENT'],
+  BANK_STATEMENT: ['BANK_STATEMENT', 'CANCELLED_CHEQUE'],
+  CANCELLED_CHEQUE: ['CANCELLED_CHEQUE', 'BANK_STATEMENT'],
+  RENT_AGREEMENT: ['RENT_AGREEMENT', 'UTILITY_BILL'],
+  RESIGNATION_LETTER: ['RESIGNATION_LETTER', 'RELIEVING_LETTER', 'EXPERIENCE_LETTER'],
 };
 
 function checkRequiredDocs(
@@ -542,7 +931,15 @@ export async function processCombinedPdfFallback(
 
   try {
     const pdfParseModule = await import('pdf-parse');
-    const pdfParse = (pdfParseModule as any).default || pdfParseModule;
+    // pdf-parse is a CJS package — handle ESM interop correctly
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawMod = pdfParseModule as any;
+    const pdfParse: (buf: Buffer, opts?: any) => Promise<any> =
+      typeof rawMod === 'function' ? rawMod :
+      typeof rawMod.default === 'function' ? rawMod.default :
+      typeof rawMod.parse === 'function' ? rawMod.parse :
+      null;
+    if (!pdfParse) throw new TypeError('pdf-parse did not export a callable function — check installation');
 
     // Render each page separately by overriding pagerender
     const perPageTexts: string[] = [];

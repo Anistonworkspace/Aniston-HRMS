@@ -283,9 +283,15 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
               }
 
               // ── Persist result and transition to PENDING_HR_REVIEW ──
-              const missingDocs: string[] = analysisResult?.missingDocuments || analysisResult?.missing_docs || [];
-              const duplicateDocs: string[] = analysisResult?.duplicateDocuments || analysisResult?.duplicate_docs || [];
-              const employeeReasons: string[] = analysisResult?.employeeVisibleReasons || analysisResult?.employee_visible_reasons || [];
+              // Node fallback uses 'missingFromRequired'; Python uses 'missing_docs'; handle both
+              const missingDocs: string[] = analysisResult?.missingDocuments ||
+                analysisResult?.missing_docs ||
+                analysisResult?.missingFromRequired || [];
+              const duplicateDocs: string[] = analysisResult?.duplicateDocuments ||
+                analysisResult?.duplicate_docs ||
+                analysisResult?.duplicateDocs || [];
+              const employeeReasons: string[] = analysisResult?.employeeVisibleReasons ||
+                analysisResult?.employee_visible_reasons || [];
 
               await documentGateService.setCombinedPdfClassified(employeeId, {
                 analysisResult,

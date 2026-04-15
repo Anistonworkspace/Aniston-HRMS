@@ -188,46 +188,247 @@ def extract_text_from_document(file_bytes: bytes, filename: str) -> tuple:
 # ===== DOCUMENT TYPE DETECTION =====
 
 def detect_document_type(text: str) -> str:
-    """Detect Indian document type from OCR text with fuzzy matching."""
+    """Detect Indian document type from OCR text with fuzzy matching and comprehensive coverage."""
     text_lower = text.lower()
 
+    # ── Identity Documents ───────────────────────────────────────────────────
+
     # Aadhaar — check keywords and 12-digit number pattern
-    aadhaar_keywords = ["aadhaar", "aadhar", "unique identification", "uidai", "enrollment", "enrolment"]
-    if any(kw in text_lower for kw in aadhaar_keywords) or re.search(r"\d{4}\s?\d{4}\s?\d{4}", text):
+    aadhaar_keywords = ["aadhaar", "aadhar", "unique identification", "uidai", "enrollment", "enrolment",
+                        "unique identity", "आधार", "भारतीय विशिष्ट"]
+    if any(kw in text_lower for kw in aadhaar_keywords) or (
+        re.search(r"\d{4}\s?\d{4}\s?\d{4}", text) and
+        any(kw in text_lower for kw in ["government of india", "भारत सरकार", "enrolment", "dob"])
+    ):
         return "AADHAAR"
 
     # PAN — check keywords and pattern
-    pan_keywords = ["income tax", "permanent account", "pan card", "income-tax"]
-    if any(kw in text_lower for kw in pan_keywords) or re.search(r"[A-Z]{5}\d{4}[A-Z]", text):
+    pan_keywords = ["income tax", "permanent account", "pan card", "income-tax", "income tax department"]
+    if any(kw in text_lower for kw in pan_keywords) or re.search(r"\b[A-Z]{5}\d{4}[A-Z]\b", text):
         return "PAN"
     # Fuzzy PAN pattern (OCR errors: O→0, l→1)
     if re.search(r"[A-Z0-9]{5}\d{4}[A-Z0-9]", text) and ("tax" in text_lower or "permanent" in text_lower):
         return "PAN"
 
     # Passport
-    passport_keywords = ["passport", "republic of india", "nationality", "place of birth"]
+    passport_keywords = ["passport", "republic of india", "nationality", "place of birth", "date of expiry",
+                         "ministry of external affairs", "immigration"]
     if any(kw in text_lower for kw in passport_keywords):
         return "PASSPORT"
 
     # Voter ID
-    voter_keywords = ["voter", "election", "electoral", "electors"]
+    voter_keywords = ["voter", "election commission", "electoral", "electors", "epic no", "electoral roll"]
     if any(kw in text_lower for kw in voter_keywords):
         return "VOTER_ID"
 
     # Driving License
-    dl_keywords = ["driving", "licence", "license", "transport", "motor vehicle"]
+    dl_keywords = ["driving licence", "driving license", "transport department", "motor vehicles act",
+                   "regional transport", "valid till", "class of vehicle"]
     if any(kw in text_lower for kw in dl_keywords):
         return "DRIVING_LICENSE"
 
-    # Education certificates
-    edu_keywords = ["marksheet", "certificate", "university", "board of", "examination", "grade sheet", "cgpa", "percentage"]
+    # ── Education Certificates ───────────────────────────────────────────────
+
+    # 12th certificate (must check before 10th)
+    # CBSE uses "SENIOR SCHOOL CERTIFICATE EXAMINATION" (NOT "senior secondary")
+    # ICSE uses "INDIAN SCHOOL CERTIFICATE"
+    # Maharashtra uses "HIGHER SECONDARY CERTIFICATE"
+    # UP Board uses "INTERMEDIATE EDUCATION" / "COUNCIL OF HIGHER SECONDARY EDUCATION"
+    # Karnataka uses "PRE-UNIVERSITY COURSE" / "II PUC"
+    twelfth_keywords = [
+        "senior school certificate", "class xii", "class 12", "12th grade",
+        "higher secondary certificate", "aissce", "intermediate examination",
+        "senior secondary certificate", "hsc examination", "plus two",
+        "council of higher secondary", "class-xii",
+        "indian school certificate",                # ICSE 12th
+        "isc examination",                          # ICSE 12th
+        "ii puc", "second puc", "pre-university course",  # Karnataka PUC
+        "intermediate education",                   # UP Board 12th
+        "maharashtra hsc",                          # Maharashtra HSC
+        "higher secondary examination",
+        "board of intermediate",                    # Various state boards
+        "all india senior school certificate",      # CBSE alternative name
+        "class 12th", "std xii", "std. xii",
+    ]
+    if any(kw in text_lower for kw in twelfth_keywords):
+        return "TWELFTH_CERTIFICATE"
+    # CBSE 12th: "Marks Statement" + "Secondary Education" without Class-X indicators
+    if ("marks statement" in text_lower or "senior school" in text_lower) and "secondary" in text_lower:
+        return "TWELFTH_CERTIFICATE"
+
+    # 10th certificate
+    # CBSE: "SECONDARY SCHOOL EXAMINATION" / "CLASS X"
+    # ICSE: "INDIAN CERTIFICATE OF SECONDARY EDUCATION"
+    # Maharashtra: "SECONDARY SCHOOL CERTIFICATE" (SSC)
+    # Tamil Nadu/Kerala/AP: "SSLC"
+    # UP Board: "HIGH SCHOOL EXAMINATION"
+    tenth_keywords = [
+        "secondary examination", "class x", "class-x", "10th grade", "sslc",
+        "matriculation", "high school examination", "secondary school examination",
+        "examination results",
+        "indian certificate of secondary education",  # ICSE 10th
+        "icse examination",                           # ICSE 10th
+        "secondary school certificate",               # Maharashtra SSC
+        "msbshse",                                    # Maharashtra State Board
+        "all india secondary school examination",     # CBSE
+        "high school certificate",
+        "class 10", "class-10", "std x", "std. x",
+        "board of secondary education",               # Various state boards
+        "board of school education",
+    ]
+    if any(kw in text_lower for kw in tenth_keywords):
+        return "TENTH_CERTIFICATE"
+
+    # Post-graduation / Masters
+    # IGNOU: "Indira Gandhi National Open University"
+    # Samarth portal certificate
+    pg_keywords = [
+        "master of arts", "master of science", "master of commerce", "mba", "mca", "m.tech",
+        "m.sc", "m.com", "m.a.", "post graduate", "indira gandhi national open university",
+        "ignou", "master's degree", "m. tech", "m. sc", "m. com", "m. a.",
+        "master of technology", "master of business", "master of computer",
+        "samarth portal", "distance education council",
+        "post-graduate degree", "pg diploma", "post graduate diploma",
+    ]
+    if any(kw in text_lower for kw in pg_keywords):
+        return "POST_GRADUATION_CERTIFICATE"
+
+    # General education certificates (degree / diploma)
+    # Provisional certificate is still a degree cert
+    edu_keywords = [
+        "university", "board of", "grade sheet", "cgpa", "bachelor of", "b.tech", "b.sc",
+        "b.com", "b.a.", "statement of marks", "marks and grades",
+        "provisional certificate",                    # Provisional degree
+        "convocation ceremony",                       # Convocation cert
+        "awarded the degree", "confers the degree",   # Degree language
+        "bachelor of engineering", "bachelor of science",
+        "b.e.", "b.tech.", "bca", "bba", "llb", "b.arch",
+    ]
     if any(kw in text_lower for kw in edu_keywords):
         return "CERTIFICATE"
 
-    # Bank statement
-    bank_keywords = ["bank statement", "account statement", "ifsc", "branch"]
+    # ── Employment Documents ─────────────────────────────────────────────────
+
+    # Offer letter / appointment letter
+    offer_keywords = ["offer letter", "appointment letter", "offer of employment",
+                      "pleased to inform you that you are selected", "joining date",
+                      "please join", "you are required to join"]
+    if any(kw in text_lower for kw in offer_keywords):
+        return "OFFER_LETTER"
+
+    # Resignation letter / email
+    resignation_keywords = [
+        "resignation", "last working day", "formally inform you of my resignation",
+        "acceptance of resignation", "relieved from", "i hereby resign",
+        "notice of resignation", "submitting my resignation", "two weeks notice",
+        "one month notice", "relieving you from", "acceptance of your resignation",
+    ]
+    if any(kw in text_lower for kw in resignation_keywords):
+        return "RESIGNATION_LETTER"
+
+    # Experience / relieving letter
+    experience_keywords = [
+        "experience letter", "relieving letter", "this is to certify that",
+        "was employed with us", "relieved from the services", "to whom it may concern",
+        "employment certificate", "service certificate", "worked with us",
+        "he/she has worked", "she has worked", "he has worked",
+        "period of employment",
+    ]
+    if any(kw in text_lower for kw in experience_keywords):
+        return "EXPERIENCE_LETTER"
+
+    # Salary slip / payslip
+    # Indian payslips use PAYSLIP, PAY SLIP, SALARY SLIP, WAGE SLIP
+    # Key fields: Basic, HRA, DA, PF, ESI, Net Pay, Gross Pay
+    salary_keywords = [
+        "payslip", "pay slip", "payslip for the month", "net pay for the month",
+        "salary slip", "pay stub", "earnings", "deductions", "epf contribution",
+        "basic salary", "house rent allowance", "provident fund",
+        "esi contribution", "professional tax", "net pay", "gross pay",
+        "salary for the month", "wage slip", "pf no.", "uan no.",
+        "employee provident fund", "take home", "in-hand salary",
+    ]
+    if any(kw in text_lower for kw in salary_keywords):
+        return "SALARY_SLIP"
+
+    # ── Financial / Residence Documents ─────────────────────────────────────
+
+    # Cancelled cheque — check before bank statement (more specific)
+    cheque_keywords = [
+        "cancelled", "cancelled cheque", "cancel cheque",
+    ]
+    if any(kw in text_lower for kw in cheque_keywords) and any(kw in text_lower for kw in ["cheque", "check", "bank", "ifsc", "micr", "account"]):
+        return "CANCELLED_CHEQUE"
+
+    # Bank passbook page
+    passbook_keywords = ["passbook", "savings passbook", "sb passbook"]
+    if any(kw in text_lower for kw in passbook_keywords):
+        return "BANK_STATEMENT"
+
+    # Utility bills (electricity, water, gas) — residence proof
+    # Includes all major Indian DISCOMs
+    utility_keywords = [
+        "electricity bill", "electric bill", "water bill", "gas bill",
+        "telephone bill", "broadband bill", "internet bill",
+        # North India DISCOMs
+        "pvvnl", "dvvnl", "mvvnl", "puvvnl",            # UP electricity boards
+        "paschimanchal vidyut", "dakshinanchal vidyut",
+        "madhyanchal vidyut", "purvanchal vidyut",
+        "tpddl", "tata power delhi",                      # Delhi
+        "bses rajdhani", "bses yamuna",
+        "dhbvnl", "uhbvnl",                              # Haryana
+        "pspcl",                                          # Punjab
+        "jvvnl", "avvnl",                                # Rajasthan
+        # West India DISCOMs
+        "msedcl", "mseb", "mahadiscom",                  # Maharashtra
+        "bescom", "hescom", "cescom", "gescom", "mescom", "hubli electricity",  # Karnataka
+        "pgvcl", "ugvcl", "dgvcl", "mgvcl",              # Gujarat
+        # South India DISCOMs
+        "tneb", "tangedco",                               # Tamil Nadu
+        "apepdcl", "apspdcl",                            # Andhra Pradesh
+        "tsspdcl", "tsnpdcl",                            # Telangana
+        "kseb",                                           # Kerala
+        # East India DISCOMs
+        "wesco", "nesco", "southco", "tpwodl",           # Odisha
+        "cesc",                                           # West Bengal
+        "nbpdcl", "sbpdcl",                              # Bihar
+        "apdcl",                                          # Assam
+        "torrent power", "adani electricity",
+        # Generic utility keywords
+        "bill month", "meter no", "meter number",
+        "units consumed", "amount payable", "consumer no",
+        "consumer number", "ca number", "discoms", "vidyut vitaran",
+        "electricity charges", "previous reading", "present reading",
+        "bill amount", "due date", "billing period",
+    ]
+    if any(kw in text_lower for kw in utility_keywords):
+        return "UTILITY_BILL"
+
+    # Bank statement / account statement
+    # Key indicators: IFSC code format (AAAA0XXXXXX), account number, transactions
+    bank_keywords = [
+        "bank statement", "account statement", "ifsc", "branch", "account no",
+        "account number", "account holder", "passbook", "micr",
+        "opening balance", "closing balance", "transaction", "debit", "credit",
+        "neft", "rtgs", "imps", "upi", "cheque number",
+        "state bank", "hdfc bank", "icici bank", "axis bank", "kotak bank",
+        "punjab national bank", "bank of baroda", "canara bank", "union bank",
+        "yes bank", "idbi bank", "federal bank", "south indian bank",
+    ]
+    # IFSC code pattern detection
+    if re.search(r'\b[A-Z]{4}0[A-Z0-9]{6}\b', text):
+        return "BANK_STATEMENT"
     if any(kw in text_lower for kw in bank_keywords):
         return "BANK_STATEMENT"
+
+    # Rent agreement / lease deed (residence proof)
+    rent_keywords = [
+        "rent agreement", "lease agreement", "tenancy agreement", "leave and licence",
+        "rent deed", "monthly rent", "rental agreement", "licensor", "licensee",
+        "landlord", "tenant", "lease deed", "license agreement",
+    ]
+    if any(kw in text_lower for kw in rent_keywords):
+        return "RENT_AGREEMENT"
 
     return "OTHER"
 
@@ -769,17 +970,222 @@ def generate_validation_reasons(
         if fields.get("account_holder_name"):
             reasons.append(f"✓ Account holder name: '{fields['account_holder_name']}'")
 
-    elif doc_type == "CERTIFICATE":
+    elif doc_type in ("TENTH_CERTIFICATE", "TWELFTH_CERTIFICATE"):
+        grade_label = "10th / SSC" if doc_type == "TENTH_CERTIFICATE" else "12th / HSC / Intermediate"
+        # Board detection
+        text_upper = raw_text.upper()
+        boards = {
+            "CBSE": "Central Board of Secondary Education (CBSE)",
+            "ICSE": "Indian Certificate of Secondary Education (ICSE)",
+            "ISC": "Indian School Certificate (ISC)",
+            "MSBSHSE": "Maharashtra State Board (MSBSHSE)",
+            "SSLC": "State Board — SSLC",
+            "UP BOARD": "Uttar Pradesh Board",
+            "PSEB": "Punjab School Education Board (PSEB)",
+            "RBSE": "Rajasthan Board (RBSE)",
+            "HPBOSE": "Himachal Pradesh Board (HPBOSE)",
+            "JKBOSE": "Jammu & Kashmir Board",
+            "CISCE": "Council for ICSE (CISCE)",
+        }
+        board_found = None
+        for board_key, board_name in boards.items():
+            if board_key in text_upper:
+                board_found = board_name
+                break
+        if board_found:
+            reasons.append(f"✓ Board identified: {board_found}")
+        else:
+            reasons.append(f"⚠ Board name not clearly detected for {grade_label} certificate")
+
         if fields.get("student_name"):
             reasons.append(f"✓ Student name extracted: '{fields['student_name']}'")
         else:
-            reasons.append("⚠ Student name not clearly detected in certificate text")
+            reasons.append("⚠ Student name not clearly detected in marksheet text")
+
         if fields.get("year_of_passing"):
-            reasons.append(f"✓ Year of passing: {fields['year_of_passing']}")
-        if fields.get("institution"):
-            reasons.append(f"✓ Institution identified: '{fields['institution']}'")
+            yr = fields["year_of_passing"]
+            current_year = 2026
+            if yr.isdigit() and int(yr) <= current_year:
+                reasons.append(f"✓ Year of passing: {yr}")
+            else:
+                reasons.append(f"⚠ Year of passing appears unusual: {yr} — verify")
+        else:
+            reasons.append("⚠ Year of passing not extracted — check document")
+
+        if fields.get("roll_number"):
+            reasons.append(f"✓ Roll/registration number found: {fields['roll_number']}")
         if fields.get("percentage_or_cgpa"):
-            reasons.append(f"✓ Grade/Percentage found: {fields['percentage_or_cgpa']}")
+            reasons.append(f"✓ Marks/Grade extracted: {fields['percentage_or_cgpa']}")
+
+        # Compartment / fail detection
+        if "compartment" in raw_text.lower() or "failed" in raw_text.lower():
+            reasons.append("🚩 Compartment/Fail indicator detected in document — verify pass status")
+        elif "pass" in raw_text.lower() or "passed" in raw_text.lower():
+            reasons.append("✓ Pass status detected in document")
+
+    elif doc_type in ("DEGREE_CERTIFICATE", "POST_GRADUATION_CERTIFICATE", "CERTIFICATE"):
+        degree_label = {
+            "DEGREE_CERTIFICATE": "Bachelor's Degree",
+            "POST_GRADUATION_CERTIFICATE": "Post-Graduate / Master's Degree",
+            "CERTIFICATE": "Educational Certificate",
+        }.get(doc_type, "Certificate")
+        # University detection
+        text_upper = raw_text.upper()
+        ignou_detected = "IGNOU" in text_upper or "INDIRA GANDHI NATIONAL OPEN UNIVERSITY" in text_upper
+        provisional = "PROVISIONAL" in text_upper
+        if ignou_detected:
+            reasons.append("✓ IGNOU (Indira Gandhi National Open University) certificate identified")
+            reasons.append("✓ IGNOU is UGC-DEB accredited — distance education degree is valid")
+        if provisional:
+            reasons.append("⚠ Provisional certificate detected — original degree may follow after convocation")
+        else:
+            reasons.append(f"✓ {degree_label} document detected")
+        if fields.get("student_name"):
+            reasons.append(f"✓ Student name extracted: '{fields['student_name']}'")
+        else:
+            reasons.append("⚠ Student name not clearly detected — verify manually")
+        if fields.get("institution"):
+            reasons.append(f"✓ Institution: '{fields['institution']}'")
+        if fields.get("year_of_passing"):
+            reasons.append(f"✓ Year: {fields['year_of_passing']}")
+        if fields.get("percentage_or_cgpa"):
+            reasons.append(f"✓ Grade/CGPA: {fields['percentage_or_cgpa']}")
+
+    elif doc_type in ("EXPERIENCE_LETTER", "RELIEVING_LETTER"):
+        reasons.append("✓ Experience/Relieving letter detected")
+        if fields.get("organization"):
+            reasons.append(f"✓ Organization name detected in letterhead: '{fields['organization']}'")
+        else:
+            reasons.append("⚠ Organization/company name not clearly extracted — check letterhead")
+        if fields.get("name"):
+            reasons.append(f"✓ Employee name extracted: '{fields['name']}'")
+        # Date range detection
+        date_count = len(re.findall(r'\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}', raw_text))
+        if date_count >= 2:
+            reasons.append("✓ Multiple dates detected — likely joining and relieving dates")
+        elif date_count == 1:
+            reasons.append("⚠ Only one date detected — relieving/joining date may be missing")
+        else:
+            reasons.append("⚠ No dates detected — employment period cannot be verified")
+        # Signature / letterhead check
+        if any(kw in raw_text.lower() for kw in ["hr manager", "human resources", "authorized signatory", "director"]):
+            reasons.append("✓ Authorized signatory designation detected")
+        else:
+            reasons.append("⚠ Authorized signatory not clearly detected — verify signature on document")
+
+    elif doc_type == "RESIGNATION_LETTER":
+        reasons.append("✓ Resignation letter or acceptance email detected")
+        lwd_match = re.search(r"last working day[:\s]*(\d{1,2}[/\-\. ]\w+[/\-\. ]\d{2,4})", raw_text, re.IGNORECASE)
+        if lwd_match:
+            reasons.append(f"✓ Last working day mentioned: {lwd_match.group(1).strip()}")
+        else:
+            reasons.append("⚠ Last working day not clearly found — verify employment end date")
+
+    elif doc_type == "OFFER_LETTER":
+        reasons.append("✓ Offer letter or appointment letter detected")
+        # Joining date
+        join_match = re.search(r"(?:joining date|date of joining|join on|joining on)[:\s]*(\d{1,2}[/\-\. ]\w+[/\-\. ]\d{2,4})", raw_text, re.IGNORECASE)
+        if join_match:
+            reasons.append(f"✓ Joining date found: {join_match.group(1).strip()}")
+        else:
+            reasons.append("⚠ Joining date not found — verify with employee")
+        if fields.get("organization"):
+            reasons.append(f"✓ Company/organization detected: '{fields['organization']}'")
+        if fields.get("name"):
+            reasons.append(f"✓ Candidate name extracted: '{fields['name']}'")
+
+    elif doc_type == "SALARY_SLIP":
+        reasons.append("✓ Salary slip / payslip detected")
+        # Month/year detection
+        month_match = re.search(r"(?:for the month of|month)[:\s]*(\w+ \d{4}|\d{1,2}[/\-]\d{4})", raw_text, re.IGNORECASE)
+        if month_match:
+            reasons.append(f"✓ Pay period: {month_match.group(1).strip()}")
+        else:
+            reasons.append("⚠ Pay period/month not clearly found")
+        # PF/ESI indicators
+        has_pf = bool(re.search(r"\bepf\b|\bprovident fund\b|\bpf\s+no\b|\buan\b", raw_text, re.IGNORECASE))
+        has_esi = bool(re.search(r"\besi\b|\besic\b|\bemployee state insurance\b", raw_text, re.IGNORECASE))
+        if has_pf:
+            reasons.append("✓ EPF/Provident Fund deduction detected — employer compliance confirmed")
+        if has_esi:
+            reasons.append("✓ ESI contribution detected")
+        net_pay_match = re.search(r"net\s+(?:pay|salary)[:\s]*(?:rs\.?|₹|inr)?\s*([\d,]+)", raw_text, re.IGNORECASE)
+        if net_pay_match:
+            reasons.append(f"✓ Net pay amount extracted: ₹{net_pay_match.group(1).strip()}")
+        else:
+            reasons.append("⚠ Net pay amount not clearly extracted — verify total")
+
+    elif doc_type in ("UTILITY_BILL", "ELECTRICITY_BILL"):
+        reasons.append("✓ Utility bill detected — valid as residence proof")
+        text_upper = raw_text.upper()
+        # DISCOM identification
+        discom_map = {
+            "PVVNL": "Pashchimanchal Vidyut Vitran Nigam (UP)",
+            "DVVNL": "Dakshinanchal Vidyut Vitran Nigam (UP)",
+            "TPDDL": "Tata Power Delhi Distribution",
+            "BSES": "BSES Delhi",
+            "MSEDCL": "Maharashtra State Electricity Distribution Co.",
+            "BESCOM": "Bangalore Electricity Supply Company (Karnataka)",
+            "HESCOM": "Hubli Electricity Supply Company (Karnataka)",
+            "TNEB": "Tamil Nadu Electricity Board",
+            "TANGEDCO": "Tamil Nadu Generation and Distribution Corporation",
+            "PSPCL": "Punjab State Power Corporation",
+            "PGVCL": "Paschim Gujarat Vij Company",
+        }
+        discom_found = None
+        for discom_key, discom_name in discom_map.items():
+            if discom_key in text_upper:
+                discom_found = discom_name
+                break
+        if discom_found:
+            reasons.append(f"✓ Distribution company identified: {discom_found}")
+        else:
+            reasons.append("⚠ Distribution company not identified from known DISCOMs — may be valid local utility")
+        # Consumer/account number
+        consumer_match = re.search(r"(?:consumer\s+no|ca\s+no|account\s+no|consumer\s+number)[:\s]*([A-Z0-9/\-]+)", raw_text, re.IGNORECASE)
+        if consumer_match:
+            reasons.append(f"✓ Consumer/Account number: {consumer_match.group(1).strip()}")
+        else:
+            reasons.append("⚠ Consumer number not extracted — check for address match")
+        # Bill date
+        bill_date = re.search(r"(?:bill\s+date|date\s+of\s+bill|billing\s+date)[:\s]*(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})", raw_text, re.IGNORECASE)
+        if bill_date:
+            reasons.append(f"✓ Bill date: {bill_date.group(1).strip()} — check if within 3 months")
+        else:
+            reasons.append("⚠ Bill date not found — ensure bill is recent (within 3 months)")
+
+    elif doc_type in ("BANK_STATEMENT", "CANCELLED_CHEQUE"):
+        label = "Cancelled cheque" if doc_type == "CANCELLED_CHEQUE" else "Bank statement/passbook"
+        reasons.append(f"✓ {label} detected — valid as residence/bank proof")
+        # IFSC validation
+        ifsc_match = re.search(r'\b([A-Z]{4}0[A-Z0-9]{6})\b', raw_text)
+        if ifsc_match:
+            ifsc = ifsc_match.group(1)
+            reasons.append(f"✓ IFSC code detected: {ifsc} (bank: {ifsc[:4]})")
+        else:
+            reasons.append("⚠ IFSC code not detected — verify bank details manually")
+        # MICR code (9 digits at bottom of cheque)
+        micr_match = re.search(r'\b(\d{9})\b', raw_text)
+        if micr_match and doc_type == "CANCELLED_CHEQUE":
+            reasons.append(f"✓ MICR code detected: {micr_match.group(1)}")
+        # Account number
+        acc_match = re.search(r"(?:account\s+no|a/c\s+no|acc\s+no)[:\s.]*([0-9]{9,18})", raw_text, re.IGNORECASE)
+        if acc_match:
+            reasons.append(f"✓ Account number detected ({len(acc_match.group(1))} digits)")
+        else:
+            reasons.append("⚠ Account number not clearly extracted")
+
+    elif doc_type == "RENT_AGREEMENT":
+        reasons.append("✓ Rent/Lease agreement detected — valid as residence proof")
+        # Landlord/tenant check
+        if re.search(r"\b(landlord|lessor|licensor)\b", raw_text, re.IGNORECASE):
+            reasons.append("✓ Landlord/Licensor details detected")
+        if re.search(r"\b(tenant|lessee|licensee)\b", raw_text, re.IGNORECASE):
+            reasons.append("✓ Tenant/Licensee details detected")
+        # Rent amount
+        rent_match = re.search(r"(?:monthly\s+rent|rent\s+amount)[:\s]*(?:rs\.?|₹|inr)?\s*([\d,]+)", raw_text, re.IGNORECASE)
+        if rent_match:
+            reasons.append(f"✓ Monthly rent amount: ₹{rent_match.group(1).strip()}")
 
     else:
         # Generic / OTHER
@@ -913,20 +1319,71 @@ OCR_TYPE_TO_DOC_TYPE: dict = {
     "PASSPORT": "PASSPORT",
     "VOTER_ID": "VOTER_ID",
     "DRIVING_LICENSE": "DRIVING_LICENSE",
+    "TENTH_CERTIFICATE": "TENTH_CERTIFICATE",
+    "TWELFTH_CERTIFICATE": "TWELFTH_CERTIFICATE",
+    "POST_GRADUATION_CERTIFICATE": "POST_GRADUATION_CERTIFICATE",
+    "DEGREE_CERTIFICATE": "DEGREE_CERTIFICATE",
     "CERTIFICATE": "DEGREE_CERTIFICATE",   # generic education cert — HR disambiguates
     "BANK_STATEMENT": "BANK_STATEMENT",
+    "CANCELLED_CHEQUE": "CANCELLED_CHEQUE",
+    "OFFER_LETTER": "OFFER_LETTER",
+    "RESIGNATION_LETTER": "RESIGNATION_LETTER",
+    "EXPERIENCE_LETTER": "EXPERIENCE_LETTER",
+    "RELIEVING_LETTER": "EXPERIENCE_LETTER",
+    "SALARY_SLIP": "SALARY_SLIP",
+    "UTILITY_BILL": "UTILITY_BILL",
+    "RENT_AGREEMENT": "RENT_AGREEMENT",
     "OTHER": "OTHER",
 }
 
+# Aliases: which detected doc types satisfy a required doc type
+REQUIRED_DOC_ALIASES: dict = {
+    "AADHAAR": ["AADHAAR"],
+    "PAN": ["PAN"],
+    "PASSPORT": ["PASSPORT"],
+    "VOTER_ID": ["VOTER_ID"],
+    "DRIVING_LICENSE": ["DRIVING_LICENSE"],
+    "TENTH_CERTIFICATE": ["TENTH_CERTIFICATE"],
+    "TWELFTH_CERTIFICATE": ["TWELFTH_CERTIFICATE"],
+    # Degree: degree OR PG cert OR provisional cert all satisfy
+    "DEGREE_CERTIFICATE": ["DEGREE_CERTIFICATE", "CERTIFICATE", "POST_GRADUATION_CERTIFICATE"],
+    "POST_GRADUATION_CERTIFICATE": ["POST_GRADUATION_CERTIFICATE", "DEGREE_CERTIFICATE", "CERTIFICATE"],
+    # Experience proof: any employment document works
+    "EXPERIENCE_LETTER": ["EXPERIENCE_LETTER", "RELIEVING_LETTER", "OFFER_LETTER", "SALARY_SLIP", "RESIGNATION_LETTER"],
+    "OFFER_LETTER": ["OFFER_LETTER", "EXPERIENCE_LETTER", "RELIEVING_LETTER"],
+    "SALARY_SLIP": ["SALARY_SLIP"],
+    # Residence proof: utility bill, bank statement, cancelled cheque, rent agreement, or address-bearing govt ID
+    "RESIDENCE_PROOF": ["UTILITY_BILL", "BANK_STATEMENT", "CANCELLED_CHEQUE", "VOTER_ID", "DRIVING_LICENSE", "RENT_AGREEMENT"],
+    "BANK_STATEMENT": ["BANK_STATEMENT", "CANCELLED_CHEQUE"],
+    "CANCELLED_CHEQUE": ["CANCELLED_CHEQUE", "BANK_STATEMENT"],
+    "UTILITY_BILL": ["UTILITY_BILL", "RENT_AGREEMENT"],
+    "PHOTO": ["PHOTO"],
+}
+
+# Standard required docs for KYC (fresher profile)
+STANDARD_REQUIRED_DOCS = [
+    "AADHAAR", "PAN", "TENTH_CERTIFICATE", "TWELFTH_CERTIFICATE",
+    "DEGREE_CERTIFICATE", "RESIDENCE_PROOF", "BANK_STATEMENT",
+    "PHOTO", "EXPERIENCE_LETTER",
+]
+
 # Suspicion: if a detected type appears more than this many times, likely duplicated
 MAX_REASONABLE_PAGES_PER_TYPE = {
-    "AADHAAR": 2,        # front + back
-    "PAN": 2,            # front + back
-    "PASSPORT": 6,       # multiple pages
+    "AADHAAR": 2,               # front + back
+    "PAN": 2,                   # front + back
+    "PASSPORT": 6,              # multiple pages
     "VOTER_ID": 2,
     "DRIVING_LICENSE": 2,
-    "CERTIFICATE": 10,   # many certificates are ok
-    "BANK_STATEMENT": 8, # multi-page statement
+    "TENTH_CERTIFICATE": 4,     # result + marksheet possible
+    "TWELFTH_CERTIFICATE": 4,
+    "CERTIFICATE": 10,          # many certificates are ok
+    "POST_GRADUATION_CERTIFICATE": 6,
+    "BANK_STATEMENT": 8,        # multi-page statement
+    "SALARY_SLIP": 6,           # 3–6 months of payslips is normal
+    "OFFER_LETTER": 3,
+    "RESIGNATION_LETTER": 3,
+    "EXPERIENCE_LETTER": 3,
+    "UTILITY_BILL": 3,
     "OTHER": 20,
 }
 
@@ -979,6 +1436,7 @@ async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
     page_results = []
     quality_flags = []
     suspicion_flags = []
+    suspicion_score = 0  # initialized here — accumulated during page loop below
 
     # Also try native text extraction for digital PDFs (faster, more accurate)
     native_text = extract_text_from_pdf_native(pdf_bytes)
@@ -1131,8 +1589,7 @@ async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
         if not pr["is_blank"] and pr["confidence"] >= 0.4
     ))
 
-    # Suspicion analysis
-    suspicion_score = 0
+    # Suspicion analysis (suspicion_score already accumulated during page loop above)
 
     # Count blank pages
     blank_pages = [pr["page"] for pr in page_results if pr["is_blank"]]
@@ -1208,6 +1665,20 @@ async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
         if not pr["is_blank"] and pr.get("validation_reasons")
     ]
 
+    # Compute which required docs are missing (using alias table)
+    missing_docs = []
+    present_docs = []
+    for req_doc in STANDARD_REQUIRED_DOCS:
+        aliases = REQUIRED_DOC_ALIASES.get(req_doc, [req_doc])
+        # Check if any alias appears in detected_docs OR page_results detected types
+        detected_raw_types = [pr["detected_type"] for pr in page_results if not pr["is_blank"]]
+        detected_system_types = [OCR_TYPE_TO_DOC_TYPE.get(t, t) for t in detected_raw_types]
+        found = any(alias in detected_system_types or alias in detected_docs for alias in aliases)
+        if found:
+            present_docs.append(req_doc)
+        else:
+            missing_docs.append(req_doc)
+
     return {
         "total_pages": total_pages,
         "page_results": page_results,
@@ -1218,7 +1689,11 @@ async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
         "suspicion_score": suspicion_score,
         "risk_level": risk_level,
         "summary": summary,
-        # New: per-page validation results for HR panel display
+        # Standard field names expected by Node.js backend
+        "missing_docs": missing_docs,
+        "present_docs": present_docs,
+        "missingDocuments": missing_docs,  # alias for backend compatibility
+        # Per-page validation results for HR panel display
         "page_validations": all_page_validation_summary,
         "wrong_upload_pages": [p["page"] for p in wrong_upload_pages],
         "wrong_upload_count": len(wrong_upload_pages),
@@ -1229,13 +1704,23 @@ async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
 
 # Dispatch table — maps detected type to specialized extractor
 _TYPE_EXTRACTORS = {
-    "AADHAAR":         extract_aadhaar_fields,
-    "PAN":             extract_pan_fields,
-    "PASSPORT":        extract_passport_fields,
-    "VOTER_ID":        extract_voter_id_fields,
-    "DRIVING_LICENSE": extract_driving_license_fields,
-    "BANK_STATEMENT":  extract_bank_statement_fields,
-    "CERTIFICATE":     extract_education_certificate_fields,
+    "AADHAAR":                    extract_aadhaar_fields,
+    "PAN":                        extract_pan_fields,
+    "PASSPORT":                   extract_passport_fields,
+    "VOTER_ID":                   extract_voter_id_fields,
+    "DRIVING_LICENSE":            extract_driving_license_fields,
+    "BANK_STATEMENT":             extract_bank_statement_fields,
+    "CERTIFICATE":                extract_education_certificate_fields,
+    "TENTH_CERTIFICATE":          extract_education_certificate_fields,
+    "TWELFTH_CERTIFICATE":        extract_education_certificate_fields,
+    "POST_GRADUATION_CERTIFICATE": extract_education_certificate_fields,
+    # Employment documents — use generic field extraction + dynamic fields
+    "OFFER_LETTER":               extract_generic_fields,
+    "RESIGNATION_LETTER":         extract_generic_fields,
+    "EXPERIENCE_LETTER":          extract_generic_fields,
+    "SALARY_SLIP":                extract_bank_statement_fields,  # reuse for bank account extraction
+    "UTILITY_BILL":               extract_generic_fields,
+    "RENT_AGREEMENT":             extract_generic_fields,
 }
 
 
