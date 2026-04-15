@@ -49,35 +49,79 @@ export class DocumentOcrService {
 
     if (isCombinedKycPdf) {
       logger.info(`OCR: Skipping single-doc OCR for combined KYC PDF ${documentId} — processed by combined-pdf pipeline`);
-      const note = 'Combined KYC PDF — processed separately by the combined-PDF classifier. HR must open the document and manually verify each constituent document (Aadhaar/PAN, education certificates, residence proof, photo, etc.) is present, legible, and matches the employee\'s details.';
+
+      // Read the latest combined PDF analysis from the gate (already stored by onboarding pipeline)
+      const gate = await prisma.onboardingDocumentGate.findFirst({
+        where: { employee: { documents: { some: { id: documentId } } } },
+        select: { combinedPdfAnalysis: true },
+      }).catch(() => null);
+
+      const analysis = gate?.combinedPdfAnalysis as any;
+      const suspicionScore: number = analysis?.suspicion_score || analysis?.suspicionScore || 0;
+      const wrongUploadCount: number = analysis?.wrong_upload_count || analysis?.wrongUploadCount || 0;
+      const riskLevel: string = analysis?.risk_level || analysis?.riskLevel || 'LOW';
+
+      // Auto-flag if Python classifier found suspicious content or wrong documents
+      const autoStatus = (suspicionScore >= 50 || wrongUploadCount > 0) ? 'FLAGGED' : 'PENDING';
+      const docStatus = (suspicionScore >= 50 || wrongUploadCount > 0) ? 'FLAGGED' : 'PENDING';
+
+      const noteLines = [
+        'Combined KYC PDF — processed by the combined-PDF classifier.',
+        riskLevel !== 'LOW' ? `Risk level: ${riskLevel} (suspicion score: ${suspicionScore}/100).` : '',
+        wrongUploadCount > 0
+          ? `⚠ ${wrongUploadCount} page(s) detected as WRONG DOCUMENTS (non-KYC content). HR must request re-upload.`
+          : '',
+        'HR must open the document and verify each constituent document (Aadhaar/PAN, education certs, etc.).',
+      ].filter(Boolean).join(' ');
+
       const ocr = await prisma.documentOcrVerification.upsert({
         where: { documentId },
         create: {
           documentId,
           organizationId,
-          rawText: note,
+          rawText: noteLines,
           detectedType: 'COMBINED_PDF',
           confidence: 0,
-          ocrStatus: 'PENDING',
-          hrNotes: note,
+          ocrStatus: autoStatus,
+          hrNotes: noteLines,
           processingMode: 'manual_review',
           extractionSource: 'none',
-          suspicionScore: 0,
+          suspicionScore,
+          llmExtractedData: analysis ? {
+            page_validations: analysis.page_validations || analysis.pageValidations || [],
+            wrong_upload_pages: analysis.wrong_upload_pages || analysis.wrongUploadPages || [],
+            wrong_upload_count: wrongUploadCount,
+            risk_level: riskLevel,
+          } as any : undefined,
         },
         update: {
-          rawText: note,
+          rawText: noteLines,
           detectedType: 'COMBINED_PDF',
           confidence: 0,
-          ocrStatus: 'PENDING',
-          hrNotes: note,
+          ocrStatus: autoStatus,
+          hrNotes: noteLines,
           processingMode: 'manual_review',
           extractionSource: 'none',
+          suspicionScore,
+          llmExtractedData: analysis ? {
+            page_validations: analysis.page_validations || analysis.pageValidations || [],
+            wrong_upload_pages: analysis.wrong_upload_pages || analysis.wrongUploadPages || [],
+            wrong_upload_count: wrongUploadCount,
+            risk_level: riskLevel,
+          } as any : undefined,
         },
       });
-      // Ensure document status is PENDING (not FLAGGED) — combined PDFs are not suspicious
+
       await prisma.document.update({
         where: { id: documentId },
-        data: { status: 'PENDING', rejectionReason: null, tamperDetected: false, tamperDetails: null },
+        data: {
+          status: docStatus,
+          rejectionReason: wrongUploadCount > 0
+            ? `${wrongUploadCount} page(s) in combined PDF contain non-KYC content — please re-upload correct documents.`
+            : null,
+          tamperDetected: suspicionScore >= 70,
+          tamperDetails: suspicionScore >= 70 ? [`Combined PDF suspicion score: ${suspicionScore}/100, risk: ${riskLevel}`] : [],
+        },
       }).catch(() => {});
       return ocr;
     }

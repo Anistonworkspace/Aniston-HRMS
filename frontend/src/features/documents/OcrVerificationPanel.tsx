@@ -163,11 +163,80 @@ const COMBINED_PDF_REQUIRED_DOCS = [
   { type: 'EXPERIENCE_LETTER', label: 'Experience / Employment Proof', group: 'employment' },
 ];
 
+// Per-page validation accordion item
+function PageValidationRow({ pv }: { pv: any }) {
+  const [open, setOpen] = useState(false);
+  const reasons: string[] = pv.reasons || [];
+  const hasFail = reasons.some((r: string) => r.startsWith('✗') || r.startsWith('🚩'));
+  const hasWarn = reasons.some((r: string) => r.startsWith('⚠'));
+  const isWrong = pv.is_wrong_upload;
+
+  const rowColor = isWrong || hasFail
+    ? 'border-red-200 bg-red-50/40'
+    : hasWarn
+    ? 'border-amber-200 bg-amber-50/20'
+    : 'border-emerald-200 bg-emerald-50/20';
+
+  const labelColor = isWrong || hasFail ? 'text-red-700' : hasWarn ? 'text-amber-700' : 'text-emerald-700';
+
+  return (
+    <div className={cn('rounded-lg border overflow-hidden', rowColor)}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-3 py-2 text-left gap-2"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={cn('shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded', labelColor, 'bg-white/60')}>
+            Pg {pv.page}
+          </span>
+          {isWrong ? (
+            <span className="text-[10px] font-semibold text-red-700 flex items-center gap-1">
+              <AlertTriangle size={10} /> WRONG DOCUMENT ({pv.wrong_upload_category?.replace(/_/g, ' ')})
+            </span>
+          ) : (
+            <span className={cn('text-[10px] font-medium truncate', labelColor)}>
+              {(pv.detected_type || 'UNKNOWN').replace(/_/g, ' ')} — {Math.round((pv.confidence || 0) * 100)}%
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[10px] text-gray-400">{reasons.length} check{reasons.length !== 1 ? 's' : ''}</span>
+          {open ? <ChevronUp size={12} className="text-gray-400" /> : <ChevronDown size={12} className="text-gray-400" />}
+        </div>
+      </button>
+      {open && reasons.length > 0 && (
+        <div className="px-3 pb-2 space-y-0.5">
+          {reasons.map((r: string, i: number) => {
+            const isSep = r.startsWith('──');
+            if (isSep) return <p key={i} className="text-[10px] text-gray-400 pt-1 pb-0.5 border-t border-gray-100 mt-1">{r}</p>;
+            const isFl = r.startsWith('✗') || r.startsWith('🚩');
+            const isWn = r.startsWith('⚠');
+            const isPa = r.startsWith('✓');
+            return (
+              <div key={i} className={cn(
+                'flex items-start gap-1.5 text-[10px] px-2 py-1 rounded',
+                isFl ? 'bg-red-50 text-red-700' :
+                isWn ? 'bg-amber-50 text-amber-700' :
+                isPa ? 'bg-emerald-50 text-emerald-700' :
+                'bg-gray-50 text-gray-600',
+              )}>
+                <span className="shrink-0 mt-0.5">
+                  {isFl ? <XCircle size={9} /> : isWn ? <AlertTriangle size={9} /> : isPa ? <CheckCircle2 size={9} /> : <Info size={9} />}
+                </span>
+                <span className="leading-relaxed">{r}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CombinedPdfReviewPanel({
-  documentId, documentStatus, employeeId, fileUrl, ocr,
+  documentStatus, employeeId, fileUrl, ocr,
   onVerifyDoc, onApproveKyc, onRetrigger, triggering, verifyingDoc, verifyingKyc,
 }: {
-  documentId: string;
   documentStatus?: string;
   employeeId?: string;
   fileUrl?: string;
@@ -181,7 +250,6 @@ function CombinedPdfReviewPanel({
 }) {
   const { data: hrReviewRes } = useGetKycHrReviewQuery(employeeId!, { skip: !employeeId });
   const gate = hrReviewRes?.data?.gate;
-  const submittedSeparateDocs: string[] = (gate?.submittedDocs || []) as string[];
   const combinedPdfUploaded: boolean = gate?.combinedPdfUploaded || false;
   const experience: string = gate?.fresherOrExperienced || 'FRESHER';
   const qualification: string = gate?.highestQualification || 'GRADUATION';
@@ -195,31 +263,72 @@ function CombinedPdfReviewPanel({
     return true;
   });
 
-  const combinedPdfAnalysis = gate?.combinedPdfAnalysis as any;
-  const detectedDocTypes: string[] = combinedPdfAnalysis?.detectedDocs || combinedPdfAnalysis?.detected_docs || [];
-  const suspicionFlags: string[] = combinedPdfAnalysis?.suspicionFlags || combinedPdfAnalysis?.suspicion_flags || [];
-  const totalPages: number = combinedPdfAnalysis?.totalPages || combinedPdfAnalysis?.total_pages || 0;
-  const missingDocs = relevantDocs.filter(d => !detectedDocTypes.some(t => t === d.type || t.includes(d.type) || d.type.includes(t)));
+  const analysis = gate?.combinedPdfAnalysis as any;
+  const detectedDocTypes: string[] = analysis?.detectedDocs || analysis?.detected_docs || [];
+  const suspicionFlags: string[] = analysis?.suspicionFlags || analysis?.suspicion_flags || [];
+  const suspicionScore: number = analysis?.suspicionScore || analysis?.suspicion_score || 0;
+  const riskLevel: string = analysis?.riskLevel || analysis?.risk_level || 'LOW';
+  const totalPages: number = analysis?.totalPages || analysis?.total_pages || 0;
+  // Per-page deep validations (new field from enhanced classify_combined_pdf)
+  const pageValidations: any[] = analysis?.pageValidations || analysis?.page_validations || [];
+  const wrongUploadPages: number[] = analysis?.wrongUploadPages || analysis?.wrong_upload_pages || [];
+  const wrongUploadCount: number = analysis?.wrongUploadCount || analysis?.wrong_upload_count || 0;
 
-  void submittedSeparateDocs;
+  const missingDocs = relevantDocs.filter(
+    d => !detectedDocTypes.some(t => t === d.type || t.includes(d.type) || d.type.includes(t))
+  );
+
+  const riskColor = riskLevel === 'HIGH' ? 'text-red-700 bg-red-100'
+    : riskLevel === 'MEDIUM' ? 'text-amber-700 bg-amber-100'
+    : 'text-emerald-700 bg-emerald-100';
 
   return (
     <div className="space-y-4">
-      {/* Combined PDF banner */}
-      <div className="layer-card p-4 border border-blue-200 bg-blue-50/40">
+      {/* Wrong upload critical alert */}
+      {wrongUploadCount > 0 && (
+        <div className="layer-card p-4 border-2 border-red-400 bg-red-50/60">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={16} className="text-red-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-bold text-red-700">
+                Wrong Documents Detected — {wrongUploadCount} page{wrongUploadCount !== 1 ? 's' : ''} flagged
+              </p>
+              <p className="text-xs text-red-600 mt-1">
+                Page{wrongUploadCount !== 1 ? 's' : ''} {wrongUploadPages.join(', ')} appear to contain
+                non-KYC content (social media screenshots, chat logs, payment receipts, or unrelated images).
+                Do NOT approve KYC. Request the employee to re-upload correct documents.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Combined PDF banner with risk badge */}
+      <div className={cn(
+        'layer-card p-4 border',
+        riskLevel === 'HIGH' ? 'border-red-200 bg-red-50/30' :
+        riskLevel === 'MEDIUM' ? 'border-amber-200 bg-amber-50/20' :
+        'border-blue-200 bg-blue-50/40',
+      )}>
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
-            <FileText size={18} className="text-blue-600" />
+          <div className={cn(
+            'w-9 h-9 rounded-lg flex items-center justify-center shrink-0',
+            riskLevel === 'HIGH' ? 'bg-red-100' : riskLevel === 'MEDIUM' ? 'bg-amber-100' : 'bg-blue-100',
+          )}>
+            <FileText size={18} className={
+              riskLevel === 'HIGH' ? 'text-red-600' : riskLevel === 'MEDIUM' ? 'text-amber-600' : 'text-blue-600'
+            } />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-blue-800">Combined KYC PDF — Manual Verification Required</p>
-            <p className="text-xs text-blue-600 mt-0.5">
-              This employee submitted all KYC documents as a single combined PDF.
-              Open the document and verify each document is present, legible, and matches the employee's details.
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold text-gray-800">Combined KYC PDF</p>
+              <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', riskColor)}>
+                Risk: {riskLevel} ({suspicionScore}/100)
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {totalPages > 0 ? `${totalPages} pages` : 'Pages unknown'} — open document and verify each constituent document.
             </p>
-            {totalPages > 0 && (
-              <p className="text-xs text-blue-500 mt-1">PDF has {totalPages} page(s) detected by the classifier.</p>
-            )}
           </div>
         </div>
 
@@ -227,7 +336,7 @@ function CombinedPdfReviewPanel({
         {missingDocs.length > 0 && (
           <div className="mt-3 p-2.5 bg-red-50 border border-red-200 rounded-lg">
             <p className="text-xs font-medium text-red-700 mb-1 flex items-center gap-1">
-              <AlertTriangle size={11} /> Missing Documents Detected:
+              <AlertTriangle size={11} /> Missing Documents ({missingDocs.length}):
             </p>
             {missingDocs.map(d => (
               <p key={d.type} className="text-xs text-red-600 ml-3">• {d.label} — not detected in PDF</p>
@@ -238,13 +347,33 @@ function CombinedPdfReviewPanel({
         {/* Suspicion flags */}
         {suspicionFlags.length > 0 && (
           <div className="mt-3 p-2.5 bg-orange-50 border border-orange-200 rounded-lg">
-            <p className="text-xs font-medium text-orange-700 mb-1">Classifier Warnings:</p>
+            <p className="text-xs font-medium text-orange-700 mb-1 flex items-center gap-1">
+              <AlertTriangle size={11} /> Classifier Warnings ({suspicionFlags.length}):
+            </p>
             {suspicionFlags.map((f: string, i: number) => (
               <p key={i} className="text-xs text-orange-600 ml-2">• {f}</p>
             ))}
           </div>
         )}
       </div>
+
+      {/* Per-page deep validation results */}
+      {pageValidations.length > 0 && (
+        <div className="layer-card p-4">
+          <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1.5">
+            <Shield size={12} />
+            Per-Page AI Validation ({pageValidations.length} page{pageValidations.length !== 1 ? 's' : ''} analysed)
+          </p>
+          <div className="space-y-1.5">
+            {pageValidations.map((pv: any) => (
+              <PageValidationRow key={pv.page} pv={pv} />
+            ))}
+          </div>
+          <p className="mt-2 text-[10px] text-gray-400">
+            Click each page to expand AI validation details — Verhoeff, PAN structure, MRZ, EXIF, face detection.
+          </p>
+        </div>
+      )}
 
       {/* Document preview link */}
       {fileUrl && (
@@ -275,15 +404,12 @@ function CombinedPdfReviewPanel({
         </div>
       </div>
 
-      {/* Document checklist */}
+      {/* Required document checklist */}
       <div className="layer-card p-4">
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-semibold text-gray-600">Required Documents Checklist</p>
-          <span className="text-xs text-gray-400">
-            {detectedDocTypes.length}/{relevantDocs.length} detected
-          </span>
+          <span className="text-xs text-gray-400">{detectedDocTypes.length}/{relevantDocs.length} detected</span>
         </div>
-
         <div className="space-y-2">
           {relevantDocs.map(doc => {
             const detected = detectedDocTypes.some(t =>
@@ -292,26 +418,21 @@ function CombinedPdfReviewPanel({
             return (
               <div key={doc.type} className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg border',
-                detected ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-100'
+                detected ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-100',
               )}>
                 {detected
                   ? <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
-                  : <XCircle size={15} className="text-red-400 shrink-0" />
-                }
+                  : <XCircle size={15} className="text-red-400 shrink-0" />}
                 <span className="text-xs text-gray-700 flex-1">{doc.label}</span>
-                <span className={cn(
-                  'text-[10px] font-medium',
-                  detected ? 'text-emerald-600' : 'text-red-500',
-                )}>
+                <span className={cn('text-[10px] font-medium', detected ? 'text-emerald-600' : 'text-red-500')}>
                   {detected ? 'Detected by AI' : 'Not found'}
                 </span>
               </div>
             );
           })}
         </div>
-
         <p className="mt-3 text-xs text-gray-400">
-          Checkmarks show documents detected by the AI classifier. Always verify manually before approving KYC.
+          Always verify manually before approving KYC — AI detection confirms presence, not authenticity.
         </p>
       </div>
 
@@ -319,7 +440,7 @@ function CombinedPdfReviewPanel({
       {ocr.hrNotes && !ocr.hrNotes.includes('Combined KYC PDF') && (
         <div className="layer-card p-4">
           <p className="text-xs font-semibold text-gray-600 mb-1">OCR Notes</p>
-          <p className="text-xs text-gray-500">{ocr.hrNotes}</p>
+          <p className="text-xs text-gray-500 whitespace-pre-line">{ocr.hrNotes}</p>
         </div>
       )}
 
@@ -328,20 +449,22 @@ function CombinedPdfReviewPanel({
         <button onClick={onRetrigger} disabled={triggering}
           className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors">
           {triggering ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
-          Re-run OCR Classifier
+          Re-run AI Classifier
         </button>
 
         {(documentStatus === 'PENDING' || documentStatus === 'FLAGGED') && (
-          <button onClick={onVerifyDoc} disabled={verifyingDoc}
-            className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors">
+          <button onClick={onVerifyDoc} disabled={verifyingDoc || wrongUploadCount > 0}
+            title={wrongUploadCount > 0 ? 'Cannot verify — wrong documents detected on some pages' : ''}
+            className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-50">
             {verifyingDoc ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
             Mark Combined PDF as Verified
           </button>
         )}
 
         {employeeId && (
-          <button onClick={onApproveKyc} disabled={verifyingKyc}
-            className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors">
+          <button onClick={onApproveKyc} disabled={verifyingKyc || wrongUploadCount > 0}
+            title={wrongUploadCount > 0 ? 'Cannot approve KYC — wrong documents detected' : ''}
+            className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors disabled:opacity-50">
             {verifyingKyc ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
             Approve KYC & Grant Portal Access
           </button>
@@ -515,7 +638,6 @@ export default function OcrVerificationPanel({
               {/* ── COMBINED PDF ── */}
               {isCombinedPdf ? (
                 <CombinedPdfReviewPanel
-                  documentId={documentId}
                   documentStatus={documentStatus}
                   employeeId={employeeId}
                   fileUrl={fileUrl}

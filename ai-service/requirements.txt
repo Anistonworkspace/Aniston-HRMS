@@ -10,6 +10,26 @@ python-dotenv==1.0.1
 # PDF support
 pdf2image==1.17.0
 PyPDF2==3.0.1
-# Image preprocessing
+# Image preprocessing + face detection (Haar cascade built into OpenCV — no extra model download)
 opencv-python-headless==4.10.0.84
 numpy==1.26.4
+
+# ─── Optional: requires API keys / external credentials ──────────────────────
+# Uncomment each section only after obtaining the required credentials.
+#
+# [Liveness detection] — Azure Face API (30,000 free/month) or AWS Rekognition
+#   → Set AZURE_FACE_API_KEY + AZURE_FACE_ENDPOINT in .env
+# azure-cognitiveservices-vision-face==0.6.0
+# msrest==0.7.1
+#
+# [NSDL PAN verification] — Setu.co or Razorpay KYC APIs
+#   → Set SETU_CLIENT_ID + SETU_CLIENT_SECRET in .env after registering at setu.co
+# (HTTP calls via httpx — already installed, no extra package needed)
+#
+# [Digilocker integration] — MeitY approval required (1–2 week process)
+#   → Set DIGILOCKER_CLIENT_ID + DIGILOCKER_CLIENT_SECRET in .env
+# (OAuth2 via httpx — already installed, no extra package needed)
+#
+# [Face match — open source, no API key, but ~800 MB Docker layer increase]
+#   → deepface pulls TensorFlow or PyTorch as backend
+# deepface==0.0.92

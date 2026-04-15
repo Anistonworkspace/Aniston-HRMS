@@ -36,6 +36,7 @@ from ..models.ocr_models import (
     OCRResult, AadhaarData, PANData, PassportData,
     VoterIdData, DrivingLicenseData, BankStatementData, EducationCertificateData,
 )
+from .validators import run_deep_validators, detect_wrong_upload
 
 
 # ===== IMAGE PREPROCESSING =====
@@ -1010,18 +1011,87 @@ async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
 
         # Document type detection
         type_info = detect_page_document_type(raw_text, idx)
+        page_doc_type = type_info["detected_type"]
+
+        # ── Per-page deep validation (field extract + validators + wrong-doc check) ──
+        page_validation_reasons: list = []
+        page_suspicion_boost = 0.0
+        page_wrong_upload: dict = {}
+
+        if not quality_info["is_blank"] and len(raw_text.strip()) > 30:
+            try:
+                # Extract structured fields for this page's detected type
+                page_extractor = _TYPE_EXTRACTORS.get(page_doc_type, extract_generic_fields)
+                page_fields = page_extractor(raw_text)
+
+                # Run all deep validators (Verhoeff, PAN 5th-char, MRZ, GST, etc.)
+                # Note: EXIF and face detection require raw image bytes — PDFs render as
+                # image objects via pdf2image so we can try face detection on the PIL image.
+                page_img_bytes: bytes = b""
+                try:
+                    from io import BytesIO as _BytesIO
+                    _buf = _BytesIO()
+                    image.save(_buf, format="PNG")
+                    page_img_bytes = _buf.getvalue()
+                except Exception:
+                    pass
+
+                deep = run_deep_validators(
+                    doc_type=page_doc_type,
+                    extracted_fields=page_fields,
+                    raw_text=raw_text,
+                    image_bytes=page_img_bytes or None,
+                )
+                page_validation_reasons.extend(deep["reasons"])
+                page_suspicion_boost = deep["suspicion_boost"]
+
+                # OCR-level validation reasons for this page
+                page_ocr_reasons = generate_validation_reasons(
+                    doc_type=page_doc_type,
+                    fields=page_fields,
+                    confidence=type_info["confidence"],
+                    raw_text=raw_text,
+                    quality_flags=[],
+                )
+                # Prepend OCR reasons, then deep reasons
+                page_validation_reasons = page_ocr_reasons + (
+                    ["── Deep Validation ──────────────────────────"] + deep["reasons"]
+                    if deep["reasons"] else []
+                )
+
+                # Wrong document / non-KYC upload detection
+                wrong = detect_wrong_upload(raw_text, page_doc_type)
+                page_wrong_upload = wrong
+                if wrong["is_wrong_upload"]:
+                    suspicion_flags.append(
+                        f"Page {idx + 1}: WRONG DOCUMENT — {wrong['category']} detected. "
+                        + "; ".join(wrong["reasons"][:2])
+                    )
+                    suspicion_score_from_wrong = 40 if wrong["risk_level"] == "HIGH" else 60
+                    page_suspicion_boost += suspicion_score_from_wrong / 100.0
+
+            except Exception as e:
+                logger.warning(f"Per-page deep validation failed on page {idx + 1}: {e}")
+                page_validation_reasons = [f"⚠ Validation error on this page: {str(e)[:80]}"]
 
         # Add to results
         page_results.append({
             "page": idx + 1,
-            "detected_type": type_info["detected_type"],
+            "detected_type": page_doc_type,
             "confidence": type_info["confidence"],
             "text_snippet": raw_text[:300].strip() if raw_text else "",
             "quality": quality_info["quality"],
             "is_blank": quality_info["is_blank"],
             "is_likely_screenshot": quality_info["is_likely_screenshot"],
             "source": source,
+            # New: per-page deep validation results
+            "validation_reasons": page_validation_reasons,
+            "suspicion_boost": round(page_suspicion_boost, 2),
+            "wrong_upload": page_wrong_upload,
         })
+
+        # Roll page suspicion boost into the overall suspicion score
+        suspicion_score += int(page_suspicion_boost * 20)  # scale 0.0-1.0 boost → 0-20 pts
 
     # Group consecutive pages by detected type
     page_groups = []
@@ -1101,6 +1171,12 @@ async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
     else:
         risk_level = "LOW"
 
+    # Wrong-upload summary — aggregate across all pages
+    wrong_upload_pages = [
+        pr for pr in page_results
+        if pr.get("wrong_upload", {}).get("is_wrong_upload")
+    ]
+
     # Summary
     if total_pages == 0:
         summary = "No pages found in the PDF."
@@ -1110,8 +1186,27 @@ async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
             f"Detected document types: {', '.join(detected_docs) if detected_docs else 'None clearly identified'}. "
             f"Risk level: {risk_level}."
         )
+        if wrong_upload_pages:
+            summary += (
+                f" ⚠ {len(wrong_upload_pages)} page(s) appear to be WRONG DOCUMENTS "
+                f"(not valid KYC content): pages {[p['page'] for p in wrong_upload_pages]}."
+            )
         if suspicion_flags:
             summary += f" Issues: {'; '.join(suspicion_flags[:2])}."
+
+    # Collect all HR-facing validation reasons across pages for quick overview
+    all_page_validation_summary = [
+        {
+            "page": pr["page"],
+            "detected_type": pr["detected_type"],
+            "confidence": pr["confidence"],
+            "reasons": pr.get("validation_reasons", []),
+            "is_wrong_upload": pr.get("wrong_upload", {}).get("is_wrong_upload", False),
+            "wrong_upload_category": pr.get("wrong_upload", {}).get("category"),
+        }
+        for pr in page_results
+        if not pr["is_blank"] and pr.get("validation_reasons")
+    ]
 
     return {
         "total_pages": total_pages,
@@ -1123,6 +1218,10 @@ async def classify_combined_pdf(pdf_bytes: bytes) -> dict:
         "suspicion_score": suspicion_score,
         "risk_level": risk_level,
         "summary": summary,
+        # New: per-page validation results for HR panel display
+        "page_validations": all_page_validation_summary,
+        "wrong_upload_pages": [p["page"] for p in wrong_upload_pages],
+        "wrong_upload_count": len(wrong_upload_pages),
     }
 
 
@@ -1144,35 +1243,37 @@ async def process_document(file_bytes: bytes, filename: str = "document.jpg") ->
     """
     Main document processing pipeline — handles images and PDFs.
 
+    Runs in two passes:
+      Pass 1 — OCR extraction, type detection, field extraction, confidence scoring
+      Pass 2 — Deep validators (Verhoeff, PAN structure, MRZ, EXIF, face detect, GST)
+
     Returns an OCRResult with:
     - extracted_fields  : typed fields for the detected document type
     - dynamic_fields    : any extra label:value pairs found in the text
     - validation_reasons: human-readable HR-facing pass/warn/fail explanations
     - confidence        : 0.0-1.0
-    - is_flagged        : True if confidence < 0.60 or authenticity issues
+    - is_flagged        : True if confidence < 0.60 or deep validator issues
     """
 
-    # 1. Extract raw text
+    # ── Pass 1: Text extraction ──────────────────────────────────────────────
     raw_text, source = extract_text_from_document(file_bytes, filename)
 
-    # 2. Detect document type
+    # ── Pass 1: Document type detection ─────────────────────────────────────
     doc_type = detect_document_type(raw_text)
 
-    # 3. Extract structured fields using the appropriate extractor
+    # ── Pass 1: Structured field extraction ─────────────────────────────────
     extractor = _TYPE_EXTRACTORS.get(doc_type, extract_generic_fields)
     extracted = extractor(raw_text)
 
-    # 4. Dynamic field extraction (label:value pairs not covered by typed extractor)
+    # ── Pass 1: Dynamic field extraction ────────────────────────────────────
     dynamic = extract_dynamic_fields(raw_text)
-    # Remove keys that are already in structured extracted fields
     existing_values = set(str(v).lower() for v in extracted.values() if v)
     dynamic = {k: v for k, v in dynamic.items() if str(v).lower() not in existing_values}
 
-    # 5. Calculate confidence
+    # ── Pass 1: Confidence scoring ───────────────────────────────────────────
     text_len = len(raw_text.strip())
     field_count = len([v for v in extracted.values() if v])
 
-    # Base confidence from field extraction success
     if field_count >= 4:
         confidence = 0.90
     elif field_count >= 3:
@@ -1188,15 +1289,13 @@ async def process_document(file_bytes: bytes, filename: str = "document.jpg") ->
     else:
         confidence = 0.10
 
-    # Penalize if doc type is OTHER (couldn't identify the document)
     if doc_type == "OTHER":
         confidence = min(confidence, 0.45)
 
-    # 6. Authenticity score — starts at 1.0, reduced by issues
+    # ── Pass 1: Authenticity score ───────────────────────────────────────────
     authenticity_score = 1.0
     quality_flags: list = []
 
-    # Check for very low text (could be photo-of-photo or blank)
     if text_len < 30:
         authenticity_score -= 0.4
         quality_flags.append("Extremely little text extracted — document may be blurred or a photo of a printed copy")
@@ -1204,15 +1303,12 @@ async def process_document(file_bytes: bytes, filename: str = "document.jpg") ->
         authenticity_score -= 0.15
         quality_flags.append("Limited text extracted — scan quality may be low")
 
-    # Confidence penalty feeds into authenticity
     if confidence < 0.40:
         authenticity_score -= 0.3
     elif confidence < 0.60:
         authenticity_score -= 0.1
 
-    authenticity_score = max(0.0, min(1.0, authenticity_score))
-
-    # 7. Generate human-readable validation reasons for HR
+    # ── Pass 1: Validation reasons (OCR-level) ───────────────────────────────
     validation_reasons = generate_validation_reasons(
         doc_type=doc_type,
         fields=extracted,
@@ -1221,10 +1317,65 @@ async def process_document(file_bytes: bytes, filename: str = "document.jpg") ->
         quality_flags=quality_flags,
     )
 
-    # 8. Flag if below 60% confidence threshold
+    # ── Pass 2: Deep validators ──────────────────────────────────────────────
+    # Provide raw image bytes only for image uploads (not PDFs), so EXIF and
+    # face detection work correctly. For PDFs the bytes are the PDF itself.
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    image_bytes_for_validators = file_bytes if ext in ("jpg", "jpeg", "png", "webp", "bmp") else None
+
+    try:
+        deep = run_deep_validators(
+            doc_type=doc_type,
+            extracted_fields=extracted,
+            raw_text=raw_text,
+            image_bytes=image_bytes_for_validators,
+        )
+
+        # Append deep validation reasons as a new section
+        if deep["reasons"]:
+            validation_reasons.append("── Deep Validation ──────────────────────────")
+            validation_reasons.extend(deep["reasons"])
+
+        # Apply suspicion penalty from deep validators
+        authenticity_score = max(0.0, authenticity_score - deep["suspicion_boost"])
+
+        # Merge any extra fields discovered by deep validators (e.g. MRZ data)
+        if deep.get("extra_fields"):
+            for k, v in deep["extra_fields"].items():
+                if k not in extracted:
+                    dynamic[k] = str(v)
+
+    except Exception as e:
+        logger.warning(f"Deep validators failed for {doc_type}: {e}")
+        validation_reasons.append(f"⚠ Deep validation skipped due to internal error: {str(e)[:80]}")
+
+    authenticity_score = max(0.0, min(1.0, authenticity_score))
+
+    # ── Pass 3: Wrong upload / non-KYC content detection ────────────────────
+    try:
+        wrong = detect_wrong_upload(raw_text, doc_type)
+        if wrong["reasons"]:
+            validation_reasons.append("── Upload Integrity Check ────────────────────")
+            validation_reasons.extend(wrong["reasons"])
+        if wrong["is_wrong_upload"]:
+            authenticity_score = max(0.0, authenticity_score - 0.40)
+            validation_reasons.insert(
+                0,
+                f"🚩 WRONG DOCUMENT DETECTED ({wrong['risk_level']} risk): "
+                f"{wrong.get('category', 'UNKNOWN')} content identified. "
+                f"{wrong['recommendation']}"
+            )
+    except Exception as e:
+        logger.warning(f"Wrong upload detection failed: {e}")
+
+    authenticity_score = max(0.0, min(1.0, authenticity_score))
+
+    # ── Final flag decision ──────────────────────────────────────────────────
     is_flagged = confidence < 0.60 or authenticity_score < 0.50
     if is_flagged and confidence < 0.60:
         validation_reasons.insert(0, f"🚩 FLAGGED: Confidence {int(confidence * 100)}% is below the 60% threshold — HR manual review required")
+    if authenticity_score < 0.50 and confidence >= 0.60:
+        validation_reasons.insert(0, f"🚩 FLAGGED: Authenticity score {int(authenticity_score * 100)}% — deep validation raised integrity concerns")
 
     return OCRResult(
         raw_text=raw_text,
