@@ -35,6 +35,9 @@ function normalizeCombinedPdfAnalysis(data: any, source: 'python' | 'node_fallba
     wrongUploadPages: data.wrong_upload_pages ?? data.wrongUploadPages ?? [],
     wrongUploadCount: data.wrong_upload_count ?? data.wrongUploadCount
       ?? (data.wrong_upload_pages ?? data.wrongUploadPages ?? []).length,
+    // Infrastructure warning: non-null when Python OCR failed for systemic reasons
+    // (missing language data, Tesseract crash, etc.) rather than genuinely blank pages
+    ocrInfrastructureWarning: data.ocr_infrastructure_warning ?? data.ocrInfrastructureWarning ?? null,
     // Node.js fallback-specific enrichment fields
     ...(source === 'node_fallback' ? {
       overallConfidence: data.overallConfidence,

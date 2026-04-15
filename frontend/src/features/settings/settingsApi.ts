@@ -190,6 +190,26 @@ export const settingsApi = api.injectEndpoints({
       query: (id) => ({ url: `/settings/backup/${id}/restore-files`, method: 'POST' }),
       invalidatesTags: ['Backup'],
     }),
+
+    // ── System Logs (SUPER_ADMIN only) ────────────────────────────────────────
+    getSystemLogSummary: builder.query<any, void>({
+      query: () => '/settings/system-logs/summary',
+    }),
+    getSystemLogs: builder.query<any, {
+      page?: number;
+      limit?: number;
+      level?: string;
+      source?: string;
+      search?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      sort?: 'asc' | 'desc';
+    }>({
+      query: (params) => ({ url: '/settings/system-logs', params }),
+    }),
+    getAiServiceLogs: builder.query<any, number>({
+      query: (lines = 200) => ({ url: '/settings/system-logs/ai-service', params: { lines } }),
+    }),
   }),
 });
 
@@ -225,4 +245,7 @@ export const {
   useDeleteBackupMutation,
   useRestoreBackupMutation,
   useRestoreFilesBackupMutation,
+  useGetSystemLogSummaryQuery,
+  useGetSystemLogsQuery,
+  useGetAiServiceLogsQuery,
 } = settingsApi;

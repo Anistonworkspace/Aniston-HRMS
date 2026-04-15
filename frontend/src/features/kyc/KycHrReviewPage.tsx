@@ -487,8 +487,24 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
             const missingDocs: string[] = combinedAnalysis.missing_from_required ?? combinedAnalysis.missing_docs ?? combinedAnalysis.missingFromRequired ?? [];
             // Per-page validation summary from Python AI (stored in first doc's ocrVerification.llmExtractedData)
             const pageValidations: any[] = combinedAnalysis.page_validations ?? combinedAnalysis.pageValidations ?? [];
+            // Infrastructure warning: set by Python when all pages fail OCR due to system issue
+            const ocrInfrastructureWarning: string | null = combinedAnalysis.ocr_infrastructure_warning ?? combinedAnalysis.ocrInfrastructureWarning ?? null;
             return (
               <>
+                {/* Infrastructure warning banner — shown instead of blank-page spam */}
+                {ocrInfrastructureWarning && (
+                  <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg flex gap-2">
+                    <span className="text-orange-500 text-base shrink-0">⚠</span>
+                    <div>
+                      <p className="text-xs font-semibold text-orange-700 mb-0.5">OCR Infrastructure Warning</p>
+                      <p className="text-xs text-orange-600">{ocrInfrastructureWarning}</p>
+                      <p className="text-xs text-orange-500 mt-1">
+                        The document may be valid. Please download and review it manually before making a decision.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-3 mb-4">
                   <div className="bg-slate-50 rounded-lg px-3 py-2 text-center">
                     <p className="text-2xl font-bold font-mono text-slate-800">{totalPages ?? '—'}</p>
@@ -502,7 +518,7 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
                     <p className="text-2xl font-bold font-mono text-slate-800">{suspicionScore}</p>
                     <p className="text-xs text-slate-500">Suspicion Score</p>
                   </div>
-                  {riskLevel && <RiskBadge level={riskLevel} />}
+                  {riskLevel && !ocrInfrastructureWarning && <RiskBadge level={riskLevel} />}
                 </div>
 
                 {detectedDocs.length > 0 && (
@@ -516,7 +532,8 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
                   </div>
                 )}
 
-                {suspicionFlags.length > 0 && (
+                {/* Only show suspicion flags if OCR infrastructure is healthy */}
+                {suspicionFlags.length > 0 && !ocrInfrastructureWarning && (
                   <div className="p-3 bg-red-50 rounded-lg">
                     <p className="text-xs font-semibold text-red-700 mb-1">Suspicion Flags:</p>
                     <ul className="list-disc list-inside space-y-0.5">

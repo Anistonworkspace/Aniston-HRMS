@@ -41,6 +41,38 @@ from .validators import run_deep_validators, detect_wrong_upload
 
 # ===== IMAGE PREPROCESSING =====
 
+def _preprocess_conservative(image: Image.Image) -> Image.Image:
+    """
+    Minimal preprocessing: grayscale + mild unsharp sharpening only.
+    No binarization — preserves the original tonal range so Tesseract sees
+    natural contrast rather than an artificially thresholded binary.
+    Best for mobile-scanned PDFs (CamScanner / Adobe Scan) that have already
+    had internal contrast processing applied.
+    """
+    if not HAS_OPENCV:
+        return image
+    try:
+        img_array = np.array(image)
+        if len(img_array.shape) == 2:
+            gray = img_array
+        elif img_array.shape[2] == 4:
+            # RGBA → grayscale (cv2 COLOR_RGB2GRAY expects 3 channels)
+            gray = cv2.cvtColor(img_array[:, :, :3], cv2.COLOR_RGB2GRAY)
+        else:
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        # Upscale only if very small (shouldn't happen at 300 DPI but just in case)
+        h, w = gray.shape[:2]
+        if w < 800:
+            scale = 1200.0 / w
+            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        # Mild unsharp mask (sharpens without adding artifacts)
+        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+        sharpened = cv2.addWeighted(gray, 1.5, blurred, -0.5, 0)
+        return Image.fromarray(sharpened)
+    except Exception:
+        return image
+
+
 def preprocess_image(image: Image.Image) -> Image.Image:
     """Enhance image quality for better OCR using OpenCV."""
     if not HAS_OPENCV:
@@ -1232,30 +1264,70 @@ def assess_page_quality(image: "Image.Image", raw_text: str, page_idx: int) -> d
     Returns a dict with:
       - quality: HIGH | MEDIUM | LOW
       - flags: list of suspicion signals
-      - is_blank: bool
+      - is_blank: bool  — True only when BOTH text is short AND the image pixel
+                          variance indicates the page really is empty/white.
+                          A page where OCR failed but the image has content is
+                          flagged as LOW quality but NOT marked is_blank=True.
       - is_likely_screenshot: bool
+      - has_image_content: bool — True when pixel analysis finds non-white content
     """
     flags = []
     text_len = len(raw_text.strip())
 
-    # Blank / near-blank page detection
-    is_blank = text_len < 15
-    if is_blank:
+    # ── Pixel-variance check: is the page actually white / visually empty? ──
+    has_image_content = True  # default — assume content present
+    pixel_std = None
+    if HAS_OPENCV:
+        try:
+            img_array = np.array(image)
+            if len(img_array.shape) == 3:
+                if img_array.shape[2] == 4:
+                    gray_px = cv2.cvtColor(img_array[:, :, :3], cv2.COLOR_RGB2GRAY)
+                else:
+                    gray_px = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            else:
+                gray_px = img_array
+            pixel_std = float(np.std(gray_px))
+            # Very low std-dev means almost all pixels have the same brightness (blank page)
+            if pixel_std < 8.0:
+                has_image_content = False
+        except Exception:
+            pass
+
+    # ── Blank / near-blank page detection ──────────────────────────────────
+    # Mark as blank ONLY when text is short AND either pixel analysis confirms
+    # the page is really blank OR pixel analysis is unavailable.
+    text_is_short = text_len < 15
+    truly_blank = text_is_short and (not has_image_content or pixel_std is None)
+    ocr_may_have_failed = text_is_short and has_image_content
+
+    is_blank = truly_blank
+
+    if truly_blank:
         flags.append(f"Page {page_idx + 1}: Blank or near-blank — no readable text")
+    elif ocr_may_have_failed:
+        # Image has content but OCR extracted < 15 chars — likely OCR issue, not blank page
+        flags.append(
+            f"Page {page_idx + 1}: Page has visual content but OCR extracted very little text "
+            f"— image may be rotated >15°, heavily watermarked, or the document language "
+            f"is not supported (pixel_std={pixel_std:.1f if pixel_std is not None else 'N/A'})"
+        )
+    elif 15 <= text_len < 60:
+        flags.append(
+            f"Page {page_idx + 1}: Very little text extracted — may be a photo, "
+            f"graphic-only, or blurred page"
+        )
 
-    # Very short text but not blank — possibly image-only or heavily corrupted
-    if 15 <= text_len < 60:
-        flags.append(f"Page {page_idx + 1}: Very little text extracted — may be a photo, graphic-only, or blurred page")
-
-    # Screenshot heuristics — real scanned docs rarely have perfectly even pixel distributions
+    # ── Screenshot heuristics ───────────────────────────────────────────────
     is_likely_screenshot = False
     if HAS_OPENCV:
         try:
-            import numpy as np
-            import cv2
             img_array = np.array(image)
             if len(img_array.shape) == 3:
-                gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+                if img_array.shape[2] == 4:
+                    gray = cv2.cvtColor(img_array[:, :, :3], cv2.COLOR_RGB2GRAY)
+                else:
+                    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
             else:
                 gray = img_array
 
@@ -1274,7 +1346,7 @@ def assess_page_quality(image: "Image.Image", raw_text: str, page_idx: int) -> d
         except Exception:
             pass
 
-    # Determine quality tier
+    # ── Quality tier ────────────────────────────────────────────────────────
     if is_blank or is_likely_screenshot:
         quality = "LOW"
     elif text_len < 80:
@@ -1289,7 +1361,9 @@ def assess_page_quality(image: "Image.Image", raw_text: str, page_idx: int) -> d
         "flags": flags,
         "is_blank": is_blank,
         "is_likely_screenshot": is_likely_screenshot,
+        "has_image_content": has_image_content,
         "text_length": text_len,
+        "pixel_std": round(pixel_std, 2) if pixel_std is not None else None,
     }
 
 
@@ -1322,6 +1396,97 @@ def detect_page_document_type(text: str, page_idx: int) -> dict:
         "detected_type": doc_type,
         "confidence": confidence,
     }
+
+
+# ===== MULTI-STRATEGY PAGE OCR =====
+
+def _ocr_page_with_fallback(image: "Image.Image", page_idx: int, quality_flags: list) -> tuple:
+    """
+    Try three OCR strategies for a single PDF page image, from least to most
+    destructive preprocessing.  Returns (text: str, source_label: str).
+
+    Strategy 1 — raw PIL image (no preprocessing):
+        Best for mobile-scan / CamScanner PDFs that are already high-contrast.
+    Strategy 2 — conservative preprocessing (grayscale + mild sharpen):
+        Helps low-brightness scans without risk of thresholding artefacts.
+    Strategy 3 — full binary preprocessing (adaptive threshold):
+        Original behaviour; good for very low-contrast or tilted documents.
+
+    The strategy that produces the most text (>= 15 chars) wins immediately.
+    If all strategies produce < 15 chars, the longest result is returned
+    together with a diagnostic quality flag.
+    """
+    if not HAS_TESSERACT:
+        quality_flags.append(
+            f"Page {page_idx + 1}: pytesseract not installed — OCR unavailable"
+        )
+        return "[OCR not available — pytesseract not installed]", "no_tesseract"
+
+    page_num = page_idx + 1
+
+    def _run_tesseract(img: "Image.Image") -> str:
+        """Run tesseract, fall back from eng+hin → eng on any error."""
+        try:
+            return pytesseract.image_to_string(img, lang="eng+hin", config="--psm 3").strip()
+        except Exception:
+            try:
+                return pytesseract.image_to_string(img, lang="eng", config="--psm 3").strip()
+            except Exception as e:
+                logger.warning(f"Page {page_num}: tesseract eng failed: {e}")
+                return ""
+
+    w, h = image.size
+    logger.debug(f"Page {page_num}: image size={w}x{h}px, mode={image.mode}")
+
+    # ── Strategy 1: raw image ────────────────────────────────────────────────
+    try:
+        text1 = _run_tesseract(image)
+        if len(text1) >= 15:
+            logger.debug(f"Page {page_num}: raw-OCR succeeded ({len(text1)} chars)")
+            return text1, "image_ocr_raw"
+    except Exception as e:
+        text1 = ""
+        logger.warning(f"Page {page_num}: raw-OCR strategy raised: {e}")
+
+    # ── Strategy 2: conservative preprocessing ──────────────────────────────
+    text2 = ""
+    try:
+        conservative_img = _preprocess_conservative(image)
+        text2 = _run_tesseract(conservative_img)
+        if len(text2) >= 15:
+            logger.debug(f"Page {page_num}: conservative-OCR succeeded ({len(text2)} chars)")
+            return text2, "image_ocr_conservative"
+    except Exception as e:
+        logger.warning(f"Page {page_num}: conservative-OCR strategy raised: {e}")
+
+    # ── Strategy 3: full binary preprocessing (original behaviour) ──────────
+    text3 = ""
+    try:
+        processed_img = preprocess_image(image)
+        text3 = _run_tesseract(processed_img)
+        if len(text3) >= 15:
+            logger.debug(f"Page {page_num}: binary-OCR succeeded ({len(text3)} chars)")
+            return text3, "image_ocr_preprocessed"
+    except Exception as e:
+        logger.warning(f"Page {page_num}: binary-OCR strategy raised: {e}")
+
+    # ── All strategies exhausted — return best effort ────────────────────────
+    best = max([text1, text2, text3], key=len)
+    if best:
+        logger.info(
+            f"Page {page_num}: all OCR strategies returned short text "
+            f"(max {len(best)} chars) — likely blank page"
+        )
+    else:
+        logger.warning(
+            f"Page {page_num}: all OCR strategies returned EMPTY — "
+            f"possible Tesseract failure or truly blank page (image {w}x{h})"
+        )
+        quality_flags.append(
+            f"Page {page_num}: OCR returned no text after all strategies — "
+            f"check Tesseract installation or inspect the uploaded PDF"
+        )
+    return best, "image_ocr_best_effort"
 
 
 # ===== COMBINED PDF CLASSIFIER =====
@@ -1457,25 +1622,20 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
     native_pages = [p.strip() for p in native_text.split("\x0c")] if native_text else []
 
     for idx, image in enumerate(images):
-        # Use native text if available, else OCR
-        if idx < len(native_pages) and len(native_pages[idx]) > 50:
+        # ── Text extraction: native PDF text → multi-strategy image OCR ──────
+        #
+        # Native extraction works for digitally-created PDFs (text is embedded).
+        # For scanned PDFs the native text is empty and we must OCR each page.
+        # _ocr_page_with_fallback tries 3 strategies in order (raw → conservative
+        # → binary-preprocessed) and returns whichever produces the most text,
+        # so mobile-scan PDFs that already have high contrast are not destroyed
+        # by a second round of adaptive thresholding.
+        native_ok = idx < len(native_pages) and len(native_pages[idx]) > 50
+        if native_ok:
             raw_text = native_pages[idx]
             source = "pdf_native"
         else:
-            # Fall back to image OCR
-            processed = preprocess_image(image)
-            raw_text = ""
-            if HAS_TESSERACT:
-                try:
-                    import pytesseract
-                    raw_text = pytesseract.image_to_string(processed, lang="eng+hin")
-                except Exception:
-                    try:
-                        raw_text = pytesseract.image_to_string(processed, lang="eng")
-                    except Exception as e:
-                        raw_text = ""
-                        quality_flags.append(f"Page {idx + 1}: OCR failed — {str(e)}")
-            source = "image_ocr"
+            raw_text, source = _ocr_page_with_fallback(image, idx, quality_flags)
 
         # Quality assessment
         quality_info = assess_page_quality(image, raw_text, idx)
@@ -1705,6 +1865,38 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
         else:
             missing_docs.append(req_doc)
 
+    # ── Infrastructure error detection ─────────────────────────────────────
+    # If ALL non-zero pages returned very little text, this may indicate an
+    # OCR infrastructure problem (Tesseract language data, image format, etc.)
+    # rather than genuinely blank documents.  Surface this clearly so the HR
+    # panel can show a specific "OCR infrastructure warning" banner instead of
+    # spamming "Page X blank" flags.
+    pages_with_content = [pr for pr in page_results if pr.get("has_image_content", True)]
+    pages_with_text = [pr for pr in page_results if len(pr.get("text_snippet", "")) >= 15]
+    all_ocr_failed = (
+        total_pages > 0
+        and len(pages_with_text) == 0
+        and len(pages_with_content) > 0
+    )
+    ocr_infrastructure_warning = None
+    if all_ocr_failed:
+        ocr_infrastructure_warning = (
+            f"OCR extracted no readable text from any of the {total_pages} page(s), "
+            f"but {len(pages_with_content)} page(s) have visual image content. "
+            f"This typically means: (1) Tesseract language data is missing/corrupt, "
+            f"(2) the PDF pages are in a colour space Tesseract cannot read, or "
+            f"(3) the document is heavily encrypted/DRM-protected. "
+            f"HR should manually review the uploaded file."
+        )
+        logger.error(
+            f"[classify_combined_pdf] INFRA WARNING: {total_pages} pages rendered, "
+            f"{len(pages_with_content)} have image content, but 0 produced OCR text. "
+            f"Likely Tesseract or language-data issue in the container."
+        )
+        # Lower suspicion score — this is not the employee's fault
+        suspicion_score = min(suspicion_score, 30)
+        risk_level = "MEDIUM"
+
     return {
         "total_pages": total_pages,
         "page_results": page_results,
@@ -1723,6 +1915,8 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
         "page_validations": all_page_validation_summary,
         "wrong_upload_pages": [p["page"] for p in wrong_upload_pages],
         "wrong_upload_count": len(wrong_upload_pages),
+        # Infrastructure diagnostics — non-null when OCR failed for systemic reasons
+        "ocr_infrastructure_warning": ocr_infrastructure_warning,
     }
 
 

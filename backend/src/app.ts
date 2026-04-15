@@ -65,6 +65,7 @@ import { brandingRouter } from './modules/branding/branding.routes.js';
 import { backupRouter } from './modules/backup/backup.routes.js';
 import { employeeDeletionRouter } from './modules/employee-deletion/employee-deletion.routes.js';
 import { payrollDeletionRouter } from './modules/payroll-deletion/payroll-deletion.routes.js';
+import { systemLogsRouter } from './modules/system-logs/system-logs.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
 import { getEmailWorkerHealth } from './jobs/workers/email.worker.js';
@@ -224,6 +225,7 @@ app.use('/api/task-integration', taskIntegrationRouter);
 app.use('/api/letters', letterRouter);
 app.use('/api/branding', brandingRouter);
 app.use('/api/settings/backup', backupRouter);
+app.use('/api/settings/system-logs', systemLogsRouter);
 app.use('/api/employee-deletion-requests', employeeDeletionRouter);
 app.use('/api/payroll-deletion-requests', payrollDeletionRouter);
 

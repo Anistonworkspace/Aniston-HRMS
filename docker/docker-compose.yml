@@ -44,6 +44,9 @@ services:
       API_KEY: "${AI_SERVICE_API_KEY:-dev-ai-key}"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DEEPSEEK_BASE_URL: "https://api.deepseek.com/v1"
+      AI_LOG_FILE: "/logs/ai-service.log"
+    volumes:
+      - ai_logs:/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,3 +61,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  ai_logs:

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus } from 'lucide-react';
+import { Settings, Building2, MapPin, Shield, Server, Clock, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus, Terminal } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Circle, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -29,9 +29,10 @@ import AttendancePolicyTab from './AttendancePolicyTab';
 import SalaryComponentsTab from './SalaryComponentsTab';
 import DatabaseBackupTab from './DatabaseBackupTab';
 import DeletionRequestsTab from './DeletionRequestsTab';
+import SystemLogsTab from './SystemLogsTab';
 // LeaveSettingsTab removed — leave type management is now in Leave Management page
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'attendance-policy' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests';
+type Tab = 'organization' | 'locations' | 'shifts' | 'attendance-policy' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs';
 
 export default function SettingsPage() {
   const { t } = useTranslation();
@@ -42,7 +43,7 @@ export default function SettingsPage() {
   // Tabs visible to HR (non-admin) users
   const HR_VISIBLE_TABS: Tab[] = ['organization', 'locations', 'shifts', 'attendance-policy', 'salary-components', 'email', 'whatsapp'];
   // Tabs visible only to Super Admin
-  const SUPER_ADMIN_ONLY_TABS: Tab[] = ['deletion-requests'];
+  const SUPER_ADMIN_ONLY_TABS: Tab[] = ['deletion-requests', 'system-logs'];
 
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     const saved = sessionStorage.getItem('settings_active_tab') as Tab | null;
@@ -84,7 +85,10 @@ export default function SettingsPage() {
     { key: 'system', label: t('settings.system'), icon: Server },
     { key: 'database-backup', label: 'Database Backup', icon: Database },
     // Super Admin only
-    ...(isSuperAdmin ? [{ key: 'deletion-requests' as Tab, label: 'Deletion Requests', icon: UserMinus }] : []),
+    ...(isSuperAdmin ? [
+      { key: 'deletion-requests' as Tab, label: 'Deletion Requests', icon: UserMinus },
+      { key: 'system-logs'       as Tab, label: 'System Logs',        icon: Terminal  },
+    ] : []),
   ];
 
   const tabs = isAdminOrSuper
@@ -153,6 +157,7 @@ export default function SettingsPage() {
             {activeTab === 'system' && <SystemInfo />}
             {activeTab === 'database-backup' && <DatabaseBackupTab />}
             {activeTab === 'deletion-requests' && isSuperAdmin && <DeletionRequestsTab />}
+            {activeTab === 'system-logs'       && isSuperAdmin && <SystemLogsTab />}
           </div>
         </div>
       </div>
