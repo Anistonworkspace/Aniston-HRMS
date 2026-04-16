@@ -23,6 +23,7 @@ import {
   useApprovePayrollDeletionMutation,
   useRejectPayrollDeletionMutation,
   useDismissPayrollDeletionMutation,
+  useGetPayrollPreflightQuery,
 } from './payrollApi';
 import {
   useGetRunAdjustmentsQuery,
@@ -134,11 +135,13 @@ function PayrollAdminView() {
   const [viewingRunId, setViewingRunId] = useState<string | null>(null);
   const [deletionModal, setDeletionModal] = useState<{ runId: string; runLabel: string } | null>(null);
   const [deletionForm, setDeletionForm] = useState({ reason: '', notes: '' });
+  const [preflightRunId, setPreflightRunId] = useState<string | null>(null);
   const [requestPayrollDeletion, { isLoading: requestingDeletion }] = useRequestPayrollDeletionMutation();
   const [approvePayrollDeletion] = useApprovePayrollDeletionMutation();
   const [rejectPayrollDeletion] = useRejectPayrollDeletionMutation();
   const [dismissPayrollDeletion] = useDismissPayrollDeletionMutation();
   const { data: deletionReqRes, refetch: refetchDeletionReqs } = useGetPayrollDeletionRequestsQuery(undefined, { skip: user?.role !== 'SUPER_ADMIN' });
+  const { data: preflightRes } = useGetPayrollPreflightQuery();
   const deletionRequests = deletionReqRes?.data || [];
   const pendingDeletions = deletionRequests.filter((r: any) => r.status === 'PENDING').length;
   const [rejectForm, setRejectForm] = useState<{ id: string; reason: string } | null>(null);
@@ -173,10 +176,20 @@ function PayrollAdminView() {
     }
   };
 
-  const handleProcess = async (runId: string) => {
+  const handleProcessConfirm = async (runId: string) => {
     try {
       const result = await processPayroll(runId).unwrap();
-      toast.success(`${t('payroll.payrollProcessed')} — ${result.data.processed} employees`);
+      const processed = result.data?.processed ?? 0;
+      const missing: string[] = result.data?.missingSalary || [];
+      if (processed > 0) {
+        toast.success(`${t('payroll.payrollProcessed')} — ${processed} employee${processed !== 1 ? 's' : ''} processed`);
+        if (missing.length > 0) {
+          toast(`⚠ ${missing.length} employee${missing.length !== 1 ? 's' : ''} skipped (no salary/CTC): ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? '...' : ''}`, { duration: 6000, icon: '⚠️' });
+        }
+      } else {
+        toast.error('Payroll processed 0 employees — please configure salary structures first.');
+      }
+      setPreflightRunId(null);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || t('payroll.failedToProcess'));
     }
@@ -416,7 +429,7 @@ function PayrollAdminView() {
                       <div className="flex items-center justify-end gap-1.5 flex-wrap">
                         {run.status === 'DRAFT' && (
                           <button
-                            onClick={() => handleProcess(run.id)}
+                            onClick={() => setPreflightRunId(run.id)}
                             className="text-xs text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
                           >
                             <Play size={12} /> {t('payroll.processPayroll')}
@@ -619,6 +632,115 @@ function PayrollAdminView() {
           </motion.div>
         </div>
       )}
+
+      {/* Preflight Modal — shown before processing */}
+      <AnimatePresence>
+        {preflightRunId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setPreflightRunId(null)}>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              onClick={e => e.stopPropagation()}
+              className="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden bg-white"
+            >
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-gray-100 bg-brand-600">
+                <h3 className="text-base font-bold text-white flex items-center gap-2"><Shield size={16} /> Payroll Pre-flight Check</h3>
+                <p className="text-xs text-brand-100 mt-0.5">Review employee salary readiness before processing</p>
+              </div>
+              <div className="overflow-y-auto flex-1 p-5">
+                {!preflightRes?.data ? (
+                  <div className="text-center py-8"><Loader2 size={20} className="animate-spin text-gray-400 mx-auto" /></div>
+                ) : (
+                  <>
+                    {/* Summary */}
+                    <div className="grid grid-cols-3 gap-3 mb-5">
+                      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
+                        <p className="text-2xl font-bold text-emerald-600" data-mono>{preflightRes.data.readyCount}</p>
+                        <p className="text-xs text-emerald-700 mt-0.5 font-medium">Saved Salary</p>
+                      </div>
+                      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
+                        <p className="text-2xl font-bold text-blue-600" data-mono>{preflightRes.data.autoCreatableCount}</p>
+                        <p className="text-xs text-blue-700 mt-0.5 font-medium">Auto-create from CTC</p>
+                      </div>
+                      <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-center">
+                        <p className="text-2xl font-bold text-red-600" data-mono>{preflightRes.data.missingCount}</p>
+                        <p className="text-xs text-red-700 mt-0.5 font-medium">Missing — Skipped</p>
+                      </div>
+                    </div>
+                    {!preflightRes.data.componentMasterConfigured && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-700 flex gap-2">
+                        <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                        No salary components configured in Settings → Salary Components. Auto-create will not work until components are added.
+                      </div>
+                    )}
+                    {/* Ready */}
+                    {preflightRes.data.ready.length > 0 && (
+                      <div className="mb-4">
+                        <p className="text-xs font-semibold text-emerald-700 mb-2 flex items-center gap-1"><CheckCircle2 size={12} /> Ready ({preflightRes.data.ready.length})</p>
+                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                          {preflightRes.data.ready.map((e: any) => (
+                            <div key={e.id} className="flex items-center justify-between px-3 py-1.5 bg-emerald-50/50 rounded-lg text-xs">
+                              <span className="font-medium text-gray-700">{e.name} <span className="text-gray-400">({e.employeeCode})</span></span>
+                              <span className="text-emerald-600 font-mono" data-mono>₹{(e.ctc / 100000).toFixed(1)}L/yr</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* Auto-creatable */}
+                    {preflightRes.data.autoCreatable.length > 0 && (
+                      <div className="mb-4">
+                        <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-1"><Clock size={12} /> Auto-create from CTC ({preflightRes.data.autoCreatable.length})</p>
+                        <p className="text-xs text-gray-500 mb-2">Salary structure will be created automatically using component master rules.</p>
+                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                          {preflightRes.data.autoCreatable.map((e: any) => (
+                            <div key={e.id} className="flex items-center justify-between px-3 py-1.5 bg-blue-50/50 rounded-lg text-xs">
+                              <span className="font-medium text-gray-700">{e.name} <span className="text-gray-400">({e.employeeCode})</span></span>
+                              <span className="text-blue-600 font-mono" data-mono>₹{(e.ctc / 100000).toFixed(1)}L/yr</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* Missing */}
+                    {preflightRes.data.missing.length > 0 && (
+                      <div className="mb-4">
+                        <p className="text-xs font-semibold text-red-600 mb-2 flex items-center gap-1"><XCircle size={12} /> Missing Salary + CTC — Will be skipped ({preflightRes.data.missing.length})</p>
+                        <div className="space-y-1 max-h-28 overflow-y-auto">
+                          {preflightRes.data.missing.map((e: any) => (
+                            <div key={e.id} className="flex items-center justify-between px-3 py-1.5 bg-red-50/50 rounded-lg text-xs">
+                              <span className="font-medium text-gray-700">{e.name} <span className="text-gray-400">({e.employeeCode})</span></span>
+                              <span className="text-red-500">No CTC set</span>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">Go to Employee → Salary tab → Edit CTC to fix these.</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between gap-3">
+                <button onClick={() => setPreflightRunId(null)} className="btn-secondary text-sm">Cancel</button>
+                <button
+                  onClick={() => handleProcessConfirm(preflightRunId)}
+                  disabled={!preflightRes?.data?.canProcess}
+                  className="btn-primary text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Play size={14} />
+                  {preflightRes?.data?.canProcess
+                    ? `Process Payroll (${(preflightRes.data.readyCount + preflightRes.data.autoCreatableCount)} employees)`
+                    : 'No Employees Ready — Fix Salary First'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Request Deletion Modal (HR) */}
       {deletionModal && (

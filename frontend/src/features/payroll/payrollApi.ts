@@ -94,6 +94,12 @@ export const payrollApi = api.injectEndpoints({
       query: (runId) => ({ url: `/payroll/runs/${runId}/send-email`, method: 'POST' }),
     }),
 
+    // Pre-flight check before processing payroll
+    getPayrollPreflight: builder.query<any, void>({
+      query: () => '/payroll/preflight',
+      providesTags: ['Payroll'],
+    }),
+
     // Payroll deletion requests
     requestPayrollDeletion: builder.mutation<any, { payrollRunId: string; reason: string; notes?: string }>({
       query: (body) => ({ url: '/payroll-deletion-requests', method: 'POST', body }),
@@ -123,6 +129,7 @@ export const payrollApi = api.injectEndpoints({
 });
 
 export const {
+  useGetPayrollPreflightQuery,
   useGetPayrollRunsQuery,
   useCreatePayrollRunMutation,
   useProcessPayrollMutation,

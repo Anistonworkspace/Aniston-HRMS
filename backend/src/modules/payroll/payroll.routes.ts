@@ -43,6 +43,18 @@ router.post('/salary-structure/:employeeId',
   (req, res, next) => payrollController.upsertSalaryStructure(req, res, next)
 );
 
+// Pre-flight check — lists employees ready/missing before processing
+// GET /payroll/preflight
+router.get('/preflight',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const result = await payrollService.getPayrollPreflight(req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+);
+
 // Payroll runs
 router.get('/runs',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),

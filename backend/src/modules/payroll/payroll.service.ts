@@ -501,6 +501,84 @@ export class PayrollService {
       include: { salaryStructure: true },
     });
 
+    if (employees.length === 0) {
+      throw new BadRequestError('No active employees found in this organization to process payroll for.');
+    }
+
+    // Pre-fetch component master once — used for both auto-create (F5) and payroll calculation
+    const componentMasterAll = await prisma.salaryComponentMaster.findMany({
+      where: { organizationId, deletedAt: null, isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
+
+    // ── F5: Auto-create SalaryStructure for employees who have CTC set on their
+    //        Employee record but no SalaryStructure row yet. Uses component master
+    //        to compute the breakdown so nothing is stored manually.
+    for (const emp of employees) {
+      if (emp.salaryStructure) continue;                        // already has structure
+      const ctcVal = Number((emp as any).ctc || 0);
+      if (ctcVal <= 0) continue;                               // no CTC on employee record either
+      if (componentMasterAll.length === 0) continue;           // no component master configured
+
+      const autoComponents = buildComponentsFromMaster(componentMasterAll, ctcVal);
+      if (autoComponents.length === 0) continue;               // master produced nothing
+
+      const basicComp = findComponent(autoComponents, 'Basic');
+      const hraComp   = findComponent(autoComponents, 'HRA');
+      const daComp    = findComponent(autoComponents, 'DA');
+      const taComp    = findComponent(autoComponents, 'TA');
+      const medComp   = findComponent(autoComponents, 'Medical Allowance');
+      const specComp  = findComponent(autoComponents, 'Special Allowance');
+      const ltaComp   = findComponent(autoComponents, 'LTA');
+      const totalEar  = sumComponentsByType(autoComponents, 'earning');
+      const basicVal  = basicComp?.value ?? 0;
+      const stat      = calculateStatutory(basicVal, totalEar, ctcVal, 'NEW_REGIME', null);
+
+      try {
+        const created = await prisma.salaryStructure.create({
+          data: {
+            employeeId:      emp.id,
+            ctc:             ctcVal,
+            isCustom:        false,
+            components:      autoComponents as any,
+            basic:           basicVal   || null,
+            hra:             hraComp?.value  ?? null,
+            da:              daComp?.value   ?? null,
+            ta:              taComp?.value   ?? null,
+            medicalAllowance: medComp?.value ?? null,
+            specialAllowance: specComp?.value ?? null,
+            lta:             ltaComp?.value  ?? null,
+            pfEmployee:      stat.epfEmployee,
+            pfEmployer:      stat.epfEmployer,
+            esiEmployee:     stat.esiEmployee,
+            esiEmployer:     stat.esiEmployer,
+            professionalTax: stat.professionalTax,
+            tds:             stat.tds,
+            incomeTaxRegime: 'NEW_REGIME',
+            effectiveFrom:   new Date(),
+            version:         1,
+          },
+        });
+        // Attach to in-memory employee object so payroll loop picks it up
+        (emp as any).salaryStructure = created;
+      } catch {
+        // If create fails (e.g. duplicate key race), re-fetch
+        (emp as any).salaryStructure = await prisma.salaryStructure.findFirst({ where: { employeeId: emp.id } });
+      }
+    }
+
+    // ── F1: Guard — block processing if still no employees have salary structures
+    const withSalary    = employees.filter(e => e.salaryStructure);
+    const missingSalary = employees.filter(e => !e.salaryStructure);
+    if (withSalary.length === 0) {
+      const names = missingSalary.map(e => `${(e as any).firstName} ${(e as any).lastName} (${(e as any).employeeCode})`);
+      throw new BadRequestError(
+        `Cannot process payroll — no salary structure found for any employee. ` +
+        `Please set CTC for: ${names.slice(0, 5).join(', ')}` +
+        (names.length > 5 ? ` and ${names.length - 5} more.` : '.')
+      );
+    }
+
     const totalWorkingDays = this.getWorkingDaysInMonth(run.month, run.year);
 
     // Pre-fetch attendance data in batch
@@ -561,11 +639,8 @@ export class PayrollService {
     }).catch(() => []);
     const holidayDates = new Set(holidays.map(h => new Date(h.date).toISOString().split('T')[0]));
 
-    // Pre-fetch component master for "default" salary mode employees
-    const componentMaster = await prisma.salaryComponentMaster.findMany({
-      where: { organizationId, deletedAt: null, isActive: true },
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-    });
+    // componentMasterAll was already fetched above for F5 auto-create; reuse it here
+    const componentMaster = componentMasterAll;
 
     try {
       const result = await prisma.$transaction(async (tx) => {
@@ -611,7 +686,8 @@ export class PayrollService {
           // For "default" employees (isCustom=false), re-compute from component master at payroll time
           // so any settings changes are automatically reflected without per-employee edits
           let components: SalaryComponent[];
-          if ((sal as any).isCustom === false && componentMaster.length > 0) {
+          // F2: use ?? false so NULL isCustom (old rows before migration) also uses component master
+          if (((sal as any).isCustom ?? false) === false && componentMaster.length > 0) {
             components = buildComponentsFromMaster(componentMaster, Number(sal.ctc));
           } else {
             components = (sal.components as SalaryComponent[] | null) || legacyToComponents(sal);
@@ -628,7 +704,7 @@ export class PayrollService {
           let recEpfEmployee: number, recEpfEmployer: number;
           let recEsiEmployee: number, recEsiEmployer: number;
           let recProfTax: number, recTds: number;
-          if ((sal as any).isCustom === false && componentMaster.length > 0) {
+          if (((sal as any).isCustom ?? false) === false && componentMaster.length > 0) {
             const basicComp2 = findComponent(components, 'Basic') || findComponent(components, 'Basic Salary');
             const basicVal2 = basicComp2?.value ?? 0;
             const cfg2 = calculateStatutory(basicVal2, earningsTotal, Number(sal.ctc), sal.incomeTaxRegime as any, null);
@@ -734,12 +810,24 @@ export class PayrollService {
           totalDeductions += deductions + lopDeduction;
         }
 
+        const processed = employees.filter((e) => e.salaryStructure).length;
+
+        // F1: If somehow still 0 records were created inside the transaction, revert
+        if (processed === 0) {
+          await tx.payrollRun.update({ where: { id: runId }, data: { status: 'DRAFT' } });
+          const names = employees.map(e => `${(e as any).firstName} ${(e as any).lastName} (${(e as any).employeeCode})`);
+          throw new BadRequestError(
+            `Payroll processed 0 employees. No salary structures or CTC values found. ` +
+            `Please set up salary for: ${names.slice(0, 5).join(', ')}${names.length > 5 ? ` and ${names.length - 5} more` : ''}.`
+          );
+        }
+
         await tx.payrollRun.update({
           where: { id: runId },
           data: { status: 'COMPLETED', processedAt: new Date(), totalGross, totalNet, totalDeductions },
         });
 
-        return { processed: employees.filter((e) => e.salaryStructure).length, totalGross, totalNet, totalDeductions };
+        return { processed, totalGross, totalNet, totalDeductions, missingSalary: missingSalary.map(e => `${(e as any).firstName} ${(e as any).lastName}`) };
       }, { timeout: 120000 });
 
       await createAuditLog({
@@ -755,6 +843,63 @@ export class PayrollService {
       await prisma.payrollRun.update({ where: { id: runId }, data: { status: 'DRAFT' } }).catch(() => {});
       throw err;
     }
+  }
+
+  /**
+   * Pre-flight check — returns employee readiness before processing payroll
+   * Ready   = has SalaryStructure OR has ctc > 0 on Employee (auto-create eligible)
+   * Missing = no salary structure and no CTC set — must be configured manually
+   */
+  async getPayrollPreflight(organizationId: string) {
+    const [employees, componentMaster] = await Promise.all([
+      prisma.employee.findMany({
+        where: { organizationId, status: { in: ['ACTIVE', 'PROBATION'] }, deletedAt: null, isSystemAccount: { not: true } },
+        include: {
+          salaryStructure: { select: { id: true, ctc: true, isCustom: true, effectiveFrom: true } },
+          department: { select: { name: true } },
+        },
+        orderBy: { firstName: 'asc' },
+      }),
+      prisma.salaryComponentMaster.findMany({
+        where: { organizationId, deletedAt: null, isActive: true },
+        select: { id: true, name: true },
+      }),
+    ]);
+
+    const ready: any[] = [];
+    const autoCreatable: any[] = [];
+    const missing: any[] = [];
+
+    for (const emp of employees) {
+      const row = {
+        id: emp.id,
+        name: `${(emp as any).firstName} ${(emp as any).lastName}`,
+        employeeCode: (emp as any).employeeCode,
+        department: (emp as any).department?.name || '—',
+        ctc: emp.salaryStructure ? Number(emp.salaryStructure.ctc) : Number((emp as any).ctc || 0),
+        hasSalaryStructure: !!emp.salaryStructure,
+        hasCtc: Number((emp as any).ctc || 0) > 0,
+      };
+      if (emp.salaryStructure) {
+        ready.push({ ...row, source: 'saved' });
+      } else if (Number((emp as any).ctc || 0) > 0 && componentMaster.length > 0) {
+        autoCreatable.push({ ...row, source: 'auto-create' });
+      } else {
+        missing.push({ ...row, source: 'missing' });
+      }
+    }
+
+    return {
+      totalEmployees: employees.length,
+      readyCount: ready.length,
+      autoCreatableCount: autoCreatable.length,
+      missingCount: missing.length,
+      componentMasterConfigured: componentMaster.length > 0,
+      ready,
+      autoCreatable,
+      missing,
+      canProcess: ready.length + autoCreatable.length > 0,
+    };
   }
 
   /**
