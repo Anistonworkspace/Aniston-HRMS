@@ -14,8 +14,6 @@ export default function SelfServiceReport() {
   const monthName = new Date(year, month - 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
 
   const attendanceScore = report ? Math.round(((report.present || 0) / Math.max(report.totalWorkingDays || 1, 1)) * 100) : 0;
-  const scoreColor = attendanceScore >= 90 ? 'text-emerald-600' : attendanceScore >= 75 ? 'text-amber-600' : 'text-red-500';
-  const scoreRing = attendanceScore >= 90 ? 'border-emerald-400' : attendanceScore >= 75 ? 'border-amber-400' : 'border-red-400';
 
   const handleDownloadPDF = () => {
     const token = localStorage.getItem('accessToken');
@@ -42,33 +40,6 @@ export default function SelfServiceReport() {
         <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-brand-500" /></div>
       ) : (
         <>
-          {/* Score Card */}
-          <div className="bg-gradient-to-br from-brand-50 to-white border border-brand-100 rounded-2xl p-5 flex items-center gap-6">
-            <div className={`w-20 h-20 rounded-full border-4 ${scoreRing} flex items-center justify-center flex-shrink-0`}>
-              <span className={`text-2xl font-display font-bold ${scoreColor}`}>{attendanceScore}%</span>
-            </div>
-            <div className="flex-1">
-              <h4 className="font-display font-bold text-gray-900 text-lg">Attendance Score</h4>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {attendanceScore >= 90 ? 'Excellent attendance! Keep it up.' :
-                 attendanceScore >= 75 ? 'Good attendance. Room for improvement.' :
-                 'Attendance needs attention. Contact your manager.'}
-              </p>
-              <div className="flex items-center gap-4 mt-2">
-                {report?.currentStreak > 0 && (
-                  <span className="flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                    <Zap size={10} /> {report.currentStreak}-day streak
-                  </span>
-                )}
-                {report?.bestStreak > 0 && (
-                  <span className="flex items-center gap-1 text-xs text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">
-                    <Award size={10} /> Best: {report.bestStreak} days
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
           {/* Stats Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
