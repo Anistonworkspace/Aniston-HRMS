@@ -77,6 +77,7 @@ npm run dev
 16. **PWA** — vite-plugin-pwa with `registerType: 'prompt'` + `injectManifest` strategy; update detection via `AppUpdateGuard`
 17. **Android APK** — Capacitor build via GitHub Actions; APK served at `/downloads/aniston-hrms.apk`; nginx aliases to `downloads/apk-build/`
 18. **Task Integration** — Jira, Asana, ClickUp integration via `task-integration` module with encrypted API keys
+19. **`kycCompleted` is computed, not stored** — derived in `auth.service.ts` from `user.employee?.documentGate?.kycStatus === 'VERIFIED'` at JWT generation time. Changing `kycStatus` in DB takes effect on next token refresh. For immediate revocation, emit `kyc:status-changed` socket event and dispatch `setUser({ ...user, kycCompleted: false })` from AppShell listener.
 
 ## Backend Modules (40+)
 All modules in `backend/src/modules/<name>/` follow MVC pattern. Notable modules:
@@ -113,7 +114,7 @@ All modules in `backend/src/modules/<name>/` follow MVC pattern. Notable modules
 | `performance` | Goals, review cycles, enterprise dashboard + task integration |
 | `policy` | Company policy docs + acknowledgment tracking |
 | `public-apply` | Public job application (AI MCQ, tracking, interview rounds) |
-| `recruitment` | Job openings + Kanban pipeline + offers |
+| `recruitment` | Job openings + Kanban pipeline + interview execution + scoring + offers + public application management |
 | `report` | Reports + Excel/PDF exports |
 | `salary-template` | Salary template CRUD + structure assignment |
 | `settings` | Org settings, locations, audit logs, AI config |
@@ -154,6 +155,9 @@ All modules in `backend/src/modules/<name>/` follow MVC pattern. Notable modules
 | `GET /api/task-integration/tasks/:employeeId` | task-integration | Fetch tasks for employee |
 | `GET /api/employee-permissions/:id` | employee-permissions | Get employee permission overrides |
 | `POST /api/employee-permissions/:id` | employee-permissions | Set permission overrides |
+| `POST /api/recruitment/:id/interview-rounds` | recruitment | Create interview round + AI questions |
+| `POST /api/recruitment/:id/schedule-interview` | recruitment | Schedule interview + AI message preview |
+| `POST /api/recruitment/:id/finalize` | recruitment | Finalize candidate with weighted score + hire/reject |
 
 ## Prisma Models (80+ total, key additions since Phase 8)
 | Model | Purpose |
@@ -232,8 +236,9 @@ All modules in `backend/src/modules/<name>/` follow MVC pattern. Notable modules
 | `frontend/src/features/attendance/FieldSalesView.tsx` | GPS trail tracking for field employees |
 | `frontend/src/features/attendance/ProjectSiteView.tsx` | Project site photo check-in |
 | `frontend/src/features/notifications/NotificationBell.tsx` | Real-time notification bell (Socket.io) |
-| `frontend/src/features/kyc/KycGatePage.tsx` | Employee KYC submission (Aadhaar, PAN, bank, photo) |
+| `frontend/src/features/kyc/KycGatePage.tsx` | Employee KYC submission — SEPARATE and COMBINED upload modes; re-upload banner on REUPLOAD_REQUIRED |
 | `frontend/src/features/kyc/KycHrReviewPage.tsx` | HR review panel for KYC document verification |
+| `backend/src/modules/onboarding/document-gate.service.ts` | KYC gate state machine — resetKycOnDocumentDeletion, checkDocumentSubmission, re-upload flag management |
 | `frontend/src/features/performance/PerformancePage.tsx` | Enterprise performance dashboard with task integration |
 | `frontend/src/features/leaves/LeavePage.tsx` | Leave management — employee apply + HR/Manager review panels |
 | `frontend/src/features/app-update/AppUpdateGuard.tsx` | Forces app reload when new SW version detected |
@@ -264,6 +269,7 @@ All modules in `backend/src/modules/<name>/` follow MVC pattern. Notable modules
 | `frontend/src/features/whatsapp/WhatsAppPage.tsx` | WhatsApp Web UI — chat list, message view, new chat |
 | `frontend/src/features/public-apply/PublicApplyPage.tsx` | Public AI-enhanced job application form (public, no auth) |
 | `frontend/src/features/public-apply/TrackApplicationPage.tsx` | Application status tracking by UID (public, no auth) |
+| `frontend/src/features/recruitment/PublicApplicationDetailPage.tsx` | Full detail view for public applications — MCQ scores, interview rounds, finalization |
 | `frontend/src/sw.ts` | Service worker — cache strategy, offline fallback, background sync |
 | `frontend/index.html` | PWA prompt early capture (`window.__pwaInstallPrompt`) before React mounts |
 | `frontend/capacitor.config.ts` | Capacitor config for Android APK build |
@@ -347,7 +353,7 @@ location = /downloads/aniston-hrms.apk {
 - **PWA Android Install** — `AndroidInstallPage` with tab switcher: PWA one-tap (captures `beforeinstallprompt` early in `index.html` via `window.__pwaInstallPrompt`) + APK fallback with full instructions
 - **PWA iOS Install** — `IosInstallPage` with Safari browser detection (`isAlreadyInSafari`); skips bridge step if already in Safari; shows "Open in Safari" if in-app browser (WhatsApp/Instagram/etc.)
 - **PWA Update Guard** — `AppUpdateGuard` component detects new SW version via 4-path detection: `registration.waiting` on mount + `updatefound`+`statechange` + `visibilitychange` + 30s poll interval
-- **KYC System** — Employee KYC submission (`KycGatePage`) with Aadhaar, PAN, bank details, passport photo + HR review panel (`KycHrReviewPage`) with OCR-powered auto-verify; `KycStatus` enum (PENDING/SUBMITTED/VERIFIED/REJECTED)
+- **KYC System** — Employee KYC submission (`KycGatePage`) with Aadhaar, PAN, bank details, passport photo + HR review panel (`KycHrReviewPage`) with OCR-powered auto-verify; `KycStatus` enum: `PENDING → SUBMITTED → PROCESSING → PENDING_HR_REVIEW → REUPLOAD_REQUIRED → VERIFIED / REJECTED`
 - **Document OCR Pipeline** — Improved `document-ocr` module + `combined-pdf-processor.service.ts` for multi-document batch processing; `documentFormatValidator` for Aadhaar/PAN/passport format rules; AI-service `ocr.py` + `ocr_service.py` improvements
 - **Performance Enterprise Dashboard** — `PerformancePage` major overhaul with employee performance summary, task risk scoring, OKR view, review cycle management; integrates with Jira/Asana/ClickUp via `task-integration` module
 - **Task Integration** — `task-integration` module: Jira/Asana/ClickUp API key config (AES-encrypted), task fetch per employee, leave risk assessment (CRITICAL/HIGH/MEDIUM/LOW), handover generation, health logging
@@ -364,6 +370,31 @@ location = /downloads/aniston-hrms.apk {
 - **MFA Support** — `UserMFA` model; TOTP-based 2FA infrastructure
 - **Device Sessions** — `DeviceSession` model for multi-device session tracking
 - **i18n** — Hindi (`hi.json`) + English (`en.json`) locale files; react-i18next integration
+
+### Phase 10 (Complete) — Document Lifecycle, Recruitment Full-Cycle & Settings Hardening
+
+#### KYC Document Deletion → Notification → Re-upload Flow
+- **HR required reason on delete** — HR must enter a reason (required textarea) before deleting any document; Delete button disabled until filled; button label "Delete & Notify Employee"
+- **Employee email notification** — `document-deleted` email template: red header, document details table, HR reason box, conditional guidance (combined PDF vs separate doc re-upload instructions), red CTA to dashboard
+- **Immediate KYC gate revocation** — `resetKycOnDocumentDeletion` always sets `REUPLOAD_REQUIRED` regardless of current KYC status (removed PENDING exception); stores HR reason in `documentRejectReasons[docType]` JSON map; adds doc type to `reuploadDocTypes[]`
+- **Real-time access revocation** — AppShell `kyc:status-changed` socket listener immediately dispatches `setUser({ ...user, kycCompleted: false })` to Redux (no wait for next token refresh) + shows error toast
+- **Re-upload flow** — `checkDocumentSubmission` now clears the specific `docType` from `reuploadDocTypes[]` and deletes its rejection reason; advances gate to `SUBMITTED` when all flagged docs are re-uploaded; emits `kyc:status-changed` socket event on status change
+- **CombinedUploadScreen re-upload banner** — orange `AlertTriangle` banner with HR reason shown when gate is `REUPLOAD_REQUIRED`; parent passes `reuploadDocTypes` + `documentRejectReasons` props
+- **Physical file deletion** — `document.service remove()` calls `storageService.deleteFile()` after soft-delete (non-blocking, best-effort); `create()` also physically deletes and soft-deletes previous active doc of same type before inserting new
+- **Soft-delete list filter** — `document.service list()` now includes `deletedAt: null` in base `where` clause — soft-deleted docs no longer leak into HR document list
+- **`documentApi` mutation updated** — `deleteDocument` accepts `{ id: string; reason?: string }` and sends `reason` in request body
+
+#### Recruitment Full-Cycle Completion
+- **`PublicApplicationDetailPage`** — full detail view for public job applications: MCQ scores, interview rounds timeline, per-round question/answer scoring, candidate finalization workflow
+- **`RecruitmentPage` overhaul** — expanded Kanban with integrated public application tracking, interview scheduling modal, offer management panel, pipeline overview stats
+- **Interview execution backend** — `recruitment.service`: interview round creation, AI question generation per round, answer scoring, weighted final score calculation across rounds, candidate finalization with hire/reject decision
+- **New recruitment routes** — `POST /api/recruitment/:id/interview-rounds`, `POST /api/recruitment/:id/schedule-interview`, `POST /api/recruitment/:id/finalize`
+- **`publicApplyApi` RTK Query** — added endpoints for interview round management, per-round scoring, and finalization
+
+#### Settings — Task Manager Integration UX Hardening
+- **Read-only masked view** — saved API key shown as `•••••••••••• Saved` with lock icon by default; base URL displayed; no accidental edits
+- **Edit-toggle pattern** — fields only editable after clicking "Edit" button; closing form clears API key from state (security — never stored in Redux)
+- **Custom provider dual-auth** — custom task manager provider now sends both `X-API-Key` and `Authorization: Bearer <key>` headers for maximum compatibility with self-hosted instances
 
 ## Indian Payroll Compliance
 - EPF: 12% of basic (employee + employer), basic capped at 15,000
