@@ -313,7 +313,7 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
                 const classifyRes = await fetch(`${AI_URL}/ai/ocr/classify-combined-pdf`, {
                   method: 'POST',
                   body: formData,
-                  signal: AbortSignal.timeout(120_000),
+                  signal: AbortSignal.timeout(300_000),
                 });
                 if (classifyRes.ok) {
                   const classifyJson = await classifyRes.json() as { success: boolean; data: any };
@@ -603,7 +603,7 @@ router.post('/kyc/:employeeId/reclassify-combined-pdf', authenticate, authorize(
         const classifyRes = await fetch(`${AI_URL}/ai/ocr/classify-combined-pdf`, {
           method: 'POST',
           body: formData,
-          signal: AbortSignal.timeout(120_000),
+          signal: AbortSignal.timeout(300_000),
         });
         if (classifyRes.ok) {
           const classifyJson = await classifyRes.json() as { success: boolean; data: any };

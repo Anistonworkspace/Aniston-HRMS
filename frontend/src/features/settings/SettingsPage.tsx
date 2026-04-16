@@ -13,7 +13,7 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation } from './settingsApi';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation, useGetAiServiceHealthQuery } from './settingsApi';
 import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useUpdateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
 import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useRefreshWhatsAppQrMutation, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation, useGetWhatsAppContactsQuery, useGetWhatsAppMessagesQuery } from '../whatsapp/whatsappApi';
@@ -2089,6 +2089,7 @@ function ApiIntegrationsTab() {
   const { data: res, isLoading, refetch } = useGetAiConfigQuery();
   const [saveConfig, { isLoading: saving }] = useSaveAiConfigMutation();
   const [testConnection, { isLoading: testing }] = useTestAiConnectionMutation();
+  const { data: aiHealth, refetch: refetchHealth } = useGetAiServiceHealthQuery(undefined, { pollingInterval: 30000 });
 
   const config = res?.data;
 
@@ -2180,12 +2181,66 @@ function ApiIntegrationsTab() {
         </div>
       )}
 
+      {/* Python OCR Service Health Card */}
+      <div className="layer-card p-4 flex items-start gap-4">
+        <div className={cn(
+          'w-9 h-9 rounded-lg flex items-center justify-center shrink-0',
+          aiHealth?.data?.status === 'online' ? 'bg-emerald-100' :
+          aiHealth?.data?.status === 'degraded' ? 'bg-amber-100' :
+          aiHealth?.data?.status === 'offline' ? 'bg-red-100' : 'bg-slate-100'
+        )}>
+          <Server size={18} className={cn(
+            aiHealth?.data?.status === 'online' ? 'text-emerald-600' :
+            aiHealth?.data?.status === 'degraded' ? 'text-amber-600' :
+            aiHealth?.data?.status === 'offline' ? 'text-red-600' : 'text-slate-500'
+          )} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-gray-800">Python OCR Service (KYC Document Scanner)</p>
+            <span className={cn(
+              'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold',
+              aiHealth?.data?.status === 'online'   ? 'bg-emerald-100 text-emerald-700' :
+              aiHealth?.data?.status === 'degraded' ? 'bg-amber-100 text-amber-700' :
+              aiHealth?.data?.status === 'offline'  ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'
+            )}>
+              <span className={cn(
+                'w-1.5 h-1.5 rounded-full',
+                aiHealth?.data?.status === 'online' ? 'bg-emerald-500 animate-pulse' :
+                aiHealth?.data?.status === 'degraded' ? 'bg-amber-500' :
+                aiHealth?.data?.status === 'offline' ? 'bg-red-500' : 'bg-slate-400'
+              )} />
+              {aiHealth?.data?.status === 'online'
+                ? `Online · ${aiHealth.data.latencyMs}ms`
+                : aiHealth?.data?.status === 'degraded'
+                  ? `Degraded (HTTP ${aiHealth.data.httpStatus})`
+                  : aiHealth?.data?.status === 'offline'
+                    ? 'Offline — KYC uses Node.js fallback'
+                    : 'Checking…'}
+            </span>
+            <button onClick={() => refetchHealth()} className="text-xs text-indigo-600 hover:underline flex items-center gap-1">
+              <RefreshCw size={11} /> Refresh
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">
+            This is the Python Tesseract OCR service that classifies KYC documents. It is separate from the AI Provider below.
+            If offline, KYC classification falls back to Node.js OCR automatically — no action needed.
+          </p>
+          {aiHealth?.data?.status === 'offline' && (
+            <p className="text-xs text-red-600 mt-1 font-medium">
+              Offline reason: {aiHealth.data.error || 'Connection refused'}.
+              KYC will use Node.js fallback (lower accuracy). Check Docker container: <code className="bg-red-50 px-1 rounded">docker ps | grep ai-service</code>
+            </p>
+          )}
+        </div>
+      </div>
+
       {/* AI Provider Configuration */}
       <div className="layer-card p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
           <Cpu size={20} className="text-brand-600" /> AI Provider
         </h3>
-        <p className="text-sm text-gray-500 mb-5">Configure which AI model powers resume scoring, interview questions, and the AI assistant.</p>
+        <p className="text-sm text-gray-500 mb-5">Configure which AI model powers resume scoring, interview questions, and the AI assistant. <span className="font-medium text-indigo-600">This does NOT affect KYC document scanning</span> — OCR runs locally via the Python service above.</p>
 
         <div className="space-y-4">
           {/* Provider Selector */}

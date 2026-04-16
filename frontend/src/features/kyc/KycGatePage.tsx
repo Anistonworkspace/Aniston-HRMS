@@ -175,10 +175,22 @@ export default function KycGatePage() {
     return () => { offSocketEvent('kyc:status-changed', handler); };
   }, [refetch]);
 
-  // Polling while combined PDF is being classified (PROCESSING state, ~3s interval)
+  // Polling while combined PDF is being classified (PROCESSING state, ~5s interval, max 5 min)
   useEffect(() => {
     if (kycStatus !== 'PROCESSING') return;
-    const timer = setInterval(() => { refetch(); }, 3000);
+    let attempts = 0;
+    const MAX_ATTEMPTS = 60; // 60 × 5s = 5 minutes
+    const timer = setInterval(() => {
+      attempts++;
+      refetch();
+      if (attempts >= MAX_ATTEMPTS) {
+        clearInterval(timer);
+        toast.error(
+          'Document scanning is taking longer than expected. Please refresh the page or contact HR if the issue persists.',
+          { duration: 8000 }
+        );
+      }
+    }, 5000);
     return () => clearInterval(timer);
   }, [kycStatus, refetch]);
 

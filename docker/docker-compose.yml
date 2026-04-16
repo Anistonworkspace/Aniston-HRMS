@@ -41,7 +41,7 @@ services:
       - "8000:8000"
     environment:
       APP_NAME: "Aniston AI Service"
-      API_KEY: "${AI_SERVICE_API_KEY:-dev-ai-key}"
+      API_KEY: "${AI_SERVICE_API_KEY-dev-ai-key}"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
       DEEPSEEK_BASE_URL: "https://api.deepseek.com/v1"
       AI_LOG_FILE: "/logs/ai-service.log"

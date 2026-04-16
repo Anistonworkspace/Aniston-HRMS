@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import toast from 'react-hot-toast';
 import {
   FileText, User, CheckCircle, XCircle, AlertTriangle, Clock,
   Eye, RefreshCw, ArrowLeft, ChevronDown, ChevronUp, MessageSquare,
   Shield, Download, Cpu, Server, ClipboardList, Award, Briefcase,
-  GraduationCap, Flag, Info,
+  GraduationCap, Flag, Info, Scan, Loader2,
 } from 'lucide-react';
 import {
   useGetPendingKycQuery,
@@ -15,6 +16,7 @@ import {
   useRequestReuploadMutation,
   useUpdateHrNotesMutation,
   useRetriggerOcrMutation,
+  useReclassifyCombinedPdfMutation,
 } from './kycApi';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -207,10 +209,19 @@ function ValidationReasonsList({ reasons, title }: { reasons: string[]; title?: 
 function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: () => void }) {
   const { data, isLoading, refetch } = useGetKycHrReviewQuery(employeeId);
   const [verifyKyc, { isLoading: verifying }] = useVerifyKycMutation();
+
+  // Auto-poll while PROCESSING so HR sees the result appear without refreshing
+  const kycStatusForPolling = data?.data?.gate?.kycStatus;
+  useEffect(() => {
+    if (kycStatusForPolling !== 'PROCESSING') return;
+    const timer = setInterval(() => refetch(), 5000);
+    return () => clearInterval(timer);
+  }, [kycStatusForPolling, refetch]);
   const [rejectKyc, { isLoading: rejecting }] = useRejectKycMutation();
   const [requestReupload, { isLoading: reuploading }] = useRequestReuploadMutation();
   const [updateHrNotes] = useUpdateHrNotesMutation();
   const [retriggerOcr, { isLoading: retriggering }] = useRetriggerOcrMutation();
+  const [reclassifyCombinedPdf, { isLoading: reclassifying }] = useReclassifyCombinedPdfMutation();
 
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showReuploadModal, setShowReuploadModal] = useState(false);
@@ -242,9 +253,10 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
     if (!confirm(`Approve KYC for ${employeeName}? This will unlock their dashboard and auto-fill verified profile fields.`)) return;
     try {
       await verifyKyc(employeeId).unwrap();
+      toast.success(`KYC approved for ${employeeName}`);
       onBack();
     } catch (err: any) {
-      alert(err?.data?.error?.message || 'Approval failed');
+      toast.error(err?.data?.error?.message || 'Approval failed — please try again');
     }
   };
 
@@ -252,10 +264,11 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
     if (!rejectReason.trim()) return;
     try {
       await rejectKyc({ employeeId, reason: rejectReason }).unwrap();
+      toast.success('KYC rejected — employee has been notified');
       setShowRejectModal(false);
       onBack();
     } catch (err: any) {
-      alert(err?.data?.error?.message || 'Rejection failed');
+      toast.error(err?.data?.error?.message || 'Rejection failed — please try again');
     }
   };
 
@@ -263,10 +276,11 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
     if (reuploadDocTypes.length === 0) return;
     try {
       await requestReupload({ employeeId, docTypes: reuploadDocTypes, reasons: reuploadReasons }).unwrap();
+      toast.success('Re-upload request sent to employee');
       setShowReuploadModal(false);
       onBack();
     } catch (err: any) {
-      alert(err?.data?.error?.message || 'Failed to request re-upload');
+      toast.error(err?.data?.error?.message || 'Failed to request re-upload');
     }
   };
 
@@ -279,10 +293,28 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
   };
 
   const handleRetriggerOcr = async () => {
+    const tid = toast.loading('Re-running OCR on all documents…');
     try {
-      await retriggerOcr(employeeId).unwrap();
-      setTimeout(() => refetch(), 2000);
-    } catch { /* ignore */ }
+      const res = await retriggerOcr(employeeId).unwrap();
+      toast.success(`OCR queued for ${res?.data?.triggered ?? 0} document(s)`, { id: tid });
+      setTimeout(() => refetch(), 2500);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'OCR re-trigger failed', { id: tid });
+    }
+  };
+
+  const handleReclassify = async () => {
+    const tid = toast.loading('Re-classifying combined PDF via AI… this may take up to 2 minutes');
+    try {
+      const res = await reclassifyCombinedPdf(employeeId).unwrap();
+      const src = res?.data?.source === 'python' ? 'Python AI' : 'Node.js fallback';
+      const pages = res?.data?.totalPages ?? 0;
+      const detected = (res?.data?.detectedDocs ?? []).join(', ') || 'none';
+      toast.success(`Reclassified via ${src} — ${pages} pages, detected: ${detected}`, { id: tid, duration: 6000 });
+      setTimeout(() => refetch(), 500);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Reclassification failed', { id: tid });
+    }
   };
 
   const docTypes = documents?.map((d: any) => d.type).filter((t: string) => t !== 'OTHER');
@@ -307,11 +339,23 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
         <div className="flex gap-2">
           <button
             onClick={handleRetriggerOcr}
-            disabled={retriggering}
+            disabled={retriggering || reclassifying}
             className="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${retriggering ? 'animate-spin' : ''}`} />
+            {retriggering
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <RefreshCw className="w-3.5 h-3.5" />}
             Re-run OCR
+          </button>
+          <button
+            onClick={handleReclassify}
+            disabled={reclassifying || retriggering}
+            className="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3"
+          >
+            {reclassifying
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <Scan className="w-3.5 h-3.5" />}
+            Re-classify PDF
           </button>
         </div>
       </div>
@@ -333,6 +377,55 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
             </p>
           </div>
         </div>
+      )}
+
+      {/* PROCESSING — professional scanning animation */}
+      {gate?.kycStatus === 'PROCESSING' && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-4 layer-card p-5 border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50"
+        >
+          <div className="flex items-start gap-4">
+            <div className="relative shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
+                <Scan className="w-5 h-5 text-indigo-600" />
+              </div>
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-indigo-500 rounded-full animate-ping" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-indigo-900">AI Document Scanner Running</p>
+              <p className="text-xs text-indigo-700 mt-0.5">
+                The Python OCR engine is scanning every page of the combined PDF and identifying document types.
+                This takes 30–120 seconds depending on file size. The page will refresh automatically when complete.
+              </p>
+              {/* Animated scan lines */}
+              <div className="mt-3 space-y-1.5">
+                {[0, 1, 2].map((i) => (
+                  <motion.div
+                    key={i}
+                    className="h-1.5 rounded-full bg-indigo-200 overflow-hidden"
+                    initial={{ width: '100%' }}
+                  >
+                    <motion.div
+                      className="h-full bg-indigo-500 rounded-full"
+                      animate={{ x: ['-100%', '100%'] }}
+                      transition={{ duration: 1.4 + i * 0.3, repeat: Infinity, ease: 'easeInOut', delay: i * 0.2 }}
+                    />
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={handleReclassify}
+              disabled={reclassifying}
+              className="shrink-0 text-xs text-indigo-700 border border-indigo-300 rounded-lg px-3 py-1.5 hover:bg-indigo-100 transition-colors flex items-center gap-1.5"
+            >
+              {reclassifying ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+              Force Re-classify
+            </button>
+          </div>
+        </motion.div>
       )}
 
       {/* Action Bar */}

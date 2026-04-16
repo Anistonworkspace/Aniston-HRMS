@@ -210,6 +210,9 @@ export const settingsApi = api.injectEndpoints({
     getAiServiceLogs: builder.query<any, number>({
       query: (lines = 200) => ({ url: '/settings/system-logs/ai-service', params: { lines } }),
     }),
+    getAiServiceHealth: builder.query<{ success: boolean; data: { status: 'online' | 'offline' | 'degraded'; latencyMs?: number; service?: string; version?: string; url?: string; error?: string; httpStatus?: number } }, void>({
+      query: () => '/settings/system-logs/ai-health',
+    }),
   }),
 });
 
@@ -248,4 +251,5 @@ export const {
   useGetSystemLogSummaryQuery,
   useGetSystemLogsQuery,
   useGetAiServiceLogsQuery,
+  useGetAiServiceHealthQuery,
 } = settingsApi;

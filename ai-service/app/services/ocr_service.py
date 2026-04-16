@@ -60,7 +60,7 @@ def _preprocess_conservative(image: Image.Image) -> Image.Image:
             gray = cv2.cvtColor(img_array[:, :, :3], cv2.COLOR_RGB2GRAY)
         else:
             gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-        # Upscale only if very small (shouldn't happen at 300 DPI but just in case)
+        # Upscale only if very small (shouldn't happen at 200 DPI but just in case)
         h, w = gray.shape[:2]
         if w < 800:
             scale = 1200.0 / w
@@ -146,7 +146,7 @@ def convert_pdf_to_images(pdf_bytes: bytes, last_page: int = MAX_PDF_PAGES_FOR_O
     if not HAS_PDF2IMAGE:
         return []
     try:
-        images = convert_from_bytes(pdf_bytes, dpi=300, first_page=1, last_page=last_page)
+        images = convert_from_bytes(pdf_bytes, dpi=200, first_page=1, last_page=last_page)
         return images
     except Exception as e:
         logger.warning(f"pdf2image conversion failed: {e}")
