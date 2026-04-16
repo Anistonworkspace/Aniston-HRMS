@@ -465,14 +465,16 @@ jobs:
             bash scripts/pre-deploy-backup.sh || echo "WARNING: Backup failed but continuing..."
 
             echo "=== [2/16] Installing system dependencies ==="
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq chromium-browser || sudo apt-get install -y -qq chromium || true
-            sudo apt-get install -y -qq \
+            # apt-get update can fail with exit 100 when mirror is mid-sync —
+            # allow it to fail and proceed with cached package lists instead.
+            sudo apt-get update -qq 2>&1 | grep -v "^E:" || true
+            sudo apt-get install -y -qq --fix-missing chromium-browser || sudo apt-get install -y -qq --fix-missing chromium || true
+            sudo apt-get install -y -qq --fix-missing \
               libatk1.0-0 libatk-bridge2.0-0 libcups2 libxdamage1 libxrandr2 \
               libgbm1 libpango-1.0-0 libcairo2 libnspr4 libnss3 libxss1 \
               libxtst6 xdg-utils fonts-liberation \
               libasound2t64 || sudo apt-get install -y -qq libasound2 || true
-            sudo apt-get install -y -qq postgresql-client || true
+            sudo apt-get install -y -qq --fix-missing postgresql-client || true
             PG_DUMP_BIN=$(which pg_dump 2>/dev/null || true)
             if [ -n "$PG_DUMP_BIN" ]; then
               echo "pg_dump found at: $PG_DUMP_BIN ($(pg_dump --version))"
@@ -517,7 +519,7 @@ jobs:
             echo "=== [8/16] Building & starting AI service (Docker + OCR) ==="
 
             # Install tesseract + poppler on the host so the Node.js fallback also works
-            sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-eng poppler-utils || true
+            sudo apt-get install -y -qq --fix-missing tesseract-ocr tesseract-ocr-eng poppler-utils || true
 
             # Install Docker if missing
             if ! command -v docker &>/dev/null; then
