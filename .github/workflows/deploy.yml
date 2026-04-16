@@ -483,7 +483,10 @@ jobs:
             which docker-compose || sudo apt-get install -y -qq docker-compose-plugin || true
 
             echo "=== [3/16] Pulling latest code ==="
-            git pull origin main
+            # Reset any local server changes (e.g. manual edits to docker-compose.yml
+            # made during debugging) so git pull never aborts with "overwritten by merge"
+            git fetch origin main
+            git reset --hard origin/main
 
             echo "=== [4/16] Setting production domain + encryption key ==="
             sed -i '/FRONTEND_URL/d' .env 2>/dev/null || true
