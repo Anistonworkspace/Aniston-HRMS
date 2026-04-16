@@ -308,7 +308,7 @@ describe('InvitationService', () => {
     const completionData = {
       firstName: 'Priya',
       lastName: 'Sharma',
-      email: 'priya@example.com',
+      email: 'newjoin@example.com',
       phone: '9876543210',
       password: 'SecurePass@123',
     };
