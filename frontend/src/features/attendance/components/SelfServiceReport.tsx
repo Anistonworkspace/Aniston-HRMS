@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, Loader2, Award, TrendingUp, Clock, Zap } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Loader2, Award, TrendingUp, Clock } from 'lucide-react';
 import { useGetMyReportQuery } from '../attendanceApi';
+import { useAuthDownload } from '../../../hooks/useAuthDownload';
 
 export default function SelfServiceReport() {
   const now = new Date();
@@ -8,6 +9,7 @@ export default function SelfServiceReport() {
   const [year, setYear] = useState(now.getFullYear());
   const { data: res, isLoading } = useGetMyReportQuery({ month, year });
   const report = res?.data;
+  const { download, downloading } = useAuthDownload();
 
   const prevMonth = () => { if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1); };
   const nextMonth = () => { if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1); };
@@ -15,10 +17,9 @@ export default function SelfServiceReport() {
 
   const attendanceScore = report ? Math.round(((report.present || 0) / Math.max(report.totalWorkingDays || 1, 1)) * 100) : 0;
 
-  const handleDownloadPDF = () => {
-    const token = localStorage.getItem('accessToken');
-    const apiUrl = import.meta.env.VITE_API_URL || '/api';
-    window.open(`${apiUrl}/attendance/my/report/pdf?month=${month}&year=${year}&token=${token}`, '_blank');
+  const handleDownloadExcel = () => {
+    const mName = new Date(year, month - 1).toLocaleString('en-IN', { month: 'short' });
+    download(`/attendance/my/report/export?month=${month}&year=${year}`, `my-attendance-${mName}-${year}.xlsx`);
   };
 
   return (
@@ -30,9 +31,10 @@ export default function SelfServiceReport() {
           <h3 className="text-sm font-display font-semibold text-gray-800 min-w-[140px] text-center">{monthName}</h3>
           <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-100"><ChevronRight size={16} /></button>
         </div>
-        <button onClick={handleDownloadPDF}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-medium">
-          <Download size={14} /> Download PDF
+        <button onClick={handleDownloadExcel} disabled={!!downloading}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-medium disabled:opacity-60">
+          {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+          {downloading ? 'Downloading...' : 'Download Excel'}
         </button>
       </div>
 

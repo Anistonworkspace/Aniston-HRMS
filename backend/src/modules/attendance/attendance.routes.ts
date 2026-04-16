@@ -504,6 +504,24 @@ router.get('/my/report', async (req, res, next) => {
 });
 
 // =====================================================================
+// P2.7b: EMPLOYEE SELF-SERVICE EXCEL EXPORT
+// =====================================================================
+router.get('/my/report/export', async (req, res, next) => {
+  try {
+    const employeeId = req.user!.employeeId;
+    if (!employeeId) { res.status(400).json({ success: false, error: { message: 'No employee profile' } }); return; }
+    const month = parseInt(req.query.month as string) || new Date().getMonth() + 1;
+    const year = parseInt(req.query.year as string) || new Date().getFullYear();
+    const { generateEmployeeAttendanceExcel } = await import('../../utils/attendanceExcelExporter.js');
+    const buffer = await generateEmployeeAttendanceExcel(employeeId, month, year);
+    const monthName = new Date(year, month - 1).toLocaleString('en-IN', { month: 'short' });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="my-attendance-${monthName}-${year}.xlsx"`);
+    res.send(buffer);
+  } catch (err) { next(err); }
+});
+
+// =====================================================================
 // P2.9: GEOFENCE MAP DATA FOR CHECK-IN
 // =====================================================================
 router.get('/check-in-map/:attendanceId', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER), async (req, res, next) => {

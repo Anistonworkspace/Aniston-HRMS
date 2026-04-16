@@ -448,7 +448,7 @@ function AttendancePersonalView() {
   const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [liveTime, setLiveTime] = useState(new Date());
-  const { download: downloadReport, downloading: reportDownloading } = useAuthDownload();
+
   const [locationStatus, setLocationStatus] = useState<'checking' | 'granted' | 'denied' | 'prompt'>('checking');
 
   // Desktop users cannot mark attendance — only mobile app is allowed
@@ -1116,39 +1116,6 @@ function AttendancePersonalView() {
             )}
           </motion.div>
 
-          {/* Summary card */}
-          {monthData?.summary && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="layer-card p-4"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs font-semibold text-gray-700">{t('attendance.thisMonth')}</h3>
-                <button
-                  onClick={() => {
-                    const m = currentMonth.getMonth() + 1;
-                    const y = currentMonth.getFullYear();
-                    downloadReport(`/attendance/my/report?month=${m}&year=${y}`, `my-attendance-${m}-${y}.xlsx`);
-                  }}
-                  disabled={!!reportDownloading}
-                  className="flex items-center gap-1 text-[11px] text-brand-600 hover:text-brand-700 font-medium"
-                >
-                  <Download size={11} />
-                  {reportDownloading ? 'Downloading...' : 'Download'}
-                </button>
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                <SummaryItem label={t('attendance.present')} value={monthData.summary.present} color="text-emerald-600" />
-                <SummaryItem label={t('attendance.absent')} value={monthData.summary.absent} color="text-red-500" />
-                <SummaryItem label={t('attendance.halfDay')} value={monthData.summary.halfDay} color="text-amber-500" />
-                <SummaryItem label={t('attendance.onLeave')} value={monthData.summary.onLeave} color="text-purple-500" />
-                <SummaryItem label={t('attendance.avgHours')} value={`${monthData.summary.averageHours}h`} color="text-blue-600" />
-                <SummaryItem label={t('attendance.wfh')} value={monthData.summary.workFromHome} color="text-teal-500" />
-              </div>
-            </motion.div>
-          )}
         </div>
 
         {/* Right: Calendar */}
@@ -1278,11 +1245,3 @@ function AttendancePersonalView() {
   );
 }
 
-function SummaryItem({ label, value, color }: { label: string; value: number | string; color: string }) {
-  return (
-    <div className="text-center py-1.5 px-1 bg-surface-2 rounded-lg">
-      <p className={cn('text-sm font-bold font-mono', color)} data-mono>{value}</p>
-      <p className="text-[10px] text-gray-400 leading-tight mt-0.5">{label}</p>
-    </div>
-  );
-}
