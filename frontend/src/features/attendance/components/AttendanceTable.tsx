@@ -25,6 +25,28 @@ const SOURCE_LABELS: Record<string, string> = {
   BIOMETRIC: 'Biometric',
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  PRESENT: 'Present',
+  ABSENT: 'Absent',
+  HALF_DAY: 'Half Day',
+  ON_LEAVE: 'On Leave',
+  WORK_FROM_HOME: 'WFH',
+  NOT_CHECKED_IN: 'Not In',
+  WEEKEND: 'Weekend',
+  HOLIDAY: 'Holiday',
+  LATE: 'Late',
+};
+
+/** Returns live elapsed hours when employee is checked in but not yet out */
+const getLiveHours = (checkIn: string | null, checkOut: string | null, totalHours: number | null): string => {
+  if (totalHours != null && totalHours > 0) return `${Number(totalHours).toFixed(1)}h`;
+  if (checkIn && !checkOut) {
+    const elapsed = (Date.now() - new Date(checkIn).getTime()) / 3600000;
+    return elapsed > 0 ? `${elapsed.toFixed(1)}h` : '--';
+  }
+  return '--';
+};
+
 const COMPLIANCE_COLORS: Record<string, string> = {
   INSIDE_GEOFENCE: 'bg-emerald-50 text-emerald-600',
   OUTSIDE_GEOFENCE: 'bg-red-50 text-red-600',
@@ -180,14 +202,25 @@ function AttendanceTable({ records, isLoading, meta, page, onPageChange, sortBy,
                   </td>
                   {/* Total Hours */}
                   <td className="px-2.5 py-2">
-                    <span className={cn('font-mono font-medium', Number(r.totalHours || 0) < 4 && r.totalHours ? 'text-red-500' : 'text-gray-700')} data-mono>
-                      {r.totalHours ? `${Number(r.totalHours).toFixed(1)}h` : '--'}
-                    </span>
+                    {(() => {
+                      const display = getLiveHours(r.checkIn, r.checkOut, r.totalHours);
+                      const hours = parseFloat(display);
+                      const isLive = r.checkIn && !r.checkOut && (!r.totalHours || r.totalHours === 0);
+                      return (
+                        <span className={cn(
+                          'font-mono font-medium text-xs',
+                          isLive ? 'text-emerald-600' : (!isNaN(hours) && hours < 4 ? 'text-red-500' : 'text-gray-700'),
+                        )} data-mono>
+                          {display}
+                          {isLive && display !== '--' && <span className="ml-0.5 text-[8px] text-emerald-500 font-sans">●</span>}
+                        </span>
+                      );
+                    })()}
                   </td>
                   {/* Status */}
                   <td className="px-2.5 py-2">
-                    <span className={cn('badge text-[10px] px-1.5 py-0.5', getStatusColor(r.status))}>
-                      {r.status?.replace(/_/g, ' ') || '--'}
+                    <span className={cn('inline-flex items-center rounded-full text-[10px] font-medium px-2 py-0.5 whitespace-nowrap', getStatusColor(r.status))}>
+                      {STATUS_LABELS[r.status] || r.status?.replace(/_/g, ' ') || '--'}
                     </span>
                   </td>
                   {/* Work Mode */}
