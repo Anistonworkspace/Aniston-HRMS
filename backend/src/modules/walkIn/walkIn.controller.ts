@@ -22,11 +22,17 @@ export class WalkInController {
   async register(req: Request, res: Response, next: NextFunction) {
     try {
       const data = registerWalkInSchema.parse(req.body);
-      let orgId = (req.body.organizationId as string) || process.env.DEFAULT_ORG_ID || '';
+      // GAP-3 FIX: Never trust organizationId from request body on public routes.
+      // Always use DEFAULT_ORG_ID from environment; fall back to first org in DB.
+      let orgId = process.env.DEFAULT_ORG_ID || '';
       if (!orgId) {
         const { prisma } = await import('../../lib/prisma.js');
         const firstOrg = await prisma.organization.findFirst();
         orgId = firstOrg?.id || '';
+      }
+      if (!orgId) {
+        res.status(503).json({ success: false, error: { code: 'ORG_NOT_FOUND', message: 'Organization not configured' } });
+        return;
       }
       const candidate = await walkInService.register(data, orgId);
       res.status(201).json({

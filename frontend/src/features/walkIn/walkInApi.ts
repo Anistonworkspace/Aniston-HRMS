@@ -122,13 +122,14 @@ export const walkInApi = api.injectEndpoints({
         method: 'POST',
         body: { teamsEmail },
       }),
-      invalidatesTags: ['WalkIn', 'Dashboard'],
+      // GAP-4 FIX: invalidate Recruitment so HiringPassedTab refreshes after hire
+      invalidatesTags: ['WalkIn', 'Dashboard', 'Recruitment'],
     }),
 
     // HR: Get selected (hiring passed) candidates
     getSelectedCandidates: builder.query<any, { page?: number; limit?: number; search?: string }>({
       query: (params) => ({ url: '/walk-in/selected', params }),
-      providesTags: ['WalkIn'],
+      providesTags: ['WalkIn', 'Recruitment'],
     }),
 
     // HR: Get available interviewers

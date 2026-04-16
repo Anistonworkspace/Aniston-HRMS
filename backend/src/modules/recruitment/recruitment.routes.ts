@@ -170,4 +170,50 @@ router.get('/pipeline/stats', authenticate, requirePermission('recruitment', 're
   } catch (err) { next(err); }
 });
 
+// =====================
+// M-2: UNIFIED READY-FOR-ONBOARDING VIEW
+// =====================
+
+router.get('/ready-for-onboarding', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await recruitmentService.getReadyForOnboarding(req.user!.organizationId);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+// =====================
+// M-1: MCQ SCORING FOR INTERNAL APPLICANTS
+// =====================
+
+router.get('/applications/:id/mcq-questions', authenticate, requirePermission('recruitment', 'read'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await recruitmentService.getApplicationMCQQuestions(req.params.id, req.user!.organizationId);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+router.post('/applications/:id/mcq-score', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { answers } = z.object({
+      answers: z.array(z.object({ questionId: z.string(), selectedOption: z.string() })),
+    }).parse(req.body);
+    const result = await recruitmentService.scoreApplicationMCQ(req.params.id, answers, req.user!.organizationId);
+    res.json({ success: true, data: result, message: 'MCQ score recorded' });
+  } catch (err) { next(err); }
+});
+
+// =====================
+// M-3: BULK ONBOARDING INVITES
+// =====================
+
+router.post('/bulk-invite', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { walkInIds } = z.object({
+      walkInIds: z.array(z.string().uuid()).min(1).max(50),
+    }).parse(req.body);
+    const result = await recruitmentService.bulkSendOnboardingInvites(walkInIds, req.user!.organizationId, req.user!.userId);
+    res.json({ success: true, data: result, message: `Invited ${result.sent} of ${result.total} candidates` });
+  } catch (err) { next(err); }
+});
+
 export { router as recruitmentRouter };

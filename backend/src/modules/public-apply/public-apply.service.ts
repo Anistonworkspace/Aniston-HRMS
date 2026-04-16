@@ -2,7 +2,6 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { aiService } from '../../services/ai.service.js';
 import { enqueueEmail } from '../../jobs/queues.js';
-import { generateEmployeeCode } from '../../utils/employeeCode.js';
 import { logger } from '../../lib/logger.js';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -278,39 +277,68 @@ export class PublicApplyService {
     jobTitle: string,
     requirements: string[],
     organizationId: string
-  ): Promise<{ matchScore: number; strengths: string[]; gaps: string[]; summary: string }> {
-    // ── Step 1: Extract text from PDF using pdf-parse ──
+  ): Promise<{ matchScore: number | null; strengths: string[]; gaps: string[]; summary: string; parseMethod?: string }> {
+    // ── Step 1: Extract text from PDF — try pdf-parse first, then AI OCR service ──
     let resumeText = '';
+    let parseMethod = 'pdf-parse';
+
     try {
       const filePath = path.join(process.cwd(), resumeUrl.startsWith('/') ? resumeUrl.slice(1) : resumeUrl);
       if (!fs.existsSync(filePath)) {
-        return { matchScore: 0, strengths: [], gaps: ['Resume file not found on server'], summary: 'File missing.' };
+        // BUG-3 FIX: return null score (not 0) so failure doesn't penalise candidate
+        return { matchScore: null, strengths: [], gaps: ['Resume file not found on server'], summary: 'File missing — upload a valid PDF.', parseMethod: 'none' };
       }
 
       const dataBuffer = fs.readFileSync(filePath);
-      const pdfData = await pdfParse(dataBuffer);
-      resumeText = (pdfData.text || '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 5000); // Keep up to 5k chars for analysis
 
-      logger.info(`[ResumeParser] Extracted ${resumeText.length} chars from ${path.basename(filePath)} (${pdfData.numpages} pages)`);
+      // Try pdf-parse for text-based PDFs
+      try {
+        const pdfData = await pdfParse(dataBuffer);
+        resumeText = (pdfData.text || '').replace(/\s+/g, ' ').trim().slice(0, 6000);
+        logger.info(`[ResumeParser] pdf-parse: extracted ${resumeText.length} chars from ${path.basename(filePath)} (${pdfData.numpages} pages)`);
+      } catch {
+        resumeText = '';
+      }
+
+      // If pdf-parse returned too little text (image-based PDF), try AI OCR service
+      if (resumeText.length < 50) {
+        try {
+          const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+          const base64 = dataBuffer.toString('base64');
+          const ocrRes = await fetch(`${aiServiceUrl}/ai/ocr/extract-text`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-API-Key': process.env.AI_SERVICE_API_KEY || 'dev-ai-key' },
+            body: JSON.stringify({ file_base64: base64, file_type: 'pdf' }),
+            signal: AbortSignal.timeout(15000),
+          });
+          if (ocrRes.ok) {
+            const ocrJson = await ocrRes.json();
+            resumeText = (ocrJson.text || '').replace(/\s+/g, ' ').trim().slice(0, 6000);
+            parseMethod = 'ai-ocr';
+            logger.info(`[ResumeParser] AI OCR: extracted ${resumeText.length} chars`);
+          }
+        } catch (ocrErr) {
+          logger.warn('[ResumeParser] AI OCR fallback also failed:', ocrErr);
+        }
+      }
     } catch (err) {
-      logger.warn('[ResumeParser] pdf-parse failed:', err);
+      logger.warn('[ResumeParser] File read failed:', err);
       return {
-        matchScore: 0,
+        matchScore: null,
         strengths: [],
-        gaps: ['Could not parse PDF — file may be image-based or corrupted'],
-        summary: 'PDF text extraction failed. The file may be a scanned image without OCR text layer.',
+        gaps: ['Could not read the resume file — it may be corrupted'],
+        summary: 'File read error. Please re-upload the resume.',
+        parseMethod: 'none',
       };
     }
 
     if (!resumeText || resumeText.length < 30) {
       return {
-        matchScore: 0,
+        matchScore: null,
         strengths: [],
-        gaps: ['Resume appears to be image-based with no extractable text'],
-        summary: 'No readable text found in resume. Consider uploading a text-based PDF.',
+        gaps: ['Resume appears to be image-based with no extractable text', 'Ask the candidate to upload a text-based PDF'],
+        summary: 'No readable text found. File may be a scanned image. Consider requesting a text-based PDF.',
+        parseMethod: 'none',
       };
     }
 
@@ -804,60 +832,41 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
       },
     });
 
-    // On selection: create Employee profile and send notification emails
-    if (finalStatus === 'SELECTED') {
+    // On selection: send congratulations email only.
+    // No User/Employee is created here — HR sends a formal invitation via the
+    // invitation form (POST /api/invitations) which creates the EmployeeInvitation
+    // record. The User+Employee are only created when the candidate completes
+    // the onboarding wizard via the invite link.
+    if (finalStatus === 'SELECTED' && app.email) {
       try {
-        const nameParts = (app.candidateName || '').trim().split(/\s+/);
-        const firstName = nameParts[0] || 'New';
-        const lastName = nameParts.slice(1).join(' ') || 'Employee';
-        const employeeCode = await generateEmployeeCode(organizationId);
-
-        await prisma.employee.create({
-          data: {
-            employeeCode,
-            firstName,
-            lastName,
-            email: app.email || `${employeeCode.toLowerCase()}@pending.aniston.com`,
-            phone: app.mobileNumber || '',
-            gender: 'OTHER',
-            joiningDate: new Date(),
-            status: 'PROBATION',
-            organizationId,
+        await enqueueEmail({
+          to: app.email,
+          subject: `Congratulations! You've been selected for ${app.jobOpening.title}`,
+          template: 'generic',
+          context: {
+            title: 'Congratulations!',
+            message: `Dear ${app.candidateName},<br><br>We are delighted to inform you that you have been <strong>selected</strong> for the position of <strong>${app.jobOpening.title}</strong>.<br><br>Our HR team will reach out to you shortly with an onboarding invitation. Please keep an eye on your email.<br><br>Welcome to the team!<br><br>— HR Team, Aniston Technologies LLP`,
           },
         });
 
-        logger.info(`Employee profile created for selected candidate: ${app.candidateName} (${employeeCode})`);
-
-        if (app.email) {
-          await enqueueEmail({
-            to: app.email,
-            subject: `Congratulations! You've been selected for ${app.jobOpening.title}`,
-            template: 'generic',
-            context: {
-              title: 'Congratulations!',
-              message: `Dear ${app.candidateName},<br><br>We are delighted to inform you that you have been <strong>selected</strong> for the position of <strong>${app.jobOpening.title}</strong> at Aniston Technologies.<br><br>Our HR team will reach out to you shortly with the next steps regarding your onboarding process.<br><br>We look forward to having you on our team!<br><br>Best regards,<br>HR Team — Aniston Technologies`,
-            },
-          });
-        }
-
+        // Admin notification
         const org = await prisma.organization.findUnique({
           where: { id: organizationId },
-          select: { adminNotificationEmail: true, name: true },
+          select: { adminNotificationEmail: true },
         });
-
         if (org?.adminNotificationEmail) {
           await enqueueEmail({
             to: org.adminNotificationEmail,
-            subject: `Candidate Selected: ${app.candidateName} for ${app.jobOpening.title}`,
+            subject: `Candidate Selected: ${app.candidateName} — ${app.jobOpening.title}`,
             template: 'generic',
             context: {
               title: 'Candidate Selected',
-              message: `A candidate has been finalized as <strong>SELECTED</strong>.<br><br><strong>Name:</strong> ${app.candidateName}<br><strong>Email:</strong> ${app.email || 'N/A'}<br><strong>Phone:</strong> ${app.mobileNumber || 'N/A'}<br><strong>Position:</strong> ${app.jobOpening.title}<br><strong>Department:</strong> ${app.jobOpening.department || 'N/A'}<br><strong>Final Score:</strong> ${finalScore.toFixed(1)}%<br><strong>Employee Code:</strong> ${employeeCode}<br><br>The employee profile has been created with status PROBATION. Please proceed with onboarding.`,
+              message: `Candidate <strong>${app.candidateName}</strong> has been selected for <strong>${app.jobOpening.title}</strong>.<br><br><strong>Email:</strong> ${app.email}<br><strong>Final Score:</strong> ${finalScore.toFixed(1)}%<br><br>A congratulations email has been sent to the candidate. Please send the onboarding invitation from the Hiring Passed tab.`,
             },
           });
         }
       } catch (err) {
-        logger.error('Error in post-selection tasks for candidate:', err);
+        logger.error('[PublicApply] Error sending congratulations email:', err);
       }
     }
 

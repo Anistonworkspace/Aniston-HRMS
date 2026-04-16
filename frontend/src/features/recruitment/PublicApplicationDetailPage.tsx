@@ -5,6 +5,7 @@ import {
   ArrowLeft, User, Mail, Phone, FileText, Star, Calendar, Briefcase,
   Loader2, Download, Plus, CheckCircle2, XCircle, PauseCircle, X,
   Eye, EyeOff, Copy, Save, MessageSquare, ChevronDown, ChevronUp, Send, Sparkles,
+  UserPlus,
 } from 'lucide-react';
 import {
   useGetPublicApplicationDetailQuery,
@@ -13,6 +14,8 @@ import {
   useScoreRoundMutation,
   useGenerateRoundQuestionsMutation,
 } from '../public-apply/publicApplyApi';
+import { useCreateInvitationMutation } from '../invitation/invitationApi';
+import { useGetDepartmentsQuery, useGetDesignationsQuery } from '../employee/employeeDepsApi';
 import { useAiChatMutation } from '../ai-assistant/aiAssistantApi';
 import { useAppSelector } from '../../app/store';
 import { formatDate, getUploadUrl } from '../../lib/utils';
@@ -83,6 +86,7 @@ export default function PublicApplicationDetailPage() {
   const [showScoreModal, setShowScoreModal] = useState<string | null>(null);
   const [finalStatus, setFinalStatus] = useState<string>('');
   const [showResumeViewer, setShowResumeViewer] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
 
   const app = data?.data;
 
@@ -120,8 +124,11 @@ export default function PublicApplicationDetailPage() {
     }
   };
 
-  /* Score data extraction */
-  const resumeScore = typeof app.resumeScoreData === 'object' && app.resumeScoreData?.score != null ? Number(app.resumeScoreData.score) : null;
+  /* Score data extraction — BUG-3 FIX: use resumeMatchScore directly from model */
+  const resumeScore = app.resumeMatchScore != null
+    ? Number(app.resumeMatchScore)
+    : typeof app.resumeScoreData === 'object' && app.resumeScoreData?.matchScore != null
+    ? Number(app.resumeScoreData.matchScore) : null;
   const mcqScore = app.mcqScore != null ? Number(app.mcqScore) : null;
   const intelligenceScore = app.intelligenceScore != null ? Number(app.intelligenceScore) : null;
   const integrityScore = app.integrityScore != null ? Number(app.integrityScore) : null;
@@ -364,16 +371,88 @@ export default function PublicApplicationDetailPage() {
         </div>
       )}
 
+      {/* Resume Score Details — real pointers from BUG-3 fix */}
+      {app.resumeScoreData && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }} className="layer-card p-5 mb-6">
+          <h3 className="font-display font-bold text-gray-900 mb-3 flex items-center gap-2">
+            <Star className="w-4 h-4 text-amber-500" /> Resume Match Analysis
+          </h3>
+          {app.resumeScoreData.summary && (
+            <p className="text-sm text-gray-600 mb-4 bg-gray-50 rounded-lg p-3 italic">{app.resumeScoreData.summary}</p>
+          )}
+          {app.resumeScoreData.parseMethod && (
+            <p className="text-xs text-gray-400 mb-3">Extracted via: <span className="font-medium text-gray-600">{app.resumeScoreData.parseMethod === 'ai-ocr' ? 'AI OCR Service' : app.resumeScoreData.parseMethod === 'pdf-parse' ? 'Text Extraction' : 'N/A'}</span></p>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {Array.isArray(app.resumeScoreData.strengths) && app.resumeScoreData.strengths.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-emerald-700 mb-2 flex items-center gap-1.5">
+                  <CheckCircle2 size={13} /> Strengths ({app.resumeScoreData.strengths.length})
+                </p>
+                <ul className="space-y-1.5">
+                  {app.resumeScoreData.strengths.map((s: string, i: number) => (
+                    <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                      <span className="text-emerald-500 mt-0.5 shrink-0">✓</span> {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {Array.isArray(app.resumeScoreData.gaps) && app.resumeScoreData.gaps.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-red-600 mb-2 flex items-center gap-1.5">
+                  <XCircle size={13} /> Gaps / Missing ({app.resumeScoreData.gaps.length})
+                </p>
+                <ul className="space-y-1.5">
+                  {app.resumeScoreData.gaps.map((g: string, i: number) => (
+                    <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                      <span className="text-red-400 mt-0.5 shrink-0">✗</span> {g}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
       {/* Already finalized */}
       {app.finalizedAt && (
         <div className="layer-card p-5 mb-6 border-l-4 border-brand-500">
-          <h3 className="font-display font-bold text-gray-900 mb-2">Finalized</h3>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><span className="text-gray-400">Decision:</span> <span className="font-semibold text-gray-800">{app.finalStatus}</span></div>
-            <div><span className="text-gray-400">Final Score:</span> <span className="font-bold text-brand-600" data-mono>{app.finalScore != null ? Number(app.finalScore).toFixed(1) : '\u2014'}</span></div>
-            <div><span className="text-gray-400">Finalized At:</span> <span className="text-gray-700">{formatDate(app.finalizedAt)}</span></div>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="font-display font-bold text-gray-900 mb-2">Finalized</h3>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><span className="text-gray-400">Decision:</span> <span className="font-semibold text-gray-800">{app.finalStatus}</span></div>
+                <div><span className="text-gray-400">Final Score:</span> <span className="font-bold text-brand-600" data-mono>{app.finalScore != null ? Number(app.finalScore).toFixed(1) : '\u2014'}</span></div>
+                <div><span className="text-gray-400">Finalized At:</span> <span className="text-gray-700">{formatDate(app.finalizedAt)}</span></div>
+              </div>
+            </div>
+            {/* Send Onboarding Invitation button — opens the same invitation form as Manage Employees */}
+            {isHR && app.finalStatus === 'SELECTED' && app.email && (
+              <button onClick={() => setShowInviteModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium bg-brand-600 text-white hover:bg-brand-700 transition-colors shrink-0">
+                <UserPlus size={16} />
+                Send Onboarding Invite
+              </button>
+            )}
           </div>
+          {isHR && app.finalStatus === 'SELECTED' && app.email && (
+            <p className="text-xs text-gray-400 mt-3">
+              Click "Send Onboarding Invite" to open the invitation form (same as Manage Employees). Set the department, role, and joining date before sending. The candidate will receive an invite link to complete their profile and create their employee account.
+            </p>
+          )}
         </div>
+      )}
+
+      {/* Candidate Onboarding Invitation Modal */}
+      {showInviteModal && app && (
+        <CandidateInviteModal
+          open={showInviteModal}
+          onClose={() => setShowInviteModal(false)}
+          candidateEmail={app.email || ''}
+          candidateName={app.candidateName || ''}
+        />
       )}
 
       {/* Schedule Interview Modal */}
@@ -633,6 +712,192 @@ function ScoreRoundModal({ roundId, onClose, onSuccess }: {
             </button>
           </div>
         </form>
+      </motion.div>
+    </div>
+  );
+}
+
+/* ─── Candidate Invite Modal — same form as Manage Employees, pre-filled with candidate email ─── */
+function CandidateInviteModal({ open, onClose, candidateEmail, candidateName }: {
+  open: boolean;
+  onClose: () => void;
+  candidateEmail: string;
+  candidateName: string;
+}) {
+  const [role, setRole] = useState('EMPLOYEE');
+  const [departmentId, setDepartmentId] = useState('');
+  const [designationId, setDesignationId] = useState('');
+  const [employmentType, setEmploymentType] = useState('FULL_TIME');
+  const [proposedJoiningDate, setProposedJoiningDate] = useState('');
+  const [notes, setNotes] = useState('');
+  const [inviteResult, setInviteResult] = useState<any>(null);
+
+  const [createInvitation, { isLoading }] = useCreateInvitationMutation();
+  const { data: deptData } = useGetDepartmentsQuery();
+  const { data: desigData } = useGetDesignationsQuery();
+  const departments: any[] = deptData?.data || [];
+  const designations: any[] = (desigData?.data || []).filter((d: any) => !departmentId || !d.departmentId || d.departmentId === departmentId);
+
+  const handleSubmit = async () => {
+    if (!candidateEmail) { toast.error('Candidate has no email on file'); return; }
+    try {
+      const body: any = {
+        email: candidateEmail.toLowerCase().trim(),
+        role,
+        employmentType: employmentType || undefined,
+        departmentId: departmentId || undefined,
+        designationId: designationId || undefined,
+        proposedJoiningDate: proposedJoiningDate || undefined,
+        notes: notes || undefined,
+        sendWelcomeEmail: true,
+      };
+      const res = await createInvitation(body).unwrap();
+      setInviteResult(res.data);
+      toast.success('Onboarding invitation sent!');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to send invitation');
+    }
+  };
+
+  const handleClose = () => {
+    setRole('EMPLOYEE'); setDepartmentId(''); setDesignationId('');
+    setEmploymentType('FULL_TIME'); setProposedJoiningDate(''); setNotes('');
+    setInviteResult(null);
+    onClose();
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4" onClick={handleClose}>
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+        onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="text-lg font-display font-semibold text-gray-800">Send Onboarding Invitation</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Invite <strong>{candidateName}</strong> to complete their profile and join the team</p>
+          </div>
+          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        {inviteResult ? (
+          <div className="space-y-4">
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 size={20} className="text-green-600" />
+                <span className="text-sm font-semibold text-green-700">Invitation Created!</span>
+              </div>
+              <div className="space-y-1.5 mt-2">
+                {inviteResult.email && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <Mail size={14} className={inviteResult.emailStatus === 'SENT' ? 'text-green-600' : inviteResult.emailStatus === 'FAILED' ? 'text-red-500' : 'text-gray-400'} />
+                    <span className={inviteResult.emailStatus === 'SENT' ? 'text-green-700' : inviteResult.emailStatus === 'FAILED' ? 'text-red-600' : 'text-gray-500'}>
+                      Email {inviteResult.emailStatus === 'SENT' ? 'sent' : inviteResult.emailStatus === 'FAILED' ? 'failed' : 'pending'} to {inviteResult.email}
+                    </span>
+                  </div>
+                )}
+                {inviteResult.mobileNumber && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <MessageSquare size={14} className={inviteResult.whatsappStatus === 'SENT' ? 'text-green-600' : inviteResult.whatsappStatus === 'FAILED' ? 'text-amber-500' : 'text-gray-400'} />
+                    <span className={inviteResult.whatsappStatus === 'SENT' ? 'text-green-700' : inviteResult.whatsappStatus === 'FAILED' ? 'text-amber-600' : 'text-gray-500'}>
+                      WhatsApp {inviteResult.whatsappStatus === 'SENT' ? 'sent' : inviteResult.whatsappStatus === 'FAILED' ? 'failed (WA may not be connected)' : 'pending'} to {inviteResult.mobileNumber}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Invite Link (share manually if needed)</label>
+              <div className="flex items-center gap-2">
+                <input readOnly value={inviteResult.inviteUrl || ''} className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs" />
+                <button onClick={() => { navigator.clipboard.writeText(inviteResult.inviteUrl); toast.success('Invite link copied!'); }}
+                  className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50"><Copy size={16} /></button>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Expires: {new Date(inviteResult.expiresAt).toLocaleString('en-IN')}</p>
+            </div>
+            <button onClick={handleClose} className="btn-primary w-full text-sm mt-4">Done</button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Email — read-only, pre-filled from candidate */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1"><Mail size={13} className="inline mr-1.5 -mt-0.5" />Email Address</label>
+              <input readOnly value={candidateEmail}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500 cursor-not-allowed" />
+              <p className="text-xs text-gray-400 mt-1">Pre-filled from candidate application</p>
+            </div>
+
+            {/* Role + Employment Type */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
+                <select value={role} onChange={e => setRole(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                  <option value="EMPLOYEE">Employee</option>
+                  <option value="INTERN">Intern</option>
+                  <option value="MANAGER">Manager</option>
+                  <option value="HR">HR</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Employment Type</label>
+                <select value={employmentType} onChange={e => setEmploymentType(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                  <option value="FULL_TIME">Full Time</option>
+                  <option value="PART_TIME">Part Time</option>
+                  <option value="CONTRACT">Contract</option>
+                  <option value="INTERN">Intern</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Department + Designation */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                <select value={departmentId} onChange={e => { setDepartmentId(e.target.value); setDesignationId(''); }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                  <option value="">— Select —</option>
+                  {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
+                <select value={designationId} onChange={e => setDesignationId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                  <option value="">— Select —</option>
+                  {designations.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Joining Date */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1"><Calendar size={13} className="inline mr-1.5 -mt-0.5" />Proposed Joining Date</label>
+              <input type="date" value={proposedJoiningDate} onChange={e => setProposedJoiningDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+                placeholder="Internal notes about this candidate..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none" />
+            </div>
+
+            <div className="flex gap-3 pt-2 border-t border-gray-100">
+              <button onClick={handleClose} className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleSubmit} disabled={isLoading || !candidateEmail}
+                className="flex-1 btn-primary flex items-center justify-center gap-2 text-sm">
+                {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                Send Invitation
+              </button>
+            </div>
+          </div>
+        )}
       </motion.div>
     </div>
   );

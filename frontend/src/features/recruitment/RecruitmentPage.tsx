@@ -10,12 +10,17 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGetJobOpeningsQuery, useCreateJobMutation, useUpdateJobMutation, useDeleteJobMutation, useGetPipelineStatsQuery } from './recruitmentApi';
 import {
-  useGetAllWalkInsQuery, useGetWalkInStatsQuery, useGetSelectedCandidatesQuery,
+  useGetAllWalkInsQuery, useGetWalkInStatsQuery,
   useHireWalkInMutation, useUpdateWalkInStatusMutation, useDeleteWalkInMutation,
   useGetWalkInByIdQuery, useAddWalkInNotesMutation, useAddInterviewRoundMutation,
   useUpdateInterviewRoundMutation, useDeleteInterviewRoundMutation, useGetInterviewersQuery,
 } from '../walkIn/walkInApi';
-import { useGetPublicApplicationsQuery, useGenerateJobQuestionsMutation } from '../public-apply/publicApplyApi';
+import {
+  useGetPublicApplicationsQuery, useGenerateJobQuestionsMutation,
+  useGetReadyForOnboardingQuery, useBulkSendOnboardingInvitesMutation,
+} from '../public-apply/publicApplyApi';
+import { useCreateInvitationMutation } from '../invitation/invitationApi';
+import { useGetDepartmentsQuery, useGetDesignationsQuery } from '../employee/employeeDepsApi';
 import { useAiChatMutation } from '../ai-assistant/aiAssistantApi';
 import { useAppSelector } from '../../app/store';
 import { useSendWhatsAppToNumberMutation, useGetWhatsAppStatusQuery } from '../whatsapp/whatsappApi';
@@ -813,135 +818,254 @@ function WalkInTab() {
   );
 }
 
-// =================== Tab 3: Hiring Passed ===================
+// =================== Tab 3: Hiring Passed (Unified — all 3 pipelines) ===================
+const SOURCE_BADGE: Record<string, { label: string; color: string }> = {
+  WALK_IN:      { label: 'Walk-In',      color: 'bg-blue-50 text-blue-700 border-blue-200' },
+  PUBLIC_APPLY: { label: 'AI Screened',  color: 'bg-purple-50 text-purple-700 border-purple-200' },
+  INTERNAL:     { label: 'Internal',     color: 'bg-amber-50 text-amber-700 border-amber-200' },
+};
+
 function HiringPassedTab() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
+  const [sourceFilter, setSourceFilter] = useState<string>('');
   const [hireModal, setHireModal] = useState<any>(null);
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const { data: res, isLoading, refetch } = useGetSelectedCandidatesQuery({ page, limit: 20, search: search || undefined });
-  const [updateStatus] = useUpdateWalkInStatusMutation();
-  const [deleteWalkIn] = useDeleteWalkInMutation();
+  const [selectedWalkInId, setSelectedWalkInId] = useState<string | null>(null);
+  const [selectedBulk, setSelectedBulk] = useState<string[]>([]);
+  const [bulkSending, setBulkSending] = useState(false);
+  // Invitation modal state — opens same form as Manage Employees
+  const [inviteModal, setInviteModal] = useState<{ email: string; name: string } | null>(null);
 
-  const handleAction = async (id: string, action: string) => {
-    setOpenMenu(null);
-    if (action === 'REJECTED' || action === 'ON_HOLD' || action === 'WAITING') {
-      const labels: Record<string, string> = { REJECTED: 'reject', ON_HOLD: 'put on hold', WAITING: 'move back to walk-in' };
-      if (!confirm(`Are you sure you want to ${labels[action]} this candidate?`)) return;
-      try {
-        await updateStatus({ id, status: action }).unwrap();
-        toast.success(`Candidate ${labels[action]}!`);
-      } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
-    } else if (action === 'DELETE') {
-      if (!confirm('Permanently delete this candidate record?')) return;
-      try {
-        await deleteWalkIn(id).unwrap();
-        toast.success('Candidate deleted');
-      } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+  // GAP-1 FIX: Use unified endpoint that aggregates all 3 pipelines
+  const { data: res, isLoading, refetch } = useGetReadyForOnboardingQuery();
+  const [bulkSendInvites] = useBulkSendOnboardingInvitesMutation();
+
+  const allCandidates: any[] = res?.data?.data || [];
+
+  // Client-side search + source filter
+  const filtered = allCandidates.filter(c => {
+    const matchSource = !sourceFilter || c.source === sourceFilter;
+    const matchSearch = !search || [c.name, c.email, c.jobTitle, c.ref]
+      .some(v => v?.toLowerCase().includes(search.toLowerCase()));
+    return matchSource && matchSearch;
+  });
+
+  const summary = res?.data;
+
+  // M-3: Bulk invite for walk-in candidates
+  const handleBulkInvite = async () => {
+    const walkInIds = selectedBulk.filter(id => {
+      const c = filtered.find(x => x.id === id);
+      return c?.source === 'WALK_IN';
+    });
+    if (walkInIds.length === 0) {
+      toast.error('Select at least one Walk-In candidate to bulk invite');
+      return;
+    }
+    if (!confirm(`Send onboarding invites to ${walkInIds.length} walk-in candidate(s)?`)) return;
+    setBulkSending(true);
+    try {
+      const result = await bulkSendInvites(walkInIds).unwrap();
+      const d = result?.data;
+      toast.success(`Invites sent: ${d?.sent || 0} success, ${d?.failed || 0} failed`);
+      setSelectedBulk([]);
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Bulk invite failed');
+    } finally {
+      setBulkSending(false);
     }
   };
 
-  const candidates = res?.data || [];
-  const meta = res?.meta;
+  const toggleBulk = (id: string) =>
+    setSelectedBulk(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   return (
     <>
-      <div className="flex items-center gap-3 mb-6">
-        <Award className="text-emerald-500" size={24} />
-        <div>
-          <p className="text-sm font-medium text-gray-600">Candidates who passed all interview rounds — ready for onboarding</p>
-        </div>
+      {/* Summary KPI Strip */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        {[
+          { label: 'Total Selected', value: summary?.total ?? 0, color: 'text-gray-700', bg: 'bg-gray-50', icon: Award },
+          { label: 'Pending Onboarding', value: summary?.pendingOnboarding ?? 0, color: 'text-amber-700', bg: 'bg-amber-50', icon: AlertCircle },
+          { label: 'Onboarding Started', value: summary?.onboardingInProgress ?? 0, color: 'text-emerald-700', bg: 'bg-emerald-50', icon: CheckCircle2 },
+        ].map(kpi => (
+          <div key={kpi.label} className={`stat-card flex items-center gap-3 ${kpi.bg}`}>
+            <div className="w-9 h-9 rounded-lg bg-white/60 flex items-center justify-center">
+              <kpi.icon className={`w-5 h-5 ${kpi.color}`} />
+            </div>
+            <div>
+              <p className={`text-2xl font-display font-bold ${kpi.color}`} data-mono>{kpi.value}</p>
+              <p className="text-xs text-gray-500">{kpi.label}</p>
+            </div>
+          </div>
+        ))}
       </div>
 
-      <div className="relative max-w-sm mb-6">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name, email, or token..." className="input-glass w-full pl-9 text-sm" />
+      {/* Filters + Bulk Actions */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-6">
+        <div className="relative flex-1 max-w-sm">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search by name, email, position..." className="input-glass w-full pl-9 text-sm" />
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {[{ key: '', label: 'All Sources' }, { key: 'WALK_IN', label: 'Walk-In' }, { key: 'PUBLIC_APPLY', label: 'AI Screened' }, { key: 'INTERNAL', label: 'Internal' }].map(f => (
+            <button key={f.key} onClick={() => setSourceFilter(f.key)}
+              className={cn('px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                sourceFilter === f.key ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300')}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 ml-auto">
+          {selectedBulk.length > 0 && (
+            <button onClick={handleBulkInvite} disabled={bulkSending}
+              className="btn-primary text-xs flex items-center gap-1.5 disabled:opacity-50">
+              {bulkSending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+              Bulk Invite ({selectedBulk.length})
+            </button>
+          )}
+          <button onClick={() => refetch()} className="btn-secondary text-xs flex items-center gap-1.5">
+            <RefreshCw size={13} /> Refresh
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
         <div className="layer-card p-16 text-center"><Loader2 className="w-8 h-8 animate-spin text-brand-600 mx-auto" /></div>
-      ) : candidates.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="layer-card p-16 text-center">
           <Award size={48} className="mx-auto text-gray-200 mb-4" />
-          <h3 className="text-lg font-display font-semibold text-gray-600 mb-1">No candidates ready</h3>
-          <p className="text-sm text-gray-400">Candidates who pass all interview rounds will appear here</p>
+          <h3 className="text-lg font-display font-semibold text-gray-600 mb-1">No candidates ready yet</h3>
+          <p className="text-sm text-gray-400">
+            Candidates marked as selected from Walk-In, AI-Screened, or Internal recruitment will appear here
+          </p>
         </div>
       ) : (
         <div className="layer-card overflow-hidden">
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/50">
+                <th className="py-3 px-4 w-8">
+                  <input type="checkbox"
+                    checked={selectedBulk.length === filtered.filter(c => c.source === 'WALK_IN' && !c.employeeExists).length && filtered.some(c => c.source === 'WALK_IN')}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedBulk(filtered.filter(c => c.source === 'WALK_IN' && !c.employeeExists).map(c => c.id));
+                      else setSelectedBulk([]);
+                    }}
+                    className="rounded border-gray-300" />
+                </th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-gray-500">Candidate</th>
-                <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 hidden md:table-cell">Token</th>
-                <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 hidden lg:table-cell">Position</th>
-                <th className="text-center py-3 px-4 text-xs font-medium text-gray-500">AI Score</th>
-                <th className="text-center py-3 px-4 text-xs font-medium text-gray-500 hidden md:table-cell">Interviews</th>
+                <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 hidden md:table-cell">Position</th>
+                <th className="text-center py-3 px-4 text-xs font-medium text-gray-500">Source</th>
+                <th className="text-center py-3 px-4 text-xs font-medium text-gray-500">Score</th>
+                <th className="text-center py-3 px-4 text-xs font-medium text-gray-500 hidden lg:table-cell">Status</th>
                 <th className="text-right py-3 px-4 text-xs font-medium text-gray-500">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {candidates.map((c: any) => {
-                const avgScore = c.interviewRounds?.length > 0
-                  ? Math.round(c.interviewRounds.reduce((sum: number, r: any) => sum + (r.overallScore || 0), 0) / c.interviewRounds.filter((r: any) => r.overallScore).length)
-                  : null;
+              {filtered.map((c: any, i: number) => {
+                const srcBadge = SOURCE_BADGE[c.source] || SOURCE_BADGE.WALK_IN;
+                const onboarded = c.employeeExists;
+                const isBulkSelectable = c.source === 'WALK_IN' && !onboarded;
                 return (
-                  <motion.tr key={c.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                  <motion.tr key={`${c.source}-${c.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    transition={{ delay: i * 0.02 }}
+                    className={cn('border-b border-gray-50 transition-colors', onboarded ? 'bg-emerald-50/30' : 'hover:bg-gray-50/50')}>
+                    <td className="py-3 px-4">
+                      {isBulkSelectable && (
+                        <input type="checkbox" checked={selectedBulk.includes(c.id)}
+                          onChange={() => toggleBulk(c.id)} className="rounded border-gray-300" />
+                      )}
+                    </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-sm font-bold">
-                          {getInitials(c.fullName)}
+                        <div className="w-9 h-9 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-sm font-bold shrink-0">
+                          {getInitials(c.name)}
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-800">{c.fullName}</p>
-                          <p className="text-xs text-gray-400">{c.email}</p>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-800 truncate">{c.name}</p>
+                          <p className="text-xs text-gray-400 truncate">{c.email || '—'}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="py-3 px-4 hidden md:table-cell"><span className="text-xs font-mono text-gray-500" data-mono>{c.tokenNumber}</span></td>
-                    <td className="py-3 px-4 hidden lg:table-cell"><span className="text-sm text-gray-600">{c.jobOpening?.title || '—'}</span></td>
+                    <td className="py-3 px-4 hidden md:table-cell">
+                      <p className="text-sm text-gray-700 truncate">{c.jobTitle || '—'}</p>
+                      <p className="text-xs text-gray-400">{c.department || ''}</p>
+                    </td>
                     <td className="py-3 px-4 text-center">
-                      {c.aiScore ? (
-                        <div className="inline-flex items-center gap-1 text-sm font-semibold">
-                          <Star size={14} className={Number(c.aiScore) >= 70 ? 'text-amber-400 fill-amber-400' : 'text-gray-300'} />
-                          <span className={Number(c.aiScore) >= 70 ? 'text-emerald-600' : Number(c.aiScore) >= 50 ? 'text-amber-600' : 'text-red-500'}>
-                            {Number(c.aiScore).toFixed(0)}
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${srcBadge.color}`}>
+                        {srcBadge.label}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      {c.score != null ? (
+                        <div className="inline-flex items-center gap-1">
+                          <Star size={12} className={c.score >= 70 ? 'text-amber-400 fill-amber-400' : 'text-gray-300'} />
+                          <span className={cn('text-sm font-semibold',
+                            c.score >= 70 ? 'text-emerald-600' : c.score >= 50 ? 'text-amber-600' : 'text-red-500')}>
+                            {c.score.toFixed(0)}
                           </span>
                         </div>
                       ) : <span className="text-xs text-gray-300">—</span>}
                     </td>
-                    <td className="py-3 px-4 text-center hidden md:table-cell">
-                      <span className="text-sm font-mono text-gray-600" data-mono>{avgScore ? `${avgScore}/10` : '—'}</span>
-                      <span className="text-xs text-gray-400 ml-1">({c.interviewRounds?.length || 0} rounds)</span>
+                    <td className="py-3 px-4 text-center hidden lg:table-cell">
+                      {onboarded ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
+                          <CheckCircle2 size={12} /> Onboarding Started
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
+                          <AlertCircle size={12} /> Invite Pending
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => setSelectedId(c.id)} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
-                          <Eye size={14} /> View
-                        </button>
-                        <button onClick={() => setHireModal(c)}
-                          className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-1">
-                          <UserPlus size={12} /> {t('recruitment.hire')}
-                        </button>
-                        <div className="relative">
-                          <button onClick={() => setOpenMenu(openMenu === c.id ? null : c.id)}
-                            className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
-                            <MoreHorizontal size={16} />
+                        {/* M-4: Navigate to correct detail view based on source */}
+                        {c.source === 'PUBLIC_APPLY' && (
+                          <button onClick={() => navigate(`/recruitment/applications/${c.id}`)}
+                            className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+                            <Eye size={13} /> View
                           </button>
-                          {openMenu === c.id && (
-                            <div className="absolute right-0 top-8 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-20 w-44"
-                              onMouseLeave={() => setOpenMenu(null)}>
-                              <button onClick={() => handleAction(c.id, 'ON_HOLD')} className="w-full text-left px-3 py-2 text-xs text-orange-600 hover:bg-orange-50 flex items-center gap-2"><PauseCircle size={14} /> Put on Hold</button>
-                              <button onClick={() => handleAction(c.id, 'REJECTED')} className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2"><XCircle size={14} /> Reject</button>
-                              <button onClick={() => handleAction(c.id, 'WAITING')} className="w-full text-left px-3 py-2 text-xs text-blue-600 hover:bg-blue-50 flex items-center gap-2"><RotateCcw size={14} /> Back to Walk-In</button>
-                              <div className="border-t border-gray-100 my-1" />
-                              <button onClick={() => handleAction(c.id, 'DELETE')} className="w-full text-left px-3 py-2 text-xs text-red-500 hover:bg-red-50 flex items-center gap-2"><Trash2 size={14} /> Delete Record</button>
-                            </div>
-                          )}
-                        </div>
+                        )}
+                        {c.source === 'WALK_IN' && (
+                          <button onClick={() => setSelectedWalkInId(c.id)}
+                            className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+                            <Eye size={13} /> View
+                          </button>
+                        )}
+
+                        {/* Send Onboarding Invite for PUBLIC_APPLY — opens invitation form pre-filled with candidate email */}
+                        {c.source === 'PUBLIC_APPLY' && !onboarded && (
+                          <button
+                            onClick={() => setInviteModal({ email: c.email || '', name: c.name })}
+                            className="text-xs bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 transition-colors flex items-center gap-1">
+                            <UserPlus size={12} />
+                            Send Invite
+                          </button>
+                        )}
+
+                        {/* Walk-In: existing hire modal */}
+                        {c.source === 'WALK_IN' && !onboarded && (
+                          <button onClick={() => setHireModal({ id: c.id, fullName: c.name, email: c.email })}
+                            className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-1">
+                            <UserPlus size={12} /> {t('recruitment.hire')}
+                          </button>
+                        )}
+
+                        {/* Internal: show invite status */}
+                        {c.source === 'INTERNAL' && (
+                          <span className={cn('text-xs px-2 py-1 rounded-lg font-medium',
+                            c.inviteStatus?.status === 'ACCEPTED' ? 'bg-emerald-50 text-emerald-600' :
+                            c.inviteStatus?.status === 'PENDING' ? 'bg-amber-50 text-amber-600' :
+                            'bg-gray-50 text-gray-500')}>
+                            {c.inviteStatus?.status === 'ACCEPTED' ? '✓ Invite Accepted' :
+                             c.inviteStatus?.status === 'PENDING' ? '⏳ Invite Sent' :
+                             '— No Invite Yet'}
+                          </span>
+                        )}
                       </div>
                     </td>
                   </motion.tr>
@@ -949,23 +1073,25 @@ function HiringPassedTab() {
               })}
             </tbody>
           </table>
-          {meta && meta.totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-              <p className="text-xs text-gray-400">Page {meta.page} of {meta.totalPages} ({meta.total} total)</p>
-              <div className="flex gap-2">
-                <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="px-3 py-1 text-xs border rounded-lg disabled:opacity-30">Prev</button>
-                <button disabled={page >= meta.totalPages} onClick={() => setPage(p => p + 1)} className="px-3 py-1 text-xs border rounded-lg disabled:opacity-30">Next</button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
       {hireModal && <HireModal candidate={hireModal} onClose={() => setHireModal(null)} onSuccess={() => refetch()} />}
 
+      {/* Invitation form modal — same as Manage Employees, pre-filled with candidate email */}
+      {inviteModal && (
+        <HiringPassedInviteModal
+          open={!!inviteModal}
+          onClose={() => setInviteModal(null)}
+          candidateEmail={inviteModal.email}
+          candidateName={inviteModal.name}
+          onSuccess={() => { setInviteModal(null); refetch(); }}
+        />
+      )}
+
       <AnimatePresence>
-        {selectedId && (
-          <WalkInDetailSlideOver candidateId={selectedId} onClose={() => setSelectedId(null)} onStatusChange={() => refetch()} />
+        {selectedWalkInId && (
+          <WalkInDetailSlideOver candidateId={selectedWalkInId} onClose={() => setSelectedWalkInId(null)} onStatusChange={() => refetch()} />
         )}
       </AnimatePresence>
     </>
@@ -1802,8 +1928,11 @@ function AIScreenedTab() {
               </thead>
               <tbody>
                 {applications.map((app: any) => {
-                  const resumeScore = typeof app.resumeScoreData === 'object' && app.resumeScoreData?.score != null
-                    ? Number(app.resumeScoreData.score) : null;
+                  // BUG-3 FIX: use resumeMatchScore (the actual stored field), fallback to resumeScoreData.matchScore
+                  const resumeScore = app.resumeMatchScore != null
+                    ? Number(app.resumeMatchScore)
+                    : typeof app.resumeScoreData === 'object' && app.resumeScoreData?.matchScore != null
+                    ? Number(app.resumeScoreData.matchScore) : null;
                   const badge = STATUS_BADGE[app.status] || { label: app.status, class: 'bg-gray-100 text-gray-500' };
                   return (
                     <tr key={app.id} className="border-b border-gray-50 hover:bg-gray-50/30 cursor-pointer"
@@ -2098,5 +2227,189 @@ function CreateJobModal({ onClose }: { onClose: () => void }) {
         </form>
       </motion.div>
     </motion.div>
+  );
+}
+
+// =================== Hiring Passed — Invitation Modal ===================
+// Same flow as Manage Employees InviteEmployeeModal, pre-filled with candidate email
+function HiringPassedInviteModal({ open, onClose, candidateEmail, candidateName, onSuccess }: {
+  open: boolean;
+  onClose: () => void;
+  candidateEmail: string;
+  candidateName: string;
+  onSuccess: () => void;
+}) {
+  const [role, setRole] = useState('EMPLOYEE');
+  const [departmentId, setDepartmentId] = useState('');
+  const [designationId, setDesignationId] = useState('');
+  const [employmentType, setEmploymentType] = useState('FULL_TIME');
+  const [proposedJoiningDate, setProposedJoiningDate] = useState('');
+  const [notes, setNotes] = useState('');
+  const [inviteResult, setInviteResult] = useState<any>(null);
+
+  const [createInvitation, { isLoading }] = useCreateInvitationMutation();
+  const { data: deptData } = useGetDepartmentsQuery();
+  const { data: desigData } = useGetDesignationsQuery();
+  const departments: any[] = deptData?.data || [];
+  const designations: any[] = (desigData?.data || []).filter((d: any) => !departmentId || !d.departmentId || d.departmentId === departmentId);
+
+  const handleSubmit = async () => {
+    if (!candidateEmail) { toast.error('Candidate has no email on file'); return; }
+    try {
+      const body: any = {
+        email: candidateEmail.toLowerCase().trim(),
+        role,
+        employmentType: employmentType || undefined,
+        departmentId: departmentId || undefined,
+        designationId: designationId || undefined,
+        proposedJoiningDate: proposedJoiningDate || undefined,
+        notes: notes || undefined,
+        sendWelcomeEmail: true,
+      };
+      const res = await createInvitation(body).unwrap();
+      setInviteResult(res.data);
+      toast.success(`Onboarding invitation sent to ${candidateName}!`);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to send invitation');
+    }
+  };
+
+  const handleClose = () => {
+    setRole('EMPLOYEE'); setDepartmentId(''); setDesignationId('');
+    setEmploymentType('FULL_TIME'); setProposedJoiningDate(''); setNotes('');
+    setInviteResult(null);
+    if (inviteResult) onSuccess(); else onClose();
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4" onClick={handleClose}>
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+        onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="text-lg font-display font-semibold text-gray-800">Send Onboarding Invitation</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Invite <strong>{candidateName}</strong> to join as an employee</p>
+          </div>
+          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        {inviteResult ? (
+          <div className="space-y-4">
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 size={20} className="text-green-600" />
+                <span className="text-sm font-semibold text-green-700">Invitation Created!</span>
+              </div>
+              <div className="space-y-1.5 mt-2">
+                {inviteResult.email && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <Mail size={14} className={inviteResult.emailStatus === 'SENT' ? 'text-green-600' : inviteResult.emailStatus === 'FAILED' ? 'text-red-500' : 'text-gray-400'} />
+                    <span className={inviteResult.emailStatus === 'SENT' ? 'text-green-700' : inviteResult.emailStatus === 'FAILED' ? 'text-red-600' : 'text-gray-500'}>
+                      Email {inviteResult.emailStatus === 'SENT' ? 'sent' : inviteResult.emailStatus === 'FAILED' ? 'failed' : 'pending'} to {inviteResult.email}
+                    </span>
+                  </div>
+                )}
+                {inviteResult.mobileNumber && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <MessageCircle size={14} className={inviteResult.whatsappStatus === 'SENT' ? 'text-green-600' : inviteResult.whatsappStatus === 'FAILED' ? 'text-amber-500' : 'text-gray-400'} />
+                    <span className={inviteResult.whatsappStatus === 'SENT' ? 'text-green-700' : inviteResult.whatsappStatus === 'FAILED' ? 'text-amber-600' : 'text-gray-500'}>
+                      WhatsApp {inviteResult.whatsappStatus === 'SENT' ? 'sent' : inviteResult.whatsappStatus === 'FAILED' ? 'failed (WA may not be connected)' : 'pending'} to {inviteResult.mobileNumber}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Invite Link (share manually if needed)</label>
+              <div className="flex items-center gap-2">
+                <input readOnly value={inviteResult.inviteUrl || ''} className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs" />
+                <button onClick={() => { navigator.clipboard.writeText(inviteResult.inviteUrl); toast.success('Invite link copied!'); }}
+                  className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50"><Copy size={16} /></button>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Expires: {new Date(inviteResult.expiresAt).toLocaleString('en-IN')}</p>
+            </div>
+            <button onClick={handleClose} className="btn-primary w-full text-sm mt-4">Done</button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1"><Mail size={13} className="inline mr-1.5 -mt-0.5" />Email Address</label>
+              <input readOnly value={candidateEmail}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500 cursor-not-allowed" />
+              <p className="text-xs text-gray-400 mt-1">Pre-filled from candidate application</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
+                <select value={role} onChange={e => setRole(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                  <option value="EMPLOYEE">Employee</option>
+                  <option value="INTERN">Intern</option>
+                  <option value="MANAGER">Manager</option>
+                  <option value="HR">HR</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Employment Type</label>
+                <select value={employmentType} onChange={e => setEmploymentType(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                  <option value="FULL_TIME">Full Time</option>
+                  <option value="PART_TIME">Part Time</option>
+                  <option value="CONTRACT">Contract</option>
+                  <option value="INTERN">Intern</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                <select value={departmentId} onChange={e => { setDepartmentId(e.target.value); setDesignationId(''); }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                  <option value="">— Select —</option>
+                  {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
+                <select value={designationId} onChange={e => setDesignationId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                  <option value="">— Select —</option>
+                  {designations.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Proposed Joining Date</label>
+              <input type="date" value={proposedJoiningDate} onChange={e => setProposedJoiningDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+                placeholder="Internal notes..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none" />
+            </div>
+
+            <div className="flex gap-3 pt-2 border-t border-gray-100">
+              <button onClick={handleClose}
+                className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleSubmit} disabled={isLoading || !candidateEmail}
+                className="flex-1 btn-primary flex items-center justify-center gap-2 text-sm">
+                {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                Send Invitation
+              </button>
+            </div>
+          </div>
+        )}
+      </motion.div>
+    </div>
   );
 }

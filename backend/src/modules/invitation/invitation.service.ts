@@ -270,6 +270,12 @@ export class InvitationService {
 
     const normalizedEmail = data.email.toLowerCase();
 
+    // M-5 FIX: Validate that the provided email matches the invitation's assigned email.
+    // Prevents a candidate from registering under a different email than what HR invited.
+    if (invitation.email && normalizedEmail !== invitation.email.toLowerCase()) {
+      throw new BadRequestError('The email address you entered does not match this invitation. Please use the email address the invite was sent to.');
+    }
+
     // Check for existing user
     const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
