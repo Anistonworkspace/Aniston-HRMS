@@ -128,8 +128,8 @@ export default function EmployeeOnboardingPage() {
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4 pb-16">
-      <div className="max-w-3xl mx-auto">
+    <div className="h-[100dvh] overflow-y-auto bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+      <div className="max-w-3xl mx-auto py-8 px-4 pb-[max(4rem,calc(env(safe-area-inset-bottom,0px)+2rem))]">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="w-14 h-14 rounded-xl bg-brand-100 flex items-center justify-center mx-auto mb-3">

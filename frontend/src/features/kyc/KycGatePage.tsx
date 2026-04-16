@@ -336,8 +336,8 @@ export default function KycGatePage() {
   // ── Render ─────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen overflow-y-auto bg-surface-1 py-8 px-4 pb-16">
-      <div className="max-w-2xl mx-auto">
+    <div className="h-[100dvh] overflow-y-auto bg-surface-1">
+      <div className="max-w-2xl mx-auto py-8 px-4 pb-[max(4rem,calc(env(safe-area-inset-bottom,0px)+2rem))]">
 
         {/* Header */}
         <div className="text-center mb-6">

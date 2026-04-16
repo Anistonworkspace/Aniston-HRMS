@@ -81,7 +81,7 @@ export default function OnboardingPortal() {
   };
 
   return (
-    <div className="min-h-screen bg-surface-1">
+    <div className="h-[100dvh] overflow-y-auto bg-surface-1">
       {/* Header */}
       <header className="bg-white border-b border-gray-100 px-4 py-4">
         <div className="max-w-3xl mx-auto flex items-center gap-3">
@@ -93,7 +93,7 @@ export default function OnboardingPortal() {
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className="max-w-3xl mx-auto px-4 py-8 pb-[max(4rem,calc(env(safe-area-inset-bottom,0px)+2rem))]">
         {/* Step indicators */}
         <div className="flex items-center justify-between mb-8 overflow-x-auto pb-2">
           {STEPS.map((step, i) => (

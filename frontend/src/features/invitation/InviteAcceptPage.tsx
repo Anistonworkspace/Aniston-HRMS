@@ -168,7 +168,8 @@ export default function InviteAcceptPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center px-4 py-8">
+    <div className="h-[100dvh] overflow-y-auto bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+      <div className="flex min-h-full items-center justify-center px-4 py-8">
       <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         className="bg-white rounded-2xl shadow-xl p-8 max-w-lg w-full">
         {/* Org Header */}
@@ -264,6 +265,7 @@ export default function InviteAcceptPage() {
           </button>
         </form>
       </motion.div>
+      </div>
     </div>
   );
 }
