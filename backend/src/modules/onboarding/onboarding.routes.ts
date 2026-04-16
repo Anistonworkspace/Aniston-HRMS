@@ -3,6 +3,7 @@ import { authenticate, authorize } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
 import { onboardingController } from './onboarding.controller.js';
 import { getEmployeeKycUrl } from '../../middleware/upload.middleware.js';
+import { logger } from '../../lib/logger.js';
 
 const router = Router();
 
@@ -321,13 +322,13 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
                   if (classifyJson.success && classifyJson.data && !classifyJson.data.error) {
                     analysisResult = normalizeCombinedPdfAnalysis(classifyJson.data, 'python');
                     pythonSuccess = true;
-                    console.log('[KYC Combined PDF] Python AI classification succeeded');
+                    logger.info(`[KYC Combined PDF] Python AI classification succeeded for employee ${employeeId} — pages=${classifyJson.data.total_pages ?? 0} detected=${JSON.stringify(classifyJson.data.detected_docs ?? [])}`);
                   } else if (classifyJson.data?.error) {
-                    console.warn('[KYC Combined PDF] Python returned processing error (falling back to Node.js):', classifyJson.data.error);
+                    logger.warn(`[KYC Combined PDF] Python returned processing error (falling back to Node.js): ${classifyJson.data.error}`);
                   }
                 }
               } catch (pythonErr: any) {
-                console.warn('[KYC Combined PDF] Python AI service unavailable:', pythonErr.message);
+                logger.warn(`[KYC Combined PDF] Python AI service unavailable for employee ${employeeId}: ${pythonErr.message}`);
               }
 
               // ── Node.js fallback (if Python failed) ──
@@ -338,9 +339,9 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
                   const requiredDocs = (gate?.requiredDocs as string[]) || ['PAN', 'AADHAAR', 'TENTH_CERTIFICATE'];
                   const nodeResult = await processCombinedPdfFallback(fileBuffer, requiredDocs);
                   analysisResult = normalizeCombinedPdfAnalysis(nodeResult, 'node_fallback');
-                  console.log('[KYC Combined PDF] Node.js fallback classification succeeded');
+                  logger.info(`[KYC Combined PDF] Node.js fallback classification succeeded for employee ${employeeId}`);
                 } catch (nodeErr: any) {
-                  console.warn('[KYC Combined PDF] Node.js fallback also failed:', nodeErr.message);
+                  logger.warn(`[KYC Combined PDF] Node.js fallback also failed for employee ${employeeId}: ${nodeErr.message}`);
                   // Both failed — mark for manual review
                   await documentGateService.setCombinedPdfClassified(employeeId, {
                     analysisResult: { error: 'Both Python and Node.js classification failed', _source: 'manual_review' },
@@ -362,7 +363,7 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
                 employeeVisibleReasons: analysisResult?.employeeVisibleReasons ?? [],
               });
             } catch (classifyErr: any) {
-              console.error('[KYC Combined PDF] Classification pipeline failed:', classifyErr.message);
+              logger.error(`[KYC Combined PDF] Classification pipeline failed for employee ${employeeId}: ${classifyErr.message}`);
               // Ensure gate doesn't stay stuck in PROCESSING
               try {
                 await documentGateService.setCombinedPdfClassified(employeeId, {
@@ -609,13 +610,13 @@ router.post('/kyc/:employeeId/reclassify-combined-pdf', authenticate, authorize(
           if (classifyJson.success && classifyJson.data && !classifyJson.data.error) {
             analysisResult = normalizeCombinedPdfAnalysis(classifyJson.data, 'python');
             pythonSuccess = true;
-            console.log(`[Reclassify] Python AI succeeded for employee ${employeeId}`);
+            logger.info(`[Reclassify] Python AI succeeded for employee ${employeeId} — pages=${classifyJson.data.total_pages ?? 0} detected=${JSON.stringify(classifyJson.data.detected_docs ?? [])}`);
           } else if (classifyJson.data?.error) {
-            console.warn(`[Reclassify] Python returned error (falling back to Node.js): ${classifyJson.data.error}`);
+            logger.warn(`[Reclassify] Python returned error (falling back to Node.js) for employee ${employeeId}: ${classifyJson.data.error}`);
           }
         }
       } catch (pythonErr: any) {
-        console.warn(`[Reclassify] Python unavailable: ${pythonErr.message}`);
+        logger.warn(`[Reclassify] Python unavailable for employee ${employeeId}: ${(pythonErr as Error).message}`);
       }
 
       // ── Node.js fallback ──
@@ -625,7 +626,7 @@ router.post('/kyc/:employeeId/reclassify-combined-pdf', authenticate, authorize(
         const requiredDocs = (gate?.requiredDocs as string[]) || ['PAN', 'AADHAAR', 'TENTH_CERTIFICATE'];
         const nodeResult = await processCombinedPdfFallback(fileBuffer, requiredDocs);
         analysisResult = normalizeCombinedPdfAnalysis(nodeResult, 'node_fallback');
-        console.log(`[Reclassify] Node.js fallback used for employee ${employeeId}`);
+        logger.info(`[Reclassify] Node.js fallback used for employee ${employeeId}`);
       }
 
       // ── Persist normalized result ──

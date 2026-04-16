@@ -1436,17 +1436,18 @@ def _ocr_page_with_fallback(image: "Image.Image", page_idx: int, quality_flags: 
                 return ""
 
     w, h = image.size
-    logger.debug(f"Page {page_num}: image size={w}x{h}px, mode={image.mode}")
+    logger.info(f"[OCR] Page {page_num}: image={w}x{h}px mode={image.mode}")
 
     # ── Strategy 1: raw image ────────────────────────────────────────────────
     try:
         text1 = _run_tesseract(image)
         if len(text1) >= 15:
-            logger.debug(f"Page {page_num}: raw-OCR succeeded ({len(text1)} chars)")
+            logger.info(f"[OCR] Page {page_num}: strategy=raw chars={len(text1)} → SUCCESS")
             return text1, "image_ocr_raw"
+        logger.debug(f"[OCR] Page {page_num}: strategy=raw chars={len(text1)} → short, trying next")
     except Exception as e:
         text1 = ""
-        logger.warning(f"Page {page_num}: raw-OCR strategy raised: {e}")
+        logger.warning(f"[OCR] Page {page_num}: strategy=raw raised: {e}")
 
     # ── Strategy 2: conservative preprocessing ──────────────────────────────
     text2 = ""
@@ -1454,32 +1455,50 @@ def _ocr_page_with_fallback(image: "Image.Image", page_idx: int, quality_flags: 
         conservative_img = _preprocess_conservative(image)
         text2 = _run_tesseract(conservative_img)
         if len(text2) >= 15:
-            logger.debug(f"Page {page_num}: conservative-OCR succeeded ({len(text2)} chars)")
+            logger.info(f"[OCR] Page {page_num}: strategy=conservative chars={len(text2)} → SUCCESS")
             return text2, "image_ocr_conservative"
+        logger.debug(f"[OCR] Page {page_num}: strategy=conservative chars={len(text2)} → short, trying next")
     except Exception as e:
-        logger.warning(f"Page {page_num}: conservative-OCR strategy raised: {e}")
+        logger.warning(f"[OCR] Page {page_num}: strategy=conservative raised: {e}")
 
-    # ── Strategy 3: full binary preprocessing (original behaviour) ──────────
+    # ── Strategy 3: full binary preprocessing ───────────────────────────────
     text3 = ""
     try:
         processed_img = preprocess_image(image)
         text3 = _run_tesseract(processed_img)
         if len(text3) >= 15:
-            logger.debug(f"Page {page_num}: binary-OCR succeeded ({len(text3)} chars)")
+            logger.info(f"[OCR] Page {page_num}: strategy=binary chars={len(text3)} → SUCCESS")
             return text3, "image_ocr_preprocessed"
+        logger.debug(f"[OCR] Page {page_num}: strategy=binary chars={len(text3)} → short, trying next")
     except Exception as e:
-        logger.warning(f"Page {page_num}: binary-OCR strategy raised: {e}")
+        logger.warning(f"[OCR] Page {page_num}: strategy=binary raised: {e}")
+
+    # ── Strategy 4: conservative + PSM 6 (assume uniform block of text) ─────
+    # Helps certificates / marksheets where the page is a single column of text.
+    text4 = ""
+    try:
+        conservative_img2 = _preprocess_conservative(image)
+        try:
+            text4 = pytesseract.image_to_string(conservative_img2, lang="eng+hin", config="--psm 6").strip()
+        except Exception:
+            text4 = pytesseract.image_to_string(conservative_img2, lang="eng", config="--psm 6").strip()
+        if len(text4) >= 15:
+            logger.info(f"[OCR] Page {page_num}: strategy=psm6 chars={len(text4)} → SUCCESS")
+            return text4, "image_ocr_psm6"
+        logger.debug(f"[OCR] Page {page_num}: strategy=psm6 chars={len(text4)} → short")
+    except Exception as e:
+        logger.warning(f"[OCR] Page {page_num}: strategy=psm6 raised: {e}")
 
     # ── All strategies exhausted — return best effort ────────────────────────
-    best = max([text1, text2, text3], key=len)
+    best = max([text1, text2, text3, text4], key=len)
     if best:
-        logger.info(
-            f"Page {page_num}: all OCR strategies returned short text "
-            f"(max {len(best)} chars) — likely blank page"
+        logger.warning(
+            f"[OCR] Page {page_num}: all 4 strategies returned short text "
+            f"(best={len(best)} chars) — page may be low quality or truly blank"
         )
     else:
         logger.warning(
-            f"Page {page_num}: all OCR strategies returned EMPTY — "
+            f"[OCR] Page {page_num}: all 4 strategies returned EMPTY — "
             f"possible Tesseract failure or truly blank page (image {w}x{h})"
         )
         quality_flags.append(
@@ -1583,7 +1602,14 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
         summary: "..."
       }
     """
+    pdf_size_kb = len(pdf_bytes) // 1024
+    logger.info(
+        f"[classify_combined_pdf] START — pdf_size={pdf_size_kb} KB, "
+        f"required_docs={required_docs or 'STANDARD_FALLBACK'}"
+    )
+
     if not HAS_PDF2IMAGE:
+        logger.error("[classify_combined_pdf] ABORT — pdf2image not installed; cannot render PDF pages")
         return {
             "error": "pdf2image not available — cannot classify combined PDF",
             "total_pages": 0,
@@ -1617,9 +1643,15 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
     suspicion_flags = []
     suspicion_score = 0  # initialized here — accumulated during page loop below
 
+    logger.info(f"[classify_combined_pdf] PDF rendered — total_pages={total_pages}")
+
     # Also try native text extraction for digital PDFs (faster, more accurate)
     native_text = extract_text_from_pdf_native(pdf_bytes)
     native_pages = [p.strip() for p in native_text.split("\x0c")] if native_text else []
+    if native_text:
+        logger.info(f"[classify_combined_pdf] Native PDF text available ({len(native_text)} chars total)")
+    else:
+        logger.info("[classify_combined_pdf] No native PDF text — will use image OCR for all pages")
 
     for idx, image in enumerate(images):
         # ── Text extraction: native PDF text → multi-strategy image OCR ──────
@@ -1644,6 +1676,15 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
         # Document type detection
         type_info = detect_page_document_type(raw_text, idx)
         page_doc_type = type_info["detected_type"]
+
+        # Per-page structured log — visible in System Logs UI
+        logger.info(
+            f"[classify_combined_pdf] Page {idx + 1}/{total_pages}: "
+            f"source={source} text_len={len(raw_text.strip())} "
+            f"detected={page_doc_type} confidence={type_info['confidence']:.2f} "
+            f"quality={quality_info['quality']} is_blank={quality_info['is_blank']} "
+            f"pixel_std={quality_info.get('pixel_std', 'N/A')}"
+        )
 
         # ── Per-page deep validation (field extract + validators + wrong-doc check) ──
         page_validation_reasons: list = []
@@ -1712,11 +1753,15 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
             "detected_type": page_doc_type,
             "confidence": type_info["confidence"],
             "text_snippet": raw_text[:300].strip() if raw_text else "",
+            "text_length": len(raw_text.strip()),
             "quality": quality_info["quality"],
             "is_blank": quality_info["is_blank"],
             "is_likely_screenshot": quality_info["is_likely_screenshot"],
+            "has_image_content": quality_info["has_image_content"],
+            "pixel_std": quality_info.get("pixel_std"),
+            "page_quality_flags": quality_info["flags"],  # per-page flags for HR panel
             "source": source,
-            # New: per-page deep validation results
+            # Per-page deep validation results
             "validation_reasons": page_validation_reasons,
             "suspicion_boost": round(page_suspicion_boost, 2),
             "wrong_upload": page_wrong_upload,
@@ -1897,6 +1942,13 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
         suspicion_score = min(suspicion_score, 30)
         risk_level = "MEDIUM"
 
+    logger.info(
+        f"[classify_combined_pdf] DONE — total_pages={total_pages} "
+        f"detected_docs={detected_docs} missing_docs={missing_docs} "
+        f"suspicion_score={suspicion_score} risk_level={risk_level} "
+        f"blank_pages={blank_pages} ocr_infra_warning={ocr_infrastructure_warning is not None}"
+    )
+
     return {
         "total_pages": total_pages,
         "page_results": page_results,
@@ -1931,6 +1983,7 @@ _TYPE_EXTRACTORS = {
     "DRIVING_LICENSE":            extract_driving_license_fields,
     "BANK_STATEMENT":             extract_bank_statement_fields,
     "CERTIFICATE":                extract_education_certificate_fields,
+    "DEGREE_CERTIFICATE":         extract_education_certificate_fields,  # explicit alias
     "TENTH_CERTIFICATE":          extract_education_certificate_fields,
     "TWELFTH_CERTIFICATE":        extract_education_certificate_fields,
     "POST_GRADUATION_CERTIFICATE": extract_education_certificate_fields,

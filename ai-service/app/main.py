@@ -36,7 +36,13 @@ class _JsonFormatter(logging.Formatter):
 
 
 def _configure_file_logging() -> None:
-    """Attach a rotating JSON file handler to the root logger."""
+    """Attach a rotating JSON file handler to the root logger.
+
+    IMPORTANT: also sets the root-logger level to INFO.
+    logging.basicConfig(level=INFO) is a no-op once any handler is attached,
+    so we must set the level explicitly here — otherwise the default WARNING
+    threshold silently drops all INFO/DEBUG messages and the log file stays empty.
+    """
     try:
         _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         handler = RotatingFileHandler(
@@ -46,8 +52,9 @@ def _configure_file_logging() -> None:
             encoding="utf-8",
         )
         handler.setFormatter(_JsonFormatter())
-        handler.setLevel(logging.DEBUG)
+        handler.setLevel(logging.DEBUG)   # handler passes everything ≥ DEBUG
         root = logging.getLogger()
+        root.setLevel(logging.INFO)       # root filters to INFO+ (was WARNING by default)
         root.addHandler(handler)
     except Exception as exc:
         # Non-fatal — fall back to console-only logging
@@ -59,7 +66,9 @@ def _configure_file_logging() -> None:
 _configure_file_logging()
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+# NOTE: basicConfig is intentionally NOT called here — it would be a no-op after
+# _configure_file_logging() adds a handler, and the explicit root.setLevel(INFO)
+# above already sets the desired threshold.
 
 
 def _check_ocr_dependencies() -> None:
