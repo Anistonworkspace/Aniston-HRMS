@@ -625,14 +625,28 @@ export class PayrollService {
 
           // Statutory deductions — re-compute live for default employees; use stored values for custom
           let statutoryDeductions: number;
+          let recEpfEmployee: number, recEpfEmployer: number;
+          let recEsiEmployee: number, recEsiEmployer: number;
+          let recProfTax: number, recTds: number;
           if ((sal as any).isCustom === false && componentMaster.length > 0) {
             const basicComp2 = findComponent(components, 'Basic') || findComponent(components, 'Basic Salary');
             const basicVal2 = basicComp2?.value ?? 0;
             const cfg2 = calculateStatutory(basicVal2, earningsTotal, Number(sal.ctc), sal.incomeTaxRegime as any, null);
+            recEpfEmployee = cfg2.epfEmployee;
+            recEpfEmployer = cfg2.epfEmployer;
+            recEsiEmployee = cfg2.esiEmployee;
+            recEsiEmployer = cfg2.esiEmployer;
+            recProfTax = cfg2.professionalTax;
+            recTds = cfg2.tds;
             statutoryDeductions = cfg2.epfEmployee + cfg2.esiEmployee + cfg2.professionalTax + cfg2.tds;
           } else {
-            statutoryDeductions = Number(sal.pfEmployee || 0) + Number(sal.esiEmployee || 0) +
-              Number(sal.professionalTax || 0) + Number(sal.tds || 0);
+            recEpfEmployee = Number(sal.pfEmployee || 0);
+            recEpfEmployer = Number(sal.pfEmployer || 0);
+            recEsiEmployee = Number(sal.esiEmployee || 0);
+            recEsiEmployer = Number(sal.esiEmployer || 0);
+            recProfTax = Number(sal.professionalTax || 0);
+            recTds = Number(sal.tds || 0);
+            statutoryDeductions = recEpfEmployee + recEsiEmployee + recProfTax + recTds;
           }
 
           // Calculate adjustments (additions and deductions)
@@ -696,12 +710,12 @@ export class PayrollService {
               basic: basicComp?.value ?? Number(sal.basic || 0),
               hra: hraComp?.value ?? Number(sal.hra || 0),
               otherEarnings,
-              epfEmployee: Number(sal.pfEmployee || 0),
-              epfEmployer: Number(sal.pfEmployer || 0),
-              esiEmployee: Number(sal.esiEmployee || 0),
-              esiEmployer: Number(sal.esiEmployer || 0),
-              professionalTax: Number(sal.professionalTax || 0),
-              tds: Number(sal.tds || 0),
+              epfEmployee: recEpfEmployee,
+              epfEmployer: recEpfEmployer,
+              esiEmployee: recEsiEmployee,
+              esiEmployer: recEsiEmployer,
+              professionalTax: recProfTax,
+              tds: recTds,
               otherDeductions: componentDeductions + adjustmentDeductions > 0
                 ? { customDeductions: componentDeductions, adjustmentDeductions }
                 : undefined,
@@ -777,6 +791,7 @@ export class PayrollService {
         employee: {
           select: {
             firstName: true, lastName: true, employeeCode: true,
+            isSystemAccount: true,
             department: { select: { name: true } },
             bankAccountNumber: true, bankName: true, ifscCode: true,
             accountHolderName: true, accountType: true,

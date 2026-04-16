@@ -67,6 +67,14 @@ export async function generatePayrollExcel(
 
   const filteredRecords = (records as any[]).filter((r: any) => !r.employee?.isSystemAccount);
 
+  // If no records, add a helpful "no data" note row
+  if (filteredRecords.length === 0) {
+    const noDataRow = summarySheet.addRow(['—', '—', 'No payroll records for this period', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—']);
+    noDataRow.font = { italic: true, color: { argb: GRAY }, size: 10 };
+    noDataRow.alignment = { horizontal: 'center' };
+    noDataRow.getCell(3).alignment = { horizontal: 'left' };
+  }
+
   filteredRecords.forEach((rec: any, idx: number) => {
     const otherEarnings = rec.otherEarnings as any || {};
     const otherTotal = Number(otherEarnings.da || 0) + Number(otherEarnings.ta || 0) +
@@ -79,11 +87,12 @@ export async function generatePayrollExcel(
     totalNet += Number(rec.netSalary || 0);
     totalDeductions += totalDed;
 
+    const empName = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim();
     const row = summarySheet.addRow([
       idx + 1,
-      rec.employee?.employeeCode || '-',
-      `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`,
-      rec.employee?.department?.name || '-',
+      rec.employee?.employeeCode || '—',
+      empName || '—',
+      rec.employee?.department?.name || '—',
       rec.workingDays || 0,
       rec.presentDays || 0,
       rec.lopDays || 0,
@@ -269,6 +278,14 @@ export async function generateAttendanceSalaryExcel(
   let totPaidLeave = 0, totAbsent = 0, totHalf = 0, totLop = 0, totPaidDays = 0;
 
   const attFilteredRecords = (records as any[]).filter((r: any) => !r.employee?.isSystemAccount);
+
+  if (attFilteredRecords.length === 0) {
+    const noDataRow = sheet.addRow(['No attendance/payroll records for this period', '', '—', '—', '—', '—', '—', '—', '—', '—', '—', '']);
+    noDataRow.font = { italic: true, color: { argb: GRAY }, size: 10 };
+    noDataRow.alignment = { horizontal: 'center' };
+    noDataRow.getCell(1).alignment = { horizontal: 'left' };
+  }
+
   attFilteredRecords.forEach((rec: any) => {
     const ld = leaveMap.get(rec.employeeId) || { providedL: 0, leavesBalance: 0, paidLeaveDays: 0 };
     const att = attMap.get(rec.employeeId) || { presentCount: 0, absentCount: 0, halfDayCount: 0 };
@@ -402,12 +419,18 @@ export async function generateBankFileExcel(
   let readyCount = 0;
   let missingCount = 0;
 
-  for (const rec of records as any[]) {
+  const bankFilteredRecords = (records as any[]).filter((r: any) => !r.employee?.isSystemAccount && Number(r.netSalary || 0) > 0);
+
+  if (bankFilteredRecords.length === 0) {
+    const noDataRow = sheet.addRow(['—', '—', 'No salary records for this period', '—', '—', '—', '—', '—', 'Process payroll first to generate bank transfer data', '—']);
+    noDataRow.font = { italic: true, color: { argb: GRAY }, size: 10 };
+    noDataRow.alignment = { horizontal: 'center' };
+    noDataRow.getCell(3).alignment = { horizontal: 'left' };
+  }
+
+  for (const rec of bankFilteredRecords) {
     const emp = rec.employee;
-    // Skip system accounts (admin/super-admin service accounts) and zero-pay records
-    if (emp?.isSystemAccount) continue;
     const netPay = Number(rec.netSalary || 0);
-    if (netPay <= 0) continue;
 
     const hasBank = !!(emp?.bankAccountNumber && emp?.ifscCode);
     const name = emp?.accountHolderName
@@ -419,12 +442,12 @@ export async function generateBankFileExcel(
 
     const row = sheet.addRow([
       'NEFT',
-      emp?.employeeCode || '',
-      name,
-      emp?.bankAccountNumber || '',
-      emp?.ifscCode || '',
-      emp?.bankName || '',
-      emp?.accountType || '',
+      emp?.employeeCode || '—',
+      name || '—',
+      emp?.bankAccountNumber || '—',
+      emp?.ifscCode || '—',
+      emp?.bankName || '—',
+      emp?.accountType || '—',
       netPay,
       `Salary ${shortMonths[run.month - 1]} ${run.year}`,
       hasBank ? 'READY' : 'MISSING — Fill manually',
