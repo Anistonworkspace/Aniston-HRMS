@@ -111,6 +111,15 @@ export class LeaveService {
       // Role check — if applicableToRole is set, only that role can see this leave
       if ((lt as any).applicableToRole && (lt as any).applicableToRole !== userRole) return false;
 
+      // Min Service Months — HR-configured tenure gate (default 0 = no gate)
+      const probationMonths = (lt as any).probationMonths ?? 0;
+      if (probationMonths > 0 && (employee as any).joiningDate) {
+        const joined = new Date((employee as any).joiningDate);
+        const now = new Date();
+        const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
+        if (monthsWorked < probationMonths) return false;
+      }
+
       // Applicability check (status-based) — driven entirely by HR settings
       const app = lt.applicableTo;
       if (app === 'ALL') return true;
@@ -334,6 +343,17 @@ export class LeaveService {
           EMPLOYEE: 'Employees', MANAGER: 'Managers', HR: 'HR team', ADMIN: 'Administrators', INTERN: 'Interns',
         };
         throw new BadRequestError(`${leaveType.name} is restricted to ${roleLabels[roleRestriction] || roleRestriction} only. Your role does not qualify.`);
+      }
+    }
+
+    // 10b. Min Service Months — HR-configured tenure gate (default 0 = no gate)
+    const probMonths = (leaveType as any).probationMonths ?? 0;
+    if (probMonths > 0 && employee.joiningDate) {
+      const joined = new Date(employee.joiningDate);
+      const now = new Date();
+      const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
+      if (monthsWorked < probMonths) {
+        throw new BadRequestError(`${leaveType.name} requires ${probMonths} month(s) of service. You have completed ${monthsWorked} month(s). Please contact HR if you need an exception.`);
       }
     }
 
@@ -943,6 +963,17 @@ export class LeaveService {
           EMPLOYEE: 'Employees', MANAGER: 'Managers', HR: 'HR team', ADMIN: 'Administrators', INTERN: 'Interns',
         };
         throw new BadRequestError(`${leaveType.name} is restricted to ${roleLabels[leaveType.applicableToRole] || leaveType.applicableToRole} only. Your role does not qualify.`);
+      }
+    }
+
+    // 14b. Min Service Months — HR-configured tenure gate (default 0 = no gate)
+    const probMonthsDraft = (leaveType as any).probationMonths ?? 0;
+    if (probMonthsDraft > 0 && employee.joiningDate) {
+      const joined = new Date(employee.joiningDate);
+      const now = new Date();
+      const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
+      if (monthsWorked < probMonthsDraft) {
+        throw new BadRequestError(`${leaveType.name} requires ${probMonthsDraft} month(s) of service. You have completed ${monthsWorked} month(s). Please contact HR if you need an exception.`);
       }
     }
 
