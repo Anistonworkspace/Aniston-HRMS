@@ -118,44 +118,6 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  deploy:
-    name: Deploy to Production (EC2)
-    runs-on: ubuntu-latest
-    needs: build
-    # Only deploy on pushes to main — not on PRs
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
-    steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          timeout: 300s
-          script: |
-            set -e
-            cd /home/ubuntu/Aniston-HRMS
-
-            echo "⬇️  Pulling latest code..."
-            git pull origin main
-
-            echo "📦 Installing dependencies..."
-            npm ci
-
-            echo "🗄️  Syncing database schema..."
-            npx prisma db push --accept-data-loss
-
-            echo "🔧 Generating Prisma client..."
-            npx prisma generate
-
-            echo "🏗️  Building backend..."
-            npm run build --workspace=backend
-
-            echo "🎨 Building frontend..."
-            npm run build --workspace=frontend
-
-            echo "🔄 Restarting services..."
-            pm2 restart all --update-env
-
-            echo "✅ Deployment complete!"
+  # Deployment is handled exclusively by deploy.yml (the full 16-step pipeline).
+  # The old deploy job was removed to prevent double-deploys and the
+  # "overwritten by merge" git pull failure caused by the simple script.
