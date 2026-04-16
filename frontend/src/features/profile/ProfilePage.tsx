@@ -472,8 +472,15 @@ export default function ProfilePage() {
                   className="input-glass w-full text-sm" placeholder={t('common.name')} />
                 <input value={form.emergencyContact.phone} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, phone: e.target.value}})}
                   className="input-glass w-full text-sm" placeholder={t('common.phone')} />
-                <input value={form.emergencyContact.relationship} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, relationship: e.target.value}})}
-                  className="input-glass w-full text-sm" placeholder={t('profile.relationship')} />
+                <select value={form.emergencyContact.relationship} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, relationship: e.target.value}})}
+                  className="input-glass w-full text-sm">
+                  <option value="">{t('profile.relationship')}</option>
+                  <option value="SPOUSE">Spouse</option>
+                  <option value="PARENT">Parent</option>
+                  <option value="SIBLING">Sibling</option>
+                  <option value="FRIEND">Friend</option>
+                  <option value="OTHER">Other</option>
+                </select>
               </div>
             </div>
             <div className="p-5 border-t border-gray-100 shrink-0">

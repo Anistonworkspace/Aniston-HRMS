@@ -65,7 +65,9 @@ export async function generatePayrollExcel(
 
   let totalGross = 0, totalNet = 0, totalDeductions = 0;
 
-  records.forEach((rec: any, idx: number) => {
+  const filteredRecords = (records as any[]).filter((r: any) => !r.employee?.isSystemAccount);
+
+  filteredRecords.forEach((rec: any, idx: number) => {
     const otherEarnings = rec.otherEarnings as any || {};
     const otherTotal = Number(otherEarnings.da || 0) + Number(otherEarnings.ta || 0) +
       Number(otherEarnings.medical || 0) + Number(otherEarnings.special || 0) + Number(otherEarnings.sundayBonus || 0);
@@ -164,7 +166,7 @@ export async function generatePayrollExcel(
   ];
   styleHeaderRow(costSheet.getRow(1));
 
-  records.forEach((rec: any) => {
+  filteredRecords.forEach((rec: any) => {
     const empCost = Number(rec.grossSalary || 0) + Number(rec.epfEmployer || 0) + Number(rec.esiEmployer || 0);
     const row = costSheet.addRow({
       code: rec.employee?.employeeCode || '-',
@@ -266,7 +268,8 @@ export async function generateAttendanceSalaryExcel(
   let totWorkDays = 0, totSundays = 0, totTotal = 0, totPresent = 0;
   let totPaidLeave = 0, totAbsent = 0, totHalf = 0, totLop = 0, totPaidDays = 0;
 
-  records.forEach((rec: any) => {
+  const attFilteredRecords = (records as any[]).filter((r: any) => !r.employee?.isSystemAccount);
+  attFilteredRecords.forEach((rec: any) => {
     const ld = leaveMap.get(rec.employeeId) || { providedL: 0, leavesBalance: 0, paidLeaveDays: 0 };
     const att = attMap.get(rec.employeeId) || { presentCount: 0, absentCount: 0, halfDayCount: 0 };
 
@@ -401,6 +404,8 @@ export async function generateBankFileExcel(
 
   for (const rec of records as any[]) {
     const emp = rec.employee;
+    // Skip system accounts (admin/super-admin service accounts) and zero-pay records
+    if (emp?.isSystemAccount) continue;
     const netPay = Number(rec.netSalary || 0);
     if (netPay <= 0) continue;
 

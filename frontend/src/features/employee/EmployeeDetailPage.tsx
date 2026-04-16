@@ -650,7 +650,20 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose }: { employee: 
             <div><label className="block text-xs text-gray-500 mb-1">Date of Birth</label>
               <input type="date" value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} className="input-glass w-full text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">Blood Group</label>
-              <input value={form.bloodGroup} onChange={(e) => setForm({ ...form, bloodGroup: e.target.value })} className="input-glass w-full text-sm" placeholder="e.g. O+" /></div>
+              <select value={form.bloodGroup} onChange={(e) => setForm({ ...form, bloodGroup: e.target.value })} className="input-glass w-full text-sm">
+                <option value="">Select</option>
+                {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(bg => <option key={bg} value={bg}>{bg}</option>)}
+              </select></div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div><label className="block text-xs text-gray-500 mb-1">Marital Status</label>
+              <select value={form.maritalStatus} onChange={(e) => setForm({ ...form, maritalStatus: e.target.value })} className="input-glass w-full text-sm">
+                <option value="">Select</option>
+                <option value="Single">Single</option>
+                <option value="Married">Married</option>
+                <option value="Divorced">Divorced</option>
+                <option value="Widowed">Widowed</option>
+              </select></div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Work Mode</label>

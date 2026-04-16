@@ -230,10 +230,28 @@ export default function EmployeeOnboardingPage() {
                       </select>
                     </div>
                     <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Marital Status <span className="text-xs text-gray-400">(optional)</span></label>
+                      <select value={personal.maritalStatus} onChange={e => setPersonal(p => ({ ...p, maritalStatus: e.target.value }))}
+                        className="input-glass w-full text-sm">
+                        <option value="">Select</option>
+                        <option value="Single">Single</option>
+                        <option value="Married">Married</option>
+                        <option value="Divorced">Divorced</option>
+                        <option value="Widowed">Widowed</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Phone <span className="text-red-500">*</span></label>
                       <input value={personal.phone} onChange={e => setPersonal(p => ({ ...p, phone: e.target.value }))}
                         className={cn('input-glass w-full text-sm', showErrors && !personal.phone.trim() && 'border-red-400 ring-red-200')}
                         placeholder="+91 9876543210" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Personal Email <span className="text-xs text-gray-400">(optional)</span></label>
+                      <input type="email" value={personal.personalEmail} onChange={e => setPersonal(p => ({ ...p, personalEmail: e.target.value }))}
+                        className="input-glass w-full text-sm" placeholder="personal@email.com" />
                     </div>
                   </div>
                   <div>
@@ -370,7 +388,9 @@ export default function EmployeeOnboardingPage() {
                     <ReviewRow label="Date of Birth" value={personal.dateOfBirth} />
                     <ReviewRow label="Gender" value={personal.gender} />
                     <ReviewRow label="Blood Group" value={personal.bloodGroup || '—'} />
+                    <ReviewRow label="Marital Status" value={personal.maritalStatus || '—'} />
                     <ReviewRow label="Phone" value={personal.phone} />
+                    {personal.personalEmail && <ReviewRow label="Personal Email" value={personal.personalEmail} />}
                     <ReviewRow label="Address" value={[personal.address.line1, personal.address.city, personal.address.state, personal.address.pincode].filter(Boolean).join(', ')} />
                     <div className="border-t border-gray-200 my-2" />
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Emergency Contact</p>
