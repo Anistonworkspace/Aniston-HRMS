@@ -5,7 +5,7 @@ import { createAdjustmentSchema, bulkCreateAdjustmentSchema, approveAdjustmentSc
 export class PayrollAdjustmentController {
   async listByRun(req: Request, res: Response, next: NextFunction) {
     try {
-      const adjustments = await payrollAdjustmentService.listByRun(req.params.runId, req.user!.organizationId);
+      const adjustments = await payrollAdjustmentService.listByRun(req.params.runId as string, req.user!.organizationId);
       res.json({ success: true, data: adjustments });
     } catch (err) { next(err); }
   }
@@ -13,7 +13,7 @@ export class PayrollAdjustmentController {
   async listByEmployee(req: Request, res: Response, next: NextFunction) {
     try {
       const runId = req.query.runId as string | undefined;
-      const adjustments = await payrollAdjustmentService.listByEmployee(req.params.employeeId, runId);
+      const adjustments = await payrollAdjustmentService.listByEmployee(req.params.employeeId as string, runId);
       res.json({ success: true, data: adjustments });
     } catch (err) { next(err); }
   }
@@ -37,15 +37,22 @@ export class PayrollAdjustmentController {
   async approve(req: Request, res: Response, next: NextFunction) {
     try {
       const { status } = approveAdjustmentSchema.parse(req.body);
-      const adjustment = await payrollAdjustmentService.approve(req.params.id, status, req.user!.organizationId, req.user!.userId);
+      const adjustment = await payrollAdjustmentService.approve(req.params.id as string, status, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: adjustment, message: `Adjustment ${status.toLowerCase()}` });
     } catch (err) { next(err); }
   }
 
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
-      await payrollAdjustmentService.delete(req.params.id, req.user!.organizationId, req.user!.userId);
+      await payrollAdjustmentService.delete(req.params.id as string, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, message: 'Adjustment deleted' });
+    } catch (err) { next(err); }
+  }
+
+  async listEmployeesForRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employees = await payrollAdjustmentService.listEmployeesForRun(req.params.runId as string, req.user!.organizationId);
+      res.json({ success: true, data: employees });
     } catch (err) { next(err); }
   }
 }

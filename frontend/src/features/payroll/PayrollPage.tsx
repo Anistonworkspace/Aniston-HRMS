@@ -27,6 +27,7 @@ import {
 } from './payrollApi';
 import {
   useGetRunAdjustmentsQuery,
+  useGetRunEligibleEmployeesQuery,
   useCreateAdjustmentMutation,
   useApproveAdjustmentMutation,
   useDeleteAdjustmentMutation,
@@ -395,7 +396,10 @@ function PayrollAdminView() {
                         {MONTH_NAMES[run.month - 1]} {run.year}
                       </p>
                       {run.processedAt && (
-                        <p className="text-[10px] text-gray-500">Processed {formatDate(run.processedAt)}</p>
+                        <p className="text-[10px] text-gray-500">
+                          Processed {formatDate(run.processedAt)}
+                          {run.processedByName && ` by ${run.processedByName}`}
+                        </p>
                       )}
                     </td>
                     <td className="px-4 py-3.5 hidden md:table-cell">
@@ -798,6 +802,8 @@ function PayrollAdminView() {
 function PayrollRecordsPanel({ runId, runStatus, onClose }: { runId: string; runStatus: string; onClose: () => void }) {
   const { data: recordsRes, isLoading } = useGetPayrollRecordsQuery(runId);
   const { data: adjustmentsRes } = useGetRunAdjustmentsQuery(runId);
+  // For DRAFT runs, records are empty — fetch eligible employees separately for the adjustment dropdown
+  const { data: eligibleEmpRes } = useGetRunEligibleEmployeesQuery(runId, { skip: runStatus !== 'DRAFT' });
   const [amendRecord] = useAmendPayrollRecordMutation();
   const [createAdjustment] = useCreateAdjustmentMutation();
   const [approveAdj] = useApproveAdjustmentMutation();
@@ -1045,14 +1051,22 @@ function PayrollRecordsPanel({ runId, runStatus, onClose }: { runId: string; run
                     <p className="text-xs font-semibold text-gray-700 mb-3">New Adjustment</p>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
                       <div>
-                        <label className="block text-[10px] text-gray-500 mb-1">Employee ID *</label>
+                        <label className="block text-[10px] text-gray-500 mb-1">Employee *</label>
                         <select value={adjForm.employeeId} onChange={e => setAdjForm({ ...adjForm, employeeId: e.target.value })} className="input-glass text-xs w-full">
                           <option value="">Select employee...</option>
-                          {records.map((r: any) => (
-                            <option key={r.employeeId} value={r.employeeId}>
-                              {r.employee?.employeeCode} — {r.employee?.firstName} {r.employee?.lastName}
-                            </option>
-                          ))}
+                          {/* DRAFT: use eligible employees list; REVIEW/COMPLETED: use payroll records */}
+                          {runStatus === 'DRAFT'
+                            ? (eligibleEmpRes?.data || []).map((e: any) => (
+                                <option key={e.id} value={e.id}>
+                                  {e.employeeCode} — {e.firstName} {e.lastName}
+                                </option>
+                              ))
+                            : records.map((r: any) => (
+                                <option key={r.employeeId} value={r.employeeId}>
+                                  {r.employee?.employeeCode} — {r.employee?.firstName} {r.employee?.lastName}
+                                </option>
+                              ))
+                          }
                         </select>
                       </div>
                       <div>

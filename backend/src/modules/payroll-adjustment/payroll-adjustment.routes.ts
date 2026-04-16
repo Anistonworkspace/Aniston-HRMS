@@ -12,6 +12,12 @@ router.get('/run/:runId',
   (req, res, next) => payrollAdjustmentController.listByRun(req, res, next)
 );
 
+// List eligible employees for a payroll run (used to populate adjustment dropdown for DRAFT runs)
+router.get('/run/:runId/employees',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => payrollAdjustmentController.listEmployeesForRun(req, res, next)
+);
+
 // List adjustments for an employee
 router.get('/employee/:employeeId',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),

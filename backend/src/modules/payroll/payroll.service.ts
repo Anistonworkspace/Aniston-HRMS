@@ -195,14 +195,38 @@ function legacyToComponents(sal: any): SalaryComponent[] {
 }
 
 /**
+ * Canonical key map for otherEarnings — maps component names to well-known shorthand keys
+ * consumed by the Excel exporter and the employee payslip UI.
+ * Keys must stay in sync with payrollExcelExporter.ts and PayrollPage.tsx.
+ */
+const EARNINGS_KEY_MAP: Record<string, string> = {
+  'da': 'da', 'dearness allowance': 'da',
+  'ta': 'ta', 'transport allowance': 'ta', 'travelling allowance': 'ta',
+  'medical allowance': 'medical', 'medical': 'medical',
+  'special allowance': 'special', 'special': 'special',
+  'lta': 'lta', 'leave travel allowance': 'lta', 'leave travel': 'lta',
+  'sunday bonus': 'sundayBonus',
+};
+
+/** Normalize a component name to its canonical otherEarnings key */
+function toEarningsKey(name: string): string {
+  const lower = name.toLowerCase().trim();
+  return EARNINGS_KEY_MAP[lower] ?? lower.replace(/\s+/g, '_');
+}
+
+/**
  * Build SalaryComponent[] from org's component master for "default" salary mode.
  * Computes values based on CTC/Basic using each component's calculationRule.
+ * Includes both EARNING and DEDUCTION components from the master.
  */
 function buildComponentsFromMaster(masterComps: any[], annualCtc: number): SalaryComponent[] {
   const monthly = annualCtc / 12;
-  const earningComps = masterComps
-    .filter((c: any) => c.type === 'EARNING' && c.isActive)
+  const activeComps = masterComps
+    .filter((c: any) => c.isActive)
     .sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+  const earningComps = activeComps.filter((c: any) => c.type === 'EARNING');
+  const deductionComps = activeComps.filter((c: any) => c.type === 'DEDUCTION');
 
   const result: SalaryComponent[] = [];
 
@@ -217,21 +241,31 @@ function buildComponentsFromMaster(masterComps: any[], annualCtc: number): Salar
   }
   if (basicMonthly === 0 && monthly > 0) basicMonthly = Math.round(monthly * 0.5);
 
-  for (const mc of earningComps) {
-    let value = 0;
+  const calcValue = (mc: any): number => {
     if (mc.calculationRule === 'PERCENTAGE_CTC') {
-      const pct = mc.defaultPercentage ? Number(mc.defaultPercentage) : 0;
-      value = Math.round(monthly * pct / 100);
-    } else if (mc.calculationRule === 'PERCENTAGE_BASIC') {
-      const pct = mc.defaultPercentage ? Number(mc.defaultPercentage) : 0;
-      value = Math.round(basicMonthly * pct / 100);
-    } else {
-      value = mc.defaultValue ? Number(mc.defaultValue) : 0;
+      return Math.round(monthly * (mc.defaultPercentage ? Number(mc.defaultPercentage) : 0) / 100);
     }
+    if (mc.calculationRule === 'PERCENTAGE_BASIC') {
+      return Math.round(basicMonthly * (mc.defaultPercentage ? Number(mc.defaultPercentage) : 0) / 100);
+    }
+    return mc.defaultValue ? Number(mc.defaultValue) : 0;
+  };
+
+  for (const mc of earningComps) {
+    const value = calcValue(mc);
     if (value > 0) {
       result.push({ name: mc.name, type: 'earning', value, isPercentage: mc.calculationRule !== 'FIXED' });
     }
   }
+
+  // Include DEDUCTION components from master (e.g. custom org deductions)
+  for (const mc of deductionComps) {
+    const value = calcValue(mc);
+    if (value > 0) {
+      result.push({ name: mc.name, type: 'deduction', value, isPercentage: mc.calculationRule !== 'FIXED' });
+    }
+  }
+
   return result;
 }
 
@@ -765,11 +799,12 @@ export class PayrollService {
             else deductionsBreakdown[`Adj: ${adj.componentName}`] = Number(adj.amount);
           }
 
-          // Build otherEarnings from non-basic/hra components (backward compat)
+          // Build otherEarnings using canonical key map so Excel exporter + payslip UI read correct values
           const otherEarnings: Record<string, number> = { sundayBonus, sundaysWorked };
           for (const comp of components) {
             if (comp.type === 'earning' && !['Basic', 'HRA'].includes(comp.name)) {
-              otherEarnings[comp.name.toLowerCase().replace(/\s+/g, '_')] = comp.value;
+              const key = toEarningsKey(comp.name);
+              otherEarnings[key] = comp.value;
             }
           }
           if (adjustmentAdditions > 0) otherEarnings.adjustmentAdditions = adjustmentAdditions;
@@ -903,14 +938,41 @@ export class PayrollService {
   }
 
   /**
-   * Get payroll runs
+   * Get payroll runs — includes processedByName snapshot for display
    */
   async getPayrollRuns(organizationId: string) {
-    return prisma.payrollRun.findMany({
+    const runs = await prisma.payrollRun.findMany({
       where: { organizationId },
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
       include: { _count: { select: { records: true } } },
     });
+
+    // Resolve processedBy userId → display name (batched, non-blocking)
+    if (runs.length === 0) return runs;
+    const userIds = [...new Set(runs.map(r => r.processedBy).filter(Boolean))] as string[];
+    let nameMap: Record<string, string> = {};
+    if (userIds.length > 0) {
+      try {
+        const users = await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: {
+            id: true, email: true,
+            employee: { select: { firstName: true, lastName: true } },
+          },
+        });
+        nameMap = Object.fromEntries(users.map(u => [
+          u.id,
+          u.employee
+            ? `${u.employee.firstName} ${u.employee.lastName}`.trim()
+            : u.email,
+        ]));
+      } catch { /* non-blocking — name resolution failure should not break run listing */ }
+    }
+
+    return runs.map(r => ({
+      ...r,
+      processedByName: r.processedBy ? (nameMap[r.processedBy] ?? null) : null,
+    }));
   }
 
   /**

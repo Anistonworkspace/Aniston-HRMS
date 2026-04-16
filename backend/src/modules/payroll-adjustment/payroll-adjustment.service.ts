@@ -16,6 +16,26 @@ export class PayrollAdjustmentService {
     });
   }
 
+  /**
+   * List active employees for a payroll run's org — used to populate the adjustment
+   * employee dropdown when the run is still in DRAFT (no payroll records exist yet).
+   */
+  async listEmployeesForRun(payrollRunId: string, organizationId: string) {
+    const run = await prisma.payrollRun.findFirst({ where: { id: payrollRunId, organizationId } });
+    if (!run) throw new NotFoundError('Payroll run');
+
+    return prisma.employee.findMany({
+      where: {
+        organizationId,
+        status: { in: ['ACTIVE', 'PROBATION'] },
+        deletedAt: null,
+        isSystemAccount: { not: true },
+      },
+      select: { id: true, firstName: true, lastName: true, employeeCode: true, department: { select: { name: true } } },
+      orderBy: { firstName: 'asc' },
+    });
+  }
+
   async listByEmployee(employeeId: string, payrollRunId?: string) {
     return prisma.payrollAdjustment.findMany({
       where: { employeeId, ...(payrollRunId ? { payrollRunId } : {}) },

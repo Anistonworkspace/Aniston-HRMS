@@ -7,6 +7,12 @@ export const adjustmentApi = api.injectEndpoints({
       providesTags: ['Payroll'],
     }),
 
+    // Employees eligible for adjustment on a given run (needed for DRAFT runs where no records exist)
+    getRunEligibleEmployees: builder.query<any, string>({
+      query: (runId) => `/payroll-adjustments/run/${runId}/employees`,
+      providesTags: ['Payroll'],
+    }),
+
     getEmployeeAdjustments: builder.query<any, { employeeId: string; runId?: string }>({
       query: ({ employeeId, runId }) => ({
         url: `/payroll-adjustments/employee/${employeeId}`,
@@ -53,6 +59,7 @@ export const adjustmentApi = api.injectEndpoints({
 
 export const {
   useGetRunAdjustmentsQuery,
+  useGetRunEligibleEmployeesQuery,
   useGetEmployeeAdjustmentsQuery,
   useCreateAdjustmentMutation,
   useBulkCreateAdjustmentsMutation,

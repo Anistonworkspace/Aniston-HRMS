@@ -255,7 +255,7 @@ router.post('/import',
         try {
           const ExcelJS = (await import('exceljs')).default;
           const workbook = new ExcelJS.Workbook();
-          await workbook.xlsx.load(req.file.buffer);
+          await workbook.xlsx.load(req.file.buffer as Buffer);
           const sheet = workbook.getWorksheet('Salary Data') || workbook.getWorksheet(1);
           if (!sheet) {
             res.status(400).json({ success: false, error: { code: 'INVALID_FILE', message: 'Could not find Salary Data sheet' } });
