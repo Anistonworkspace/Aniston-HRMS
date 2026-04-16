@@ -43,7 +43,7 @@ export const createLeaveTypeSchema = z.object({
   allowSameDay: z.boolean().default(false),
   allowPastDates: z.boolean().default(false),
   maxAdvanceDays: z.number().int().min(1).optional(),
-  probationMonths: z.number().int().min(0).default(3),
+  probationMonths: z.number().int().min(0).default(0),
   requiresApproval: z.boolean().default(true),
   isActive: z.boolean().default(true),
 });

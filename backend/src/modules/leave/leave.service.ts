@@ -88,13 +88,6 @@ export class LeaveService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    // Employees in these statuses see no leave balances.
-    // ONBOARDING: HR must assign an employment status (PROBATION/INTERN/ACTIVE etc.) first.
-    const BLOCKED_STATUSES = ['ONBOARDING', 'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED'];
-    if (BLOCKED_STATUSES.includes(employee.status)) {
-      return [];
-    }
-
     const userRole = employee.user?.role;
 
     // Get only active leave types
@@ -117,17 +110,6 @@ export class LeaveService {
 
       // Role check — if applicableToRole is set, only that role can see this leave
       if ((lt as any).applicableToRole && (lt as any).applicableToRole !== userRole) return false;
-
-      // Probation months check — only applies to 'ALL' leave types.
-      // When HR targets a specific status (ACTIVE, PROBATION, etc.), the status check
-      // is the gate — adding a tenure block on top would contradict the explicit setting.
-      const probationMonths = (lt as any).probationMonths ?? 0;
-      if (lt.applicableTo === 'ALL' && probationMonths > 0 && (employee as any).joiningDate) {
-        const joined = new Date((employee as any).joiningDate);
-        const now = new Date();
-        const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
-        if (monthsWorked < probationMonths) return false;
-      }
 
       // Applicability check (status-based) — driven entirely by HR settings
       const app = lt.applicableTo;
@@ -206,18 +188,6 @@ export class LeaveService {
       select: { organizationId: true, firstName: true, lastName: true, gender: true, joiningDate: true, status: true, user: { select: { role: true } } },
     });
     if (!employee) throw new NotFoundError('Employee');
-
-    // Block leave for non-active employment statuses
-    const BLOCKED_STATUSES: Record<string, string> = {
-      ONBOARDING: 'Your employment status has not been set yet. Please wait for HR to assign your status (Probation, Intern, or Active) before applying for leave.',
-      SUSPENDED: 'Your account is currently suspended. Contact HR to resolve your employment status before applying for leave.',
-      INACTIVE: 'Your employment is marked as inactive. Please contact HR.',
-      TERMINATED: 'Terminated employees cannot apply for leave.',
-      ABSCONDED: 'Your employment status prevents leave applications. Please contact HR.',
-    };
-    if (BLOCKED_STATUSES[employee.status]) {
-      throw new BadRequestError(BLOCKED_STATUSES[employee.status]);
-    }
 
     const leaveType = await prisma.leaveType.findUnique({ where: { id: data.leaveTypeId } });
     if (!leaveType) throw new NotFoundError('Leave type');
@@ -364,17 +334,6 @@ export class LeaveService {
           EMPLOYEE: 'Employees', MANAGER: 'Managers', HR: 'HR team', ADMIN: 'Administrators', INTERN: 'Interns',
         };
         throw new BadRequestError(`${leaveType.name} is restricted to ${roleLabels[roleRestriction] || roleRestriction} only. Your role does not qualify.`);
-      }
-    }
-
-    // 10b. Probation months check — employee must have completed N months of service
-    const probMonths = (leaveType as any).probationMonths ?? 0;
-    if (probMonths > 0 && employee.joiningDate) {
-      const joined = new Date(employee.joiningDate);
-      const now = new Date();
-      const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
-      if (monthsWorked < probMonths) {
-        throw new BadRequestError(`${leaveType.name} is available after ${probMonths} month(s) of service. You have completed ${monthsWorked} month(s). Please contact HR if you need an exception.`);
       }
     }
 
@@ -984,17 +943,6 @@ export class LeaveService {
           EMPLOYEE: 'Employees', MANAGER: 'Managers', HR: 'HR team', ADMIN: 'Administrators', INTERN: 'Interns',
         };
         throw new BadRequestError(`${leaveType.name} is restricted to ${roleLabels[leaveType.applicableToRole] || leaveType.applicableToRole} only. Your role does not qualify.`);
-      }
-    }
-
-    // 14b. Probation months check
-    const probMonthsDraft = (leaveType as any).probationMonths ?? 0;
-    if (probMonthsDraft > 0 && employee.joiningDate) {
-      const joined = new Date(employee.joiningDate);
-      const now = new Date();
-      const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
-      if (monthsWorked < probMonthsDraft) {
-        throw new BadRequestError(`${leaveType.name} is available after ${probMonthsDraft} month(s) of service. You have completed ${monthsWorked} month(s). Please contact HR if you need an exception.`);
       }
     }
 
