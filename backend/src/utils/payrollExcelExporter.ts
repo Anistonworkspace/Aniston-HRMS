@@ -36,21 +36,41 @@ function inrText(value: number): string {
 
 /**
  * Resolve "Other Earnings" total from a PayrollRecord.
- * Primary source: earningsBreakdown (canonical component-wise map from processPayroll).
- * Fallback: otherEarnings legacy keys.
+ *
+ * Primary: grossSalary − basic − hra (both stored as dedicated numeric columns,
+ *   so this is always accurate regardless of what names the salary components carry).
+ *
+ * Fallback A: earningsBreakdown with an extended exclusion set that covers both the
+ *   short codes ("Basic", "HRA") and the full component-master names
+ *   ("Basic Salary", "House Rent Allowance").
+ *
+ * Fallback B: legacy otherEarnings shorthand keys for very old records.
  */
 function resolveOtherEarningsTotal(rec: any): number {
-  const eb: Record<string, number> = rec.earningsBreakdown || {};
-  const oe: Record<string, number> = rec.otherEarnings || {};
+  const gross = n(rec.grossSalary);
+  const basic = n(rec.basic);
+  const hra   = n(rec.hra);
 
+  // Primary — most reliable: stored gross already includes sunday bonus + adj additions
+  if (gross > 0 && (basic > 0 || hra > 0)) {
+    return Math.max(0, gross - basic - hra);
+  }
+
+  // Fallback A — earningsBreakdown with complete exclusion list
+  const eb: Record<string, number> = rec.earningsBreakdown || {};
   if (Object.keys(eb).length > 0) {
-    // Sum everything except Basic and HRA (they're in dedicated columns)
+    // Component master uses full names; UI sometimes stores short codes — exclude both forms.
+    const SKIP = new Set([
+      'Basic', 'Basic Salary', 'basic', 'basic salary',
+      'HRA',   'House Rent Allowance', 'hra', 'house rent allowance',
+    ]);
     return Object.entries(eb)
-      .filter(([k]) => k !== 'Basic' && k !== 'HRA')
+      .filter(([k]) => !SKIP.has(k))
       .reduce((s, [, v]) => s + n(v), 0);
   }
 
-  // Fallback: legacy otherEarnings shorthand keys
+  // Fallback B — legacy otherEarnings shorthand keys
+  const oe: Record<string, number> = rec.otherEarnings || {};
   return (
     n(oe.da) + n(oe.ta) + n(oe.medical) + n(oe.special) +
     n(oe.lta) + n(oe.sundayBonus) + n(oe.adjustmentAdditions)

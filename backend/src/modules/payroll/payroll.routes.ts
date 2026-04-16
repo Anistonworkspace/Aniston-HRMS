@@ -8,6 +8,9 @@ import { amendPayrollRecordSchema, salaryStructureSchema } from './payroll.valid
 const router = Router();
 router.use(authenticate);
 
+/** Safe-number helper — returns 0 for null / undefined / NaN */
+const n = (v: any): number => { const x = Number(v); return isFinite(x) ? x : 0; };
+
 // AI anomaly detection (must be before /:id routes)
 router.post('/ai-anomaly-check/:runId', requirePermission('payroll', 'manage'), async (req, res, next) => {
   try {
@@ -198,13 +201,22 @@ router.get('/runs/:id/attendance-export',
         return { employeeId: empId, providedL, leavesBalance, paidLeaveDays };
       });
 
-      // Build per-employee attendance counts
+      // Build per-employee attendance counts.
+      // presentCount / halfDayCount come from actual attendance records.
+      // absentCount = explicit ABSENT records + implicit absences (working days with no
+      //   record at all). We derive implicit absences from the stored lopDays in the
+      //   payroll record: lopDays = explicitAbsent + implicitAbsent + halfDay*0.5.
+      //   So: totalAbsent = explicitAbsent + implicitAbsent = lopDays - halfDay*0.5  (rounded).
       const attendanceDetails = empIds.map((empId: string) => {
-        const empStats = (attendanceGroups as any[]).filter((s: any) => s.employeeId === empId);
-        const presentCount = empStats.find((s: any) => s.status === 'PRESENT')?._count._all || 0;
-        const absentCount = empStats.find((s: any) => s.status === 'ABSENT')?._count._all || 0;
-        const halfDayCount = empStats.find((s: any) => s.status === 'HALF_DAY')?._count._all || 0;
-        return { employeeId: empId, presentCount, absentCount, halfDayCount };
+        const empStats    = (attendanceGroups as any[]).filter((s: any) => s.employeeId === empId);
+        const presentCount  = empStats.find((s: any) => s.status === 'PRESENT')?._count._all || 0;
+        const explicitAbsent = empStats.find((s: any) => s.status === 'ABSENT')?._count._all || 0;
+        const halfDayCount  = empStats.find((s: any) => s.status === 'HALF_DAY')?._count._all || 0;
+        // Derive total absent (including implicit no-shows) from the stored lopDays
+        const rec = (records as any[]).find((r: any) => r.employeeId === empId);
+        const storedLop = rec ? n(rec.lopDays) : 0;
+        const totalAbsent = Math.max(explicitAbsent, Math.round(storedLop - halfDayCount * 0.5));
+        return { employeeId: empId, presentCount, absentCount: totalAbsent, halfDayCount };
       });
 
       const org = await prisma.organization.findUnique({
@@ -385,13 +397,14 @@ router.post('/runs/:id/send-email',
       });
 
       const attendanceDetails = empIds.map((empId: string) => {
-        const empStats = (attendanceGroups as any[]).filter((s: any) => s.employeeId === empId);
-        return {
-          employeeId: empId,
-          presentCount: empStats.find((s: any) => s.status === 'PRESENT')?._count._all || 0,
-          absentCount: empStats.find((s: any) => s.status === 'ABSENT')?._count._all || 0,
-          halfDayCount: empStats.find((s: any) => s.status === 'HALF_DAY')?._count._all || 0,
-        };
+        const empStats       = (attendanceGroups as any[]).filter((s: any) => s.employeeId === empId);
+        const presentCount   = empStats.find((s: any) => s.status === 'PRESENT')?._count._all || 0;
+        const explicitAbsent = empStats.find((s: any) => s.status === 'ABSENT')?._count._all || 0;
+        const halfDayCount   = empStats.find((s: any) => s.status === 'HALF_DAY')?._count._all || 0;
+        const rec            = (records as any[]).find((r: any) => r.employeeId === empId);
+        const storedLop      = rec ? n(rec.lopDays) : 0;
+        const totalAbsent    = Math.max(explicitAbsent, Math.round(storedLop - halfDayCount * 0.5));
+        return { employeeId: empId, presentCount, absentCount: totalAbsent, halfDayCount };
       });
 
       const [payrollBuffer, attendanceBuffer, bankBuffer] = await Promise.all([

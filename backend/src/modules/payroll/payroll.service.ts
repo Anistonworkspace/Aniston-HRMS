@@ -692,29 +692,45 @@ export class PayrollService {
           const empAdjustments = adjustmentsByEmp.get(emp.id) || [];
 
           const presentRecords = empAttendance.filter(r => r.status === 'PRESENT');
-          const absentRecords = empAttendance.filter(r => r.status === 'ABSENT');
+          const absentRecords  = empAttendance.filter(r => r.status === 'ABSENT');
+          const halfDayRecords = empAttendance.filter(r => r.status === 'HALF_DAY');
 
-          // Calculate LOP: absent days minus approved paid leave days minus holidays
+          // Build a set of every date that has ANY attendance record for this employee.
+          // The attendance system only creates records when the employee clocks in — days with
+          // no record mean the employee simply didn't show up (implicit absent).
+          const datesWithRecord = new Set(
+            empAttendance.map(r => new Date(r.date).toISOString().split('T')[0])
+          );
+
+          // LOP step 1: explicit ABSENT records not covered by paid leave / holiday
           let lopDays = 0;
           for (const rec of absentRecords) {
-            const dateStr = new Date(rec.date).toISOString().split('T')[0];
-            if (!paidLeaveDates.has(dateStr) && !holidayDates.has(dateStr)) {
-              lopDays++;
-            }
+            const ds = new Date(rec.date).toISOString().split('T')[0];
+            if (!paidLeaveDates.has(ds) && !holidayDates.has(ds)) lopDays++;
           }
 
-          // Half-day support
-          const halfDayRecords = empAttendance.filter(r => r.status === 'HALF_DAY');
-          const halfDayLop = halfDayRecords.length * 0.5;
-          lopDays += halfDayLop;
+          // LOP step 2: half-days contribute 0.5 LOP each
+          lopDays += halfDayRecords.length * 0.5;
+
+          // LOP step 3: working days with NO attendance record, not on paid leave, not a holiday
+          // These are implicit absences (employee never clocked in).
+          const scanDay = new Date(startDate);
+          while (scanDay <= endDate) {
+            const dow = scanDay.getDay();
+            if (dow !== 0) {                               // skip Sundays (paid week-off)
+              const ds = scanDay.toISOString().split('T')[0];
+              if (!holidayDates.has(ds) && !paidLeaveDates.has(ds) && !datesWithRecord.has(ds)) {
+                lopDays++;                                 // no record on a working day = absent
+              }
+            }
+            scanDay.setDate(scanDay.getDate() + 1);
+          }
 
           const sundaysWorked = presentRecords.filter(r => new Date(r.date).getDay() === 0).length;
-          // Compute actual present days: scheduled days minus LOP and paid leave days (excludes weekends/holidays)
-          const paidLeaveCount = Array.from(paidLeaveDates).filter(d => {
-            const dow = new Date(d).getDay();
-            return dow !== 0 && !holidayDates.has(d);
-          }).length;
-          const presentDays = Math.max(0, totalWorkingDays - lopDays - paidLeaveCount);
+
+          // presentDays = actual check-in days (not derived from working-days arithmetic).
+          // Half-days count as 0.5; floor to whole number for the stored integer field.
+          const presentDays = presentRecords.length + halfDayRecords.length * 0.5;
 
           // Use dynamic components if available, else legacy columns
           // For "default" employees (isCustom=false), re-compute from component master at payroll time
