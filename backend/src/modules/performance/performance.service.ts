@@ -249,7 +249,7 @@ export class PerformanceService {
     const goalInProgress = goals.filter((g: any) => g.status === 'IN_PROGRESS').length;
     const goalNotStarted = goals.filter((g: any) => g.status === 'NOT_STARTED').length;
     const goalOnHold = goals.filter((g: any) => g.status === 'ON_HOLD').length;
-    const goalCompletionRate = goalTotal > 0 ? Math.round((goalCompleted / goalTotal) * 100) : 100;
+    const goalCompletionRate = goalTotal > 0 ? Math.round((goalCompleted / goalTotal) * 100) : 0;
 
     // ── Task Stats (from Monday.com / external) ──
     const tasks = taskResult.tasks;
@@ -293,13 +293,21 @@ export class PerformanceService {
       .reduce((s: number, c: any) => s + c._count, 0);
 
     // ── Composite Performance Score ──
-    // Weights: Goals 35%, Leave Discipline 25%, Work Continuity 15%, Task Health 25%
-    const overallScore = Math.round(
-      (goalCompletionRate * 0.35) +
-      (disciplineScore * 0.25) +
-      (continuityScore * 0.15) +
-      (taskHealthScore * 0.25)
-    );
+    // Weights when goals exist: Goals 35%, Leave Discipline 25%, Work Continuity 15%, Task Health 25%
+    // When no goals are set, the 35% is redistributed proportionally across remaining dimensions:
+    //   Leave Discipline 38%, Work Continuity 23%, Task Health 39%
+    const overallScore = goalTotal > 0
+      ? Math.round(
+          (goalCompletionRate * 0.35) +
+          (disciplineScore * 0.25) +
+          (continuityScore * 0.15) +
+          (taskHealthScore * 0.25)
+        )
+      : Math.round(
+          (disciplineScore * 0.38) +
+          (continuityScore * 0.23) +
+          (taskHealthScore * 0.39)
+        );
 
     // ── Star Rating ──
     const rating =

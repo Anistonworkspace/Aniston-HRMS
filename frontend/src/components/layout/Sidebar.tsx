@@ -67,7 +67,7 @@ const navItems: NavItem[] = [
   { nameKey: 'nav.assets', managementNameKey: 'nav.assetManagement', path: '/assets', icon: Monitor, roles: ['SUPER_ADMIN', 'ADMIN'] },
   { nameKey: 'nav.myAssets', path: '/my-assets', icon: Laptop, roles: ['HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
   { nameKey: 'nav.myDocuments', path: '/my-documents', icon: FileCheck, roles: ['EMPLOYEE', 'INTERN', 'MANAGER', 'HR'], exitAccessKey: 'canViewDocuments', permissionKey: 'canViewDocuments' },
-  { nameKey: 'nav.performance', path: '/performance', icon: BarChart3, permissionKey: 'canViewPerformance' },
+  { nameKey: 'nav.performance', path: '/performance', icon: BarChart3, roles: ['EMPLOYEE', 'INTERN', 'MANAGER'], permissionKey: 'canViewPerformance' },
   { nameKey: 'nav.policies', path: '/policies', icon: FileText, permissionKey: 'canViewPolicies' },
   { nameKey: 'nav.announcements', path: '/announcements', icon: Megaphone, exitAccessKey: 'canViewAnnouncements', permissionKey: 'canViewAnnouncements' },
   { nameKey: 'nav.helpdesk', path: '/helpdesk', icon: HelpCircle, exitAccessKey: 'canViewHelpdesk', permissionKey: 'canRaiseHelpdeskTickets' },

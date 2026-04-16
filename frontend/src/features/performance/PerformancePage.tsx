@@ -278,7 +278,12 @@ export default function PerformancePage() {
 
       {/* Create Goal Modal */}
       <AnimatePresence>
-        {showCreateGoal && <CreateGoalModal onClose={() => setShowCreateGoal(false)} />}
+        {showCreateGoal && (
+          <CreateGoalModal
+            onClose={() => setShowCreateGoal(false)}
+            employeeId={summary?.employee?.id || ''}
+          />
+        )}
       </AnimatePresence>
     </div>
   );
@@ -897,7 +902,7 @@ function ReviewsTab({ reviews, cycles }: { reviews: any[]; cycles: any[] }) {
 }
 
 // ── Create Goal Modal ─────────────────────────────────────────────────
-function CreateGoalModal({ onClose }: { onClose: () => void }) {
+function CreateGoalModal({ onClose, employeeId }: { onClose: () => void; employeeId: string }) {
   const [createGoal, { isLoading }] = useCreateGoalMutation();
   const [form, setForm] = useState({ title: '', description: '', targetValue: '', unit: '', dueDate: '' });
 
@@ -905,6 +910,7 @@ function CreateGoalModal({ onClose }: { onClose: () => void }) {
     e.preventDefault();
     try {
       await createGoal({
+        employeeId,
         title: form.title,
         description: form.description || undefined,
         targetValue: form.targetValue ? Number(form.targetValue) : undefined,

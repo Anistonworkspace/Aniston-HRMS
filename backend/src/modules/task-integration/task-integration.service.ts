@@ -568,13 +568,23 @@ export class TaskIntegrationService {
 
     if (!config) return { tasks: [], configured: false, provider: null };
 
+    // Cache task results for 5 minutes to avoid hitting external APIs on every dashboard load
+    const cacheKey = `task-perf:${organizationId}:${employeeId}`;
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+    } catch { /* cache miss — continue to live fetch */ }
+
     try {
       const apiKey = decrypt(config.apiKeyEncrypted);
       const tasks = await this.fetchEmployeeTasks(
         config.provider, apiKey, config.baseUrl,
         employeeId, config.employeeMapping, employeeEmail
       );
-      return { tasks, configured: true, provider: config.provider };
+      const result = { tasks, configured: true, provider: config.provider };
+      // Store in Redis with 5-minute TTL (300 seconds)
+      redis.set(cacheKey, JSON.stringify(result), 'EX', 300).catch(() => {});
+      return result;
     } catch (err: any) {
       logger.warn(`[Performance] Failed to fetch tasks for ${employeeId}: ${err.message}`);
       return { tasks: [], configured: true, provider: config.provider };

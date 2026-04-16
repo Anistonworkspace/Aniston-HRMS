@@ -12,7 +12,7 @@ export const updateReviewCycleSchema = z.object({
 });
 
 export const createGoalSchema = z.object({
-  employeeId: z.string().uuid(),
+  employeeId: z.string().uuid().optional(),
   reviewCycleId: z.string().uuid().optional(),
   title: z.string().min(1),
   description: z.string().optional(),

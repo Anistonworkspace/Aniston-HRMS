@@ -60,7 +60,12 @@ export class PerformanceController {
   async createGoal(req: Request, res: Response, next: NextFunction) {
     try {
       const data = createGoalSchema.parse(req.body);
-      const goal = await performanceService.createGoal(data, req.user!.organizationId);
+      // Fall back to the caller's own employeeId when creating a personal goal
+      const employeeId = data.employeeId || req.user!.employeeId;
+      if (!employeeId) {
+        return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Employee profile not found for this user' } });
+      }
+      const goal = await performanceService.createGoal({ ...data, employeeId }, req.user!.organizationId);
       res.status(201).json({ success: true, data: goal, message: 'Goal created' });
     } catch (err) {
       next(err);
