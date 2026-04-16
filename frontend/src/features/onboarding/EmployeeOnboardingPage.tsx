@@ -29,8 +29,8 @@ const PERSONAL_INIT = {
   address: { line1: '', line2: '', city: '', state: '', pincode: '', country: 'India' },
 };
 const EMERGENCY_INIT = { name: '', relationship: '', phone: '', email: '' };
-const BANK_INIT = {
-  bankAccountNumber: '', bankName: '', ifscCode: '', accountHolderName: '', accountType: 'SAVINGS' as const,
+const BANK_INIT: { bankAccountNumber: string; bankName: string; ifscCode: string; accountHolderName: string; accountType: 'SAVINGS' | 'CURRENT' } = {
+  bankAccountNumber: '', bankName: '', ifscCode: '', accountHolderName: '', accountType: 'SAVINGS',
 };
 
 const STEPS = [
