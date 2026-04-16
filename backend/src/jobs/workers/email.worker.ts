@@ -1046,6 +1046,95 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     ${ctaButton(ctx.link || 'https://hr.anistonav.com/helpdesk', 'Reply in HRMS Portal')}`,
     standardFooter('Aniston HRMS', ctx.link)
   ),
+
+  // ── Document Deleted / Re-upload Required ──
+
+  'document-deleted': (ctx) => emailLayout(
+    'linear-gradient(135deg,#DC2626 0%,#B91C1C 100%)', '&#128274;',
+    'Document Removed — Action Required',
+    `Re-upload required to continue your onboarding`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.employeeName)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      Your HR team has removed one of your uploaded documents from the system.
+      You must re-upload the correct document to continue your onboarding and regain dashboard access.
+    </p>
+
+    <!-- Alert banner -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF2F2;border:1px solid #FECACA;margin:0 0 20px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="color:#991B1B;font-weight:700;font-size:14px;margin:0 0 4px;">&#9888;&#65039; Document Removed by HR</p>
+        <p style="color:#7F1D1D;font-size:13px;margin:0;line-height:1.5;">
+          Your access to the dashboard will remain restricted until you re-upload the required document and it is approved by HR.
+        </p>
+      </td></tr>
+    </table>
+
+    <!-- Document details -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#374151;font-weight:700;font-size:14px;margin:0 0 12px;">&#128196; Document Details</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:140px;border-bottom:1px solid #F3F4F6;">Document Name</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #F3F4F6;">${esc(ctx.docName)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Document Type</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #F3F4F6;">${esc(ctx.docType)}</td>
+          </tr>
+          ${ctx.isCombinedPdf ? `
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Upload Type</td>
+            <td style="padding:6px 0;color:#7C3AED;font-size:13px;font-weight:600;border-bottom:1px solid #F3F4F6;">Combined PDF (all documents in one file)</td>
+          </tr>` : ''}
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;">Removed By</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;">HR / Document Review Team</td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+
+    <!-- Reason box -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FFFBEB;border:1px solid #FDE68A;margin:0 0 20px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="color:#92400E;font-weight:700;font-size:14px;margin:0 0 6px;">&#128221; Reason from HR</p>
+        <p style="color:#78350F;font-size:13px;margin:0;line-height:1.6;">${esc(ctx.reason)}</p>
+      </td></tr>
+    </table>
+
+    <!-- What to do next -->
+    ${ctx.isCombinedPdf ? `
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EFF6FF;border:1px solid #BFDBFE;margin:0 0 20px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="color:#1E40AF;font-weight:700;font-size:14px;margin:0 0 8px;">&#128221; Re-uploading a Combined PDF</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:3px 0;color:#1E3A5F;font-size:12px;">&#8226; Scan all your documents clearly (avoid dark, blurry, or cropped scans)</td></tr>
+          <tr><td style="padding:3px 0;color:#1E3A5F;font-size:12px;">&#8226; Combine into one PDF: ID Proof &#8594; PAN Card &#8594; Education &#8594; Employment &#8594; Photographs</td></tr>
+          <tr><td style="padding:3px 0;color:#1E3A5F;font-size:12px;">&#8226; Name the file: <strong>YourName_PreJoiningDocs.pdf</strong></td></tr>
+          <tr><td style="padding:3px 0;color:#1E3A5F;font-size:12px;">&#8226; Maximum file size: 10MB</td></tr>
+        </table>
+      </td></tr>
+    </table>` : `
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EFF6FF;border:1px solid #BFDBFE;margin:0 0 20px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="color:#1E40AF;font-weight:700;font-size:14px;margin:0 0 8px;">&#128221; How to Re-upload</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:3px 0;color:#1E3A5F;font-size:12px;">&#8226; Ensure the document is clearly legible with no blur or glare</td></tr>
+          <tr><td style="padding:3px 0;color:#1E3A5F;font-size:12px;">&#8226; Upload the correct document matching the type: <strong>${esc(ctx.docType)}</strong></td></tr>
+          <tr><td style="padding:3px 0;color:#1E3A5F;font-size:12px;">&#8226; Accepted formats: PDF, JPG, PNG (max 5MB)</td></tr>
+          <tr><td style="padding:3px 0;color:#1E3A5F;font-size:12px;">&#8226; Make sure all four corners are visible and the text is readable</td></tr>
+        </table>
+      </td></tr>
+    </table>`}
+
+    ${ctaButton(ctx.reuploadUrl || 'https://hr.anistonav.com/kyc-pending', 'Re-upload Document Now', '#DC2626')}
+
+    <p style="color:#6B7280;font-size:12px;text-align:center;margin:8px 0 0;">
+      Your dashboard access will be restored once the new document is reviewed and approved by HR.
+    </p>`,
+    standardFooter(ctx.orgName || 'Aniston Technologies', ctx.reuploadUrl)
+  ),
 };
 
 /**

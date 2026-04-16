@@ -170,7 +170,10 @@ export class DocumentController {
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      // Fetch doc before deletion so we have employeeId + type for KYC reset
+      // HR can optionally supply a deletion reason — sent in request body
+      const reason: string | undefined = typeof req.body?.reason === 'string' ? req.body.reason.trim() : undefined;
+
+      // Fetch doc before deletion so we have employeeId, type, name for KYC reset + email
       const docToDelete = await documentService.getById(req.params.id as string);
       await documentService.remove(req.params.id, req.user!.userId, req.user!.organizationId);
 
@@ -178,7 +181,19 @@ export class DocumentController {
       if (docToDelete?.employeeId) {
         try {
           const { documentGateService } = await import('../onboarding/document-gate.service.js');
-          await documentGateService.resetKycOnDocumentDeletion(docToDelete.employeeId, docToDelete.type);
+          // Detect combined PDFs by name pattern or OTHER type
+          const name: string = (docToDelete as any).name || '';
+          const isCombinedPdf =
+            (docToDelete as any).type === 'OTHER' ||
+            /combined|pre.?joining|all.?docs/i.test(name);
+
+          await documentGateService.resetKycOnDocumentDeletion(
+            docToDelete.employeeId,
+            (docToDelete as any).type,
+            reason,
+            name,
+            isCombinedPdf,
+          );
         } catch (err) {
           logger.warn('Failed to reset KYC gate on document deletion:', err);
         }

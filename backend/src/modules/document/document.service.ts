@@ -14,7 +14,7 @@ export class DocumentService {
     const { page, limit, employeeId, type, status } = query;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { deletedAt: null };
     if (employeeId) where.employeeId = employeeId;
     if (type) where.type = type;
     if (status) where.status = status;
@@ -57,6 +57,23 @@ export class DocumentService {
   }
 
   async create(data: CreateDocumentInput, fileUrl: string, userId: string) {
+    // If the employee already has an active document of the same type, replace it:
+    // soft-delete the old record and physically remove its file so there are no duplicates.
+    if (data.employeeId && data.type) {
+      const existing = await prisma.document.findFirst({
+        where: { employeeId: data.employeeId, type: data.type as any, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (existing) {
+        await prisma.document.update({ where: { id: existing.id }, data: { deletedAt: new Date() } });
+        if (existing.fileUrl) {
+          storageService.deleteFile(existing.fileUrl).catch((err) =>
+            logger.warn(`[Document] Failed to delete replaced file "${existing.fileUrl}":`, err.message),
+          );
+        }
+      }
+    }
+
     const doc = await prisma.document.create({
       data: {
         name: data.name,
@@ -131,10 +148,18 @@ export class DocumentService {
     });
     if (!doc) throw new NotFoundError('Document');
 
+    // Soft-delete the DB record first
     const deleted = await prisma.document.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
+
+    // Physically delete the file from disk — non-blocking, best-effort
+    if (doc.fileUrl) {
+      storageService.deleteFile(doc.fileUrl).catch((err) =>
+        logger.warn(`[Document] Failed to physically delete file "${doc.fileUrl}":`, err.message),
+      );
+    }
 
     // Audit log the deletion
     if (userId && organizationId) {

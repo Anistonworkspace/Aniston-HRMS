@@ -12,6 +12,7 @@ import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { useOfflineSync } from '../../hooks/useOfflineSync';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { api } from '../../app/api';
+import { setUser } from '../../features/auth/authSlice';
 import AiAssistantFab from '../../features/ai-assistant/AiAssistantPanel';
 import { connectSocket, disconnectSocket, onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
@@ -73,6 +74,22 @@ export default function AppShell() {
     onSocketEvent('document:verified', handleDocVerified);
     return () => { offSocketEvent('document:verified', handleDocVerified); };
   }, [dispatch]);
+
+  // Real-time KYC gate enforcement — if HR deletes/rejects a doc, immediately revoke
+  // kycCompleted in Redux so the ProtectedRoute re-gates the employee without waiting for
+  // the next token refresh.
+  useEffect(() => {
+    const handleKycStatusChanged = (data: { status?: string }) => {
+      if (data?.status === 'REUPLOAD_REQUIRED' && user && user.kycCompleted) {
+        dispatch(setUser({ ...user, kycCompleted: false }));
+        toast.error('A document was removed by HR. Please re-upload to regain access.', { duration: 8000 });
+        dispatch(api.util.invalidateTags(['Document', 'Employee']));
+      }
+    };
+    onSocketEvent('kyc:status-changed', handleKycStatusChanged);
+    return () => { offSocketEvent('kyc:status-changed', handleKycStatusChanged); };
+  }, [dispatch, user]);
+
   const location = useLocation();
   const isAdminOrHR = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const aiContext = location.pathname.startsWith('/recruitment') ? 'hr-recruitment' as const

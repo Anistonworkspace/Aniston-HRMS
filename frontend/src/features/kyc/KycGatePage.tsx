@@ -414,6 +414,8 @@ export default function KycGatePage() {
                 submitting={submitting}
                 experience={experience!}
                 qualification={qualification!}
+                reuploadDocTypes={reuploadDocTypes}
+                documentRejectReasons={documentRejectReasons}
               />
             </motion.div>
           )}
@@ -721,13 +723,39 @@ function CombinedUploadScreen({
   onShowCamera, onHideCamera, combinedPdfRef, photoFileRef,
   onCombinedPdfChange, onPhotoFileChange, onPhotoCapture,
   onBack, onSubmit, submitting, experience, qualification,
+  reuploadDocTypes = [], documentRejectReasons = {},
 }: any) {
   const isProcessing = kycStatus === 'PROCESSING';
+  const isReupload = kycStatus === 'REUPLOAD_REQUIRED';
   // Submit enabled only when PDF + photo are uploaded AND OCR is not currently running
   const canSubmit = combinedPdfUploaded && hasPhoto && !isProcessing;
 
+  // Build the combined reason message for display
+  const reuploadReasonText: string | null = (() => {
+    if (!isReupload) return null;
+    const reasons = Object.values(documentRejectReasons as Record<string, string>);
+    if (reasons.length > 0) return reasons[0];
+    return 'Your combined PDF was removed by HR — please upload a new one.';
+  })();
+
   return (
     <div className="space-y-4">
+      {/* REUPLOAD_REQUIRED banner — shown when HR deleted the combined PDF */}
+      {isReupload && (
+        <div className="layer-card p-4 border border-orange-300 bg-orange-50 flex items-start gap-3">
+          <AlertTriangle size={18} className="text-orange-600 mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-orange-800">Re-upload Required</p>
+            <p className="text-xs text-orange-700 mt-0.5 leading-relaxed">
+              {reuploadReasonText}
+            </p>
+            <p className="text-xs text-orange-600 mt-2 font-medium">
+              Please upload a new combined PDF below. Dashboard access will be restored once HR approves your new submission.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* PROCESSING banner — shown while backend classifies the PDF */}
       {isProcessing && (
         <div className="layer-card p-4 border border-indigo-200 bg-indigo-50 flex items-start gap-3">

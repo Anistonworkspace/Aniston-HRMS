@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import {
   ArrowLeft, ArrowRight, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
-  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload,
+  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload, AlertTriangle,
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery, useChangeEmployeeRoleMutation } from './employeeApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery } from '../attendance/attendanceApi';
@@ -2516,6 +2516,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
   const [deleteDoc] = useDeleteDocumentMutation();
   const [verifyKyc, { isLoading: verifyingAll }] = useVerifyKycMutation();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
   const [deleting, setDeleting] = useState(false);
   const { data: ocrSummaryRes, refetch: refetchOcr } = useGetEmployeeOcrSummaryQuery(employeeId, { skip: !isManagement });
   const [showKycModal, setShowKycModal] = useState(false);
@@ -2544,9 +2545,10 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
     if (!confirmDeleteId) return;
     setDeleting(true);
     try {
-      await deleteDoc(confirmDeleteId).unwrap();
-      toast.success('Document deleted — employee KYC status updated');
+      await deleteDoc({ id: confirmDeleteId, reason: deleteReason.trim() || undefined }).unwrap();
+      toast.success('Document deleted — employee notified by email to re-upload');
       setConfirmDeleteId(null);
+      setDeleteReason('');
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to delete document');
     } finally {
@@ -2837,23 +2839,49 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
 
       {/* Delete Confirmation Modal */}
       {confirmDeleteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !deleting && setConfirmDeleteId(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-[420px] max-w-[90vw]" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!deleting) { setConfirmDeleteId(null); setDeleteReason(''); } }}>
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-[460px] max-w-[94vw]" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
                 <Trash2 size={18} className="text-red-600" />
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-gray-900">Delete Document</h3>
-                <p className="text-xs text-gray-500 mt-0.5">This action cannot be undone.</p>
+                <p className="text-xs text-gray-500 mt-0.5">The employee will be notified by email and must re-upload.</p>
               </div>
             </div>
-            <p className="text-sm text-gray-600 mb-5">
-              Are you sure you want to delete this document? The file will be soft-deleted and an audit log entry will be created.
-            </p>
+
+            {/* Info banner */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+              <AlertTriangle size={14} className="text-amber-600 mt-0.5 shrink-0" />
+              <p className="text-xs text-amber-800 leading-relaxed">
+                Deleting this document will set the employee's KYC status back to <strong>Re-upload Required</strong> and block dashboard access until a new document is uploaded and approved by HR.
+              </p>
+            </div>
+
+            {/* Reason input — required */}
+            <div className="mb-5">
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                Reason for deletion <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={deleteReason}
+                onChange={e => setDeleteReason(e.target.value)}
+                placeholder="e.g. Document is blurry / incorrect document type / expired / name mismatch..."
+                rows={3}
+                maxLength={500}
+                className="input-glass w-full text-sm resize-none"
+                disabled={deleting}
+              />
+              <p className="text-[10px] text-gray-400 mt-1 flex justify-between">
+                <span>This reason will be included in the email sent to the employee.</span>
+                <span>{deleteReason.length}/500</span>
+              </p>
+            </div>
+
             <div className="flex gap-3 justify-end">
               <button
-                onClick={() => setConfirmDeleteId(null)}
+                onClick={() => { setConfirmDeleteId(null); setDeleteReason(''); }}
                 disabled={deleting}
                 className="btn-secondary text-sm px-4"
               >
@@ -2861,11 +2889,12 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
               </button>
               <button
                 onClick={handleDelete}
-                disabled={deleting}
+                disabled={deleting || !deleteReason.trim()}
                 className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                title={!deleteReason.trim() ? 'Please enter a reason before deleting' : ''}
               >
                 {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                {deleting ? 'Deleting...' : 'Delete'}
+                {deleting ? 'Deleting...' : 'Delete & Notify Employee'}
               </button>
             </div>
           </div>

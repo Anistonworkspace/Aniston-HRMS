@@ -25,8 +25,12 @@ export const documentApi = api.injectEndpoints({
       invalidatesTags: ['Document', 'Employee'],
     }),
 
-    deleteDocument: builder.mutation<any, string>({
-      query: (id) => ({ url: `/documents/${id}`, method: 'DELETE' }),
+    deleteDocument: builder.mutation<any, { id: string; reason?: string }>({
+      query: ({ id, reason }) => ({
+        url: `/documents/${id}`,
+        method: 'DELETE',
+        body: reason ? { reason } : undefined,
+      }),
       invalidatesTags: ['Document', 'Employee'],
     }),
   }),

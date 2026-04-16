@@ -157,22 +157,54 @@ export class DocumentGateService {
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) return;
 
-    const submitted = [...gate.submittedDocs];
+    // Add to submittedDocs if not already there
+    const submitted = [...(gate.submittedDocs as string[])];
     if (!submitted.includes(documentType as any)) {
       submitted.push(documentType as any);
     }
 
     const allSubmitted = gate.requiredDocs.every((doc: any) => submitted.includes(doc));
 
+    // If this doc was flagged for re-upload, clear it now that a new one was uploaded
+    const prevReuploadTypes = (gate.reuploadDocTypes as string[]) || [];
+    const newReuploadTypes = prevReuploadTypes.filter(t => t !== documentType);
+
+    // Clear the rejection reason for this specific doc type
+    const prevReasons = ((gate.documentRejectReasons as Record<string, string>) || {});
+    const newReasons = { ...prevReasons };
+    delete newReasons[documentType];
+
+    // If all flagged docs are now re-uploaded, advance status back to SUBMITTED
+    // so HR gets notified to review again. Otherwise keep REUPLOAD_REQUIRED.
+    let newStatus = gate.kycStatus;
+    if (gate.kycStatus === 'REUPLOAD_REQUIRED') {
+      newStatus = newReuploadTypes.length === 0 ? 'SUBMITTED' : 'REUPLOAD_REQUIRED';
+    }
+
     await prisma.onboardingDocumentGate.update({
       where: { employeeId },
       data: {
         submittedDocs: submitted as any,
         allSubmitted,
+        reuploadDocTypes: newReuploadTypes as any,
+        documentRejectReasons: newReasons as any,
+        ...(newReuploadTypes.length === 0 && { reuploadRequested: false }),
+        kycStatus: newStatus as any,
       },
     });
 
-    return { allSubmitted, submitted: submitted.length, required: gate.requiredDocs.length };
+    // Emit real-time update if status changed
+    if (newStatus !== gate.kycStatus) {
+      await this.emitKycUpdate(employeeId, newStatus);
+    }
+
+    return {
+      allSubmitted,
+      submitted: submitted.length,
+      required: gate.requiredDocs.length,
+      reuploadCleared: prevReuploadTypes.includes(documentType),
+      remainingReupload: newReuploadTypes.length,
+    };
   }
 
   async unlockOfferLetter(employeeId: string, unlockedBy: string) {
@@ -535,10 +567,16 @@ export class DocumentGateService {
 
   /**
    * Reset KYC status when HR deletes a document.
-   * Removes the doc type from submittedDocs and, if KYC was past PENDING,
-   * moves it back to REUPLOAD_REQUIRED so the employee sees the KYC gate again.
+   * Always moves gate to REUPLOAD_REQUIRED (including PENDING state — Scenario A fix),
+   * notifies the employee via in-app notification AND email with the HR reason.
    */
-  async resetKycOnDocumentDeletion(employeeId: string, docType: string) {
+  async resetKycOnDocumentDeletion(
+    employeeId: string,
+    docType: string,
+    reason?: string,
+    docName?: string,
+    isCombinedPdf?: boolean,
+  ) {
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) return;
 
@@ -546,50 +584,67 @@ export class DocumentGateService {
     const newSubmitted = (gate.submittedDocs as string[]).filter((t) => t !== docType);
     const allSubmitted = gate.requiredDocs.every((d: any) => newSubmitted.includes(d));
 
-    // Only revert if KYC was past PENDING — don't touch a gate already at PENDING
-    const shouldRevert = !['PENDING'].includes(gate.kycStatus);
-    const newStatus = shouldRevert ? 'REUPLOAD_REQUIRED' : gate.kycStatus;
+    // Always revert to REUPLOAD_REQUIRED regardless of current status (Scenario A + B fix)
+    const deletionReason = reason?.trim() || 'Document was removed by HR — please re-upload';
 
     const updated = await prisma.onboardingDocumentGate.update({
       where: { employeeId },
       data: {
         submittedDocs: newSubmitted as any,
         allSubmitted,
-        kycStatus: newStatus,
-        // If reverting, record which doc needs re-upload
-        ...(shouldRevert
-          ? {
-              reuploadRequested: true,
-              reuploadDocTypes: [...new Set([...(gate.reuploadDocTypes as string[]), docType])] as any,
-              documentRejectReasons: {
-                ...((gate.documentRejectReasons as Record<string, string>) || {}),
-                [docType]: 'Document was removed by HR — please re-upload',
-              } as any,
-            }
-          : {}),
+        kycStatus: 'REUPLOAD_REQUIRED',
+        reuploadRequested: true,
+        reuploadDocTypes: [...new Set([...(gate.reuploadDocTypes as string[] || []), docType])] as any,
+        documentRejectReasons: {
+          ...((gate.documentRejectReasons as Record<string, string>) || {}),
+          [docType]: deletionReason,
+        } as any,
       },
     });
 
-    if (shouldRevert) {
-      await this.emitKycUpdate(employeeId, 'REUPLOAD_REQUIRED');
-      // Notify employee
-      try {
-        const emp = await prisma.employee.findUnique({
-          where: { id: employeeId },
-          select: { userId: true, organizationId: true },
+    // Emit socket event so KycGatePage refetches immediately
+    await this.emitKycUpdate(employeeId, 'REUPLOAD_REQUIRED');
+
+    // Notify employee in-app + email (non-blocking)
+    try {
+      const emp = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { userId: true, organizationId: true, email: true, firstName: true, lastName: true },
+      });
+      if (emp?.userId) {
+        const { enqueueNotification, enqueueEmail } = await import('../../jobs/queues.js');
+        const displayDocName = docName || docType.replace(/_/g, ' ');
+
+        // In-app notification
+        await enqueueNotification({
+          userId: emp.userId,
+          organizationId: emp.organizationId,
+          title: 'Document Removed — Re-upload Required',
+          message: `Your ${displayDocName} was removed by HR. Please re-upload it to continue.`,
+          type: 'DOCUMENT_FLAGGED',
+          link: '/kyc-pending',
         });
-        if (emp?.userId) {
-          const { enqueueNotification } = await import('../../jobs/queues.js');
-          await enqueueNotification({
-            userId: emp.userId,
-            organizationId: emp.organizationId,
-            title: 'Document Deleted — Action Required',
-            message: `HR removed your ${docType.replace(/_/g, ' ')}. Please re-upload it from the KYC page.`,
-            type: 'DOCUMENT_FLAGGED',
-            link: '/kyc-pending',
+
+        // Email notification with full details and reason
+        if (emp.email) {
+          await enqueueEmail({
+            to: emp.email,
+            subject: `Action Required: Document Removed — Please Re-upload Your ${displayDocName}`,
+            template: 'document-deleted',
+            context: {
+              employeeName: `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Employee',
+              docType: docType.replace(/_/g, ' '),
+              docName: displayDocName,
+              isCombinedPdf: isCombinedPdf || false,
+              reason: deletionReason,
+              reuploadUrl: 'https://hr.anistonav.com/kyc-pending',
+              orgName: 'Aniston Technologies',
+            },
           });
         }
-      } catch { /* non-blocking */ }
+      }
+    } catch (err) {
+      logger.warn(`[DocGate] Failed to send deletion notification for employee ${employeeId}:`, err);
     }
 
     return updated;
