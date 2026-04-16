@@ -1944,8 +1944,8 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
             <div className="grid grid-cols-2 gap-3 mt-3">
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">
-                  Probation Months
-                  <Tip text="Employees must complete this many months of service before they can use this leave type. Set to 0 to allow from day 1." />
+                  Min Service Months
+                  <Tip text="Only applies when 'By Status' is set to All Employees. Employees must complete this many months of service before seeing this leave. Has no effect when a specific status (Active, Probation, etc.) is selected — status is the gate in that case. Set to 0 to allow from day 1." />
                 </label>
                 <input type="number" value={formData.probationMonths} onChange={(e) => set('probationMonths', e.target.value)}
                   className="input-glass w-full" min={0} />

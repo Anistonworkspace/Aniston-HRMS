@@ -118,9 +118,11 @@ export class LeaveService {
       // Role check — if applicableToRole is set, only that role can see this leave
       if ((lt as any).applicableToRole && (lt as any).applicableToRole !== userRole) return false;
 
-      // Probation months check — employee must have completed N months before seeing this leave
+      // Probation months check — only applies to 'ALL' leave types.
+      // When HR targets a specific status (ACTIVE, PROBATION, etc.), the status check
+      // is the gate — adding a tenure block on top would contradict the explicit setting.
       const probationMonths = (lt as any).probationMonths ?? 0;
-      if (probationMonths > 0 && (employee as any).joiningDate) {
+      if (lt.applicableTo === 'ALL' && probationMonths > 0 && (employee as any).joiningDate) {
         const joined = new Date((employee as any).joiningDate);
         const now = new Date();
         const monthsWorked = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth());
