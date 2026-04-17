@@ -1047,6 +1047,52 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     standardFooter('Aniston HRMS', ctx.link)
   ),
 
+  // ── KYC Verified — employee portal access granted ──
+  'kyc-verified': (ctx) => emailLayout(
+    'linear-gradient(135deg,#059669 0%,#047857 100%)', '&#9989;',
+    'KYC Verified — Your Portal Access is Now Active!',
+    `Welcome to the Aniston HRMS dashboard`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.employeeName)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      Great news! Your KYC verification has been completed and your HRMS portal access is now fully active.
+      You can now log in and access all features including payslips, leave management, attendance, and more.
+    </p>
+
+    <!-- Success banner -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0FDF4;border:1px solid #BBF7D0;margin:0 0 20px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="color:#14532D;font-weight:700;font-size:14px;margin:0 0 4px;">&#127881; KYC Successfully Verified</p>
+        <p style="color:#166534;font-size:13px;margin:0;line-height:1.5;">
+          Verified on ${esc(ctx.verifiedAt || new Date().toLocaleDateString('en-IN', { dateStyle: 'long' }))} by the HR team.
+        </p>
+      </td></tr>
+    </table>
+
+    <!-- What's unlocked -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#374151;font-weight:700;font-size:14px;margin:0 0 12px;">&#128274; What's now unlocked for you</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          ${['Dashboard & announcements', 'Payslip download', 'Leave management', 'Attendance tracking', 'Profile management', 'Performance goals'].map(f =>
+            `<tr><td style="padding:6px 0;color:#374151;font-size:13px;border-bottom:1px solid #F3F4F6;">&#10003;&nbsp; ${f}</td></tr>`
+          ).join('')}
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctx.autoFilledFields && ctx.autoFilledFields.length > 0 ? `
+    <!-- Auto-filled profile fields -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EFF6FF;border:1px solid #BFDBFE;margin:0 0 20px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="color:#1E40AF;font-weight:700;font-size:14px;margin:0 0 8px;">&#128196; Profile fields auto-filled from your documents</p>
+        <p style="color:#1D4ED8;font-size:13px;margin:0;line-height:1.6;">${esc(ctx.autoFilledFields.join(', '))}</p>
+      </td></tr>
+    </table>` : ''}
+
+    ${ctaButton('https://hr.anistonav.com/dashboard', 'Go to Your Dashboard', '#059669')}`,
+    standardFooter('Aniston HRMS', 'https://hr.anistonav.com/dashboard')
+  ),
+
   // ── Document Deleted / Re-upload Required ──
 
   'document-deleted': (ctx) => emailLayout(

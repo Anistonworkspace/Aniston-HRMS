@@ -72,6 +72,13 @@ export const kycApi = api.injectEndpoints({
       invalidatesTags: ['Kyc'],
     }),
 
+    // HR: KYC statistics (counts per status for the org header)
+    getKycStats: builder.query<any, void>({
+      query: () => '/onboarding/kyc/stats',
+      providesTags: ['Kyc'],
+      keepUnusedDataFor: 60,
+    }),
+
     // HR: list pending/submitted KYC submissions
     getPendingKyc: builder.query<any, { page?: number }>({
       query: (params) => ({ url: '/onboarding/kyc/pending', params }),
@@ -171,6 +178,7 @@ export const kycApi = api.injectEndpoints({
 });
 
 export const {
+  useGetKycStatsQuery,
   useGetMyKycStatusQuery,
   useSaveKycConfigMutation,
   useUploadKycDocumentMutation,

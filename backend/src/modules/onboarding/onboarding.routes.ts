@@ -468,6 +468,49 @@ router.post('/kyc/:employeeId/submit', authenticate,
   }
 );
 
+// HR: KYC statistics — counts per status for the org (for the dashboard header)
+router.get('/kyc/stats', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+      const orgId = req.user!.organizationId;
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const [statusCounts, thisMonth] = await Promise.all([
+        prisma.onboardingDocumentGate.groupBy({
+          by: ['kycStatus'],
+          where: { employee: { organizationId: orgId } },
+          _count: { id: true },
+        }),
+        prisma.onboardingDocumentGate.count({
+          where: {
+            employee: { organizationId: orgId },
+            kycStatus: 'VERIFIED',
+            verifiedAt: { gte: startOfMonth },
+          },
+        }),
+      ]);
+
+      const counts: Record<string, number> = {};
+      for (const row of statusCounts) counts[row.kycStatus] = row._count.id;
+
+      res.json({
+        success: true,
+        data: {
+          pending: (counts['SUBMITTED'] || 0) + (counts['PENDING_HR_REVIEW'] || 0),
+          processing: counts['PROCESSING'] || 0,
+          reuploadRequired: counts['REUPLOAD_REQUIRED'] || 0,
+          verified: counts['VERIFIED'] || 0,
+          rejected: counts['REJECTED'] || 0,
+          verifiedThisMonth: thisMonth,
+          total: Object.values(counts).reduce((a, b) => a + b, 0),
+        },
+      });
+    } catch (err) { next(err); }
+  }
+);
+
 // HR: List pending KYC submissions
 router.get('/kyc/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {

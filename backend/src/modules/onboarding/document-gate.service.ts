@@ -467,6 +467,29 @@ export class DocumentGateService {
     }
 
     await this.emitKycUpdate(employeeId, 'VERIFIED');
+
+    // Send KYC approval congratulations email (non-blocking)
+    try {
+      const emp = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { userId: true, organizationId: true, firstName: true, lastName: true, user: { select: { email: true } } },
+      });
+      if (emp?.user?.email) {
+        const { addEmailJob } = await import('../../jobs/queues.js');
+        await addEmailJob({
+          to: emp.user.email,
+          subject: '✅ KYC Verified — Your Aniston HRMS Portal Access is Now Active',
+          template: 'kyc-verified',
+          context: {
+            employeeName: [emp.firstName, emp.lastName].filter(Boolean).join(' ') || 'Employee',
+            verifiedAt: new Date().toLocaleDateString('en-IN', { dateStyle: 'long' }),
+          },
+        });
+      }
+    } catch (emailErr: any) {
+      logger.warn(`[KYC] Failed to send KYC-verified email for ${employeeId}: ${emailErr.message}`);
+    }
+
     return updated;
   }
 

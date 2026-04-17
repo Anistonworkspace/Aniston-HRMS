@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import {
+  useGetKycStatsQuery,
   useGetPendingKycQuery,
   useGetKycHrReviewQuery,
   useVerifyKycMutation,
@@ -509,10 +510,10 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
   const docRejectReasons = gate?.documentRejectReasons || {};
 
   const handleApprove = async () => {
-    if (!confirm(`Approve KYC for ${employeeName}? This will unlock their dashboard and auto-fill verified profile fields.`)) return;
+    if (!confirm(`Approve KYC for ${employeeName}? This will:\n• Unlock their dashboard immediately\n• Auto-fill profile fields from OCR data\n• Send a congratulations email to the employee`)) return;
     try {
       await verifyKyc(employeeId).unwrap();
-      toast.success(`KYC approved for ${employeeName}`);
+      toast.success(`KYC approved for ${employeeName} — profile fields auto-filled from OCR data. Congratulations email sent.`, { duration: 5000 });
       onBack();
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Approval failed — please try again');
@@ -1356,6 +1357,8 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
 export default function KycHrReviewPage() {
   const [page, setPage] = useState(1);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const { data: statsData } = useGetKycStatsQuery();
+  const stats = statsData?.data;
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBatchRejectModal, setShowBatchRejectModal] = useState(false);
   const [batchRejectReason, setBatchRejectReason] = useState('');
@@ -1371,19 +1374,31 @@ export default function KycHrReviewPage() {
 
   const toggleSelectAll = () => {
     if (allSelected) setSelectedIds(new Set());
-    else setSelectedIds(new Set(gates.map((g: any) => g.employeeId)));
+    // Only select employees that are in an approvable state — skip already-VERIFIED
+    else setSelectedIds(new Set(
+      gates.filter((g: any) => g.kycStatus !== 'VERIFIED').map((g: any) => g.employeeId)
+    ));
   };
 
   const handleBatchApprove = async () => {
-    if (!confirm(`Approve KYC for ${selectedIds.size} employee(s)? This will unlock their dashboards immediately.`)) return;
+    // Filter out already-VERIFIED employees — re-verifying them is a no-op and wastes time
+    const approvableIds = [...selectedIds].filter(id => {
+      const gate = gates.find((g: any) => g.employeeId === id);
+      return gate && gate.kycStatus !== 'VERIFIED';
+    });
+    if (approvableIds.length === 0) {
+      toast.error('All selected employees are already verified.');
+      return;
+    }
+    if (!confirm(`Approve KYC for ${approvableIds.length} employee(s)? This will unlock their dashboards immediately.`)) return;
     setBatchProcessing(true);
     let approved = 0;
-    for (const id of selectedIds) {
+    for (const id of approvableIds) {
       try { await verifyKyc(id).unwrap(); approved++; } catch { /* skip failed */ }
     }
     setBatchProcessing(false);
     setSelectedIds(new Set());
-    toast.success(`Approved ${approved} of ${selectedIds.size} submissions`);
+    toast.success(`Approved ${approved} of ${approvableIds.length} submissions`);
   };
 
   const handleBatchReject = async () => {
@@ -1420,6 +1435,24 @@ export default function KycHrReviewPage() {
           <p className="text-sm text-slate-500 mt-0.5">
             Review and approve employee KYC submissions. Approved submissions unlock dashboard access and auto-fill profile fields.
           </p>
+
+          {/* KYC Stats Bar */}
+          {stats && (
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
+              {[
+                { label: 'Awaiting Review', value: stats.pending, color: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+                { label: 'Processing', value: stats.processing, color: 'bg-yellow-50 border-yellow-200 text-yellow-700' },
+                { label: 'Re-upload Required', value: stats.reuploadRequired, color: 'bg-orange-50 border-orange-200 text-orange-700' },
+                { label: 'Verified Total', value: stats.verified, color: 'bg-green-50 border-green-200 text-green-700' },
+                { label: 'Verified This Month', value: stats.verifiedThisMonth, color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+              ].map(s => (
+                <div key={s.label} className={`p-3 rounded-xl border ${s.color} text-center`}>
+                  <p className="text-2xl font-bold font-mono">{s.value ?? 0}</p>
+                  <p className="text-xs font-medium mt-0.5 leading-tight">{s.label}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Batch action bar — visible when at least one submission is selected (Category 4 item 19) */}
