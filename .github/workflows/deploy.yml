@@ -529,27 +529,9 @@ jobs:
             npm ci || (echo "Retrying npm ci..." && rm -rf node_modules && npm ci)
             node -e "import('tar').then(t => console.log('✅ tar package OK:', typeof t.create)).catch(e => console.error('❌ tar missing:', e.message))" || true
 
-            echo "=== [5.5/16] Pre-migration: add new NOT NULL columns with defaults (safe for existing rows) ==="
-            DB_URL=$(grep '^DATABASE_URL=' .env | cut -d= -f2- | tr -d '"' | tr -d "'")
-            if [ -n "$DB_URL" ]; then
-              psql "$DB_URL" -c 'ALTER TABLE "BulkResumeItem" ADD COLUMN IF NOT EXISTS "organizationId" TEXT NOT NULL DEFAULT '"''"'' 2>/dev/null || true
-              psql "$DB_URL" -c 'UPDATE "BulkResumeItem" bri SET "organizationId" = bru."organizationId" FROM "BulkResumeUpload" bru WHERE bri."bulkUploadId" = bru.id AND bri."organizationId" = '"''"'' 2>/dev/null || true
-              psql "$DB_URL" -c 'ALTER TABLE "BulkResumeItem" ALTER COLUMN "organizationId" DROP DEFAULT' 2>/dev/null || true
-              psql "$DB_URL" -c 'ALTER TABLE "BulkResumeItem" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT NOW()' 2>/dev/null || true
-              psql "$DB_URL" -c 'ALTER TABLE "BulkResumeItem" ADD COLUMN IF NOT EXISTS "atsScore" DECIMAL(5,2)' 2>/dev/null || true
-              psql "$DB_URL" -c 'ALTER TABLE "BulkResumeItem" ADD COLUMN IF NOT EXISTS "resumeText" TEXT' 2>/dev/null || true
-              psql "$DB_URL" -c 'ALTER TABLE "BulkResumeItem" ADD COLUMN IF NOT EXISTS "matchedKeywords" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]' 2>/dev/null || true
-              psql "$DB_URL" -c 'ALTER TABLE "BulkResumeItem" ADD COLUMN IF NOT EXISTS "missingKeywords" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]' 2>/dev/null || true
-              psql "$DB_URL" -c 'ALTER TABLE "PublicApplication" ADD COLUMN IF NOT EXISTS "resumeText" TEXT' 2>/dev/null || true
-              psql "$DB_URL" -c 'ALTER TABLE "PublicApplication" ADD COLUMN IF NOT EXISTS "matchedKeywords" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]' 2>/dev/null || true
-              psql "$DB_URL" -c 'ALTER TABLE "PublicApplication" ADD COLUMN IF NOT EXISTS "missingKeywords" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]' 2>/dev/null || true
-              psql "$DB_URL" -c 'ALTER TABLE "PublicApplication" ADD COLUMN IF NOT EXISTS "atsScore" DOUBLE PRECISION' 2>/dev/null || true
-              psql "$DB_URL" -c 'ALTER TABLE "PublicApplication" ADD COLUMN IF NOT EXISTS "atsScoreData" JSONB' 2>/dev/null || true
-              psql "$DB_URL" -c 'ALTER TABLE "PublicApplication" ADD COLUMN IF NOT EXISTS "usedFallbackQuestions" BOOLEAN NOT NULL DEFAULT FALSE' 2>/dev/null || true
-              echo "Pre-migration columns ensured"
-            else
-              echo "DATABASE_URL not found in .env - skipping pre-migration SQL"
-            fi
+            echo "=== [5.5/16] Pre-migration: add new NOT NULL columns via prisma db execute ==="
+            echo "QUxURVIgVEFCTEUgIkJ1bGtSZXN1bWVJdGVtIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgIm9yZ2FuaXphdGlvbklkIiBURVhUIE5PVCBOVUxMIERFRkFVTFQgJyc7ClVQREFURSAiQnVsa1Jlc3VtZUl0ZW0iIGJyaSBTRVQgIm9yZ2FuaXphdGlvbklkIiA9IGJydS4ib3JnYW5pemF0aW9uSWQiIEZST00gIkJ1bGtSZXN1bWVVcGxvYWQiIGJydSBXSEVSRSBicmkuImJ1bGtVcGxvYWRJZCIgPSBicnUuaWQgQU5EIGJyaS4ib3JnYW5pemF0aW9uSWQiID0gJyc7CkFMVEVSIFRBQkxFICJCdWxrUmVzdW1lSXRlbSIgQUxURVIgQ09MVU1OICJvcmdhbml6YXRpb25JZCIgRFJPUCBERUZBVUxUOwpBTFRFUiBUQUJMRSAiQnVsa1Jlc3VtZUl0ZW0iIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAidXBkYXRlZEF0IiBUSU1FU1RBTVAoMykgTk9UIE5VTEwgREVGQVVMVCBOT1coKTsKQUxURVIgVEFCTEUgIkJ1bGtSZXN1bWVJdGVtIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgImF0c1Njb3JlIiBERUNJTUFMKDUsMik7CkFMVEVSIFRBQkxFICJCdWxrUmVzdW1lSXRlbSIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJyZXN1bWVUZXh0IiBURVhUOwpBTFRFUiBUQUJMRSAiQnVsa1Jlc3VtZUl0ZW0iIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAibWF0Y2hlZEtleXdvcmRzIiBURVhUW10gTk9UIE5VTEwgREVGQVVMVCBBUlJBWVtdOjpURVhUW107CkFMVEVSIFRBQkxFICJCdWxrUmVzdW1lSXRlbSIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJtaXNzaW5nS2V5d29yZHMiIFRFWFRbXSBOT1QgTlVMTCBERUZBVUxUIEFSUkFZW106OlRFWFRbXTsKQUxURVIgVEFCTEUgIlB1YmxpY0FwcGxpY2F0aW9uIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgInJlc3VtZVRleHQiIFRFWFQ7CkFMVEVSIFRBQkxFICJQdWJsaWNBcHBsaWNhdGlvbiIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJtYXRjaGVkS2V5d29yZHMiIFRFWFRbXSBOT1QgTlVMTCBERUZBVUxUIEFSUkFZW106OlRFWFRbXTsKQUxURVIgVEFCTEUgIlB1YmxpY0FwcGxpY2F0aW9uIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgIm1pc3NpbmdLZXl3b3JkcyIgVEVYVFtdIE5PVCBOVUxMIERFRkFVTFQgQVJSQVlbXTo6VEVYVFtdOwpBTFRFUiBUQUJMRSAiUHVibGljQXBwbGljYXRpb24iIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAiYXRzU2NvcmUiIERPVUJMRSBQUkVDSVNJT047CkFMVEVSIFRBQkxFICJQdWJsaWNBcHBsaWNhdGlvbiIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJhdHNTY29yZURhdGEiIEpTT05COwpBTFRFUiBUQUJMRSAiUHVibGljQXBwbGljYXRpb24iIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAidXNlZEZhbGxiYWNrUXVlc3Rpb25zIiBCT09MRUFOIE5PVCBOVUxMIERFRkFVTFQgRkFMU0U7" | base64 -d > /tmp/premigrate.sql
+            npx --no-install prisma db execute --file /tmp/premigrate.sql && echo "Pre-migration columns ensured" || echo "Pre-migration note: some columns may already exist (safe to ignore)"
 
             echo "=== [6/16] Syncing database schema ==="
             npx --no-install prisma db push --accept-data-loss || {
