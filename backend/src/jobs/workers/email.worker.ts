@@ -1093,6 +1093,54 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     standardFooter('Aniston HRMS', 'https://hr.anistonav.com/dashboard')
   ),
 
+  // ── KYC Rejected — employee must re-submit ──
+  'kyc-rejected': (ctx) => emailLayout(
+    'linear-gradient(135deg,#DC2626 0%,#B91C1C 100%)', '&#10060;',
+    'KYC Verification Unsuccessful — Action Required',
+    `Your KYC submission could not be verified`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.employeeName)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      We were unable to verify your KYC submission. Your access to the HRMS portal will remain restricted until you
+      re-submit the required documents and they are approved by the HR team.
+    </p>
+
+    <!-- Rejection banner -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF2F2;border:1px solid #FECACA;margin:0 0 20px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="color:#991B1B;font-weight:700;font-size:14px;margin:0 0 4px;">&#9888;&#65039; KYC Verification Rejected on ${esc(ctx.rejectedAt || '')}</p>
+        <p style="color:#7F1D1D;font-size:13px;margin:0;line-height:1.5;">
+          Your access to the Aniston HRMS dashboard will remain restricted until a new KYC submission is approved.
+        </p>
+      </td></tr>
+    </table>
+
+    <!-- HR reason -->
+    ${ctx.rejectionReason ? `
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#374151;font-weight:700;font-size:14px;margin:0 0 8px;">&#128221; Reason from HR</p>
+        <p style="color:#4B5563;font-size:14px;font-style:italic;line-height:1.6;margin:0;">"${esc(ctx.rejectionReason)}"</p>
+      </td></tr>
+    </table>` : ''}
+
+    <!-- Next steps -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FFF7ED;border:1px solid #FED7AA;margin:0 0 20px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="color:#92400E;font-weight:700;font-size:14px;margin:0 0 8px;">&#128073; What to do next</p>
+        <ul style="color:#78350F;font-size:13px;line-height:1.8;margin:0;padding-left:18px;">
+          <li>Log in to the Aniston HRMS portal</li>
+          <li>Navigate to KYC &amp; Documents section</li>
+          <li>Re-upload clear, valid copies of the required documents</li>
+          <li>Ensure documents are not expired and clearly legible</li>
+          <li>Submit for HR review again</li>
+        </ul>
+      </td></tr>
+    </table>
+
+    ${ctaButton('https://hr.anistonav.com/kyc-pending', 'Re-submit KYC Documents', '#DC2626')}`,
+    standardFooter('Aniston HRMS', 'https://hr.anistonav.com/kyc-pending')
+  ),
+
   // ── Document Deleted / Re-upload Required ──
 
   'document-deleted': (ctx) => emailLayout(

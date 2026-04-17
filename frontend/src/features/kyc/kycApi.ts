@@ -160,6 +160,18 @@ export const kycApi = api.injectEndpoints({
       invalidatesTags: ['Kyc'],
     }),
 
+    // HR: stream a single document via authenticated proxy (no direct URL, no download)
+    viewKycDocument: builder.query<string, { employeeId: string; docId: string }>({
+      query: ({ employeeId, docId }) => ({
+        url: `/onboarding/kyc/${employeeId}/document/${docId}/view`,
+        responseHandler: async (response) => {
+          const blob = await response.blob();
+          return URL.createObjectURL(blob);
+        },
+        cache: 'no-cache',
+      }),
+    }),
+
     // HR: KYC audit log — full action history for an employee (Category 4 item 15)
     getKycAuditLog: builder.query<any, string>({
       query: (employeeId) => `/onboarding/kyc/${employeeId}/audit-log`,
@@ -195,6 +207,7 @@ export const {
   useRetriggerOcrMutation,
   useReclassifyCombinedPdfMutation,
   useRevokeKycAccessMutation,
+  useViewKycDocumentQuery,
   useGetKycAuditLogQuery,
   useCheckDuplicateDocumentMutation,
 } = kycApi;

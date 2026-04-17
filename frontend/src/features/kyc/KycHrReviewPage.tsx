@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSelector } from 'react-redux';
+import type { RootState } from '../../app/store';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
@@ -299,46 +301,118 @@ function ExpiryWarnings({ documents }: { documents: any[] }) {
   );
 }
 
-// ─── Inline Document Viewer (Category 4 item 18) ─────────────────────────────
-function InlineDocViewer({ url, name, onClose }: { url: string; name: string; onClose: () => void }) {
-  const isPdf = url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('pdf');
+// ─── Inline Document Viewer — secure, no-download (user request) ─────────────
+function InlineDocViewer({
+  employeeId,
+  docId,
+  name,
+  onClose,
+}: {
+  employeeId: string;
+  docId: string;
+  name: string;
+  onClose: () => void;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const accessToken = useSelector((s: RootState) => s.auth.accessToken);
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    setLoading(true);
+    setError(null);
+
+    const fetchDoc = async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/onboarding/kyc/${employeeId}/document/${docId}/view`,
+          { headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store' }
+        );
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        const blob = await res.blob();
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+      } catch (err: any) {
+        setError(err.message || 'Failed to load document');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDoc();
+
+    // Revoke blob URL on unmount to free memory
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [employeeId, docId, accessToken, API_BASE]);
+
+  const isPdf = name.toLowerCase().includes('.pdf') || name.toLowerCase().includes('pdf');
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden"
+        style={{ height: 'min(90vh, 900px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-4 border-b border-slate-200">
+        {/* Header — no "Open in new tab" link */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-2">
             <FileText className="w-4 h-4 text-indigo-600" />
             <span className="font-semibold text-slate-800 text-sm truncate max-w-xs">{name}</span>
           </div>
           <div className="flex items-center gap-2">
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded-lg px-3 py-1.5"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              Open in new tab
-            </a>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100">
+            <span className="text-xs text-slate-400 flex items-center gap-1">
+              <Shield className="w-3 h-3" /> View only
+            </span>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 ml-2">
               <XCircle className="w-5 h-5 text-slate-500" />
             </button>
           </div>
         </div>
-        <div className="flex-1 overflow-hidden">
-          {isPdf ? (
-            <iframe
-              src={`${url}#toolbar=1&navpanes=0`}
-              className="w-full h-full min-h-[65vh]"
-              title={name}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full min-h-[65vh] bg-slate-50 p-4">
-              <img src={url} alt={name} className="max-w-full max-h-full object-contain rounded-lg shadow" />
+
+        {/* Content */}
+        <div className="flex-1 overflow-hidden relative bg-slate-100">
+          {loading && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+              <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+              <p className="text-sm text-slate-500">Loading document securely…</p>
             </div>
+          )}
+          {error && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-8">
+              <XCircle className="w-10 h-10 text-red-400" />
+              <p className="text-sm text-red-600 text-center">{error}</p>
+              <p className="text-xs text-slate-400">Try closing and reopening, or ask IT if the issue persists.</p>
+            </div>
+          )}
+          {blobUrl && !loading && !error && (
+            isPdf ? (
+              <iframe
+                src={`${blobUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                className="w-full h-full"
+                title={name}
+                // sandbox without allow-downloads prevents Save-As in Chrome 83+
+                sandbox="allow-scripts allow-same-origin"
+                // prevent focus-based keyboard shortcuts for saving
+                tabIndex={-1}
+              />
+            ) : (
+              // For images: disable right-click and drag
+              <div
+                className="flex items-center justify-center h-full p-6 select-none"
+                onContextMenu={e => e.preventDefault()}
+                onDragStart={e => e.preventDefault()}
+              >
+                <img
+                  src={blobUrl}
+                  alt={name}
+                  className="max-w-full max-h-full object-contain rounded-lg shadow pointer-events-none"
+                  draggable={false}
+                />
+              </div>
+            )
           )}
         </div>
       </div>
@@ -481,6 +555,7 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
   const [retriggerOcr, { isLoading: retriggering }] = useRetriggerOcrMutation();
   const [reclassifyCombinedPdf, { isLoading: reclassifying }] = useReclassifyCombinedPdfMutation();
   const [revokeKyc, { isLoading: revoking }] = useRevokeKycAccessMutation();
+  const [checkDuplicate] = useCheckDuplicateDocumentMutation();
 
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showReuploadModal, setShowReuploadModal] = useState(false);
@@ -489,7 +564,7 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
   const [reuploadReasons, setReuploadReasons] = useState<Record<string, string>>({});
   const [hrNotes, setHrNotes] = useState('');
   const [notesSaved, setNotesSaved] = useState(false);
-  const [viewerDoc, setViewerDoc] = useState<{ url: string; name: string } | null>(null);
+  const [viewerDoc, setViewerDoc] = useState<{ docId: string; name: string } | null>(null);
 
   if (isLoading) {
     return (
@@ -503,13 +578,34 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
   const review = data?.data;
   if (!review) return <p className="text-slate-500">No data available.</p>;
 
-  const { gate, documents, crossValidation, analysis: docAnalysis } = review;
+  const { gate, documents, crossValidation, analysis: docAnalysis, separateModeDobCrossVerification } = review;
   const employee = gate?.employee;
   const employeeName = [employee?.firstName, employee?.lastName].filter(Boolean).join(' ') || employee?.name || 'Unknown';
   const combinedAnalysis = gate?.combinedPdfAnalysis;
   const docRejectReasons = gate?.documentRejectReasons || {};
 
   const handleApprove = async () => {
+    // Auto-run duplicate check before approving — warn HR if duplicates found
+    try {
+      const ocrDocs = documents?.filter((d: any) => d.ocrVerification?.extractedDocNumber);
+      const aadhaarDoc = ocrDocs?.find((d: any) => d.type === 'AADHAAR');
+      const panDoc = ocrDocs?.find((d: any) => d.type === 'PAN');
+      const passportDoc = ocrDocs?.find((d: any) => d.type === 'PASSPORT');
+      if (aadhaarDoc || panDoc || passportDoc) {
+        const dupResult = await checkDuplicate({
+          employeeId,
+          ...(aadhaarDoc ? { aadhaarNumber: aadhaarDoc.ocrVerification.extractedDocNumber } : {}),
+          ...(panDoc ? { panNumber: panDoc.ocrVerification.extractedDocNumber } : {}),
+          ...(passportDoc ? { passportNumber: passportDoc.ocrVerification.extractedDocNumber } : {}),
+        }).unwrap();
+        const duplicates = dupResult?.data?.duplicates ?? [];
+        if (duplicates.length > 0) {
+          const dupNames = duplicates.map((d: any) => `${d.employeeName} (${d.docType})`).join(', ');
+          if (!confirm(`⚠️ Duplicate document detected!\n\nThe same document number is already registered for:\n${dupNames}\n\nDo you still want to approve KYC for ${employeeName}?`)) return;
+        }
+      }
+    } catch { /* duplicate check failure is non-blocking — proceed with approval */ }
+
     if (!confirm(`Approve KYC for ${employeeName}? This will:\n• Unlock their dashboard immediately\n• Auto-fill profile fields from OCR data\n• Send a congratulations email to the employee`)) return;
     try {
       await verifyKyc(employeeId).unwrap();
@@ -631,6 +727,15 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
               : <Scan className="w-3.5 h-3.5" />}
             Re-classify PDF
           </button>
+          <a
+            href={`${(import.meta.env.VITE_API_URL || 'http://localhost:4000/api')}/onboarding/kyc/${employeeId}/documents/zip`}
+            download
+            className="btn-secondary flex items-center gap-1.5 text-sm py-1.5 px-3"
+            title="Download all KYC documents as ZIP"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Download ZIP
+          </a>
         </div>
       </div>
 
@@ -763,6 +868,10 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
       {/* Cross-Validation Matrix — reads actual service shape: { status, details[] } */}
       {crossValidation && crossValidation.status !== 'PENDING' && (
         <Section title="Cross-Document Validation">
+          {/* DOB cross-verification from separate-mode OCR records */}
+          {separateModeDobCrossVerification && (
+            <DobCrossVerification data={separateModeDobCrossVerification} />
+          )}
           {/* Overall verdict badge */}
           <div className="flex items-center gap-3 mb-4 flex-wrap">
             <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold ${
@@ -1114,7 +1223,7 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
                   )}
                   {doc.fileUrl && (
                     <button
-                      onClick={() => setViewerDoc({ url: doc.fileUrl, name: doc.name || doc.type })}
+                      onClick={() => setViewerDoc({ docId: doc.id, name: doc.name || doc.type })}
                       className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
                       title="View document inline"
                     >
@@ -1242,7 +1351,8 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
       {/* Inline Document Viewer modal (Category 4 item 18) */}
       {viewerDoc && (
         <InlineDocViewer
-          url={viewerDoc.url}
+          employeeId={employeeId}
+          docId={viewerDoc.docId}
           name={viewerDoc.name}
           onClose={() => setViewerDoc(null)}
         />
@@ -1553,15 +1663,48 @@ export default function KycHrReviewPage() {
                       <span className="text-sm text-slate-600">{emp?.department?.name || '—'}</span>
                     </td>
                     <td className="px-4 py-3">
-                      {gate.uploadMode ? (
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                          gate.uploadMode === 'COMBINED' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                        }`}>
-                          {gate.uploadMode === 'COMBINED' ? 'Combined PDF' : 'Separate'}
-                        </span>
-                      ) : <span className="text-slate-400 text-xs">—</span>}
+                      <div className="flex flex-col gap-1">
+                        {gate.uploadMode ? (
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full w-fit ${
+                            gate.uploadMode === 'COMBINED' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {gate.uploadMode === 'COMBINED' ? 'Combined PDF' : 'Separate'}
+                          </span>
+                        ) : <span className="text-slate-400 text-xs">—</span>}
+                        {/* AI / Fallback engine indicator */}
+                        {gate.combinedPdfAnalysis?.ocrEngine && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded w-fit font-mono ${
+                            gate.combinedPdfAnalysis.ocrEngine === 'AI'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : gate.combinedPdfAnalysis.ocrEngine === 'FALLBACK'
+                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : 'bg-slate-50 text-slate-500 border border-slate-200'
+                          }`}>
+                            {gate.combinedPdfAnalysis.ocrEngine === 'AI' ? '🤖 AI' : gate.combinedPdfAnalysis.ocrEngine === 'FALLBACK' ? '⚙ Fallback' : gate.combinedPdfAnalysis.ocrEngine}
+                          </span>
+                        )}
+                      </div>
                     </td>
-                    <td className="px-4 py-3"><StatusBadge status={gate.kycStatus} /></td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <StatusBadge status={gate.kycStatus} />
+                        {/* SLA warning — flag if waiting > 48h */}
+                        {gate.updatedAt && (() => {
+                          const ageHours = (Date.now() - new Date(gate.updatedAt).getTime()) / 3_600_000;
+                          if (ageHours >= 72) return (
+                            <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium w-fit">
+                              ⚠ {Math.floor(ageHours / 24)}d overdue
+                            </span>
+                          );
+                          if (ageHours >= 48) return (
+                            <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium w-fit">
+                              ⏱ {Math.floor(ageHours)}h waiting
+                            </span>
+                          );
+                          return null;
+                        })()}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 hidden md:table-cell">
                       <span className="text-xs text-slate-500">
                         {gate.updatedAt ? new Date(gate.updatedAt).toLocaleDateString('en-IN') : '—'}

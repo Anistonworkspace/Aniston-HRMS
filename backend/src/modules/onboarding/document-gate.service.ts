@@ -506,6 +506,28 @@ export class DocumentGateService {
       },
     });
     await this.emitKycUpdate(employeeId, 'REJECTED');
+
+    // Send rejection email to employee (non-blocking)
+    try {
+      const emp = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        include: { user: { select: { email: true } } },
+      });
+      if (emp?.user?.email) {
+        const { addEmailJob } = await import('../../jobs/queues.js');
+        await addEmailJob({
+          to: emp.user.email,
+          subject: 'KYC Verification — Action Required',
+          template: 'kyc-rejected',
+          context: {
+            employeeName: [emp.firstName, emp.lastName].filter(Boolean).join(' ') || emp.name || 'Employee',
+            rejectionReason: reason,
+            rejectedAt: new Date().toLocaleDateString('en-IN', { dateStyle: 'long' }),
+          },
+        });
+      }
+    } catch { /* non-blocking — email failure must not break rejection */ }
+
     return updated;
   }
 
@@ -838,6 +860,46 @@ export class DocumentGateService {
       );
     }
 
+    // DOB cross-verification for SEPARATE-mode submissions (Cat 4 item 16 — separate mode)
+    // For combined PDF this comes from Python AI; for separate docs we compute from individual OCR records.
+    let separateModeDobCrossVerification: any = null;
+    if ((gate.uploadMode as string) === 'SEPARATE' || !gate.combinedPdfAnalysis) {
+      try {
+        const dobsByType: Record<string, string> = {};
+        for (const doc of documents) {
+          const ocr = (doc as any).ocrVerification;
+          if (ocr?.extractedDob && doc.type && doc.type !== 'OTHER') {
+            // Normalize DD/MM/YYYY
+            const raw = String(ocr.extractedDob).trim();
+            if (raw && raw.length >= 6 && !dobsByType[doc.type]) {
+              dobsByType[doc.type] = raw;
+            }
+          }
+        }
+        const dobValues = Object.values(dobsByType);
+        if (dobValues.length >= 2) {
+          const allMatch = dobValues.every(d => d === dobValues[0]);
+          separateModeDobCrossVerification = {
+            status: allMatch ? 'MATCH' : 'MISMATCH',
+            primary_dob: dobValues[0],
+            dobs_found: dobsByType,
+            message: allMatch
+              ? `Date of birth matches across ${dobValues.length} documents.`
+              : `Date of birth mismatch detected across documents — please verify.`,
+            mismatches: allMatch ? [] : Object.entries(dobsByType)
+              .filter(([, v]) => v !== dobValues[0])
+              .map(([docType, dob]) => ({ doc_type: docType, message: `${dob} vs expected ${dobValues[0]}` })),
+          };
+        } else if (dobValues.length === 1) {
+          separateModeDobCrossVerification = {
+            status: 'INSUFFICIENT_DATA',
+            message: 'Only one document has a readable date of birth — cannot cross-verify.',
+            dobs_found: dobsByType,
+          };
+        }
+      } catch { /* non-blocking */ }
+    }
+
     return {
       gate,
       documents,
@@ -850,6 +912,7 @@ export class DocumentGateService {
         hasPhoto: !!(gate.photoUrl || submittedDocTypes.includes('PHOTO')),
       },
       crossValidation,
+      separateModeDobCrossVerification,
     };
   }
 }

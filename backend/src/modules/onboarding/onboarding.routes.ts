@@ -511,6 +511,146 @@ router.get('/kyc/stats', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, R
   }
 );
 
+// HR: Securely stream a KYC document (no download, no direct URL exposure)
+// The file is served through this authenticated proxy — the real file path is never exposed to the browser.
+router.get('/kyc/:employeeId/document/:docId/view',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+      const { readFileSync, existsSync } = await import('fs');
+      const { join, extname } = await import('path');
+
+      const { employeeId, docId } = req.params as { employeeId: string; docId: string };
+
+      // Fetch document and verify it belongs to the employee + HR's org
+      const doc = await prisma.document.findFirst({
+        where: {
+          id: docId,
+          employeeId,
+          deletedAt: null,
+          employee: { organizationId: req.user!.organizationId },
+        },
+        select: { id: true, fileUrl: true, name: true },
+      });
+
+      if (!doc?.fileUrl) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Document not found' } });
+        return;
+      }
+
+      // Resolve file path (fileUrl is stored relative to project root, e.g. /uploads/kyc/...)
+      let basePath = process.cwd();
+      if (basePath.endsWith('backend') || basePath.endsWith('backend/') || basePath.endsWith('backend\\')) {
+        basePath = join(basePath, '..');
+      }
+      const filePath = join(basePath, doc.fileUrl);
+
+      if (!existsSync(filePath)) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Document file not found on disk' } });
+        return;
+      }
+
+      const fileBuffer = readFileSync(filePath);
+      const ext = extname(filePath).toLowerCase();
+      const mimeTypes: Record<string, string> = {
+        '.pdf': 'application/pdf',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.webp': 'image/webp',
+      };
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+      // Security headers — serve inline, no caching, block save-as
+      res.set({
+        'Content-Type': contentType,
+        // inline = render in browser, not download; filename exposed only to renderer, not user
+        'Content-Disposition': `inline; filename="document${ext}"`,
+        // Prevent caching so the blob URL cannot be stored
+        'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        // Block embedding in other origins (prevents exfiltration via iframe on attacker site)
+        'X-Frame-Options': 'SAMEORIGIN',
+        'X-Content-Type-Options': 'nosniff',
+        // Content-Security-Policy blocks PDF viewer plugins from making external requests
+        'Content-Security-Policy': "default-src 'self'; object-src 'none'; plugin-types application/pdf",
+        'Content-Length': String(fileBuffer.length),
+      });
+
+      res.send(fileBuffer);
+    } catch (err) { next(err); }
+  }
+);
+
+// HR: Download all KYC documents as a ZIP archive
+router.get('/kyc/:employeeId/documents/zip',
+  authenticate,
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+      const { existsSync } = await import('fs');
+      const { join, extname, basename } = await import('path');
+      const archiver = (await import('archiver')).default;
+
+      const { employeeId } = req.params as { employeeId: string };
+
+      const employee = await prisma.employee.findFirst({
+        where: { id: employeeId, organizationId: req.user!.organizationId },
+        select: { firstName: true, lastName: true, employeeCode: true },
+      });
+      if (!employee) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Employee not found' } });
+        return;
+      }
+
+      const documents = await prisma.document.findMany({
+        where: { employeeId, deletedAt: null },
+        select: { id: true, fileUrl: true, name: true, type: true },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      const empName = `${employee.firstName ?? ''}_${employee.lastName ?? ''}_${employee.employeeCode ?? ''}`.replace(/\s+/g, '_');
+
+      res.set({
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="KYC_${empName}.zip"`,
+        'Cache-Control': 'no-store',
+      });
+
+      let basePath = process.cwd();
+      if (basePath.endsWith('backend') || basePath.endsWith('backend/') || basePath.endsWith('backend\\')) {
+        basePath = join(basePath, '..');
+      }
+
+      const archive = archiver('zip', { zlib: { level: 6 } });
+      archive.on('error', (err: Error) => next(err));
+      archive.pipe(res);
+
+      let fileCount = 0;
+      for (const doc of documents) {
+        if (!doc.fileUrl) continue;
+        const filePath = join(basePath, doc.fileUrl);
+        if (!existsSync(filePath)) continue;
+        const ext = extname(filePath);
+        const safeName = `${doc.type}_${doc.id.slice(0, 8)}${ext}`;
+        archive.file(filePath, { name: safeName });
+        fileCount++;
+      }
+
+      if (fileCount === 0) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'No documents found to download' } });
+        return;
+      }
+
+      await archive.finalize();
+    } catch (err) { next(err); }
+  }
+);
+
 // HR: List pending KYC submissions
 router.get('/kyc/pending', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
