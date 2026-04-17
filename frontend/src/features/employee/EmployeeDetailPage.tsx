@@ -1380,7 +1380,7 @@ function buildComponentsFromStructure(structure: any, annualCtc: number, masterC
     return comps
       .filter((c: any) => c.type === 'earning')
       .map((c: any, i: number) => ({
-        id: CODE_TO_FIELD[c.code] || c.name?.toLowerCase().replace(/\s+/g, '_') || `comp_${i}`,
+        id: CODE_TO_FIELD[c.code] || (c.name?.toLowerCase().startsWith('basic') ? 'basic' : c.name?.toLowerCase().replace(/\s+/g, '_')) || `comp_${i}`,
         name: c.name,
         amount: Number(c.value || 0),
         mode: c.isPercentage ? 'percent' as const : 'fixed' as const,
@@ -1544,7 +1544,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
   // Live calculations
   const monthly = annualCtc / 12;
   const grossEarnings = earnings.reduce((sum, e) => sum + (e.amount || 0), 0);
-  const basicAmount = earnings.find(e => e.id === 'basic')?.amount || 0;
+  const basicAmount = earnings.find(e => e.id === 'basic' || e.name?.toLowerCase().startsWith('basic'))?.amount || 0;
 
   // Statutory deductions (auto-calculated)
   const epfEmployee = Math.min(basicAmount, 15000) * 0.12;

@@ -620,10 +620,14 @@ export class PayrollService {
     const orgDefaultPTState = (org as any)?.defaultPTState ?? 'MAHARASHTRA';
     const orgDefaultTaxRegime = (org as any)?.defaultTaxRegime ?? 'NEW_REGIME';
 
-    // Include PROBATION employees along with ACTIVE
-    // Also fetch exemption flags and regime choice per employee
+    // Include all working statuses — only exclude definitively terminated/gone employees
     const employees = await prisma.employee.findMany({
-      where: { organizationId, status: { in: ['ACTIVE', 'PROBATION'] }, deletedAt: null, isSystemAccount: { not: true } },
+      where: {
+        organizationId,
+        status: { notIn: ['TERMINATED', 'INACTIVE', 'ABSCONDED'] },
+        deletedAt: null,
+        isSystemAccount: { not: true },
+      },
       include: { salaryStructure: true },
     });
 
@@ -1093,7 +1097,12 @@ export class PayrollService {
   async getPayrollPreflight(organizationId: string) {
     const [employees, componentMaster] = await Promise.all([
       prisma.employee.findMany({
-        where: { organizationId, status: { in: ['ACTIVE', 'PROBATION'] }, deletedAt: null, isSystemAccount: { not: true } },
+        where: {
+          organizationId,
+          status: { notIn: ['TERMINATED', 'INACTIVE', 'ABSCONDED'] },
+          deletedAt: null,
+          isSystemAccount: { not: true },
+        },
         include: {
           salaryStructure: { select: { id: true, ctc: true, isCustom: true, effectiveFrom: true } },
           department: { select: { name: true } },

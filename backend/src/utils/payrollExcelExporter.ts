@@ -174,6 +174,15 @@ export async function generatePayrollExcel(
 
     const empName = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim();
 
+    // For custom-component employees, Basic/HRA cells show blank when the employee
+    // genuinely has no such component (earningsBreakdown exists but doesn't include them).
+    const eb: Record<string, number> = rec.earningsBreakdown || {};
+    const hasEb = Object.keys(eb).length > 0;
+    const hasBasicComp = !hasEb || 'Basic' in eb || 'Basic Salary' in eb;
+    const hasHraComp   = !hasEb || 'HRA'   in eb || 'House Rent Allowance' in eb;
+    const basicCell    = hasBasicComp ? n(rec.basic) : '';
+    const hraCell      = hasHraComp   ? n(rec.hra)   : '';
+
     const row = summarySheet.addRow([
       idx + 1,
       t(rec.employee?.employeeCode),
@@ -182,8 +191,8 @@ export async function generatePayrollExcel(
       rec.workingDays ?? 'N/A',
       rec.presentDays ?? 'N/A',
       rec.lopDays ?? 0,
-      n(rec.basic),
-      n(rec.hra),
+      basicCell,
+      hraCell,
       otherTotal,
       n(rec.grossSalary),
       n(rec.epfEmployee),
@@ -270,15 +279,18 @@ export async function generatePayrollExcel(
 
   filteredRecords.forEach((rec: any) => {
     const eb: Record<string, number> = rec.earningsBreakdown || {};
+    const hasEbSh2 = Object.keys(eb).length > 0;
     const rowData: any = {
       code: t(rec.employee?.employeeCode),
       name: `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim() || 'N/A',
-      basic: n(rec.basic),
-      hra: n(rec.hra),
+      // Show blank (not ₹0) when this employee genuinely has no Basic/HRA component
+      basic: (!hasEbSh2 || 'Basic' in eb || 'Basic Salary' in eb) ? n(rec.basic) : '',
+      hra:   (!hasEbSh2 || 'HRA'   in eb || 'House Rent Allowance' in eb) ? n(rec.hra) : '',
       gross: n(rec.grossSalary),
       net: n(rec.netSalary),
     };
-    compNames.forEach(c => { rowData[c] = n(eb[c]); });
+    // For each custom column: blank when the component doesn't exist for this employee
+    compNames.forEach(c => { rowData[c] = c in eb ? n(eb[c]) : ''; });
     const row = ebSheet.addRow(rowData);
     row.font = { size: 9 };
     // Currency format for numeric columns (starting from col 3)
