@@ -58,6 +58,7 @@ export const salaryStructureSchema = z.object({
   reason: z.string().max(500).optional(),
   changeType: z.enum(['INITIAL', 'REVISION', 'PROMOTION', 'CORRECTION', 'TEMPLATE_APPLIED']).optional(),
   confirmOverwrite: z.boolean().optional(),
+  isCustom: z.boolean().optional(),   // true = per-employee custom components; false = derived from org master at runtime
 });
 
 // ── Legacy salary structure schema (backward compat for bulk import) ──

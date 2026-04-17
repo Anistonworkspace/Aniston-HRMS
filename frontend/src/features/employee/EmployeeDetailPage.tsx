@@ -1340,12 +1340,19 @@ function buildDefaultsFromMaster(masterComps: any[], annualCtc: number): SalaryC
 
   if (earningComps.length === 0) return FALLBACK_DEFAULTS;
 
+  // First pass: compute basic so PERCENTAGE_BASIC components reference the right base
+  const basicMc = earningComps.find((c: any) => c.code === 'BASIC');
+  const basicPct = basicMc ? (Number(basicMc.defaultPercentage) || 50) : 50;
+  const basicMonthly = monthly > 0 ? Math.round(monthly * basicPct / 100) : 0;
+
   const earnings: SalaryComponent[] = [];
   for (const mc of earningComps) {
     const isPercent = mc.calculationRule === 'PERCENTAGE_CTC' || mc.calculationRule === 'PERCENTAGE_BASIC';
     const defaultPct = mc.defaultPercentage ? Number(mc.defaultPercentage) : 0;
     const defaultFixed = mc.defaultValue ? Number(mc.defaultValue) : 0;
-    const amount = isPercent && monthly > 0 ? Math.round(monthly * defaultPct / 100) : defaultFixed;
+    // PERCENTAGE_BASIC uses basicMonthly as base; PERCENTAGE_CTC uses full monthly
+    const base = mc.calculationRule === 'PERCENTAGE_BASIC' ? basicMonthly : monthly;
+    const amount = isPercent && base > 0 ? Math.round(base * defaultPct / 100) : defaultFixed;
 
     earnings.push({
       id: CODE_TO_FIELD[mc.code] || `master_${mc.code}`,
