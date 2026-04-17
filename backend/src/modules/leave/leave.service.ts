@@ -277,7 +277,9 @@ export class LeaveService {
         where: {
           employeeId,
           leaveTypeId: data.leaveTypeId,
-          status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] },
+          // Count only active approvals — not pending/rejected. A rejected request should
+          // not consume the monthly quota, allowing the employee to re-apply.
+          status: { in: ['APPROVED', 'APPROVED_WITH_CONDITION'] },
           startDate: { gte: monthStart, lte: monthEnd },
         },
       });
@@ -906,7 +908,7 @@ export class LeaveService {
       const monthStart = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
       const monthEnd = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
       const monthCount = await prisma.leaveRequest.count({
-        where: { employeeId, leaveTypeId: leaveType.id, status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] }, startDate: { gte: monthStart, lte: monthEnd } },
+        where: { employeeId, leaveTypeId: leaveType.id, status: { in: ['APPROVED', 'APPROVED_WITH_CONDITION'] }, startDate: { gte: monthStart, lte: monthEnd } },
       });
       if (monthCount >= leaveType.maxPerMonth) {
         throw new BadRequestError(`Monthly quota reached for ${leaveType.name}.`);

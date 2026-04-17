@@ -20,6 +20,7 @@ export const documentOcrQueue = new Queue('document-ocr', connection);
 export const backupQueue = new Queue('database-backup', connection);
 
 export const attendanceCronQueue = new Queue('attendance-cron', connection);
+export const leaveCarryForwardQueue = new Queue('leave-carry-forward', connection);
 
 logger.info('✅ BullMQ queues initialized');
 
@@ -59,6 +60,23 @@ logger.info('✅ BullMQ queues initialized');
     logger.info('✅ Attendance cron jobs scheduled');
   } catch (err) {
     logger.warn('Failed to schedule attendance cron jobs:', err);
+  }
+})();
+
+// Schedule leave carry-forward cron: April 1 at 01:00 UTC (Indian FY start)
+// Also supports manual trigger via leaveCarryForwardQueue.add('year-end-carry-forward', { targetYear: 2026 })
+(async () => {
+  try {
+    const existingCFJobs = await leaveCarryForwardQueue.getRepeatableJobs();
+    for (const job of existingCFJobs) {
+      await leaveCarryForwardQueue.removeRepeatableByKey(job.key);
+    }
+    await leaveCarryForwardQueue.add('year-end-carry-forward', {}, {
+      repeat: { pattern: '0 1 1 4 *' }, // 01:00 UTC on April 1 every year
+    });
+    logger.info('✅ Leave carry-forward cron scheduled (April 1 at 01:00 UTC)');
+  } catch (err) {
+    logger.warn('Failed to schedule leave carry-forward cron:', err);
   }
 })();
 

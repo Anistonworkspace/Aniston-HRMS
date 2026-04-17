@@ -847,6 +847,18 @@ export class PayrollService {
             scanDay.setDate(scanDay.getDate() + 1);
           }
 
+          // Layer 4: ON_LEAVE attendance records NOT covered by a paid leave approval.
+          // When an employee takes unpaid leave, the leave service creates an ON_LEAVE
+          // attendance record. Layer 3 skips days that have a record; Layer 1 only catches
+          // ABSENT records — so without this layer, unpaid leave silently escapes LOP.
+          const onLeaveRecords = empAttendance.filter(r => r.status === 'ON_LEAVE');
+          for (const rec of onLeaveRecords) {
+            const recDate = new Date(rec.date);
+            if (recDate < effectiveStart || recDate > effectiveEnd) continue;
+            const ds = recDate.toISOString().split('T')[0];
+            if (!paidLeaveDates.has(ds) && !holidayDates.has(ds)) lopDays++; // unpaid ON_LEAVE = LOP
+          }
+
           // Paid off-days worked (e.g. Sundays for Mon-Sat org) — earn a bonus
           const paidOffDaysWorked = presentRecords.filter(r => {
             const d = new Date(r.date);
