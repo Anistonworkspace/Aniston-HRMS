@@ -6,6 +6,7 @@ import { logger } from '../../lib/logger.js';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import * as pdfParseModule from 'pdf-parse';
 const pdfParse = (pdfParseModule as any).default || pdfParseModule;
 
@@ -13,71 +14,383 @@ function generateUid(): string {
   return 'ANST-' + crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
-// ─── Hardcoded fallback MCQ questions when AI is unavailable ───
-const FALLBACK_MCQ_QUESTIONS = [
-  // INTELLIGENCE (2)
-  {
-    questionText: 'A company\'s revenue increased by 20% in the first year and decreased by 10% in the second year. What is the approximate net change over two years?',
-    optionA: '10% increase',
-    optionB: '8% increase',
-    optionC: '12% increase',
-    optionD: '15% increase',
-    correctOption: 'B',
-    category: 'INTELLIGENCE' as const,
-  },
-  {
-    questionText: 'If it takes 5 machines 5 minutes to make 5 widgets, how long would it take 100 machines to make 100 widgets?',
-    optionA: '100 minutes',
-    optionB: '20 minutes',
-    optionC: '5 minutes',
-    optionD: '50 minutes',
-    correctOption: 'C',
-    category: 'INTELLIGENCE' as const,
-  },
-  // INTEGRITY (2)
-  {
-    questionText: 'You discover that a colleague has been claiming overtime hours they didn\'t actually work. What would you do?',
-    optionA: 'Ignore it — it\'s not your responsibility',
-    optionB: 'Confront them aggressively in front of others',
-    optionC: 'Speak to your manager or HR privately about your concern',
-    optionD: 'Start doing the same since everyone else does it',
-    correctOption: 'C',
-    category: 'INTEGRITY' as const,
-  },
-  {
-    questionText: 'Your manager asks you to slightly exaggerate the project metrics in a client report. What is the best response?',
-    optionA: 'Do it without question since your manager asked',
-    optionB: 'Politely explain that accurate reporting builds long-term trust and suggest presenting the data honestly',
-    optionC: 'Refuse loudly and threaten to report them',
-    optionD: 'Modify the numbers just a little so it\'s not a big deal',
-    correctOption: 'B',
-    category: 'INTEGRITY' as const,
-  },
-  // ENERGY (2)
-  {
-    questionText: 'You are assigned to a new project with a very tight deadline and unfamiliar technology. How do you approach it?',
-    optionA: 'Tell your manager the deadline is unrealistic and refuse',
-    optionB: 'Wait for someone else to figure out the technology first',
-    optionC: 'Immediately start researching the technology, create a plan, and proactively ask colleagues for guidance',
-    optionD: 'Work only during office hours and hope for the best',
-    correctOption: 'C',
-    category: 'ENERGY' as const,
-  },
-  {
-    questionText: 'After a major project setback that wasn\'t your fault, what is your typical reaction?',
-    optionA: 'Focus on finding who is to blame',
-    optionB: 'Feel discouraged and wait for further instructions',
-    optionC: 'Take a moment, then analyze what can be salvaged and propose a revised plan',
-    optionD: 'Complain to colleagues about the unfair situation',
-    correctOption: 'C',
-    category: 'ENERGY' as const,
-  },
-];
+// ─── Fallback MCQ Question Bank (30 questions × 3 categories) ──────────────
+// When AI is unavailable, a random selection of 2 per category is drawn and
+// the order within the drawn set is also randomised so every candidate sees
+// a different combination. correctOption is stripped before being sent to
+// the candidate's browser.
+const FALLBACK_MCQ_BANK = {
+  INTELLIGENCE: [
+    {
+      questionText: 'A company\'s revenue increased by 20% in year 1, then decreased by 10% in year 2. What is the approximate net change over two years?',
+      optionA: '10% increase', optionB: '8% increase', optionC: '12% increase', optionD: '15% increase',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'If 5 machines make 5 widgets in 5 minutes, how long does it take 100 machines to make 100 widgets?',
+      optionA: '100 minutes', optionB: '20 minutes', optionC: '5 minutes', optionD: '50 minutes',
+      correctOption: 'C',
+    },
+    {
+      questionText: 'A project was 40% complete after 6 months. At the same pace, how many more months are needed to finish?',
+      optionA: '6 months', optionB: '9 months', optionC: '12 months', optionD: '15 months',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'If a train travels at 90 km/h and a bus at 60 km/h leave the same point, how far apart are they after 2 hours?',
+      optionA: '30 km', optionB: '60 km', optionC: '90 km', optionD: '120 km',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'A team of 4 completes a task in 12 days. How many days will 6 members take for the same task?',
+      optionA: '6 days', optionB: '8 days', optionC: '10 days', optionD: '18 days',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'What is the next number in the sequence: 2, 6, 18, 54, ___?',
+      optionA: '108', optionB: '162', optionC: '200', optionD: '216',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'If all Bloops are Razzies and all Razzies are Lazzies, then: All Bloops are definitely ___?',
+      optionA: 'Not Lazzies', optionB: 'Lazzies', optionC: 'Sometimes Lazzies', optionD: 'Not Bloops',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'A sale reduces a price by 25%, then a further 20%. What is the overall reduction?',
+      optionA: '40%', optionB: '45%', optionC: '50%', optionD: '35%',
+      correctOption: 'A',
+    },
+    {
+      questionText: 'Which pattern comes next: ▲ ▲▲ ▲▲▲ ▲▲▲▲ ___?',
+      optionA: '▲▲▲', optionB: '▲▲▲▲▲', optionC: '▲▲▲▲▲▲', optionD: '▲▲▲▲▲▲▲',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'A store marks up goods by 40% then gives a 20% discount. The net effect on cost is:',
+      optionA: '12% profit', optionB: '20% profit', optionC: 'Break even', optionD: '8% loss',
+      correctOption: 'A',
+    },
+  ],
+  INTEGRITY: [
+    {
+      questionText: 'You discover a colleague is claiming overtime hours they didn\'t work. What do you do?',
+      optionA: 'Ignore it — not your concern',
+      optionB: 'Confront them aggressively in public',
+      optionC: 'Privately raise the concern with HR or your manager',
+      optionD: 'Do the same since others seem to',
+      correctOption: 'C',
+    },
+    {
+      questionText: 'Your manager asks you to slightly exaggerate project metrics in a client report. You:',
+      optionA: 'Do it without question — manager\'s order',
+      optionB: 'Politely explain accurate data builds trust and suggest presenting it honestly',
+      optionC: 'Refuse and threaten to escalate',
+      optionD: 'Modify numbers a little since it\'s minor',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'You accidentally receive a salary overpayment of ₹5,000. What is the right action?',
+      optionA: 'Keep it — if they don\'t notice it\'s fine',
+      optionB: 'Wait for HR to discover and act',
+      optionC: 'Immediately notify HR and arrange to return it',
+      optionD: 'Spend it and pay back if asked',
+      correctOption: 'C',
+    },
+    {
+      questionText: 'A client offer you a personal gift after signing a large contract. You:',
+      optionA: 'Accept — it\'s a token of appreciation',
+      optionB: 'Decline and report it per company policy',
+      optionC: 'Accept privately without telling anyone',
+      optionD: 'Negotiate a larger gift',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'You find a colleague\'s confidential appraisal report on a shared printer. You:',
+      optionA: 'Read it out of curiosity',
+      optionB: 'Share details with close office friends',
+      optionC: 'Return it discreetly to the colleague without reading further',
+      optionD: 'Leave it — someone else will handle it',
+      correctOption: 'C',
+    },
+    {
+      questionText: 'You realise you made an error that caused a client to lose money. You:',
+      optionA: 'Hope nobody notices and say nothing',
+      optionB: 'Blame the system or another team member',
+      optionC: 'Immediately own the mistake, inform the manager, and propose a resolution',
+      optionD: 'Wait to see if it causes a problem first',
+      correctOption: 'C',
+    },
+    {
+      questionText: 'You overhear a team lead sharing confidential hiring decisions in a public space. You:',
+      optionA: 'Join the conversation',
+      optionB: 'Ignore it — not your responsibility',
+      optionC: 'Discreetly inform HR about the breach',
+      optionD: 'Spread the information you heard',
+      correctOption: 'C',
+    },
+    {
+      questionText: 'You are asked to backdate a document to avoid a compliance penalty. You:',
+      optionA: 'Do it as instructed',
+      optionB: 'Refuse and escalate to compliance or legal',
+      optionC: 'Backdate it but feel guilty',
+      optionD: 'Discuss it with other colleagues first',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'A shortcut would save you an hour but violates company security policy. You:',
+      optionA: 'Use the shortcut — nobody will know',
+      optionB: 'Follow policy and flag the bottleneck to your manager for a proper fix',
+      optionC: 'Use it this once and promise not to repeat',
+      optionD: 'Teach the shortcut to others',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'You are the only one who knows a team member took credit for your idea in a meeting. You:',
+      optionA: 'Retaliate by discrediting their work',
+      optionB: 'Let it go to avoid conflict',
+      optionC: 'Address it privately with the colleague first; escalate if repeated',
+      optionD: 'Spread word among peers',
+      correctOption: 'C',
+    },
+  ],
+  ENERGY: [
+    {
+      questionText: 'You are assigned a project with a tight deadline and unfamiliar technology. You:',
+      optionA: 'Tell your manager the deadline is unrealistic',
+      optionB: 'Wait for a colleague to learn it first',
+      optionC: 'Immediately start researching, create a plan, and ask for guidance where needed',
+      optionD: 'Work only office hours and hope for the best',
+      correctOption: 'C',
+    },
+    {
+      questionText: 'After a major project setback that wasn\'t your fault, you typically:',
+      optionA: 'Focus on finding who to blame',
+      optionB: 'Feel discouraged and wait for instructions',
+      optionC: 'Analyse what can be salvaged and propose a revised plan quickly',
+      optionD: 'Complain to colleagues',
+      correctOption: 'C',
+    },
+    {
+      questionText: 'You are given extra responsibilities without a raise. Your response is:',
+      optionA: 'Refuse any additional work',
+      optionB: 'Do only the bare minimum on extra tasks',
+      optionC: 'Deliver on the responsibilities and schedule a formal conversation about compensation',
+      optionD: 'Resign immediately',
+      correctOption: 'C',
+    },
+    {
+      questionText: 'You have 30 minutes before a big client call and your slides crash. You:',
+      optionA: 'Panic and call it off',
+      optionB: 'Present without any visual aid with notes and energy',
+      optionC: 'Quickly reconstruct key slides, practice key points, and join confidently',
+      optionD: 'Ask a colleague to present instead',
+      correctOption: 'C',
+    },
+    {
+      questionText: 'Your manager gives you a vague goal with no clear direction. You:',
+      optionA: 'Wait until the goal is clearer',
+      optionB: 'Ask clarifying questions and then propose a concrete action plan for approval',
+      optionC: 'Guess and start work in any direction',
+      optionD: 'Ignore it and focus on existing tasks',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'A senior colleague constantly undermines your suggestions in team meetings. You:',
+      optionA: 'Stop sharing ideas to avoid conflict',
+      optionB: 'Retaliate by dismissing their ideas',
+      optionC: 'Continue sharing ideas confidently and address the dynamic privately with the colleague',
+      optionD: 'Complain publicly',
+      correctOption: 'C',
+    },
+    {
+      questionText: 'You have completed your assigned work an hour before end of day. You:',
+      optionA: 'Leave early since your work is done',
+      optionB: 'Scroll social media',
+      optionC: 'Look for ways to help teammates or invest the time in professional development',
+      optionD: 'Update your LinkedIn profile',
+      correctOption: 'C',
+    },
+    {
+      questionText: 'Your team is behind on a deliverable. You are not at fault. You:',
+      optionA: 'Let the team sink — it\'s their problem',
+      optionB: 'Alert the manager and offer to take on extra tasks to help close the gap',
+      optionC: 'Do your work and watch from the sidelines',
+      optionD: 'Leave early to avoid the stress',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'You are asked to learn a new tool in 2 days for an urgent project. You:',
+      optionA: 'Say it is impossible and decline',
+      optionB: 'Spend focused time learning the essentials and deliver a working solution',
+      optionC: 'Use a familiar tool that is suboptimal but you know',
+      optionD: 'Delegate the task to someone who already knows it',
+      correctOption: 'B',
+    },
+    {
+      questionText: 'A high-priority task comes in at the end of your working day. You:',
+      optionA: 'Leave it for tomorrow',
+      optionB: 'Assess urgency; if critical, stay back and complete it or arrange coverage',
+      optionC: 'Grumble and do a half-effort job',
+      optionD: 'Forward it to a colleague without context',
+      correctOption: 'B',
+    },
+  ],
+};
+
+/**
+ * Draw n questions from a pool, shuffle them.
+ */
+function shuffleAndPick<T>(arr: T[], n: number): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, n);
+}
+
+/**
+ * Build a randomised set of fallback questions (2 per category = 6 total).
+ * Returns them without correctOption so they are safe to expose to candidates.
+ */
+function buildFallbackQuestions(withIds: boolean): any[] {
+  const intQ = shuffleAndPick(FALLBACK_MCQ_BANK.INTELLIGENCE, 2);
+  const intgQ = shuffleAndPick(FALLBACK_MCQ_BANK.INTEGRITY, 2);
+  const enQ = shuffleAndPick(FALLBACK_MCQ_BANK.ENERGY, 2);
+  const all = shuffleAndPick([...intQ, ...intgQ, ...enQ], 6); // also shuffle order between categories
+
+  return all.map((q, i) => ({
+    ...(withIds ? { id: `fallback-${i}` } : {}),
+    questionText: q.questionText,
+    optionA: q.optionA,
+    optionB: q.optionB,
+    optionC: q.optionC,
+    optionD: q.optionD,
+    correctOption: q.correctOption,
+    category: Object.keys(FALLBACK_MCQ_BANK).find(cat =>
+      (FALLBACK_MCQ_BANK as any)[cat].some((bq: any) => bq.questionText === q.questionText)
+    ) as 'INTELLIGENCE' | 'INTEGRITY' | 'ENERGY',
+  }));
+}
+
+// ─── ATS Scoring Engine ─────────────────────────────────────────────────────
+interface AtsResult {
+  atsScore: number;
+  breakdown: {
+    sections: number;    // /25 — standard resume sections detected
+    keywords: number;    // /35 — JD keyword density
+    contact: number;     // /15 — email + phone present
+    quantification: number; // /15 — numbers/percentages indicate achievements
+    parseQuality: number;   // /10 — was text extractable?
+  };
+  sectionsFound: string[];
+  sectionsMissing: string[];
+}
+
+function computeAtsScore(
+  resumeText: string,
+  jdKeywords: string[],
+  resumeMatchScore: number | null,
+): AtsResult {
+  const text = resumeText.toLowerCase();
+  const lines = resumeText.split('\n');
+
+  // ── Section detection ────────────────────────────────────────────────────
+  const SECTION_PATTERNS: Record<string, RegExp> = {
+    'Experience': /\b(experience|work history|employment|professional background|career)\b/i,
+    'Education': /\b(education|qualification|degree|university|college|academic)\b/i,
+    'Skills': /\b(skills|technical skills|competencies|expertise|technologies|proficiencies)\b/i,
+    'Summary / Objective': /\b(summary|objective|profile|about me|overview|career goal)\b/i,
+    'Certifications': /\b(certification|certificate|certified|credential|license|accreditation)\b/i,
+  };
+
+  const sectionsFound: string[] = [];
+  const sectionsMissing: string[] = [];
+  for (const [label, pattern] of Object.entries(SECTION_PATTERNS)) {
+    if (pattern.test(resumeText)) sectionsFound.push(label);
+    else sectionsMissing.push(label);
+  }
+  const sectionScore = Math.round((sectionsFound.length / 5) * 25);
+
+  // ── Keyword density ──────────────────────────────────────────────────────
+  // Use the pre-computed resumeMatchScore if available; else compute here
+  const keywordScore = resumeMatchScore !== null
+    ? Math.round((resumeMatchScore / 100) * 35)
+    : 0;
+
+  // ── Contact info ─────────────────────────────────────────────────────────
+  const hasEmail = /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/i.test(resumeText);
+  const hasPhone = /(\+91[\s\-]?)?[6-9]\d{9}|(\+\d{1,3}[\s\-]?)?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{4}/.test(resumeText);
+  const contactScore = (hasEmail ? 7.5 : 0) + (hasPhone ? 7.5 : 0);
+
+  // ── Quantification ───────────────────────────────────────────────────────
+  // Look for numbers, %, INR, LPA, etc. — signs of achievement-oriented resume
+  const quantMatches = resumeText.match(/\d+[\s%]|\d+\s*(years?|months?|lpa|crore|lakh|%|percent|projects?|clients?|teams?)/gi) || [];
+  const quantScore = Math.min(15, quantMatches.length * 2);
+
+  // ── Parse quality ────────────────────────────────────────────────────────
+  // We only reach this function if resumeText is non-empty, so base score 5
+  // Give full 10 if text is rich (>500 chars), 5 if sparse
+  const parseScore = resumeText.length > 500 ? 10 : 5;
+
+  const totalAts = Math.min(100, Math.round(
+    sectionScore + keywordScore + contactScore + quantScore + parseScore
+  ));
+
+  return {
+    atsScore: totalAts,
+    breakdown: {
+      sections: sectionScore,
+      keywords: keywordScore,
+      contact: Math.round(contactScore),
+      quantification: Math.round(quantScore),
+      parseQuality: parseScore,
+    },
+    sectionsFound,
+    sectionsMissing,
+  };
+}
+
+// ─── Helper: resolve resume file from URL or local path ─────────────────────
+/**
+ * Resolves a resume URL/path to a Buffer for processing.
+ * Handles:
+ *   - Local paths (uploads/resumes/...)  → read from disk
+ *   - Full http/https URLs (cloud/CDN)   → download to temp file
+ */
+async function resolveResumeBuffer(resumeUrl: string): Promise<{ buffer: Buffer; tempPath?: string } | null> {
+  if (resumeUrl.startsWith('http://') || resumeUrl.startsWith('https://')) {
+    // Cloud URL — download to temp
+    try {
+      const res = await fetch(resumeUrl, { signal: AbortSignal.timeout(20000) });
+      if (!res.ok) return null;
+      const arrayBuf = await res.arrayBuffer();
+      const buffer = Buffer.from(arrayBuf);
+      const tempPath = path.join(os.tmpdir(), `resume_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.pdf`);
+      fs.writeFileSync(tempPath, buffer);
+      return { buffer, tempPath };
+    } catch (err) {
+      logger.warn('[ResumeParser] Failed to download cloud resume URL:', err);
+      return null;
+    }
+  }
+
+  // Local path
+  const filePath = path.join(process.cwd(), resumeUrl.startsWith('/') ? resumeUrl.slice(1) : resumeUrl);
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const buffer = fs.readFileSync(filePath);
+    return { buffer };
+  } catch {
+    return null;
+  }
+}
 
 export class PublicApplyService {
   /**
    * Get job details + MCQ questions for the public form.
-   * If no AI-generated questions exist, returns hardcoded fallback questions.
+   * If no AI-generated questions exist, returns randomised fallback questions.
    */
   async getJobForm(publicFormToken: string) {
     const job = await prisma.jobOpening.findUnique({
@@ -99,19 +412,11 @@ export class PublicApplyService {
 
     if (!job || !job.publicFormEnabled) throw new NotFoundError('Job not found or form disabled');
 
-    // If no AI-generated questions exist, return fallback questions with generated IDs
-    // IMPORTANT: Strip correctOption so candidates can't see answers in DevTools
-    let questions: Array<{ id: string; questionText: string; optionA: string; optionB: string; optionC: string; optionD: string; category: string }> = job.questions;
+    // Strip correctOption so candidates cannot see answers in DevTools
+    let questions: any[] = job.questions;
     if (questions.length === 0) {
-      questions = FALLBACK_MCQ_QUESTIONS.map((q, i) => ({
-        id: `fallback-${i}`,
-        questionText: q.questionText,
-        optionA: q.optionA,
-        optionB: q.optionB,
-        optionC: q.optionC,
-        optionD: q.optionD,
-        category: q.category,
-      }));
+      const fallbacks = buildFallbackQuestions(true);
+      questions = fallbacks.map(({ correctOption: _co, ...rest }) => rest); // strip answers
     }
 
     return {
@@ -151,15 +456,15 @@ export class PublicApplyService {
 
     if (!job || !job.publicFormEnabled) throw new NotFoundError('Job not found');
 
-    // Determine the questions to score against — DB questions or fallbacks
-    const questionsToScore = job.questions.length > 0
-      ? job.questions
-      : FALLBACK_MCQ_QUESTIONS.map((q, i) => ({ id: `fallback-${i}`, ...q }));
+    // Determine the questions to score against — DB questions or randomised fallbacks
+    const usingFallback = job.questions.length === 0;
+    const questionsToScore = usingFallback
+      ? buildFallbackQuestions(true)
+      : job.questions;
 
     const hasQuestions = questionsToScore.length > 0;
     const hasAnswers = data.mcqAnswers && data.mcqAnswers.length > 0;
 
-    // Score MCQ answers: 0 if no answers provided, null only if scoring is not applicable
     let mcqScore: number | null = hasAnswers ? null : 0;
     let intelligenceScore: number | null = null;
     let integrityScore: number | null = null;
@@ -191,20 +496,38 @@ export class PublicApplyService {
 
     const uid = generateUid();
 
-    // Analyze resume against job description (best-effort, non-blocking)
+    // Analyse resume against job description (best-effort, non-blocking)
     let resumeMatchScore: number | null = null;
     let resumeScoreData: any = null;
+    let resumeText: string | null = null;
+    let matchedKeywords: string[] = [];
+    let missingKeywords: string[] = [];
+    let atsScore: number | null = null;
+    let atsScoreData: any = null;
+
     if (data.resumeUrl && job.description) {
       try {
-        const result = await this.analyzeResumeMatch(data.resumeUrl, job.description, job.title, job.requirements, job.organizationId);
+        const result = await this.analyzeResumeMatch(
+          data.resumeUrl, job.description, job.title, job.requirements, job.organizationId
+        );
         resumeMatchScore = result.matchScore;
         resumeScoreData = result;
+        resumeText = result.resumeText || null;
+        matchedKeywords = result.matchedKeywords || [];
+        missingKeywords = result.missingKeywords || [];
+
+        if (resumeText) {
+          const jdKeywords = this.extractJdKeywords(job.title, job.description, job.requirements);
+          const atsResult = computeAtsScore(resumeText, jdKeywords, resumeMatchScore);
+          atsScore = atsResult.atsScore;
+          atsScoreData = atsResult;
+        }
       } catch (err) {
         logger.warn('Resume analysis failed (non-blocking):', err);
       }
     }
 
-    // Calculate total AI score — weighted average of available scores
+    // Total AI score — weighted: resume 50%, MCQ 50%
     let totalAiScore: number | null = null;
     const scoreComponents: number[] = [];
     if (mcqScore !== null) scoreComponents.push(mcqScore);
@@ -231,18 +554,24 @@ export class PublicApplyService {
         resumeUrl: data.resumeUrl || null,
         resumeScoreData,
         resumeMatchScore,
+        resumeText,
+        matchedKeywords,
+        missingKeywords,
+        atsScore,
+        atsScoreData,
         mcqAnswers: data.mcqAnswers,
         mcqScore,
         intelligenceScore,
         integrityScore,
         energyScore,
         totalAiScore,
+        usedFallbackQuestions: usingFallback,
         candidateUid: uid,
         organizationId: job.organizationId,
       },
     });
 
-    // Send WhatsApp confirmation to candidate (best-effort, non-blocking)
+    // WhatsApp confirmation (best-effort)
     if (data.mobileNumber) {
       try {
         const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
@@ -260,91 +589,115 @@ export class PublicApplyService {
     };
   }
 
+  // ─── Keyword extractor (shared) ─────────────────────────────────────────
+  private extractJdKeywords(jobTitle: string, jobDescription: string, requirements: string[]): string[] {
+    const STOP = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'have', 'from', 'will', 'been',
+      'they', 'their', 'about', 'would', 'which', 'should', 'could', 'other', 'more', 'also', 'into',
+      'over', 'such', 'than', 'only', 'when', 'then', 'some', 'each', 'what', 'your', 'year']);
+    const extract = (text: string) =>
+      text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3 && !STOP.has(w));
+    const raw = [
+      ...extract(jobTitle),
+      ...requirements.flatMap(r => extract(r)),
+      ...extract(jobDescription).slice(0, 60),
+    ];
+    return [...new Set(raw)];
+  }
+
   /**
-   * Analyze resume match against job description using AI or lightweight text matching.
-   * Uses AI prompt if configured, otherwise falls back to keyword matching.
+   * Full resume analysis pipeline:
+   *   1. Resolve file (local path OR cloud URL download)
+   *   2. pdf-parse for text extraction
+   *   3. AI OCR fallback for image-based PDFs
+   *   4. AI deep scoring with JD (if AI configured)
+   *   5. Keyword matching fallback (raw — no inflation)
    */
-  /**
-   * Extract text from a PDF resume using pdf-parse, then score it against the JD.
-   * Strategy:
-   *   1. pdf-parse extracts clean text from the uploaded PDF
-   *   2. If AI is configured → send resume text + JD to AI for deep scoring (0-100)
-   *   3. If AI unavailable → keyword-matching fallback (job title + requirements + description keywords)
-   */
-  private async analyzeResumeMatch(
+  async analyzeResumeMatch(
     resumeUrl: string,
     jobDescription: string,
     jobTitle: string,
     requirements: string[],
     organizationId: string
-  ): Promise<{ matchScore: number | null; strengths: string[]; gaps: string[]; summary: string; parseMethod?: string }> {
-    // ── Step 1: Extract text from PDF — try pdf-parse first, then AI OCR service ──
+  ): Promise<{
+    matchScore: number | null;
+    strengths: string[];
+    gaps: string[];
+    summary: string;
+    parseMethod?: string;
+    resumeText?: string;
+    matchedKeywords: string[];
+    missingKeywords: string[];
+  }> {
+    // ── Step 1: Get buffer (local or cloud) ──────────────────────────────────
+    const resolved = await resolveResumeBuffer(resumeUrl);
+    let tempPath: string | undefined;
+
+    if (!resolved) {
+      return {
+        matchScore: null, strengths: [], gaps: ['Resume file could not be found or downloaded'],
+        summary: 'File not accessible. Please re-upload the resume.',
+        parseMethod: 'none', matchedKeywords: [], missingKeywords: [],
+      };
+    }
+
+    const { buffer } = resolved;
+    tempPath = resolved.tempPath;
+
+    // ── Step 2: pdf-parse ────────────────────────────────────────────────────
     let resumeText = '';
     let parseMethod = 'pdf-parse';
 
     try {
-      const filePath = path.join(process.cwd(), resumeUrl.startsWith('/') ? resumeUrl.slice(1) : resumeUrl);
-      if (!fs.existsSync(filePath)) {
-        // BUG-3 FIX: return null score (not 0) so failure doesn't penalise candidate
-        return { matchScore: null, strengths: [], gaps: ['Resume file not found on server'], summary: 'File missing — upload a valid PDF.', parseMethod: 'none' };
-      }
+      const pdfData = await pdfParse(buffer);
+      resumeText = (pdfData.text || '').replace(/\s+/g, ' ').trim().slice(0, 8000);
+      logger.info(`[ResumeParser] pdf-parse: ${resumeText.length} chars`);
+    } catch {
+      resumeText = '';
+    }
 
-      const dataBuffer = fs.readFileSync(filePath);
-
-      // Try pdf-parse for text-based PDFs
+    // ── Step 3: AI OCR fallback for image-based PDFs ─────────────────────────
+    if (resumeText.length < 50) {
       try {
-        const pdfData = await pdfParse(dataBuffer);
-        resumeText = (pdfData.text || '').replace(/\s+/g, ' ').trim().slice(0, 6000);
-        logger.info(`[ResumeParser] pdf-parse: extracted ${resumeText.length} chars from ${path.basename(filePath)} (${pdfData.numpages} pages)`);
-      } catch {
-        resumeText = '';
-      }
-
-      // If pdf-parse returned too little text (image-based PDF), try AI OCR service
-      if (resumeText.length < 50) {
-        try {
-          const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-          const base64 = dataBuffer.toString('base64');
+        const aiServiceUrl = process.env.AI_SERVICE_URL;
+        const aiApiKey = process.env.AI_SERVICE_API_KEY;
+        if (aiServiceUrl && aiApiKey) {
+          const base64 = buffer.toString('base64');
           const ocrRes = await fetch(`${aiServiceUrl}/ai/ocr/extract-text`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-API-Key': process.env.AI_SERVICE_API_KEY || 'dev-ai-key' },
+            headers: { 'Content-Type': 'application/json', 'X-API-Key': aiApiKey },
             body: JSON.stringify({ file_base64: base64, file_type: 'pdf' }),
             signal: AbortSignal.timeout(15000),
           });
           if (ocrRes.ok) {
             const ocrJson = await ocrRes.json();
-            resumeText = (ocrJson.text || '').replace(/\s+/g, ' ').trim().slice(0, 6000);
+            resumeText = (ocrJson.text || '').replace(/\s+/g, ' ').trim().slice(0, 8000);
             parseMethod = 'ai-ocr';
-            logger.info(`[ResumeParser] AI OCR: extracted ${resumeText.length} chars`);
+            logger.info(`[ResumeParser] AI OCR: ${resumeText.length} chars`);
           }
-        } catch (ocrErr) {
-          logger.warn('[ResumeParser] AI OCR fallback also failed:', ocrErr);
         }
+      } catch (ocrErr) {
+        logger.warn('[ResumeParser] AI OCR fallback failed:', ocrErr);
       }
-    } catch (err) {
-      logger.warn('[ResumeParser] File read failed:', err);
-      return {
-        matchScore: null,
-        strengths: [],
-        gaps: ['Could not read the resume file — it may be corrupted'],
-        summary: 'File read error. Please re-upload the resume.',
-        parseMethod: 'none',
-      };
     }
+
+    // Cleanup temp file
+    if (tempPath) { try { fs.unlinkSync(tempPath); } catch { /* ignore */ } }
 
     if (!resumeText || resumeText.length < 30) {
       return {
-        matchScore: null,
-        strengths: [],
-        gaps: ['Resume appears to be image-based with no extractable text', 'Ask the candidate to upload a text-based PDF'],
-        summary: 'No readable text found. File may be a scanned image. Consider requesting a text-based PDF.',
-        parseMethod: 'none',
+        matchScore: null, strengths: [],
+        gaps: ['Resume appears to be image-based — no extractable text', 'Ask the candidate to upload a text-based PDF'],
+        summary: 'No readable text found. File may be a scanned image.',
+        parseMethod: 'none', resumeText: undefined, matchedKeywords: [], missingKeywords: [],
       };
     }
 
-    // ── Step 2: Try AI-powered deep analysis ──
+    // ── Build JD keyword set ────────────────────────────────────────────────
+    const jdKeywords = this.extractJdKeywords(jobTitle, jobDescription, requirements);
+
+    // ── Step 4: AI deep scoring ──────────────────────────────────────────────
     try {
-      const systemPrompt = `You are an expert HR resume screener at an Indian technology company. Analyze this resume against the job description and score the match from 0 to 100.
+      const systemPrompt = `You are an expert HR resume screener at an Indian technology company. Analyse this resume against the job description and score the match from 0 to 100.
 
 Consider:
 - Relevant skills and technologies mentioned
@@ -353,8 +706,8 @@ Consider:
 - Domain/industry match
 - Location and availability
 
-Return ONLY valid JSON:
-{"matchScore":75,"strengths":["Relevant skill 1","Good experience"],"gaps":["Missing certification","Less experience than required"],"summary":"One-line overall assessment"}`;
+Return ONLY valid JSON (no prose):
+{"matchScore":75,"strengths":["Relevant skill 1","Good experience"],"gaps":["Missing certification","Less experience than required"],"summary":"One-line overall assessment","matchedKeywords":["react","javascript"],"missingKeywords":["kubernetes","aws"]}`;
 
       const userPrompt = `JOB TITLE: ${jobTitle}
 
@@ -364,82 +717,198 @@ ${jobDescription.slice(0, 1000)}
 REQUIREMENTS:
 ${requirements.length > 0 ? requirements.join('\n- ') : 'Not specified'}
 
-CANDIDATE RESUME TEXT:
-${resumeText.slice(0, 3000)}`;
+JD KEYWORDS TO CHECK: ${jdKeywords.slice(0, 30).join(', ')}
 
-      const result = await aiService.prompt(organizationId, systemPrompt, userPrompt, 1024);
+CANDIDATE RESUME TEXT:
+${resumeText.slice(0, 4000)}`;
+
+      const result = await aiService.prompt(organizationId, systemPrompt, userPrompt, 1200);
       if (result.success && result.data) {
         const jsonMatch = result.data.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
           return {
             matchScore: Math.min(100, Math.max(0, Math.round(Number(parsed.matchScore) || 50))),
-            strengths: Array.isArray(parsed.strengths) ? parsed.strengths.slice(0, 5) : [],
-            gaps: Array.isArray(parsed.gaps) ? parsed.gaps.slice(0, 5) : [],
-            summary: String(parsed.summary || '').slice(0, 300),
+            strengths: Array.isArray(parsed.strengths) ? parsed.strengths.slice(0, 6) : [],
+            gaps: Array.isArray(parsed.gaps) ? parsed.gaps.slice(0, 6) : [],
+            summary: String(parsed.summary || '').slice(0, 400),
+            parseMethod,
+            resumeText,
+            matchedKeywords: Array.isArray(parsed.matchedKeywords) ? parsed.matchedKeywords : [],
+            missingKeywords: Array.isArray(parsed.missingKeywords) ? parsed.missingKeywords : [],
           };
         }
       }
     } catch (err) {
-      logger.warn('[ResumeParser] AI analysis failed, falling back to keyword matching:', err);
+      logger.warn('[ResumeParser] AI analysis failed, using keyword fallback:', err);
     }
 
-    // ── Step 3: Fallback — keyword matching against JD ──
+    // ── Step 5: Keyword matching fallback (no inflation) ─────────────────────
     const resumeLower = resumeText.toLowerCase();
-
-    // Build keyword set from job title, requirements, and description
-    const stopWords = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'have', 'from', 'will', 'been', 'they', 'their', 'about', 'would', 'which', 'should', 'could', 'other', 'more', 'also', 'into', 'over', 'such', 'than', 'only']);
-
-    const extractKeywords = (text: string): string[] =>
-      text.toLowerCase()
-        .replace(/[^a-z0-9\s]/g, ' ')
-        .split(/\s+/)
-        .filter(w => w.length > 3 && !stopWords.has(w));
-
-    const jdKeywords = [
-      ...extractKeywords(jobTitle),
-      ...requirements.flatMap(r => extractKeywords(r)),
-      ...extractKeywords(jobDescription).slice(0, 40),
-    ];
-    const uniqueKeywords = [...new Set(jdKeywords)];
-
-    if (uniqueKeywords.length === 0) {
-      return { matchScore: 50, strengths: [], gaps: [], summary: 'Not enough job description keywords to analyze.' };
+    if (jdKeywords.length === 0) {
+      return {
+        matchScore: 50, strengths: [], gaps: [], summary: 'Not enough JD keywords to analyse.',
+        parseMethod, resumeText, matchedKeywords: [], missingKeywords: [],
+      };
     }
 
-    let matchedCount = 0;
     const matched: string[] = [];
     const missed: string[] = [];
-
-    for (const kw of uniqueKeywords) {
-      if (resumeLower.includes(kw)) {
-        matchedCount++;
-        if (matched.length < 8) matched.push(kw);
-      } else {
-        if (missed.length < 8) missed.push(kw);
-      }
+    for (const kw of jdKeywords) {
+      if (resumeLower.includes(kw)) matched.push(kw);
+      else missed.push(kw);
     }
 
-    const rawScore = (matchedCount / uniqueKeywords.length) * 100;
-    // Normalize: a 50%+ keyword match is quite strong, scale it
-    const matchScore = Math.min(100, Math.max(0, Math.round(rawScore * 1.2)));
+    // Raw score: proportion of JD keywords found. No artificial inflation.
+    const rawScore = (matched.length / jdKeywords.length) * 100;
+    const matchScore = Math.min(100, Math.max(0, Math.round(rawScore)));
 
     return {
       matchScore,
-      strengths: matched.map(k => `Resume mentions: "${k}"`),
-      gaps: missed.map(k => `JD expects: "${k}" — not found in resume`),
-      summary: `Keyword analysis: ${matchedCount} of ${uniqueKeywords.length} job keywords found in resume (${Math.round(rawScore)}% raw match).`,
+      strengths: matched.slice(0, 8).map(k => `"${k}" found in resume`),
+      gaps: missed.slice(0, 8).map(k => `"${k}" expected by JD — not found`),
+      summary: `Keyword analysis: ${matched.length}/${jdKeywords.length} JD keywords matched (${matchScore}%).`,
+      parseMethod,
+      resumeText,
+      matchedKeywords: matched,
+      missingKeywords: missed,
+    };
+  }
+
+  /**
+   * Score a standalone resume buffer (used by bulk upload).
+   */
+  async scoreResumeBuffer(
+    buffer: Buffer,
+    fileName: string,
+    jobDescription: string,
+    jobTitle: string,
+    requirements: string[],
+    organizationId: string
+  ): Promise<{
+    matchScore: number | null;
+    atsScore: number | null;
+    atsScoreData: any;
+    strengths: string[];
+    gaps: string[];
+    summary: string;
+    matchedKeywords: string[];
+    missingKeywords: string[];
+    resumeText: string;
+    parseMethod: string;
+    candidateName?: string;
+    email?: string;
+    phone?: string;
+  }> {
+    let resumeText = '';
+    let parseMethod = 'pdf-parse';
+
+    try {
+      const pdfData = await pdfParse(buffer);
+      resumeText = (pdfData.text || '').replace(/\s+/g, ' ').trim().slice(0, 8000);
+    } catch { resumeText = ''; }
+
+    if (resumeText.length < 50) {
+      try {
+        const aiServiceUrl = process.env.AI_SERVICE_URL;
+        const aiApiKey = process.env.AI_SERVICE_API_KEY;
+        if (aiServiceUrl && aiApiKey) {
+          const base64 = buffer.toString('base64');
+          const ocrRes = await fetch(`${aiServiceUrl}/ai/ocr/extract-text`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-API-Key': aiApiKey },
+            body: JSON.stringify({ file_base64: base64, file_type: 'pdf' }),
+            signal: AbortSignal.timeout(15000),
+          });
+          if (ocrRes.ok) {
+            const json = await ocrRes.json();
+            resumeText = (json.text || '').replace(/\s+/g, ' ').trim().slice(0, 8000);
+            parseMethod = 'ai-ocr';
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    if (!resumeText || resumeText.length < 30) {
+      return {
+        matchScore: null, atsScore: null, atsScoreData: null,
+        strengths: [], gaps: ['No readable text — may be a scanned image'],
+        summary: 'Unable to extract text from this resume.',
+        matchedKeywords: [], missingKeywords: [], resumeText: '', parseMethod: 'none',
+      };
+    }
+
+    const jdKeywords = this.extractJdKeywords(jobTitle, jobDescription, requirements);
+
+    // Extract basic contact info via regex
+    const emailMatch = resumeText.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+    const phoneMatch = resumeText.match(/(\+91[\s\-]?)?[6-9]\d{9}|(\+\d{1,3}[\s\-]?)?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{4}/);
+    const email = emailMatch ? emailMatch[0] : undefined;
+    const phone = phoneMatch ? phoneMatch[0] : undefined;
+
+    // Rough name heuristic: first non-empty line that looks like a name
+    const firstLine = resumeText.split('\n').map(l => l.trim()).find(l => l.length > 2 && l.length < 50 && /^[A-Z]/.test(l));
+    const candidateName = firstLine;
+
+    // Try AI scoring
+    let matchScore: number | null = null;
+    let strengths: string[] = [];
+    let gaps: string[] = [];
+    let summary = '';
+    let matchedKeywords: string[] = [];
+    let missingKeywords: string[] = [];
+
+    try {
+      const systemPrompt = `You are an expert HR resume screener. Score this resume against the job description 0-100. Return ONLY JSON:
+{"matchScore":75,"strengths":["skill1"],"gaps":["missing1"],"summary":"brief assessment","matchedKeywords":["react"],"missingKeywords":["aws"]}`;
+      const userPrompt = `JOB TITLE: ${jobTitle}\nJD: ${jobDescription.slice(0, 800)}\nREQUIREMENTS: ${requirements.join(', ')}\nKEYWORDS: ${jdKeywords.slice(0, 25).join(', ')}\nRESUME:\n${resumeText.slice(0, 3500)}`;
+      const result = await aiService.prompt(organizationId, systemPrompt, userPrompt, 1000);
+      if (result.success && result.data) {
+        const jsonMatch = result.data.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          matchScore = Math.min(100, Math.max(0, Math.round(Number(parsed.matchScore) || 0)));
+          strengths = Array.isArray(parsed.strengths) ? parsed.strengths.slice(0, 6) : [];
+          gaps = Array.isArray(parsed.gaps) ? parsed.gaps.slice(0, 6) : [];
+          summary = String(parsed.summary || '').slice(0, 400);
+          matchedKeywords = Array.isArray(parsed.matchedKeywords) ? parsed.matchedKeywords : [];
+          missingKeywords = Array.isArray(parsed.missingKeywords) ? parsed.missingKeywords : [];
+        }
+      }
+    } catch { /* fall through to keyword match */ }
+
+    if (matchScore === null) {
+      const resumeLower = resumeText.toLowerCase();
+      const matched: string[] = [];
+      const missed: string[] = [];
+      for (const kw of jdKeywords) {
+        if (resumeLower.includes(kw)) matched.push(kw);
+        else missed.push(kw);
+      }
+      matchScore = jdKeywords.length > 0 ? Math.round((matched.length / jdKeywords.length) * 100) : 0;
+      matchedKeywords = matched;
+      missingKeywords = missed;
+      strengths = matched.slice(0, 6).map(k => `"${k}" found in resume`);
+      gaps = missed.slice(0, 6).map(k => `"${k}" expected — not found`);
+      summary = `Keyword match: ${matched.length}/${jdKeywords.length} keywords (${matchScore}%)`;
+    }
+
+    const atsResult = computeAtsScore(resumeText, jdKeywords, matchScore);
+
+    return {
+      matchScore, atsScore: atsResult.atsScore, atsScoreData: atsResult,
+      strengths, gaps, summary,
+      matchedKeywords, missingKeywords, resumeText,
+      parseMethod, candidateName, email, phone,
     };
   }
 
   /**
    * Generate MCQ screening questions for a job.
-   * Falls back to hardcoded questions if AI is unavailable.
+   * Falls back to randomised questions from the expanded bank if AI is unavailable.
    */
   async generateQuestions(jobId: string, organizationId: string) {
-    const job = await prisma.jobOpening.findFirst({
-      where: { id: jobId, organizationId },
-    });
+    const job = await prisma.jobOpening.findFirst({ where: { id: jobId, organizationId } });
     if (!job) throw new NotFoundError('Job not found');
 
     const systemPrompt = `You are an expert HR recruiter. Generate exactly 6 multiple-choice screening questions for a job candidate. The questions should NOT be directly about the job role but should assess the candidate's:
@@ -456,32 +925,26 @@ Return ONLY a JSON array:
 
     const result = await aiService.prompt(organizationId, systemPrompt, userPrompt, 2048);
 
-    if (!result.success) {
-      throw new BadRequestError('Failed to generate questions: ' + (result.error || 'AI provider error'));
-    }
-
     let questions: any[] = [];
+    let usedFallback = false;
 
-    if (result.data) {
+    if (result.success && result.data) {
       try {
         const jsonMatch = result.data.match(/\[[\s\S]*\]/);
         questions = JSON.parse(jsonMatch?.[0] || '[]');
       } catch {
-        // Parse failed — will fall through to fallback
-        logger.warn('Failed to parse AI-generated MCQ questions, using fallback');
+        logger.warn('Failed to parse AI-generated MCQ questions, using randomised fallback');
       }
     }
 
-    // If AI returned nothing parseable, use fallback questions
     if (questions.length === 0) {
-      logger.info(`AI returned no parseable questions for job ${jobId}, using fallback MCQ questions`);
-      questions = FALLBACK_MCQ_QUESTIONS;
+      logger.info(`AI returned no parseable questions for job ${jobId}, using randomised fallback MCQ bank`);
+      questions = buildFallbackQuestions(false);
+      usedFallback = true;
     }
 
-    // Delete existing questions for this job
     await prisma.jobApplicationQuestion.deleteMany({ where: { jobOpeningId: jobId } });
 
-    // Build create operations for up to 6 questions
     const createOps = questions.slice(0, 6).map(q =>
       prisma.jobApplicationQuestion.create({
         data: {
@@ -493,13 +956,12 @@ Return ONLY a JSON array:
           optionD: q.optionD,
           correctOption: q.correctOption,
           category: q.category,
-          aiGenerated: !!(result.success && result.data && questions !== FALLBACK_MCQ_QUESTIONS),
+          aiGenerated: !usedFallback,
         },
       })
     );
 
     const created = await prisma.$transaction(createOps);
-
     return created;
   }
 
@@ -527,7 +989,6 @@ Return ONLY a JSON array:
     if (!app) throw new NotFoundError('Application not found');
 
     const nextInterview = app.interviewRounds?.[0];
-
     return {
       uid: app.uid,
       name: app.candidateName,
@@ -548,9 +1009,7 @@ Return ONLY a JSON array:
 
     const [applications, total] = await Promise.all([
       prisma.publicApplication.findMany({
-        where,
-        skip,
-        take: limit,
+        where, skip, take: limit,
         orderBy: { createdAt: 'desc' },
         include: { jobOpening: { select: { title: true } } },
       }),
@@ -562,20 +1021,19 @@ Return ONLY a JSON array:
       meta: { page, limit, total, totalPages: Math.ceil(total / limit), hasNext: page * limit < total, hasPrev: page > 1 },
     };
   }
+
   /**
-   * Create an interview round and assign to an interviewer (Phase 7).
+   * Create an interview round.
    */
   async createRound(applicationId: string, data: {
     roundType: 'HR' | 'MANAGER' | 'SUPERADMIN';
     conductedBy: string;
     scheduledAt?: string;
   }, organizationId: string) {
-    const app = await prisma.publicApplication.findFirst({
-      where: { id: applicationId, organizationId },
-    });
+    const app = await prisma.publicApplication.findFirst({ where: { id: applicationId, organizationId } });
     if (!app) throw new NotFoundError('Application not found');
 
-    const round = await prisma.interviewRound.create({
+    return prisma.interviewRound.create({
       data: {
         applicationId,
         roundType: data.roundType,
@@ -585,13 +1043,10 @@ Return ONLY a JSON array:
         organizationId,
       },
     });
-
-    return round;
   }
 
   /**
-   * Schedule an interview for a candidate (Phase 6).
-   * Creates round, updates status, and sends WhatsApp/email notifications.
+   * Schedule an interview for a candidate.
    */
   async scheduleInterview(applicationId: string, data: {
     interviewerId?: string;
@@ -619,13 +1074,11 @@ Return ONLY a JSON array:
       },
     });
 
-    // Update application status
     await prisma.publicApplication.update({
       where: { id: applicationId },
       data: { status: 'INTERVIEW_SCHEDULED' },
     });
 
-    // Generate messages using AI preview
     const org = await prisma.organization.findUnique({ where: { id: organizationId } });
     const preview = await this.previewScheduleMessage(organizationId, {
       scheduledAt: data.scheduledAt,
@@ -638,7 +1091,6 @@ Return ONLY a JSON array:
 
     const messageType = data.messageType || 'both';
 
-    // Send email notification
     if ((messageType === 'email' || messageType === 'both') && app.email) {
       try {
         const { enqueueEmail } = await import('../../jobs/queues.js');
@@ -656,7 +1108,6 @@ Return ONLY a JSON array:
       }
     }
 
-    // Send WhatsApp notification
     if ((messageType === 'whatsapp' || messageType === 'both') && app.mobileNumber) {
       try {
         const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
@@ -672,18 +1123,11 @@ Return ONLY a JSON array:
     return { round, preview };
   }
 
-  /**
-   * AI-generate interview scheduling message preview (Phase 6).
-   */
   async previewScheduleMessage(organizationId: string, data: {
-    scheduledAt: string;
-    location: string;
-    interviewerName: string;
-    jobTitle: string;
-    companyName: string;
-    candidateName: string;
+    scheduledAt: string; location: string; interviewerName: string;
+    jobTitle: string; companyName: string; candidateName: string;
   }) {
-    const systemPrompt = `You are an HR assistant. Generate a professional WhatsApp message and email for scheduling an interview. Be friendly but professional. Include all details provided.`;
+    const systemPrompt = `You are an HR assistant. Generate a professional WhatsApp message and email for scheduling an interview. Be friendly but professional.`;
     const userPrompt = `Generate a WhatsApp message and email for this interview:
 - Candidate: ${data.candidateName}
 - Position: ${data.jobTitle}
@@ -702,7 +1146,6 @@ Return JSON: {"whatsappDraft":"...","emailSubject":"...","emailBody":"..."}`;
         emailBody: `Dear ${data.candidateName},\n\nYour interview is scheduled.\n\nDate: ${new Date(data.scheduledAt).toLocaleString('en-IN')}\nLocation: ${data.location}\nInterviewer: ${data.interviewerName}\n\nBest regards,\nHR Team`,
       };
     }
-
     try {
       const jsonMatch = result.data!.match(/\{[\s\S]*\}/);
       return JSON.parse(jsonMatch?.[0] || '{}');
@@ -711,9 +1154,6 @@ Return JSON: {"whatsappDraft":"...","emailSubject":"...","emailBody":"..."}`;
     }
   }
 
-  /**
-   * Generate interview questions for a round (Phase 7).
-   */
   async generateInterviewQuestions(roundId: string, organizationId: string) {
     const round = await prisma.interviewRound.findUnique({
       where: { id: roundId },
@@ -749,62 +1189,37 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
     return questions;
   }
 
-  /**
-   * Score an interview round (Phase 7).
-   * HR/Admin can score any round in their org; interviewers can only score their own.
-   */
   async scoreRound(roundId: string, score: number, feedback: string, userId: string, organizationId: string) {
     if (score < 0 || score > 100) throw new BadRequestError('Score must be between 0 and 100');
-
     const round = await prisma.interviewRound.findUnique({ where: { id: roundId } });
     if (!round) throw new NotFoundError('Round not found');
     if (round.organizationId !== organizationId) throw new NotFoundError('Round not found');
-
     return prisma.interviewRound.update({
       where: { id: roundId },
       data: { score, feedback, status: 'COMPLETED_ROUND', completedAt: new Date() },
     });
   }
 
-  /**
-   * Get interview tasks for the current user (Phase 7).
-   * Managers see only rounds assigned to them.
-   * HR/Admin see all rounds in their org.
-   */
   async getInterviewTasks(userId: string, userRole: string, organizationId: string) {
     const isHrAdmin = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(userRole);
-
     const where: any = { organizationId };
-    if (!isHrAdmin) {
-      where.conductedBy = userId;
-    }
+    if (!isHrAdmin) where.conductedBy = userId;
 
-    const rounds = await prisma.interviewRound.findMany({
+    return prisma.interviewRound.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       include: {
         application: {
           select: {
-            id: true,
-            candidateName: true,
-            email: true,
-            mobileNumber: true,
-            candidateUid: true,
-            totalAiScore: true,
-            mcqScore: true,
-            status: true,
+            id: true, candidateName: true, email: true, mobileNumber: true,
+            candidateUid: true, totalAiScore: true, mcqScore: true, status: true,
             jobOpening: { select: { title: true, department: true } },
           },
         },
       },
     });
-
-    return rounds;
   }
 
-  /**
-   * Finalize a candidate — compute final score and update status (Phase 7).
-   */
   async finalizeCandidate(applicationId: string, finalStatus: 'SELECTED' | 'REJECTED' | 'ON_HOLD', userId: string, organizationId: string) {
     const app = await prisma.publicApplication.findFirst({
       where: { id: applicationId, organizationId },
@@ -812,31 +1227,17 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
     });
     if (!app) throw new NotFoundError('Application not found');
 
-    // Calculate final score — only include non-null scores
     const roundScores = app.interviewRounds.filter(r => r.score !== null).map(r => r.score!);
     const allScores: number[] = [];
     if (app.totalAiScore !== null) allScores.push(app.totalAiScore);
     allScores.push(...roundScores);
-    const finalScore = allScores.length > 0
-      ? allScores.reduce((a, b) => a + b, 0) / allScores.length
-      : 0;
+    const finalScore = allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 0;
 
     const updated = await prisma.publicApplication.update({
       where: { id: applicationId },
-      data: {
-        finalScore,
-        finalStatus,
-        finalizedAt: new Date(),
-        finalizedBy: userId,
-        status: finalStatus,
-      },
+      data: { finalScore, finalStatus, finalizedAt: new Date(), finalizedBy: userId, status: finalStatus },
     });
 
-    // On selection: send congratulations email only.
-    // No User/Employee is created here — HR sends a formal invitation via the
-    // invitation form (POST /api/invitations) which creates the EmployeeInvitation
-    // record. The User+Employee are only created when the candidate completes
-    // the onboarding wizard via the invite link.
     if (finalStatus === 'SELECTED' && app.email) {
       try {
         await enqueueEmail({
@@ -849,7 +1250,6 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
           },
         });
 
-        // Admin notification
         const org = await prisma.organization.findUnique({
           where: { id: organizationId },
           select: { adminNotificationEmail: true },
@@ -861,7 +1261,7 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
             template: 'generic',
             context: {
               title: 'Candidate Selected',
-              message: `Candidate <strong>${app.candidateName}</strong> has been selected for <strong>${app.jobOpening.title}</strong>.<br><br><strong>Email:</strong> ${app.email}<br><strong>Final Score:</strong> ${finalScore.toFixed(1)}%<br><br>A congratulations email has been sent to the candidate. Please send the onboarding invitation from the Hiring Passed tab.`,
+              message: `Candidate <strong>${app.candidateName}</strong> has been selected for <strong>${app.jobOpening.title}</strong>.<br><br><strong>Email:</strong> ${app.email}<br><strong>Final Score:</strong> ${finalScore.toFixed(1)}%<br><br>A congratulations email has been sent. Please send the onboarding invitation from the Hiring Passed tab.`,
             },
           });
         }
@@ -873,17 +1273,12 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
     return updated;
   }
 
-  /**
-   * Get application detail with rounds (Phase 7).
-   */
   async getApplicationDetail(applicationId: string, organizationId: string) {
     const app = await prisma.publicApplication.findFirst({
       where: { id: applicationId, organizationId },
       include: {
-        jobOpening: { select: { title: true, department: true, description: true } },
-        interviewRounds: {
-          orderBy: { createdAt: 'asc' },
-        },
+        jobOpening: { select: { title: true, department: true, description: true, requirements: true } },
+        interviewRounds: { orderBy: { createdAt: 'asc' } },
       },
     });
     if (!app) throw new NotFoundError('Application not found');

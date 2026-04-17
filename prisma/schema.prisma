@@ -28,6 +28,9 @@ model Organization {
   adminNotificationEmail String?
   payrollEmail           String?  // Accounts department email for payroll reports
   workingDays            String   @default("1,2,3,4,5,6") // Comma-separated day numbers: 0=Sun,1=Mon,...,6=Sat
+  // Payroll statutory defaults — used when per-employee config is null
+  defaultPTState         String    @default("MAHARASHTRA") // State code for Professional Tax slabs
+  defaultTaxRegime       TaxRegime @default(NEW_REGIME)    // Income tax regime default for new employees
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -203,6 +206,12 @@ model Employee {
   hybridSchedule         HybridSchedule?
   // Sunday / special-day work override
   allowSundayWork        Boolean               @default(false)  // Employee-level override for Sunday attendance
+
+  // Payroll statutory exemptions (per-employee overrides)
+  epfExempt              Boolean               @default(false) // Skip EPF deduction (e.g. interns, contract workers)
+  esiExempt              Boolean               @default(false) // Skip ESI deduction (permanent exemption)
+  ptExempt               Boolean               @default(false) // Skip Professional Tax (e.g. senior mgmt in exempt states)
+  incomeTaxRegimeChoice  TaxRegime?                            // Employee's chosen regime; overrides salary structure setting
 
   // Phase 2B
   isPhoneVerified        Boolean               @default(false)
@@ -1122,10 +1131,10 @@ model PayrollRecord {
   professionalTax Decimal? @db.Decimal(12, 2)
   tds            Decimal? @db.Decimal(12, 2)
   otherDeductions Json?
-  lopDays        Int      @default(0)
+  lopDays        Decimal  @default(0) @db.Decimal(6, 2) // stored as decimal to preserve half-day accuracy
   lopDeduction   Decimal? @db.Decimal(12, 2)
   workingDays    Int
-  presentDays    Int
+  presentDays    Decimal  @default(0) @db.Decimal(6, 2) // stored as decimal (half-days = 0.5)
   amendedBy      String?
   amendedAt      DateTime?
   amendmentReason String?
@@ -1372,24 +1381,36 @@ model BulkResumeUpload {
 
   jobOpening JobOpening       @relation(fields: [jobOpeningId], references: [id])
   items      BulkResumeItem[]
+
+  @@index([organizationId])
+  @@index([jobOpeningId])
 }
 
 model BulkResumeItem {
-  id             String           @id @default(uuid())
-  bulkUploadId   String
-  fileName       String
-  fileUrl        String
-  candidateName  String?
-  email          String?
-  phone          String?
-  aiScore        Decimal?         @db.Decimal(5, 2)
-  aiScoreDetails Json?
-  applicationId  String?
-  status         ResumeItemStatus @default(PENDING)
-  errorMessage   String?
-  createdAt      DateTime         @default(now())
+  id              String           @id @default(uuid())
+  bulkUploadId    String
+  organizationId  String
+  fileName        String
+  fileUrl         String
+  candidateName   String?
+  email           String?
+  phone           String?
+  aiScore         Decimal?         @db.Decimal(5, 2)
+  atsScore        Decimal?         @db.Decimal(5, 2)
+  aiScoreDetails  Json?            // strengths, gaps, summary, matchedKeywords, missingKeywords
+  resumeText      String?          // Extracted plaintext
+  matchedKeywords String[]
+  missingKeywords String[]
+  applicationId   String?
+  status          ResumeItemStatus @default(PENDING)
+  errorMessage    String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   bulkUpload BulkResumeUpload @relation(fields: [bulkUploadId], references: [id])
+
+  @@index([bulkUploadId])
+  @@index([organizationId])
 }
 
 // =====================
@@ -2340,25 +2361,31 @@ model PublicApplication {
   currentCTC        String?         // free-text e.g. "5 LPA"
   expectedCTC       String?
   noticePeriod      String?         // e.g. "Immediate", "15 days", "1 month", "2 months", "3 months"
-  resumeUrl         String?
-  resumeScoreData   Json?
-  resumeMatchScore  Float?          // 0-100 resume-to-JD match from OCR analysis
-  mcqAnswers        Json?           // [{questionId, selectedOption}]
-  mcqScore          Float?
-  intelligenceScore Float?
-  integrityScore    Float?
-  energyScore       Float?
-  totalAiScore      Float?
-  status            PublicAppStatus  @default(SUBMITTED)
-  candidateUid      String           @unique // for tracking
-  organizationId    String
-  finalScore        Float?
-  finalStatus       String?
-  finalizedAt       DateTime?
-  finalizedBy       String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  deletedAt         DateTime?
+  resumeUrl             String?
+  resumeScoreData       Json?
+  resumeMatchScore      Float?          // 0-100 resume-to-JD match from OCR analysis
+  resumeText            String?         // Extracted plaintext from resume (for HR view)
+  matchedKeywords       String[]        // JD keywords found in resume
+  missingKeywords       String[]        // JD keywords NOT found in resume
+  atsScore              Float?          // ATS compatibility score 0-100
+  atsScoreData          Json?           // ATS score breakdown (sections, density, contact, etc.)
+  mcqAnswers            Json?           // [{questionId, selectedOption}]
+  mcqScore              Float?
+  intelligenceScore     Float?
+  integrityScore        Float?
+  energyScore           Float?
+  totalAiScore          Float?
+  usedFallbackQuestions Boolean         @default(false) // true if AI MCQ gen failed, fallback used
+  status                PublicAppStatus  @default(SUBMITTED)
+  candidateUid          String           @unique // for tracking
+  organizationId        String
+  finalScore            Float?
+  finalStatus           String?
+  finalizedAt           DateTime?
+  finalizedBy           String?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  deletedAt             DateTime?
 
   jobOpening JobOpening @relation(fields: [jobOpeningId], references: [id])
   interviewRounds InterviewRound[]

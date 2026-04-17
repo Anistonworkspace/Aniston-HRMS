@@ -5,6 +5,9 @@ import { aiService } from '../../services/ai.service.js';
 import { logger } from '../../lib/logger.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import type { CreateJobInput, CreateApplicationInput, InterviewScoreInput, CreateOfferInput, JobQuery } from './recruitment.validation.js';
+import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
 
 export class RecruitmentService {
   // ==================
@@ -705,6 +708,219 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
     });
 
     return { sent: true, email };
+  }
+
+  // ==================
+  // BULK RESUME UPLOAD (B2)
+  // ==================
+
+  /**
+   * Upload multiple resumes for a job opening. Creates BulkResumeUpload + items,
+   * then processes each resume asynchronously (non-blocking, in background).
+   */
+  async uploadBulkResumes(
+    jobOpeningId: string,
+    files: Express.Multer.File[],
+    organizationId: string,
+    uploadedBy: string,
+  ) {
+    const job = await prisma.jobOpening.findFirst({ where: { id: jobOpeningId, organizationId } });
+    if (!job) throw new NotFoundError('Job opening not found');
+
+    const upload = await prisma.bulkResumeUpload.create({
+      data: {
+        jobOpeningId,
+        organizationId,
+        uploadedBy,
+        totalFiles: files.length,
+        processedFiles: 0,
+        status: 'PROCESSING',
+      },
+    });
+
+    // Create pending items for each file
+    const items = await prisma.$transaction(
+      files.map(file =>
+        prisma.bulkResumeItem.create({
+          data: {
+            bulkUploadId: upload.id,
+            organizationId,
+            fileName: file.originalname,
+            fileUrl: file.path || file.filename || '',
+            status: 'PENDING',
+          },
+        })
+      )
+    );
+
+    // Fire-and-forget async processing (non-blocking)
+    setImmediate(() => {
+      this._processBulkUpload(upload.id, items, job, organizationId).catch(err =>
+        logger.error('[BulkResume] Processing error:', err)
+      );
+    });
+
+    return { ...upload, items };
+  }
+
+  private async _processBulkUpload(
+    uploadId: string,
+    items: Array<{ id: string; fileUrl: string; fileName: string }>,
+    job: { id: string; title: string; description: string; requirements: string[]; organizationId: string },
+    organizationId: string,
+  ) {
+    const { publicApplyService } = await import('../public-apply/public-apply.service.js');
+    let processed = 0;
+
+    for (const item of items) {
+      try {
+        await prisma.bulkResumeItem.update({ where: { id: item.id }, data: { status: 'PROCESSING' } });
+
+        // Resolve file buffer
+        const filePath = item.fileUrl.startsWith('http')
+          ? item.fileUrl
+          : path.join(process.cwd(), item.fileUrl.startsWith('/') ? item.fileUrl.slice(1) : item.fileUrl);
+
+        let buffer: Buffer;
+        if (typeof filePath === 'string' && filePath.startsWith('http')) {
+          const res = await fetch(filePath, { signal: AbortSignal.timeout(20000) });
+          if (!res.ok) throw new Error('Failed to download file');
+          buffer = Buffer.from(await res.arrayBuffer());
+        } else {
+          if (!fs.existsSync(filePath)) throw new Error('File not found');
+          buffer = fs.readFileSync(filePath);
+        }
+
+        const result = await publicApplyService.scoreResumeBuffer(
+          buffer, item.fileName,
+          job.description, job.title, job.requirements, organizationId
+        );
+
+        await prisma.bulkResumeItem.update({
+          where: { id: item.id },
+          data: {
+            status: 'SCORED',
+            candidateName: result.candidateName || null,
+            email: result.email || null,
+            phone: result.phone || null,
+            aiScore: result.matchScore ?? null,
+            atsScore: result.atsScore ?? null,
+            aiScoreDetails: {
+              strengths: result.strengths,
+              gaps: result.gaps,
+              summary: result.summary,
+              atsScoreData: result.atsScoreData,
+              parseMethod: result.parseMethod,
+            },
+            resumeText: result.resumeText?.slice(0, 5000) || null,
+            matchedKeywords: result.matchedKeywords,
+            missingKeywords: result.missingKeywords,
+          },
+        });
+      } catch (err: any) {
+        logger.warn(`[BulkResume] Failed to score item ${item.id}:`, err);
+        await prisma.bulkResumeItem.update({
+          where: { id: item.id },
+          data: { status: 'FAILED', errorMessage: err.message || 'Processing failed' },
+        });
+      }
+
+      processed++;
+      await prisma.bulkResumeUpload.update({
+        where: { id: uploadId },
+        data: { processedFiles: processed },
+      });
+    }
+
+    await prisma.bulkResumeUpload.update({
+      where: { id: uploadId },
+      data: { status: 'COMPLETED' },
+    });
+  }
+
+  async getBulkUploads(organizationId: string) {
+    return prisma.bulkResumeUpload.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        jobOpening: { select: { title: true, department: true } },
+        _count: { select: { items: true } },
+      },
+    });
+  }
+
+  async getBulkUpload(uploadId: string, organizationId: string) {
+    const upload = await prisma.bulkResumeUpload.findFirst({
+      where: { id: uploadId, organizationId },
+      include: {
+        jobOpening: { select: { title: true, department: true } },
+        items: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+    if (!upload) throw new NotFoundError('Bulk upload not found');
+    return upload;
+  }
+
+  /**
+   * Promote a scored bulk resume item into a PublicApplication record.
+   */
+  async createApplicationFromBulkItem(itemId: string, jobOpeningId: string, organizationId: string) {
+    const item = await prisma.bulkResumeItem.findFirst({ where: { id: itemId, organizationId } });
+    if (!item) throw new NotFoundError('Bulk resume item not found');
+    if (item.status !== 'SCORED') throw new BadRequestError('Item must be fully scored before creating an application');
+    if (item.applicationId) throw new BadRequestError('An application already exists for this item');
+
+    const job = await prisma.jobOpening.findFirst({ where: { id: jobOpeningId, organizationId } });
+    if (!job) throw new NotFoundError('Job opening not found');
+
+    const uid = 'BULK-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+
+    const details: any = item.aiScoreDetails || {};
+
+    const app = await prisma.publicApplication.create({
+      data: {
+        uid,
+        candidateUid: uid,
+        jobOpeningId,
+        organizationId,
+        candidateName: item.candidateName || item.fileName.replace(/\.[^.]+$/, ''),
+        email: item.email || null,
+        mobileNumber: item.phone || null,
+        resumeUrl: item.fileUrl,
+        resumeText: item.resumeText || null,
+        matchedKeywords: item.matchedKeywords,
+        missingKeywords: item.missingKeywords,
+        resumeMatchScore: item.aiScore ? Number(item.aiScore) : null,
+        atsScore: item.atsScore ? Number(item.atsScore) : null,
+        atsScoreData: item.aiScoreDetails,
+        resumeScoreData: {
+          matchScore: item.aiScore ? Number(item.aiScore) : null,
+          strengths: details.strengths || [],
+          gaps: details.gaps || [],
+          summary: details.summary || '',
+          parseMethod: details.parseMethod || 'bulk-upload',
+        },
+        totalAiScore: item.aiScore ? Number(item.aiScore) : null,
+        status: 'SUBMITTED',
+      },
+    });
+
+    await prisma.bulkResumeItem.update({ where: { id: itemId }, data: { applicationId: app.id } });
+
+    return app;
+  }
+
+  async deleteBulkUpload(uploadId: string, organizationId: string) {
+    const upload = await prisma.bulkResumeUpload.findFirst({ where: { id: uploadId, organizationId } });
+    if (!upload) throw new NotFoundError('Bulk upload not found');
+    await prisma.bulkResumeItem.deleteMany({ where: { bulkUploadId: uploadId } });
+    await prisma.bulkResumeUpload.delete({ where: { id: uploadId } });
+  }
+
+  async deleteBulkResumeItem(itemId: string, organizationId: string) {
+    const item = await prisma.bulkResumeItem.findFirst({ where: { id: itemId, organizationId } });
+    if (!item) throw new NotFoundError('Item not found');
+    await prisma.bulkResumeItem.delete({ where: { id: itemId } });
   }
 }
 

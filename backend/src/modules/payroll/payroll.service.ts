@@ -65,27 +65,42 @@ const DEFAULT_STATUTORY: StatutoryConfig = {
   },
 };
 
+interface StatutoryExemptions {
+  epfExempt?: boolean;
+  esiExempt?: boolean;
+  ptExempt?: boolean;
+}
+
 function calculateStatutory(
   basicValue: number,
   grossMonthly: number,
   annualCTC: number,
   regime: string,
   config?: StatutoryConfig | null,
+  exemptions?: StatutoryExemptions,
+  /** Remaining months in the financial year for this employee — used to pro-rate TDS */
+  remainingMonths?: number,
+  /** Override PT state (from org.defaultPTState) when config has no slabs */
+  ptStateOverride?: string,
 ): StatutoryResult {
   const cfg = { ...DEFAULT_STATUTORY, ...config };
 
-  // EPF
+  // ── EPF ────────────────────────────────────────────────────────────
+  // EPF is calculated on basic salary (capped at ₹15,000), NOT on gross.
+  // Skip if employee is exempt (e.g. interns, contract workers).
   let epfEmployee = 0, epfEmployer = 0;
-  if (cfg.epf?.enabled) {
+  if (cfg.epf?.enabled && !exemptions?.epfExempt) {
     const cap = cfg.epf.basicCap ?? 15000;
     const epfBase = Math.min(basicValue, cap);
     epfEmployee = Math.round(epfBase * (cfg.epf.employeePercent ?? 12) / 100);
     epfEmployer = Math.round(epfBase * (cfg.epf.employerPercent ?? 12) / 100);
   }
 
-  // ESI
+  // ── ESI ────────────────────────────────────────────────────────────
+  // ESI is calculated on gross salary; auto-excluded when gross > grossCap.
+  // Skip if employee is permanently exempt.
   let esiEmployee = 0, esiEmployer = 0;
-  if (cfg.esi?.enabled) {
+  if (cfg.esi?.enabled && !exemptions?.esiExempt) {
     const grossCap = cfg.esi.grossCap ?? 21000;
     if (grossMonthly <= grossCap) {
       esiEmployee = Math.round(grossMonthly * (cfg.esi.employeePercent ?? 0.75) / 100);
@@ -93,29 +108,46 @@ function calculateStatutory(
     }
   }
 
-  // Professional Tax
+  // ── Professional Tax ───────────────────────────────────────────────
+  // Slab varies by state. Skip if employee is exempt.
   let professionalTax = 0;
-  if (cfg.pt?.enabled && cfg.pt.slabs?.length) {
-    for (const slab of cfg.pt.slabs) {
-      if (grossMonthly >= slab.min && grossMonthly <= (slab.max === Infinity ? Number.MAX_SAFE_INTEGER : slab.max)) {
-        professionalTax = slab.amount;
-        break;
-      }
+  if (cfg.pt?.enabled && !exemptions?.ptExempt) {
+    // Use config slabs if available, else fall back to ptStateOverride or Maharashtra default
+    let slabs = cfg.pt.slabs;
+    if (!slabs?.length && ptStateOverride) {
+      slabs = PT_SLABS_BY_STATE[ptStateOverride.toUpperCase()] ?? PT_SLABS_BY_STATE.MAHARASHTRA;
     }
-  } else if (cfg.pt?.enabled) {
-    // Fallback: Maharashtra default
-    if (grossMonthly <= 7500) professionalTax = 0;
-    else if (grossMonthly <= 10000) professionalTax = 175;
-    else professionalTax = 200;
+    if (slabs?.length) {
+      for (const slab of slabs) {
+        if (grossMonthly >= slab.min && grossMonthly <= (slab.max === Infinity ? Number.MAX_SAFE_INTEGER : slab.max)) {
+          professionalTax = slab.amount;
+          break;
+        }
+      }
+    } else {
+      // Hard fallback: Maharashtra slabs
+      if (grossMonthly > 10000) professionalTax = 200;
+      else if (grossMonthly > 7500) professionalTax = 175;
+    }
   }
 
-  // TDS
-  const tds = calculateTDS(annualCTC, regime);
+  // ── TDS ────────────────────────────────────────────────────────────
+  // Pro-rated across remaining financial year months for mid-year joiners/exits.
+  const tds = calculateTDS(annualCTC, regime, remainingMonths);
 
   return { epfEmployee, epfEmployer, esiEmployee, esiEmployer, professionalTax, tds };
 }
 
-function calculateTDS(annualCTC: number, regime: string): number {
+/**
+ * Calculate monthly TDS.
+ *
+ * @param annualCTC - Annual gross salary used to project tax liability
+ * @param regime - 'NEW_REGIME' | 'OLD_REGIME'
+ * @param remainingMonths - Months left in the financial year for this employee (default 12).
+ *   For mid-year joiners/exits, pass the actual count so TDS is spread correctly.
+ */
+function calculateTDS(annualCTC: number, regime: string, remainingMonths: number = 12): number {
+  const months = Math.max(1, Math.round(remainingMonths)); // at least 1 month
   const taxable = annualCTC - 50000; // Standard deduction
 
   if (regime === 'NEW_REGIME') {
@@ -137,12 +169,12 @@ function calculateTDS(annualCTC: number, regime: string): number {
       remaining -= slabAmount;
       prevLimit = slab.limit;
     }
-    const cess1 = Math.round(tax * 0.04);
-    tax = tax + cess1;
-    if (taxable <= 700000) tax = 0;
-    return Math.round(tax / 12);
+    tax = tax + Math.round(tax * 0.04); // 4% health & education cess
+    if (taxable <= 700000) tax = 0;     // rebate u/s 87A
+    return Math.round(tax / months);
   }
 
+  // Old regime
   let tax = 0;
   const slabs = [
     { limit: 250000, rate: 0 },
@@ -159,10 +191,59 @@ function calculateTDS(annualCTC: number, regime: string): number {
     remaining -= slabAmount;
     prevLimit = slab.limit;
   }
-  const cess2 = Math.round(tax * 0.04);
-  tax = tax + cess2;
-  if (taxable <= 500000) tax = 0;
-  return Math.round(tax / 12);
+  tax = tax + Math.round(tax * 0.04); // 4% cess
+  if (taxable <= 500000) tax = 0;     // rebate u/s 87A
+  return Math.round(tax / months);
+}
+
+/**
+ * Count working days in a date range, respecting the org's workingDays CSV.
+ * workingDays: '1,2,3,4,5,6' means Mon-Sat; '1,2,3,4,5' means Mon-Fri.
+ */
+function countWorkingDaysInRange(from: Date, to: Date, workingDayNums: Set<number>, holidayDates: Set<string>): number {
+  let count = 0;
+  const cur = new Date(from);
+  cur.setHours(0, 0, 0, 0);
+  const end = new Date(to);
+  end.setHours(0, 0, 0, 0);
+  while (cur <= end) {
+    const dow = cur.getDay();
+    const ds = cur.toISOString().split('T')[0];
+    if (workingDayNums.has(dow) && !holidayDates.has(ds)) count++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+
+/**
+ * Paid off-days: days that are NOT in workingDayNums (e.g. Sundays for a Mon-Sat org).
+ * These are paid regardless — employees don't need to clock in on these days.
+ */
+function countPaidOffDaysInRange(from: Date, to: Date, workingDayNums: Set<number>): number {
+  let count = 0;
+  const cur = new Date(from);
+  cur.setHours(0, 0, 0, 0);
+  const end = new Date(to);
+  end.setHours(0, 0, 0, 0);
+  while (cur <= end) {
+    if (!workingDayNums.has(cur.getDay())) count++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+
+/**
+ * Compute remaining months in the Indian financial year (Apr–Mar) from a given date.
+ * Used for TDS pro-ration on mid-year joiners/exits.
+ */
+function remainingFinancialYearMonths(fromDate: Date): number {
+  const m = fromDate.getMonth(); // 0-indexed
+  const financialYearEnd = m >= 3 ? 3 : -9; // March of this FY or next
+  const fyEndMonth = m >= 3 ? 3 + 12 : 3;   // months until next March
+  // Simple: months from this month until March (inclusive)
+  const monthsInFY = 12;
+  const monthsPassed = m >= 3 ? m - 3 : m + 9; // months since April
+  return Math.max(1, monthsInFY - monthsPassed);
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -529,7 +610,18 @@ export class PayrollService {
     if (!run) throw new NotFoundError('Payroll run');
     if (run.status !== 'DRAFT') throw new BadRequestError('Payroll can only be processed from DRAFT status');
 
+    // Fetch org-level payroll defaults (PT state, tax regime, working days)
+    const org = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { workingDays: true, defaultPTState: true, defaultTaxRegime: true },
+    });
+    const orgWorkingDaysStr = org?.workingDays ?? '1,2,3,4,5,6';
+    const orgWorkingDayNums = new Set(orgWorkingDaysStr.split(',').map(Number));
+    const orgDefaultPTState = (org as any)?.defaultPTState ?? 'MAHARASHTRA';
+    const orgDefaultTaxRegime = (org as any)?.defaultTaxRegime ?? 'NEW_REGIME';
+
     // Include PROBATION employees along with ACTIVE
+    // Also fetch exemption flags and regime choice per employee
     const employees = await prisma.employee.findMany({
       where: { organizationId, status: { in: ['ACTIVE', 'PROBATION'] }, deletedAt: null, isSystemAccount: { not: true } },
       include: { salaryStructure: true },
@@ -613,11 +705,10 @@ export class PayrollService {
       );
     }
 
-    const totalWorkingDays = this.getWorkingDaysInMonth(run.month, run.year);
-
     // Pre-fetch attendance data in batch
     const startDate = new Date(run.year, run.month - 1, 1);
     const endDate = new Date(run.year, run.month, 0);
+    const totalWorkingDays = countWorkingDaysInRange(startDate, endDate, orgWorkingDayNums, new Set());
     const empIds = employees.filter(e => e.salaryStructure).map(e => e.id);
 
     const allAttendance = await prisma.attendanceRecord.findMany({
@@ -691,173 +782,259 @@ export class PayrollService {
           const paidLeaveDates = paidLeaveDatesByEmp.get(emp.id) || new Set<string>();
           const empAdjustments = adjustmentsByEmp.get(emp.id) || [];
 
+          // ── Determine the employee's effective work period for this month ──────
+          // Mid-month joiner: only count from joiningDate onward.
+          // Mid-month exit:   only count up to lastWorkingDate.
+          // This affects: LOP scan range, pro-ration ratio, working-days for TDS.
+          let effectiveStart = new Date(startDate);
+          let effectiveEnd   = new Date(endDate);
+
+          const joiningDate    = (emp as any).joiningDate    ? new Date((emp as any).joiningDate)    : null;
+          const lastWorkingDate = (emp as any).lastWorkingDate ? new Date((emp as any).lastWorkingDate) : null;
+
+          // If employee joined this month, salary starts from joining date
+          if (joiningDate && joiningDate > startDate && joiningDate <= endDate) {
+            effectiveStart = new Date(joiningDate);
+            effectiveStart.setHours(0, 0, 0, 0);
+          }
+          // If employee's last working date is this month, salary ends on that day
+          if (lastWorkingDate && lastWorkingDate >= startDate && lastWorkingDate < endDate) {
+            effectiveEnd = new Date(lastWorkingDate);
+            effectiveEnd.setHours(0, 0, 0, 0);
+          }
+
+          // Effective working days for this employee (used for pro-ration)
+          const empWorkingDays = countWorkingDaysInRange(effectiveStart, effectiveEnd, orgWorkingDayNums, holidayDates);
+          // Pro-ration ratio: 1.0 for full-month employees; < 1.0 for partial-month
+          const proRationRatio = totalWorkingDays > 0 ? empWorkingDays / totalWorkingDays : 1;
+
           const presentRecords = empAttendance.filter(r => r.status === 'PRESENT');
           const absentRecords  = empAttendance.filter(r => r.status === 'ABSENT');
           const halfDayRecords = empAttendance.filter(r => r.status === 'HALF_DAY');
 
           // Build a set of every date that has ANY attendance record for this employee.
-          // The attendance system only creates records when the employee clocks in — days with
-          // no record mean the employee simply didn't show up (implicit absent).
           const datesWithRecord = new Set(
             empAttendance.map(r => new Date(r.date).toISOString().split('T')[0])
           );
 
-          // LOP step 1: explicit ABSENT records not covered by paid leave / holiday
+          // ── LOP calculation (3-layer, within effective period) ──────────────
+          // Layer 1: explicit ABSENT records not covered by paid leave / holiday
           let lopDays = 0;
           for (const rec of absentRecords) {
-            const ds = new Date(rec.date).toISOString().split('T')[0];
+            const recDate = new Date(rec.date);
+            if (recDate < effectiveStart || recDate > effectiveEnd) continue; // outside effective period
+            const ds = recDate.toISOString().split('T')[0];
             if (!paidLeaveDates.has(ds) && !holidayDates.has(ds)) lopDays++;
           }
 
-          // LOP step 2: half-days contribute 0.5 LOP each
-          lopDays += halfDayRecords.length * 0.5;
+          // Layer 2: half-days contribute 0.5 LOP each
+          for (const rec of halfDayRecords) {
+            const recDate = new Date(rec.date);
+            if (recDate >= effectiveStart && recDate <= effectiveEnd) lopDays += 0.5;
+          }
 
-          // LOP step 3: working days with NO attendance record, not on paid leave, not a holiday
-          // These are implicit absences (employee never clocked in).
-          const scanDay = new Date(startDate);
-          while (scanDay <= endDate) {
+          // Layer 3: working days (per org schedule) with NO record, not on paid leave, not holiday
+          // — scan only within the employee's effective period
+          const scanDay = new Date(effectiveStart);
+          while (scanDay <= effectiveEnd) {
             const dow = scanDay.getDay();
-            if (dow !== 0) {                               // skip Sundays (paid week-off)
+            if (orgWorkingDayNums.has(dow)) { // only working days per org schedule
               const ds = scanDay.toISOString().split('T')[0];
               if (!holidayDates.has(ds) && !paidLeaveDates.has(ds) && !datesWithRecord.has(ds)) {
-                lopDays++;                                 // no record on a working day = absent
+                lopDays++; // implicit absent
               }
             }
             scanDay.setDate(scanDay.getDate() + 1);
           }
 
-          const sundaysWorked = presentRecords.filter(r => new Date(r.date).getDay() === 0).length;
+          // Paid off-days worked (e.g. Sundays for Mon-Sat org) — earn a bonus
+          const paidOffDaysWorked = presentRecords.filter(r => {
+            const d = new Date(r.date);
+            return !orgWorkingDayNums.has(d.getDay()) && d >= effectiveStart && d <= effectiveEnd;
+          }).length;
 
-          // presentDays = actual check-in days (not derived from working-days arithmetic).
-          // Half-days count as 0.5; floor to whole number for the stored integer field.
-          const presentDays = presentRecords.length + halfDayRecords.length * 0.5;
+          // presentDays = actual check-ins within effective period (half-days = 0.5)
+          const presentDays =
+            presentRecords.filter(r => { const d = new Date(r.date); return d >= effectiveStart && d <= effectiveEnd; }).length
+            + halfDayRecords.filter(r => { const d = new Date(r.date); return d >= effectiveStart && d <= effectiveEnd; }).length * 0.5;
 
-          // Use dynamic components if available, else legacy columns
-          // For "default" employees (isCustom=false), re-compute from component master at payroll time
-          // so any settings changes are automatically reflected without per-employee edits
+          // ── Salary components ─────────────────────────────────────────────────
           let components: SalaryComponent[];
-          // F2: use ?? false so NULL isCustom (old rows before migration) also uses component master
           if (((sal as any).isCustom ?? false) === false && componentMaster.length > 0) {
-            components = buildComponentsFromMaster(componentMaster, Number(sal.ctc));
+            // Default employees: re-compute from master at payroll time so master
+            // changes are automatically picked up, then pro-rate for partial month
+            const fullMonthComponents = buildComponentsFromMaster(componentMaster, Number(sal.ctc));
+            if (proRationRatio < 1) {
+              // Scale each component value proportionally
+              components = fullMonthComponents.map(c => ({ ...c, value: Math.round(c.value * proRationRatio) }));
+            } else {
+              components = fullMonthComponents;
+            }
           } else {
-            components = (sal.components as SalaryComponent[] | null) || legacyToComponents(sal);
+            const rawComponents = (sal.components as SalaryComponent[] | null) || legacyToComponents(sal);
+            if (proRationRatio < 1) {
+              components = rawComponents.map(c => ({ ...c, value: Math.round(c.value * proRationRatio) }));
+            } else {
+              components = rawComponents;
+            }
           }
-          const earningsTotal = sumComponentsByType(components, 'earning');
+          const earningsTotal      = sumComponentsByType(components, 'earning');
           const componentDeductions = sumComponentsByType(components, 'deduction');
 
-          const dailyRate = earningsTotal / totalWorkingDays;
+          const dailyRate    = empWorkingDays > 0 ? earningsTotal / empWorkingDays : 0;
           const lopDeduction = Math.round(dailyRate * lopDays);
-          const sundayBonus = Math.round(dailyRate * sundaysWorked);
+          const paidOffBonus = Math.round(dailyRate * paidOffDaysWorked); // e.g. Sunday bonus for Mon-Sat org
 
-          // Statutory deductions — re-compute live for default employees; use stored values for custom
-          let statutoryDeductions: number;
+          // ── Statutory deductions ─────────────────────────────────────────────
+          // Per-employee exemption flags take precedence over org defaults.
+          const exemptions: StatutoryExemptions = {
+            epfExempt: (emp as any).epfExempt === true,
+            esiExempt: (emp as any).esiExempt === true,
+            ptExempt:  (emp as any).ptExempt  === true,
+          };
+
+          // Determine tax regime: employee choice > salary structure > org default
+          const taxRegime: string = (emp as any).incomeTaxRegimeChoice
+            ?? sal.incomeTaxRegime
+            ?? orgDefaultTaxRegime;
+
+          // Pro-rate TDS: if employee joined/exiting mid-financial-year, spread tax over remaining months
+          const tdsBaseDate = joiningDate && joiningDate > startDate ? joiningDate : run.processedAt ?? startDate;
+          const tdsMonths = remainingFinancialYearMonths(tdsBaseDate);
+
+          // Statutory config: use stored config if present, else build from org defaults
+          let statutoryConfig = sal.statutoryConfig as StatutoryConfig | null;
+          if (!statutoryConfig) {
+            // Build a config from org defaults so PT state is respected
+            statutoryConfig = {
+              epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 },
+              esi: { enabled: true, employeePercent: 0.75, employerPercent: 3.25, grossCap: 21000 },
+              pt:  { enabled: true, slabs: PT_SLABS_BY_STATE[orgDefaultPTState.toUpperCase()] ?? PT_SLABS_BY_STATE.MAHARASHTRA },
+            };
+          }
+
           let recEpfEmployee: number, recEpfEmployer: number;
           let recEsiEmployee: number, recEsiEmployer: number;
           let recProfTax: number, recTds: number;
+
+          const basicComp2 = findComponent(components, 'Basic') || findComponent(components, 'Basic Salary');
+          const basicVal2  = basicComp2?.value ?? 0;
+
           if (((sal as any).isCustom ?? false) === false && componentMaster.length > 0) {
-            const basicComp2 = findComponent(components, 'Basic') || findComponent(components, 'Basic Salary');
-            const basicVal2 = basicComp2?.value ?? 0;
-            const cfg2 = calculateStatutory(basicVal2, earningsTotal, Number(sal.ctc), sal.incomeTaxRegime as any, null);
-            recEpfEmployee = cfg2.epfEmployee;
-            recEpfEmployer = cfg2.epfEmployer;
-            recEsiEmployee = cfg2.esiEmployee;
-            recEsiEmployer = cfg2.esiEmployer;
-            recProfTax = cfg2.professionalTax;
-            recTds = cfg2.tds;
-            statutoryDeductions = cfg2.epfEmployee + cfg2.esiEmployee + cfg2.professionalTax + cfg2.tds;
+            // Default employee: compute live from components + exemptions
+            const stat = calculateStatutory(
+              basicVal2, earningsTotal, Number(sal.ctc) * proRationRatio,
+              taxRegime, statutoryConfig, exemptions, tdsMonths, orgDefaultPTState
+            );
+            recEpfEmployee = stat.epfEmployee;
+            recEpfEmployer = stat.epfEmployer;
+            recEsiEmployee = stat.esiEmployee;
+            recEsiEmployer = stat.esiEmployer;
+            recProfTax     = stat.professionalTax;
+            recTds         = stat.tds;
           } else {
-            recEpfEmployee = Number(sal.pfEmployee || 0);
-            recEpfEmployer = Number(sal.pfEmployer || 0);
-            recEsiEmployee = Number(sal.esiEmployee || 0);
-            recEsiEmployer = Number(sal.esiEmployer || 0);
-            recProfTax = Number(sal.professionalTax || 0);
-            recTds = Number(sal.tds || 0);
-            statutoryDeductions = recEpfEmployee + recEsiEmployee + recProfTax + recTds;
+            // Custom salary: use stored statutory values but still apply exemptions + regime choice
+            if (exemptions.epfExempt) {
+              recEpfEmployee = 0; recEpfEmployer = 0;
+            } else {
+              recEpfEmployee = Number(sal.pfEmployee || 0);
+              recEpfEmployer = Number(sal.pfEmployer || 0);
+            }
+            if (exemptions.esiExempt) {
+              recEsiEmployee = 0; recEsiEmployer = 0;
+            } else {
+              recEsiEmployee = Number(sal.esiEmployee || 0);
+              recEsiEmployer = Number(sal.esiEmployer || 0);
+            }
+            recProfTax = exemptions.ptExempt ? 0 : Number(sal.professionalTax || 0);
+            // Re-compute TDS with regime choice + pro-ration even for custom employees
+            recTds = calculateTDS(Number(sal.ctc) * proRationRatio, taxRegime, tdsMonths);
           }
 
-          // Calculate adjustments (additions and deductions)
-          let adjustmentAdditions = 0;
-          let adjustmentDeductions = 0;
+          const statutoryDeductions = recEpfEmployee + recEsiEmployee + recProfTax + recTds;
+
+          // ── Adjustments ───────────────────────────────────────────────────────
+          let adjustmentAdditions = 0, adjustmentDeductions = 0;
           const adjustmentSnapshot: any[] = [];
           for (const adj of empAdjustments) {
             const amount = Number(adj.amount);
-            if (adj.isDeduction) {
-              adjustmentDeductions += amount;
-            } else {
-              adjustmentAdditions += amount;
-            }
-            adjustmentSnapshot.push({
-              type: adj.type,
-              componentName: adj.componentName,
-              amount,
-              isDeduction: adj.isDeduction,
-              reason: adj.reason,
-            });
+            if (adj.isDeduction) adjustmentDeductions += amount;
+            else adjustmentAdditions += amount;
+            adjustmentSnapshot.push({ type: adj.type, componentName: adj.componentName, amount, isDeduction: adj.isDeduction, reason: adj.reason });
           }
 
-          const adjustedGross = earningsTotal + sundayBonus + adjustmentAdditions;
-          const deductions = componentDeductions + statutoryDeductions + adjustmentDeductions;
-          const netSalary = adjustedGross - deductions - lopDeduction;
+          const adjustedGross = earningsTotal + paidOffBonus + adjustmentAdditions;
+          const deductions    = componentDeductions + statutoryDeductions + adjustmentDeductions;
+          const netSalaryRaw  = adjustedGross - deductions - lopDeduction;
+          const netSalary     = Math.max(netSalaryRaw, 0);
 
-          // Build detailed earnings breakdown
+          // ── Warning: LOP wipes out entire salary ──────────────────────────────
+          if (netSalaryRaw < 0) {
+            console.warn(`[Payroll] Employee ${(emp as any).employeeCode} net salary negative (${netSalaryRaw}): lopDeduction=${lopDeduction}, gross=${adjustedGross}. Capped at 0.`);
+          }
+
+          // ── Bank details check ────────────────────────────────────────────────
+          if (netSalary > 0 && !((emp as any).bankAccountNumber && (emp as any).ifscCode)) {
+            console.warn(`[Payroll] Employee ${(emp as any).employeeCode} has no bank details — salary of ₹${netSalary} cannot be transferred.`);
+          }
+
+          // ── Earnings / deductions breakdown ───────────────────────────────────
           const earningsBreakdown: Record<string, number> = {};
           const deductionsBreakdown: Record<string, number> = {};
           for (const comp of components) {
-            if (comp.type === 'earning') {
-              earningsBreakdown[comp.name] = comp.value;
-            } else {
-              deductionsBreakdown[comp.name] = comp.value;
-            }
+            if (comp.type === 'earning') earningsBreakdown[comp.name] = comp.value;
+            else deductionsBreakdown[comp.name] = comp.value;
           }
-          if (sundayBonus > 0) earningsBreakdown['Sunday Bonus'] = sundayBonus;
+          if (paidOffBonus > 0) earningsBreakdown['Sunday Bonus'] = paidOffBonus;
           for (const adj of empAdjustments) {
             if (!adj.isDeduction) earningsBreakdown[`Adj: ${adj.componentName}`] = Number(adj.amount);
             else deductionsBreakdown[`Adj: ${adj.componentName}`] = Number(adj.amount);
           }
+          if (proRationRatio < 1) {
+            earningsBreakdown['_proRation'] = Math.round(proRationRatio * 100) / 100;
+          }
 
-          // Build otherEarnings using canonical key map so Excel exporter + payslip UI read correct values
-          const otherEarnings: Record<string, number> = { sundayBonus, sundaysWorked };
+          const otherEarnings: Record<string, number> = { sundayBonus: paidOffBonus, sundaysWorked: paidOffDaysWorked };
           for (const comp of components) {
-            if (comp.type === 'earning' && !['Basic', 'HRA'].includes(comp.name)) {
-              const key = toEarningsKey(comp.name);
-              otherEarnings[key] = comp.value;
+            if (comp.type === 'earning' && !['Basic', 'HRA', 'Basic Salary', 'House Rent Allowance'].includes(comp.name)) {
+              otherEarnings[toEarningsKey(comp.name)] = comp.value;
             }
           }
           if (adjustmentAdditions > 0) otherEarnings.adjustmentAdditions = adjustmentAdditions;
 
-          const basicComp = findComponent(components, 'Basic');
-          const hraComp = findComponent(components, 'HRA');
+          const basicComp = findComponent(components, 'Basic') || findComponent(components, 'Basic Salary');
+          const hraComp   = findComponent(components, 'HRA')   || findComponent(components, 'House Rent Allowance');
 
           await tx.payrollRecord.create({
             data: {
-              payrollRunId: runId,
-              employeeId: emp.id,
-              grossSalary: adjustedGross,
-              netSalary: Math.max(netSalary, 0),
-              basic: basicComp?.value ?? Number(sal.basic || 0),
-              hra: hraComp?.value ?? Number(sal.hra || 0),
+              payrollRunId:    runId,
+              employeeId:      emp.id,
+              grossSalary:     adjustedGross,
+              netSalary,
+              basic:           basicComp?.value ?? Number(sal.basic || 0),
+              hra:             hraComp?.value   ?? Number(sal.hra   || 0),
               otherEarnings,
-              epfEmployee: recEpfEmployee,
-              epfEmployer: recEpfEmployer,
-              esiEmployee: recEsiEmployee,
-              esiEmployer: recEsiEmployer,
+              epfEmployee:     recEpfEmployee,
+              epfEmployer:     recEpfEmployer,
+              esiEmployee:     recEsiEmployee,
+              esiEmployer:     recEsiEmployer,
               professionalTax: recProfTax,
-              tds: recTds,
+              tds:             recTds,
               otherDeductions: componentDeductions + adjustmentDeductions > 0
                 ? { customDeductions: componentDeductions, adjustmentDeductions }
                 : undefined,
-              lopDays: Math.ceil(lopDays), // round up half-days
+              lopDays,          // now stored as Decimal — no rounding loss
               lopDeduction,
-              workingDays: totalWorkingDays,
-              presentDays: Math.floor(presentDays),
-              adjustments: adjustmentSnapshot.length > 0 ? adjustmentSnapshot : undefined,
+              workingDays:     empWorkingDays,   // employee's actual working days (not full month if mid-joiner/exit)
+              presentDays,      // Decimal — half-days preserved
+              adjustments:     adjustmentSnapshot.length > 0 ? adjustmentSnapshot : undefined,
               earningsBreakdown,
               deductionsBreakdown,
             },
           });
 
-          totalGross += adjustedGross;
-          totalNet += Math.max(netSalary, 0);
+          totalGross      += adjustedGross;
+          totalNet        += netSalary;
           totalDeductions += deductions + lopDeduction;
         }
 
@@ -1066,14 +1243,13 @@ export class PayrollService {
     });
   }
 
+  /** @deprecated Use countWorkingDaysInRange() with org workingDays set instead */
   private getWorkingDaysInMonth(month: number, year: number): number {
-    const daysInMonth = new Date(year, month, 0).getDate();
-    let workingDays = 0;
-    for (let d = 1; d <= daysInMonth; d++) {
-      const day = new Date(year, month - 1, d).getDay();
-      if (day !== 0) workingDays++;
-    }
-    return workingDays;
+    const start = new Date(year, month - 1, 1);
+    const end   = new Date(year, month, 0);
+    // Default Mon-Sat (no holidays known here — call site must account for holidays separately)
+    const monSat = new Set([1, 2, 3, 4, 5, 6]);
+    return countWorkingDaysInRange(start, end, monSat, new Set());
   }
 
   private async getLOPDays(employeeId: string, month: number, year: number): Promise<number> {

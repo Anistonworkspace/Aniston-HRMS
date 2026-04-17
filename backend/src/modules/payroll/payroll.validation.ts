@@ -89,7 +89,7 @@ export const amendPayrollRecordSchema = z.object({
   esiEmployee: z.number().min(0).optional(),
   professionalTax: z.number().min(0).optional(),
   tds: z.number().min(0).optional(),
-  lopDays: z.number().int().min(0).optional(),
+  lopDays: z.number().min(0).optional(), // Decimal — half-days (0.5) are valid
   lopDeduction: z.number().min(0).optional(),
   reason: z.string().min(1, 'Amendment reason is required'),
 });

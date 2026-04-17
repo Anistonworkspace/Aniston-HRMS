@@ -5,7 +5,7 @@ import {
   ArrowLeft, User, Mail, Phone, FileText, Star, Calendar, Briefcase,
   Loader2, Download, Plus, CheckCircle2, XCircle, PauseCircle, X,
   Eye, EyeOff, Copy, Save, MessageSquare, ChevronDown, ChevronUp, Send, Sparkles,
-  UserPlus,
+  UserPlus, AlertTriangle, BookOpen, Tag, Target, Shield,
 } from 'lucide-react';
 import {
   useGetPublicApplicationDetailQuery,
@@ -220,13 +220,36 @@ export default function PublicApplicationDetailPage() {
         </div>
       </motion.div>
 
-      {/* Resume Viewer */}
+      {/* ── Fallback Question Warning ── */}
+      {app.usedFallbackQuestions && (
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}
+          className="mb-4 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800">Generic MCQ Questions Used</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              AI question generation was unavailable when this candidate applied. They were scored on generic behavioural questions from the fallback bank — not job-specific AI questions. MCQ scores reflect general aptitude only.
+            </p>
+          </div>
+        </motion.div>
+      )}
+
+      {/* ── Resume & ATS Panel ── */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="layer-card p-5 mb-6">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-4">
           <h3 className="font-display font-bold text-gray-900 flex items-center gap-2">
             <FileText className="w-5 h-5 text-brand-600" /> Resume
           </h3>
           <div className="flex items-center gap-2">
+            {/* ATS Score Badge */}
+            {app.atsScore != null && (
+              <span className={`flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full ${
+                Number(app.atsScore) >= 70 ? 'bg-emerald-50 text-emerald-700' :
+                Number(app.atsScore) >= 45 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600'
+              }`}>
+                <Shield size={12} /> ATS {Number(app.atsScore).toFixed(0)}
+              </span>
+            )}
             {resolvedResumeUrl && (
               <>
                 <button onClick={() => setShowResumeViewer(!showResumeViewer)}
@@ -242,10 +265,11 @@ export default function PublicApplicationDetailPage() {
             )}
           </div>
         </div>
+
         {resolvedResumeUrl ? (
           <AnimatePresence>
             {showResumeViewer && (
-              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-4">
                 <iframe src={resolvedResumeUrl} className="w-full h-96 rounded-lg border border-gray-200" title="Resume viewer" />
               </motion.div>
             )}
@@ -254,6 +278,55 @@ export default function PublicApplicationDetailPage() {
           <div className="flex flex-col items-center justify-center py-8 text-gray-400">
             <FileText className="w-10 h-10 mb-2 opacity-40" />
             <p className="text-sm">No resume uploaded</p>
+          </div>
+        )}
+
+        {/* ATS Score Breakdown */}
+        {app.atsScoreData && (
+          <div className="mt-3 border-t border-gray-100 pt-4">
+            <p className="text-xs font-semibold text-gray-700 mb-3 flex items-center gap-1.5">
+              <Shield size={13} className="text-brand-500" /> ATS Compatibility Breakdown
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">
+              {[
+                { label: 'Sections', val: app.atsScoreData.breakdown?.sections, max: 25 },
+                { label: 'Keywords', val: app.atsScoreData.breakdown?.keywords, max: 35 },
+                { label: 'Contact', val: app.atsScoreData.breakdown?.contact, max: 15 },
+                { label: 'Quantified', val: app.atsScoreData.breakdown?.quantification, max: 15 },
+                { label: 'Parse Quality', val: app.atsScoreData.breakdown?.parseQuality, max: 10 },
+              ].map(({ label, val, max }) => (
+                <div key={label} className="bg-gray-50 rounded-xl p-2.5 text-center">
+                  <div className="text-xs font-bold text-gray-800" data-mono>{val ?? '—'}<span className="font-normal text-gray-400">/{max}</span></div>
+                  <div className="text-[10px] text-gray-500 mt-0.5">{label}</div>
+                  <div className="w-full h-1.5 bg-gray-200 rounded-full mt-1.5 overflow-hidden">
+                    <div className="h-full bg-brand-500 rounded-full" style={{ width: `${val != null ? (val / max) * 100 : 0}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Sections found / missing */}
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              {app.atsScoreData.sectionsFound?.length > 0 && (
+                <div>
+                  <p className="text-emerald-700 font-semibold mb-1">Sections Detected</p>
+                  <div className="flex flex-wrap gap-1">
+                    {app.atsScoreData.sectionsFound.map((s: string) => (
+                      <span key={s} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px]">{s}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {app.atsScoreData.sectionsMissing?.length > 0 && (
+                <div>
+                  <p className="text-red-600 font-semibold mb-1">Sections Missing</p>
+                  <div className="flex flex-wrap gap-1">
+                    {app.atsScoreData.sectionsMissing.map((s: string) => (
+                      <span key={s} className="px-2 py-0.5 bg-red-50 text-red-600 rounded-full text-[10px]">{s}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </motion.div>
@@ -371,48 +444,111 @@ export default function PublicApplicationDetailPage() {
         </div>
       )}
 
-      {/* Resume Score Details — real pointers from BUG-3 fix */}
-      {app.resumeScoreData && (
+      {/* ── Resume Intelligence Panel (G1 + G2 + G4 + G6) ── */}
+      {(app.resumeScoreData || (app.matchedKeywords?.length > 0) || app.resumeText) && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }} className="layer-card p-5 mb-6">
-          <h3 className="font-display font-bold text-gray-900 mb-3 flex items-center gap-2">
-            <Star className="w-4 h-4 text-amber-500" /> Resume Match Analysis
+          <h3 className="font-display font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <Target className="w-4 h-4 text-brand-600" /> Resume Intelligence
           </h3>
-          {app.resumeScoreData.summary && (
-            <p className="text-sm text-gray-600 mb-4 bg-gray-50 rounded-lg p-3 italic">{app.resumeScoreData.summary}</p>
+
+          {/* Parse method + summary */}
+          {app.resumeScoreData?.parseMethod && (
+            <p className="text-xs text-gray-400 mb-2">
+              Extracted via: <span className="font-medium text-gray-600">
+                {app.resumeScoreData.parseMethod === 'ai-ocr' ? 'AI OCR Service' : app.resumeScoreData.parseMethod === 'pdf-parse' ? 'PDF Text Extraction' : 'N/A'}
+              </span>
+            </p>
           )}
-          {app.resumeScoreData.parseMethod && (
-            <p className="text-xs text-gray-400 mb-3">Extracted via: <span className="font-medium text-gray-600">{app.resumeScoreData.parseMethod === 'ai-ocr' ? 'AI OCR Service' : app.resumeScoreData.parseMethod === 'pdf-parse' ? 'Text Extraction' : 'N/A'}</span></p>
+          {app.resumeScoreData?.summary && (
+            <p className="text-sm text-gray-600 mb-4 bg-brand-50/60 rounded-xl p-3 italic border border-brand-100">
+              {app.resumeScoreData.summary}
+            </p>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {Array.isArray(app.resumeScoreData.strengths) && app.resumeScoreData.strengths.length > 0 && (
+
+          {/* Strengths + Gaps */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+            {Array.isArray(app.resumeScoreData?.strengths) && app.resumeScoreData.strengths.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-emerald-700 mb-2 flex items-center gap-1.5">
                   <CheckCircle2 size={13} /> Strengths ({app.resumeScoreData.strengths.length})
                 </p>
                 <ul className="space-y-1.5">
                   {app.resumeScoreData.strengths.map((s: string, i: number) => (
-                    <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
-                      <span className="text-emerald-500 mt-0.5 shrink-0">✓</span> {s}
+                    <li key={i} className="text-xs text-gray-700 flex items-start gap-2 bg-emerald-50/60 rounded-lg px-2.5 py-1.5">
+                      <span className="text-emerald-500 shrink-0 mt-0.5">✓</span> {s}
                     </li>
                   ))}
                 </ul>
               </div>
             )}
-            {Array.isArray(app.resumeScoreData.gaps) && app.resumeScoreData.gaps.length > 0 && (
+            {Array.isArray(app.resumeScoreData?.gaps) && app.resumeScoreData.gaps.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-red-600 mb-2 flex items-center gap-1.5">
                   <XCircle size={13} /> Gaps / Missing ({app.resumeScoreData.gaps.length})
                 </p>
                 <ul className="space-y-1.5">
                   {app.resumeScoreData.gaps.map((g: string, i: number) => (
-                    <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
-                      <span className="text-red-400 mt-0.5 shrink-0">✗</span> {g}
+                    <li key={i} className="text-xs text-gray-700 flex items-start gap-2 bg-red-50/60 rounded-lg px-2.5 py-1.5">
+                      <span className="text-red-400 shrink-0 mt-0.5">✗</span> {g}
                     </li>
                   ))}
                 </ul>
               </div>
             )}
           </div>
+
+          {/* Keyword Match Chips (G2 + G4) */}
+          {((app.matchedKeywords?.length > 0) || (app.missingKeywords?.length > 0)) && (
+            <div className="border-t border-gray-100 pt-4 mb-4">
+              <p className="text-xs font-semibold text-gray-700 mb-3 flex items-center gap-1.5">
+                <Tag size={13} className="text-brand-500" /> JD Keyword Match
+              </p>
+              <div className="space-y-3">
+                {app.matchedKeywords?.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-emerald-600 font-semibold mb-1.5">
+                      ✓ FOUND in resume ({app.matchedKeywords.length})
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {app.matchedKeywords.map((kw: string) => (
+                        <span key={kw} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[10px] font-medium">
+                          {kw}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {app.missingKeywords?.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-red-500 font-semibold mb-1.5">
+                      ✗ MISSING from resume ({app.missingKeywords.length})
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {app.missingKeywords.map((kw: string) => (
+                        <span key={kw} className="px-2 py-0.5 bg-red-50 text-red-600 border border-red-200 rounded-full text-[10px] font-medium">
+                          {kw}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Extracted Resume Text (G6) — collapsible */}
+          {app.resumeText && (
+            <div className="border-t border-gray-100 pt-4">
+              <details>
+                <summary className="text-xs font-semibold text-gray-600 cursor-pointer hover:text-brand-600 flex items-center gap-1.5 select-none">
+                  <BookOpen size={13} /> View Extracted Resume Text
+                </summary>
+                <div className="mt-3 bg-gray-50 rounded-xl p-4 max-h-64 overflow-y-auto border border-gray-200">
+                  <pre className="text-xs text-gray-600 whitespace-pre-wrap font-sans leading-relaxed">{app.resumeText}</pre>
+                </div>
+              </details>
+            </div>
+          )}
         </motion.div>
       )}
 

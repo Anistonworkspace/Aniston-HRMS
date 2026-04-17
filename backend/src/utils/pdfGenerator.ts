@@ -13,10 +13,10 @@ interface PayrollRecordForPDF {
   esiEmployer: any;
   professionalTax: any;
   tds: any;
-  lopDays: number;
+  lopDays: any;     // Decimal in DB — use Number() before display
   lopDeduction: any;
   workingDays: number;
-  presentDays: number;
+  presentDays: any; // Decimal in DB — use Number() before display
   overtimeHours?: any;
   overtimeAmount?: any;
   adjustments?: any;
@@ -174,7 +174,7 @@ export function generateSalarySlipPDF(record: PayrollRecordForPDF): Promise<Buff
       ['Professional Tax', Number(record.professionalTax || 0)],
       ['TDS', Number(record.tds || 0)],
       ['LOP Deduction', Number(record.lopDeduction || 0)],
-    ].filter(([_, val]) => val > 0) as [string, number][];
+    ].filter(([_, val]) => Number(val) > 0) as [string, number][];
     // Merge statutory into deductions (avoid duplicates)
     const existingNames = new Set(deductions.map(([name]) => name));
     for (const item of statutoryItems) {
