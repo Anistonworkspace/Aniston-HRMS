@@ -49,6 +49,11 @@ export const componentMasterApi = api.injectEndpoints({
       query: () => ({ url: '/salary-components/seed', method: 'POST' }),
       invalidatesTags: ['SalaryTemplate'],
     }),
+
+    cleanupLegacyComponents: builder.mutation<any, void>({
+      query: () => ({ url: '/salary-components/cleanup-defaults', method: 'POST' }),
+      invalidatesTags: ['SalaryTemplate'],
+    }),
   }),
 });
 
@@ -61,4 +66,5 @@ export const {
   useToggleComponentMutation,
   useReorderComponentsMutation,
   useSeedComponentsMutation,
+  useCleanupLegacyComponentsMutation,
 } = componentMasterApi;

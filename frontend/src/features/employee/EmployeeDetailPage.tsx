@@ -1468,18 +1468,33 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
     const basicPct = monthly > 0 ? Math.round((basicAmt / monthly) * 100 * 100) / 100 : 50;
     newEarnings.push({ id: 'basic', name: 'Basic Salary', amount: basicAmt, mode: 'percent', percentValue: basicPct, type: 'earning', isRequired: true });
 
-    const stdFields: { id: string; field: string; name: string }[] = [
-      { id: 'hra', field: 'hra', name: 'House Rent Allowance' },
-      { id: 'da', field: 'da', name: 'Dearness Allowance' },
-      { id: 'ta', field: 'ta', name: 'Transport Allowance' },
-      { id: 'specialAllowance', field: 'specialAllowance', name: 'Special Allowance' },
-      { id: 'medicalAllowance', field: 'medicalAllowance', name: 'Medical Allowance' },
-      { id: 'lta', field: 'lta', name: 'Leave Travel Assistance' },
-    ];
-    for (const f of stdFields) {
-      const amt = Number(tmpl[f.field] || 0);
-      const pct = monthly > 0 ? Math.round((amt / monthly) * 100 * 100) / 100 : 0;
-      newEarnings.push({ id: f.id, name: f.name, amount: amt, mode: amt > 0 ? 'fixed' : 'percent', percentValue: pct, type: 'earning' });
+    // If template has a dynamic components array, use it (new format).
+    // Otherwise fall back to legacy numeric fields — but only include non-zero ones.
+    if (tmpl.components && Array.isArray(tmpl.components) && tmpl.components.length > 0) {
+      for (const c of tmpl.components as any[]) {
+        if (c.type === 'earning' && (c.name === 'Basic Salary' || c.name === 'Basic')) continue; // already added above
+        if (c.type === 'earning') {
+          const amt = Number(c.value || 0);
+          const pct = c.percentage || (monthly > 0 ? Math.round((amt / monthly) * 100 * 100) / 100 : 0);
+          newEarnings.push({ id: `tmpl_${c.name?.toLowerCase().replace(/\s+/g, '_')}`, name: c.name, amount: amt, mode: c.isPercentage ? 'percent' : 'fixed', percentValue: pct, type: 'earning' });
+        }
+      }
+    } else {
+      // Legacy template fields — only include non-zero amounts
+      const legacyFields: { id: string; field: string; name: string }[] = [
+        { id: 'hra', field: 'hra', name: 'House Rent Allowance' },
+        { id: 'da', field: 'da', name: 'Dearness Allowance' },
+        { id: 'ta', field: 'ta', name: 'Transport Allowance' },
+        { id: 'specialAllowance', field: 'specialAllowance', name: 'Special Allowance' },
+        { id: 'medicalAllowance', field: 'medicalAllowance', name: 'Medical Allowance' },
+        { id: 'lta', field: 'lta', name: 'Leave Travel Assistance' },
+      ];
+      for (const f of legacyFields) {
+        const amt = Number(tmpl[f.field] || 0);
+        if (amt <= 0) continue; // skip zero-amount legacy fields
+        const pct = monthly > 0 ? Math.round((amt / monthly) * 100 * 100) / 100 : 0;
+        newEarnings.push({ id: f.id, name: f.name, amount: amt, mode: 'fixed', percentValue: pct, type: 'earning' });
+      }
     }
 
     setEarnings(newEarnings);

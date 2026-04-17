@@ -62,6 +62,13 @@ export class ComponentMasterController {
       res.json({ success: true, data: result, message: `${result.seeded} default components seeded` });
     } catch (err) { next(err); }
   }
+
+  async cleanupLegacyDefaults(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await componentMasterService.cleanupLegacyDefaults(req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result, message: `${result.deleted} legacy default component(s) removed` });
+    } catch (err) { next(err); }
+  }
 }
 
 export const componentMasterController = new ComponentMasterController();

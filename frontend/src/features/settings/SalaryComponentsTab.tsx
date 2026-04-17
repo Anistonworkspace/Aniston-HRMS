@@ -11,6 +11,7 @@ import {
   useUpdateComponentMutation,
   useDeleteComponentMutation,
   useToggleComponentMutation,
+  useCleanupLegacyComponentsMutation,
 } from '../payroll/componentMasterApi';
 import { formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -62,6 +63,7 @@ export default function SalaryComponentsTab() {
   const [updateComp] = useUpdateComponentMutation();
   const [deleteComp] = useDeleteComponentMutation();
   const [toggleComp] = useToggleComponentMutation();
+  const [cleanupLegacy, { isLoading: cleaningUp }] = useCleanupLegacyComponentsMutation();
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -142,6 +144,20 @@ export default function SalaryComponentsTab() {
 
   const resetForm = () => { setForm(emptyForm); setEditingId(null); setShowForm(false); };
 
+  const handleCleanupLegacy = async () => {
+    if (!confirm('This will remove all old default components (DA, TA, Medical, Special, LTA, etc.) and keep only Basic Salary + HRA. Continue?')) return;
+    try {
+      const result = await cleanupLegacy().unwrap();
+      toast.success(`Cleanup done — ${result.data?.deleted ?? 0} legacy component(s) removed`);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Cleanup failed');
+    }
+  };
+
+  // Check if any legacy default codes are still present
+  const LEGACY_CODES = new Set(['DA','TA','MEDICAL','SPECIAL','LTA','PERF_BONUS','SHIFT_ALLOW','NIGHT_PREMIUM','CCA','INTERNET','PHONE','EPF_EE','EPF_ER','ESI_EE','ESI_ER','PT','TDS','LOAN_RECOVERY','CANTEEN','ADVANCE_DED']);
+  const hasLegacyComponents = components.some((c: any) => LEGACY_CODES.has(c.code));
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -150,9 +166,19 @@ export default function SalaryComponentsTab() {
           <h3 className="text-lg font-semibold text-gray-800">Salary Components</h3>
           <p className="text-xs text-gray-500 mt-0.5">Manage your organization's salary component library</p>
         </div>
-        <button onClick={() => { resetForm(); setShowForm(true); }} className="btn-primary text-sm flex items-center gap-1.5">
-          <Plus size={14} /> New Component
-        </button>
+        <div className="flex items-center gap-2">
+          {hasLegacyComponents && (
+            <button onClick={handleCleanupLegacy} disabled={cleaningUp}
+              className="btn-secondary text-xs flex items-center gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50"
+              title="Remove old default components — keeps only Basic + HRA">
+              {cleaningUp ? <Loader2 size={12} className="animate-spin" /> : <AlertTriangle size={12} />}
+              Remove Legacy Defaults
+            </button>
+          )}
+          <button onClick={() => { resetForm(); setShowForm(true); }} className="btn-primary text-sm flex items-center gap-1.5">
+            <Plus size={14} /> New Component
+          </button>
+        </div>
       </div>
 
       {/* Stats */}

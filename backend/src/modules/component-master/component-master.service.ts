@@ -2,31 +2,20 @@ import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 
-// Default components that get seeded when org has none
+// Default components seeded for new orgs — Basic + HRA only.
+// HR can add any additional components from Settings → Salary Components.
 const DEFAULT_COMPONENTS = [
   { name: 'Basic Salary', code: 'BASIC', type: 'EARNING', category: 'STANDARD', calculationRule: 'PERCENTAGE_CTC', percentageOf: 'CTC', defaultPercentage: 50, isTaxable: true, isStatutory: false, sortOrder: 1 },
   { name: 'House Rent Allowance', code: 'HRA', type: 'EARNING', category: 'STANDARD', calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 40, isTaxable: true, isStatutory: false, sortOrder: 2 },
-  { name: 'Dearness Allowance', code: 'DA', type: 'EARNING', category: 'STANDARD', calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 10, isTaxable: true, isStatutory: false, sortOrder: 3 },
-  { name: 'Transport Allowance', code: 'TA', type: 'EARNING', category: 'ALLOWANCE', calculationRule: 'FIXED', defaultValue: 1600, isTaxable: true, isStatutory: false, sortOrder: 4 },
-  { name: 'Medical Allowance', code: 'MEDICAL', type: 'EARNING', category: 'ALLOWANCE', calculationRule: 'FIXED', defaultValue: 1250, isTaxable: true, isStatutory: false, sortOrder: 5 },
-  { name: 'Special Allowance', code: 'SPECIAL', type: 'EARNING', category: 'ALLOWANCE', calculationRule: 'FIXED', isTaxable: true, isStatutory: false, sortOrder: 6 },
-  { name: 'Leave Travel Allowance', code: 'LTA', type: 'EARNING', category: 'ALLOWANCE', calculationRule: 'FIXED', isTaxable: false, isStatutory: false, sortOrder: 7 },
-  { name: 'Performance Bonus', code: 'PERF_BONUS', type: 'EARNING', category: 'BONUS', calculationRule: 'FIXED', isTaxable: true, isStatutory: false, sortOrder: 8 },
-  { name: 'Shift Allowance', code: 'SHIFT_ALLOW', type: 'EARNING', category: 'ALLOWANCE', calculationRule: 'FIXED', isTaxable: true, isStatutory: false, sortOrder: 9 },
-  { name: 'Night Premium', code: 'NIGHT_PREMIUM', type: 'EARNING', category: 'ALLOWANCE', calculationRule: 'FIXED', isTaxable: true, isStatutory: false, sortOrder: 10 },
-  { name: 'City Compensatory Allowance', code: 'CCA', type: 'EARNING', category: 'ALLOWANCE', calculationRule: 'FIXED', isTaxable: true, isStatutory: false, sortOrder: 11 },
-  { name: 'Internet Allowance', code: 'INTERNET', type: 'EARNING', category: 'REIMBURSEMENT', calculationRule: 'FIXED', isTaxable: false, isStatutory: false, sortOrder: 12 },
-  { name: 'Phone Allowance', code: 'PHONE', type: 'EARNING', category: 'REIMBURSEMENT', calculationRule: 'FIXED', isTaxable: false, isStatutory: false, sortOrder: 13 },
-  // Deductions
-  { name: 'EPF (Employee)', code: 'EPF_EE', type: 'DEDUCTION', category: 'STATUTORY', calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 12, isTaxable: false, isStatutory: true, sortOrder: 100 },
-  { name: 'EPF (Employer)', code: 'EPF_ER', type: 'DEDUCTION', category: 'STATUTORY', calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 12, isTaxable: false, isStatutory: true, sortOrder: 101 },
-  { name: 'ESI (Employee)', code: 'ESI_EE', type: 'DEDUCTION', category: 'STATUTORY', calculationRule: 'PERCENTAGE_CTC', defaultPercentage: 0.75, isTaxable: false, isStatutory: true, sortOrder: 102 },
-  { name: 'ESI (Employer)', code: 'ESI_ER', type: 'DEDUCTION', category: 'STATUTORY', calculationRule: 'PERCENTAGE_CTC', defaultPercentage: 3.25, isTaxable: false, isStatutory: true, sortOrder: 103 },
-  { name: 'Professional Tax', code: 'PT', type: 'DEDUCTION', category: 'STATUTORY', calculationRule: 'SLAB', isTaxable: false, isStatutory: true, sortOrder: 104 },
-  { name: 'TDS', code: 'TDS', type: 'DEDUCTION', category: 'STATUTORY', calculationRule: 'SLAB', isTaxable: false, isStatutory: true, sortOrder: 105 },
-  { name: 'Loan Recovery', code: 'LOAN_RECOVERY', type: 'DEDUCTION', category: 'CUSTOM', calculationRule: 'FIXED', isTaxable: false, isStatutory: false, sortOrder: 110 },
-  { name: 'Canteen Deduction', code: 'CANTEEN', type: 'DEDUCTION', category: 'CUSTOM', calculationRule: 'FIXED', isTaxable: false, isStatutory: false, sortOrder: 111 },
-  { name: 'Advance Deduction', code: 'ADVANCE_DED', type: 'DEDUCTION', category: 'CUSTOM', calculationRule: 'FIXED', isTaxable: false, isStatutory: false, sortOrder: 112 },
+];
+
+// Codes from the old 20-component default seed that are no longer part of defaults.
+// Used by cleanupLegacyDefaults() to remove them from existing orgs.
+const LEGACY_DEFAULT_CODES = [
+  'DA', 'TA', 'MEDICAL', 'SPECIAL', 'LTA', 'PERF_BONUS', 'SHIFT_ALLOW',
+  'NIGHT_PREMIUM', 'CCA', 'INTERNET', 'PHONE',
+  'EPF_EE', 'EPF_ER', 'ESI_EE', 'ESI_ER', 'PT', 'TDS',
+  'LOAN_RECOVERY', 'CANTEEN', 'ADVANCE_DED',
 ];
 
 export class ComponentMasterService {
@@ -181,6 +170,29 @@ export class ComponentMasterService {
     });
 
     return updated;
+  }
+
+  /**
+   * Remove legacy default components (old 20-component seed) from this org.
+   * Safe to call on any org — only deletes components whose codes match the
+   * old seed list; HR-created components with the same codes would also be
+   * removed, so this should only be called once after initial migration.
+   */
+  async cleanupLegacyDefaults(organizationId: string, userId: string) {
+    const result = await prisma.salaryComponentMaster.deleteMany({
+      where: { organizationId, code: { in: LEGACY_DEFAULT_CODES } },
+    });
+
+    if (result.count > 0) {
+      await createAuditLog({
+        userId, organizationId,
+        entity: 'SalaryComponentMaster', entityId: 'bulk-cleanup',
+        action: 'DELETE',
+        newValue: { deletedCount: result.count, reason: 'Legacy default components removed — Basic+HRA only policy' },
+      });
+    }
+
+    return { deleted: result.count };
   }
 
   /**
