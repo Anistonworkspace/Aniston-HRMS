@@ -385,16 +385,19 @@ describe('PublicApplyService', () => {
       await expect(service.generateQuestions(JOB_ID, ORG_ID)).resolves.not.toThrow();
     });
 
-    it('throws BadRequestError when AI returns an error', async () => {
+    it('falls back to hardcoded questions when AI returns an error', async () => {
       vi.mocked(prisma.jobOpening.findFirst).mockResolvedValueOnce(makeJob() as any);
       vi.mocked(aiService.prompt).mockResolvedValueOnce({
         success: false,
         error: 'No AI provider configured. Go to Settings → API Integrations.',
       });
-
-      await expect(service.generateQuestions(JOB_ID, ORG_ID)).rejects.toThrow(
-        /Failed to generate questions/i
+      vi.mocked(prisma.jobApplicationQuestion.deleteMany).mockResolvedValueOnce({ count: 0 } as any);
+      vi.mocked(prisma.$transaction).mockImplementationOnce(async (ops: any[]) =>
+        Promise.all(ops)
       );
+
+      // Should NOT throw — uses the randomised fallback MCQ bank instead
+      await expect(service.generateQuestions(JOB_ID, ORG_ID)).resolves.not.toThrow();
     });
 
     it('throws NotFoundError when job does not exist in the org', async () => {
