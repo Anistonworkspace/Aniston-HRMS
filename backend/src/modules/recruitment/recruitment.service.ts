@@ -164,6 +164,28 @@ export class RecruitmentService {
     const app = await prisma.application.findFirst({ where: { id, jobOpening: { organizationId } } });
     if (!app) throw new NotFoundError('Application');
 
+    // State machine: validate legal transitions
+    const VALID_TRANSITIONS: Record<string, string[]> = {
+      APPLIED: ['SCREENING', 'REJECTED', 'WITHDRAWN'],
+      SCREENING: ['ASSESSMENT', 'INTERVIEW_1', 'REJECTED', 'WITHDRAWN'],
+      ASSESSMENT: ['INTERVIEW_1', 'REJECTED', 'WITHDRAWN'],
+      INTERVIEW_1: ['INTERVIEW_2', 'HR_ROUND', 'FINAL_ROUND', 'REJECTED', 'WITHDRAWN'],
+      INTERVIEW_2: ['HR_ROUND', 'FINAL_ROUND', 'REJECTED', 'WITHDRAWN'],
+      HR_ROUND: ['FINAL_ROUND', 'OFFER', 'REJECTED', 'WITHDRAWN'],
+      FINAL_ROUND: ['OFFER', 'REJECTED', 'WITHDRAWN'],
+      OFFER: ['OFFER_ACCEPTED', 'OFFER_REJECTED', 'NEGOTIATING', 'WITHDRAWN'],
+      OFFER_ACCEPTED: ['JOINED'],
+      OFFER_REJECTED: [],
+      NEGOTIATING: ['OFFER', 'REJECTED', 'WITHDRAWN'],
+      JOINED: [],
+      REJECTED: ['APPLIED'], // allow reconsideration
+      WITHDRAWN: [],
+    };
+    const allowed = VALID_TRANSITIONS[app.status] || [];
+    if (!allowed.includes(status)) {
+      throw new BadRequestError(`Cannot move from ${app.status} to ${status}. Allowed: ${allowed.join(', ') || 'none'}`);
+    }
+
     return prisma.application.update({
       where: { id },
       data: { status: status as any },
@@ -255,6 +277,20 @@ export class RecruitmentService {
     });
     if (!offer) throw new NotFoundError('Offer letter');
 
+    // State machine: validate legal offer transitions
+    const OFFER_TRANSITIONS: Record<string, string[]> = {
+      DRAFT: ['SENT'],
+      SENT: ['ACCEPTED', 'REJECTED', 'NEGOTIATING', 'EXPIRED'],
+      NEGOTIATING: ['SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED'],
+      ACCEPTED: [],  // terminal
+      REJECTED: [],  // terminal
+      EXPIRED: [],   // terminal
+    };
+    const allowedOfferStatuses = OFFER_TRANSITIONS[offer.status] || [];
+    if (!allowedOfferStatuses.includes(status)) {
+      throw new BadRequestError(`Cannot transition offer from ${offer.status} to ${status}. Allowed: ${allowedOfferStatuses.join(', ') || 'none (terminal state)'}`);
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       const updatedOffer = await tx.offerLetter.update({
         where: { id: offerId },
@@ -344,7 +380,7 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
 
     let parsed: any;
     try {
-      const content = aiResponse.content || '';
+      const content = (aiResponse.data || aiResponse.content || '') as string;
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
     } catch (parseErr) {
@@ -369,12 +405,11 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
     let scoreResult: any;
 
     try {
-      // Call the AI service for resume scoring
       const response = await fetch(`${aiServiceUrl}/ai/scoring/resume`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': process.env.AI_SERVICE_API_KEY || 'dev-ai-key',
+          ...(process.env.AI_SERVICE_API_KEY ? { 'X-API-Key': process.env.AI_SERVICE_API_KEY } : {}),
         },
         body: JSON.stringify({
           resume_text: app.resumeUrl || `Candidate: ${app.candidateName}, Email: ${app.email}`,
@@ -382,6 +417,7 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
           job_title: app.jobOpening?.title || '',
           required_skills: app.jobOpening?.requirements || [],
         }),
+        signal: AbortSignal.timeout(15000),
       });
 
       if (response.ok) {
@@ -390,14 +426,23 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
         throw new Error(`AI service returned ${response.status}`);
       }
     } catch (err) {
-      // Fallback to mock scoring if AI service is unavailable
+      // Real keyword-based fallback — no random numbers
+      logger.warn('[AI Scoring] AI service unavailable, using keyword analysis:', (err as Error).message);
+      const jdText = `${app.jobOpening?.title || ''} ${app.jobOpening?.description || ''} ${(app.jobOpening?.requirements || []).join(' ')}`.toLowerCase();
+      const resumeText = (app.resumeUrl || `${app.candidateName} ${app.email}`).toLowerCase();
+
+      const STOP = new Set(['the','and','for','with','that','have','from','will']);
+      const jdWords = [...new Set(jdText.split(/\s+/).filter(w => w.length > 3 && !STOP.has(w)))].slice(0, 40);
+      const matched = jdWords.filter(w => resumeText.includes(w));
+      const matchPct = jdWords.length > 0 ? Math.round((matched.length / jdWords.length) * 100) : 0;
+
       scoreResult = {
-        overall_score: Math.round((60 + Math.random() * 30) * 10) / 10,
-        match_percentage: Math.round((50 + Math.random() * 40) * 10) / 10,
-        strengths: ['Relevant experience', 'Skills alignment', 'Education match'],
-        gaps: ['Could strengthen leadership skills'],
-        suggested_questions: ['Tell me about a challenging project', 'How do you prioritize tasks?'],
-        reasoning: 'Score generated from fallback analysis (AI service unavailable)',
+        overall_score: matchPct,
+        match_percentage: matchPct,
+        strengths: matched.slice(0, 4).map(k => `Keyword "${k}" present in resume`),
+        gaps: jdWords.filter(w => !resumeText.includes(w)).slice(0, 4).map(k => `"${k}" expected by JD — not found`),
+        suggested_questions: ['Describe your most relevant project', 'How does your experience align with this role?'],
+        reasoning: `Keyword analysis: ${matched.length}/${jdWords.length} JD keywords matched (${matchPct}%). AI service unavailable.`,
       };
     }
 
@@ -674,7 +719,7 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
   // SHARE JOB VIA EMAIL
   // ==================
 
-  async shareJobViaEmail(jobId: string, email: string, customMessage?: string) {
+  async shareJobViaEmail(jobId: string, email: string, customMessage: string | undefined, organizationId: string) {
     // Validate recipient is a proper email address
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email || !emailRegex.test(email.trim())) {
@@ -682,8 +727,8 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
     }
     email = email.trim().toLowerCase();
 
-    const job = await prisma.jobOpening.findUnique({
-      where: { id: jobId },
+    const job = await prisma.jobOpening.findFirst({
+      where: { id: jobId, organizationId },
       include: { organization: { select: { name: true } } },
     });
     if (!job) throw new NotFoundError('Job opening');

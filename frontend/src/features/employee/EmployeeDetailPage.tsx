@@ -1315,17 +1315,11 @@ interface SalaryComponent {
 const FALLBACK_DEFAULTS: SalaryComponent[] = [
   { id: 'basic', name: 'Basic Salary', amount: 0, mode: 'percent', percentValue: 50, type: 'earning', isRequired: true },
   { id: 'hra', name: 'House Rent Allowance', amount: 0, mode: 'percent', percentValue: 40, type: 'earning' },
-  { id: 'da', name: 'Dearness Allowance', amount: 0, mode: 'percent', percentValue: 10, type: 'earning' },
-  { id: 'ta', name: 'Transport Allowance', amount: 0, mode: 'fixed', percentValue: 0, type: 'earning' },
-  { id: 'specialAllowance', name: 'Special Allowance', amount: 0, mode: 'fixed', percentValue: 0, type: 'earning' },
-  { id: 'medicalAllowance', name: 'Medical Allowance', amount: 0, mode: 'fixed', percentValue: 0, type: 'earning' },
-  { id: 'lta', name: 'Leave Travel Assistance', amount: 0, mode: 'fixed', percentValue: 0, type: 'earning' },
 ];
 
-// Map component master code to legacy field names
+// Map component master code to legacy field names (for backward-compat with old saved structures)
 const CODE_TO_FIELD: Record<string, string> = {
-  BASIC: 'basic', HRA: 'hra', DA: 'da', TA: 'ta',
-  MEDICAL: 'medicalAllowance', SPECIAL: 'specialAllowance', LTA: 'lta',
+  BASIC: 'basic', HRA: 'hra',
 };
 
 /**
@@ -2144,12 +2138,17 @@ function SalaryComponentRow({
   isDeduction?: boolean;
 }) {
   if (!editing) {
+    // Always compute and show % — percent-mode components use stored %, fixed-mode components
+    // derive it from amount/monthly so HR can see the CTC split at a glance.
+    const displayPct = component.mode === 'percent' && component.percentValue > 0
+      ? component.percentValue
+      : (monthly > 0 && component.amount > 0 ? Math.round((component.amount / monthly) * 1000) / 10 : 0);
     return (
       <div className="flex justify-between items-center py-1.5">
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-gray-500">{component.name}</span>
-          {component.mode === 'percent' && component.percentValue > 0 && (
-            <span className="text-[9px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{component.percentValue}%</span>
+          {displayPct > 0 && (
+            <span className="text-[9px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{displayPct}%</span>
           )}
         </div>
         <span className={`text-sm font-mono ${isDeduction ? 'text-red-600' : component.amount > 0 ? 'text-gray-800' : 'text-gray-300'}`} data-mono>

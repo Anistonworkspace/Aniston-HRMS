@@ -264,7 +264,15 @@ export async function generatePayrollExcel(
     const eb: Record<string, number> = rec.earningsBreakdown || {};
     Object.keys(eb).forEach(k => allCompNames.add(k));
   });
-  const compNames = [...allCompNames].filter(k => k !== 'Basic' && k !== 'HRA');
+  // Exclude dedicated columns (Basic/HRA already have their own columns),
+  // both short codes AND component-master full names.
+  // Also exclude _proRation (internal metadata, not a real salary component).
+  const SHEET2_SKIP = new Set([
+    'Basic', 'basic', 'Basic Salary', 'basic salary',
+    'HRA', 'hra', 'House Rent Allowance', 'house rent allowance',
+    '_proRation',
+  ]);
+  const compNames = [...allCompNames].filter(k => !SHEET2_SKIP.has(k));
 
   ebSheet.columns = [
     { header: 'Emp Code', key: 'code', width: 12 },
@@ -300,7 +308,73 @@ export async function generatePayrollExcel(
     row.getCell(ebSheet.columnCount).font = { bold: true, color: { argb: GREEN }, size: 10 };
   });
 
-  // ===== SHEET 3: Employer Cost =====
+  // ===== SHEET 3: Deductions Breakdown =====
+  const dedSheet = workbook.addWorksheet('Deductions Breakdown', {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  });
+
+  // Collect all unique custom-deduction component names from deductionsBreakdown
+  const allDedNames = new Set<string>();
+  filteredRecords.forEach((rec: any) => {
+    const db: Record<string, number> = rec.deductionsBreakdown || {};
+    Object.keys(db).forEach(k => allDedNames.add(k));
+  });
+  const dedNames = [...allDedNames].sort();
+
+  dedSheet.columns = [
+    { header: 'Emp Code', key: 'code', width: 12 },
+    { header: 'Employee Name', key: 'name', width: 24 },
+    // Dynamic custom deduction columns
+    ...dedNames.map(d => ({ header: d, key: `ded_${d}`, width: 16 })),
+    // Statutory deductions (fixed columns)
+    { header: 'EPF (Emp)', key: 'epfEe', width: 12 },
+    { header: 'ESI (Emp)', key: 'esiEe', width: 12 },
+    { header: 'Prof Tax', key: 'pt', width: 11 },
+    { header: 'TDS', key: 'tds', width: 11 },
+    { header: 'LOP Ded.', key: 'lop', width: 12 },
+    { header: 'Total Deductions', key: 'totalDed', width: 16 },
+    { header: 'Net Salary', key: 'net', width: 14 },
+  ];
+  styleHeaderRow(dedSheet.getRow(1), RED);
+
+  filteredRecords.forEach((rec: any) => {
+    const db: Record<string, number> = rec.deductionsBreakdown || {};
+    const totalDed =
+      n(rec.epfEmployee) + n(rec.esiEmployee) +
+      n(rec.professionalTax) + n(rec.tds) + n(rec.lopDeduction) +
+      dedNames.reduce((s, k) => s + n(db[k]), 0);
+
+    const rowData: any = {
+      code: t(rec.employee?.employeeCode),
+      name: `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim() || 'N/A',
+      epfEe: n(rec.epfEmployee),
+      esiEe: n(rec.esiEmployee),
+      pt: n(rec.professionalTax),
+      tds: n(rec.tds),
+      lop: n(rec.lopDeduction),
+      totalDed,
+      net: n(rec.netSalary),
+    };
+    // Custom deduction columns — blank when this employee has no such component
+    dedNames.forEach(k => { rowData[`ded_${k}`] = k in db ? n(db[k]) : ''; });
+
+    const row = dedSheet.addRow(rowData);
+    row.font = { size: 9 };
+    // Currency format for all numeric columns starting at col 3
+    for (let col = 3; col <= dedSheet.columnCount; col++) {
+      row.getCell(col).numFmt = '₹#,##0';
+    }
+    // Highlight total-deductions cell in red, net in green
+    row.getCell(dedSheet.columnCount - 1).font = { bold: true, color: { argb: RED }, size: 10 };
+    row.getCell(dedSheet.columnCount).font = { bold: true, color: { argb: GREEN }, size: 10 };
+  });
+
+  await dedSheet.protect('aniston@payroll', {
+    selectLockedCells: true, selectUnlockedCells: true,
+    autoFilter: true, sort: true,
+  });
+
+  // ===== SHEET 4: Employer Cost =====
   const costSheet = workbook.addWorksheet('Employer Cost', {
     views: [{ state: 'frozen', ySplit: 1 }],
   });
@@ -357,7 +431,7 @@ export async function generateAttendanceSalaryExcel(
   records: any[],
   leaveData: Array<{ employeeId: string; providedL: number; leavesBalance: number; paidLeaveDays: number }>,
   attendanceDetails: Array<{ employeeId: string; presentCount: number; absentCount: number; halfDayCount: number }>,
-  paidHolidaysOnWorkDays: number,
+  orgHolidays: Array<{ date: Date | string }>,   // full month holiday list — filtered per employee below
   orgName: string
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -368,8 +442,15 @@ export async function generateAttendanceSalaryExcel(
     'July', 'August', 'September', 'October', 'November', 'December'];
   const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
 
-  const totalDaysInMonth = new Date(run.year, run.month, 0).getDate();
   const NUM_COLS = 13;
+
+  // Derive full-month paid-holiday count (for header display) and working-day numbers
+  // from the orgHolidays array passed in.
+  const WORKING_DAYS = new Set([1, 2, 3, 4, 5, 6]); // Mon–Sat; adjust if org differs
+  const paidHolidaysFullMonth = orgHolidays.filter(h => {
+    const dow = new Date(h.date).getDay();
+    return dow !== 0; // exclude Sundays — those are paid week-offs, counted separately
+  }).length;
 
   const sheet = workbook.addWorksheet('Attendance Salary', {
     views: [{ state: 'frozen', ySplit: 3 }],
@@ -384,7 +465,7 @@ export async function generateAttendanceSalaryExcel(
   sheet.addRow([
     `Total Paid Days = Present + Half×0.5 + Paid Leave + Sundays + Holidays  |  `
     + `LOP = working days with no attendance (not on leave / holiday)  |  `
-    + `Period: ${periodLabel}  |  Paid Holidays this month: ${paidHolidaysOnWorkDays}`,
+    + `Period: ${periodLabel}  |  Paid Holidays this month: ${paidHolidaysFullMonth}`,
   ]);
   sheet.getRow(2).font = { italic: true, size: 9, color: { argb: GRAY } };
   sheet.mergeCells(2, 1, 2, NUM_COLS);
@@ -424,25 +505,50 @@ export async function generateAttendanceSalaryExcel(
     const ld  = leaveMap.get(rec.employeeId) || { providedL: 0, leavesBalance: 0, paidLeaveDays: 0 };
     const att = attMap.get(rec.employeeId)   || { presentCount: 0, absentCount: 0, halfDayCount: 0 };
 
-    const workingDays  = n(rec.workingDays);                 // Mon-Sat days in month (e.g. 26 for Apr)
-    const sundaysCount = totalDaysInMonth - workingDays;     // 4 for April
-    const paidHolidays = paidHolidaysOnWorkDays;             // org holidays on Mon-Sat
-    const presentDays  = n(rec.presentDays);                 // from payroll record (actual check-ins)
-    const halfDays     = att.halfDayCount;                   // raw HALF_DAY record count
-    const paidLeave    = n(ld.paidLeaveDays);                // approved paid leave days
-    const absentDays   = att.absentCount;                    // explicit + implicit no-show LOP days
-    const lopDedDays   = n(rec.lopDays);                     // ceiling'd integer stored for payroll deduction
+    const workingDays = n(rec.workingDays); // Mon-Sat days in employee's effective period
 
-    // Additive formula — more accurate than totalDays − lopDays because lopDays
-    // is ceiled (Int DB column). Half-days contribute 0.5 each.
+    // Compute effective period for this employee (mirrors payroll service logic)
+    const startOfMonth = new Date(run.year, run.month - 1, 1);
+    const endOfMonth   = new Date(run.year, run.month, 0);
+    let effStart = new Date(startOfMonth);
+    let effEnd   = new Date(endOfMonth);
+    const joiningDate     = rec.employee?.joiningDate     ? new Date(rec.employee.joiningDate)     : null;
+    const lastWorkingDate = rec.employee?.lastWorkingDate ? new Date(rec.employee.lastWorkingDate) : null;
+    if (joiningDate && joiningDate > startOfMonth && joiningDate <= endOfMonth) effStart = new Date(joiningDate);
+    if (lastWorkingDate && lastWorkingDate >= startOfMonth && lastWorkingDate < endOfMonth) effEnd = new Date(lastWorkingDate);
+    // Paid holidays scoped to this employee's effective period only.
+    // A mid-month joiner (e.g. Apr 16) must NOT get credit for Apr 10 holiday.
+    // Must be computed BEFORE sundaysCount so we can subtract holidays from the remainder.
+    const paidHolidays = orgHolidays.filter(h => {
+      const d = new Date(h.date);
+      return d.getDay() !== 0 && d >= effStart && d <= effEnd;
+    }).length;
+
+    // Sundays = effectiveCalDays − workingDays(Mon-Sat excl. holidays) − paidHolidays.
+    // Without subtracting paidHolidays, each holiday would be counted TWICE:
+    // once inside sundaysCount (as a "non-working day") and once in paidHolidays.
+    const effectiveCalDays = Math.round((effEnd.getTime() - effStart.getTime()) / 86400000) + 1;
+    const sundaysCount = Math.max(0, effectiveCalDays - workingDays - paidHolidays);
+
+    const presentDays  = n(rec.presentDays);  // from payroll record — includes 0.5 per half-day
+    const halfDays     = att.halfDayCount;    // raw HALF_DAY record count (display only)
+    const paidLeave    = n(ld.paidLeaveDays); // approved paid leave days
+    const absentDays   = att.absentCount;     // explicit + implicit no-show LOP days
+    const lopDedDays   = n(rec.lopDays);      // total LOP stored for payroll deduction
+
+    // Total paid days: additive formula.
+    // presentDays already includes 0.5 per half-day (stored by payroll service as a Decimal).
+    // Do NOT add halfDays * 0.5 separately — that would double-count every half-day.
     const totalPaidDays = Math.max(0,
-      presentDays + (halfDays * 0.5) + paidLeave + sundaysCount + paidHolidays
+      presentDays + paidLeave + sundaysCount + paidHolidays
     );
 
-    // Cross-check: working days accounted for = present + half + leave + absent
-    const formulaCheck = presentDays + halfDays + paidLeave + absentDays;
-    const formulaOk    = Math.abs(formulaCheck - (workingDays - paidHolidays)) <= 1
-      ? '✓' : `Check: ${formulaCheck} vs ${workingDays - paidHolidays}`;
+    // Cross-check: present + paidLeave + LOP must equal working days.
+    // presentDays already includes the half-day contribution (0.5 per half-day),
+    // so again do NOT add halfDays * 0.5 here — it is already inside presentDays.
+    const formulaCheck = presentDays + paidLeave + lopDedDays;
+    const formulaOk    = Math.abs(formulaCheck - workingDays) <= 1
+      ? '✓' : `Check: ${formulaCheck} vs ${workingDays}`;
 
     totWorkDays   += workingDays;
     totSundays    += sundaysCount;

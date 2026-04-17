@@ -173,7 +173,9 @@ router.get('/runs/:id/attendance-export',
         prisma.leaveRequest.findMany({
           where: {
             employeeId: { in: empIds },
-            status: 'APPROVED',
+            // Match the same 3-status set used by processPayroll so the attendance
+            // Excel shows the same paid leave days that were deducted from LOP.
+            status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
             startDate: { lte: endOfMonth },
             endDate: { gte: startOfMonth },
             leaveType: { isPaid: true },
@@ -193,8 +195,7 @@ router.get('/runs/:id/attendance-export',
         }),
       ]);
 
-      // Paid holidays = holidays that fall on Mon-Sat (working days); Sundays counted separately
-      const paidHolidaysOnWorkDays = monthHolidays.filter(h => new Date(h.date).getDay() !== 0).length;
+      // Pass the raw holiday list — Excel generator filters per employee's effective period
 
       // Build per-employee leave data
       const leaveData = empIds.map((empId: string) => {
@@ -226,7 +227,7 @@ router.get('/runs/:id/attendance-export',
         where: { id: req.user!.organizationId }, select: { name: true },
       });
       const { generateAttendanceSalaryExcel } = await import('../../utils/payrollExcelExporter.js');
-      const buffer = await generateAttendanceSalaryExcel(run, records, leaveData, attendanceDetails, paidHolidaysOnWorkDays, org?.name || 'Aniston Technologies LLP');
+      const buffer = await generateAttendanceSalaryExcel(run, records, leaveData, attendanceDetails, monthHolidays, org?.name || 'Aniston Technologies LLP');
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="attendance-salary-${monthNames[run.month - 1]}-${run.year}.xlsx"`);
@@ -375,7 +376,9 @@ router.post('/runs/:id/send-email',
         prisma.leaveBalance.findMany({ where: { employeeId: { in: empIds }, year: run.year } }),
         prisma.leaveRequest.findMany({
           where: {
-            employeeId: { in: empIds }, status: 'APPROVED',
+            employeeId: { in: empIds },
+            // Match the same 3-status set used by processPayroll
+            status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
             startDate: { lte: endOfMonth }, endDate: { gte: startOfMonth },
             leaveType: { isPaid: true },
           },
@@ -392,7 +395,7 @@ router.post('/runs/:id/send-email',
         }),
       ]);
 
-      const paidHolidaysOnWorkDays2 = monthHolidays2.filter(h => new Date(h.date).getDay() !== 0).length;
+      // Pass raw holiday list — Excel generator filters per employee's effective period
 
       const leaveData = empIds.map((empId: string) => {
         const balances = leaveBalances.filter((b: any) => b.employeeId === empId);
@@ -418,7 +421,7 @@ router.post('/runs/:id/send-email',
 
       const [payrollBuffer, attendanceBuffer, bankBuffer] = await Promise.all([
         generatePayrollExcel(run, records, org.name || 'Aniston Technologies LLP'),
-        generateAttendanceSalaryExcel(run, records, leaveData, attendanceDetails, paidHolidaysOnWorkDays2, org.name || 'Aniston Technologies LLP'),
+        generateAttendanceSalaryExcel(run, records, leaveData, attendanceDetails, monthHolidays2, org.name || 'Aniston Technologies LLP'),
         generateBankFileExcel(run, records, org.name || 'Aniston Technologies LLP'),
       ]);
 

@@ -1,5 +1,5 @@
 export const CONFIG = {
-  API_URL: process.env.ANISTON_API_URL || 'http://localhost:4000/api',
+  API_URL: 'https://hr.anistonav.com/api',
   TRACKING_INTERVAL_MS: 30_000,         // 30 seconds — check active window
   SCREENSHOT_INTERVAL_MS: 600_000,      // 10 minutes — take screenshot (overridden by live mode)
   SYNC_INTERVAL_MS: 60_000,             // 1 minute — sync heartbeat batch to server

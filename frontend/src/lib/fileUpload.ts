@@ -76,7 +76,7 @@ export function validateFile(
   file: File,
   options: { maxSizeMB?: number; allowedTypes?: string[] } = {}
 ): string | null {
-  const { maxSizeMB = 10, allowedTypes } = options;
+  const { maxSizeMB = 100, allowedTypes } = options;
 
   if (file.size > maxSizeMB * 1024 * 1024) {
     return `File size exceeds ${maxSizeMB}MB limit`;

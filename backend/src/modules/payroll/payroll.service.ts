@@ -712,7 +712,18 @@ export class PayrollService {
     // Pre-fetch attendance data in batch
     const startDate = new Date(run.year, run.month - 1, 1);
     const endDate = new Date(run.year, run.month, 0);
-    const totalWorkingDays = countWorkingDaysInRange(startDate, endDate, orgWorkingDayNums, new Set());
+
+    // Fetch holidays FIRST so totalWorkingDays excludes them — keeps the pro-ration
+    // denominator consistent with empWorkingDays (which also excludes holidays).
+    // Without this, a month with 1 holiday gives ratio = 25/26 = 0.96 for full-month
+    // employees instead of the correct 1.0.
+    const holidaysEarly = await prisma.holiday.findMany({
+      where: { organizationId, date: { gte: startDate, lte: endDate } },
+      select: { date: true },
+    }).catch(() => []);
+    const holidayDatesEarly = new Set(holidaysEarly.map(h => new Date(h.date).toISOString().split('T')[0]));
+
+    const totalWorkingDays = countWorkingDaysInRange(startDate, endDate, orgWorkingDayNums, holidayDatesEarly);
     const empIds = employees.filter(e => e.salaryStructure).map(e => e.id);
 
     const allAttendance = await prisma.attendanceRecord.findMany({
@@ -761,12 +772,8 @@ export class PayrollService {
       adjustmentsByEmp.get(adj.employeeId)!.push(adj);
     }
 
-    // Pre-fetch holidays for the month
-    const holidays = await prisma.holiday.findMany({
-      where: { organizationId, date: { gte: startDate, lte: endDate } },
-      select: { date: true },
-    }).catch(() => []);
-    const holidayDates = new Set(holidays.map(h => new Date(h.date).toISOString().split('T')[0]));
+    // Reuse holiday set fetched earlier (before totalWorkingDays)
+    const holidayDates = holidayDatesEarly;
 
     // componentMasterAll was already fetched above for F5 auto-create; reuse it here
     const componentMaster = componentMasterAll;
@@ -831,10 +838,15 @@ export class PayrollService {
             if (!paidLeaveDates.has(ds) && !holidayDates.has(ds)) lopDays++;
           }
 
-          // Layer 2: half-days contribute 0.5 LOP each
+          // Layer 2: half-days contribute 0.5 LOP each — unless covered by paid leave.
+          // (e.g. employee takes a half-day paid leave: HALF_DAY attendance + approved leave
+          // for the same date → only 0 LOP, not 0.5)
           for (const rec of halfDayRecords) {
             const recDate = new Date(rec.date);
-            if (recDate >= effectiveStart && recDate <= effectiveEnd) lopDays += 0.5;
+            if (recDate >= effectiveStart && recDate <= effectiveEnd) {
+              const ds = recDate.toISOString().split('T')[0];
+              if (!paidLeaveDates.has(ds)) lopDays += 0.5;
+            }
           }
 
           // Layer 3: working days (per org schedule) with NO record, not on paid leave, not holiday
@@ -897,9 +909,9 @@ export class PayrollService {
           const earningsTotal      = sumComponentsByType(components, 'earning');
           const componentDeductions = sumComponentsByType(components, 'deduction');
 
-          const dailyRate    = empWorkingDays > 0 ? earningsTotal / empWorkingDays : 0;
-          const lopDeduction = Math.round(dailyRate * lopDays);
-          const paidOffBonus = Math.round(dailyRate * paidOffDaysWorked); // e.g. Sunday bonus for Mon-Sat org
+          const dailyRate        = empWorkingDays > 0 ? earningsTotal / empWorkingDays : 0;
+          const rawLopDeduction  = Math.round(dailyRate * lopDays);
+          const paidOffBonus     = Math.round(dailyRate * paidOffDaysWorked); // e.g. Sunday bonus for Mon-Sat org
 
           // ── Statutory deductions ─────────────────────────────────────────────
           // Per-employee exemption flags take precedence over org defaults.
@@ -914,8 +926,10 @@ export class PayrollService {
             ?? sal.incomeTaxRegime
             ?? orgDefaultTaxRegime;
 
-          // Pro-rate TDS: if employee joined/exiting mid-financial-year, spread tax over remaining months
-          const tdsBaseDate = joiningDate && joiningDate > startDate ? joiningDate : run.processedAt ?? startDate;
+          // Pro-rate TDS: spread tax over remaining financial-year months from the employee's
+          // actual start date. run.processedAt is NULL during DRAFT status, so never use it
+          // as the base — it would silently fall back to month start instead of joining date.
+          const tdsBaseDate = joiningDate && joiningDate > startDate ? joiningDate : startDate;
           const tdsMonths = remainingFinancialYearMonths(tdsBaseDate);
 
           // Statutory config: use stored config if present, else build from org defaults
@@ -949,21 +963,25 @@ export class PayrollService {
             recProfTax     = stat.professionalTax;
             recTds         = stat.tds;
           } else {
-            // Custom salary: use stored statutory values but still apply exemptions + regime choice
+            // Custom salary: use stored statutory values, pro-rated for partial months, with exemptions.
             if (exemptions.epfExempt) {
               recEpfEmployee = 0; recEpfEmployer = 0;
             } else {
-              recEpfEmployee = Number(sal.pfEmployee || 0);
-              recEpfEmployer = Number(sal.pfEmployer || 0);
+              // EPF is % of basic — scale by pro-ration ratio so mid-month joiners/exits
+              // don't pay a full month's EPF on a partial-month gross.
+              recEpfEmployee = Math.round(Number(sal.pfEmployee || 0) * proRationRatio);
+              recEpfEmployer = Math.round(Number(sal.pfEmployer || 0) * proRationRatio);
             }
             if (exemptions.esiExempt) {
               recEsiEmployee = 0; recEsiEmployer = 0;
             } else {
-              recEsiEmployee = Number(sal.esiEmployee || 0);
-              recEsiEmployer = Number(sal.esiEmployer || 0);
+              // ESI is % of gross — same pro-ration applies.
+              recEsiEmployee = Math.round(Number(sal.esiEmployee || 0) * proRationRatio);
+              recEsiEmployer = Math.round(Number(sal.esiEmployer || 0) * proRationRatio);
             }
+            // PT: fixed monthly slab amount — NOT pro-rated (standard Indian payroll practice).
             recProfTax = exemptions.ptExempt ? 0 : Number(sal.professionalTax || 0);
-            // Re-compute TDS with regime choice + pro-ration even for custom employees
+            // TDS: re-computed with regime choice + pro-ration even for custom employees.
             recTds = calculateTDS(Number(sal.ctc) * proRationRatio, taxRegime, tdsMonths);
           }
 
@@ -981,13 +999,12 @@ export class PayrollService {
 
           const adjustedGross = earningsTotal + paidOffBonus + adjustmentAdditions;
           const deductions    = componentDeductions + statutoryDeductions + adjustmentDeductions;
-          const netSalaryRaw  = adjustedGross - deductions - lopDeduction;
-          const netSalary     = Math.max(netSalaryRaw, 0);
-
-          // ── Warning: LOP wipes out entire salary ──────────────────────────────
-          if (netSalaryRaw < 0) {
-            console.warn(`[Payroll] Employee ${(emp as any).employeeCode} net salary negative (${netSalaryRaw}): lopDeduction=${lopDeduction}, gross=${adjustedGross}. Capped at 0.`);
-          }
+          // Cap LOP so it never exceeds what's left after statutory deductions.
+          // Without this, payroll records show lopDeduction > netSalary, which is
+          // misleading and makes Excel reconciliation impossible.
+          const maxLop        = Math.max(0, adjustedGross - deductions);
+          const lopDeduction  = Math.min(rawLopDeduction, maxLop);
+          const netSalary     = Math.max(adjustedGross - deductions - lopDeduction, 0);
 
           // ── Bank details check ────────────────────────────────────────────────
           if (netSalary > 0 && !((emp as any).bankAccountNumber && (emp as any).ifscCode)) {
@@ -1020,6 +1037,10 @@ export class PayrollService {
 
           const basicComp = findComponent(components, 'Basic') || findComponent(components, 'Basic Salary');
           const hraComp   = findComponent(components, 'HRA')   || findComponent(components, 'House Rent Allowance');
+
+          // Guard: delete any existing record before creating (no @@unique on schema,
+          // so re-processing the same run would otherwise create duplicate rows).
+          await tx.payrollRecord.deleteMany({ where: { payrollRunId: runId, employeeId: emp.id } });
 
           await tx.payrollRecord.create({
             data: {
@@ -1213,6 +1234,7 @@ export class PayrollService {
           select: {
             firstName: true, lastName: true, employeeCode: true,
             isSystemAccount: true,
+            joiningDate: true, lastWorkingDate: true,
             department: { select: { name: true } },
             bankAccountNumber: true, bankName: true, ifscCode: true,
             accountHolderName: true, accountType: true,

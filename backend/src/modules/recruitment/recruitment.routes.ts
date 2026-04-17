@@ -143,7 +143,7 @@ router.post('/jobs/:jobId/share-email', authenticate, authorize(Role.SUPER_ADMIN
       email: z.string().email(),
       message: z.string().optional(),
     }).parse(req.body);
-    const result = await recruitmentService.shareJobViaEmail(req.params.jobId, email, message);
+    const result = await recruitmentService.shareJobViaEmail(req.params.jobId, email, message, req.user!.organizationId);
     res.json({ success: true, data: result, message: 'Job link sent via email' });
   } catch (err) { next(err); }
 });

@@ -441,7 +441,7 @@ function Step2({ form, updateForm, tempId }: { form: FormData; updateForm: any; 
 
   const handleRealUpload = async (field: keyof FormData, file: File) => {
     const validationError = validateFile(file, {
-      maxSizeMB: 5,
+      maxSizeMB: 50,
       allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/jpg', 'application/pdf'],
     });
     if (validationError) {
@@ -728,7 +728,7 @@ function Step4({ form, updateForm, tempId }: { form: FormData; updateForm: any; 
 
   const handleResumeUpload = async (file: File) => {
     const validationError = validateFile(file, {
-      maxSizeMB: 5,
+      maxSizeMB: 50,
       allowedTypes: [
         'application/pdf',
         'application/msword',
@@ -815,7 +815,7 @@ function Step4({ form, updateForm, tempId }: { form: FormData; updateForm: any; 
           <div>
             <Upload className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <p className="text-lg font-medium text-gray-600">Tap to upload your resume</p>
-            <p className="text-sm text-gray-400 mt-1">PDF or DOC, max 5MB</p>
+            <p className="text-sm text-gray-400 mt-1">PDF or DOC, max 50MB</p>
           </div>
         )}
       </div>

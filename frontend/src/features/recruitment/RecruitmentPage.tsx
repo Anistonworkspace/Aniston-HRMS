@@ -133,11 +133,11 @@ function JobOpeningsTab() {
   const [shareJob, setShareJob] = useState<any>(null);
   const { data: jobsRes, isLoading } = useGetJobOpeningsQuery({
     page: 1, limit: 50, status: statusFilter || undefined, search: search || undefined,
-  });
+  }, { pollingInterval: 30_000 });
   const [updateJob] = useUpdateJobMutation();
   const [deleteJob] = useDeleteJobMutation();
   const [generateQuestions] = useGenerateJobQuestionsMutation();
-  const { data: pipelineData } = useGetPipelineStatsQuery();
+  const { data: pipelineData } = useGetPipelineStatsQuery(undefined, { pollingInterval: 30_000 });
   const navigate = useNavigate();
   const jobs = jobsRes?.data || [];
 
@@ -669,8 +669,8 @@ function WalkInTab() {
   const { data, isLoading, refetch } = useGetAllWalkInsQuery({
     search: search || undefined, status: statusFilter || undefined,
     dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, page, limit: 20,
-  });
-  const { data: statsRes } = useGetWalkInStatsQuery();
+  }, { pollingInterval: 30_000 });
+  const { data: statsRes } = useGetWalkInStatsQuery(undefined, { pollingInterval: 30_000 });
   const candidates = data?.data || [];
   const meta = data?.meta;
   const stats = statsRes?.data || {};
@@ -1869,7 +1869,7 @@ function InterviewRoundCard({ round, onScore, onDelete }: { round: any; onScore:
 function AIScreenedTab() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
-  const { data: res, isLoading } = useGetPublicApplicationsQuery({ page, limit: 20 });
+  const { data: res, isLoading } = useGetPublicApplicationsQuery({ page, limit: 20 }, { pollingInterval: 30_000 });
   const applications = res?.data || [];
   const meta = res?.meta;
 

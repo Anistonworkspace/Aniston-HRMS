@@ -118,18 +118,18 @@ export const uploadImage = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-/** Generic document uploads (employee docs, KYC fallback). 10 MB. */
+/** Generic document uploads (employee docs, KYC fallback). 100 MB. */
 export const uploadDocument = multer({
   storage: diskStorageFor(StorageFolder.EMPLOYEE_DOCUMENTS),
   fileFilter: documentFilter,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
 });
 
-/** Policy document uploads. 10 MB. Lands in policies/ subfolder. */
+/** Policy document uploads. 100 MB. Lands in policies/ subfolder. */
 export const uploadPolicy = multer({
   storage: diskStorageFor(StorageFolder.POLICIES),
   fileFilter: documentFilter,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
 });
 
 /**
@@ -142,22 +142,22 @@ export const uploadBranding = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-/** Resume uploads (single). 5 MB. Lands in resumes/ subfolder. */
+/** Resume uploads (single). 50 MB. Lands in resumes/ subfolder. */
 export const uploadResume = multer({
   storage: diskStorageFor(StorageFolder.EMPLOYEE_DOCUMENTS),
   fileFilter: resumeFilter,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
 });
 
 /**
  * Bulk resume uploads (up to 50 files).
- * Lands in resumes/bulk/ subfolder. 10 MB per file.
+ * Lands in resumes/bulk/ subfolder. 100 MB per file.
  * Use: uploadBulkResumes(req, res, cb) — already bound to .array('resumes', 50).
  */
 const _bulkResumeMulter = multer({
   storage: diskStorageFor(StorageFolder.RESUMES_BULK),
   fileFilter: resumeFilter,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
 });
 export const uploadBulkResumes = _bulkResumeMulter.array('resumes', 50);
 

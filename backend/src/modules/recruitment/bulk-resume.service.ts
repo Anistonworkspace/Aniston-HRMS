@@ -1,7 +1,10 @@
+import fs from 'fs';
+import path from 'path';
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { enqueueBulkResume } from '../../jobs/queues.js';
 import { storageService, StorageFolder } from '../../services/storage.service.js';
+import { logger } from '../../lib/logger.js';
 
 export class BulkResumeService {
   async uploadBulkResumes(
@@ -10,7 +13,7 @@ export class BulkResumeService {
     uploadedBy: string,
     organizationId: string
   ) {
-    const job = await prisma.jobOpening.findUnique({ where: { id: jobOpeningId } });
+    const job = await prisma.jobOpening.findFirst({ where: { id: jobOpeningId, organizationId } });
     if (!job) throw new NotFoundError('Job opening');
 
     // Create upload record
@@ -24,12 +27,13 @@ export class BulkResumeService {
       },
     });
 
-    // Create items for each file
-    const items = await Promise.all(
+    // Create items for each file (in transaction for atomicity)
+    const items = await prisma.$transaction(
       files.map((file) =>
         prisma.bulkResumeItem.create({
           data: {
             bulkUploadId: upload.id,
+            organizationId,
             fileName: file.originalname,
             fileUrl: storageService.buildUrl(StorageFolder.RESUMES_BULK, file.filename),
             status: 'PENDING',
@@ -38,7 +42,7 @@ export class BulkResumeService {
       )
     );
 
-    // Enqueue processing job
+    // Enqueue processing job (BullMQ picks this up in resume.worker.ts)
     await enqueueBulkResume(upload.id, organizationId, uploadedBy);
 
     return { upload, items };
@@ -67,7 +71,18 @@ export class BulkResumeService {
     });
   }
 
-  async processResumeItem(itemId: string, jobDescription: string, jobRequirements: string[]) {
+  /**
+   * Process a single resume item using the real public-apply scoring pipeline.
+   * Uses pdf-parse → AI OCR fallback → AI service scoring → keyword-match fallback.
+   * No random/mock data is ever produced.
+   */
+  async processResumeItem(
+    itemId: string,
+    jobDescription: string,
+    jobTitle: string,
+    jobRequirements: string[],
+    organizationId: string
+  ) {
     const item = await prisma.bulkResumeItem.findUnique({ where: { id: itemId } });
     if (!item) throw new NotFoundError('Resume item');
 
@@ -77,72 +92,84 @@ export class BulkResumeService {
     });
 
     try {
-      // Try AI service first
-      const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-      const filePath = storageService.resolvePath(item.fileUrl);
+      // ── Resolve file buffer from disk or URL ─────────────────────────────
+      let buffer: Buffer;
 
-      let result: any;
-      try {
-        const response = await fetch(`${aiServiceUrl}/ai/score-resume`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fileUrl: item.fileUrl,
-            fileName: item.fileName,
-            jobDescription,
-            requirements: jobRequirements.join(', '),
-          }),
-        });
+      if (item.fileUrl.startsWith('http://') || item.fileUrl.startsWith('https://')) {
+        const res = await fetch(item.fileUrl, { signal: AbortSignal.timeout(30_000) });
+        if (!res.ok) throw new Error(`Failed to fetch resume from URL: ${item.fileUrl}`);
+        buffer = Buffer.from(await res.arrayBuffer());
+      } else {
+        // Local file — try multiple resolution strategies
+        const candidates = [
+          item.fileUrl,
+          path.resolve(process.cwd(), item.fileUrl.replace(/^\/+/, '')),
+          path.resolve(process.cwd(), '..', item.fileUrl.replace(/^\/+/, '')),
+          path.resolve(process.cwd(), 'uploads', path.basename(item.fileUrl)),
+        ];
 
-        if (response.ok) {
-          result = await response.json();
-        } else {
-          throw new Error('AI service returned error');
+        let resolvedPath: string | undefined;
+        for (const candidate of candidates) {
+          if (fs.existsSync(candidate)) { resolvedPath = candidate; break; }
         }
-      } catch {
-        // Fallback: basic mock scoring
-        result = this.mockScoreResume(item.fileName, jobRequirements);
+        if (!resolvedPath) throw new Error(`Resume file not found on disk: ${item.fileUrl}`);
+        buffer = fs.readFileSync(resolvedPath);
       }
+
+      // ── Score via full pipeline (same as public apply candidate submission) ──
+      const { publicApplyService } = await import('../public-apply/public-apply.service.js');
+      const result = await publicApplyService.scoreResumeBuffer(
+        buffer,
+        item.fileName,
+        jobDescription,
+        jobTitle,
+        jobRequirements,
+        organizationId
+      );
 
       await prisma.bulkResumeItem.update({
         where: { id: itemId },
         data: {
-          candidateName: result.candidateName || item.fileName.replace(/\.[^.]+$/, ''),
+          candidateName: result.candidateName || item.fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
           email: result.email || null,
           phone: result.phone || null,
-          aiScore: result.aiScore || 0,
-          aiScoreDetails: result.breakdown || result,
+          aiScore: result.matchScore != null ? result.matchScore : null,
+          atsScore: result.atsScore != null ? result.atsScore : null,
+          aiScoreDetails: {
+            strengths: result.strengths,
+            gaps: result.gaps,
+            summary: result.summary,
+            atsScoreData: result.atsScoreData ?? null,
+            parseMethod: result.parseMethod,
+          },
+          resumeText: result.resumeText ? result.resumeText.slice(0, 5000) : null,
+          matchedKeywords: result.matchedKeywords,
+          missingKeywords: result.missingKeywords,
           status: 'SCORED',
         },
       });
 
-      return result;
+      return {
+        candidateName: result.candidateName || item.fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+        email: result.email || null,
+        phone: result.phone || null,
+        aiScore: result.matchScore ?? 0,
+        atsScore: result.atsScore ?? null,
+        strengths: result.strengths,
+        gaps: result.gaps,
+        summary: result.summary,
+        matchedKeywords: result.matchedKeywords,
+        missingKeywords: result.missingKeywords,
+        parseMethod: result.parseMethod,
+      };
     } catch (error: any) {
+      logger.error(`[BulkResume] Failed to score item ${itemId} (${item.fileName}): ${error.message}`);
       await prisma.bulkResumeItem.update({
         where: { id: itemId },
-        data: { status: 'FAILED', errorMessage: error.message },
+        data: { status: 'FAILED', errorMessage: error.message?.slice(0, 500) || 'Processing failed' },
       });
       throw error;
     }
-  }
-
-  private mockScoreResume(fileName: string, requirements: string[]) {
-    // Basic mock scoring when AI is unavailable
-    const name = fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
-    const score = Math.floor(Math.random() * 40) + 50; // 50-90 range
-    return {
-      candidateName: name,
-      email: null,
-      phone: null,
-      aiScore: score,
-      breakdown: {
-        skillsMatch: Math.floor(score * 0.4),
-        experience: Math.floor(score * 0.3),
-        education: Math.floor(score * 0.2),
-        presentation: Math.floor(score * 0.1),
-      },
-      summary: `Resume processed with mock scoring (AI service unavailable). Score: ${score}/100`,
-    };
   }
 
   async createApplicationFromItem(itemId: string, jobOpeningId: string) {
@@ -179,12 +206,10 @@ export class BulkResumeService {
     });
     if (!upload) throw new NotFoundError('Bulk upload');
 
-    // Delete files from disk
     for (const item of upload.items) {
-      await storageService.deleteFile(item.fileUrl);
+      try { await storageService.deleteFile(item.fileUrl); } catch { /* best-effort */ }
     }
 
-    // Delete items then upload from DB
     await prisma.bulkResumeItem.deleteMany({ where: { bulkUploadId: uploadId } });
     await prisma.bulkResumeUpload.delete({ where: { id: uploadId } });
     return { deleted: true };
@@ -194,9 +219,7 @@ export class BulkResumeService {
     const item = await prisma.bulkResumeItem.findUnique({ where: { id: itemId } });
     if (!item) throw new NotFoundError('Resume item');
 
-    // Delete file from disk
-    await storageService.deleteFile(item.fileUrl);
-
+    try { await storageService.deleteFile(item.fileUrl); } catch { /* best-effort */ }
     await prisma.bulkResumeItem.delete({ where: { id: itemId } });
     return { deleted: true };
   }

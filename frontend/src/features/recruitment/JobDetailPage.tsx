@@ -17,8 +17,8 @@ export default function JobDetailPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
 
-  const { data: jobData, isLoading: jobLoading } = useGetJobByIdQuery(jobId!);
-  const { data: appsData, isLoading: appsLoading } = useGetApplicationsQuery({ jobId: jobId! });
+  const { data: jobData, isLoading: jobLoading } = useGetJobByIdQuery(jobId!, { pollingInterval: 30_000 });
+  const { data: appsData, isLoading: appsLoading } = useGetApplicationsQuery({ jobId: jobId! }, { pollingInterval: 15_000 });
 
   const job = jobData?.data;
   const applications = appsData?.data || job?.applications || [];

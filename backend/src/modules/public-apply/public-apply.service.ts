@@ -251,8 +251,25 @@ function shuffleAndPick<T>(arr: T[], n: number): T[] {
 }
 
 /**
+ * Stable deterministic ID for a fallback question derived from its text.
+ * Using the same question text always produces the same ID, so the ID is
+ * consistent between the form-generation call and the scoring call even
+ * though the shuffle order differs between the two.
+ */
+function stableQuestionId(questionText: string): string {
+  // djb2-style hash, fast and collision-resistant enough for 30 questions
+  let h = 5381;
+  for (let i = 0; i < questionText.length; i++) {
+    h = (Math.imul(h, 33) ^ questionText.charCodeAt(i)) >>> 0;
+  }
+  return 'fq-' + h.toString(36);
+}
+
+/**
  * Build a randomised set of fallback questions (2 per category = 6 total).
  * Returns them without correctOption so they are safe to expose to candidates.
+ * IDs are derived from question text (stable) — NOT from shuffle position —
+ * so the same question always has the same ID regardless of call order.
  */
 function buildFallbackQuestions(withIds: boolean): any[] {
   const intQ = shuffleAndPick(FALLBACK_MCQ_BANK.INTELLIGENCE, 2);
@@ -260,8 +277,8 @@ function buildFallbackQuestions(withIds: boolean): any[] {
   const enQ = shuffleAndPick(FALLBACK_MCQ_BANK.ENERGY, 2);
   const all = shuffleAndPick([...intQ, ...intgQ, ...enQ], 6); // also shuffle order between categories
 
-  return all.map((q, i) => ({
-    ...(withIds ? { id: `fallback-${i}` } : {}),
+  return all.map((q) => ({
+    ...(withIds ? { id: stableQuestionId(q.questionText) } : {}),
     questionText: q.questionText,
     optionA: q.optionA,
     optionB: q.optionB,
@@ -583,6 +600,23 @@ export class PublicApplyService {
       }
     }
 
+    // Send confirmation email to candidate
+    if (data.email) {
+      try {
+        await enqueueEmail({
+          to: data.email,
+          subject: `Application Received: ${job.title} at Aniston Technologies`,
+          template: 'generic',
+          context: {
+            title: 'Application Received!',
+            message: `Dear ${data.candidateName},<br><br>Thank you for applying for the <strong>${job.title}</strong> position.<br><br>Your application ID is: <strong>${application.uid}</strong><br><br>Track your application status at: <a href="https://hr.anistonav.com/track/${application.uid}">https://hr.anistonav.com/track/${application.uid}</a><br><br>We will review your application and get back to you shortly.<br><br>— HR Team, Aniston Technologies LLP`,
+          },
+        });
+      } catch (emailErr) {
+        logger.warn('[PublicApply] Failed to send confirmation email:', emailErr);
+      }
+    }
+
     return {
       candidateUid: application.candidateUid,
       uid: application.uid,
@@ -656,15 +690,19 @@ export class PublicApplyService {
     }
 
     // ── Step 3: AI OCR fallback for image-based PDFs ─────────────────────────
+    // Always try OCR when pdf-parse yields < 50 chars — the AI service runs
+    // without an API key on production (Python skips auth when key is empty).
     if (resumeText.length < 50) {
       try {
         const aiServiceUrl = process.env.AI_SERVICE_URL;
-        const aiApiKey = process.env.AI_SERVICE_API_KEY;
-        if (aiServiceUrl && aiApiKey) {
+        const aiApiKey = process.env.AI_SERVICE_API_KEY || '';
+        if (aiServiceUrl) {
           const base64 = buffer.toString('base64');
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (aiApiKey) headers['X-API-Key'] = aiApiKey;
           const ocrRes = await fetch(`${aiServiceUrl}/ai/ocr/extract-text`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-API-Key': aiApiKey },
+            headers,
             body: JSON.stringify({ file_base64: base64, file_type: 'pdf' }),
             signal: AbortSignal.timeout(15000),
           });
@@ -811,12 +849,14 @@ ${resumeText.slice(0, 4000)}`;
     if (resumeText.length < 50) {
       try {
         const aiServiceUrl = process.env.AI_SERVICE_URL;
-        const aiApiKey = process.env.AI_SERVICE_API_KEY;
-        if (aiServiceUrl && aiApiKey) {
+        const aiApiKey = process.env.AI_SERVICE_API_KEY || '';
+        if (aiServiceUrl) {
           const base64 = buffer.toString('base64');
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (aiApiKey) headers['X-API-Key'] = aiApiKey;
           const ocrRes = await fetch(`${aiServiceUrl}/ai/ocr/extract-text`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-API-Key': aiApiKey },
+            headers,
             body: JSON.stringify({ file_base64: base64, file_type: 'pdf' }),
             signal: AbortSignal.timeout(15000),
           });
@@ -1155,8 +1195,8 @@ Return JSON: {"whatsappDraft":"...","emailSubject":"...","emailBody":"..."}`;
   }
 
   async generateInterviewQuestions(roundId: string, organizationId: string) {
-    const round = await prisma.interviewRound.findUnique({
-      where: { id: roundId },
+    const round = await prisma.interviewRound.findFirst({
+      where: { id: roundId, organizationId },
       include: { application: { include: { jobOpening: true } } },
     });
     if (!round) throw new NotFoundError('Round not found');
@@ -1191,9 +1231,8 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
 
   async scoreRound(roundId: string, score: number, feedback: string, userId: string, organizationId: string) {
     if (score < 0 || score > 100) throw new BadRequestError('Score must be between 0 and 100');
-    const round = await prisma.interviewRound.findUnique({ where: { id: roundId } });
+    const round = await prisma.interviewRound.findFirst({ where: { id: roundId, organizationId } });
     if (!round) throw new NotFoundError('Round not found');
-    if (round.organizationId !== organizationId) throw new NotFoundError('Round not found');
     return prisma.interviewRound.update({
       where: { id: roundId },
       data: { score, feedback, status: 'COMPLETED_ROUND', completedAt: new Date() },
@@ -1265,8 +1304,61 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
             },
           });
         }
+
+        // Auto-create onboarding invitation
+        try {
+          const dept = app.jobOpening?.department
+            ? await prisma.department.findFirst({
+                where: { organizationId, name: app.jobOpening.department, deletedAt: null },
+                select: { id: true },
+              })
+            : null;
+
+          const inviteToken = crypto.randomBytes(32).toString('hex');
+          await prisma.employeeInvitation.create({
+            data: {
+              email: app.email!,
+              role: 'EMPLOYEE',
+              departmentId: dept?.id || null,
+              invitedBy: userId,
+              organizationId,
+              status: 'PENDING',
+              expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+              inviteToken,
+            },
+          });
+
+          await enqueueEmail({
+            to: app.email!,
+            subject: 'Complete Your Onboarding — Aniston Technologies',
+            template: 'onboarding-invite',
+            context: {
+              name: app.candidateName || 'Candidate',
+              link: `https://hr.anistonav.com/onboarding/invite/${inviteToken}`,
+            },
+          });
+          logger.info(`[PublicApply] Auto-invite sent to ${app.email} on SELECTED`);
+        } catch (inviteErr) {
+          logger.warn('[PublicApply] Auto-invite failed (non-blocking):', inviteErr);
+        }
       } catch (err) {
         logger.error('[PublicApply] Error sending congratulations email:', err);
+      }
+    }
+
+    if (finalStatus === 'REJECTED' && app.email) {
+      try {
+        await enqueueEmail({
+          to: app.email,
+          subject: `Update on your application: ${app.jobOpening.title}`,
+          template: 'generic',
+          context: {
+            title: 'Application Status Update',
+            message: `Dear ${app.candidateName},<br><br>Thank you for your interest in the <strong>${app.jobOpening.title}</strong> position and for taking the time to go through our selection process.<br><br>After careful consideration, we regret to inform you that we will not be moving forward with your application at this time.<br><br>We appreciate the effort you put into the process and encourage you to apply again for future openings that match your profile.<br><br>We wish you all the best in your career journey.<br><br>— HR Team, Aniston Technologies LLP`,
+          },
+        });
+      } catch (err) {
+        logger.error('[PublicApply] Error sending rejection email:', err);
       }
     }
 

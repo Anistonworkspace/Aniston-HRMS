@@ -34,8 +34,8 @@ const STATUS_BADGE: Record<string, { label: string; class: string }> = {
 
 const ROUND_STATUS_BADGE: Record<string, { label: string; class: string }> = {
   PENDING_ROUND: { label: 'Pending', class: 'bg-gray-100 text-gray-600' },
-  COMPLETED: { label: 'Completed', class: 'bg-emerald-50 text-emerald-600' },
-  CANCELLED: { label: 'Cancelled', class: 'bg-red-50 text-red-500' },
+  IN_PROGRESS_ROUND: { label: 'In Progress', class: 'bg-blue-50 text-blue-600' },
+  COMPLETED_ROUND: { label: 'Completed', class: 'bg-emerald-50 text-emerald-600' },
 };
 
 const PROMPT_SUGGESTIONS = [
@@ -76,7 +76,7 @@ export default function PublicApplicationDetailPage() {
   const user = useAppSelector(s => s.auth.user);
   const isHR = user?.role ? HR_ROLES.includes(user.role) : false;
 
-  const { data, isLoading, refetch } = useGetPublicApplicationDetailQuery(id!);
+  const { data, isLoading, refetch } = useGetPublicApplicationDetailQuery(id!, { pollingInterval: 30_000 });
   const [finalizeCandidate, { isLoading: isFinalizing }] = useFinalizeCandidateMutation();
   const [scheduleInterview, { isLoading: isScheduling }] = useScheduleInterviewMutation();
   const [scoreRound, { isLoading: isScoring }] = useScoreRoundMutation();
@@ -137,7 +137,7 @@ export default function PublicApplicationDetailPage() {
 
   /* Determine if user is an assigned interviewer for an active round */
   const activeRoundForUser = app.interviewRounds?.find(
-    (r: any) => r.conductedBy === user?.id && ['PENDING_ROUND', 'IN_PROGRESS'].includes(r.status)
+    (r: any) => r.conductedBy === user?.id && ['PENDING_ROUND', 'IN_PROGRESS_ROUND'].includes(r.status)
   );
 
   return (
@@ -391,7 +391,7 @@ export default function PublicApplicationDetailPage() {
                     </details>
                   )}
                   {/* HR actions per round */}
-                  {isHR && round.status === 'PENDING_ROUND' && (
+                  {isHR && ['PENDING_ROUND', 'IN_PROGRESS_ROUND'].includes(round.status) && (
                     <div className="flex gap-2 mt-3">
                       <button onClick={() => handleGenerateQuestions(round.id)} disabled={isGenerating}
                         className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1">

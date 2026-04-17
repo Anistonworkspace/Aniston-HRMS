@@ -306,9 +306,7 @@ jobs:
         run: npx electron-builder --win --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Bug #1: Bake production API URL into installer so agents point at production
-          # Override via ANISTON_API_URL GitHub secret to use a custom URL
-          ANISTON_API_URL: ${{ secrets.ANISTON_API_URL || 'https://hr.anistonav.com/api' }}
+          # API URL is now hardcoded to https://hr.anistonav.com/api in config.ts
           # Optional: TURN server for enterprise NAT traversal (set in GitHub secrets if needed)
           ANISTON_TURN_URL: ${{ secrets.ANISTON_TURN_URL || '' }}
           ANISTON_TURN_USERNAME: ${{ secrets.ANISTON_TURN_USERNAME || '' }}
@@ -513,7 +511,25 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            echo "=== [4/16] Setting production domain + encryption key ==="
+            echo "=== [3.5/17] Restarting Docker services (postgres + redis) for clean state ==="
+            cd /home/ubuntu/Aniston-HRMS/docker
+            sudo docker compose restart postgres redis 2>/dev/null \
+              || sudo docker-compose restart postgres redis 2>/dev/null \
+              || echo "⚠️  Docker restart failed (containers may not be running yet — will start in step 8)"
+            # Wait up to 30s for postgres to be healthy after restart
+            echo "Waiting for PostgreSQL to become ready..."
+            for i in $(seq 1 10); do
+              sleep 3
+              if sudo docker compose exec -T postgres pg_isready -U postgres 2>/dev/null \
+                 || sudo docker-compose exec -T postgres pg_isready -U postgres 2>/dev/null; then
+                echo "✅ PostgreSQL ready after $((i*3))s"
+                break
+              fi
+              echo "  [$((i*3))s] waiting for postgres..."
+            done
+            cd /home/ubuntu/Aniston-HRMS
+
+            echo "=== [4/17] Setting production domain + encryption key ==="
             sed -i '/FRONTEND_URL/d' .env 2>/dev/null || true
             sed -i '/API_URL/d' .env 2>/dev/null || true
             sed -i -e '$a\' .env 2>/dev/null || true
@@ -524,26 +540,26 @@ jobs:
             sed -i '/^AI_SERVICE_URL=/d' .env 2>/dev/null || true
             echo 'AI_SERVICE_URL=http://localhost:8000' >> .env
 
-            echo "=== [5/16] Installing Node.js dependencies ==="
+            echo "=== [5/17] Installing Node.js dependencies ==="
             export SCARF_ANALYTICS=false
             npm ci || (echo "Retrying npm ci..." && rm -rf node_modules && npm ci)
             node -e "import('tar').then(t => console.log('✅ tar package OK:', typeof t.create)).catch(e => console.error('❌ tar missing:', e.message))" || true
 
-            echo "=== [5.5/16] Pre-migration: add new NOT NULL columns via prisma db execute ==="
+            echo "=== [5.5/17] Pre-migration: add new NOT NULL columns via prisma db execute ==="
             echo "QUxURVIgVEFCTEUgIkJ1bGtSZXN1bWVJdGVtIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgIm9yZ2FuaXphdGlvbklkIiBURVhUIE5PVCBOVUxMIERFRkFVTFQgJyc7ClVQREFURSAiQnVsa1Jlc3VtZUl0ZW0iIGJyaSBTRVQgIm9yZ2FuaXphdGlvbklkIiA9IGJydS4ib3JnYW5pemF0aW9uSWQiIEZST00gIkJ1bGtSZXN1bWVVcGxvYWQiIGJydSBXSEVSRSBicmkuImJ1bGtVcGxvYWRJZCIgPSBicnUuaWQgQU5EIGJyaS4ib3JnYW5pemF0aW9uSWQiID0gJyc7CkFMVEVSIFRBQkxFICJCdWxrUmVzdW1lSXRlbSIgQUxURVIgQ09MVU1OICJvcmdhbml6YXRpb25JZCIgRFJPUCBERUZBVUxUOwpBTFRFUiBUQUJMRSAiQnVsa1Jlc3VtZUl0ZW0iIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAidXBkYXRlZEF0IiBUSU1FU1RBTVAoMykgTk9UIE5VTEwgREVGQVVMVCBOT1coKTsKQUxURVIgVEFCTEUgIkJ1bGtSZXN1bWVJdGVtIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgImF0c1Njb3JlIiBERUNJTUFMKDUsMik7CkFMVEVSIFRBQkxFICJCdWxrUmVzdW1lSXRlbSIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJyZXN1bWVUZXh0IiBURVhUOwpBTFRFUiBUQUJMRSAiQnVsa1Jlc3VtZUl0ZW0iIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAibWF0Y2hlZEtleXdvcmRzIiBURVhUW10gTk9UIE5VTEwgREVGQVVMVCBBUlJBWVtdOjpURVhUW107CkFMVEVSIFRBQkxFICJCdWxrUmVzdW1lSXRlbSIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJtaXNzaW5nS2V5d29yZHMiIFRFWFRbXSBOT1QgTlVMTCBERUZBVUxUIEFSUkFZW106OlRFWFRbXTsKQUxURVIgVEFCTEUgIlB1YmxpY0FwcGxpY2F0aW9uIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgInJlc3VtZVRleHQiIFRFWFQ7CkFMVEVSIFRBQkxFICJQdWJsaWNBcHBsaWNhdGlvbiIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJtYXRjaGVkS2V5d29yZHMiIFRFWFRbXSBOT1QgTlVMTCBERUZBVUxUIEFSUkFZW106OlRFWFRbXTsKQUxURVIgVEFCTEUgIlB1YmxpY0FwcGxpY2F0aW9uIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgIm1pc3NpbmdLZXl3b3JkcyIgVEVYVFtdIE5PVCBOVUxMIERFRkFVTFQgQVJSQVlbXTo6VEVYVFtdOwpBTFRFUiBUQUJMRSAiUHVibGljQXBwbGljYXRpb24iIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAiYXRzU2NvcmUiIERPVUJMRSBQUkVDSVNJT047CkFMVEVSIFRBQkxFICJQdWJsaWNBcHBsaWNhdGlvbiIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJhdHNTY29yZURhdGEiIEpTT05COwpBTFRFUiBUQUJMRSAiUHVibGljQXBwbGljYXRpb24iIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAidXNlZEZhbGxiYWNrUXVlc3Rpb25zIiBCT09MRUFOIE5PVCBOVUxMIERFRkFVTFQgRkFMU0U7" | base64 -d > /tmp/premigrate.sql
             npx --no-install prisma db execute --schema prisma/schema.prisma --file /tmp/premigrate.sql && echo "Pre-migration columns ensured" || echo "Pre-migration note: some columns may already exist (safe to ignore)"
 
-            echo "=== [6/16] Syncing database schema ==="
+            echo "=== [6/17] Syncing database schema ==="
             npx --no-install prisma db push --accept-data-loss || {
               echo "WARNING: Schema push failed. Trying without flag..."
               npx --no-install prisma db push 2>/dev/null || echo "Schema push skipped (schema may already be up to date)"
             }
 
-            echo "=== [7/16] Generating Prisma client (after schema sync) ==="
+            echo "=== [7/17] Generating Prisma client (after schema sync) ==="
             npx --no-install prisma generate
             echo "✅ Prisma client regenerated"
 
-            echo "=== [8/16] Building & starting AI service (Docker + OCR) ==="
+            echo "=== [8/17] Building & starting AI service (Docker + OCR) ==="
 
             # Install tesseract + poppler on the host so the Node.js fallback also works
             sudo apt-get install -y -qq --fix-missing tesseract-ocr tesseract-ocr-eng poppler-utils || true
@@ -603,17 +619,17 @@ jobs:
               echo "combined KYC PDFs will be marked PENDING for manual HR review."
             fi
 
-            echo "=== [9/16] Cleanup scripts ==="
+            echo "=== [9/17] Cleanup scripts ==="
             npx tsx scripts/cleanup-employees.ts || echo "Cleanup completed (or already clean)"
             npx tsx scripts/cleanup-holidays.ts || echo "Holiday cleanup skipped"
 
-            echo "=== [10/16] Seeding database ==="
+            echo "=== [10/17] Seeding database ==="
             npx --no-install prisma db seed || echo "Seed completed (or already seeded)"
 
-            echo "=== [11/16] Building frontend ==="
+            echo "=== [11/17] Building frontend ==="
             cd frontend && VITE_API_URL=/api npx vite build && cd ..
 
-            echo "=== [12/16] Semantic versioning + OTA bundle ==="
+            echo "=== [12/17] Semantic versioning + OTA bundle ==="
             # Entire step runs in a subshell — any failure exits the subshell only,
             # never the outer deployment script. No set +e needed.
             (
@@ -645,33 +661,33 @@ jobs:
               chmod 755 downloads app-updates 2>/dev/null || true
             ) || echo "WARNING: OTA versioning step failed (non-blocking) — deployment continues"
 
-            echo "=== [13/16] Verifying app binaries ==="
+            echo "=== [13/17] Verifying app binaries ==="
             ls -lh downloads/aniston-hrms.apk 2>/dev/null && echo "✅ Android APK present" || echo "ℹ️  Android APK not yet uploaded (will appear after first successful android build)"
             ls -lh uploads/ios-builds/*.ipa 2>/dev/null && echo "✅ iOS IPA present" || echo "ℹ️  iOS IPA not yet uploaded"
             ls -lh downloads/agent/agent-build/aniston-agent-setup.exe 2>/dev/null && echo "✅ Agent .exe present" || echo "ℹ️  Agent installer not yet uploaded (will appear after first successful windows build)"
 
-            echo "=== [14/16] Updating Nginx config ==="
+            echo "=== [14/17] Updating Nginx config ==="
             sudo cp /home/ubuntu/Aniston-HRMS/deploy/nginx.conf /etc/nginx/sites-available/hr.anistonav.com
             sudo ln -sf /etc/nginx/sites-available/hr.anistonav.com /etc/nginx/sites-enabled/hr.anistonav.com
             sudo nginx -t && sudo systemctl reload nginx || echo "WARNING: Nginx reload failed"
 
-            echo "=== [15/16] Checking uploads directory ==="
+            echo "=== [15/17] Checking uploads directory ==="
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads/backups
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads/tmp
             mkdir -p /home/ubuntu/Aniston-HRMS/downloads/agent/agent-build
 
-            echo "=== [15.5/16] Setting server timezone to UTC ==="
+            echo "=== [15.5/17] Setting server timezone to UTC ==="
             sudo timedatectl set-timezone UTC || true
             echo "Server time: $(date)"
 
-            echo "=== [16/16] Restarting backend via PM2 ==="
+            echo "=== [16/17] Restarting backend via PM2 ==="
             mkdir -p /home/ubuntu/Aniston-HRMS/logs
-            # pm2 reload = graceful zero-downtime restart (waits for new process ready before killing old)
+            # pm2 restart = full stop+start to ensure all new code + env changes take effect
             # Falls back to fresh start if app is not yet registered (first deploy)
             if pm2 show aniston-hrms > /dev/null 2>&1; then
-              pm2 reload aniston-hrms --update-env
-              echo "✅ Backend reloaded (zero-downtime)"
+              pm2 restart aniston-hrms --update-env
+              echo "✅ Backend restarted"
             else
               echo "ℹ️  App not found in PM2 — starting fresh via ecosystem config"
               pm2 start ecosystem.config.cjs --env production 2>/dev/null || \
@@ -687,7 +703,7 @@ jobs:
               if [ "$STATUS" = "ok" ]; then echo "✅ Backend is live!"; break; fi
             done
 
-            echo "=== Health checks ==="
+            echo "=== [17/17] Health checks ==="
             echo "Backend API:"
             curl -s http://localhost:4000/api/health | python3 -c "import sys,json; d=json.load(sys.stdin); print('Status:', d.get('data',{}).get('status','?'))" || curl -s http://localhost:4000/api/health
             echo ""

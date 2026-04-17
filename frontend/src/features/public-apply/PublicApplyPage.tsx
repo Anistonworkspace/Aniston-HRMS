@@ -176,8 +176,8 @@ export default function PublicApplyPage() {
       toast.error('Only PDF files are accepted');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('File size must be under 5MB');
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error('File size must be under 50MB');
       return;
     }
     setResumeFile(file);
@@ -560,7 +560,7 @@ export default function PublicApplyPage() {
           >
             <h2 className="text-lg font-semibold text-gray-800 mb-2">Upload Resume</h2>
             <p className="text-sm text-gray-500 mb-6">
-              Upload your resume in PDF format (max 5MB). This step is optional but recommended — your resume will be analyzed against the job description.
+              Upload your resume in PDF format (max 50MB). This step is optional but recommended — your resume will be analyzed against the job description using AI OCR.
             </p>
 
             {!noResume && (
@@ -577,7 +577,7 @@ export default function PublicApplyPage() {
                       Drag & drop your resume here
                     </p>
                     <p className="text-xs text-gray-400 mt-1">or click to browse</p>
-                    <p className="text-xs text-gray-400 mt-2">PDF only, max 5MB</p>
+                    <p className="text-xs text-gray-400 mt-2">PDF only, max 50MB — AI OCR handles scanned documents</p>
                     <input
                       ref={fileInputRef}
                       type="file"

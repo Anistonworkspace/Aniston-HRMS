@@ -1,6 +1,6 @@
 {
   "name": "aniston-agent",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Aniston HRMS Desktop Activity Agent",
   "main": "dist/main.js",
   "author": "Aniston Technologies LLP",

@@ -306,9 +306,9 @@ function Step3Documents({ onSave, saving }: { onSave: (data: any) => void; savin
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>, docType: string, docName: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // Validate file size (10MB max)
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error('File size must be under 10MB');
+    // Validate file size (100MB max for high-quality scanned documents)
+    if (file.size > 100 * 1024 * 1024) {
+      toast.error('File size must be under 100MB');
       return;
     }
     handleFileUpload(file, docType, docName);

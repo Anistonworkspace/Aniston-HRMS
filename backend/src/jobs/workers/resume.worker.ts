@@ -23,7 +23,7 @@ const resumeWorker = new Worker(
       where: { id: uploadId },
       include: {
         items: true,
-        jobOpening: { select: { title: true, description: true, requirements: true } },
+        jobOpening: { select: { id: true, title: true, description: true, requirements: true } },
       },
     });
 
@@ -32,16 +32,19 @@ const resumeWorker = new Worker(
     }
 
     const jobDescription = upload.jobOpening.description;
+    const jobTitle = upload.jobOpening.title;
     const jobRequirements = upload.jobOpening.requirements;
     let processedCount = 0;
 
-    // Process each item
+    // Process each item — uses real OCR + AI scoring pipeline (no mock/random data)
     for (const item of upload.items) {
       try {
         const result = await bulkResumeService.processResumeItem(
           item.id,
           jobDescription,
-          jobRequirements
+          jobTitle,
+          jobRequirements,
+          organizationId
         );
 
         processedCount++;
