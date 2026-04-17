@@ -348,6 +348,18 @@ def detect_document_type(text: str) -> str:
         "class 10", "class-10", "std x", "std. x",
         "board of secondary education",               # Various state boards
         "board of school education",
+        # Common vernacular / scan-text variants missed by formal phrases
+        "marksheet",          # "10th Marksheet", "SSC Marksheet", etc.
+        "mark sheet",         # space-separated variant
+        "10th standard",      # Karnataka / Maharashtra / AP usage
+        "tenth standard",     # spelled-out variant
+        "10th class",         # common colloquial usage
+        "tenth class",
+        "std. 10", "std 10",  # "Std. 10" printed on many state board certs
+        "std-10",
+        "x standard",         # Tamil Nadu boards
+        "10th",               # bare numeric — last resort catch-all
+        "tenth",              # bare spelled-out — last resort catch-all
     ]
     if any(kw in text_norm for kw in tenth_keywords):
         return "TENTH_CERTIFICATE"
