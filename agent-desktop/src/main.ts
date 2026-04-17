@@ -3,7 +3,7 @@ import Store from 'electron-store';
 import AutoLaunch from 'auto-launch';
 import { CONFIG } from './config';
 import { ipcMain } from 'electron';
-import { pairWithCode, setTokens, sendHeartbeat, isLoggedIn, getAgentConfig } from './api';
+import { pairWithCode, setTokens, sendHeartbeat, isLoggedIn, getAgentConfig, UnauthorizedError } from './api';
 import { startTracking, stopTracking, getBuffer } from './tracker';
 import { startScreenshots, stopScreenshots, updateActiveWindow, updateInterval } from './screenshot';
 import { createTray, updateTrayMenu, showPairWindow, closePairWindow, sendPairError } from './tray';
@@ -25,14 +25,18 @@ const autoLauncher = new AutoLaunch({
 });
 
 let syncInterval: NodeJS.Timeout | null = null;
+let isRepairing = false; // guard against concurrent re-pair attempts
 
 async function handlePair() {
+  if (isRepairing) return;
+  isRepairing = true;
   try {
     const code = await showPairWindow();
     const result = await pairWithCode(code);
 
-    // Save token
+    // Persist both tokens — refresh token enables silent renewal (30-day window)
     store.set('accessToken', result.accessToken);
+    store.set('refreshToken', result.refreshToken || ''); // Bug #8: persist refresh token
     store.set('userEmail', result.user?.email || '');
     store.set('paired', true);
     closePairWindow();
@@ -44,6 +48,8 @@ async function handlePair() {
     const msg = (err as Error).message;
     console.error('[Pair] Error:', msg);
     sendPairError(msg || 'Pairing failed. Try generating a new code.');
+  } finally {
+    isRepairing = false;
   }
 }
 
@@ -51,7 +57,7 @@ function handleLogout() {
   stopTracking();
   stopScreenshots();
   stopSyncLoop();
-  setTokens('');
+  setTokens('', '');
   store.clear();
   updateTrayMenu(handlePair, handleLogout);
   // Re-show pairing window
@@ -103,21 +109,42 @@ function connectAgentSocket() {
     handleSignalingMessage(data);
   });
 
+  // Bug #10: Live mode toggled by admin — immediately apply new screenshot interval
+  // (agent also polls /config every 30s as fallback, but this gives instant response)
+  agentSocket.on('agent:config-update', (data: { liveMode: boolean; intervalSeconds: number }) => {
+    console.log('[Socket] Config update received:', data);
+    if (data.liveMode && data.intervalSeconds) {
+      updateInterval(data.intervalSeconds * 1000);
+    } else if (!data.liveMode) {
+      updateInterval(600_000); // restore default 10-minute interval
+    }
+  });
+
   agentSocket.on('disconnect', () => {
     console.log('[Socket] Agent disconnected');
   });
 }
 
-// Forward WebRTC signals from renderer to server
+// Bug #2: Forward WebRTC signals from renderer to server
 ipcMain.on('webrtc-signal', (_, data) => {
   if (agentSocket?.connected) {
     agentSocket.emit('stream:signal', data);
   }
 });
 
+// Bug #2: Forward WebRTC errors from renderer to admin via server
+ipcMain.on('webrtc-error', (_, data: { message: string; adminSocketId?: string }) => {
+  console.error('[Stream] WebRTC renderer error:', data.message);
+  if (agentSocket?.connected) {
+    agentSocket.emit('stream:agent-error', {
+      message: data.message,
+      targetSocketId: data.adminSocketId,
+    });
+  }
+});
+
 function startConfigPoll() {
   if (configPollInterval) return;
-  // Poll config every 30 seconds to detect live mode changes
   configPollInterval = setInterval(async () => {
     if (!isLoggedIn()) return;
     try {
@@ -126,9 +153,9 @@ function startConfigPoll() {
         updateInterval(config.screenshotIntervalSeconds * 1000);
       }
     } catch {
-      // Config poll failed — non-critical
+      // Config poll failed — non-critical, socket event is primary delivery
     }
-  }, 30_000);
+  }, CONFIG.CONFIG_POLL_INTERVAL_MS);
 }
 
 function startSyncLoop() {
@@ -143,6 +170,17 @@ function startSyncLoop() {
       const last = activities[activities.length - 1];
       if (last) updateActiveWindow(last.activeApp, last.activeWindow);
     } catch (err) {
+      // Bug #8: Token truly expired (access + refresh both failed) — clear and re-pair
+      if (err instanceof UnauthorizedError) {
+        console.warn('[Sync] Token expired — clearing credentials and prompting re-pair');
+        store.delete('accessToken');
+        store.delete('refreshToken');
+        setTokens('', '');
+        stopSyncLoop();
+        agentSocket?.disconnect();
+        handlePair();
+        return;
+      }
       console.error('[Sync] Failed:', (err as Error).message);
     }
   }, CONFIG.SYNC_INTERVAL_MS);
@@ -157,18 +195,23 @@ function stopSyncLoop() {
 
 async function verifyStoredToken(): Promise<boolean> {
   const savedToken = store.get('accessToken') as string | undefined;
+  const savedRefreshToken = store.get('refreshToken') as string | undefined;
   if (!savedToken) return false;
 
-  setTokens(savedToken);
+  // Bug #8: restore both tokens so authFetch can silently refresh if access token expired
+  setTokens(savedToken, savedRefreshToken || undefined);
 
   // Verify token actually works by calling agent config
   try {
     await getAgentConfig();
     return true;
-  } catch {
-    // Token invalid/expired — clear it
-    store.clear();
-    setTokens('');
+  } catch (err) {
+    if (err instanceof UnauthorizedError) {
+      // Token invalid/expired — clear stored credentials
+      store.delete('accessToken');
+      store.delete('refreshToken');
+      setTokens('', '');
+    }
     return false;
   }
 }

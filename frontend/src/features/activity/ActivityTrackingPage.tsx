@@ -5,7 +5,7 @@ import {
   Wifi, WifiOff, ChevronLeft, ChevronRight, X, Maximize2, Radio, Globe,
 } from 'lucide-react';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
-import { useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery, useSetAgentLiveModeMutation, useGetAgentLiveModeQuery } from '../attendance/attendanceApi';
+import { useGetActivityBulkSummaryQuery, useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery, useSetAgentLiveModeMutation, useGetAgentLiveModeQuery, useGetEmployeeAgentStatusQuery } from '../attendance/attendanceApi';
 import { getInitials, cn } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent, getSocket } from '../../lib/socket';
 
@@ -19,6 +19,10 @@ export default function ActivityTrackingPage() {
 
   const { data: empRes, isLoading: loadingEmps } = useGetEmployeesQuery({ page: 1, limit: 100 });
   const employees = empRes?.data || [];
+
+  // Bug #9: Single query for all employees' activity summaries — replaces per-row N+1 API calls
+  const { data: bulkSummaryRes } = useGetActivityBulkSummaryQuery({ date: selectedDate }, { pollingInterval: 60_000 });
+  const bulkSummary = bulkSummaryRes?.data;
 
   // All employees are trackable (enterprise agent setup)
   const trackableEmployees = employees;
@@ -80,7 +84,7 @@ export default function ActivityTrackingPage() {
                   key={emp.id}
                   employee={emp}
                   isSelected={selectedEmployee?.id === emp.id}
-                  date={selectedDate}
+                  bulkSummary={bulkSummary}
                   onClick={() => setSelectedEmployee(emp)}
                 />
               ))
@@ -123,14 +127,13 @@ export default function ActivityTrackingPage() {
 }
 
 // ---------- Employee Row with live status ----------
-function EmployeeRow({ employee, isSelected, date, onClick }: {
-  employee: any; isSelected: boolean; date: string; onClick: () => void;
+// Bug #9: uses shared bulkSummary (one query for all rows) instead of per-row API calls
+function EmployeeRow({ employee, isSelected, bulkSummary, onClick }: {
+  employee: any; isSelected: boolean;
+  bulkSummary: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number }> | undefined;
+  onClick: () => void;
 }) {
-  const { data: activityRes, isError } = useGetEmployeeActivityLogsQuery(
-    { employeeId: employee.id, date },
-    { pollingInterval: 60000 } // refresh every minute
-  );
-  const summary = activityRes?.data?.summary;
+  const summary = bulkSummary?.[employee.id];
   const hasActivity = summary && summary.logCount > 0;
 
   return (
@@ -148,9 +151,7 @@ function EmployeeRow({ employee, isSelected, date, onClick }: {
         <p className="text-[10px] text-gray-400">{employee.employeeCode} · {employee.workMode}</p>
       </div>
       <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-        {isError ? (
-          <span className="text-[9px] text-red-400">Error</span>
-        ) : hasActivity ? (
+        {hasActivity ? (
           <>
             <div className="flex items-center gap-1">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -171,6 +172,7 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
   employee: any; date: string; onScreenshotClick: (url: string) => void;
 }) {
   const [viewMode, setViewMode] = useState<'activity' | 'live'>('activity');
+  const employeeUserId: string | undefined = employee?.user?.id;
   const { data: activityRes, isLoading: loadingActivity, isError: activityError } = useGetEmployeeActivityLogsQuery(
     { employeeId: employee.id, date },
     { pollingInterval: viewMode === 'live' ? 10000 : 30000 } // faster poll in live mode
@@ -220,7 +222,7 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
 
       {/* Live Feed Mode */}
       {viewMode === 'live' && (
-        <LiveFeedPanel employeeId={employee.id} screenshots={screenshots} onScreenshotClick={onScreenshotClick} />
+        <LiveFeedPanel employeeId={employee.id} employeeUserId={employeeUserId} screenshots={screenshots} onScreenshotClick={onScreenshotClick} />
       )}
 
       {viewMode === 'activity' && (loadingActivity ? (
@@ -323,8 +325,8 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
 }
 
 // ---------- Live Feed Panel ----------
-function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
-  employeeId: string; screenshots: any[]; onScreenshotClick: (url: string) => void;
+function LiveFeedPanel({ employeeId, employeeUserId, screenshots, onScreenshotClick }: {
+  employeeId: string; employeeUserId: string | undefined; screenshots: any[]; onScreenshotClick: (url: string) => void;
 }) {
   const [liveData, setLiveData] = useState<any>(null);
   const [feedLog, setFeedLog] = useState<any[]>([]);
@@ -436,7 +438,7 @@ function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
       )}
 
       {/* Live Video Stream */}
-      <LiveVideoStream employeeId={employeeId} />
+      <LiveVideoStream employeeId={employeeId} employeeUserId={employeeUserId} />
 
       {/* Latest Screenshot (auto-refreshes every 10s via polling) */}
       <div className="layer-card p-4">
@@ -501,56 +503,83 @@ function LiveFeedPanel({ employeeId, screenshots, onScreenshotClick }: {
 }
 
 // ---------- Live Video Stream (WebRTC) ----------
-function LiveVideoStream({ employeeId }: { employeeId: string }) {
+function LiveVideoStream({ employeeId, employeeUserId }: { employeeId: string; employeeUserId: string | undefined }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const agentSocketIdRef = useRef<string | null>(null);
   const signalHandlerRef = useRef<((data: any) => void) | null>(null);
+  const streamErrorHandlerRef = useRef<((data: any) => void) | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Get the employee's userId for socket targeting
-  const { data: empRes } = useGetEmployeesQuery({ page: 1, limit: 100 });
-  const employee = (empRes?.data || []).find((e: any) => e.id === employeeId);
-  const employeeUserId = employee?.user?.id;
+  // Poll agent status so we know before attempting stream (15s interval when idle)
+  const { data: agentStatusRes } = useGetEmployeeAgentStatusQuery(employeeId, {
+    pollingInterval: 15000,
+    skip: !employeeId,
+  });
+  const agentIsActive = agentStatusRes?.data?.isActive ?? false;
+  const lastHeartbeat = agentStatusRes?.data?.lastHeartbeat;
 
   // Cleanup on unmount — ensures no leaked listeners, timers, or peer connections
   useEffect(() => {
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       const socket = getSocket();
-      if (socket && signalHandlerRef.current) {
-        socket.off('stream:signal', signalHandlerRef.current);
+      if (socket) {
+        if (signalHandlerRef.current) socket.off('stream:signal', signalHandlerRef.current);
+        if (streamErrorHandlerRef.current) socket.off('stream:error', streamErrorHandlerRef.current);
       }
-      if (pcRef.current) {
-        pcRef.current.close();
-        pcRef.current = null;
-      }
+      if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
     };
   }, []);
 
+  const stopLiveStream = useCallback(() => {
+    const socket = getSocket();
+    if (socket && employeeUserId) {
+      socket.emit('stream:stop-request', { employeeUserId });
+    }
+    if (socket) {
+      if (signalHandlerRef.current) { socket.off('stream:signal', signalHandlerRef.current); signalHandlerRef.current = null; }
+      if (streamErrorHandlerRef.current) { socket.off('stream:error', streamErrorHandlerRef.current); streamErrorHandlerRef.current = null; }
+    }
+    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+    if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setStreaming(false);
+    setConnecting(false);
+  }, [employeeUserId]);
+
   const startLiveStream = useCallback(() => {
     if (!employeeUserId) {
-      setError('Employee user ID not found');
+      setError('Employee user account not found');
       return;
     }
 
     setConnecting(true);
     setError(null);
     const socket = getSocket();
-    if (!socket) {
-      setError('Socket not connected');
+    if (!socket || !socket.connected) {
+      setError('Real-time connection unavailable. Please refresh the page.');
       setConnecting(false);
       return;
     }
 
-    // Clean up previous signal handler if any
-    if (signalHandlerRef.current) {
-      socket.off('stream:signal', signalHandlerRef.current);
-    }
+    // Clean up previous handlers
+    if (signalHandlerRef.current) socket.off('stream:signal', signalHandlerRef.current);
+    if (streamErrorHandlerRef.current) socket.off('stream:error', streamErrorHandlerRef.current);
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
+    // Handle immediate error from server (agent offline)
+    const handleStreamError = (data: any) => {
+      if (data.employeeUserId === employeeUserId) {
+        setError(data.message || 'Agent is not connected');
+        setConnecting(false);
+      }
+    };
+    streamErrorHandlerRef.current = handleStreamError;
+    socket.on('stream:error', handleStreamError);
 
     // Create RTCPeerConnection
     const pc = new RTCPeerConnection({
@@ -561,7 +590,6 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
     });
     pcRef.current = pc;
 
-    // Handle incoming video stream
     pc.ontrack = (event) => {
       if (videoRef.current && event.streams[0]) {
         videoRef.current.srcObject = event.streams[0];
@@ -571,7 +599,6 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
       }
     };
 
-    // Send ICE candidates to agent
     pc.onicecandidate = (event) => {
       if (event.candidate) {
         socket.emit('stream:signal', {
@@ -585,11 +612,10 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
         setStreaming(false);
-        setError('Stream disconnected');
+        setError('Stream disconnected — agent may have gone offline');
       }
     };
 
-    // Listen for WebRTC signals from agent
     const handleSignal = (data: any) => {
       if (data.type === 'offer' && data.sdp) {
         agentSocketIdRef.current = data.fromSocketId;
@@ -603,22 +629,17 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
               targetSocketId: data.fromSocketId,
             });
           })
-          .catch(() => {
-            setError('Failed to establish connection');
-            setConnecting(false);
-          });
+          .catch(() => { setError('WebRTC negotiation failed'); setConnecting(false); });
       } else if (data.type === 'ice-candidate' && data.candidate) {
         pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {});
       }
     };
-
     signalHandlerRef.current = handleSignal;
     socket.on('stream:signal', handleSignal);
 
-    // Request stream from agent
     socket.emit('stream:request', { employeeUserId });
 
-    // Timeout after 15 seconds — properly cleared on success or unmount
+    // Timeout only fires if neither stream:error nor stream:start responds
     timeoutRef.current = setTimeout(() => {
       setConnecting(prev => {
         if (prev) {
@@ -630,29 +651,9 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
     }, 15000);
   }, [employeeUserId]);
 
-  const stopLiveStream = useCallback(() => {
-    const socket = getSocket();
-    if (socket && employeeUserId) {
-      socket.emit('stream:stop-request', { employeeUserId });
-    }
-    if (socket && signalHandlerRef.current) {
-      socket.off('stream:signal', signalHandlerRef.current);
-      signalHandlerRef.current = null;
-    }
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    if (pcRef.current) {
-      pcRef.current.close();
-      pcRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setStreaming(false);
-    setConnecting(false);
-  }, [employeeUserId]);
+  const lastSeenText = lastHeartbeat
+    ? `Last seen ${new Date(lastHeartbeat).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`
+    : 'Never connected';
 
   return (
     <div className="layer-card p-4">
@@ -661,10 +662,24 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
           <Radio size={12} className={streaming ? 'text-red-500 animate-pulse' : 'text-gray-400'} />
           Live Screen
           {streaming && <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded-full font-bold animate-pulse">LIVE</span>}
+          {!streaming && (
+            <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full font-medium ml-1',
+              agentIsActive ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500')}>
+              {agentIsActive ? 'Agent Online' : 'Agent Offline'}
+            </span>
+          )}
         </h4>
         {!streaming && !connecting ? (
-          <button onClick={startLiveStream}
-            className="px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors flex items-center gap-1">
+          <button
+            onClick={startLiveStream}
+            disabled={!agentIsActive}
+            title={!agentIsActive ? `Desktop agent is offline. ${lastSeenText}` : 'Start live stream'}
+            className={cn(
+              'px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1 transition-colors',
+              agentIsActive
+                ? 'text-white bg-red-600 hover:bg-red-700'
+                : 'text-gray-400 bg-gray-100 cursor-not-allowed'
+            )}>
             <Radio size={12} /> Start Live Stream
           </button>
         ) : (
@@ -674,6 +689,13 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
           </button>
         )}
       </div>
+
+      {!agentIsActive && !streaming && (
+        <div className="mb-3 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          <WifiOff size={12} className="flex-shrink-0" />
+          <span>Desktop agent is not running. {lastSeenText}. Ask the employee to start the Aniston desktop agent.</span>
+        </div>
+      )}
 
       <div className="relative bg-gray-900 rounded-lg overflow-hidden" style={{ aspectRatio: '16/9' }}>
         <video ref={videoRef} autoPlay playsInline muted
@@ -688,10 +710,13 @@ function LiveVideoStream({ employeeId }: { employeeId: string }) {
                 <p className="text-gray-400 text-xs mt-1">Waiting for agent to respond</p>
               </div>
             ) : error ? (
-              <div className="text-center">
+              <div className="text-center px-6">
+                <WifiOff size={28} className="mx-auto text-red-400 mb-2" />
                 <p className="text-red-400 text-sm mb-2">{error}</p>
-                <button onClick={startLiveStream}
-                  className="text-xs text-white/70 hover:text-white underline">Try again</button>
+                {agentIsActive && (
+                  <button onClick={startLiveStream}
+                    className="text-xs text-white/70 hover:text-white underline">Try again</button>
+                )}
               </div>
             ) : (
               <div className="text-center">

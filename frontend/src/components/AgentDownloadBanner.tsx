@@ -74,8 +74,8 @@ export default function AgentDownloadBanner() {
     setDismissed(true);
   };
 
-  const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace('/api', '');
-  const downloadUrl = import.meta.env.VITE_AGENT_DOWNLOAD_URL || `${apiBase}/uploads/agent/aniston-agent-setup.exe`;
+  // Use nginx-served path directly — no API base needed, works on both dev and prod
+  const downloadUrl = import.meta.env.VITE_AGENT_DOWNLOAD_URL || '/downloads/aniston-agent-setup.exe';
 
   // Hidden for management or non-agent employees
   if (phase === 'hidden') return null;

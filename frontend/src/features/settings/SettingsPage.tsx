@@ -15,6 +15,7 @@ L.Icon.Default.mergeOptions({
 });
 import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation, useGetAiServiceHealthQuery } from './settingsApi';
 import { useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation, useGetLocationsQuery, useCreateLocationMutation, useUpdateLocationMutation, useDeleteLocationMutation } from '../workforce/workforceApi';
+import { useGetAgentDownloadStatusQuery } from '../attendance/attendanceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
 import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useRefreshWhatsAppQrMutation, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation, useGetWhatsAppContactsQuery, useGetWhatsAppMessagesQuery } from '../whatsapp/whatsappApi';
 import { cn, getInitials, getUploadUrl } from '../../lib/utils';
@@ -2496,6 +2497,7 @@ const AGENT_HEARTBEAT_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes — agent conside
 
 function AgentSetupTab() {
   const { data: res, isLoading } = useGetAgentSetupListQuery();
+  const { data: downloadRes, isLoading: checkingDownload } = useGetAgentDownloadStatusQuery();
   const [generateCode, { isLoading: generating }] = useGenerateAgentCodeMutation();
   const [regenerateCode, { isLoading: regenerating }] = useRegenerateAgentCodeMutation();
   const [bulkGenerate, { isLoading: bulkGenerating }] = useBulkGenerateAgentCodesMutation();
@@ -2504,8 +2506,9 @@ function AgentSetupTab() {
 
   const employees: any[] = res?.data || [];
 
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
-  const downloadUrl = `${apiUrl.replace('/api', '')}/uploads/agent/aniston-agent-setup.exe`;
+  const downloadAvailable = downloadRes?.data?.available ?? false;
+  // Use nginx-served path — direct file serve, bypasses Express entirely
+  const downloadUrl = '/downloads/aniston-agent-setup.exe';
 
   // Real-time socket updates
   useEffect(() => {
@@ -2613,9 +2616,27 @@ function AgentSetupTab() {
             <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2"><Monitor size={20} className="text-brand-600" /> Agent Setup</h3>
             <p className="text-sm text-gray-500 mt-0.5">Generate permanent pairing codes and deploy the desktop agent to employee machines.</p>
           </div>
-          <a href={downloadUrl} download className="btn-primary text-sm flex items-center gap-1.5">
-            <Download size={14} /> Download Agent (.exe)
-          </a>
+          {checkingDownload ? (
+            <button disabled className="btn-primary text-sm flex items-center gap-1.5 opacity-60 cursor-not-allowed">
+              <Loader2 size={14} className="animate-spin" /> Checking...
+            </button>
+          ) : downloadAvailable ? (
+            <a href={downloadUrl} download="aniston-agent-setup.exe" className="btn-primary text-sm flex items-center gap-1.5">
+              <Download size={14} /> Download Agent (.exe)
+            </a>
+          ) : (
+            <div className="flex flex-col items-end gap-1">
+              <button
+                disabled
+                title="Agent installer not yet built. Push to main to trigger CI/CD build."
+                className="text-sm flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-400 rounded-lg cursor-not-allowed">
+                <Download size={14} /> Download Agent (.exe)
+              </button>
+              <p className="text-[10px] text-amber-600 flex items-center gap-1">
+                <AlertTriangle size={10} /> Not yet built — push to main to generate
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

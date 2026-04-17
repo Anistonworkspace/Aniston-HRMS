@@ -1,7 +1,15 @@
+import { existsSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { Request, Response, NextFunction } from 'express';
 import { agentService } from './agent.service.js';
 import { heartbeatSchema, screenshotMetadataSchema, generateCodeSchema, setLiveModeSchema, dateParamSchema } from './agent.validation.js';
 import { storageService, StorageFolder } from '../../services/storage.service.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+// downloads/ lives at project root — 4 levels up from backend/dist/modules/agent/
+const DOWNLOADS_ROOT = path.resolve(__dirname, '../../../../downloads');
 
 export class AgentController {
   async submitHeartbeat(req: Request, res: Response, next: NextFunction) {
@@ -43,6 +51,19 @@ export class AgentController {
     } catch (err) { next(err); }
   }
 
+  // Bug #9: Single query returns summaries for ALL employees — eliminates N+1 from EmployeeRow
+  async getActivityBulkSummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const date = req.query.date as string;
+      if (!date) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'date query param required (YYYY-MM-DD)' } });
+        return;
+      }
+      const result = await agentService.getActivityBulkSummary(req.user!.organizationId, date);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
   async getActivityLogs(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId, date } = req.params;
@@ -73,6 +94,31 @@ export class AgentController {
     try {
       const status = await agentService.getAgentStatus(req.user!.employeeId!, req.user!.organizationId);
       res.json({ success: true, data: status });
+    } catch (err) { next(err); }
+  }
+
+  // Admin: check a specific employee's agent status
+  async getEmployeeStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employeeId = Array.isArray(req.params.employeeId) ? req.params.employeeId[0] : req.params.employeeId;
+      const status = await agentService.getAgentStatus(employeeId, req.user!.organizationId);
+      res.json({ success: true, data: status });
+    } catch (err) { next(err); }
+  }
+
+  // Check whether the agent installer exe is available for download
+  async getDownloadStatus(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const exePath = path.join(DOWNLOADS_ROOT, 'agent', 'aniston-agent-setup.exe');
+      const available = existsSync(exePath);
+      res.json({
+        success: true,
+        data: {
+          available,
+          downloadUrl: available ? '/downloads/aniston-agent-setup.exe' : null,
+          filename: 'aniston-agent-setup.exe',
+        },
+      });
     } catch (err) { next(err); }
   }
   async generatePairCode(req: Request, res: Response, next: NextFunction) {

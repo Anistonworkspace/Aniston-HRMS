@@ -1,11 +1,17 @@
 export const CONFIG = {
   API_URL: process.env.ANISTON_API_URL || 'http://localhost:4000/api',
-  TRACKING_INTERVAL_MS: 30_000,      // 30 seconds — check active window
-  SCREENSHOT_INTERVAL_MS: 600_000,   // 10 minutes — take screenshot
-  SYNC_INTERVAL_MS: 60_000,          // 1 minute — sync heartbeat to server (was 5min)
-  IDLE_THRESHOLD_S: 300,             // 5 minutes idle = inactive
+  TRACKING_INTERVAL_MS: 30_000,         // 30 seconds — check active window
+  SCREENSHOT_INTERVAL_MS: 600_000,      // 10 minutes — take screenshot (overridden by live mode)
+  SYNC_INTERVAL_MS: 60_000,             // 1 minute — sync heartbeat batch to server
+  CONFIG_POLL_INTERVAL_MS: 30_000,      // 30 seconds — poll server config (fallback for live mode)
+  IDLE_THRESHOLD_S: 300,                // 5 minutes idle = inactive
   APP_NAME: 'Aniston Agent',
   STORE_ENCRYPTION_KEY: 'aniston-agent-v1',
+  // TURN server for WebRTC NAT traversal in enterprise networks.
+  // Set ANISTON_TURN_URL (e.g. "turn:turn.example.com:3478") via env var or electron-builder config.
+  TURN_URL: process.env.ANISTON_TURN_URL || '',
+  TURN_USERNAME: process.env.ANISTON_TURN_USERNAME || '',
+  TURN_CREDENTIAL: process.env.ANISTON_TURN_CREDENTIAL || '',
 };
 
 // App categories for productivity classification

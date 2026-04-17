@@ -16,9 +16,10 @@ let totalClicks = 0;
 let totalMouseDistance = 0;
 let pollInterval: NodeJS.Timeout | null = null;
 
-// Track input state between snapshots via PowerShell
-// Polls every 2 seconds to detect key presses and mouse movement
-const INPUT_POLL_MS = 2000;
+// Track input state between snapshots via PowerShell.
+// Poll every 5 seconds — reduces spawns from 30/min to 12/min while still
+// capturing fine-grained keystrokes within each 30-second tracking window.
+const INPUT_POLL_MS = 5000;
 
 /**
  * Get current mouse position and detect keyboard/mouse activity

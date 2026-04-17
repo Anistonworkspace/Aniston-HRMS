@@ -1,5 +1,4 @@
 import { powerMonitor } from 'electron';
-import { execSync } from 'child_process';
 import { CONFIG, categorizeApp } from './config';
 import { getAndResetInputCounts, startInputTracking, stopInputTracking } from './inputTracker';
 
@@ -31,37 +30,19 @@ export function resumeTracking() { isPaused = false; }
 export function isTracking() { return trackingInterval !== null && !isPaused; }
 
 /**
- * Get active window using PowerShell (works on Windows without native modules)
+ * Get active window using the active-win npm package.
+ * Replaces the old PowerShell approach — active-win uses a compiled native binary
+ * instead of spawning a new powershell.exe process on every call (~2 spawns/min saved).
  */
-function getActiveWindowInfo(): { app: string; title: string } {
+async function getActiveWindowInfo(): Promise<{ app: string; title: string }> {
   try {
-    const script = `
-      Add-Type @"
-        using System;
-        using System.Runtime.InteropServices;
-        using System.Text;
-        public class Win32 {
-          [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-          [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
-          [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-        }
-"@
-      $hwnd = [Win32]::GetForegroundWindow()
-      $sb = New-Object System.Text.StringBuilder 256
-      [Win32]::GetWindowText($hwnd, $sb, 256) | Out-Null
-      $title = $sb.ToString()
-      $pid = 0
-      [Win32]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null
-      $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
-      "$($proc.ProcessName)|$title"
-    `;
-    const result = execSync(`powershell -NoProfile -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, {
-      timeout: 5000,
-      encoding: 'utf-8',
-      windowsHide: true,
-    }).trim();
-    const [app, ...titleParts] = result.split('|');
-    return { app: app || 'Unknown', title: titleParts.join('|') || '' };
+    // active-win is ESM-only; dynamic import works fine in Electron main process
+    const { default: activeWin } = await import('active-win');
+    const result = await activeWin();
+    return {
+      app: result?.owner?.name || 'Unknown',
+      title: result?.title || '',
+    };
   } catch {
     return { app: 'Unknown', title: '' };
   }
@@ -73,11 +54,11 @@ export function startTracking() {
   console.log('[Tracker] Starting activity tracking...');
   startInputTracking();
 
-  trackingInterval = setInterval(() => {
+  trackingInterval = setInterval(async () => {
     if (isPaused) return;
 
     try {
-      const { app, title } = getActiveWindowInfo();
+      const { app, title } = await getActiveWindowInfo();
       const idleTime = powerMonitor.getSystemIdleTime();
       const isIdle = idleTime >= CONFIG.IDLE_THRESHOLD_S;
 

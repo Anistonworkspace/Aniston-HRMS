@@ -20,9 +20,19 @@ router.post('/screenshot', uploadAgent.single('screenshot'), (req, res, next) =>
 router.get('/config', (req, res, next) => agentController.getConfig(req, res, next));
 router.get('/status', (req, res, next) => agentController.getStatus(req, res, next));
 
+// Admin: check any employee's agent status
+router.get(
+  '/status/:employeeId',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => agentController.getEmployeeStatus(req, res, next)
+);
+
 // Live mode control (SUPER_ADMIN, ADMIN only)
 router.post('/live-mode', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.setLiveMode(req, res, next));
 router.get('/live-mode/:employeeId', authorize(Role.SUPER_ADMIN, Role.ADMIN), (req, res, next) => agentController.getLiveMode(req, res, next));
+
+// Download status — check whether installer exe is available
+router.get('/download/status', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res, next) => agentController.getDownloadStatus(req, res, next));
 
 // Enterprise Agent Setup (Admin/HR)
 const setupAuth = authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR);
@@ -32,6 +42,15 @@ router.post('/setup/regenerate-code', setupAuth, (req, res, next) => agentContro
 router.post('/setup/bulk-generate', setupAuth, (req, res, next) => agentController.bulkGenerateCodes(req, res, next));
 
 // HR/Admin view endpoints
+
+// Bug #9: Bulk summary — one query replaces N per-employee queries from EmployeeRow list
+// IMPORTANT: this route must come before /activity/:employeeId/:date to avoid path collision
+router.get(
+  '/activity/bulk-summary',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => agentController.getActivityBulkSummary(req, res, next)
+);
+
 router.get(
   '/activity/:employeeId/:date',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),

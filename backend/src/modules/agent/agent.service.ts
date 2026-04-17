@@ -146,6 +146,17 @@ export class AgentService {
     } else {
       await redis.del(`${LIVE_VIEW_PREFIX}${employeeId}`);
     }
+
+    // Notify agent via socket so it picks up new screenshot interval immediately
+    // (agent also polls /config every 5min as fallback)
+    const user = await prisma.user.findFirst({
+      where: { employee: { id: employeeId } },
+      select: { id: true },
+    });
+    if (user) {
+      emitToUser(user.id, 'agent:config-update', { liveMode: enabled, intervalSeconds });
+    }
+
     return { enabled, intervalSeconds };
   }
 
@@ -239,6 +250,34 @@ export class AgentService {
       lastHeartbeat: lastLog?.timestamp?.toISOString() || null,
     };
   }
+  /**
+   * Bug #9: Return per-employee activity summary for a given date in one query.
+   * Replaces the N+1 pattern where each EmployeeRow called /activity/:id/:date separately.
+   * Returns a map of employeeId → { logCount, totalActiveMinutes, totalIdleMinutes }.
+   */
+  async getActivityBulkSummary(organizationId: string, date: string) {
+    const queryDate = new Date(date);
+    if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
+    queryDate.setHours(0, 0, 0, 0);
+
+    const results = await prisma.activityLog.groupBy({
+      by: ['employeeId'],
+      where: { organizationId, date: queryDate },
+      _count: { id: true },
+      _sum: { durationSeconds: true, idleSeconds: true },
+    });
+
+    const summaryMap: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number }> = {};
+    for (const r of results) {
+      summaryMap[r.employeeId] = {
+        logCount: r._count.id,
+        totalActiveMinutes: Math.round((r._sum.durationSeconds || 0) / 60),
+        totalIdleMinutes: Math.round((r._sum.idleSeconds || 0) / 60),
+      };
+    }
+    return summaryMap;
+  }
+
   // ===================== ENTERPRISE AGENT SETUP =====================
 
   private generateCode(): string {
@@ -410,7 +449,7 @@ export class AgentService {
       const accessToken = jwt.sign(
         { userId: employee.user.id, email: employee.user.email, role: employee.user.role, organizationId: employee.organizationId, employeeId: employee.id },
         env.JWT_SECRET,
-        { expiresIn: '24h' }
+        { expiresIn: '30d' }
       );
 
       return {

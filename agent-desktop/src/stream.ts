@@ -7,10 +7,15 @@
  * 2. Agent receives event → starts capturing screen → creates WebRTC offer
  * 3. Offer/answer/ICE candidates exchanged via Socket.io signaling
  * 4. Admin browser receives video stream → shows in <video> element
+ *
+ * Bug #2 fix: renderer reports getUserMedia/WebRTC errors back via IPC so admin
+ * sees a clear error message instead of a silent 15-second timeout.
+ *
+ * Bug #3 fix: TURN server credentials passed from config → renderer so the agent
+ * works behind enterprise NAT where STUN-only fails.
  */
 
-import { BrowserWindow, desktopCapturer, ipcMain } from 'electron';
-import path from 'path';
+import { BrowserWindow, ipcMain } from 'electron';
 import { getAccessToken } from './api';
 import { CONFIG } from './config';
 
@@ -53,6 +58,10 @@ export function startStream(adminSocketId: string, signalingUrl: string) {
     adminSocketId,
     signalingUrl,
     token: getAccessToken(),
+    // Bug #3: pass TURN credentials so the renderer can build a full ICE config
+    turnUrl: CONFIG.TURN_URL,
+    turnUsername: CONFIG.TURN_USERNAME,
+    turnCredential: CONFIG.TURN_CREDENTIAL,
   });
 }
 
@@ -80,7 +89,6 @@ function getStreamHTML(): string {
 
   let peerConnection = null;
   let mediaStream = null;
-  let ws = null;
 
   ipcRenderer.on('start-stream', async (_, config) => {
     try {
@@ -91,11 +99,12 @@ function getStreamHTML(): string {
       });
 
       if (sources.length === 0) {
-        console.error('No screen sources found');
-        return;
+        throw new Error('No screen sources found — desktopCapturer returned empty list');
       }
 
-      // Get screen stream using getUserMedia with chromeMediaSource
+      // Get screen stream using getUserMedia with chromeMediaSource.
+      // Note: Electron 28+ removed the legacy chromeMediaSource constraint in some builds.
+      // If getUserMedia fails here, the error is caught and reported to the admin.
       mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
@@ -109,19 +118,21 @@ function getStreamHTML(): string {
         }
       });
 
-      // Connect to signaling server via WebSocket
-      const wsUrl = config.signalingUrl.replace('http', 'ws') || 'ws://localhost:4000';
-
-      // Use Socket.io client for signaling instead of raw WebSocket
-      // Send signals via IPC to main process which uses the existing Socket.io connection
+      // Build ICE server list — STUN always included; TURN added if configured (Bug #3)
+      const iceServers = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ];
+      if (config.turnUrl) {
+        iceServers.push({
+          urls: config.turnUrl,
+          username: config.turnUsername || '',
+          credential: config.turnCredential || '',
+        });
+      }
 
       // Create RTCPeerConnection
-      peerConnection = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-        ]
-      });
+      peerConnection = new RTCPeerConnection({ iceServers });
 
       // Add screen tracks to peer connection
       mediaStream.getTracks().forEach(track => {
@@ -151,7 +162,13 @@ function getStreamHTML(): string {
 
       console.log('[Stream] Offer sent, waiting for answer...');
     } catch (err) {
-      console.error('[Stream] Error:', err);
+      // Bug #2: Report error to main process so it can relay to the admin socket
+      const message = err && err.message ? err.message : String(err);
+      console.error('[Stream] Error:', message);
+      ipcRenderer.send('webrtc-error', {
+        message: 'Screen capture failed on agent: ' + message,
+        adminSocketId: config.adminSocketId,
+      });
     }
   });
 

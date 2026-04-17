@@ -6,15 +6,27 @@ import { CONFIG } from './config';
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
 
+/**
+ * Thrown when the access token has expired AND the refresh also fails (or is absent).
+ * Caught in main.ts sync loop to trigger re-pair without crashing the agent.
+ */
+export class UnauthorizedError extends Error {
+  constructor() {
+    super('UNAUTHORIZED');
+    this.name = 'UnauthorizedError';
+  }
+}
+
 export function setTokens(access: string, refresh?: string) {
   accessToken = access;
-  if (refresh) refreshToken = refresh;
+  if (refresh !== undefined) refreshToken = refresh || null;
 }
 
 export function getAccessToken() { return accessToken; }
 
 async function authFetch(url: string, options: any = {}) {
-  if (!accessToken) throw new Error('Not logged in');
+  if (!accessToken) throw new UnauthorizedError();
+
   const res = await fetch(`${CONFIG.API_URL}${url}`, {
     ...options,
     headers: {
@@ -22,23 +34,29 @@ async function authFetch(url: string, options: any = {}) {
       'Authorization': `Bearer ${accessToken}`,
     },
   });
-  if (res.status === 401 && refreshToken) {
-    // Try refresh
-    const refreshRes = await fetch(`${CONFIG.API_URL}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
-    if (refreshRes.ok) {
-      const data = await refreshRes.json() as any;
-      accessToken = data.data?.accessToken || accessToken;
-      // Retry original request
-      return fetch(`${CONFIG.API_URL}${url}`, {
-        ...options,
-        headers: { ...options.headers, 'Authorization': `Bearer ${accessToken}` },
+
+  if (res.status === 401) {
+    // Try refresh if we have a refresh token
+    if (refreshToken) {
+      const refreshRes = await fetch(`${CONFIG.API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
       });
+      if (refreshRes.ok) {
+        const data = await refreshRes.json() as any;
+        accessToken = data.data?.accessToken || accessToken;
+        // Retry original request with new token
+        return fetch(`${CONFIG.API_URL}${url}`, {
+          ...options,
+          headers: { ...options.headers, 'Authorization': `Bearer ${accessToken}` },
+        });
+      }
     }
+    // Both access and refresh failed — signal caller to re-pair
+    throw new UnauthorizedError();
   }
+
   return res;
 }
 
@@ -51,7 +69,7 @@ export async function login(email: string, password: string) {
   const data = await res.json() as any;
   if (!data.success) throw new Error(data.error?.message || 'Login failed');
   accessToken = data.data.accessToken;
-  refreshToken = data.data.refreshToken;
+  refreshToken = data.data.refreshToken || null;
   return data.data;
 }
 
@@ -64,6 +82,8 @@ export async function pairWithCode(code: string) {
   const data = await res.json() as any;
   if (!data.success) throw new Error(data.error?.message || 'Invalid pairing code');
   accessToken = data.data.accessToken;
+  // Store refresh token if the server includes one (for future token renewal)
+  refreshToken = data.data.refreshToken || null;
   return data.data;
 }
 

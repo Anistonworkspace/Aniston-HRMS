@@ -31,6 +31,9 @@ name: Build & Deploy to EC2
 on:
   push:
     branches: [main]
+  # Bug #1: Allow manual build trigger — useful for re-deploying the agent
+  # exe without a code change (e.g. after updating EC2 secrets or API URL)
+  workflow_dispatch:
 
 jobs:
 
@@ -303,6 +306,13 @@ jobs:
         run: npx electron-builder --win --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Bug #1: Bake production API URL into installer so agents point at production
+          # Override via ANISTON_API_URL GitHub secret to use a custom URL
+          ANISTON_API_URL: ${{ secrets.ANISTON_API_URL || 'https://hr.anistonav.com/api' }}
+          # Optional: TURN server for enterprise NAT traversal (set in GitHub secrets if needed)
+          ANISTON_TURN_URL: ${{ secrets.ANISTON_TURN_URL || '' }}
+          ANISTON_TURN_USERNAME: ${{ secrets.ANISTON_TURN_USERNAME || '' }}
+          ANISTON_TURN_CREDENTIAL: ${{ secrets.ANISTON_TURN_CREDENTIAL || '' }}
 
       - name: Upload agent installer artifact
         uses: actions/upload-artifact@v4
@@ -413,6 +423,17 @@ jobs:
 
       # ── SCP: push binaries to EC2 ────────────────────────────────────────
 
+      # Create agent download directory BEFORE SCP so the target path exists
+      - name: Prepare agent download directory on EC2
+        if: needs.build-agent.result == 'success'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: mkdir -p /home/ubuntu/Aniston-HRMS/downloads/agent
+        continue-on-error: true
+
       - name: Upload agent .exe to EC2
         if: needs.build-agent.result == 'success'
         uses: appleboy/scp-action@v0.1.7
@@ -421,8 +442,9 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           source: ./agent-build/aniston-agent-setup.exe
-          target: /home/ubuntu/Aniston-HRMS/uploads/agent/
+          target: /home/ubuntu/Aniston-HRMS/downloads/agent/
           strip_components: 1
+        continue-on-error: true
 
       - name: Upload Android APK to EC2 /downloads/
         if: needs.build-android.result == 'success'
@@ -614,14 +636,14 @@ jobs:
                 echo "WARNING: frontend/dist not found — skipping OTA zip"
               fi
               python3 -c "import json; m={'version':'${BUNDLE_VERSION}','url':'https://hr.anistonav.com/app-updates/bundle-${BUNDLE_VERSION}.zip','mandatory':True,'notes':'v${BUNDLE_VERSION} - ${COMMIT_SUBJECT}'}; open('app-updates/manifest.json','w').write(json.dumps(m,indent=2)); print('manifest.json updated to v${BUNDLE_VERSION}')" 2>/dev/null || echo "WARNING: manifest.json write failed"
-              mkdir -p downloads app-updates uploads/ios-builds
+              mkdir -p downloads downloads/agent app-updates uploads/ios-builds
               chmod 755 downloads app-updates 2>/dev/null || true
             ) || echo "WARNING: OTA versioning step failed (non-blocking) — deployment continues"
 
             echo "=== [13/16] Verifying app binaries ==="
             ls -lh downloads/aniston-hrms.apk 2>/dev/null && echo "✅ Android APK present" || echo "ℹ️  Android APK not yet uploaded (will appear after first successful android build)"
             ls -lh uploads/ios-builds/*.ipa 2>/dev/null && echo "✅ iOS IPA present" || echo "ℹ️  iOS IPA not yet uploaded"
-            ls -lh uploads/agent/aniston-agent-setup.exe 2>/dev/null && echo "✅ Agent .exe present" || echo "WARNING: Agent installer not found"
+            ls -lh downloads/agent/aniston-agent-setup.exe 2>/dev/null && echo "✅ Agent .exe present" || echo "ℹ️  Agent installer not yet uploaded (will appear after first successful windows build)"
 
             echo "=== [14/16] Updating Nginx config ==="
             sudo cp /home/ubuntu/Aniston-HRMS/deploy/nginx.conf /etc/nginx/sites-available/hr.anistonav.com
@@ -630,9 +652,9 @@ jobs:
 
             echo "=== [15/16] Checking uploads directory ==="
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads
-            mkdir -p /home/ubuntu/Aniston-HRMS/uploads/agent
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads/backups
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads/tmp
+            mkdir -p /home/ubuntu/Aniston-HRMS/downloads/agent
 
             echo "=== [15.5/16] Setting server timezone to UTC ==="
             sudo timedatectl set-timezone UTC || true

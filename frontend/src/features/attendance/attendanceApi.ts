@@ -180,6 +180,11 @@ export const attendanceApi = api.injectEndpoints({
       query: (body) => ({ url: '/attendance/activity-pulse', method: 'POST', body }),
     }),
 
+    // Bug #9: Single query returns summaries for ALL employees — eliminates N+1 from EmployeeRow
+    getActivityBulkSummary: builder.query<{ success: boolean; data: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number }> }, { date: string }>({
+      query: ({ date }) => `/agent/activity/bulk-summary?date=${date}`,
+    }),
+
     getEmployeeActivityLogs: builder.query<{ success: boolean; data: ActivityLogResponse }, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => `/agent/activity/${employeeId}/${date}`,
     }),
@@ -191,6 +196,16 @@ export const attendanceApi = api.injectEndpoints({
     getAgentStatus: builder.query<{ success: boolean; data: AgentStatusResponse }, void>({
       query: () => '/agent/status',
       providesTags: ['Attendance'],
+    }),
+
+    // Admin: check any employee's agent status
+    getEmployeeAgentStatus: builder.query<{ success: boolean; data: AgentStatusResponse }, string>({
+      query: (employeeId) => `/agent/status/${employeeId}`,
+    }),
+
+    // Check whether the installer exe is available for download
+    getAgentDownloadStatus: builder.query<{ success: boolean; data: { available: boolean; downloadUrl: string | null; filename: string } }, void>({
+      query: () => '/agent/download/status',
     }),
 
     generateAgentPairCode: builder.mutation<{ success: boolean; data: AgentPairCodeResponse }, void>({
@@ -344,9 +359,11 @@ export const {
   useGetEmployeeGPSTrailQuery,
   useGetAttendanceLogsQuery,
   useSendActivityPulseMutation,
+  useGetActivityBulkSummaryQuery,
   useGetEmployeeActivityLogsQuery,
   useGetEmployeeScreenshotsQuery,
   useGetAgentStatusQuery,
+  useGetEmployeeAgentStatusQuery,
   useGenerateAgentPairCodeMutation,
   useSetAgentLiveModeMutation,
   useGetAgentLiveModeQuery,
@@ -378,4 +395,5 @@ export const {
   useGetMyOvertimeRequestsQuery,
   useGetAllOvertimeRequestsQuery,
   useHandleOvertimeRequestMutation,
+  useGetAgentDownloadStatusQuery,
 } = attendanceApi;

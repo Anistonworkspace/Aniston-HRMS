@@ -49,9 +49,20 @@ export function initSocketServer(httpServer: HttpServer) {
     // === WebRTC Signaling for Live Screen Streaming ===
 
     // Admin requests to start streaming an employee's screen
-    socket.on('stream:request', (data: { employeeUserId: string }) => {
+    socket.on('stream:request', async (data: { employeeUserId: string }) => {
       if (!['SUPER_ADMIN', 'ADMIN'].includes(role)) return; // Only admin can request
       logger.info(`Stream requested by admin ${userId} for employee ${data.employeeUserId}`);
+
+      // Check if agent is connected before forwarding — avoids silent 15s timeout on admin side
+      const agentSockets = await io!.in(`agent:${data.employeeUserId}`).fetchSockets();
+      if (agentSockets.length === 0) {
+        socket.emit('stream:error', {
+          employeeUserId: data.employeeUserId,
+          message: 'Desktop agent is not running or not connected. Ask the employee to start the agent.',
+        });
+        return;
+      }
+
       // Tell the agent to start streaming, pass the admin's socket ID for direct P2P signaling
       io!.to(`agent:${data.employeeUserId}`).emit('stream:start', {
         adminSocketId: socket.id,
@@ -75,6 +86,18 @@ export function initSocketServer(httpServer: HttpServer) {
           ...data,
           fromSocketId: socket.id,
         });
+      }
+    });
+
+    // Bug #2: Agent renderer reports a WebRTC/getUserMedia error — relay to the admin
+    socket.on('stream:agent-error', (data: { message: string; targetSocketId?: string }) => {
+      const targetId = data.targetSocketId;
+      if (targetId) {
+        const targetSocket = io!.sockets.sockets.get(targetId);
+        // Only relay within the same org (security guard)
+        if (targetSocket && targetSocket.data?.organizationId === socket.data?.organizationId) {
+          io!.to(targetId).emit('stream:error', { message: data.message });
+        }
       }
     });
 
