@@ -36,7 +36,16 @@ from ..models.ocr_models import (
     OCRResult, AadhaarData, PANData, PassportData,
     VoterIdData, DrivingLicenseData, BankStatementData, EducationCertificateData,
 )
-from .validators import run_deep_validators, detect_wrong_upload
+from .validators import run_deep_validators, run_deep_validators_v2, detect_wrong_upload, detect_duplicate_numbers_in_batch
+
+
+def _normalize_kw_text(text: str) -> str:
+    """
+    Normalize OCR text for keyword detection.
+    OCR engines often insert line-breaks mid-phrase (e.g. "secondary school\\nexamination").
+    Replacing all whitespace runs with a single space lets substring checks work correctly.
+    """
+    return re.sub(r'\s+', ' ', text).lower()
 
 
 # ===== IMAGE PREPROCESSING =====
@@ -221,42 +230,68 @@ def extract_text_from_document(file_bytes: bytes, filename: str) -> tuple:
 
 def detect_document_type(text: str) -> str:
     """Detect Indian document type from OCR text with fuzzy matching and comprehensive coverage."""
-    text_lower = text.lower()
+    text_norm = _normalize_kw_text(text)  # normalized (no mid-phrase newlines) for keyword matching
+
+    # ── SALARY SLIP — must be FIRST because payslips print employee's PAN number ──
+    # If we check PAN first, the PAN regex matches the payslip and mis-classifies it.
+    salary_primary = [
+        "payslip for the month", "pay slip for the month",
+        "salary slip for the month", "payslip for month",
+        "net payable for the month", "net pay for the month",
+        "salary for the month of",
+    ]
+    if any(kw in text_norm for kw in salary_primary):
+        return "SALARY_SLIP"
+    # Secondary: structural table — earnings + deductions + net pay columns
+    has_earnings = any(kw in text_norm for kw in ["gross earnings", "gross salary", "gross pay", "total earnings"])
+    has_deductions = any(kw in text_norm for kw in ["total deductions", "pf deduction", "epf deduction", "professional tax"])
+    has_net = any(kw in text_norm for kw in ["net pay", "net payable", "take home", "net salary", "in-hand"])
+    if (has_earnings or has_deductions) and has_net:
+        return "SALARY_SLIP"
+    # Also check generic keywords as before
+    salary_keywords = [
+        "payslip", "pay slip", "salary slip", "pay stub",
+        "epf contribution", "basic salary", "house rent allowance",
+        "provident fund", "esi contribution", "professional tax",
+        "wage slip", "pf no.", "uan no.", "employee provident fund",
+    ]
+    if any(kw in text_norm for kw in salary_keywords):
+        return "SALARY_SLIP"
 
     # ── Identity Documents ───────────────────────────────────────────────────
 
     # Aadhaar — check keywords and 12-digit number pattern
     aadhaar_keywords = ["aadhaar", "aadhar", "unique identification", "uidai", "enrollment", "enrolment",
                         "unique identity", "आधार", "भारतीय विशिष्ट"]
-    if any(kw in text_lower for kw in aadhaar_keywords) or (
+    if any(kw in text_norm for kw in aadhaar_keywords) or (
         re.search(r"\d{4}\s?\d{4}\s?\d{4}", text) and
-        any(kw in text_lower for kw in ["government of india", "भारत सरकार", "enrolment", "dob"])
+        any(kw in text_norm for kw in ["government of india", "भारत सरकार", "enrolment", "dob"])
     ):
         return "AADHAAR"
 
     # PAN — check keywords and pattern
     pan_keywords = ["income tax", "permanent account", "pan card", "income-tax", "income tax department"]
-    if any(kw in text_lower for kw in pan_keywords) or re.search(r"\b[A-Z]{5}\d{4}[A-Z]\b", text):
+    if any(kw in text_norm for kw in pan_keywords) or re.search(r"\b[A-Z]{5}\d{4}[A-Z]\b", text):
         return "PAN"
     # Fuzzy PAN pattern (OCR errors: O→0, l→1)
-    if re.search(r"[A-Z0-9]{5}\d{4}[A-Z0-9]", text) and ("tax" in text_lower or "permanent" in text_lower):
+    if re.search(r"[A-Z0-9]{5}\d{4}[A-Z0-9]", text) and ("tax" in text_norm or "permanent" in text_norm):
         return "PAN"
 
     # Passport
     passport_keywords = ["passport", "republic of india", "nationality", "place of birth", "date of expiry",
                          "ministry of external affairs", "immigration"]
-    if any(kw in text_lower for kw in passport_keywords):
+    if any(kw in text_norm for kw in passport_keywords):
         return "PASSPORT"
 
     # Voter ID
     voter_keywords = ["voter", "election commission", "electoral", "electors", "epic no", "electoral roll"]
-    if any(kw in text_lower for kw in voter_keywords):
+    if any(kw in text_norm for kw in voter_keywords):
         return "VOTER_ID"
 
     # Driving License
     dl_keywords = ["driving licence", "driving license", "transport department", "motor vehicles act",
                    "regional transport", "valid till", "class of vehicle"]
-    if any(kw in text_lower for kw in dl_keywords):
+    if any(kw in text_norm for kw in dl_keywords):
         return "DRIVING_LICENSE"
 
     # ── Education Certificates ───────────────────────────────────────────────
@@ -282,10 +317,10 @@ def detect_document_type(text: str) -> str:
         "all india senior school certificate",      # CBSE alternative name
         "class 12th", "std xii", "std. xii",
     ]
-    if any(kw in text_lower for kw in twelfth_keywords):
+    if any(kw in text_norm for kw in twelfth_keywords):
         return "TWELFTH_CERTIFICATE"
     # CBSE 12th: "Marks Statement" + "Secondary Education" without Class-X indicators
-    if ("marks statement" in text_lower or "senior school" in text_lower) and "secondary" in text_lower:
+    if ("marks statement" in text_norm or "senior school" in text_norm) and "secondary" in text_norm:
         return "TWELFTH_CERTIFICATE"
 
     # 10th certificate
@@ -294,6 +329,12 @@ def detect_document_type(text: str) -> str:
     # Maharashtra: "SECONDARY SCHOOL CERTIFICATE" (SSC)
     # Tamil Nadu/Kerala/AP: "SSLC"
     # UP Board: "HIGH SCHOOL EXAMINATION"
+
+    # CBSE 10th has "Secondary School Examination" (NOT "Senior School")
+    # Use text_norm to handle OCR line-breaks within the phrase
+    if "secondary school examination" in text_norm and "senior school" not in text_norm:
+        return "TENTH_CERTIFICATE"
+
     tenth_keywords = [
         "secondary examination", "class x", "class-x", "10th grade", "sslc",
         "matriculation", "high school examination", "secondary school examination",
@@ -308,7 +349,7 @@ def detect_document_type(text: str) -> str:
         "board of secondary education",               # Various state boards
         "board of school education",
     ]
-    if any(kw in text_lower for kw in tenth_keywords):
+    if any(kw in text_norm for kw in tenth_keywords):
         return "TENTH_CERTIFICATE"
 
     # Post-graduation / Masters
@@ -322,7 +363,10 @@ def detect_document_type(text: str) -> str:
         "samarth portal", "distance education council",
         "post-graduate degree", "pg diploma", "post graduate diploma",
     ]
-    if any(kw in text_lower for kw in pg_keywords):
+    if any(kw in text_norm for kw in pg_keywords):
+        # IGNOU BAG is undergraduate — don't classify as PG
+        if ("ignou" in text_norm or "indira gandhi" in text_norm) and any(k in text_norm for k in ["bag", "bachelor of arts", "bsc", "b.sc", "bca", "bba"]):
+            return "DEGREE_CERTIFICATE"
         return "POST_GRADUATION_CERTIFICATE"
 
     # General education certificates (degree / diploma)
@@ -336,7 +380,7 @@ def detect_document_type(text: str) -> str:
         "bachelor of engineering", "bachelor of science",
         "b.e.", "b.tech.", "bca", "bba", "llb", "b.arch",
     ]
-    if any(kw in text_lower for kw in edu_keywords):
+    if any(kw in text_norm for kw in edu_keywords):
         return "CERTIFICATE"
 
     # ── Employment Documents ─────────────────────────────────────────────────
@@ -345,7 +389,7 @@ def detect_document_type(text: str) -> str:
     offer_keywords = ["offer letter", "appointment letter", "offer of employment",
                       "pleased to inform you that you are selected", "joining date",
                       "please join", "you are required to join"]
-    if any(kw in text_lower for kw in offer_keywords):
+    if any(kw in text_norm for kw in offer_keywords):
         return "OFFER_LETTER"
 
     # Resignation letter / email
@@ -355,7 +399,7 @@ def detect_document_type(text: str) -> str:
         "notice of resignation", "submitting my resignation", "two weeks notice",
         "one month notice", "relieving you from", "acceptance of your resignation",
     ]
-    if any(kw in text_lower for kw in resignation_keywords):
+    if any(kw in text_norm for kw in resignation_keywords):
         return "RESIGNATION_LETTER"
 
     # Experience / relieving letter
@@ -366,22 +410,8 @@ def detect_document_type(text: str) -> str:
         "he/she has worked", "she has worked", "he has worked",
         "period of employment",
     ]
-    if any(kw in text_lower for kw in experience_keywords):
+    if any(kw in text_norm for kw in experience_keywords):
         return "EXPERIENCE_LETTER"
-
-    # Salary slip / payslip
-    # Indian payslips use PAYSLIP, PAY SLIP, SALARY SLIP, WAGE SLIP
-    # Key fields: Basic, HRA, DA, PF, ESI, Net Pay, Gross Pay
-    salary_keywords = [
-        "payslip", "pay slip", "payslip for the month", "net pay for the month",
-        "salary slip", "pay stub", "earnings", "deductions", "epf contribution",
-        "basic salary", "house rent allowance", "provident fund",
-        "esi contribution", "professional tax", "net pay", "gross pay",
-        "salary for the month", "wage slip", "pf no.", "uan no.",
-        "employee provident fund", "take home", "in-hand salary",
-    ]
-    if any(kw in text_lower for kw in salary_keywords):
-        return "SALARY_SLIP"
 
     # ── Financial / Residence Documents ─────────────────────────────────────
 
@@ -389,12 +419,12 @@ def detect_document_type(text: str) -> str:
     cheque_keywords = [
         "cancelled", "cancelled cheque", "cancel cheque",
     ]
-    if any(kw in text_lower for kw in cheque_keywords) and any(kw in text_lower for kw in ["cheque", "check", "bank", "ifsc", "micr", "account"]):
+    if any(kw in text_norm for kw in cheque_keywords) and any(kw in text_norm for kw in ["cheque", "check", "bank", "ifsc", "micr", "account"]):
         return "CANCELLED_CHEQUE"
 
     # Bank passbook page
     passbook_keywords = ["passbook", "savings passbook", "sb passbook"]
-    if any(kw in text_lower for kw in passbook_keywords):
+    if any(kw in text_norm for kw in passbook_keywords):
         return "BANK_STATEMENT"
 
     # Utility bills (electricity, water, gas) — residence proof
@@ -433,7 +463,7 @@ def detect_document_type(text: str) -> str:
         "electricity charges", "previous reading", "present reading",
         "bill amount", "due date", "billing period",
     ]
-    if any(kw in text_lower for kw in utility_keywords):
+    if any(kw in text_norm for kw in utility_keywords):
         return "UTILITY_BILL"
 
     # Bank statement / account statement
@@ -450,7 +480,7 @@ def detect_document_type(text: str) -> str:
     # IFSC code pattern detection
     if re.search(r'\b[A-Z]{4}0[A-Z0-9]{6}\b', text):
         return "BANK_STATEMENT"
-    if any(kw in text_lower for kw in bank_keywords):
+    if any(kw in text_norm for kw in bank_keywords):
         return "BANK_STATEMENT"
 
     # Rent agreement / lease deed (residence proof)
@@ -459,7 +489,7 @@ def detect_document_type(text: str) -> str:
         "rent deed", "monthly rent", "rental agreement", "licensor", "licensee",
         "landlord", "tenant", "lease deed", "license agreement",
     ]
-    if any(kw in text_lower for kw in rent_keywords):
+    if any(kw in text_norm for kw in rent_keywords):
         return "RENT_AGREEMENT"
 
     return "OTHER"
@@ -514,7 +544,23 @@ def extract_aadhaar_fields(text: str) -> dict:
         addr = addr_match.group(1).strip().replace("\n", ", ")[:200]
         data.address = addr
 
-    return data.model_dump(exclude_none=True)
+    result = data.model_dump(exclude_none=True)
+
+    # ── Category 3 item 13: VID (Virtual ID) detection ───────────────────────
+    # Aadhaar Virtual ID is a 16-digit number (different from 12-digit Aadhaar)
+    vid_match = re.search(r"\b(\d{4}\s?\d{4}\s?\d{4}\s?\d{4})\b", cleaned)
+    if vid_match:
+        vid_digits = re.sub(r"\D", "", vid_match.group(1))
+        if len(vid_digits) == 16 and vid_digits != (result.get("aadhaar_number", "") + "0000"):
+            result["virtual_id"] = vid_digits
+            result["has_virtual_id"] = True
+
+    # Mobile number linked to Aadhaar
+    mobile_m = re.search(r"(?:mobile|phone|mob\.?)[:\s]*(\+?91[-\s]?)?([6-9]\d{9})", text, re.IGNORECASE)
+    if mobile_m:
+        result["linked_mobile"] = mobile_m.group(2)
+
+    return result
 
 
 def extract_pan_fields(text: str) -> dict:
@@ -606,6 +652,87 @@ def extract_passport_fields(text: str) -> dict:
 
     data.nationality = "INDIAN"
     return data.model_dump(exclude_none=True)
+
+
+def extract_salary_slip_fields(text: str) -> dict:
+    """Category 3 item 11 — Richer salary slip extraction."""
+    fields: dict = {}
+
+    # Employer / company name — usually top of document or letterhead
+    employer_m = re.search(
+        r"(?:company|employer|organisation|organization|firm)[:\s]+([A-Za-z][A-Za-z0-9\s\.\,\-&]{3,60})",
+        text, re.IGNORECASE
+    )
+    if not employer_m:
+        # Heuristic: first all-caps or title-case line that looks like a company name
+        for line in text.split("\n")[:6]:
+            line = line.strip()
+            if 6 < len(line) < 80 and re.match(r"^[A-Za-z\s\.\-&,]+$", line) and line[0].isupper():
+                if not re.search(r"\b(payslip|salary|pay\s+slip|month|for)\b", line, re.IGNORECASE):
+                    fields["employer_name"] = line
+                    break
+    else:
+        fields["employer_name"] = employer_m.group(1).strip()
+
+    # Employee ID
+    emp_id_m = re.search(r"(?:employee\s*(?:id|code|no\.?)|emp\.?\s*(?:id|code|no\.?))[:\s]+([A-Z0-9/\-]{3,20})", text, re.IGNORECASE)
+    if emp_id_m:
+        fields["employee_id"] = emp_id_m.group(1).strip()
+
+    # Employee name
+    emp_name_m = re.search(r"(?:employee\s*name|name\s*of\s*employee)[:\s]+([A-Za-z][A-Za-z\s\.]{3,50})", text, re.IGNORECASE)
+    if emp_name_m:
+        fields["employee_name"] = emp_name_m.group(1).strip().split("\n")[0]
+
+    # Pay period / month
+    period_m = re.search(
+        r"(?:for\s+(?:the\s+)?month\s+(?:of\s+)?)([A-Za-z]+\s+\d{4}|\d{1,2}[/\-]\d{4})",
+        text, re.IGNORECASE
+    )
+    if period_m:
+        fields["pay_period"] = period_m.group(1).strip()
+
+    # Gross salary
+    gross_m = re.search(r"(?:gross\s+(?:salary|earnings|pay))[:\s]*(?:rs\.?|₹|inr)?\s*([\d,]+(?:\.\d{1,2})?)", text, re.IGNORECASE)
+    if gross_m:
+        fields["gross_salary"] = gross_m.group(1).replace(",", "")
+
+    # Net pay
+    net_m = re.search(r"(?:net\s*pay(?:able)?|take\s*home|in[\-\s]hand)[:\s]*(?:rs\.?|₹|inr)?\s*([\d,]+(?:\.\d{1,2})?)", text, re.IGNORECASE)
+    if net_m:
+        fields["net_pay"] = net_m.group(1).replace(",", "")
+
+    # Basic salary
+    basic_m = re.search(r"(?:basic\s+(?:salary|pay))[:\s]*(?:rs\.?|₹|inr)?\s*([\d,]+(?:\.\d{1,2})?)", text, re.IGNORECASE)
+    if basic_m:
+        fields["basic_salary"] = basic_m.group(1).replace(",", "")
+
+    # HRA
+    hra_m = re.search(r"(?:hra|house\s+rent\s+allowance)[:\s]*(?:rs\.?|₹|inr)?\s*([\d,]+(?:\.\d{1,2})?)", text, re.IGNORECASE)
+    if hra_m:
+        fields["hra"] = hra_m.group(1).replace(",", "")
+
+    # PF / EPF
+    pf_m = re.search(r"(?:epf|provident\s+fund\s+deduction|pf\s+deduction)[:\s]*(?:rs\.?|₹|inr)?\s*([\d,]+(?:\.\d{1,2})?)", text, re.IGNORECASE)
+    if pf_m:
+        fields["pf_deduction"] = pf_m.group(1).replace(",", "")
+
+    # UAN
+    uan_m = re.search(r"uan\s*(?:no\.?|number)?[:\s]*(\d{12})", text, re.IGNORECASE)
+    if uan_m:
+        fields["uan_number"] = uan_m.group(1)
+
+    # PAN on payslip
+    pan_m = re.search(r"\b([A-Z]{5}\d{4}[A-Z])\b", text)
+    if pan_m:
+        fields["employee_pan"] = pan_m.group(1)
+
+    # Department
+    dept_m = re.search(r"(?:department|dept\.?)[:\s]+([A-Za-z][A-Za-z\s\-]{2,40})", text, re.IGNORECASE)
+    if dept_m:
+        fields["department"] = dept_m.group(1).strip().split("\n")[0]
+
+    return fields
 
 
 def extract_generic_fields(text: str) -> dict:
@@ -763,11 +890,45 @@ def extract_bank_statement_fields(text: str) -> dict:
     if branch_match:
         data.branch = branch_match.group(1).strip()
 
-    return data.model_dump(exclude_none=True)
+    result = data.model_dump(exclude_none=True)
+
+    # ── Category 3 item 14: Extended bank statement fields ───────────────────
+    # Opening balance
+    ob_m = re.search(r"(?:opening\s+balance|ob)[:\s]*(?:rs\.?|₹|inr)?\s*([\d,]+(?:\.\d{1,2})?)", text, re.IGNORECASE)
+    if ob_m:
+        result["opening_balance"] = ob_m.group(1).replace(",", "")
+
+    # Closing balance
+    cb_m = re.search(r"(?:closing\s+balance|cb)[:\s]*(?:rs\.?|₹|inr)?\s*([\d,]+(?:\.\d{1,2})?)", text, re.IGNORECASE)
+    if cb_m:
+        result["closing_balance"] = cb_m.group(1).replace(",", "")
+
+    # Account type (Savings / Current / Salary / NRE / NRO)
+    acc_type_m = re.search(r"\b(savings|current|salary|nre|nro|recurring)\b", text, re.IGNORECASE)
+    if acc_type_m:
+        result["account_type"] = acc_type_m.group(1).upper()
+
+    # Statement period
+    period_m = re.search(
+        r"(?:statement\s+period|from|period)[:\s]+(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})\s+(?:to|–|-)\s+(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})",
+        text, re.IGNORECASE
+    )
+    if period_m:
+        result["statement_from"] = period_m.group(1)
+        result["statement_to"] = period_m.group(2)
+
+    # MICR code (9-digit on cheque)
+    micr_m = re.search(r"(?:micr)[:\s]*(\d{9})", text, re.IGNORECASE)
+    if not micr_m:
+        micr_m = re.search(r"\b(\d{9})\b", text)
+    if micr_m:
+        result["micr_code"] = micr_m.group(1)
+
+    return result
 
 
 def extract_education_certificate_fields(text: str) -> dict:
-    """Extract fields from education certificates (marksheets, degrees)."""
+    """Extract fields from education certificates (marksheets, degrees). Category 3 item 12."""
     data = EducationCertificateData()
 
     # Student name — after "Name:", "Student:", "This is to certify that"
@@ -825,7 +986,41 @@ def extract_education_certificate_fields(text: str) -> dict:
     if degree_match:
         data.degree_or_course = degree_match.group(1).strip()
 
-    return data.model_dump(exclude_none=True)
+    result = data.model_dump(exclude_none=True)
+
+    # ── Extended extractions not in the Pydantic model ───────────────────────
+    # Subjects / marks table: "Subject Name ... Marks" rows
+    subjects_found = re.findall(
+        r"(?:^|\n)\s*([A-Za-z][A-Za-z\s/\-]{3,40})\s+(\d{1,3})\s*/?\s*(\d{2,3})",
+        text, re.MULTILINE
+    )
+    if subjects_found:
+        result["subjects_marks"] = [
+            {"subject": s.strip(), "obtained": int(o), "max": int(m)}
+            for s, o, m in subjects_found[:12]  # cap at 12 subjects
+            if int(o) <= int(m)  # sanity check
+        ]
+
+    # CGPA / Percentage detection (extended patterns)
+    cgpa_m = re.search(r"(?:sgpa|cgpa)[:\s]+([0-9]+\.[0-9]{1,2})", text, re.IGNORECASE)
+    if cgpa_m:
+        result["cgpa"] = cgpa_m.group(1)
+
+    pct_m = re.search(r"([0-9]{2,3}\.[0-9]{1,2})\s*%", text)
+    if pct_m:
+        result["percentage"] = pct_m.group(1)
+
+    # Class / division (First Class, Second Class, Distinction, etc.)
+    div_m = re.search(r"\b(first\s+class|second\s+class|distinction|pass\s+class|merit|honours)\b", text, re.IGNORECASE)
+    if div_m:
+        result["division"] = div_m.group(1).title()
+
+    # Semester / year details
+    sem_m = re.search(r"(?:semester|sem\.?)[:\s]+([0-9IVX]{1,4})", text, re.IGNORECASE)
+    if sem_m:
+        result["semester"] = sem_m.group(1)
+
+    return result
 
 
 def extract_dynamic_fields(text: str) -> dict:
@@ -1141,13 +1336,28 @@ def generate_validation_reasons(
             reasons.append(f"✓ Candidate name extracted: '{fields['name']}'")
 
     elif doc_type == "SALARY_SLIP":
-        reasons.append("✓ Salary slip / payslip detected")
-        # Month/year detection
-        month_match = re.search(r"(?:for the month of|month)[:\s]*(\w+ \d{4}|\d{1,2}[/\-]\d{4})", raw_text, re.IGNORECASE)
+        reasons.append("✓ Salary slip / payslip detected — valid as employment and income proof")
+        reasons.append("⚠ Salary slips are NOT accepted as residence proof — a separate utility bill, bank statement, or rent agreement is required")
+        # Detect pay period
+        month_match = re.search(r"(?:for\s+(?:the\s+)?month\s+(?:of\s+)?)([A-Za-z]+\s+\d{4}|\d{1,2}[/\-]\d{4})", raw_text, re.IGNORECASE)
         if month_match:
-            reasons.append(f"✓ Pay period: {month_match.group(1).strip()}")
+            reasons.append(f"✓ Pay period detected: {month_match.group(1).strip()}")
         else:
-            reasons.append("⚠ Pay period/month not clearly found")
+            reasons.append("⚠ Pay period not clearly detected — verify the slip is recent (within last 3 months)")
+        # Net pay amount
+        net_match = re.search(r"(?:net\s*pay(?:able)?|take\s*home|in[\-\s]hand)[:\s]*(?:rs\.?|₹|inr)?\s*([\d,]+(?:\.\d{1,2})?)", raw_text, re.IGNORECASE)
+        if net_match:
+            reasons.append(f"✓ Net pay amount found: ₹{net_match.group(1).strip()}")
+        else:
+            reasons.append("⚠ Net pay amount not clearly extracted — verify total")
+        # PAN on payslip (for TDS)
+        pan_on_slip = re.search(r"\b([A-Z]{5}\d{4}[A-Z])\b", raw_text)
+        if pan_on_slip:
+            reasons.append(f"✓ Employee PAN ({pan_on_slip.group(1)}) printed on payslip — cross-check with PAN card")
+        # UAN
+        uan_match = re.search(r"UAN\s*(?:No\.?|Number)[:\s]*(\d{12})", raw_text, re.IGNORECASE)
+        if uan_match:
+            reasons.append(f"✓ UAN number found: {uan_match.group(1)} — verify with EPFO records")
         # PF/ESI indicators
         has_pf = bool(re.search(r"\bepf\b|\bprovident fund\b|\bpf\s+no\b|\buan\b", raw_text, re.IGNORECASE))
         has_esi = bool(re.search(r"\besi\b|\besic\b|\bemployee state insurance\b", raw_text, re.IGNORECASE))
@@ -1155,11 +1365,10 @@ def generate_validation_reasons(
             reasons.append("✓ EPF/Provident Fund deduction detected — employer compliance confirmed")
         if has_esi:
             reasons.append("✓ ESI contribution detected")
-        net_pay_match = re.search(r"net\s+(?:pay|salary)[:\s]*(?:rs\.?|₹|inr)?\s*([\d,]+)", raw_text, re.IGNORECASE)
-        if net_pay_match:
-            reasons.append(f"✓ Net pay amount extracted: ₹{net_pay_match.group(1).strip()}")
-        else:
-            reasons.append("⚠ Net pay amount not clearly extracted — verify total")
+        # Employee name
+        emp_name_match = re.search(r"(?:Employee\s*Name|Name\s*of\s*Employee)[:\s]+([A-Za-z][A-Za-z\s\.]{3,50})", raw_text, re.IGNORECASE)
+        if emp_name_match:
+            reasons.append(f"✓ Employee name on payslip: '{emp_name_match.group(1).strip().split(chr(10))[0]}'")
 
     elif doc_type in ("UTILITY_BILL", "ELECTRICITY_BILL"):
         reasons.append("✓ Utility bill detected — valid as residence proof")
@@ -1381,11 +1590,15 @@ def detect_page_document_type(text: str, page_idx: int) -> dict:
         confidence = 0.1
     elif doc_type == "OTHER":
         confidence = 0.3
-    elif doc_type in ("AADHAAR", "PAN"):
+    elif doc_type in ("AADHAAR", "PAN", "SALARY_SLIP"):
         # These have very distinctive patterns — high confidence if detected
         confidence = 0.9
     elif doc_type in ("PASSPORT", "VOTER_ID", "DRIVING_LICENSE"):
         confidence = 0.8
+    elif doc_type in ("TENTH_CERTIFICATE", "TWELFTH_CERTIFICATE"):
+        confidence = 0.8
+    elif doc_type in ("EXPERIENCE_LETTER", "OFFER_LETTER"):
+        confidence = 0.75
     elif doc_type == "CERTIFICATE":
         confidence = 0.7
     else:
@@ -1586,6 +1799,195 @@ MAX_REASONABLE_PAGES_PER_TYPE = {
 }
 
 
+def _extract_primary_name_for_doc(text: str, doc_type: str) -> "str | None":
+    """Extract the primary person name from a document page."""
+    try:
+        if doc_type == "AADHAAR":
+            return extract_aadhaar_fields(text).get("name")
+        elif doc_type == "PAN":
+            return extract_pan_fields(text).get("name")
+        elif doc_type in ("TENTH_CERTIFICATE", "TWELFTH_CERTIFICATE", "DEGREE_CERTIFICATE",
+                          "POST_GRADUATION_CERTIFICATE", "CERTIFICATE"):
+            return extract_education_certificate_fields(text).get("student_name")
+        elif doc_type in ("EXPERIENCE_LETTER", "OFFER_LETTER"):
+            # Look for "Mr./Ms. <Name>" or "Dear <Name>"
+            m = re.search(r"(?:Mr\.|Ms\.|Mrs\.)\s+([A-Za-z][A-Za-z\s\.]{3,40})", text)
+            if m:
+                return m.group(1).strip().split("\n")[0].strip()
+            m = re.search(r"(?:Dear\s+)([A-Za-z][A-Za-z\s\.]{3,30})", text, re.IGNORECASE)
+            if m:
+                return m.group(1).strip().split(",")[0].strip()
+        elif doc_type == "VOTER_ID":
+            return extract_voter_id_fields(text).get("name")
+        elif doc_type == "DRIVING_LICENSE":
+            return extract_driving_license_fields(text).get("name")
+        elif doc_type == "SALARY_SLIP":
+            # Employee name on payslip: look for "Employee Name:", "Name:" in table
+            m = re.search(r"(?:Employee\s*Name|Name\s*of\s*Employee)[:\s]+([A-Za-z][A-Za-z\s\.]{3,50})", text, re.IGNORECASE)
+            if m:
+                return m.group(1).strip().split("\n")[0].strip()
+    except Exception:
+        pass
+    return None
+
+
+def _names_are_similar(name1: str, name2: str, threshold: float = 0.6) -> bool:
+    """
+    Fuzzy name match: split into tokens, check overlap.
+    "JATIN" matches "Jatin", "JATIN KUMAR" partially matches "JATIN".
+    """
+    if not name1 or not name2:
+        return False
+    tokens1 = set(re.sub(r'[^a-z ]', '', name1.lower()).split())
+    tokens2 = set(re.sub(r'[^a-z ]', '', name2.lower()).split())
+    if not tokens1 or not tokens2:
+        return False
+    # Remove very short tokens (initials)
+    tokens1 = {t for t in tokens1 if len(t) > 1}
+    tokens2 = {t for t in tokens2 if len(t) > 1}
+    if not tokens1 or not tokens2:
+        return False
+    intersection = tokens1 & tokens2
+    smaller = min(len(tokens1), len(tokens2))
+    return len(intersection) / smaller >= threshold
+
+
+def cross_verify_document_names(page_results: list) -> dict:
+    """
+    Cross-verify the person's name across all detected documents.
+    Returns a dict suitable for inclusion in the classify_combined_pdf response.
+    """
+    # Collect one name per doc type (prefer higher-confidence pages)
+    names_by_type: dict = {}
+    for pr in page_results:
+        doc_type = pr.get("detected_type", "OTHER")
+        name = pr.get("extracted_name")
+        if name and len(name.strip()) >= 3 and doc_type != "OTHER":
+            if doc_type not in names_by_type:
+                names_by_type[doc_type] = name.strip()
+
+    if len(names_by_type) < 2:
+        return {
+            "status": "INSUFFICIENT_DATA",
+            "message": f"Only {len(names_by_type)} document(s) had extractable names — cannot cross-verify",
+            "names_found": names_by_type,
+        }
+
+    name_list = list(names_by_type.values())
+    primary_name = name_list[0]
+
+    mismatches = []
+    for doc_type, name in names_by_type.items():
+        if not _names_are_similar(primary_name, name):
+            mismatches.append({
+                "doc_type": doc_type,
+                "name": name,
+                "primary": primary_name,
+                "message": f"Name '{name}' on {doc_type} does not closely match primary name '{primary_name}' — verify these belong to the same person",
+            })
+
+    status = "MATCH" if not mismatches else ("PARTIAL" if len(mismatches) < len(names_by_type) - 1 else "MISMATCH")
+
+    return {
+        "status": status,
+        "primary_name": primary_name,
+        "names_found": names_by_type,
+        "mismatches": mismatches,
+        "message": (
+            f"All {len(names_by_type)} documents show consistent name: '{primary_name}'" if status == "MATCH"
+            else f"{len(mismatches)} name mismatch(es) detected — HR must verify document ownership"
+        ),
+    }
+
+
+def _extract_dob_for_doc(text: str, doc_type: str) -> "str | None":
+    """Extract the primary date of birth from a document page."""
+    try:
+        if doc_type == "AADHAAR":
+            return extract_aadhaar_fields(text).get("date_of_birth")
+        elif doc_type == "PAN":
+            return extract_pan_fields(text).get("date_of_birth")
+        elif doc_type == "PASSPORT":
+            return extract_passport_fields(text).get("date_of_birth")
+        elif doc_type == "VOTER_ID":
+            return extract_voter_id_fields(text).get("date_of_birth")
+        elif doc_type == "DRIVING_LICENSE":
+            return extract_driving_license_fields(text).get("date_of_birth")
+        elif doc_type in ("TENTH_CERTIFICATE", "TWELFTH_CERTIFICATE"):
+            # Marksheets sometimes have DOB in "Date of Birth" field
+            dob_m = re.search(r"(?:date\s+of\s+birth|d\.?o\.?b\.?)[:\s]+(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})", text, re.IGNORECASE)
+            return dob_m.group(1) if dob_m else None
+    except Exception:
+        pass
+    return None
+
+
+def _normalize_date(date_str: str) -> "str | None":
+    """Normalize various date formats to DD/MM/YYYY for comparison."""
+    if not date_str:
+        return None
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%d/%m/%y", "%d-%m-%y",
+                "%m/%d/%Y", "%Y-%m-%d", "%d %b %Y", "%d %B %Y"):
+        try:
+            from datetime import datetime
+            return datetime.strptime(date_str.strip(), fmt).strftime("%d/%m/%Y")
+        except ValueError:
+            continue
+    # Already normalized or unparseable — return as-is stripped
+    return date_str.strip()
+
+
+def cross_verify_document_dobs(page_results: list) -> dict:
+    """
+    Cross-verify the date of birth across all detected documents that contain DOB.
+    Similar to name cross-verification but for DOB fields.
+
+    Returns a dict with match status and per-document DOB values.
+    """
+    dobs_by_type: dict = {}
+    for pr in page_results:
+        doc_type = pr.get("detected_type", "OTHER")
+        raw_text = pr.get("text_snippet", "") + " " + pr.get("full_text_for_dob", "")
+        dob = _extract_dob_for_doc(raw_text, doc_type)
+        if dob and len(dob.strip()) >= 6 and doc_type != "OTHER":
+            normalized = _normalize_date(dob)
+            if normalized and doc_type not in dobs_by_type:
+                dobs_by_type[doc_type] = normalized
+
+    if len(dobs_by_type) < 2:
+        return {
+            "status": "INSUFFICIENT_DATA",
+            "message": f"Only {len(dobs_by_type)} document(s) had extractable DOB — cannot cross-verify",
+            "dobs_found": dobs_by_type,
+        }
+
+    dob_list = list(dobs_by_type.values())
+    primary_dob = dob_list[0]
+
+    mismatches = []
+    for doc_type, dob in dobs_by_type.items():
+        if dob != primary_dob:
+            mismatches.append({
+                "doc_type": doc_type,
+                "dob": dob,
+                "primary": primary_dob,
+                "message": f"DOB '{dob}' on {doc_type} does not match primary DOB '{primary_dob}' — verify documents belong to the same person",
+            })
+
+    status = "MATCH" if not mismatches else ("PARTIAL" if len(mismatches) < len(dobs_by_type) - 1 else "MISMATCH")
+
+    return {
+        "status": status,
+        "primary_dob": primary_dob,
+        "dobs_found": dobs_by_type,
+        "mismatches": mismatches,
+        "message": (
+            f"All {len(dobs_by_type)} documents show consistent DOB: '{primary_dob}'" if status == "MATCH"
+            else f"{len(mismatches)} DOB mismatch(es) detected — possible document fraud or wrong document upload"
+        ),
+    }
+
+
 async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) -> dict:
     """
     Classify a multi-document combined PDF page by page.
@@ -1709,7 +2111,7 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
                 except Exception:
                     pass
 
-                deep = run_deep_validators(
+                deep = run_deep_validators_v2(
                     doc_type=page_doc_type,
                     extracted_fields=page_fields,
                     raw_text=raw_text,
@@ -1747,6 +2149,10 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
                 logger.warning(f"Per-page deep validation failed on page {idx + 1}: {e}")
                 page_validation_reasons = [f"⚠ Validation error on this page: {str(e)[:80]}"]
 
+        # Extract primary name + DOB for cross-verification
+        extracted_name = _extract_primary_name_for_doc(raw_text, page_doc_type)
+        extracted_dob = _extract_dob_for_doc(raw_text, page_doc_type)
+
         # Add to results
         page_results.append({
             "page": idx + 1,
@@ -1765,6 +2171,11 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
             "validation_reasons": page_validation_reasons,
             "suspicion_boost": round(page_suspicion_boost, 2),
             "wrong_upload": page_wrong_upload,
+            # Name + DOB cross-verification support
+            "extracted_name": extracted_name,
+            "extracted_dob": extracted_dob,
+            # Store full raw text for DOB extraction pass (cross_verify_document_dobs needs it)
+            "full_text_for_dob": raw_text[:1000] if raw_text else "",
         })
 
         # Roll page suspicion boost into the overall suspicion score
@@ -1847,7 +2258,18 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
     else:
         risk_level = "LOW"
 
-    # Wrong-upload summary — aggregate across all pages
+    # ── DOB cross-verification (NEW) ────────────────────────────────────────
+    dob_cross_verification = cross_verify_document_dobs(page_results)
+
+    # ── Duplicate document number detection within this submission (NEW) ─────
+    duplicate_detection = detect_duplicate_numbers_in_batch(page_results)
+    if duplicate_detection["duplicates_found"]:
+        for reason in duplicate_detection["reasons"]:
+            if reason.startswith("🚩"):
+                suspicion_flags.append(reason)
+                suspicion_score += 25
+
+    # ── Wrong-upload summary — aggregate across all pages ────────────────────
     wrong_upload_pages = [
         pr for pr in page_results
         if pr.get("wrong_upload", {}).get("is_wrong_upload")
@@ -1942,11 +2364,15 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
         suspicion_score = min(suspicion_score, 30)
         risk_level = "MEDIUM"
 
+    # Cross-verify person name across all detected documents
+    name_cross_verification = cross_verify_document_names(page_results)
+
     logger.info(
         f"[classify_combined_pdf] DONE — total_pages={total_pages} "
         f"detected_docs={detected_docs} missing_docs={missing_docs} "
         f"suspicion_score={suspicion_score} risk_level={risk_level} "
-        f"blank_pages={blank_pages} ocr_infra_warning={ocr_infrastructure_warning is not None}"
+        f"blank_pages={blank_pages} ocr_infra_warning={ocr_infrastructure_warning is not None} "
+        f"name_cross_verification_status={name_cross_verification.get('status')}"
     )
 
     return {
@@ -1969,6 +2395,12 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
         "wrong_upload_count": len(wrong_upload_pages),
         # Infrastructure diagnostics — non-null when OCR failed for systemic reasons
         "ocr_infrastructure_warning": ocr_infrastructure_warning,
+        # Cross-verification of person name across all detected documents
+        "name_cross_verification": name_cross_verification,
+        # Cross-verification of date of birth across all detected documents (NEW)
+        "dob_cross_verification": dob_cross_verification,
+        # Duplicate document number detection within this submission (NEW)
+        "duplicate_detection": duplicate_detection,
     }
 
 
@@ -1982,6 +2414,8 @@ _TYPE_EXTRACTORS = {
     "VOTER_ID":                   extract_voter_id_fields,
     "DRIVING_LICENSE":            extract_driving_license_fields,
     "BANK_STATEMENT":             extract_bank_statement_fields,
+    "CANCELLED_CHEQUE":           extract_bank_statement_fields,
+    "SALARY_SLIP":                extract_salary_slip_fields,   # Category 3 item 11
     "CERTIFICATE":                extract_education_certificate_fields,
     "DEGREE_CERTIFICATE":         extract_education_certificate_fields,  # explicit alias
     "TENTH_CERTIFICATE":          extract_education_certificate_fields,

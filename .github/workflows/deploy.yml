@@ -431,7 +431,8 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          script: mkdir -p /home/ubuntu/Aniston-HRMS/downloads/agent
+          # Create both the parent and the agent-build/ subdirectory that scp-action writes into
+          script: mkdir -p /home/ubuntu/Aniston-HRMS/downloads/agent/agent-build
         continue-on-error: true
 
       - name: Upload agent .exe to EC2
@@ -636,14 +637,14 @@ jobs:
                 echo "WARNING: frontend/dist not found — skipping OTA zip"
               fi
               python3 -c "import json; m={'version':'${BUNDLE_VERSION}','url':'https://hr.anistonav.com/app-updates/bundle-${BUNDLE_VERSION}.zip','mandatory':True,'notes':'v${BUNDLE_VERSION} - ${COMMIT_SUBJECT}'}; open('app-updates/manifest.json','w').write(json.dumps(m,indent=2)); print('manifest.json updated to v${BUNDLE_VERSION}')" 2>/dev/null || echo "WARNING: manifest.json write failed"
-              mkdir -p downloads downloads/agent app-updates uploads/ios-builds
+              mkdir -p downloads downloads/agent/agent-build app-updates uploads/ios-builds
               chmod 755 downloads app-updates 2>/dev/null || true
             ) || echo "WARNING: OTA versioning step failed (non-blocking) — deployment continues"
 
             echo "=== [13/16] Verifying app binaries ==="
             ls -lh downloads/aniston-hrms.apk 2>/dev/null && echo "✅ Android APK present" || echo "ℹ️  Android APK not yet uploaded (will appear after first successful android build)"
             ls -lh uploads/ios-builds/*.ipa 2>/dev/null && echo "✅ iOS IPA present" || echo "ℹ️  iOS IPA not yet uploaded"
-            ls -lh downloads/agent/aniston-agent-setup.exe 2>/dev/null && echo "✅ Agent .exe present" || echo "ℹ️  Agent installer not yet uploaded (will appear after first successful windows build)"
+            ls -lh downloads/agent/agent-build/aniston-agent-setup.exe 2>/dev/null && echo "✅ Agent .exe present" || echo "ℹ️  Agent installer not yet uploaded (will appear after first successful windows build)"
 
             echo "=== [14/16] Updating Nginx config ==="
             sudo cp /home/ubuntu/Aniston-HRMS/deploy/nginx.conf /etc/nginx/sites-available/hr.anistonav.com
@@ -654,7 +655,7 @@ jobs:
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads/backups
             mkdir -p /home/ubuntu/Aniston-HRMS/uploads/tmp
-            mkdir -p /home/ubuntu/Aniston-HRMS/downloads/agent
+            mkdir -p /home/ubuntu/Aniston-HRMS/downloads/agent/agent-build
 
             echo "=== [15.5/16] Setting server timezone to UTC ==="
             sudo timedatectl set-timezone UTC || true

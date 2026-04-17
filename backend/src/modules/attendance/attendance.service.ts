@@ -781,6 +781,11 @@ export class AttendanceService {
 
     let totalWorkedHours = 0;
     const holidayDates = new Set(holidays.map(h => h.date.toISOString().split('T')[0]));
+    // Build a Set of dates that have any attendance record (any status)
+    const datesWithRecord = new Set(records.map(r => new Date(r.date).toISOString().split('T')[0]));
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const current = new Date(start);
     while (current <= end) {
       summary.totalDays++;
@@ -790,13 +795,26 @@ export class AttendanceService {
       if (day === 0 && !holidayDates.has(dateStr)) {
         summary.weekends++;
       }
+      // Implicit absent: past working day (Mon-Sat) with no record and no holiday
+      if (
+        day !== 0 &&
+        !holidayDates.has(dateStr) &&
+        !datesWithRecord.has(dateStr) &&
+        current < today
+      ) {
+        summary.absent++;
+      }
       current.setDate(current.getDate() + 1);
     }
 
+    // Count statuses from actual records.
+    // Implicit absent days (no record) are already counted in the loop above;
+    // explicit ABSENT records have a datesWithRecord entry so they were skipped
+    // by the loop — they are counted here instead. No double-counting.
     records.forEach((r) => {
       switch (r.status) {
         case 'PRESENT': summary.present++; break;
-        case 'ABSENT': summary.absent++; break;
+        case 'ABSENT':  summary.absent++;  break;
         case 'HALF_DAY': summary.halfDay++; break;
         case 'ON_LEAVE': summary.onLeave++; break;
         case 'WORK_FROM_HOME': summary.workFromHome++; break;
@@ -1410,7 +1428,7 @@ export class AttendanceService {
       },
     });
 
-    // Build summary (same logic as getMyAttendance)
+    // Build summary — mirrors getMyAttendance logic including implicit absent days
     const summary = {
       totalDays: 0,
       present: 0,
@@ -1424,18 +1442,33 @@ export class AttendanceService {
     };
 
     let totalWorkedHours = 0;
+    const holidayDatesEmp = new Set(holidays.map(h => new Date(h.date).toISOString().split('T')[0]));
+    const datesWithRecordEmp = new Set(records.map(r => new Date(r.date).toISOString().split('T')[0]));
+    const todayEmp = new Date();
+    todayEmp.setHours(0, 0, 0, 0);
+
     const current = new Date(start);
     while (current <= end) {
       summary.totalDays++;
       const day = current.getDay();
-      if (day === 0) summary.weekends++; // Sunday only — Saturday is working day
+      const dateStr = current.toISOString().split('T')[0];
+      if (day === 0 && !holidayDatesEmp.has(dateStr)) summary.weekends++; // Sunday only — Saturday is working day
+      // Implicit absent: past Mon-Sat with no record and no holiday
+      if (
+        day !== 0 &&
+        !holidayDatesEmp.has(dateStr) &&
+        !datesWithRecordEmp.has(dateStr) &&
+        current < todayEmp
+      ) {
+        summary.absent++;
+      }
       current.setDate(current.getDate() + 1);
     }
 
     records.forEach((r) => {
       switch (r.status) {
         case 'PRESENT': summary.present++; break;
-        case 'ABSENT': summary.absent++; break;
+        case 'ABSENT':  summary.absent++;  break; // explicit records not in loop (datesWithRecord covers them)
         case 'HALF_DAY': summary.halfDay++; break;
         case 'ON_LEAVE': summary.onLeave++; break;
         case 'WORK_FROM_HOME': summary.workFromHome++; break;

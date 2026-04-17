@@ -22,7 +22,19 @@ async def extract_document(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="File too large (max 20MB)")
 
     filename = file.filename or "document.jpg"
-    result = await process_document(contents, filename)
+    # Cat 5 item 22 — surface OCR errors with actionable codes
+    try:
+        result = await process_document(contents, filename)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).error(f"[extract] OCR failed for {filename}: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "OCR_EXTRACT_FAILED",
+                "message": f"Could not extract fields from this document: {str(exc)[:200]}. Try re-uploading a clearer scan.",
+            },
+        )
     return {
         "success": True,
         "data": result.model_dump(),
@@ -67,7 +79,35 @@ async def classify_combined_pdf_endpoint(
         except (json.JSONDecodeError, TypeError):
             parsed_required_docs = None
 
-    result = await classify_combined_pdf(contents, required_docs=parsed_required_docs)
+    # Cat 5 item 22 — classify errors with actionable codes so Node.js can surface them to HR
+    try:
+        result = await classify_combined_pdf(contents, required_docs=parsed_required_docs)
+    except MemoryError:
+        raise HTTPException(
+            status_code=507,
+            detail={
+                "error_code": "OCR_OUT_OF_MEMORY",
+                "message": "PDF is too large or complex for available memory. Try splitting the file into smaller parts.",
+            },
+        )
+    except TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "error_code": "OCR_TIMEOUT",
+                "message": "OCR processing timed out. The PDF may have too many pages. Try uploading fewer pages at once.",
+            },
+        )
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).error(f"[classify_combined_pdf] Unhandled error: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error_code": "OCR_PROCESSING_FAILED",
+                "message": f"OCR failed to process this PDF: {str(exc)[:200]}. Please re-upload or contact support.",
+            },
+        )
     return {
         "success": True,
         "data": result,

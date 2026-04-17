@@ -1971,8 +1971,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
             <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 mb-3 flex items-start gap-2">
               <Info size={13} className="text-blue-500 mt-0.5 flex-shrink-0" />
               <p className="text-[11px] text-blue-700 leading-relaxed">
-                Leave visibility is controlled by the employee's current employment status.
-                Employees in <strong>Onboarding</strong> status cannot see or apply for any leave.
+                Leave visibility is controlled entirely by the <strong>By Status</strong> setting below. Employees only see leaves where their current employment status matches the selected option.
               </p>
             </div>
 

@@ -79,9 +79,11 @@ export const kycApi = api.injectEndpoints({
     }),
 
     // HR: get full KYC review data for one employee (gate + all docs + OCR + analysis)
+    // keepUnusedDataFor=300s so navigating back from the detail view hits cache (Cat 5 item 21)
     getKycHrReview: builder.query<any, string>({
       query: (employeeId) => `/onboarding/kyc/${employeeId}/hr-review`,
       providesTags: (_r, _e, id) => [{ type: 'Kyc', id }],
+      keepUnusedDataFor: 300,
     }),
 
     // HR: approve (verify) KYC
@@ -144,6 +146,27 @@ export const kycApi = api.injectEndpoints({
       }),
       invalidatesTags: [{ type: 'Kyc' }],
     }),
+
+    // HR: revoke portal access after KYC was VERIFIED (e.g. offboarding or fraud)
+    revokeKycAccess: builder.mutation<any, string>({
+      query: (employeeId) => ({ url: `/onboarding/kyc/${employeeId}/revoke-kyc`, method: 'POST' }),
+      invalidatesTags: ['Kyc'],
+    }),
+
+    // HR: KYC audit log — full action history for an employee (Category 4 item 15)
+    getKycAuditLog: builder.query<any, string>({
+      query: (employeeId) => `/onboarding/kyc/${employeeId}/audit-log`,
+      providesTags: (_r, _e, id) => [{ type: 'Kyc', id }],
+    }),
+
+    // HR: check for duplicate Aadhaar/PAN across all employees (Category 2 item 8)
+    checkDuplicateDocument: builder.mutation<any, { employeeId: string; aadhaarNumber?: string; panNumber?: string; passportNumber?: string }>({
+      query: ({ employeeId, ...body }) => ({
+        url: `/onboarding/kyc/${employeeId}/check-duplicate`,
+        method: 'POST',
+        body,
+      }),
+    }),
   }),
 });
 
@@ -163,4 +186,7 @@ export const {
   useUpdateHrNotesMutation,
   useRetriggerOcrMutation,
   useReclassifyCombinedPdfMutation,
+  useRevokeKycAccessMutation,
+  useGetKycAuditLogQuery,
+  useCheckDuplicateDocumentMutation,
 } = kycApi;

@@ -121,14 +121,10 @@ export function startScreenshots(intervalMs?: number) {
           enqueue({ filePath: jpgPath, metadata, queuedAt: Date.now() });
         }
       } catch {
-        // sharp failed — try uploading original png
-        try {
-          await uploadScreenshot(filePath, metadata);
-          try { fs.unlinkSync(filePath); } catch {}
-        } catch (uploadErr) {
-          console.warn('[Screenshot] Upload failed (png fallback), queuing for retry:', (uploadErr as Error).message);
-          enqueue({ filePath, metadata, queuedAt: Date.now() });
-        }
+        // sharp compression failed — skip upload rather than sending a raw uncompressed PNG
+        // (raw PNG is 5-10x larger than JPEG; uploading it wastes bandwidth and may exceed server limits)
+        console.warn('[Screenshot] sharp compression failed — skipping upload to avoid oversized raw PNG');
+        try { fs.unlinkSync(filePath); } catch {}
       }
     } catch (err) {
       console.error('[Screenshot] Capture error:', (err as Error).message);

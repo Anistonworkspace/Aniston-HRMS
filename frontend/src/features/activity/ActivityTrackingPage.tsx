@@ -2,20 +2,33 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Monitor, Search, Calendar, Eye, Activity, Clock, Mouse, Keyboard,
-  Wifi, WifiOff, ChevronLeft, ChevronRight, X, Maximize2, Radio, Globe,
+  WifiOff, X, Maximize2, Radio, Globe, Download, TrendingDown, TrendingUp,
 } from 'lucide-react';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
-import { useGetActivityBulkSummaryQuery, useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery, useSetAgentLiveModeMutation, useGetAgentLiveModeQuery, useGetEmployeeAgentStatusQuery } from '../attendance/attendanceApi';
+import {
+  useGetActivityBulkSummaryQuery, useGetEmployeeActivityLogsQuery, useGetEmployeeScreenshotsQuery,
+  useSetAgentLiveModeMutation, useGetAgentLiveModeQuery, useGetEmployeeAgentStatusQuery,
+  useLazyDownloadActivityExcelQuery,
+} from '../attendance/attendanceApi';
 import { getInitials, cn } from '../../lib/utils';
 import { onSocketEvent, offSocketEvent, getSocket } from '../../lib/socket';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace('/api', '');
 
 export default function ActivityTrackingPage() {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [rawDate, setRawDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(rawDate);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
   const [fullScreenshot, setFullScreenshot] = useState<string | null>(null);
+
+  // 300 ms debounce on date — avoids a burst of API calls while the user scrolls the date picker
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleDateChange = (value: string) => {
+    setRawDate(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setSelectedDate(value), 300);
+  };
 
   const { data: empRes, isLoading: loadingEmps } = useGetEmployeesQuery({ page: 1, limit: 100 });
   const employees = empRes?.data || [];
@@ -52,7 +65,7 @@ export default function ActivityTrackingPage() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <Calendar size={16} className="text-gray-400" />
-            <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
+            <input type="date" value={rawDate} onChange={e => handleDateChange(e.target.value)}
               className="input-glass text-sm" />
           </div>
         </div>
@@ -130,11 +143,14 @@ export default function ActivityTrackingPage() {
 // Bug #9: uses shared bulkSummary (one query for all rows) instead of per-row API calls
 function EmployeeRow({ employee, isSelected, bulkSummary, onClick }: {
   employee: any; isSelected: boolean;
-  bulkSummary: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number }> | undefined;
+  bulkSummary: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number; productivityScore?: number | null }> | undefined;
   onClick: () => void;
 }) {
   const summary = bulkSummary?.[employee.id];
   const hasActivity = summary && summary.logCount > 0;
+  // Flag employees with <40% productivity (at least 30min active so we don't penalize light days)
+  const isLowProductivity = hasActivity && typeof summary.productivityScore === 'number' &&
+    summary.productivityScore < 40 && summary.totalActiveMinutes >= 30;
 
   return (
     <button onClick={onClick}
@@ -147,7 +163,15 @@ function EmployeeRow({ employee, isSelected, bulkSummary, onClick }: {
         {getInitials(employee.firstName, employee.lastName)}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 truncate">{employee.firstName} {employee.lastName}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-medium text-gray-800 truncate">{employee.firstName} {employee.lastName}</p>
+          {isLowProductivity && (
+            <span className="flex-shrink-0 flex items-center gap-0.5 text-[9px] bg-red-50 text-red-500 px-1.5 py-0.5 rounded-full font-medium"
+              title={`Low productivity: ${summary.productivityScore}%`}>
+              <TrendingDown size={8} /> {summary.productivityScore}%
+            </span>
+          )}
+        </div>
         <p className="text-[10px] text-gray-400">{employee.employeeCode} · {employee.workMode}</p>
       </div>
       <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
@@ -172,6 +196,7 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
   employee: any; date: string; onScreenshotClick: (url: string) => void;
 }) {
   const [viewMode, setViewMode] = useState<'activity' | 'live'>('activity');
+  const [exporting, setExporting] = useState(false);
   const employeeUserId: string | undefined = employee?.user?.id;
   const { data: activityRes, isLoading: loadingActivity, isError: activityError } = useGetEmployeeActivityLogsQuery(
     { employeeId: employee.id, date },
@@ -181,10 +206,32 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
     { employeeId: employee.id, date },
     { pollingInterval: viewMode === 'live' ? 10000 : 30000 }
   );
+  const [triggerExport] = useLazyDownloadActivityExcelQuery();
 
   const summary = activityRes?.data?.summary;
   const logs = activityRes?.data?.logs || [];
   const screenshots = screenshotRes?.data || [];
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const result = await triggerExport({ employeeId: employee.id, date });
+      if (result.data) {
+        const url = URL.createObjectURL(result.data);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `activity-${employee.employeeCode || employee.id}-${date}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      // non-critical — user sees no data
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -200,9 +247,21 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
               <p className="text-xs text-gray-400">{employee.employeeCode} · {employee.designation?.name || 'Employee'} · {employee.workMode}</p>
             </div>
           </div>
-          <div className="text-right">
-            <p className="text-xs text-gray-400">Tracking Date</p>
-            <p className="text-sm font-mono font-medium text-gray-700" data-mono>{date}</p>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <p className="text-xs text-gray-400">Tracking Date</p>
+              <p className="text-sm font-mono font-medium text-gray-700" data-mono>{date}</p>
+            </div>
+            {summary && summary.logCount > 0 && (
+              <button onClick={handleExport} disabled={exporting}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                title="Export activity log to Excel">
+                {exporting
+                  ? <div className="w-3 h-3 border border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                  : <Download size={12} />}
+                Export
+              </button>
+            )}
           </div>
         </div>
         {/* View mode toggle */}
@@ -245,11 +304,12 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
       ) : (
         <>
           {/* Stats Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             <StatCard icon={Clock} label="Active Time" value={`${summary.totalActiveMinutes}m`} color="emerald" />
             <StatCard icon={Clock} label="Idle Time" value={`${summary.totalIdleMinutes}m`} color="amber" />
             <StatCard icon={Keyboard} label="Keystrokes" value={summary.totalKeystrokes?.toLocaleString() || '0'} color="blue" />
             <StatCard icon={Mouse} label="Mouse Clicks" value={summary.totalClicks?.toLocaleString() || '0'} color="purple" />
+            <ProductivityScoreCard score={summary.productivityScore ?? null} productiveMinutes={summary.productiveMinutes ?? 0} unproductiveMinutes={summary.unproductiveMinutes ?? 0} />
           </div>
 
           {/* Top Applications — clickable for URL drilldown */}
@@ -290,34 +350,8 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
             </div>
           )}
 
-          {/* Screenshots Gallery */}
-          <div className="layer-card p-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">
-              Screenshots ({loadingScreenshots ? '...' : screenshots.length})
-            </h3>
-            {screenshots.length > 0 ? (
-              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {screenshots.map((s: any) => (
-                  <div key={s.id} className="group relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 hover:border-brand-300 hover:shadow-md transition-all"
-                    onClick={() => onScreenshotClick(`${API_BASE}${s.imageUrl}`)}>
-                    <img src={`${API_BASE}${s.imageUrl}`} alt={s.activeApp || 'Screenshot'}
-                      className="w-full h-28 object-cover" />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                      <Maximize2 size={20} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
-                      <p className="text-[9px] text-white truncate">{s.activeApp || 'Desktop'}</p>
-                      <p className="text-[8px] text-gray-300">
-                        {new Date(s.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-gray-400 text-center py-6">No screenshots captured for this date</p>
-            )}
-          </div>
+          {/* Screenshots Gallery with pagination */}
+          <ScreenshotsGallery screenshots={screenshots} loading={loadingScreenshots} onScreenshotClick={onScreenshotClick} />
         </>
       ))}
     </div>
@@ -334,6 +368,13 @@ function LiveFeedPanel({ employeeId, employeeUserId, screenshots, onScreenshotCl
   const [setLiveMode] = useSetAgentLiveModeMutation();
   const { data: liveModeRes } = useGetAgentLiveModeQuery(employeeId, { pollingInterval: 10000 });
   const isLive = liveModeRes?.data?.enabled || false;
+
+  // Sync interval selector with the value stored in Redis (survives page reloads)
+  useEffect(() => {
+    if (liveModeRes?.data?.intervalSeconds) {
+      setInterval_(liveModeRes.data.intervalSeconds);
+    }
+  }, [liveModeRes?.data?.intervalSeconds]);
 
   // Listen for real-time heartbeat events
   useEffect(() => {
@@ -571,9 +612,12 @@ function LiveVideoStream({ employeeId, employeeUserId }: { employeeId: string; e
     if (streamErrorHandlerRef.current) socket.off('stream:error', streamErrorHandlerRef.current);
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
-    // Handle immediate error from server (agent offline)
+    // Handle errors from server — either agent offline check (has employeeUserId)
+    // or agent renderer error relay (has employeeUserId from socket.data.userId).
+    // Also accept errors with no employeeUserId since this socket receives targeted emits.
     const handleStreamError = (data: any) => {
-      if (data.employeeUserId === employeeUserId) {
+      const matchesEmployee = !data.employeeUserId || data.employeeUserId === employeeUserId;
+      if (matchesEmployee) {
         setError(data.message || 'Agent is not connected');
         setConnecting(false);
       }
@@ -812,6 +856,108 @@ function AppDrilldown({ topApps, logs }: { topApps: any[]; logs: any[] }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ---------- Productivity Score Card (circular progress ring) ----------
+function ProductivityScoreCard({ score, productiveMinutes, unproductiveMinutes }: {
+  score: number | null; productiveMinutes: number; unproductiveMinutes: number;
+}) {
+  const radius = 22;
+  const circumference = 2 * Math.PI * radius;
+  const pct = score ?? 0;
+  const offset = circumference - (pct / 100) * circumference;
+  const color = pct >= 70 ? '#10b981' : pct >= 40 ? '#f59e0b' : '#ef4444';
+
+  return (
+    <div className="layer-card p-4 flex flex-col">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-indigo-50 text-indigo-600">
+          {pct >= 40 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+        </div>
+      </div>
+      {score === null ? (
+        <>
+          <p className="text-2xl font-bold font-mono text-gray-300" data-mono>—</p>
+          <p className="text-xs text-gray-400">Productivity</p>
+        </>
+      ) : (
+        <div className="flex items-center gap-3">
+          <svg width="52" height="52" className="flex-shrink-0 -rotate-90">
+            <circle cx="26" cy="26" r={radius} stroke="#e5e7eb" strokeWidth="5" fill="none" />
+            <circle cx="26" cy="26" r={radius} stroke={color} strokeWidth="5" fill="none"
+              strokeDasharray={circumference} strokeDashoffset={offset}
+              strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.6s ease' }} />
+          </svg>
+          <div>
+            <p className="text-xl font-bold font-mono leading-tight" style={{ color }} data-mono>{pct}%</p>
+            <p className="text-[10px] text-gray-400">Productivity</p>
+            <p className="text-[9px] text-emerald-600 mt-0.5">{productiveMinutes}m prod.</p>
+            {unproductiveMinutes > 0 && (
+              <p className="text-[9px] text-red-400">{unproductiveMinutes}m unprod.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Screenshots Gallery with pagination ----------
+const SCREENSHOTS_PER_PAGE = 48;
+
+function ScreenshotsGallery({ screenshots, loading, onScreenshotClick }: {
+  screenshots: any[]; loading: boolean; onScreenshotClick: (url: string) => void;
+}) {
+  const [visible, setVisible] = useState(SCREENSHOTS_PER_PAGE);
+
+  // Reset pagination when screenshots change (date/employee switch)
+  useEffect(() => { setVisible(SCREENSHOTS_PER_PAGE); }, [screenshots.length]);
+
+  const shown = screenshots.slice(0, visible);
+  const hasMore = screenshots.length > visible;
+
+  return (
+    <div className="layer-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-700">
+          Screenshots ({loading ? '...' : screenshots.length})
+        </h3>
+        {screenshots.length > SCREENSHOTS_PER_PAGE && (
+          <span className="text-[10px] text-gray-400">Showing {Math.min(visible, screenshots.length)} of {screenshots.length}</span>
+        )}
+      </div>
+      {shown.length > 0 ? (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {shown.map((s: any) => (
+              <div key={s.id} className="group relative cursor-pointer rounded-lg overflow-hidden border border-gray-200 hover:border-brand-300 hover:shadow-md transition-all"
+                onClick={() => onScreenshotClick(`${API_BASE}${s.imageUrl}`)}>
+                <img src={`${API_BASE}${s.imageUrl}`} alt={s.activeApp || 'Screenshot'}
+                  className="w-full h-28 object-cover" loading="lazy" />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                  <Maximize2 size={20} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
+                  <p className="text-[9px] text-white truncate">{s.activeApp || 'Desktop'}</p>
+                  <p className="text-[8px] text-gray-300">
+                    {new Date(s.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+          {hasMore && (
+            <button onClick={() => setVisible(v => v + SCREENSHOTS_PER_PAGE)}
+              className="mt-3 w-full py-2 text-xs font-medium text-brand-600 bg-brand-50 border border-brand-200 rounded-lg hover:bg-brand-100 transition-colors">
+              Load more ({screenshots.length - visible} remaining)
+            </button>
+          )}
+        </>
+      ) : (
+        <p className="text-xs text-gray-400 text-center py-6">No screenshots captured for this date</p>
+      )}
     </div>
   );
 }

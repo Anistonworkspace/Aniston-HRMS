@@ -99,6 +99,11 @@ export async function sendHeartbeat(activities: any[]) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ activities }),
   });
+  // Treat non-2xx as a hard error so the sync loop logs it and retains the buffer
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Heartbeat rejected: ${res.status} ${text.slice(0, 120)}`);
+  }
   return res.json();
 }
 

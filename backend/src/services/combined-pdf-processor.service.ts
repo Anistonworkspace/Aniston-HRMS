@@ -925,12 +925,31 @@ function buildEmployeeReasons(
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
+interface SocketCtx { organizationId: string; employeeId: string }
+
 export async function processCombinedPdfFallback(
   pdfBuffer: Buffer,
   requiredDocs: string[] = [],
+  socketCtx?: SocketCtx,
 ): Promise<CombinedPdfNodeResult> {
   const suspicionFlags: SuspicionFlag[] = [];
   const manualReviewReasons: string[] = [];
+
+  // Helper: emit live OCR progress to HR room (Cat 5 item 20)
+  let _emitProgress: ((page: number, total: number, docType: string) => void) | null = null;
+  if (socketCtx) {
+    import('../sockets/index.js').then(({ emitToOrg }) => {
+      _emitProgress = (page, total, docType) => {
+        emitToOrg(socketCtx.organizationId, 'ocr:page-processed', {
+          employeeId: socketCtx.employeeId,
+          page,
+          total,
+          docType,
+          pct: Math.round((page / total) * 100),
+        });
+      };
+    }).catch(() => { /* socket not ready — silently skip */ });
+  }
 
   // ── Step 1: Load pdf-parse and extract per-page text ──────────────────────
   let pdfData: { text: string; numpages: number; pageContent?: string[] } | null = null;
@@ -1057,6 +1076,9 @@ export async function processCombinedPdfFallback(
     const { type, confidence, keywords } = classifyPage(text);
     const pageSuspicion = detectPageSuspicion(text, i, textSources[i]);
     suspicionFlags.push(...pageSuspicion);
+
+    // Emit real-time OCR progress socket event (Cat 5 item 20)
+    if (_emitProgress) _emitProgress(i + 1, processedPageTexts.length, type);
 
     return {
       pageNumber: i + 1,

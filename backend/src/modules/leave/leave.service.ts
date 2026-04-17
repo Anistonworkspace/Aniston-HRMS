@@ -940,6 +940,8 @@ export class LeaveService {
           if (app === 'INTERN') return status === 'INTERN' || empUserRole === 'INTERN';
           if (app === 'SUSPENDED') return status === 'SUSPENDED';
           if (app === 'INACTIVE') return status === 'INACTIVE';
+          if (app === 'TERMINATED') return status === 'TERMINATED';
+          if (app === 'ABSCONDED') return status === 'ABSCONDED';
           return true;
         })();
         if (!allowed) {
@@ -952,6 +954,8 @@ export class LeaveService {
             INTERN: 'interns',
             SUSPENDED: 'suspended employees',
             INACTIVE: 'inactive employees',
+            TERMINATED: 'terminated employees',
+            ABSCONDED: 'absconded employees',
           };
           throw new BadRequestError(`${leaveType.name} is available for ${labels[app] || app} only. Your current status does not qualify.`);
         }

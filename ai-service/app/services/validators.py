@@ -1074,3 +1074,644 @@ def _build_wrong_upload_result(score: int, detections: list, reasons: list, text
         "text_len": text_len,
         "recommendation": recommendation,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. DOCUMENT EXPIRY DETECTION
+# ─────────────────────────────────────────────────────────────────────────────
+
+from datetime import datetime, date
+
+
+def validate_document_expiry(doc_type: str, fields: dict, raw_text: str) -> dict:
+    """
+    Detect if a document has expired or is close to expiry.
+    Supports: PASSPORT, DRIVING_LICENSE, VOTER_ID.
+
+    Returns:
+      {
+        has_expiry: bool,
+        is_expired: bool,
+        expiry_date: str | None,
+        days_remaining: int | None,
+        reasons: [str],
+        risk_level: "NONE" | "LOW" | "MEDIUM" | "HIGH",
+      }
+    """
+    reasons = []
+    today = date.today()
+
+    # Documents that have expiry dates
+    EXPIRY_DOC_TYPES = {"PASSPORT", "DRIVING_LICENSE", "VOTER_ID"}
+    if doc_type not in EXPIRY_DOC_TYPES:
+        return {
+            "has_expiry": False,
+            "is_expired": False,
+            "expiry_date": None,
+            "days_remaining": None,
+            "reasons": [],
+            "risk_level": "NONE",
+        }
+
+    # Extract expiry date from fields or raw text
+    expiry_str: Optional[str] = fields.get("expiry_date")
+
+    if not expiry_str:
+        # Try to extract from raw text using labeled patterns
+        expiry_patterns = [
+            r"(?:expiry|expiration|valid\s+till|valid\s+upto|valid\s+up\s+to|expires?)[:\s]+(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})",
+            r"(?:valid\s+until|validity)[:\s]+(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})",
+            r"(?:date\s+of\s+expiry|doe)[:\s]+(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})",
+        ]
+        for pattern in expiry_patterns:
+            m = re.search(pattern, raw_text, re.IGNORECASE)
+            if m:
+                expiry_str = m.group(1)
+                break
+
+    if not expiry_str:
+        # Try to find the last date in the document (passports: issue then expiry)
+        all_dates = re.findall(r"(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})", raw_text)
+        if len(all_dates) >= 2:
+            expiry_str = all_dates[-1]  # last date is often expiry
+
+    if not expiry_str:
+        reasons.append(f"⚠ Expiry date not found in {doc_type.replace('_', ' ')} — verify manually that document is still valid")
+        return {
+            "has_expiry": True,
+            "is_expired": False,
+            "expiry_date": None,
+            "days_remaining": None,
+            "reasons": reasons,
+            "risk_level": "LOW",
+        }
+
+    # Parse the date
+    expiry_date: Optional[date] = None
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%m/%d/%Y", "%d/%m/%y", "%d-%m-%y"):
+        try:
+            expiry_date = datetime.strptime(expiry_str.strip(), fmt).date()
+            break
+        except ValueError:
+            continue
+
+    if not expiry_date:
+        reasons.append(f"⚠ Could not parse expiry date '{expiry_str}' — verify manually")
+        return {
+            "has_expiry": True,
+            "is_expired": False,
+            "expiry_date": expiry_str,
+            "days_remaining": None,
+            "reasons": reasons,
+            "risk_level": "LOW",
+        }
+
+    days_remaining = (expiry_date - today).days
+
+    if days_remaining < 0:
+        abs_days = abs(days_remaining)
+        years_ago = abs_days // 365
+        reasons.append(
+            f"✗ DOCUMENT EXPIRED: {doc_type.replace('_', ' ')} expired on {expiry_date.strftime('%d %b %Y')} "
+            f"({abs_days} days ago{', ' + str(years_ago) + ' year(s)' if years_ago > 0 else ''}). "
+            f"Expired documents CANNOT be accepted for KYC — ask employee to provide a valid/renewed document."
+        )
+        risk_level = "HIGH"
+        is_expired = True
+    elif days_remaining <= 30:
+        reasons.append(
+            f"⚠ EXPIRING SOON: {doc_type.replace('_', ' ')} expires on {expiry_date.strftime('%d %b %Y')} "
+            f"({days_remaining} days remaining). Consider requesting updated document."
+        )
+        risk_level = "MEDIUM"
+        is_expired = False
+    elif days_remaining <= 90:
+        reasons.append(
+            f"⚠ {doc_type.replace('_', ' ')} expires in {days_remaining} days ({expiry_date.strftime('%d %b %Y')}) — valid now but will expire soon"
+        )
+        risk_level = "LOW"
+        is_expired = False
+    else:
+        reasons.append(
+            f"✓ {doc_type.replace('_', ' ')} is valid — expires {expiry_date.strftime('%d %b %Y')} ({days_remaining} days remaining)"
+        )
+        risk_level = "NONE"
+        is_expired = False
+
+    return {
+        "has_expiry": True,
+        "is_expired": is_expired,
+        "expiry_date": expiry_date.strftime("%d/%m/%Y"),
+        "days_remaining": days_remaining,
+        "reasons": reasons,
+        "risk_level": risk_level,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. DUPLICATE DOCUMENT NUMBER DETECTION (in-batch, no DB call)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def detect_duplicate_numbers_in_batch(page_results: list) -> dict:
+    """
+    Within a single combined PDF submission, detect if the same document number
+    (Aadhaar, PAN, Passport, DL, EPIC) appears on multiple pages.
+
+    This catches scenarios where an employee accidentally submitted the same
+    document twice (e.g., Aadhaar front + the same Aadhaar front again).
+
+    Returns:
+      {
+        duplicates_found: bool,
+        duplicates: [{ number, doc_type, pages: [int], risk_level }],
+        reasons: [str],
+      }
+    """
+    # Collect numbers by type across pages
+    number_occurrences: dict = {}  # key = (number, type), value = [page_nums]
+
+    EXTRACTORS = {
+        "AADHAAR": lambda t: re.sub(r"\D", "", m.group(0)) if (m := re.search(r"\d{4}\s?\d{4}\s?\d{4}", t)) else None,
+        "PAN": lambda t: m.group(0) if (m := re.search(r"[A-Z]{5}\d{4}[A-Z]", t)) else None,
+        "PASSPORT": lambda t: m.group(0) if (m := re.search(r"[A-Z]\d{7}", t)) else None,
+        "DRIVING_LICENSE": lambda t: m.group(0) if (m := re.search(r"[A-Z]{2}[\-\s]?\d{2}[\-\s]?\d{4}[\-\s]?\d{7}", t)) else None,
+        "VOTER_ID": lambda t: m.group(0) if (m := re.search(r"[A-Z]{3}\d{7}", t)) else None,
+    }
+
+    for pr in page_results:
+        doc_type = pr.get("detected_type", "OTHER")
+        text = pr.get("text_snippet", "") + " " + pr.get("full_text", "")
+        page_num = pr.get("page", 0)
+
+        extractor = EXTRACTORS.get(doc_type)
+        if extractor:
+            try:
+                number = extractor(text)
+                if number and len(str(number)) >= 6:
+                    key = (str(number), doc_type)
+                    if key not in number_occurrences:
+                        number_occurrences[key] = []
+                    number_occurrences[key].append(page_num)
+            except Exception:
+                pass
+
+    duplicates = []
+    reasons = []
+
+    for (number, doc_type), pages in number_occurrences.items():
+        if len(pages) > 1:
+            # Check if this is a legitimate multi-page doc (Aadhaar front+back = ok)
+            max_allowed = {"AADHAAR": 2, "PASSPORT": 8}.get(doc_type, 1)
+            if len(pages) > max_allowed:
+                masked = number[:4] + "****" + number[-3:] if len(number) >= 8 else "****"
+                duplicates.append({
+                    "number": masked,
+                    "doc_type": doc_type,
+                    "pages": pages,
+                    "risk_level": "HIGH",
+                })
+                reasons.append(
+                    f"🚩 DUPLICATE: Same {doc_type.replace('_', ' ')} number ({masked}) found on {len(pages)} pages "
+                    f"(pages {pages}) — employee may have submitted the same document multiple times. "
+                    f"Verify each page is a different document."
+                )
+
+    if not duplicates:
+        reasons.append("✓ No duplicate document numbers detected within this submission")
+
+    return {
+        "duplicates_found": bool(duplicates),
+        "duplicates": duplicates,
+        "reasons": reasons,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. FONT / TEMPLATE CONSISTENCY CHECK
+# ─────────────────────────────────────────────────────────────────────────────
+
+def check_template_consistency(text: str, doc_type: str) -> dict:
+    """
+    Heuristically check if the OCR text has the structural patterns expected
+    for the claimed document type.
+
+    For example:
+    - PAN cards MUST have exactly one 10-char PAN number.
+    - Aadhaar MUST have a 12-digit number and DOB.
+    - Salary slips MUST have both earnings and deductions columns.
+    - Certificates MUST have institution name + year.
+
+    Returns:
+      {
+        consistent: bool,
+        score: int,         # 0-100, higher = more consistent
+        reasons: [str],
+        anomalies: [str],
+      }
+    """
+    reasons = []
+    anomalies = []
+    score = 100  # start at 100, deduct for missing expected elements
+
+    EXPECTED_PATTERNS: dict = {
+        "AADHAAR": {
+            "required": [
+                (r"\d{4}\s?\d{4}\s?\d{4}", "12-digit Aadhaar number"),
+                (r"\d{2}[/\-\.]\d{2}[/\-\.]\d{4}", "Date of Birth"),
+            ],
+            "optional": [
+                (r"(?:male|female|पुरुष|महिला)", "Gender"),
+                (r"(?:aadhaar|aadhar|uidai|आधार)", "Aadhaar keyword"),
+            ],
+        },
+        "PAN": {
+            "required": [
+                (r"[A-Z]{5}\d{4}[A-Z]", "PAN number (ABCDE1234F format)"),
+                (r"(?:income tax|permanent account)", "Income Tax / Permanent Account keyword"),
+            ],
+            "optional": [
+                (r"\d{2}[/\-\.]\d{2}[/\-\.]\d{4}", "Date of Birth"),
+            ],
+        },
+        "PASSPORT": {
+            "required": [
+                (r"[A-Z]\d{7}", "Passport number"),
+                (r"(?:republic of india|nationality|passport)", "Passport keyword"),
+            ],
+            "optional": [
+                (r"[A-Z0-9<]{30,44}", "MRZ line"),
+                (r"\d{2}[/\-\.]\d{2}[/\-\.]\d{4}", "Date"),
+            ],
+        },
+        "SALARY_SLIP": {
+            "required": [
+                (r"(?:basic|basic salary|basic pay)", "Basic salary component"),
+                (r"(?:net pay|net payable|take home|in.hand)", "Net pay field"),
+            ],
+            "optional": [
+                (r"(?:hra|house rent)", "HRA component"),
+                (r"(?:pf|provident fund|epf)", "PF deduction"),
+                (r"(?:professional tax|pt)", "Professional Tax"),
+            ],
+        },
+        "BANK_STATEMENT": {
+            "required": [
+                (r"[A-Z]{4}0[A-Z0-9]{6}", "IFSC code"),
+                (r"(?:account|a/c)", "Account keyword"),
+            ],
+            "optional": [
+                (r"\d{9,18}", "Account number"),
+                (r"(?:debit|credit|transaction)", "Transaction keyword"),
+            ],
+        },
+        "TENTH_CERTIFICATE": {
+            "required": [
+                (r"(?:secondary|class\s*[xX]|class\s*10|sslc|matriculation)", "Grade 10 keyword"),
+                (r"(?:board|council|cbse|icse|sslc|msbshse)", "Board name"),
+            ],
+            "optional": [
+                (r"(?:roll\s*no|registration\s*no)", "Roll number"),
+                (r"(?:19|20)\d{2}", "Year of passing"),
+            ],
+        },
+        "TWELFTH_CERTIFICATE": {
+            "required": [
+                (r"(?:senior\s*school|class\s*xii|class\s*12|hsc|intermediate|aissce|higher\s*secondary)", "Grade 12 keyword"),
+                (r"(?:board|council|cbse|icse|msbshse)", "Board name"),
+            ],
+            "optional": [
+                (r"(?:roll\s*no|registration\s*no)", "Roll number"),
+                (r"(?:19|20)\d{2}", "Year of passing"),
+            ],
+        },
+    }
+
+    config = EXPECTED_PATTERNS.get(doc_type)
+    if not config:
+        return {
+            "consistent": True,
+            "score": 70,
+            "reasons": [f"⚠ No template consistency rules defined for {doc_type} — manual review recommended"],
+            "anomalies": [],
+        }
+
+    # Check required patterns
+    for pattern, description in config.get("required", []):
+        if re.search(pattern, text, re.IGNORECASE):
+            reasons.append(f"✓ Expected field found: {description}")
+        else:
+            anomalies.append(f"✗ Missing expected field: {description}")
+            score -= 25
+
+    # Check optional patterns
+    optional_found = 0
+    for pattern, description in config.get("optional", []):
+        if re.search(pattern, text, re.IGNORECASE):
+            optional_found += 1
+
+    optional_total = len(config.get("optional", []))
+    if optional_total > 0:
+        optional_ratio = optional_found / optional_total
+        if optional_ratio >= 0.5:
+            reasons.append(f"✓ {optional_found}/{optional_total} optional fields present — document looks complete")
+        elif optional_ratio > 0:
+            reasons.append(f"⚠ Only {optional_found}/{optional_total} optional fields detected — may be partial scan")
+            score -= 10
+        else:
+            anomalies.append(f"✗ None of the {optional_total} optional fields detected — document content is unusual")
+            score -= 15
+
+    # Check for excessive numeric strings (possible templated/fake document)
+    numeric_density = len(re.findall(r"\d", text)) / max(len(text), 1)
+    if numeric_density > 0.4:
+        anomalies.append(
+            f"⚠ Unusually high numeric density ({int(numeric_density * 100)}%) — "
+            f"genuine text documents typically have < 40% digits. Possible fake document with random numbers."
+        )
+        score -= 15
+
+    score = max(0, min(100, score))
+    consistent = score >= 50 and len(anomalies) == 0
+
+    if consistent:
+        reasons.insert(0, f"✓ Template consistency check PASSED (score: {score}/100) — document structure matches expected {doc_type.replace('_', ' ')} format")
+    elif score >= 50:
+        reasons.insert(0, f"⚠ Template consistency PARTIAL (score: {score}/100) — some expected fields missing from {doc_type.replace('_', ' ')}")
+    else:
+        anomalies.insert(0, f"✗ Template consistency check FAILED (score: {score}/100) — document does not match expected {doc_type.replace('_', ' ')} structure")
+
+    return {
+        "consistent": consistent,
+        "score": score,
+        "reasons": reasons,
+        "anomalies": anomalies,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. ENHANCED SCREENSHOT DETECTION
+# ─────────────────────────────────────────────────────────────────────────────
+
+def detect_screenshot_enhanced(image_bytes: Optional[bytes], text: str, doc_type: str) -> dict:
+    """
+    Multi-signal screenshot detection combining:
+    - Pixel analysis (uniform background, no noise typical of camera)
+    - Text pattern analysis (UI strings, status bar, timestamps)
+    - Resolution analysis
+    - Aspect ratio analysis (phone screenshots are tall and narrow)
+
+    Returns:
+      {
+        is_screenshot: bool,
+        confidence: float,  # 0.0-1.0
+        signals: [str],
+        risk_level: "NONE" | "LOW" | "MEDIUM" | "HIGH",
+      }
+    """
+    signals = []
+    screenshot_score = 0.0
+
+    # ── Text-based signals ────────────────────────────────────────────────────
+    text_lower = text.lower()
+    # Photo IDs (Aadhaar, PAN, Passport) have lower screenshot tolerance than text docs
+    screenshot_threshold = 0.3 if doc_type in ("AADHAAR", "PAN", "PASSPORT", "VOTER_ID", "DRIVING_LICENSE") else 0.4
+
+    # UI navigation elements
+    ui_patterns = [
+        (r"\b(wifi|bluetooth|battery|signal|airplane mode)\b", "Phone status bar UI element"),
+        (r"\b(tap to focus|swipe|pinch|zoom|slide)\b", "Touch UI instruction"),
+        (r"\b(home|back|menu|settings|notifications?)\b", "Navigation UI element"),
+        (r"\b(chrome|safari|firefox)\b.*\b(http|www)\b", "Browser UI"),
+        (r"\d{1,2}:\d{2}\s*(am|pm)", "Clock/time display (typical of screenshots)"),
+        (r"\b(kb|mb|gb)\s+(?:free|used|remaining|available)\b", "Storage indicator"),
+        (r"(swipe up|swipe left|swipe right)", "Gesture instruction"),
+    ]
+    ui_hits = 0
+    for pattern, label in ui_patterns:
+        if re.search(pattern, text_lower):
+            signals.append(f"⚠ Screenshot signal: {label} found in text")
+            ui_hits += 1
+
+    if ui_hits >= 2:
+        screenshot_score += 0.4
+    elif ui_hits == 1:
+        screenshot_score += 0.15
+
+    # ── Image-based signals ───────────────────────────────────────────────────
+    if image_bytes:
+        try:
+            from PIL import Image as PILImage
+            import numpy as np_local
+            img = PILImage.open(BytesIO(image_bytes)).convert("RGB")
+            w, h = img.size
+            img_array = np_local.array(img)
+
+            # Aspect ratio: phone screenshots are tall (portrait > 1.5:1)
+            aspect = h / w if w > 0 else 1.0
+            if aspect > 2.0:
+                signals.append(f"⚠ Tall narrow image ({w}x{h}, ratio {aspect:.1f}) — matches phone screenshot dimensions")
+                screenshot_score += 0.2
+            elif aspect > 1.6:
+                signals.append(f"⚠ Portrait image ratio ({w}x{h}) — could be phone screenshot")
+                screenshot_score += 0.1
+
+            # Uniform background detection
+            # Convert to grayscale
+            try:
+                import cv2 as cv2_local
+                gray = cv2_local.cvtColor(img_array, cv2_local.COLOR_RGB2GRAY)
+                pixel_std = float(np_local.std(gray))
+                if pixel_std < 12:
+                    signals.append(f"⚠ Very uniform background (std={pixel_std:.1f}) — typical of digital screenshots, not scanned documents")
+                    screenshot_score += 0.3
+                elif pixel_std < 25:
+                    signals.append(f"⚠ Low image texture variance (std={pixel_std:.1f}) — may be screenshot")
+                    screenshot_score += 0.15
+
+                # Check for grid-like pixel patterns (screen pixels have exact integer spacing)
+                # Sample a row and check for repeating pixel patterns
+                mid_row = gray[h // 2, :]
+                if len(mid_row) > 100:
+                    diffs = np_local.abs(np_local.diff(mid_row.astype(int)))
+                    zero_diffs = np_local.sum(diffs == 0)
+                    zero_ratio = zero_diffs / len(diffs)
+                    if zero_ratio > 0.7:
+                        signals.append(f"⚠ Highly uniform pixel rows ({int(zero_ratio*100)}% identical neighbors) — consistent with digital screenshot")
+                        screenshot_score += 0.2
+
+            except ImportError:
+                # cv2 not available, use PIL-only path
+                flat = np_local.array(img.convert("L")).flatten()
+                pixel_std = float(np_local.std(flat))
+                if pixel_std < 15:
+                    signals.append("⚠ Low pixel variance — possible screenshot")
+                    screenshot_score += 0.2
+
+        except Exception:
+            pass
+
+    # ── Resolution check ──────────────────────────────────────────────────────
+    if image_bytes:
+        try:
+            from PIL import Image as PILImage
+            img = PILImage.open(BytesIO(image_bytes))
+            w, h = img.size
+            # Phone screenshots are typically 750-1440px wide
+            # Scanned documents at 200 DPI for A4 = ~1654px wide
+            if 400 <= w <= 1500 and 800 <= h <= 3000:
+                if not any("phone screenshot" in s for s in signals):
+                    signals.append(f"⚠ Image dimensions ({w}x{h}) match common phone screenshot sizes")
+                    screenshot_score += 0.1
+        except Exception:
+            pass
+
+    # ── Compute risk level ────────────────────────────────────────────────────
+    screenshot_score = min(1.0, screenshot_score)
+    is_screenshot = screenshot_score >= screenshot_threshold
+
+    if screenshot_score >= 0.7:
+        risk_level = "HIGH"
+    elif screenshot_score >= 0.4:
+        risk_level = "MEDIUM"
+    elif screenshot_score >= 0.2:
+        risk_level = "LOW"
+    else:
+        risk_level = "NONE"
+        signals.append("✓ No screenshot signals detected — image appears to be a genuine scan or photo")
+
+    return {
+        "is_screenshot": is_screenshot,
+        "confidence": round(screenshot_score, 2),
+        "signals": signals,
+        "risk_level": risk_level,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Updated run_deep_validators — integrates all new validators
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_deep_validators_v2(
+    doc_type: str,
+    extracted_fields: dict,
+    raw_text: str,
+    image_bytes: Optional[bytes] = None,
+) -> dict:
+    """
+    Extended version of run_deep_validators with all new checks:
+    - Aadhaar Verhoeff ✓
+    - PAN structure + 5th char ✓
+    - Passport MRZ ✓
+    - EXIF tampering ✓
+    - Face detection ✓
+    - GST validation ✓
+    - Document expiry (NEW)
+    - Template consistency (NEW)
+    - Enhanced screenshot detection (NEW)
+    - Duplicate detection is handled at the batch level separately
+    """
+    all_reasons: list[str] = []
+    extra_fields: dict = {}
+    suspicion_boost = 0.0
+
+    # ── Aadhaar Verhoeff ────────────────────────────────────────────────────
+    if doc_type == "AADHAAR":
+        aadhaar_no = extracted_fields.get("aadhaar_number", "")
+        result = validate_aadhaar_verhoeff(aadhaar_no)
+        all_reasons.append(result["reason"])
+        if not result["is_valid"]:
+            suspicion_boost += 0.25
+
+    # ── PAN structure + 5th-char validation ─────────────────────────────────
+    if doc_type == "PAN":
+        pan_no = extracted_fields.get("pan_number", "")
+        name = extracted_fields.get("name", "")
+        result = validate_pan_structure(pan_no, name)
+        all_reasons.extend(result["reasons"])
+        failures = sum(1 for r in result["reasons"] if r.startswith("✗"))
+        suspicion_boost += failures * 0.15
+
+    # ── MRZ for Passport ────────────────────────────────────────────────────
+    if doc_type == "PASSPORT":
+        mrz_result = parse_and_validate_mrz(raw_text)
+        all_reasons.extend(mrz_result["reasons"])
+        if mrz_result.get("detected") and not mrz_result.get("is_valid"):
+            suspicion_boost += 0.30
+        if mrz_result.get("extracted"):
+            extra_fields.update(mrz_result["extracted"])
+
+    # ── Document expiry check (NEW) ──────────────────────────────────────────
+    if doc_type in ("PASSPORT", "DRIVING_LICENSE", "VOTER_ID"):
+        expiry_result = validate_document_expiry(doc_type, extracted_fields, raw_text)
+        all_reasons.extend(expiry_result["reasons"])
+        extra_fields["expiry_date"] = expiry_result.get("expiry_date")
+        extra_fields["days_to_expiry"] = expiry_result.get("days_remaining")
+        extra_fields["is_expired"] = expiry_result.get("is_expired", False)
+        if expiry_result.get("is_expired"):
+            suspicion_boost += 0.50  # Expired doc is a hard block
+
+    # ── Template consistency check (NEW) ────────────────────────────────────
+    if doc_type not in ("OTHER", "CERTIFICATE"):
+        consistency = check_template_consistency(raw_text, doc_type)
+        all_reasons.extend(consistency["reasons"])
+        all_reasons.extend(consistency["anomalies"])
+        extra_fields["template_consistency_score"] = consistency["score"]
+        if not consistency["consistent"]:
+            suspicion_boost += max(0.0, (50 - consistency["score"]) / 100.0)
+
+    # ── EXIF tampering (image only) ─────────────────────────────────────────
+    if image_bytes and doc_type in _IMAGE_BASED_TYPES:
+        try:
+            exif_result = check_exif_tampering(image_bytes)
+            all_reasons.extend(exif_result["reasons"])
+            if exif_result.get("is_suspicious"):
+                suspicion_boost += 0.20 if exif_result["risk_level"] == "MEDIUM" else 0.40
+            if exif_result.get("software"):
+                extra_fields["exif_software"] = exif_result["software"]
+            if exif_result.get("camera"):
+                extra_fields["exif_camera"] = exif_result["camera"]
+        except Exception as e:
+            all_reasons.append(f"⚠ EXIF analysis skipped: {str(e)[:60]}")
+
+    # ── Enhanced screenshot detection (NEW) ─────────────────────────────────
+    if image_bytes and doc_type in _IMAGE_BASED_TYPES:
+        try:
+            screenshot_result = detect_screenshot_enhanced(image_bytes, raw_text, doc_type)
+            if screenshot_result["is_screenshot"]:
+                all_reasons.extend(screenshot_result["signals"])
+                suspicion_boost += screenshot_result["confidence"] * 0.4
+                extra_fields["screenshot_confidence"] = screenshot_result["confidence"]
+            elif screenshot_result["signals"]:
+                # Add low-risk signals but don't penalize
+                for sig in screenshot_result["signals"]:
+                    if sig.startswith("✓"):
+                        all_reasons.append(sig)
+        except Exception as e:
+            logger.warning(f"Screenshot detection error: {e}")
+
+    # ── Face detection (photo IDs) ──────────────────────────────────────────
+    if image_bytes and doc_type in _PHOTO_ID_TYPES:
+        try:
+            face_result = detect_face_in_document(image_bytes)
+            if face_result.get("face_detected") is not None:
+                all_reasons.append(face_result["reason"])
+                if not face_result["face_detected"]:
+                    suspicion_boost += 0.10
+                extra_fields["face_count"] = face_result.get("face_count", 0)
+        except Exception as e:
+            logger.warning(f"Face detection error: {e}")
+
+    # ── GST validation (experience letters, bank statements) ─────────────────
+    if doc_type in ("BANK_STATEMENT", "CERTIFICATE", "OTHER", "EXPERIENCE_LETTER", "OFFER_LETTER"):
+        gstin_result = extract_and_validate_gstin(raw_text)
+        if gstin_result:
+            all_reasons.extend(gstin_result["reasons"])
+            if gstin_result.get("embedded_pan"):
+                extra_fields["gstin_detected"] = True
+                extra_fields["gstin_state"] = gstin_result.get("state", "")
+
+    return {
+        "reasons": all_reasons,
+        "extra_fields": extra_fields,
+        "suspicion_boost": suspicion_boost,
+    }

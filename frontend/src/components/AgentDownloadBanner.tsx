@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Monitor, Download, ChevronDown, ChevronUp, X, CheckCircle2, Loader2, Wifi, WifiOff } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAppSelector } from '../app/store';
-import { useGetAgentStatusQuery, useGenerateAgentPairCodeMutation } from '../features/attendance/attendanceApi';
+import { useGetAgentStatusQuery, useGetAgentDownloadStatusQuery, useGenerateAgentPairCodeMutation } from '../features/attendance/attendanceApi';
 import { useGetEmployeeShiftQuery } from '../features/workforce/workforceApi';
 import { onSocketEvent, offSocketEvent, getSocket } from '../lib/socket';
 
@@ -74,8 +75,12 @@ export default function AgentDownloadBanner() {
     setDismissed(true);
   };
 
-  // Use nginx-served path directly — no API base needed, works on both dev and prod
-  const downloadUrl = import.meta.env.VITE_AGENT_DOWNLOAD_URL || '/downloads/aniston-agent-setup.exe';
+  // Check whether the installer exe is actually available on the server
+  const { data: downloadStatusRes } = useGetAgentDownloadStatusQuery(undefined, {
+    skip: phase === 'hidden' || phase === 'connected',
+  });
+  const downloadAvailable = downloadStatusRes?.data?.available ?? false;
+  const downloadUrl = downloadStatusRes?.data?.downloadUrl || '/downloads/aniston-agent-setup.exe';
 
   // Hidden for management or non-agent employees
   if (phase === 'hidden') return null;
@@ -151,15 +156,24 @@ export default function AgentDownloadBanner() {
           </p>
 
           <div className="flex items-center gap-2 mb-2">
-            <a href={downloadUrl} download="aniston-agent-setup.exe"
-              className="flex-1 inline-flex items-center justify-center gap-2 bg-brand-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">
-              <Download size={14} /> Download
-            </a>
+            {downloadAvailable ? (
+              <a href={downloadUrl} download="aniston-agent-setup.exe"
+                className="flex-1 inline-flex items-center justify-center gap-2 bg-brand-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">
+                <Download size={14} /> Download
+              </a>
+            ) : (
+              <div className="flex-1 inline-flex items-center justify-center gap-2 bg-gray-100 text-gray-400 px-3 py-2 rounded-lg text-sm font-medium cursor-not-allowed"
+                title="Installer not yet built. Push to main to trigger the build.">
+                <Download size={14} /> Not yet built
+              </div>
+            )}
             <button onClick={async () => {
               try {
                 const res = await generatePairCode().unwrap();
                 setPairCode(res.data?.code);
-              } catch { /* ignore */ }
+              } catch (err: any) {
+                toast.error(err?.data?.error?.message || 'Failed to generate pairing code. Please try again.');
+              }
             }} disabled={generating}
               className="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50">
               {generating ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />}

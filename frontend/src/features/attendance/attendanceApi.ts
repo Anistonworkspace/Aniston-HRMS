@@ -54,6 +54,9 @@ interface ActivitySummary {
   totalKeystrokes: number;
   totalClicks: number;
   topApps: Array<{ app: string; minutes: number }>;
+  productivityScore: number | null;    // 0-100, null if no active time recorded
+  productiveMinutes: number;
+  unproductiveMinutes: number;
 }
 
 interface ActivityLogResponse {
@@ -181,8 +184,17 @@ export const attendanceApi = api.injectEndpoints({
     }),
 
     // Bug #9: Single query returns summaries for ALL employees — eliminates N+1 from EmployeeRow
-    getActivityBulkSummary: builder.query<{ success: boolean; data: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number }> }, { date: string }>({
+    getActivityBulkSummary: builder.query<{ success: boolean; data: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number; productivityScore?: number | null }> }, { date: string }>({
       query: ({ date }) => `/agent/activity/bulk-summary?date=${date}`,
+    }),
+
+    // Returns an Excel workbook as a blob — trigger a browser download in the UI
+    downloadActivityExcel: builder.query<Blob, { employeeId: string; date: string }>({
+      query: ({ employeeId, date }) => ({
+        url: `/agent/activity/export/${employeeId}/${date}`,
+        responseHandler: (response) => response.blob(),
+        cache: 'no-cache',
+      }),
     }),
 
     getEmployeeActivityLogs: builder.query<{ success: boolean; data: ActivityLogResponse }, { employeeId: string; date: string }>({
@@ -396,4 +408,5 @@ export const {
   useGetAllOvertimeRequestsQuery,
   useHandleOvertimeRequestMutation,
   useGetAgentDownloadStatusQuery,
+  useLazyDownloadActivityExcelQuery,
 } = attendanceApi;

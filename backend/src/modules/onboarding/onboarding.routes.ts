@@ -39,6 +39,10 @@ function normalizeCombinedPdfAnalysis(data: any, source: 'python' | 'node_fallba
     // Infrastructure warning: non-null when Python OCR failed for systemic reasons
     // (missing language data, Tesseract crash, etc.) rather than genuinely blank pages
     ocrInfrastructureWarning: data.ocr_infrastructure_warning ?? data.ocrInfrastructureWarning ?? null,
+    // Cross-verification results (NEW)
+    nameCrossVerification: data.name_cross_verification ?? data.nameCrossVerification ?? null,
+    dobCrossVerification: data.dob_cross_verification ?? data.dobCrossVerification ?? null,
+    duplicateDetection: data.duplicate_detection ?? data.duplicateDetection ?? null,
     // Node.js fallback-specific enrichment fields
     ...(source === 'node_fallback' ? {
       overallConfidence: data.overallConfidence,
@@ -337,7 +341,10 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
                   const { processCombinedPdfFallback } = await import('../../services/combined-pdf-processor.service.js');
                   const gate = await (await import('../../lib/prisma.js')).prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
                   const requiredDocs = (gate?.requiredDocs as string[]) || ['PAN', 'AADHAAR', 'TENTH_CERTIFICATE'];
-                  const nodeResult = await processCombinedPdfFallback(fileBuffer, requiredDocs);
+                  const nodeResult = await processCombinedPdfFallback(fileBuffer, requiredDocs, {
+                    organizationId: req.user!.organizationId,
+                    employeeId,
+                  });
                   analysisResult = normalizeCombinedPdfAnalysis(nodeResult, 'node_fallback');
                   logger.info(`[KYC Combined PDF] Node.js fallback classification succeeded for employee ${employeeId}`);
                 } catch (nodeErr: any) {
@@ -496,6 +503,181 @@ router.post('/kyc/:employeeId/reject', authenticate, authorize(Role.SUPER_ADMIN,
   }
 );
 
+// HR: Revoke KYC access (revert VERIFIED → PENDING_HR_REVIEW — e.g. for offboarding or fraud)
+router.post('/kyc/:employeeId/revoke-kyc', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const employeeId = req.params.employeeId as string;
+      const { prisma } = await import('../../lib/prisma.js');
+
+      const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+      if (!gate) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'KYC gate not found for this employee' } });
+        return;
+      }
+      if (gate.kycStatus !== 'VERIFIED') {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'KYC is not currently VERIFIED — nothing to revoke' } });
+        return;
+      }
+
+      await prisma.onboardingDocumentGate.update({
+        where: { employeeId },
+        data: { kycStatus: 'PENDING_HR_REVIEW' as any },
+      });
+
+      // Audit log
+      const { createAuditLog } = await import('../../utils/auditLogger.js');
+      await createAuditLog({
+        userId: req.user!.userId,
+        organizationId: req.user!.organizationId,
+        action: 'KYC_REVOKED',
+        entityType: 'KYC',
+        entityId: employeeId,
+        details: { reason: req.body.reason || 'HR revoked KYC access', revokedBy: req.user!.userId },
+      });
+
+      // Emit real-time revocation — AppShell listener will immediately lock the employee out
+      const { getIo } = await import('../../sockets/index.js');
+      const io = getIo();
+      if (io) {
+        io.to(`employee:${employeeId}`).emit('kyc:status-changed', { kycStatus: 'PENDING_HR_REVIEW', kycCompleted: false });
+      }
+
+      res.json({ success: true, data: { kycStatus: 'PENDING_HR_REVIEW', message: 'KYC access revoked. Employee will be locked out on next page load.' } });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// HR: KYC Audit Log — fetch action history for an employee's KYC (Category 4 item 15)
+router.get('/kyc/:employeeId/audit-log', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+      const employeeId = req.params.employeeId as string;
+
+      // Fetch from AuditLog where entityType = 'KYC' and entityId = employeeId
+      const logs = await prisma.auditLog.findMany({
+        where: {
+          OR: [
+            { entityType: 'KYC', entityId: employeeId },
+            { entityType: 'DOCUMENT', entityId: employeeId },
+          ],
+          organizationId: req.user!.organizationId,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          action: true,
+          entityType: true,
+          entityId: true,
+          details: true,
+          createdAt: true,
+          userId: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+        },
+      });
+
+      res.json({ success: true, data: logs });
+    } catch (err) { next(err); }
+  }
+);
+
+// HR: Check if Aadhaar/PAN number is already registered to another employee (Category 2 item 8)
+router.post('/kyc/:employeeId/check-duplicate', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+      const employeeId = req.params.employeeId as string;
+      const { aadhaarNumber, panNumber, passportNumber } = req.body as {
+        aadhaarNumber?: string;
+        panNumber?: string;
+        passportNumber?: string;
+      };
+
+      const duplicates: Array<{ field: string; value: string; conflictEmployeeId: string; conflictEmployeeName: string; conflictCode: string }> = [];
+
+      if (aadhaarNumber && aadhaarNumber.length >= 12) {
+        // Aadhaar is stored encrypted — check by looking at OCR-extracted ocrVerification records
+        const conflict = await prisma.documentOcrVerification.findFirst({
+          where: {
+            extractedDocNumber: { contains: aadhaarNumber.slice(-4) }, // last 4 digits partial match
+            document: {
+              employee: { id: { not: employeeId }, organizationId: req.user!.organizationId },
+              type: 'AADHAAR',
+              deletedAt: null,
+            },
+          },
+          include: {
+            document: {
+              include: {
+                employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
+              },
+            },
+          },
+        });
+        if (conflict?.document?.employee) {
+          const e = conflict.document.employee as any;
+          duplicates.push({
+            field: 'Aadhaar',
+            value: `****${aadhaarNumber.slice(-4)}`,
+            conflictEmployeeId: e.id,
+            conflictEmployeeName: `${e.firstName ?? ''} ${e.lastName ?? ''}`.trim(),
+            conflictCode: e.employeeCode ?? '',
+          });
+        }
+      }
+
+      if (panNumber && /^[A-Z]{5}\d{4}[A-Z]$/.test(panNumber)) {
+        const conflict = await prisma.documentOcrVerification.findFirst({
+          where: {
+            extractedDocNumber: panNumber,
+            document: {
+              employee: { id: { not: employeeId }, organizationId: req.user!.organizationId },
+              type: 'PAN',
+              deletedAt: null,
+            },
+          },
+          include: {
+            document: {
+              include: {
+                employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
+              },
+            },
+          },
+        });
+        if (conflict?.document?.employee) {
+          const e = conflict.document.employee as any;
+          duplicates.push({
+            field: 'PAN',
+            value: panNumber,
+            conflictEmployeeId: e.id,
+            conflictEmployeeName: `${e.firstName ?? ''} ${e.lastName ?? ''}`.trim(),
+            conflictCode: e.employeeCode ?? '',
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          hasDuplicates: duplicates.length > 0,
+          duplicates,
+        },
+      });
+    } catch (err) { next(err); }
+  }
+);
+
 // HR: Request re-upload of specific documents
 router.post('/kyc/:employeeId/request-reupload', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
@@ -624,7 +806,10 @@ router.post('/kyc/:employeeId/reclassify-combined-pdf', authenticate, authorize(
         const { processCombinedPdfFallback } = await import('../../services/combined-pdf-processor.service.js');
         const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
         const requiredDocs = (gate?.requiredDocs as string[]) || ['PAN', 'AADHAAR', 'TENTH_CERTIFICATE'];
-        const nodeResult = await processCombinedPdfFallback(fileBuffer, requiredDocs);
+        const nodeResult = await processCombinedPdfFallback(fileBuffer, requiredDocs, {
+          organizationId: req.user!.organizationId,
+          employeeId,
+        });
         analysisResult = normalizeCombinedPdfAnalysis(nodeResult, 'node_fallback');
         logger.info(`[Reclassify] Node.js fallback used for employee ${employeeId}`);
       }

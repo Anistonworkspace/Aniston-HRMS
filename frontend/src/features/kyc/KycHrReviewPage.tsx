@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
@@ -6,8 +6,10 @@ import {
   FileText, User, CheckCircle, XCircle, AlertTriangle, Clock,
   Eye, RefreshCw, ArrowLeft, ChevronDown, ChevronUp, MessageSquare,
   Shield, Download, Cpu, Server, ClipboardList, Award, Briefcase,
-  GraduationCap, Flag, Info, Scan, Loader2,
+  GraduationCap, Flag, Info, Scan, Loader2, Calendar, Copy,
+  Users, History, ExternalLink, Search,
 } from 'lucide-react';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import {
   useGetPendingKycQuery,
   useGetKycHrReviewQuery,
@@ -17,6 +19,9 @@ import {
   useUpdateHrNotesMutation,
   useRetriggerOcrMutation,
   useReclassifyCombinedPdfMutation,
+  useRevokeKycAccessMutation,
+  useGetKycAuditLogQuery,
+  useCheckDuplicateDocumentMutation,
 } from './kycApi';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -205,6 +210,258 @@ function ValidationReasonsList({ reasons, title }: { reasons: string[]; title?: 
   );
 }
 
+// ─── DOB Cross-Verification Panel (Category 4 item 16) ───────────────────────
+function DobCrossVerification({ data }: { data: any }) {
+  if (!data || data.status === 'INSUFFICIENT_DATA') return null;
+  const isPass = data.status === 'MATCH';
+  const isMismatch = data.status === 'MISMATCH' || data.status === 'PARTIAL';
+  return (
+    <div className={`p-4 rounded-xl border mb-3 ${isPass ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <Calendar className={`w-4 h-4 ${isPass ? 'text-green-600' : 'text-red-600'}`} />
+        <span className={`text-sm font-semibold ${isPass ? 'text-green-800' : 'text-red-800'}`}>
+          Date of Birth Cross-Verification: {data.status}
+        </span>
+        {isPass ? <CheckCircle className="w-4 h-4 text-green-600" /> : <XCircle className="w-4 h-4 text-red-600" />}
+      </div>
+      <p className={`text-xs mb-2 ${isPass ? 'text-green-700' : 'text-red-700'}`}>{data.message}</p>
+      {data.dobs_found && Object.entries(data.dobs_found).length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(data.dobs_found).map(([docType, dob]: [string, any]) => (
+            <span key={docType} className="text-xs bg-white border border-slate-200 rounded px-2 py-0.5">
+              <span className="font-mono text-indigo-700">{docType.replace(/_/g, ' ')}</span>
+              <span className="text-slate-500 mx-1">→</span>
+              <span className="font-semibold text-slate-800">{dob}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {isMismatch && (data.mismatches || []).length > 0 && (
+        <div className="mt-2 space-y-1">
+          {data.mismatches.map((m: any, i: number) => (
+            <p key={i} className="text-xs text-red-700 flex items-start gap-1">
+              <span className="shrink-0">•</span>
+              <span><strong>{m.doc_type?.replace(/_/g, ' ')}</strong>: {m.message}</span>
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Document Expiry Warning (Category 4 item 17) ─────────────────────────────
+function ExpiryWarnings({ documents }: { documents: any[] }) {
+  const expiredDocs = (documents || []).filter((doc: any) => {
+    const extraFields = doc.ocrVerification?.llmExtractedData?.extra_fields || {};
+    return extraFields.is_expired === true;
+  });
+  const expiringDocs = (documents || []).filter((doc: any) => {
+    const extraFields = doc.ocrVerification?.llmExtractedData?.extra_fields || {};
+    const days = extraFields.days_to_expiry;
+    return !extraFields.is_expired && typeof days === 'number' && days <= 90 && days >= 0;
+  });
+
+  if (expiredDocs.length === 0 && expiringDocs.length === 0) return null;
+
+  return (
+    <div className="layer-card p-4 mb-4">
+      <p className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+        <Calendar className="w-4 h-4 text-orange-500" />
+        Document Expiry Alerts
+      </p>
+      {expiredDocs.map((doc: any) => {
+        const expiryDate = doc.ocrVerification?.llmExtractedData?.extra_fields?.expiry_date;
+        return (
+          <div key={doc.id} className="p-3 bg-red-50 border border-red-200 rounded-lg mb-2 flex items-start gap-2">
+            <XCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-red-800">EXPIRED: {doc.type?.replace(/_/g, ' ')}</p>
+              {expiryDate && <p className="text-xs text-red-700">Expired on {expiryDate} — cannot be accepted for KYC</p>}
+            </div>
+          </div>
+        );
+      })}
+      {expiringDocs.map((doc: any) => {
+        const extra = doc.ocrVerification?.llmExtractedData?.extra_fields || {};
+        return (
+          <div key={doc.id} className="p-3 bg-orange-50 border border-orange-200 rounded-lg mb-2 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-orange-800">Expiring Soon: {doc.type?.replace(/_/g, ' ')}</p>
+              <p className="text-xs text-orange-700">Expires {extra.expiry_date} ({extra.days_to_expiry} days remaining)</p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Inline Document Viewer (Category 4 item 18) ─────────────────────────────
+function InlineDocViewer({ url, name, onClose }: { url: string; name: string; onClose: () => void }) {
+  const isPdf = url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('pdf');
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-slate-200">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-indigo-600" />
+            <span className="font-semibold text-slate-800 text-sm truncate max-w-xs">{name}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded-lg px-3 py-1.5"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Open in new tab
+            </a>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100">
+              <XCircle className="w-5 h-5 text-slate-500" />
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          {isPdf ? (
+            <iframe
+              src={`${url}#toolbar=1&navpanes=0`}
+              className="w-full h-full min-h-[65vh]"
+              title={name}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full min-h-[65vh] bg-slate-50 p-4">
+              <img src={url} alt={name} className="max-w-full max-h-full object-contain rounded-lg shadow" />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── KYC Audit Log Panel (Category 4 item 15) ────────────────────────────────
+function KycAuditLog({ employeeId }: { employeeId: string }) {
+  const { data, isLoading } = useGetKycAuditLogQuery(employeeId);
+  const logs: any[] = data?.data || [];
+
+  const ACTION_STYLES: Record<string, { bg: string; text: string; label: string }> = {
+    KYC_VERIFIED:      { bg: 'bg-green-100', text: 'text-green-700', label: 'Approved' },
+    KYC_REJECTED:      { bg: 'bg-red-100', text: 'text-red-700', label: 'Rejected' },
+    KYC_REVOKED:       { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Revoked' },
+    KYC_REUPLOAD:      { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Re-upload Requested' },
+    KYC_SUBMITTED:     { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Submitted by Employee' },
+    DOCUMENT_DELETED:  { bg: 'bg-red-100', text: 'text-red-700', label: 'Document Deleted' },
+    DOCUMENT_UPLOADED: { bg: 'bg-indigo-100', text: 'text-indigo-700', label: 'Document Uploaded' },
+  };
+
+  if (isLoading) return <div className="text-xs text-slate-400 py-4 text-center">Loading audit log…</div>;
+  if (logs.length === 0) return <p className="text-xs text-slate-400 py-4 text-center">No actions recorded yet.</p>;
+
+  return (
+    <div className="space-y-2">
+      {logs.map((log: any) => {
+        const s = ACTION_STYLES[log.action] ?? { bg: 'bg-slate-100', text: 'text-slate-600', label: log.action };
+        return (
+          <div key={log.id} className="flex items-start gap-3 p-3 rounded-lg border border-slate-100 bg-white/50">
+            <div className={`w-2 h-2 rounded-full mt-2 shrink-0 ${s.bg.replace('bg-', 'bg-').replace('100', '400')}`} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.bg} ${s.text}`}>{s.label}</span>
+                {log.user && (
+                  <span className="text-xs text-slate-500">by {log.user.name || log.user.email}</span>
+                )}
+              </div>
+              {log.details?.reason && (
+                <p className="text-xs text-slate-600 mt-1">Reason: {log.details.reason}</p>
+              )}
+              <p className="text-xs text-slate-400 mt-0.5">
+                {new Date(log.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+              </p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Duplicate Document Alert (Category 2 item 8) ────────────────────────────
+function DuplicateDocAlert({ duplicateData }: { duplicateData: any }) {
+  if (!duplicateData?.hasDuplicates) return null;
+  return (
+    <div className="layer-card p-4 mb-4 border border-red-300 bg-red-50">
+      <div className="flex items-center gap-2 mb-2">
+        <Copy className="w-4 h-4 text-red-600" />
+        <span className="text-sm font-bold text-red-800">Duplicate Document Numbers Detected</span>
+      </div>
+      <div className="space-y-2">
+        {(duplicateData.duplicates || []).map((dup: any, i: number) => (
+          <div key={i} className="p-2.5 bg-white border border-red-200 rounded-lg">
+            <p className="text-xs text-red-700">
+              <strong>{dup.field}</strong> number <span className="font-mono">{dup.value}</span> is already registered to{' '}
+              <strong>{dup.conflictEmployeeName}</strong> ({dup.conflictCode}).
+            </p>
+            <p className="text-xs text-red-600 mt-0.5">
+              This may indicate document sharing or fraud. Verify that documents belong to this employee only.
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Real-time OCR Progress Bar (Category 5 item 20) ─────────────────────────
+function OcrLiveProgress({ employeeId }: { employeeId: string }) {
+  const [progress, setProgress] = useState<{ page: number; total: number; pct: number; docType: string } | null>(null);
+
+  const handleProgress = useCallback((data: any) => {
+    if (data.employeeId !== employeeId) return;
+    setProgress({ page: data.page, total: data.total, pct: data.pct, docType: data.docType });
+  }, [employeeId]);
+
+  useEffect(() => {
+    onSocketEvent('ocr:page-processed', handleProgress);
+    return () => offSocketEvent('ocr:page-processed', handleProgress);
+  }, [handleProgress]);
+
+  if (!progress) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mb-3 p-3 bg-indigo-50 border border-indigo-200 rounded-xl"
+    >
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-xs font-semibold text-indigo-800 flex items-center gap-1.5">
+          <Scan className="w-3.5 h-3.5" />
+          OCR Processing — Page {progress.page} of {progress.total}
+        </span>
+        <span className="text-xs font-mono text-indigo-600">{progress.pct}%</span>
+      </div>
+      <div className="h-2 bg-indigo-100 rounded-full overflow-hidden">
+        <motion.div
+          className="h-full bg-indigo-500 rounded-full"
+          animate={{ width: `${progress.pct}%` }}
+          transition={{ duration: 0.3 }}
+        />
+      </div>
+      {progress.docType && (
+        <p className="text-xs text-indigo-600 mt-1">
+          Detected: <span className="font-medium">{progress.docType.replace(/_/g, ' ')}</span>
+        </p>
+      )}
+    </motion.div>
+  );
+}
+
 // ─── HR Review Detail Panel ───────────────────────────────────────────────────
 function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: () => void }) {
   const { data, isLoading, refetch } = useGetKycHrReviewQuery(employeeId);
@@ -222,6 +479,7 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
   const [updateHrNotes] = useUpdateHrNotesMutation();
   const [retriggerOcr, { isLoading: retriggering }] = useRetriggerOcrMutation();
   const [reclassifyCombinedPdf, { isLoading: reclassifying }] = useReclassifyCombinedPdfMutation();
+  const [revokeKyc, { isLoading: revoking }] = useRevokeKycAccessMutation();
 
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showReuploadModal, setShowReuploadModal] = useState(false);
@@ -230,6 +488,7 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
   const [reuploadReasons, setReuploadReasons] = useState<Record<string, string>>({});
   const [hrNotes, setHrNotes] = useState('');
   const [notesSaved, setNotesSaved] = useState(false);
+  const [viewerDoc, setViewerDoc] = useState<{ url: string; name: string } | null>(null);
 
   if (isLoading) {
     return (
@@ -292,6 +551,17 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
     } catch { /* ignore */ }
   };
 
+  const handleRevoke = async () => {
+    if (!confirm(`Revoke KYC access for ${employeeName}? They will be locked out immediately and their KYC status will return to "Needs Review".`)) return;
+    try {
+      await revokeKyc(employeeId).unwrap();
+      toast.success('KYC access revoked — employee will be locked out immediately');
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to revoke KYC access');
+    }
+  };
+
   const handleRetriggerOcr = async () => {
     const tid = toast.loading('Re-running OCR on all documents…');
     try {
@@ -317,7 +587,10 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
     }
   };
 
-  const docTypes = documents?.map((d: any) => d.type).filter((t: string) => t !== 'OTHER');
+  // Memoize derived lists to avoid re-running on every render (Cat 5 item 24)
+  const docTypes: string[] = documents
+    ? [...new Set<string>(documents.map((d: any) => d.type).filter((t: string) => t !== 'OTHER'))]
+    : [];
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -378,6 +651,12 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
           </div>
         </div>
       )}
+
+      {/* Duplicate Document Alert — cross-employee fraud detection (Category 2 item 8) */}
+      <DuplicateDocAlert duplicateData={combinedAnalysis?.duplicateDetection} />
+
+      {/* Real-time page-by-page OCR progress (Cat 5 item 20) */}
+      {gate?.kycStatus === 'PROCESSING' && <OcrLiveProgress employeeId={employeeId} />}
 
       {/* PROCESSING — professional scanning animation */}
       {gate?.kycStatus === 'PROCESSING' && (
@@ -456,6 +735,26 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : <CheckCircle className="w-4 h-4" />}
             Approve KYC
+          </button>
+        </div>
+      )}
+
+      {/* Verified Action Bar — shown when KYC is already approved; allows HR to revoke access */}
+      {gate?.kycStatus === 'VERIFIED' && (
+        <div className="layer-card p-4 mb-6 flex flex-wrap gap-3 items-center">
+          <div className="flex items-center gap-2 flex-1">
+            <CheckCircle className="w-5 h-5 text-green-600" />
+            <span className="text-sm font-semibold text-green-700">KYC Verified — Portal Access Granted</span>
+          </div>
+          <button
+            onClick={handleRevoke}
+            disabled={revoking}
+            className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium"
+          >
+            {revoking ? (
+              <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+            ) : <XCircle className="w-4 h-4" />}
+            Revoke Access
           </button>
         </div>
       )}
@@ -648,6 +947,13 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
                   </div>
                 )}
 
+                {/* DOB Cross-Verification from AI batch analysis (Category 1 item 1 + Category 4 item 16) */}
+                {combinedAnalysis?.dobCrossVerification && combinedAnalysis.dobCrossVerification.status !== 'INSUFFICIENT_DATA' && (
+                  <div className="mt-3">
+                    <DobCrossVerification data={combinedAnalysis.dobCrossVerification} />
+                  </div>
+                )}
+
                 {/* Per-page validation from Python AI */}
                 {pageValidations.length > 0 && (
                   <div className="mt-3">
@@ -786,6 +1092,8 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
         {(!documents || documents.length === 0) && (
           <p className="text-slate-500 text-sm">No documents uploaded yet.</p>
         )}
+        {/* Expiry warnings — shown above the list for immediate visibility (Category 4 item 17) */}
+        <ExpiryWarnings documents={documents || []} />
         <div className="space-y-3">
           {documents?.map((doc: any) => (
             <div key={doc.id} className="border border-slate-200 rounded-xl p-4 bg-white/50">
@@ -804,15 +1112,13 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
                     }`}>{doc.status}</span>
                   )}
                   {doc.fileUrl && (
-                    <a
-                      href={doc.fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      onClick={() => setViewerDoc({ url: doc.fileUrl, name: doc.name || doc.type })}
                       className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-                      title="View document"
+                      title="View document inline"
                     >
                       <Eye className="w-4 h-4 text-slate-500" />
-                    </a>
+                    </button>
                   )}
                 </div>
               </div>
@@ -881,6 +1187,24 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
                 </div>
               )}
 
+              {/* Per-doc OCR retry button — shown when confidence is very low or OCR absent (Cat 5 item 23) */}
+              {(!doc.ocrVerification || (doc.ocrVerification.confidence != null && doc.ocrVerification.confidence < 0.3)) && (
+                <div className="mt-2 p-2 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
+                  <span className="text-xs text-slate-500 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                    {!doc.ocrVerification ? 'OCR not run yet' : 'Low confidence OCR result'}
+                  </span>
+                  <button
+                    onClick={handleRetriggerOcr}
+                    disabled={retriggering}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
+                  >
+                    {retriggering ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                    Retry OCR
+                  </button>
+                </div>
+              )}
+
               {/* Per-doc reject reason */}
               {docRejectReasons[doc.type] && (
                 <div className="mt-2 p-2 bg-orange-50 rounded-lg text-xs text-orange-700">
@@ -890,6 +1214,11 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
             </div>
           ))}
         </div>
+      </Section>
+
+      {/* KYC Audit Log — full action history for this employee (Category 4 item 15) */}
+      <Section title="KYC Action History" defaultOpen={false}>
+        <KycAuditLog employeeId={employeeId} />
       </Section>
 
       {/* HR Notes */}
@@ -908,6 +1237,15 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
           </button>
         </div>
       </Section>
+
+      {/* Inline Document Viewer modal (Category 4 item 18) */}
+      {viewerDoc && (
+        <InlineDocViewer
+          url={viewerDoc.url}
+          name={viewerDoc.name}
+          onClose={() => setViewerDoc(null)}
+        />
+      )}
 
       {/* Reject Modal */}
       <AnimatePresence>
@@ -1018,11 +1356,49 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
 export default function KycHrReviewPage() {
   const [page, setPage] = useState(1);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBatchRejectModal, setShowBatchRejectModal] = useState(false);
+  const [batchRejectReason, setBatchRejectReason] = useState('');
+  const [batchProcessing, setBatchProcessing] = useState(false);
   const { data, isLoading, isFetching } = useGetPendingKycQuery({ page });
+  const [verifyKyc] = useVerifyKycMutation();
+  const [rejectKyc] = useRejectKycMutation();
 
   // Backend returns OnboardingDocumentGate records with nested employee relation
   const gates: any[] = data?.data || [];
   const meta = data?.meta;
+  const allSelected = gates.length > 0 && gates.every((g: any) => selectedIds.has(g.employeeId));
+
+  const toggleSelectAll = () => {
+    if (allSelected) setSelectedIds(new Set());
+    else setSelectedIds(new Set(gates.map((g: any) => g.employeeId)));
+  };
+
+  const handleBatchApprove = async () => {
+    if (!confirm(`Approve KYC for ${selectedIds.size} employee(s)? This will unlock their dashboards immediately.`)) return;
+    setBatchProcessing(true);
+    let approved = 0;
+    for (const id of selectedIds) {
+      try { await verifyKyc(id).unwrap(); approved++; } catch { /* skip failed */ }
+    }
+    setBatchProcessing(false);
+    setSelectedIds(new Set());
+    toast.success(`Approved ${approved} of ${selectedIds.size} submissions`);
+  };
+
+  const handleBatchReject = async () => {
+    if (!batchRejectReason.trim()) return;
+    setBatchProcessing(true);
+    let rejected = 0;
+    for (const id of selectedIds) {
+      try { await rejectKyc({ employeeId: id, reason: batchRejectReason }).unwrap(); rejected++; } catch { /* skip */ }
+    }
+    setBatchProcessing(false);
+    setSelectedIds(new Set());
+    setShowBatchRejectModal(false);
+    setBatchRejectReason('');
+    toast.success(`Rejected ${rejected} of ${selectedIds.size} submissions`);
+  };
 
   if (selectedEmployeeId) {
     return (
@@ -1046,6 +1422,33 @@ export default function KycHrReviewPage() {
           </p>
         </div>
 
+        {/* Batch action bar — visible when at least one submission is selected (Category 4 item 19) */}
+        {selectedIds.size > 0 && (
+          <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center gap-3 flex-wrap">
+            <Users className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span className="text-sm font-medium text-indigo-800">{selectedIds.size} submission{selectedIds.size > 1 ? 's' : ''} selected</span>
+            <div className="flex gap-2 ml-auto">
+              <button onClick={() => setSelectedIds(new Set())} className="btn-secondary text-sm">Clear</button>
+              <button
+                onClick={() => setShowBatchRejectModal(true)}
+                disabled={batchProcessing}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 text-sm font-medium transition-colors"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                Batch Reject
+              </button>
+              <button
+                onClick={handleBatchApprove}
+                disabled={batchProcessing}
+                className="btn-primary text-sm flex items-center gap-1.5"
+              >
+                {batchProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                Batch Approve
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Table */}
         <div className="layer-card overflow-hidden">
           {isLoading ? (
@@ -1062,6 +1465,15 @@ export default function KycHrReviewPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/50">
+                  <th className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                      title="Select all"
+                    />
+                  </th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Employee</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3 hidden md:table-cell">Dept.</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Mode</th>
@@ -1080,6 +1492,19 @@ export default function KycHrReviewPage() {
                     className="border-b border-slate-100 hover:bg-indigo-50/30 transition-colors cursor-pointer"
                     onClick={() => setSelectedEmployeeId(gate.employeeId)}
                   >
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(gate.employeeId)}
+                        onChange={e => {
+                          const next = new Set(selectedIds);
+                          if (e.target.checked) next.add(gate.employeeId);
+                          else next.delete(gate.employeeId);
+                          setSelectedIds(next);
+                        }}
+                        className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
@@ -1148,6 +1573,46 @@ export default function KycHrReviewPage() {
           </div>
         )}
       </div>
+
+      {/* Batch Reject Modal (Category 4 item 19) */}
+      <AnimatePresence>
+        {showBatchRejectModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md"
+            >
+              <h2 className="text-lg font-bold text-slate-900 mb-1">Batch Reject — {selectedIds.size} Submission{selectedIds.size > 1 ? 's' : ''}</h2>
+              <p className="text-sm text-slate-500 mb-4">All selected employees will be notified with this rejection reason.</p>
+              <textarea
+                rows={4}
+                value={batchRejectReason}
+                onChange={e => setBatchRejectReason(e.target.value)}
+                placeholder="Reason for rejection (shown to all selected employees)…"
+                className="input-glass w-full text-sm resize-none mb-4"
+              />
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setShowBatchRejectModal(false)} className="btn-secondary">Cancel</button>
+                <button
+                  onClick={handleBatchReject}
+                  disabled={!batchRejectReason.trim() || batchProcessing}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium disabled:opacity-50"
+                >
+                  {batchProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Confirm Batch Rejection
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

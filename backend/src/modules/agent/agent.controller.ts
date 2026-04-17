@@ -10,6 +10,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // downloads/ lives at project root — 4 levels up from backend/dist/modules/agent/
 const DOWNLOADS_ROOT = path.resolve(__dirname, '../../../../downloads');
+// CI/CD SCP preserves the artifact directory name, so the exe lands in agent/agent-build/
+const AGENT_EXE_PATH = path.join(DOWNLOADS_ROOT, 'agent', 'agent-build', 'aniston-agent-setup.exe');
 
 export class AgentController {
   async submitHeartbeat(req: Request, res: Response, next: NextFunction) {
@@ -109,8 +111,7 @@ export class AgentController {
   // Check whether the agent installer exe is available for download
   async getDownloadStatus(_req: Request, res: Response, next: NextFunction) {
     try {
-      const exePath = path.join(DOWNLOADS_ROOT, 'agent', 'aniston-agent-setup.exe');
-      const available = existsSync(exePath);
+      const available = existsSync(AGENT_EXE_PATH);
       res.json({
         success: true,
         data: {
@@ -185,6 +186,17 @@ export class AgentController {
     try {
       const result = await agentService.bulkGenerateCodes(req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async exportActivity(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId, date } = req.params;
+      dateParamSchema.parse(date);
+      const buffer = await agentService.exportActivityExcel(employeeId, date, req.user!.organizationId);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="activity-${employeeId}-${date}.xlsx"`);
+      res.send(buffer);
     } catch (err) { next(err); }
   }
 }

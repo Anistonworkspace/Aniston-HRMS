@@ -2,6 +2,48 @@ import { powerMonitor } from 'electron';
 import { CONFIG, categorizeApp } from './config';
 import { getAndResetInputCounts, startInputTracking, stopInputTracking } from './inputTracker';
 
+// ── Browser window-title classification ──────────────────────────────────────
+// Chrome/Edge/Firefox classify the app as PRODUCTIVE by default, but the window
+// title often contains the page title + domain, so we can do better.
+
+const BROWSER_APPS = ['chrome', 'edge', 'firefox', 'brave', 'opera', 'safari'];
+
+/** Returns true if appName is a web browser */
+function isBrowserApp(appName: string): boolean {
+  const lower = appName.toLowerCase();
+  return BROWSER_APPS.some(b => lower.includes(b));
+}
+
+/** Domains/keywords that indicate unproductive browsing */
+const UNPRODUCTIVE_DOMAINS = [
+  'youtube.com', 'netflix.com', 'primevideo.com', 'hotstar.com', 'disneyplus.com',
+  'hulu.com', 'twitch.tv', 'tiktok.com', 'instagram.com', 'facebook.com',
+  'twitter.com', 'x.com', 'reddit.com', 'pinterest.com', 'snapchat.com',
+  'discord.com', 'whatsapp.com', 'telegram.org', 'steam', 'epicgames.com',
+];
+
+/** Domains/keywords that indicate productive browsing */
+const PRODUCTIVE_DOMAINS = [
+  'github.com', 'gitlab.com', 'bitbucket.org', 'stackoverflow.com',
+  'docs.google.com', 'sheets.google.com', 'drive.google.com',
+  'figma.com', 'notion.so', 'linear.app', 'jira.', 'confluence.',
+  'trello.com', 'asana.com', 'clickup.com', 'npmjs.com', 'pypi.org',
+  'developer.mozilla', 'developer.android', 'developer.apple',
+  'vercel.com', 'netlify.com', 'aws.amazon.com', 'console.cloud.google',
+  'portal.azure.com', 'prisma.io', 'tailwindcss.com',
+];
+
+/**
+ * Classify a browser tab using its window title, which typically includes
+ * the page title and domain (e.g. "YouTube - Google Chrome").
+ */
+function categorizeBrowserWindow(windowTitle: string): 'PRODUCTIVE' | 'NEUTRAL' | 'UNPRODUCTIVE' {
+  const lower = windowTitle.toLowerCase();
+  if (UNPRODUCTIVE_DOMAINS.some(d => lower.includes(d))) return 'UNPRODUCTIVE';
+  if (PRODUCTIVE_DOMAINS.some(d => lower.includes(d))) return 'PRODUCTIVE';
+  return 'NEUTRAL';
+}
+
 export interface ActivityEntry {
   activeApp: string;
   activeWindow: string;
@@ -65,11 +107,17 @@ export function startTracking() {
       // Get actual input counts accumulated since last poll
       const inputCounts = getAndResetInputCounts();
 
+      // For browsers, classify by window title (contains page title + domain).
+      // For all other apps, classify by app name.
+      const category = isIdle
+        ? 'NEUTRAL'
+        : (isBrowserApp(app) ? categorizeBrowserWindow(title) : categorizeApp(app));
+
       const entry: ActivityEntry = {
         activeApp: app,
         activeWindow: title,
         activeUrl: '',
-        category: isIdle ? 'NEUTRAL' : categorizeApp(app),
+        category,
         durationSeconds: CONFIG.TRACKING_INTERVAL_MS / 1000,
         idleSeconds: idleTime,
         keystrokes: inputCounts.keystrokes,

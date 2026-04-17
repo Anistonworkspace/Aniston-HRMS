@@ -166,7 +166,7 @@ router.get('/runs/:id/attendance-export',
       const empIds = (records as any[]).map((r: any) => r.employeeId);
 
       // Batch all DB queries in parallel instead of N+1
-      const [leaveBalances, paidLeaveRequests, attendanceGroups] = await Promise.all([
+      const [leaveBalances, paidLeaveRequests, attendanceGroups, monthHolidays] = await Promise.all([
         prisma.leaveBalance.findMany({
           where: { employeeId: { in: empIds }, year: run.year },
         }),
@@ -186,7 +186,15 @@ router.get('/runs/:id/attendance-export',
           where: { employeeId: { in: empIds }, date: { gte: startOfMonth, lte: endOfMonth } },
           _count: { _all: true },
         }),
+        // Org holidays this month — used for accurate Total Paid Days in attendance Excel
+        prisma.holiday.findMany({
+          where: { organizationId: req.user!.organizationId, date: { gte: startOfMonth, lte: endOfMonth } },
+          select: { date: true },
+        }),
       ]);
+
+      // Paid holidays = holidays that fall on Mon-Sat (working days); Sundays counted separately
+      const paidHolidaysOnWorkDays = monthHolidays.filter(h => new Date(h.date).getDay() !== 0).length;
 
       // Build per-employee leave data
       const leaveData = empIds.map((empId: string) => {
@@ -202,20 +210,15 @@ router.get('/runs/:id/attendance-export',
       });
 
       // Build per-employee attendance counts.
-      // presentCount / halfDayCount come from actual attendance records.
-      // absentCount = explicit ABSENT records + implicit absences (working days with no
-      //   record at all). We derive implicit absences from the stored lopDays in the
-      //   payroll record: lopDays = explicitAbsent + implicitAbsent + halfDay*0.5.
-      //   So: totalAbsent = explicitAbsent + implicitAbsent = lopDays - halfDay*0.5  (rounded).
+      // absentCount derived from lopDays (includes implicit no-show working days).
       const attendanceDetails = empIds.map((empId: string) => {
-        const empStats    = (attendanceGroups as any[]).filter((s: any) => s.employeeId === empId);
+        const empStats      = (attendanceGroups as any[]).filter((s: any) => s.employeeId === empId);
         const presentCount  = empStats.find((s: any) => s.status === 'PRESENT')?._count._all || 0;
         const explicitAbsent = empStats.find((s: any) => s.status === 'ABSENT')?._count._all || 0;
         const halfDayCount  = empStats.find((s: any) => s.status === 'HALF_DAY')?._count._all || 0;
-        // Derive total absent (including implicit no-shows) from the stored lopDays
-        const rec = (records as any[]).find((r: any) => r.employeeId === empId);
-        const storedLop = rec ? n(rec.lopDays) : 0;
-        const totalAbsent = Math.max(explicitAbsent, Math.round(storedLop - halfDayCount * 0.5));
+        const rec           = (records as any[]).find((r: any) => r.employeeId === empId);
+        const storedLop     = rec ? n(rec.lopDays) : 0;
+        const totalAbsent   = Math.max(explicitAbsent, Math.round(storedLop - halfDayCount * 0.5));
         return { employeeId: empId, presentCount, absentCount: totalAbsent, halfDayCount };
       });
 
@@ -223,7 +226,7 @@ router.get('/runs/:id/attendance-export',
         where: { id: req.user!.organizationId }, select: { name: true },
       });
       const { generateAttendanceSalaryExcel } = await import('../../utils/payrollExcelExporter.js');
-      const buffer = await generateAttendanceSalaryExcel(run, records, leaveData, attendanceDetails, org?.name || 'Aniston Technologies LLP');
+      const buffer = await generateAttendanceSalaryExcel(run, records, leaveData, attendanceDetails, paidHolidaysOnWorkDays, org?.name || 'Aniston Technologies LLP');
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="attendance-salary-${monthNames[run.month - 1]}-${run.year}.xlsx"`);
@@ -368,7 +371,7 @@ router.post('/runs/:id/send-email',
       const endOfMonth = new Date(run.year, run.month, 0);
       const empIds = (records as any[]).map((r: any) => r.employeeId);
 
-      const [leaveBalances, paidLeaveRequests, attendanceGroups] = await Promise.all([
+      const [leaveBalances, paidLeaveRequests, attendanceGroups, monthHolidays2] = await Promise.all([
         prisma.leaveBalance.findMany({ where: { employeeId: { in: empIds }, year: run.year } }),
         prisma.leaveRequest.findMany({
           where: {
@@ -383,7 +386,13 @@ router.post('/runs/:id/send-email',
           where: { employeeId: { in: empIds }, date: { gte: startOfMonth, lte: endOfMonth } },
           _count: { _all: true },
         }),
+        prisma.holiday.findMany({
+          where: { organizationId: req.user!.organizationId, date: { gte: startOfMonth, lte: endOfMonth } },
+          select: { date: true },
+        }),
       ]);
+
+      const paidHolidaysOnWorkDays2 = monthHolidays2.filter(h => new Date(h.date).getDay() !== 0).length;
 
       const leaveData = empIds.map((empId: string) => {
         const balances = leaveBalances.filter((b: any) => b.employeeId === empId);
@@ -409,7 +418,7 @@ router.post('/runs/:id/send-email',
 
       const [payrollBuffer, attendanceBuffer, bankBuffer] = await Promise.all([
         generatePayrollExcel(run, records, org.name || 'Aniston Technologies LLP'),
-        generateAttendanceSalaryExcel(run, records, leaveData, attendanceDetails, org.name || 'Aniston Technologies LLP'),
+        generateAttendanceSalaryExcel(run, records, leaveData, attendanceDetails, paidHolidaysOnWorkDays2, org.name || 'Aniston Technologies LLP'),
         generateBankFileExcel(run, records, org.name || 'Aniston Technologies LLP'),
       ]);
 

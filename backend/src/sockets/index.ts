@@ -89,14 +89,18 @@ export function initSocketServer(httpServer: HttpServer) {
       }
     });
 
-    // Bug #2: Agent renderer reports a WebRTC/getUserMedia error — relay to the admin
+    // Bug #2: Agent renderer reports a WebRTC/getUserMedia error — relay to the admin.
+    // socket.data.userId is the agent's userId, which equals the employeeUserId the admin requested.
     socket.on('stream:agent-error', (data: { message: string; targetSocketId?: string }) => {
       const targetId = data.targetSocketId;
       if (targetId) {
         const targetSocket = io!.sockets.sockets.get(targetId);
         // Only relay within the same org (security guard)
         if (targetSocket && targetSocket.data?.organizationId === socket.data?.organizationId) {
-          io!.to(targetId).emit('stream:error', { message: data.message });
+          io!.to(targetId).emit('stream:error', {
+            message: data.message,
+            employeeUserId: socket.data.userId, // lets admin LiveVideoStream match which employee errored
+          });
         }
       }
     });

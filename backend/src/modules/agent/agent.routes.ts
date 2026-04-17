@@ -44,11 +44,18 @@ router.post('/setup/bulk-generate', setupAuth, (req, res, next) => agentControll
 // HR/Admin view endpoints
 
 // Bug #9: Bulk summary — one query replaces N per-employee queries from EmployeeRow list
-// IMPORTANT: this route must come before /activity/:employeeId/:date to avoid path collision
+// IMPORTANT: these static-segment routes must come before /:employeeId/:date to avoid path collision
 router.get(
   '/activity/bulk-summary',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   (req, res, next) => agentController.getActivityBulkSummary(req, res, next)
+);
+
+// Excel export — must come before /:employeeId/:date to avoid route shadowing
+router.get(
+  '/activity/export/:employeeId/:date',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => agentController.exportActivity(req, res, next)
 );
 
 router.get(

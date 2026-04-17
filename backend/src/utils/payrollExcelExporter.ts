@@ -332,15 +332,20 @@ export async function generatePayrollExcel(
 /**
  * Generate attendance-salary summary Excel.
  *
- * Column layout:
- *   Employee Name | Emp Code | Total Days (Mon–Sun) | Working Days (Mon–Sat) | Sundays (Paid Week-off)
- *   | Present Days | Paid Leave | Absent Days | Half Days | LOP / Unpaid Leaves | Total Paid Days | Comments
+ * Column layout (13 cols):
+ *   Employee Name | Emp Code | Working Days (Mon–Sat) | Sundays (Paid) | Paid Holidays
+ *   | Present Days | Half Days | Paid Leave | Absent / LOP Days | Total Paid Days
+ *   | LOP Deduction Days | Formula Check | Comments
+ *
+ * Total Paid Days = Present + (Half × 0.5) + Paid Leave + Sundays + Paid Holidays
+ * (additive formula — avoids rounding error caused by integer-stored lopDays)
  */
 export async function generateAttendanceSalaryExcel(
   run: any,
   records: any[],
   leaveData: Array<{ employeeId: string; providedL: number; leavesBalance: number; paidLeaveDays: number }>,
   attendanceDetails: Array<{ employeeId: string; presentCount: number; absentCount: number; halfDayCount: number }>,
+  paidHolidaysOnWorkDays: number,
   orgName: string
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -352,7 +357,7 @@ export async function generateAttendanceSalaryExcel(
   const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
 
   const totalDaysInMonth = new Date(run.year, run.month, 0).getDate();
-  const NUM_COLS = 12;
+  const NUM_COLS = 13;
 
   const sheet = workbook.addWorksheet('Attendance Salary', {
     views: [{ state: 'frozen', ySplit: 3 }],
@@ -365,7 +370,9 @@ export async function generateAttendanceSalaryExcel(
   sheet.getRow(1).height = 24;
 
   sheet.addRow([
-    `Total Paid Days = (Working Days + Sundays) − LOP  |  LOP = Absent days not covered by paid leave (0.5 per half-day)  |  Period: ${periodLabel}`,
+    `Total Paid Days = Present + Half×0.5 + Paid Leave + Sundays + Holidays  |  `
+    + `LOP = working days with no attendance (not on leave / holiday)  |  `
+    + `Period: ${periodLabel}  |  Paid Holidays this month: ${paidHolidaysOnWorkDays}`,
   ]);
   sheet.getRow(2).font = { italic: true, size: 9, color: { argb: GRAY } };
   sheet.mergeCells(2, 1, 2, NUM_COLS);
@@ -373,73 +380,84 @@ export async function generateAttendanceSalaryExcel(
   const DARK_BLUE = '1E3A8A';
   const headers = [
     'Employee Name', 'Emp Code',
-    'Total Days\n(Work+Sun)', 'Working Days\n(Mon–Sat)', 'Sundays\n(Paid Week-off)',
-    'Present\nDays', 'Paid Leave\nDays', 'Absent\nDays', 'Half\nDays',
-    'LOP / Unpaid\nLeaves', 'Total Paid\nDays', 'Comments',
+    'Working Days\n(Mon–Sat)', 'Sundays\n(Paid Week-off)', 'Paid\nHolidays',
+    'Present\nDays', 'Half\nDays', 'Paid Leave\nDays',
+    'Absent /\nLOP Days', 'Total Paid\nDays',
+    'LOP Deduction\nDays (payroll)', 'Formula\nCheck', 'Comments',
   ];
   const headerRow = sheet.addRow(headers);
   styleHeaderRow(headerRow, DARK_BLUE);
 
-  [26, 13, 13, 14, 16, 12, 13, 12, 10, 14, 13, 28].forEach((w, i) => {
+  [26, 13, 15, 16, 12, 12, 10, 13, 14, 13, 18, 14, 28].forEach((w, i) => {
     sheet.getColumn(i + 1).width = w;
   });
 
-  const leaveMap  = new Map(leaveData.map((d) => [d.employeeId, d]));
-  const attMap    = new Map(attendanceDetails.map((d) => [d.employeeId, d]));
+  const leaveMap = new Map(leaveData.map((d) => [d.employeeId, d]));
+  const attMap   = new Map(attendanceDetails.map((d) => [d.employeeId, d]));
 
-  let totWorkDays = 0, totSundays = 0, totTotal = 0, totPresent = 0;
-  let totPaidLeave = 0, totAbsent = 0, totHalf = 0, totLop = 0, totPaidDays = 0;
+  let totWorkDays = 0, totSundays = 0, totHolidays = 0;
+  let totPresent = 0, totHalf = 0, totPaidLeave = 0, totAbsent = 0;
+  let totPaidDays = 0, totLopDedDays = 0;
 
   const attFilteredRecords = (records as any[]).filter((r: any) => !r.employee?.isSystemAccount);
 
   if (attFilteredRecords.length === 0) {
-    const noDataRow = sheet.addRow([
-      'No attendance/payroll records — process payroll first',
-      'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A',
-    ]);
+    const noDataRow = sheet.addRow(Array(NUM_COLS).fill('N/A'));
+    (noDataRow.getCell(1) as any).value = 'No attendance/payroll records — process payroll first';
     noDataRow.font = { italic: true, color: { argb: GRAY }, size: 10 };
     noDataRow.getCell(1).alignment = { horizontal: 'left' };
   }
 
   attFilteredRecords.forEach((rec: any, rowIdx: number) => {
-    const ld  = leaveMap.get(rec.employeeId)  || { providedL: 0, leavesBalance: 0, paidLeaveDays: 0 };
-    const att = attMap.get(rec.employeeId)    || { presentCount: 0, absentCount: 0, halfDayCount: 0 };
+    const ld  = leaveMap.get(rec.employeeId) || { providedL: 0, leavesBalance: 0, paidLeaveDays: 0 };
+    const att = attMap.get(rec.employeeId)   || { presentCount: 0, absentCount: 0, halfDayCount: 0 };
 
-    const workingDays   = n(rec.workingDays);
-    const sundaysCount  = totalDaysInMonth - workingDays;
-    const totalDays     = workingDays + sundaysCount;    // = totalDaysInMonth
-    const lopDays       = n(rec.lopDays);
-    const paidLeave     = n(ld.paidLeaveDays);
-    const absentDays    = att.absentCount;
-    const halfDays      = att.halfDayCount;
-    const presentDays   = att.presentCount;
-    const totalPaidDays = Math.max(0, totalDays - lopDays);
+    const workingDays  = n(rec.workingDays);                 // Mon-Sat days in month (e.g. 26 for Apr)
+    const sundaysCount = totalDaysInMonth - workingDays;     // 4 for April
+    const paidHolidays = paidHolidaysOnWorkDays;             // org holidays on Mon-Sat
+    const presentDays  = n(rec.presentDays);                 // from payroll record (actual check-ins)
+    const halfDays     = att.halfDayCount;                   // raw HALF_DAY record count
+    const paidLeave    = n(ld.paidLeaveDays);                // approved paid leave days
+    const absentDays   = att.absentCount;                    // explicit + implicit no-show LOP days
+    const lopDedDays   = n(rec.lopDays);                     // ceiling'd integer stored for payroll deduction
 
-    totWorkDays  += workingDays;
-    totSundays   += sundaysCount;
-    totTotal     += totalDays;
-    totPresent   += presentDays;
-    totPaidLeave += paidLeave;
-    totAbsent    += absentDays;
-    totHalf      += halfDays;
-    totLop       += lopDays;
-    totPaidDays  += totalPaidDays;
+    // Additive formula — more accurate than totalDays − lopDays because lopDays
+    // is ceiled (Int DB column). Half-days contribute 0.5 each.
+    const totalPaidDays = Math.max(0,
+      presentDays + (halfDays * 0.5) + paidLeave + sundaysCount + paidHolidays
+    );
+
+    // Cross-check: working days accounted for = present + half + leave + absent
+    const formulaCheck = presentDays + halfDays + paidLeave + absentDays;
+    const formulaOk    = Math.abs(formulaCheck - (workingDays - paidHolidays)) <= 1
+      ? '✓' : `Check: ${formulaCheck} vs ${workingDays - paidHolidays}`;
+
+    totWorkDays   += workingDays;
+    totSundays    += sundaysCount;
+    totHolidays   += paidHolidays;
+    totPresent    += presentDays;
+    totHalf       += halfDays;
+    totPaidLeave  += paidLeave;
+    totAbsent     += absentDays;
+    totPaidDays   += totalPaidDays;
+    totLopDedDays += lopDedDays;
 
     const empName = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim();
 
     const row = sheet.addRow([
       t(empName),
       t(rec.employee?.employeeCode),
-      totalDays,
       workingDays,
       sundaysCount,
+      paidHolidays,
       presentDays,
+      halfDays,
       paidLeave,
       absentDays,
-      halfDays,
-      lopDays,
       totalPaidDays,
-      'N/A', // Comments — blank for HR to fill; N/A signals it's intentionally empty
+      lopDedDays,
+      formulaOk,
+      '', // Comments — blank for HR to fill
     ]);
 
     row.font = { size: 10, name: 'Calibri' };
@@ -447,12 +465,15 @@ export async function generateAttendanceSalaryExcel(
     row.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
     row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
 
-    if (lopDays > 0)   { row.getCell(10).font = { bold: true, color: { argb: RED }, size: 10 }; }
-    if (absentDays > 0){ row.getCell(8).font  = { bold: true, color: { argb: RED }, size: 10 }; }
-    if (halfDays > 0)  { row.getCell(9).font  = { bold: true, color: { argb: 'D97706' }, size: 10 }; }
-    if (paidLeave > 0) { row.getCell(7).font  = { bold: true, color: { argb: GREEN }, size: 10 }; }
-    row.getCell(11).font = { bold: true, color: { argb: GREEN }, size: 10 };
-    row.getCell(5).font  = { color: { argb: BRAND }, size: 10 };
+    // Col positions: WorkDays=3, Sundays=4, Holidays=5, Present=6, Half=7,
+    //               PaidLeave=8, Absent=9, TotalPaid=10, LopDed=11, Check=12
+    if (absentDays > 0) { row.getCell(9).font  = { bold: true, color: { argb: RED }, size: 10 }; }
+    if (halfDays > 0)   { row.getCell(7).font  = { bold: true, color: { argb: 'D97706' }, size: 10 }; }
+    if (paidLeave > 0)  { row.getCell(8).font  = { bold: true, color: { argb: GREEN }, size: 10 }; }
+    if (paidHolidays > 0) { row.getCell(5).font = { bold: true, color: { argb: BRAND }, size: 10 }; }
+    row.getCell(10).font = { bold: true, color: { argb: GREEN }, size: 10 };
+    if (lopDedDays > 0) { row.getCell(11).font = { bold: true, color: { argb: RED }, size: 10 }; }
+    row.getCell(4).font  = { color: { argb: BRAND }, size: 10 };
 
     // Alternate shading
     if (rowIdx % 2 === 1) {
@@ -466,20 +487,19 @@ export async function generateAttendanceSalaryExcel(
 
   // Totals row
   const totalsRow = sheet.addRow([
-    'TOTAL', '',
-    totTotal, totWorkDays, totSundays,
-    totPresent, totPaidLeave, totAbsent, totHalf, totLop,
-    totPaidDays, '',
+    `Total: ${attFilteredRecords.length} employees`, '',
+    totWorkDays, totSundays, totHolidays,
+    totPresent, totHalf, totPaidLeave, totAbsent,
+    totPaidDays, totLopDedDays, '', '',
   ]);
   totalsRow.font = { bold: true, size: 11 };
   totalsRow.eachCell((cell) => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EEF2FF' } };
   });
-  totalsRow.getCell(8).font  = { bold: true, color: { argb: RED },   size: 11 };
-  totalsRow.getCell(10).font = { bold: true, color: { argb: RED },   size: 11 };
-  totalsRow.getCell(11).font = { bold: true, color: { argb: GREEN }, size: 11 };
+  totalsRow.getCell(9).font  = { bold: true, color: { argb: RED },   size: 11 };
+  totalsRow.getCell(10).font = { bold: true, color: { argb: GREEN }, size: 11 };
+  totalsRow.getCell(11).font = { bold: true, color: { argb: RED },   size: 11 };
 
-  // Correct autoFilter range using filtered record count
   sheet.autoFilter = {
     from: { row: 3, column: 1 },
     to: { row: 3 + attFilteredRecords.length, column: NUM_COLS },

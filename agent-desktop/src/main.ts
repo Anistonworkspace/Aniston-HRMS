@@ -78,6 +78,9 @@ function startAgent() {
 }
 
 function connectAgentSocket() {
+  // Guard: don't create a second socket if one already exists (e.g. startAgent called twice)
+  if (agentSocket) return;
+
   const apiUrl = CONFIG.API_URL.replace('/api', '');
   const token = store.get('accessToken') as string;
   if (!token) return;

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import ExcelJS from 'exceljs';
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { env } from '../../config/env.js';
@@ -51,11 +52,12 @@ export class AgentService {
 
     await prisma.activityLog.createMany({ data: records });
 
-    // Also update attendance record active minutes
+    // Also update attendance record active minutes.
+    // Use Math.ceil so that any sub-minute active period (e.g. 30s = 0.5min) counts as 1min
+    // instead of rounding to 0 — prevents losing activity data for short heartbeat batches.
     const totalActiveSeconds = activities.reduce((sum, a) => sum + a.durationSeconds, 0);
-    const activeMinutesIncrement = Math.round(totalActiveSeconds / 60);
-
-    if (activeMinutesIncrement > 0) {
+    if (totalActiveSeconds > 0) {
+      const activeMinutesIncrement = Math.ceil(totalActiveSeconds / 60);
       await prisma.attendanceRecord.updateMany({
         where: { employeeId, date: today, checkOut: null },
         data: {
@@ -142,7 +144,9 @@ export class AgentService {
 
   async setLiveMode(employeeId: string, enabled: boolean, intervalSeconds: number = 30) {
     if (enabled) {
-      await redis.set(`${LIVE_VIEW_PREFIX}${employeeId}`, JSON.stringify({ enabled, intervalSeconds }), 'EX', 3600); // 1hr max
+      // 8-hour TTL — covers a full work shift without cutting off mid-session.
+      // Old 1hr TTL caused live streams to silently die for long monitoring sessions.
+      await redis.set(`${LIVE_VIEW_PREFIX}${employeeId}`, JSON.stringify({ enabled, intervalSeconds }), 'EX', 28800);
     } else {
       await redis.del(`${LIVE_VIEW_PREFIX}${employeeId}`);
     }
@@ -201,6 +205,16 @@ export class AgentService {
       .slice(0, 10)
       .map(([app, seconds]) => ({ app, minutes: Math.round(seconds / 60) }));
 
+    // Productivity score: percentage of tracked time spent on PRODUCTIVE apps (0–100)
+    let productiveSeconds = 0, unproductiveSeconds = 0;
+    logs.forEach(l => {
+      if (l.category === 'PRODUCTIVE') productiveSeconds += l.durationSeconds;
+      else if (l.category === 'UNPRODUCTIVE') unproductiveSeconds += l.durationSeconds;
+    });
+    const productivityScore = totalActive > 0
+      ? Math.round((productiveSeconds / totalActive) * 100)
+      : null;
+
     return {
       logs,
       summary: {
@@ -210,6 +224,9 @@ export class AgentService {
         totalClicks,
         topApps,
         logCount: logs.length,
+        productivityScore,         // 0–100, null if no data
+        productiveMinutes: Math.round(productiveSeconds / 60),
+        unproductiveMinutes: Math.round(unproductiveSeconds / 60),
       },
     };
   }
@@ -412,6 +429,131 @@ export class AgentService {
     }
 
     return { generated, total: employees.length };
+  }
+
+  // ===================== ACTIVITY EXCEL EXPORT =====================
+
+  /**
+   * Export activity logs for a single employee + date as an Excel workbook.
+   * Returns a Buffer suitable for streaming directly as a download response.
+   */
+  async exportActivityExcel(employeeId: string, organizationId: string, date: string): Promise<Buffer> {
+    const queryDate = new Date(date);
+    if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
+    queryDate.setHours(0, 0, 0, 0);
+
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      select: { firstName: true, lastName: true, employeeCode: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const logs = await prisma.activityLog.findMany({
+      where: { employeeId, date: queryDate, organizationId },
+      orderBy: { timestamp: 'asc' },
+    });
+
+    const screenshots = await prisma.agentScreenshot.findMany({
+      where: { employeeId, date: queryDate, organizationId },
+      orderBy: { timestamp: 'asc' },
+      select: { timestamp: true, activeApp: true, activeWindow: true, imageUrl: true },
+    });
+
+    const BRAND = '4F46E5';
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Aniston HRMS';
+    wb.created = new Date();
+
+    // ── Sheet 1: Activity Log ─────────────────────────────────────────────────
+    const logSheet = wb.addWorksheet('Activity Log', { views: [{ state: 'frozen', ySplit: 1 }] });
+    logSheet.columns = [
+      { header: 'Time', key: 'time', width: 12 },
+      { header: 'Application', key: 'app', width: 28 },
+      { header: 'Window Title', key: 'window', width: 40 },
+      { header: 'Category', key: 'category', width: 14 },
+      { header: 'Duration (s)', key: 'duration', width: 14 },
+      { header: 'Idle (s)', key: 'idle', width: 12 },
+      { header: 'Keystrokes', key: 'keys', width: 12 },
+      { header: 'Clicks', key: 'clicks', width: 10 },
+    ];
+    logSheet.getRow(1).eachCell(cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BRAND } };
+      cell.font = { bold: true, color: { argb: 'FFFFFF' }, size: 10 };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+    logSheet.getRow(1).height = 24;
+
+    logs.forEach((l, i) => {
+      const row = logSheet.addRow({
+        time: new Date(l.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' }),
+        app: l.activeApp || '',
+        window: l.activeWindow || '',
+        category: l.category || 'NEUTRAL',
+        duration: l.durationSeconds,
+        idle: l.idleSeconds,
+        keys: l.keystrokes,
+        clicks: l.mouseClicks,
+      });
+      if (i % 2 === 1) {
+        row.eachCell(cell => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F8F7FF' } }; });
+      }
+      const catCell = row.getCell('category');
+      if (l.category === 'PRODUCTIVE') catCell.font = { color: { argb: '059669' }, bold: true };
+      else if (l.category === 'UNPRODUCTIVE') catCell.font = { color: { argb: 'DC2626' }, bold: true };
+    });
+
+    // ── Sheet 2: Summary ─────────────────────────────────────────────────────
+    const sumSheet = wb.addWorksheet('Summary');
+    const totalActive = logs.reduce((s, l) => s + l.durationSeconds, 0);
+    const totalIdle = logs.reduce((s, l) => s + l.idleSeconds, 0);
+    const productive = logs.filter(l => l.category === 'PRODUCTIVE').reduce((s, l) => s + l.durationSeconds, 0);
+    const unproductive = logs.filter(l => l.category === 'UNPRODUCTIVE').reduce((s, l) => s + l.durationSeconds, 0);
+    const score = totalActive > 0 ? Math.round((productive / totalActive) * 100) : 0;
+
+    const summaryData = [
+      ['Employee', `${employee.firstName} ${employee.lastName} (${employee.employeeCode})`],
+      ['Date', date],
+      ['Total Activity Entries', logs.length],
+      ['Active Time (min)', Math.round(totalActive / 60)],
+      ['Idle Time (min)', Math.round(totalIdle / 60)],
+      ['Productive Time (min)', Math.round(productive / 60)],
+      ['Unproductive Time (min)', Math.round(unproductive / 60)],
+      ['Productivity Score', `${score}%`],
+      ['Total Keystrokes', logs.reduce((s, l) => s + l.keystrokes, 0)],
+      ['Total Clicks', logs.reduce((s, l) => s + l.mouseClicks, 0)],
+      ['Screenshots Captured', screenshots.length],
+    ];
+    summaryData.forEach(([label, value]) => {
+      const row = sumSheet.addRow([label, value]);
+      row.getCell(1).font = { bold: true };
+    });
+    sumSheet.getColumn(1).width = 28;
+    sumSheet.getColumn(2).width = 36;
+
+    // ── Sheet 3: Top Apps ─────────────────────────────────────────────────────
+    const appSheet = wb.addWorksheet('Top Apps', { views: [{ state: 'frozen', ySplit: 1 }] });
+    appSheet.columns = [
+      { header: 'Application', key: 'app', width: 30 },
+      { header: 'Time (min)', key: 'minutes', width: 14 },
+      { header: 'Category', key: 'cat', width: 16 },
+    ];
+    appSheet.getRow(1).eachCell(cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BRAND } };
+      cell.font = { bold: true, color: { argb: 'FFFFFF' }, size: 10 };
+      cell.alignment = { horizontal: 'center' };
+    });
+    const appMap = new Map<string, { seconds: number; category: string }>();
+    logs.forEach(l => {
+      if (!l.activeApp) return;
+      const existing = appMap.get(l.activeApp) || { seconds: 0, category: l.category || 'NEUTRAL' };
+      existing.seconds += l.durationSeconds;
+      appMap.set(l.activeApp, existing);
+    });
+    [...appMap.entries()].sort((a, b) => b[1].seconds - a[1].seconds).forEach(([app, data]) => {
+      appSheet.addRow({ app, minutes: Math.round(data.seconds / 60), cat: data.category });
+    });
+
+    return wb.xlsx.writeBuffer() as Promise<Buffer>;
   }
 
   // ===================== LEGACY PAIRING (backward compat) =====================
