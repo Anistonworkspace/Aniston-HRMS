@@ -338,14 +338,41 @@ def detect_document_type(text: str) -> str:
 
     # ── Identity Documents ───────────────────────────────────────────────────
 
+    # STRONG education/degree indicators — prevent ANY identity doc from
+    # matching if these are present (e.g., IGNOU grade card has "enrolment no"
+    # and "indira gandhi" which would otherwise match Aadhaar keywords).
+    _STRONG_EDU_INDICATORS = [
+        "indira gandhi national open university", "ignou",
+        "grade card", "programme code", "term end theory", "term end practical",
+        "gradecard.ignou", "naac a", "a++ naac",
+        "marks statement cum certificate",
+        "scholastic achievements", "marks obtained",
+        "central board of secondary education",
+        "board of secondary education", "board of school education",
+        "secondary school examination", "higher secondary",
+        "senior school certificate examination",
+        "university", "college", "institute of technology",
+        # Protect against offer letter / experience cert matching identity
+        "offer letter", "internship certificate", "certificate of completion",
+        "this certificate is proudly", "has successfully completed",
+        "relieving letter", "experience letter",
+    ]
+    _is_edu_or_emp_doc = any(ind in text_norm for ind in _STRONG_EDU_INDICATORS)
+
     # Aadhaar — check keywords and 12-digit number pattern
-    aadhaar_keywords = ["aadhaar", "aadhar", "unique identification", "uidai", "enrollment", "enrolment",
-                        "unique identity", "आधार", "भारतीय विशिष्ट"]
-    if any(kw in text_norm for kw in aadhaar_keywords) or (
-        re.search(r"\d{4}\s?\d{4}\s?\d{4}", text) and
-        any(kw in text_norm for kw in ["government of india", "भारत सरकार", "enrolment", "dob"])
-    ):
-        return "AADHAAR"
+    # NOTE: "enrolment" removed — IGNOU grade cards also have "Enrolment No"
+    aadhaar_keywords = ["aadhaar", "aadhar", "unique identification authority", "uidai",
+                        "unique identity", "आधार", "भारतीय विशिष्ट", "mera aadhaar",
+                        "meri pehchaan", "मेरा आधार", "vid :", "1947"]
+    # VID pattern: "VID : XXXX XXXX XXXX XXXX" is unique to Aadhaar
+    has_vid = bool(re.search(r"\bVID\s*[:\-]\s*\d{4}", text, re.IGNORECASE))
+    # 12-digit Aadhaar number pattern
+    has_12digit = bool(re.search(r"\d{4}\s\d{4}\s\d{4}", text))
+    has_aadhaar_context = any(kw in text_norm for kw in
+        ["government of india", "भारत सरकार", "dob", "date of birth", "male", "female"])
+    if not _is_edu_or_emp_doc:
+        if any(kw in text_norm for kw in aadhaar_keywords) or has_vid or (has_12digit and has_aadhaar_context):
+            return "AADHAAR"
 
     # PAN — check keywords and pattern
     pan_keywords = ["income tax", "permanent account", "pan card", "income-tax", "income tax department"]
@@ -438,6 +465,26 @@ def detect_document_type(text: str) -> str:
         "x standard",         # Tamil Nadu boards
         "10th",               # bare numeric — last resort catch-all
         "tenth",              # bare spelled-out — last resort catch-all
+        # SSC abbreviation — Maharashtra SSC, Telangana, Andhra Pradesh, Goa
+        "ssc",                # "SSC Result", "SSC Certificate" — extremely common
+        # West Bengal
+        "madhyamik", "wbbse", "madhyamik pariksha",
+        # Rajasthan Board of Secondary Education
+        "rbse", "rajasthan board",
+        # Hindi / Devanagari script keywords (from eng+hin OCR)
+        "माध्यमिक",           # secondary (Hindi)
+        "हाईस्कूल",           # high school (Hindi)
+        "हाई स्कूल",          # high school spaced (Hindi)
+        "अंकपत्र",            # marksheet (Hindi)
+        "अंकसूची",            # mark list (Hindi)
+        "दसवीं",              # tenth (Hindi)
+        "10वीं",              # 10th (Hindi numeral)
+        # Marathi (same Devanagari script)
+        "माध्यमिक शाळा",      # secondary school (Marathi)
+        "गुणपत्रिका",          # marksheet (Marathi)
+        # Tamil
+        "பொதுத் தேர்வு",      # public exam (Tamil)
+        "மேல்நிலை",           # higher secondary (Tamil)
     ]
     if any(kw in text_norm for kw in tenth_keywords):
         return "TENTH_CERTIFICATE"
@@ -473,6 +520,13 @@ def detect_document_type(text: str) -> str:
     if any(kw in text_norm for kw in edu_keywords):
         return "CERTIFICATE"
 
+    # Generic degree / transcript fallback — catches any university result sheet
+    # even when institution name isn't in the keyword list above
+    if "semester" in text_norm and any(kw in text_norm for kw in ["cgpa", "gpa", "marks", "grade", "credit", "sgpa"]):
+        return "CERTIFICATE"
+    if ("graduation" in text_norm or "graduate" in text_norm) and any(kw in text_norm for kw in ["degree", "awarded", "conferred", "programme"]):
+        return "CERTIFICATE"
+
     # ── Employment Documents ─────────────────────────────────────────────────
 
     # Offer letter / appointment letter
@@ -502,6 +556,24 @@ def detect_document_type(text: str) -> str:
     ]
     if any(kw in text_norm for kw in experience_keywords):
         return "EXPERIENCE_LETTER"
+
+    # ── Professional / Course Completion Certificates ────────────────────────
+    # Craw Security, EC-Council, CompTIA, workshop/training certs, etc.
+    prof_cert_keywords = [
+        "certificate of completion", "certificate of achievement", "certificate of participation",
+        "has successfully completed the", "this certificate is awarded",
+        "this certificate is proudly", "awarded this certificate",
+        "course completion", "training certificate", "completion certificate",
+        "successfully completed the course", "completed the training",
+        "course name", "course duration", "training program",
+        "craw security", "ec-council", "comptia", "cisco certified", "microsoft certified",
+        "certified ethical", "cybersecurity certificate", "cyber security certificate",
+        "python programming", "java course", "data science course",
+        "online course", "workshop certificate", "professional certificate",
+        "this is to certify that.*completed",
+    ]
+    if any(kw in text_norm for kw in prof_cert_keywords):
+        return "PROFESSIONAL_CERTIFICATE"
 
     # ── Financial / Residence Documents ─────────────────────────────────────
 
@@ -1544,13 +1616,54 @@ def generate_validation_reasons(
         if rent_match:
             reasons.append(f"✓ Monthly rent amount: ₹{rent_match.group(1).strip()}")
 
-    else:
-        # Generic / OTHER
-        field_count = len([v for v in fields.values() if v])
-        if field_count > 0:
-            reasons.append(f"✓ {field_count} field(s) extracted from unrecognized document type")
+    elif doc_type == "PROFESSIONAL_CERTIFICATE":
+        reasons.append("✓ Professional / course completion certificate detected")
+        # Issuing organization
+        org_match = re.search(r"(?:issued by|certified by|from|by)[:\s]+([A-Za-z][A-Za-z\s&\-\.]{3,60})", raw_text, re.IGNORECASE)
+        if org_match:
+            reasons.append(f"✓ Issuing organization: '{org_match.group(1).strip()}'")
+        elif fields.get("organization"):
+            reasons.append(f"✓ Organization: '{fields['organization']}'")
         else:
-            reasons.append("⚠ Document type not recognized — HR should manually review")
+            reasons.append("⚠ Issuing organization not clearly detected — verify manually")
+        # Candidate name
+        if fields.get("name") or fields.get("student_name"):
+            name = fields.get("name") or fields.get("student_name")
+            reasons.append(f"✓ Candidate name: '{name}'")
+        else:
+            reasons.append("⚠ Candidate name not clearly detected in certificate text")
+        # Completion date
+        date_match = re.search(r"(?:date|completed on|issued on|awarded on)[:\s]*(\d{1,2}[/\-\.]\w+[/\-\.]\d{2,4})", raw_text, re.IGNORECASE)
+        if date_match:
+            reasons.append(f"✓ Certificate date: {date_match.group(1).strip()}")
+        else:
+            reasons.append("⚠ Certificate issue date not extracted — verify manually")
+        reasons.append("ℹ Professional certs are supplementary — not required for standard KYC")
+
+    else:
+        # Dynamic OTHER — scan for partial keyword matches and give HR actionable hints
+        tn = _normalize_kw_text(raw_text)
+        hints = []
+        if any(kw in tn for kw in ["bank", "account", "ifsc", "balance", "statement", "passbook"]):
+            hints.append("⚠ Bank-related keywords detected — may be a bank statement or passbook (check document orientation)")
+        if any(kw in tn for kw in ["university", "college", "degree", "bachelor", "master", "diploma", "semester", "cgpa"]):
+            hints.append("⚠ Education keywords detected — may be a degree or mark sheet from an unregistered institution")
+        if any(kw in tn for kw in ["board", "examination", "result", "marksheet", "mark sheet", "marks obtained"]):
+            hints.append("⚠ Exam/marksheet keywords detected — may be a board certificate from an unrecognized state board")
+        if any(kw in tn for kw in ["employer", "company", "designation", "employment", "joining", "relieving"]):
+            hints.append("⚠ Employment keywords detected — may be an offer/experience letter with non-standard formatting")
+        if any(kw in tn for kw in ["address", "pincode", "pin code", "street", "door no", "flat no", "electricity", "units"]):
+            hints.append("⚠ Address/utility keywords detected — may be a residence proof document")
+        if any(kw in tn for kw in ["aadhaar", "aadhar", "pan", "passport", "voter", "driving"]):
+            hints.append("⚠ Identity document keywords detected but classification confidence too low — try uploading a higher resolution scan")
+        if not hints:
+            snippet = raw_text.strip()[:100].replace("\n", " ")
+            if snippet:
+                hints.append(f"⚠ No recognized document keywords found. Extracted text snippet: \"{snippet}{'…' if len(raw_text.strip()) > 100 else ''}\"")
+            else:
+                hints.append("✗ No text extracted from this page — may be a blank page, full-image page, or non-KYC document")
+        reasons.extend(hints)
+        reasons.append("✗ HR must manually identify and verify this page")
 
     # ---- Quality / Authenticity flags ----
     for flag in quality_flags:
@@ -1740,7 +1853,7 @@ def detect_page_document_type(text: str, page_idx: int) -> dict:
         confidence = 0.7
     elif doc_type in ("EXPERIENCE_LETTER", "OFFER_LETTER"):
         confidence = 0.75
-    elif doc_type == "CERTIFICATE":
+    elif doc_type in ("CERTIFICATE", "PROFESSIONAL_CERTIFICATE"):
         confidence = 0.7
     else:
         confidence = 0.5
@@ -1898,7 +2011,8 @@ OCR_TYPE_TO_DOC_TYPE: dict = {
     "TWELFTH_CERTIFICATE": "TWELFTH_CERTIFICATE",
     "POST_GRADUATION_CERTIFICATE": "POST_GRADUATION_CERTIFICATE",
     "DEGREE_CERTIFICATE": "DEGREE_CERTIFICATE",
-    "CERTIFICATE": "DEGREE_CERTIFICATE",   # generic education cert — HR disambiguates
+    "CERTIFICATE": "DEGREE_CERTIFICATE",               # generic education cert — HR disambiguates
+    "PROFESSIONAL_CERTIFICATE": "PROFESSIONAL_CERTIFICATION",  # training/course certs
     "BANK_STATEMENT": "BANK_STATEMENT",
     "CANCELLED_CHEQUE": "CANCELLED_CHEQUE",
     "OFFER_LETTER": "OFFER_LETTER_DOC",
@@ -1934,6 +2048,7 @@ REQUIRED_DOC_ALIASES: dict = {
     "CANCELLED_CHEQUE": ["CANCELLED_CHEQUE", "BANK_STATEMENT"],
     "UTILITY_BILL": ["UTILITY_BILL", "RENT_AGREEMENT"],
     "PHOTO": ["PHOTO"],
+    "PROFESSIONAL_CERTIFICATION": ["PROFESSIONAL_CERTIFICATION"],
 }
 
 # Standard required docs for KYC (fresher profile)
@@ -2297,6 +2412,32 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
             except Exception:
                 pass
 
+        # ── Re-classify OTHER pages with aggressive OCR ────────────────────
+        # If page_doc_type is still OTHER after initial OCR, and confidence is low,
+        # try the aggressive 3x-upscale strategy to extract better text — then
+        # re-run detect_document_type on the improved text. This specifically helps
+        # photographed marksheets and certificates with poor image quality where the
+        # first OCR pass extracts some garbled text (>15 chars) but no keyword match.
+        if page_doc_type == "OTHER" and type_info.get("confidence", 0) < 0.5 and not native_ok:
+            try:
+                aggressive_img = _preprocess_aggressive_upscale(image)
+                aggressive_text = pytesseract.image_to_string(aggressive_img, lang="eng+hin", config="--psm 6").strip()
+                if not aggressive_text or len(aggressive_text) < len(raw_text):
+                    aggressive_text = pytesseract.image_to_string(aggressive_img, lang="eng+hin", config="--psm 11").strip()
+                if aggressive_text and len(aggressive_text) > len(raw_text):
+                    retry_type_info = detect_page_document_type(aggressive_text, idx)
+                    if retry_type_info["detected_type"] != "OTHER":
+                        page_doc_type = retry_type_info["detected_type"]
+                        type_info = retry_type_info
+                        raw_text = aggressive_text
+                        source = "image_ocr_aggressive_retry"
+                        logger.info(
+                            f"[classify_combined_pdf] Page {idx + 1}: aggressive OCR retry "
+                            f"→ {page_doc_type} (was OTHER, chars={len(aggressive_text)})"
+                        )
+            except Exception as _retry_err:
+                logger.debug(f"[classify_combined_pdf] Page {idx + 1}: aggressive retry failed: {_retry_err}")
+
         # Per-page structured log — visible in System Logs UI
         logger.info(
             f"[classify_combined_pdf] Page {idx + 1}/{total_pages}: "
@@ -2497,6 +2638,18 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
             suspicion_flags.append(f"'{t}' appears on {count} pages — possible duplicate submission")
             suspicion_score += 20
 
+    # Unrecognized pages with meaningful text — may indicate unsupported doc types
+    unrecognized_meaningful = [
+        pr for pr in page_results
+        if pr["detected_type"] == "OTHER" and not pr["is_blank"] and pr.get("text_length", 0) > 50
+    ]
+    if len(unrecognized_meaningful) >= 3:
+        suspicion_flags.append(
+            f"{len(unrecognized_meaningful)} page(s) could not be identified — "
+            "may be unsupported document types or very poor scan quality"
+        )
+        suspicion_score += len(unrecognized_meaningful) * 3
+
     suspicion_score = min(100, suspicion_score)
 
     # Determine risk tier
@@ -2666,7 +2819,8 @@ _TYPE_EXTRACTORS = {
     "CANCELLED_CHEQUE":           extract_bank_statement_fields,
     "SALARY_SLIP":                extract_salary_slip_fields,   # Category 3 item 11
     "CERTIFICATE":                extract_education_certificate_fields,
-    "DEGREE_CERTIFICATE":         extract_education_certificate_fields,  # explicit alias
+    "DEGREE_CERTIFICATE":         extract_education_certificate_fields,
+    "PROFESSIONAL_CERTIFICATE":   extract_generic_fields,
     "TENTH_CERTIFICATE":          extract_education_certificate_fields,
     "TWELFTH_CERTIFICATE":        extract_education_certificate_fields,
     "POST_GRADUATION_CERTIFICATE": extract_education_certificate_fields,

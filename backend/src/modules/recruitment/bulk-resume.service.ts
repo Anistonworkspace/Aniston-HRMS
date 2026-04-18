@@ -48,9 +48,9 @@ export class BulkResumeService {
     return { upload, items };
   }
 
-  async getBulkUpload(uploadId: string) {
-    const upload = await prisma.bulkResumeUpload.findUnique({
-      where: { id: uploadId },
+  async getBulkUpload(uploadId: string, organizationId: string) {
+    const upload = await prisma.bulkResumeUpload.findFirst({
+      where: { id: uploadId, organizationId },
       include: {
         jobOpening: { select: { id: true, title: true, department: true } },
         items: { orderBy: { aiScore: 'desc' } },
@@ -172,8 +172,8 @@ export class BulkResumeService {
     }
   }
 
-  async createApplicationFromItem(itemId: string, jobOpeningId: string) {
-    const item = await prisma.bulkResumeItem.findUnique({ where: { id: itemId } });
+  async createApplicationFromItem(itemId: string, jobOpeningId: string, organizationId: string) {
+    const item = await prisma.bulkResumeItem.findFirst({ where: { id: itemId, organizationId } });
     if (!item) throw new NotFoundError('Resume item');
     if (item.status !== 'SCORED') throw new BadRequestError('Resume must be scored before creating application');
     if (item.applicationId) throw new BadRequestError('Application already created for this resume');
@@ -199,9 +199,9 @@ export class BulkResumeService {
     return application;
   }
 
-  async deleteUpload(uploadId: string) {
-    const upload = await prisma.bulkResumeUpload.findUnique({
-      where: { id: uploadId },
+  async deleteUpload(uploadId: string, organizationId: string) {
+    const upload = await prisma.bulkResumeUpload.findFirst({
+      where: { id: uploadId, organizationId },
       include: { items: true },
     });
     if (!upload) throw new NotFoundError('Bulk upload');
@@ -215,8 +215,8 @@ export class BulkResumeService {
     return { deleted: true };
   }
 
-  async deleteItem(itemId: string) {
-    const item = await prisma.bulkResumeItem.findUnique({ where: { id: itemId } });
+  async deleteItem(itemId: string, organizationId: string) {
+    const item = await prisma.bulkResumeItem.findFirst({ where: { id: itemId, organizationId } });
     if (!item) throw new NotFoundError('Resume item');
 
     try { await storageService.deleteFile(item.fileUrl); } catch { /* best-effort */ }

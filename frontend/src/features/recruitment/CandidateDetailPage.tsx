@@ -295,11 +295,11 @@ export default function CandidateDetailPage() {
           <h3 className="font-display font-bold text-gray-900 mb-4">HR Actions</h3>
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-sm text-gray-500">Update Status:</span>
-            {['SELECTED', 'REJECTED', 'ON_HOLD'].map((status) => {
+            {(['OFFER_ACCEPTED', 'REJECTED', 'WITHDRAWN'] as const).map((status) => {
               const config: Record<string, { icon: any; class: string; label: string }> = {
-                SELECTED: { icon: CheckCircle2, class: 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100', label: 'Select' },
+                OFFER_ACCEPTED: { icon: CheckCircle2, class: 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100', label: 'Accept Offer' },
                 REJECTED: { icon: XCircle, class: 'bg-red-50 text-red-500 hover:bg-red-100', label: 'Reject' },
-                ON_HOLD: { icon: PauseCircle, class: 'bg-amber-50 text-amber-600 hover:bg-amber-100', label: 'On Hold' },
+                WITHDRAWN: { icon: PauseCircle, class: 'bg-amber-50 text-amber-600 hover:bg-amber-100', label: 'Withdraw' },
               };
               const c = config[status];
               const Icon = c.icon;

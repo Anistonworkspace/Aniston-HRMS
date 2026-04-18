@@ -5,7 +5,7 @@ import {
   ArrowLeft, User, Mail, Phone, FileText, Star, Calendar, Briefcase,
   Loader2, Download, Plus, CheckCircle2, XCircle, PauseCircle, X,
   Eye, EyeOff, Copy, Save, MessageSquare, ChevronDown, ChevronUp, Send, Sparkles,
-  UserPlus, AlertTriangle, BookOpen, Tag, Target, Shield,
+  UserPlus, AlertTriangle, BookOpen, Tag, Target, Shield, Search,
 } from 'lucide-react';
 import {
   useGetPublicApplicationDetailQuery,
@@ -16,6 +16,7 @@ import {
 } from '../public-apply/publicApplyApi';
 import { useCreateInvitationMutation } from '../invitation/invitationApi';
 import { useGetDepartmentsQuery, useGetDesignationsQuery } from '../employee/employeeDepsApi';
+import { useGetInterviewersQuery } from '../walkIn/walkInApi';
 import { useAiChatMutation } from '../ai-assistant/aiAssistantApi';
 import { useAppSelector } from '../../app/store';
 import { formatDate, getUploadUrl } from '../../lib/utils';
@@ -739,12 +740,30 @@ function ScheduleInterviewModal({ applicationId, onClose, onSuccess }: {
   applicationId: string; onClose: () => void; onSuccess: () => void;
 }) {
   const [scheduleInterview, { isLoading }] = useScheduleInterviewMutation();
+  const { data: interviewersData, isLoading: loadingInterviewers } = useGetInterviewersQuery();
+  const interviewers: any[] = interviewersData?.data || [];
+
   const [form, setForm] = useState({
     interviewerId: '',
+    interviewerName: '',
     scheduledAt: '',
     location: '',
     roundType: 'HR' as 'HR' | 'MANAGER' | 'SUPERADMIN',
   });
+  const [search, setSearch] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  const filtered = interviewers.filter(iv => {
+    const name = `${iv.employee?.firstName || ''} ${iv.employee?.lastName || ''}`.trim() || iv.email;
+    return name.toLowerCase().includes(search.toLowerCase()) || iv.email.toLowerCase().includes(search.toLowerCase());
+  });
+
+  const selectInterviewer = (iv: any) => {
+    const name = `${iv.employee?.firstName || ''} ${iv.employee?.lastName || ''}`.trim() || iv.email;
+    setForm(f => ({ ...f, interviewerId: iv.id, interviewerName: name }));
+    setSearch(name);
+    setShowDropdown(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -786,10 +805,44 @@ function ScheduleInterviewModal({ applicationId, onClose, onSuccess }: {
             <label className="block text-sm font-medium text-gray-600 mb-1">Location</label>
             <input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} className="input-glass w-full" placeholder="e.g. Conference Room A" />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">Interviewer ID</label>
-            <input value={form.interviewerId} onChange={e => setForm({ ...form, interviewerId: e.target.value })} className="input-glass w-full" placeholder="User ID of interviewer" />
+
+          {/* Interviewer — searchable employee dropdown */}
+          <div className="relative">
+            <label className="block text-sm font-medium text-gray-600 mb-1">
+              Assign Interviewer
+              {form.interviewerId && <span className="ml-2 text-xs text-emerald-600 font-normal">✓ Selected</span>}
+            </label>
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                value={search}
+                onChange={e => { setSearch(e.target.value); setShowDropdown(true); if (!e.target.value) setForm(f => ({ ...f, interviewerId: '', interviewerName: '' })); }}
+                onFocus={() => setShowDropdown(true)}
+                className="input-glass w-full pl-8"
+                placeholder={loadingInterviewers ? 'Loading employees…' : 'Search employee by name or email…'}
+              />
+            </div>
+            {showDropdown && search.length > 0 && (
+              <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                {filtered.length === 0 ? (
+                  <p className="text-xs text-gray-400 px-3 py-2">No employees found</p>
+                ) : (
+                  filtered.map(iv => {
+                    const fullName = `${iv.employee?.firstName || ''} ${iv.employee?.lastName || ''}`.trim() || '—';
+                    return (
+                      <button key={iv.id} type="button"
+                        onClick={() => selectInterviewer(iv)}
+                        className="w-full text-left px-3 py-2.5 hover:bg-brand-50 transition-colors border-b border-gray-50 last:border-0">
+                        <p className="text-sm font-medium text-gray-800">{fullName}</p>
+                        <p className="text-xs text-gray-400">{iv.email} · {iv.role}</p>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
+
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={isLoading} className="btn-primary flex-1 flex items-center justify-center gap-2">

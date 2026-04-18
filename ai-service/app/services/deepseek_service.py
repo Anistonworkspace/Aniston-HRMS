@@ -1,4 +1,5 @@
 import httpx
+from fastapi import HTTPException
 from ..config import settings
 from ..models.scoring_models import (
     ResumeScoreRequest, ResumeScoreResponse,
@@ -31,18 +32,13 @@ Respond in this exact JSON format:
 }}"""
 
     if not settings.deepseek_api_key:
-        # Return mock data when API key not configured
-        return ResumeScoreResponse(
-            overall_score=72.5,
-            match_percentage=68.0,
-            strengths=["Relevant technical skills", "Good educational background", "Industry experience matches"],
-            gaps=["Limited leadership experience", "Missing specific certification"],
-            suggested_questions=[
-                "Can you describe a project where you led a team?",
-                "How do you handle tight deadlines?",
-                "What tools have you used for this type of work?",
-            ],
-            reasoning="Candidate shows strong technical alignment with the role. Some gaps in leadership experience but overall a solid match for the position.",
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "AI_NOT_CONFIGURED",
+                "message": "DeepSeek API key is not configured. Please set DEEPSEEK_API_KEY in the AI service environment.",
+            },
         )
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -86,16 +82,12 @@ Respond in this exact JSON format:
 }}"""
 
     if not settings.deepseek_api_key:
-        return InterviewAnalysisResponse(
-            communication_score=7.5,
-            technical_score=7.0,
-            confidence_score=6.5,
-            key_observations=[
-                "Good communication clarity",
-                "Demonstrates relevant technical knowledge",
-                "Could improve on problem-solving approach",
-            ],
-            recommendation="HIRE",
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "AI_NOT_CONFIGURED",
+                "message": "DeepSeek API key is not configured. Please set DEEPSEEK_API_KEY in the AI service environment.",
+            },
         )
 
     async with httpx.AsyncClient(timeout=30.0) as client:

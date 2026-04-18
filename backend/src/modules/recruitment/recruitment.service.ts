@@ -395,66 +395,48 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
   // AI SCORING
   // ==================
 
-  async triggerAIScoring(applicationId: string, aiServiceUrl: string) {
+  async triggerAIScoring(applicationId: string, _aiServiceUrl: string) {
     const app = await prisma.application.findUnique({
       where: { id: applicationId },
       include: { jobOpening: true },
     });
     if (!app) throw new NotFoundError('Application');
-
-    let scoreResult: any;
-
-    try {
-      const response = await fetch(`${aiServiceUrl}/ai/scoring/resume`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(process.env.AI_SERVICE_API_KEY ? { 'X-API-Key': process.env.AI_SERVICE_API_KEY } : {}),
-        },
-        body: JSON.stringify({
-          resume_text: app.resumeUrl || `Candidate: ${app.candidateName}, Email: ${app.email}`,
-          job_description: app.jobOpening?.description || app.jobOpening?.title || '',
-          job_title: app.jobOpening?.title || '',
-          required_skills: app.jobOpening?.requirements || [],
-        }),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      if (response.ok) {
-        scoreResult = await response.json();
-      } else {
-        throw new Error(`AI service returned ${response.status}`);
-      }
-    } catch (err) {
-      // Real keyword-based fallback — no random numbers
-      logger.warn('[AI Scoring] AI service unavailable, using keyword analysis:', (err as Error).message);
-      const jdText = `${app.jobOpening?.title || ''} ${app.jobOpening?.description || ''} ${(app.jobOpening?.requirements || []).join(' ')}`.toLowerCase();
-      const resumeText = (app.resumeUrl || `${app.candidateName} ${app.email}`).toLowerCase();
-
-      const STOP = new Set(['the','and','for','with','that','have','from','will']);
-      const jdWords = [...new Set(jdText.split(/\s+/).filter(w => w.length > 3 && !STOP.has(w)))].slice(0, 40);
-      const matched = jdWords.filter(w => resumeText.includes(w));
-      const matchPct = jdWords.length > 0 ? Math.round((matched.length / jdWords.length) * 100) : 0;
-
-      scoreResult = {
-        overall_score: matchPct,
-        match_percentage: matchPct,
-        strengths: matched.slice(0, 4).map(k => `Keyword "${k}" present in resume`),
-        gaps: jdWords.filter(w => !resumeText.includes(w)).slice(0, 4).map(k => `"${k}" expected by JD — not found`),
-        suggested_questions: ['Describe your most relevant project', 'How does your experience align with this role?'],
-        reasoning: `Keyword analysis: ${matched.length}/${jdWords.length} JD keywords matched (${matchPct}%). AI service unavailable.`,
-      };
+    if (!app.resumeUrl) {
+      logger.warn(`[AI Scoring] No resume URL for application ${applicationId} — skipping`);
+      return null;
     }
+
+    const organizationId = app.jobOpening?.organizationId || '';
+
+    // Use the full pipeline: pdf-parse → OCR fallback → AI/keyword scoring.
+    // Never send a raw URL as resume_text.
+    const { publicApplyService } = await import('../public-apply/public-apply.service.js');
+    const result = await publicApplyService.analyzeResumeMatch(
+      app.resumeUrl,
+      app.jobOpening?.description || app.jobOpening?.title || '',
+      app.jobOpening?.title || '',
+      app.jobOpening?.requirements || [],
+      organizationId,
+    );
 
     await prisma.application.update({
       where: { id: applicationId },
       data: {
-        aiScore: scoreResult.overall_score,
-        aiScoreDetails: scoreResult,
+        aiScore: result.matchScore ?? null,
+        aiScoreDetails: {
+          overall_score: result.matchScore,
+          match_percentage: result.matchScore,
+          strengths: result.strengths,
+          gaps: result.gaps,
+          summary: result.summary,
+          matchedKeywords: result.matchedKeywords,
+          missingKeywords: result.missingKeywords,
+          parseMethod: result.parseMethod,
+        },
       },
     });
 
-    return scoreResult;
+    return result;
   }
 
   // ==================
@@ -571,25 +553,39 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
       }),
     ]);
 
-    // For each, check if an employee record already exists (onboarding in progress or done)
-    const checkEmployeeExists = async (email: string | null) => {
-      if (!email) return false;
-      const emp = await prisma.employee.findFirst({ where: { email: email.toLowerCase(), organizationId, deletedAt: null } });
-      return !!emp;
-    };
+    // Collect all unique non-null emails across all three source lists
+    const allEmails = [
+      ...walkIns.map(c => c.email),
+      ...publicApps.map(a => a.email),
+      ...internalApps.map(a => a.email),
+    ].filter((e): e is string => !!e).map(e => e.toLowerCase());
 
-    // Check invitation status for internal applicants
-    const checkInviteSent = async (email: string | null) => {
-      if (!email) return null;
-      const inv = await prisma.employeeInvitation.findFirst({
-        where: { organizationId, email: email.toLowerCase() },
-        orderBy: { createdAt: 'desc' },
-        select: { status: true, createdAt: true, expiresAt: true },
-      });
-      return inv;
-    };
+    const uniqueEmails = [...new Set(allEmails)];
 
-    const walkInResults = await Promise.all(walkIns.map(async (c) => ({
+    // Single batch query for employee existence
+    const existingEmployees = await prisma.employee.findMany({
+      where: { email: { in: uniqueEmails }, organizationId, deletedAt: null },
+      select: { email: true },
+    });
+    const existingEmailSet = new Set(existingEmployees.map(e => e.email.toLowerCase()));
+
+    // Single batch query for invitation status (internal apps only)
+    const internalEmails = internalApps.map(a => a.email).filter((e): e is string => !!e).map(e => e.toLowerCase());
+    const invitations = internalEmails.length > 0
+      ? await prisma.employeeInvitation.findMany({
+          where: { organizationId, email: { in: internalEmails } },
+          orderBy: { createdAt: 'desc' },
+          select: { email: true, status: true, createdAt: true, expiresAt: true },
+        })
+      : [];
+    // Keep only the latest invite per email
+    const latestInviteByEmail = new Map<string, typeof invitations[number]>();
+    for (const inv of invitations) {
+      const key = inv.email.toLowerCase();
+      if (!latestInviteByEmail.has(key)) latestInviteByEmail.set(key, inv);
+    }
+
+    const walkInResults = walkIns.map((c) => ({
       source: 'WALK_IN' as const,
       id: c.id,
       name: c.fullName,
@@ -602,29 +598,32 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
       selectedAt: c.createdAt,
       ref: c.tokenNumber,
       onboardingStarted: c.convertedToApp,
-      employeeExists: c.convertedToApp ? true : await checkEmployeeExists(c.email),
+      employeeExists: c.convertedToApp ? true : (c.email ? existingEmailSet.has(c.email.toLowerCase()) : false),
       inviteStatus: null,
-    })));
+    }));
 
-    const publicAppResults = await Promise.all(publicApps.map(async (a) => ({
-      source: 'PUBLIC_APPLY' as const,
-      id: a.id,
-      name: a.candidateName,
-      email: a.email,
-      phone: a.mobileNumber,
-      jobTitle: a.jobOpening?.title || null,
-      department: a.jobOpening?.department || null,
-      score: a.finalScore ? Number(a.finalScore) : a.totalAiScore ? Number(a.totalAiScore) : null,
-      appliedAt: a.createdAt,
-      selectedAt: a.finalizedAt,
-      ref: a.candidateUid,
-      onboardingStarted: await checkEmployeeExists(a.email),
-      employeeExists: await checkEmployeeExists(a.email),
-      inviteStatus: null,
-    })));
+    const publicAppResults = publicApps.map((a) => {
+      const empExists = a.email ? existingEmailSet.has(a.email.toLowerCase()) : false;
+      return {
+        source: 'PUBLIC_APPLY' as const,
+        id: a.id,
+        name: a.candidateName,
+        email: a.email,
+        phone: a.mobileNumber,
+        jobTitle: a.jobOpening?.title || null,
+        department: a.jobOpening?.department || null,
+        score: a.finalScore ? Number(a.finalScore) : a.totalAiScore ? Number(a.totalAiScore) : null,
+        appliedAt: a.createdAt,
+        selectedAt: a.finalizedAt,
+        ref: a.candidateUid,
+        onboardingStarted: empExists,
+        employeeExists: empExists,
+        inviteStatus: null,
+      };
+    });
 
-    const internalResults = await Promise.all(internalApps.map(async (a) => {
-      const invite = await checkInviteSent(a.email);
+    const internalResults = internalApps.map((a) => {
+      const invite = a.email ? (latestInviteByEmail.get(a.email.toLowerCase()) || null) : null;
       return {
         source: 'INTERNAL' as const,
         id: a.id,
@@ -638,10 +637,10 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
         selectedAt: a.updatedAt,
         ref: a.id,
         onboardingStarted: invite?.status === 'ACCEPTED',
-        employeeExists: await checkEmployeeExists(a.email),
+        employeeExists: a.email ? existingEmailSet.has(a.email.toLowerCase()) : false,
         inviteStatus: invite,
       };
-    }));
+    });
 
     const all = [...walkInResults, ...publicAppResults, ...internalResults]
       .sort((a, b) => new Date(b.selectedAt || b.appliedAt).getTime() - new Date(a.selectedAt || a.appliedAt).getTime());

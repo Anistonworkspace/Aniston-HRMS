@@ -263,7 +263,7 @@ function PageValidationRow({ pv }: { pv: any }) {
 
 function CombinedPdfReviewPanel({
   documentStatus, employeeId, fileUrl, ocr,
-  onVerifyDoc, onApproveKyc, onRetrigger, triggering, verifyingDoc, verifyingKyc,
+  onVerifyDoc, onApproveKyc, onRevokeKyc, onRetrigger, triggering, verifyingDoc, verifyingKyc, revokingKyc,
 }: {
   documentStatus?: string;
   employeeId?: string;
@@ -271,10 +271,12 @@ function CombinedPdfReviewPanel({
   ocr: any;
   onVerifyDoc: () => void;
   onApproveKyc: () => void;
+  onRevokeKyc: () => void;
   onRetrigger: () => void;
   triggering: boolean;
   verifyingDoc: boolean;
   verifyingKyc: boolean;
+  revokingKyc: boolean;
 }) {
   const { data: hrReviewRes } = useGetKycHrReviewQuery(employeeId!, { skip: !employeeId });
   const gate = hrReviewRes?.data?.gate;
@@ -519,12 +521,19 @@ function CombinedPdfReviewPanel({
           </button>
         )}
 
-        {employeeId && (
+        {employeeId && gate?.kycStatus !== 'VERIFIED' && (
           <button onClick={onApproveKyc} disabled={verifyingKyc || wrongUploadCount > 0}
             title={wrongUploadCount > 0 ? 'Cannot approve KYC — wrong documents detected' : ''}
             className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors disabled:opacity-50">
             {verifyingKyc ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-            Approve KYC & Grant Portal Access
+            {gate?.kycStatus === 'REJECTED' ? 'Restore Portal Access' : 'Approve KYC & Grant Portal Access'}
+          </button>
+        )}
+        {employeeId && gate?.kycStatus === 'VERIFIED' && (
+          <button onClick={onRevokeKyc} disabled={revokingKyc}
+            className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors bg-white">
+            {revokingKyc ? <Loader2 size={14} className="animate-spin" /> : <Lock size={14} />}
+            Revoke Portal Access
           </button>
         )}
       </div>
@@ -744,13 +753,21 @@ export default function OcrVerificationPanel({
                       }
                       await verifyKyc(employeeId!).unwrap();
                       toast.success('KYC approved! Employee now has full portal access.');
-                      onClose();
+                      refetchHrReview();
                     } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to approve KYC'); }
+                  }}
+                  onRevokeKyc={async () => {
+                    try {
+                      await rejectKyc({ employeeId: employeeId!, reason: 'Portal access revoked by HR' }).unwrap();
+                      toast.success('Portal access revoked.');
+                      refetchHrReview();
+                    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to revoke'); }
                   }}
                   onRetrigger={employeeId ? handleReclassify : handleTriggerOcr}
                   triggering={employeeId ? reclassifying : triggering}
                   verifyingDoc={verifyingDoc}
                   verifyingKyc={verifyingKyc}
+                  revokingKyc={revokingKyc}
                 />
               ) : (
               <>

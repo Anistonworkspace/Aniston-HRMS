@@ -545,14 +545,14 @@ export class WalkInService {
    * Delete a walk-in record + clean up WhatsApp messages (HR only)
    * Note: WalkInInterviewRound has onDelete: Cascade, so rounds auto-delete
    */
-  async remove(id: string) {
-    const candidate = await prisma.walkInCandidate.findUnique({ where: { id } });
+  async remove(id: string, organizationId: string) {
+    const candidate = await prisma.walkInCandidate.findFirst({ where: { id, organizationId } });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
 
     // Delete WhatsApp messages sent to this candidate's phone (best-effort)
-    if (candidate.mobileNumber && candidate.organizationId) {
+    if (candidate.phone && candidate.organizationId) {
       try {
-        const phone = candidate.mobileNumber.replace(/\D/g, '');
+        const phone = candidate.phone.replace(/\D/g, '');
         await prisma.whatsAppMessage.deleteMany({
           where: { to: { contains: phone }, organizationId: candidate.organizationId },
         });
@@ -662,14 +662,26 @@ export class WalkInService {
       },
     });
 
-    // Copy documents from walkin folder to employee folder (best-effort)
+    // Copy documents from walkin upload paths to employee folder (best-effort).
+    // Files are stored at their absolute URL paths — do NOT use tokenNumber as
+    // folder name since uploads are saved under a session UUID, not the token.
     try {
-      const { storageService } = await import('../../services/storage.service.js');
-      const srcDir = storageService.getAbsoluteDir('walkin', candidate.tokenNumber);
-      const destDir = storageService.getAbsoluteDir('employees', result.employeeCode);
-      if (fs.existsSync(srcDir)) {
-        const files = fs.readdirSync(srcDir);
-        files.forEach(file => fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file)));
+      const destDir = path.join(process.cwd(), 'uploads', 'employees', result.employeeCode);
+      if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+
+      const docUrls = [
+        candidate.resumeUrl, candidate.aadhaarFrontUrl, candidate.aadhaarBackUrl,
+        candidate.panCardUrl, candidate.selfieUrl,
+      ].filter(Boolean) as string[];
+
+      for (const docUrl of docUrls) {
+        const srcPath = path.join(
+          process.cwd(),
+          docUrl.startsWith('/') ? docUrl.slice(1) : docUrl
+        );
+        if (fs.existsSync(srcPath)) {
+          fs.copyFileSync(srcPath, path.join(destDir, path.basename(srcPath)));
+        }
       }
     } catch { /* best-effort, don't fail if files don't exist */ }
 
@@ -724,53 +736,46 @@ export class WalkInService {
     const job = await prisma.jobOpening.findUnique({ where: { id: jobOpeningId } });
     if (!job) return;
 
-    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-    let scoreResult: any;
-
     try {
-      const response = await fetch(`${aiServiceUrl}/ai/scoring/resume`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': process.env.AI_SERVICE_API_KEY || 'dev-ai-key',
-        },
-        body: JSON.stringify({
-          resume_text: resumeUrl,
-          job_description: job.description || job.title,
-          job_title: job.title,
-          required_skills: job.requirements || [],
-        }),
-      });
-      if (response.ok) {
-        const body = await response.json();
-        scoreResult = body.data || body;
-      } else {
-        throw new Error(`AI service returned ${response.status}`);
+      // Use the full pipeline (pdf-parse + OCR fallback + AI/keyword scoring) —
+      // never send a raw URL as resume_text.
+      const { publicApplyService } = await import('../public-apply/public-apply.service.js');
+      const result = await publicApplyService.analyzeResumeMatch(
+        resumeUrl,
+        job.description || job.title,
+        job.title,
+        job.requirements || [],
+        organizationId,
+      );
+
+      if (result.matchScore == null) {
+        logger.warn(`[WalkIn] Could not extract resume text for candidate ${walkInId} — score not stored`);
+        emitToOrg(organizationId, 'walk_in:ai_scored', { id: walkInId, aiScore: null });
+        return;
       }
-    } catch {
-      // Mock fallback
-      scoreResult = {
-        overall_score: Math.round((60 + Math.random() * 30) * 10) / 10,
-        match_percentage: Math.round((50 + Math.random() * 40) * 10) / 10,
-        strengths: ['Relevant experience', 'Skills alignment'],
-        gaps: ['Further evaluation needed'],
-        reasoning: 'Score generated from fallback analysis',
-      };
+
+      await prisma.walkInCandidate.update({
+        where: { id: walkInId },
+        data: {
+          aiScore: result.matchScore,
+          aiScoreDetails: {
+            overall_score: result.matchScore,
+            match_percentage: result.matchScore,
+            strengths: result.strengths,
+            gaps: result.gaps,
+            summary: result.summary,
+            matchedKeywords: result.matchedKeywords,
+            missingKeywords: result.missingKeywords,
+            parseMethod: result.parseMethod,
+          },
+        },
+      });
+
+      emitToOrg(organizationId, 'walk_in:ai_scored', { id: walkInId, aiScore: result.matchScore });
+    } catch (err) {
+      logger.warn(`[WalkIn] AI scoring failed for candidate ${walkInId}:`, (err as Error).message);
+      emitToOrg(organizationId, 'walk_in:ai_scored', { id: walkInId, aiScore: null });
     }
-
-    await prisma.walkInCandidate.update({
-      where: { id: walkInId },
-      data: {
-        aiScore: scoreResult.overall_score,
-        aiScoreDetails: scoreResult,
-      },
-    });
-
-    // Notify HR dashboard about AI score update
-    emitToOrg(organizationId, 'walk_in:ai_scored', {
-      id: walkInId,
-      aiScore: scoreResult.overall_score,
-    });
   }
 
   /**
@@ -780,23 +785,43 @@ export class WalkInService {
     const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 
     try {
+      // /ai/ocr/extract expects multipart UploadFile, not JSON.
+      // Resolve the local path, read the file, then POST as FormData.
+      const resolvedPath = imageUrl.startsWith('http')
+        ? null // skip remote URLs for now — OCR only works for local uploads
+        : path.join(process.cwd(), imageUrl.startsWith('/') ? imageUrl.slice(1) : imageUrl);
+
+      if (!resolvedPath || !fs.existsSync(resolvedPath)) return;
+
+      const fileBuffer = fs.readFileSync(resolvedPath);
+      const ext = path.extname(resolvedPath).toLowerCase();
+      const mimeType = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : 'image/jpeg';
+
+      const formData = new FormData();
+      const blob = new Blob([fileBuffer], { type: mimeType });
+      formData.append('file', blob, path.basename(resolvedPath));
+
+      const headers: Record<string, string> = {};
+      const apiKey = process.env.AI_SERVICE_API_KEY || '';
+      if (apiKey) headers['X-API-Key'] = apiKey;
+
       const response = await fetch(`${aiServiceUrl}/ai/ocr/extract`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': process.env.AI_SERVICE_API_KEY || 'dev-ai-key',
-        },
-        body: JSON.stringify({ image_url: imageUrl, document_type: 'aadhaar' }),
+        headers,
+        body: formData,
+        signal: AbortSignal.timeout(20000),
       });
 
       if (response.ok) {
         const body = await response.json();
-        const ocrData = body.data || body;
+        // /ai/ocr/extract returns { success: true, data: { raw_text, fields, ... } }
+        const ocrData = body?.data || body;
+        const fields = ocrData?.fields || ocrData;
 
         const updateData: any = {};
-        if (ocrData.name) updateData.ocrVerifiedName = ocrData.name;
-        if (ocrData.dob) updateData.ocrVerifiedDob = new Date(ocrData.dob);
-        if (ocrData.address) updateData.ocrVerifiedAddress = ocrData.address;
+        if (fields.name) updateData.ocrVerifiedName = fields.name;
+        if (fields.dob) updateData.ocrVerifiedDob = new Date(fields.dob);
+        if (fields.address) updateData.ocrVerifiedAddress = fields.address;
 
         // Validate Aadhaar number format (12 digits)
         if (aadhaarNumber && !/^\d{12}$/.test(aadhaarNumber)) {

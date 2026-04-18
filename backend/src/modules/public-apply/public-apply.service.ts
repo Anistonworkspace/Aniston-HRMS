@@ -473,13 +473,13 @@ export class PublicApplyService {
 
     if (!job || !job.publicFormEnabled) throw new NotFoundError('Job not found');
 
-    // Determine the questions to score against — DB questions or randomised fallbacks
+    // Determine the questions to score against — DB questions or fallback bank.
+    // IMPORTANT: For fallback questions, we do NOT re-randomise at submit time.
+    // Instead we build a stable ID→question map from the full bank and look up
+    // each submitted answer by its stable ID. This avoids C-9 where a different
+    // random draw at submit time caused all scores to be 0.
     const usingFallback = job.questions.length === 0;
-    const questionsToScore = usingFallback
-      ? buildFallbackQuestions(true)
-      : job.questions;
 
-    const hasQuestions = questionsToScore.length > 0;
     const hasAnswers = data.mcqAnswers && data.mcqAnswers.length > 0;
 
     let mcqScore: number | null = hasAnswers ? null : 0;
@@ -487,15 +487,35 @@ export class PublicApplyService {
     let integrityScore: number | null = null;
     let energyScore: number | null = null;
 
-    if (hasQuestions && hasAnswers) {
-      let totalCorrect = 0;
+    if (hasAnswers) {
+      // Build a stable lookup map: questionId → { correctOption, category }
+      const questionMap = new Map<string, { correctOption: string; category: string }>();
+
+      if (usingFallback) {
+        // Flatten the entire bank and build stable-ID map for ALL 30 questions.
+        // This way any question the candidate was shown (regardless of which
+        // random 6 were drawn at form-render time) can be scored correctly.
+        for (const [cat, questions] of Object.entries(FALLBACK_MCQ_BANK)) {
+          for (const q of questions as any[]) {
+            questionMap.set(stableQuestionId(q.questionText), { correctOption: q.correctOption, category: cat });
+          }
+        }
+      } else {
+        for (const q of job.questions) {
+          questionMap.set(q.id, { correctOption: q.correctOption, category: q.category });
+        }
+      }
+
+      let totalAnswered = 0, totalCorrect = 0;
       let intCorrect = 0, intTotal = 0;
       let intgCorrect = 0, intgTotal = 0;
       let enCorrect = 0, enTotal = 0;
 
-      for (const question of questionsToScore) {
-        const answer = data.mcqAnswers.find(a => a.questionId === question.id);
-        const isCorrect = answer?.selectedOption === question.correctOption;
+      for (const answer of data.mcqAnswers) {
+        const question = questionMap.get(answer.questionId);
+        if (!question) continue; // submitted ID not in bank — skip
+        totalAnswered++;
+        const isCorrect = answer.selectedOption === question.correctOption;
         if (isCorrect) totalCorrect++;
 
         switch (question.category) {
@@ -505,10 +525,14 @@ export class PublicApplyService {
         }
       }
 
-      mcqScore = (totalCorrect / questionsToScore.length) * 100;
-      intelligenceScore = intTotal > 0 ? (intCorrect / intTotal) * 100 : null;
-      integrityScore = intgTotal > 0 ? (intgCorrect / intgTotal) * 100 : null;
-      energyScore = enTotal > 0 ? (enCorrect / enTotal) * 100 : null;
+      if (totalAnswered > 0) {
+        mcqScore = (totalCorrect / totalAnswered) * 100;
+        intelligenceScore = intTotal > 0 ? (intCorrect / intTotal) * 100 : null;
+        integrityScore = intgTotal > 0 ? (intgCorrect / intgTotal) * 100 : null;
+        energyScore = enTotal > 0 ? (enCorrect / enTotal) * 100 : null;
+      } else {
+        mcqScore = 0;
+      }
     }
 
     const uid = generateUid();
@@ -687,28 +711,35 @@ export class PublicApplyService {
       logger.info(`[ResumeParser] pdf-parse: ${resumeText.length} chars`);
     } catch {
       resumeText = '';
+    } finally {
+      // Temp file is only needed for pdf-parse; clean up immediately after extraction
+      if (tempPath) { try { fs.unlinkSync(tempPath); tempPath = undefined; } catch { /* ignore */ } }
     }
 
     // ── Step 3: AI OCR fallback for image-based PDFs ─────────────────────────
-    // Always try OCR when pdf-parse yields < 50 chars — the AI service runs
-    // without an API key on production (Python skips auth when key is empty).
+    // Send as multipart FormData to POST /ai/ocr/extract (the only endpoint
+    // that exists in the Python service). JSON/base64 is NOT supported.
     if (resumeText.length < 50) {
       try {
         const aiServiceUrl = process.env.AI_SERVICE_URL;
         const aiApiKey = process.env.AI_SERVICE_API_KEY || '';
         if (aiServiceUrl) {
-          const base64 = buffer.toString('base64');
-          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          const formData = new FormData();
+          const blob = new Blob([buffer], { type: 'application/pdf' });
+          formData.append('file', blob, 'resume.pdf');
+          const headers: Record<string, string> = {};
           if (aiApiKey) headers['X-API-Key'] = aiApiKey;
-          const ocrRes = await fetch(`${aiServiceUrl}/ai/ocr/extract-text`, {
+          const ocrRes = await fetch(`${aiServiceUrl}/ai/ocr/extract`, {
             method: 'POST',
             headers,
-            body: JSON.stringify({ file_base64: base64, file_type: 'pdf' }),
-            signal: AbortSignal.timeout(15000),
+            body: formData,
+            signal: AbortSignal.timeout(30000),
           });
           if (ocrRes.ok) {
             const ocrJson = await ocrRes.json();
-            resumeText = (ocrJson.text || '').replace(/\s+/g, ' ').trim().slice(0, 8000);
+            // /ai/ocr/extract returns { success, data: { raw_text, ... } }
+            const rawText = ocrJson?.data?.raw_text || ocrJson?.data?.text || ocrJson.text || '';
+            resumeText = rawText.replace(/\s+/g, ' ').trim().slice(0, 8000);
             parseMethod = 'ai-ocr';
             logger.info(`[ResumeParser] AI OCR: ${resumeText.length} chars`);
           }
@@ -717,9 +748,6 @@ export class PublicApplyService {
         logger.warn('[ResumeParser] AI OCR fallback failed:', ocrErr);
       }
     }
-
-    // Cleanup temp file
-    if (tempPath) { try { fs.unlinkSync(tempPath); } catch { /* ignore */ } }
 
     if (!resumeText || resumeText.length < 30) {
       return {
@@ -851,18 +879,21 @@ ${resumeText.slice(0, 4000)}`;
         const aiServiceUrl = process.env.AI_SERVICE_URL;
         const aiApiKey = process.env.AI_SERVICE_API_KEY || '';
         if (aiServiceUrl) {
-          const base64 = buffer.toString('base64');
-          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          const formData = new FormData();
+          const blob = new Blob([buffer], { type: 'application/pdf' });
+          formData.append('file', blob, 'resume.pdf');
+          const headers: Record<string, string> = {};
           if (aiApiKey) headers['X-API-Key'] = aiApiKey;
-          const ocrRes = await fetch(`${aiServiceUrl}/ai/ocr/extract-text`, {
+          const ocrRes = await fetch(`${aiServiceUrl}/ai/ocr/extract`, {
             method: 'POST',
             headers,
-            body: JSON.stringify({ file_base64: base64, file_type: 'pdf' }),
-            signal: AbortSignal.timeout(15000),
+            body: formData,
+            signal: AbortSignal.timeout(30000),
           });
           if (ocrRes.ok) {
             const json = await ocrRes.json();
-            resumeText = (json.text || '').replace(/\s+/g, ' ').trim().slice(0, 8000);
+            const rawText = json?.data?.raw_text || json?.data?.text || json.text || '';
+            resumeText = rawText.replace(/\s+/g, ' ').trim().slice(0, 8000);
             parseMethod = 'ai-ocr';
           }
         }
@@ -1279,15 +1310,10 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
 
     if (finalStatus === 'SELECTED' && app.email) {
       try {
-        await enqueueEmail({
-          to: app.email,
-          subject: `Congratulations! You've been selected for ${app.jobOpening.title}`,
-          template: 'generic',
-          context: {
-            title: 'Congratulations!',
-            message: `Dear ${app.candidateName},<br><br>We are delighted to inform you that you have been <strong>selected</strong> for the position of <strong>${app.jobOpening.title}</strong>.<br><br>Our HR team will reach out to you shortly with an onboarding invitation. Please keep an eye on your email.<br><br>Welcome to the team!<br><br>— HR Team, Aniston Technologies LLP`,
-          },
-        });
+        // NOTE: We do NOT send a standalone congratulations email here because
+        // the auto-invite block below already sends an onboarding invite email
+        // that contains the congratulations message. Sending both causes duplicate
+        // emails within seconds of each other (F-4 dedup fix).
 
         const org = await prisma.organization.findUnique({
           where: { id: organizationId },
@@ -1330,10 +1356,11 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
 
           await enqueueEmail({
             to: app.email!,
-            subject: 'Complete Your Onboarding — Aniston Technologies',
+            subject: `Congratulations! You've been selected for ${app.jobOpening.title} — Complete Your Onboarding`,
             template: 'onboarding-invite',
             context: {
               name: app.candidateName || 'Candidate',
+              congratsMessage: `You have been <strong>selected</strong> for <strong>${app.jobOpening.title}</strong>. Welcome to the team!`,
               link: `https://hr.anistonav.com/onboarding/invite/${inviteToken}`,
             },
           });

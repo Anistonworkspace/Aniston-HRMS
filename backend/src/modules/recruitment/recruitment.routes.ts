@@ -8,8 +8,6 @@ import {
   createJobSchema, updateJobSchema, createApplicationSchema,
   moveStageSchema, interviewScoreSchema, createOfferSchema, jobQuerySchema,
 } from './recruitment.validation.js';
-import { uploadBulkResumes } from '../../middleware/upload.middleware.js';
-
 const router = Router();
 
 // =====================
@@ -216,85 +214,5 @@ router.post('/bulk-invite', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN
     res.json({ success: true, data: result, message: `Invited ${result.sent} of ${result.total} candidates` });
   } catch (err) { next(err); }
 });
-
-// =====================
-// BULK RESUME UPLOAD (B2)
-// =====================
-
-// POST /recruitment/bulk-resume/upload — upload + process multiple resumes against a job
-router.post('/bulk-resume/upload',
-  authenticate,
-  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
-  (req: Request, res: Response, next: NextFunction) => {
-    // Run multer first, then hand off to handler
-    (uploadBulkResumes as any)(req, res, (err: any) => {
-      if (err) return next(err);
-      next();
-    });
-  },
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { jobOpeningId } = z.object({ jobOpeningId: z.string().uuid() }).parse(req.body);
-      const files = (req as any).files as Express.Multer.File[];
-      if (!files || files.length === 0) {
-        return res.status(400).json({ success: false, error: { code: 'NO_FILES', message: 'No resume files uploaded' } });
-      }
-      const upload = await recruitmentService.uploadBulkResumes(jobOpeningId, files, req.user!.organizationId, req.user!.userId);
-      res.status(201).json({ success: true, data: { upload }, message: `${files.length} resumes queued for processing` });
-    } catch (err) { next(err); }
-  }
-);
-
-// GET /recruitment/bulk-resume — list all bulk uploads for org
-router.get('/bulk-resume', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const result = await recruitmentService.getBulkUploads(req.user!.organizationId);
-      res.json({ success: true, data: result });
-    } catch (err) { next(err); }
-  }
-);
-
-// GET /recruitment/bulk-resume/:uploadId — get single upload with items
-router.get('/bulk-resume/:uploadId', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const result = await recruitmentService.getBulkUpload(req.params.uploadId, req.user!.organizationId);
-      res.json({ success: true, data: result });
-    } catch (err) { next(err); }
-  }
-);
-
-// POST /recruitment/bulk-resume/:itemId/create-application — promote scored item to a PublicApplication
-router.post('/bulk-resume/:itemId/create-application',
-  authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { jobOpeningId } = z.object({ jobOpeningId: z.string().uuid() }).parse(req.body);
-      const result = await recruitmentService.createApplicationFromBulkItem(req.params.itemId, jobOpeningId, req.user!.organizationId);
-      res.status(201).json({ success: true, data: result, message: 'Application created from bulk upload item' });
-    } catch (err) { next(err); }
-  }
-);
-
-// DELETE /recruitment/bulk-resume/items/:itemId — delete single item
-router.delete('/bulk-resume/items/:itemId', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      await recruitmentService.deleteBulkResumeItem(req.params.itemId, req.user!.organizationId);
-      res.json({ success: true, data: null, message: 'Item deleted' });
-    } catch (err) { next(err); }
-  }
-);
-
-// DELETE /recruitment/bulk-resume/:uploadId — delete entire batch
-router.delete('/bulk-resume/:uploadId', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      await recruitmentService.deleteBulkUpload(req.params.uploadId, req.user!.organizationId);
-      res.json({ success: true, data: null, message: 'Bulk upload deleted' });
-    } catch (err) { next(err); }
-  }
-);
 
 export { router as recruitmentRouter };

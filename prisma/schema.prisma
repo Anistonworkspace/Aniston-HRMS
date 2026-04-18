@@ -1253,6 +1253,12 @@ model Application {
   currentStage    Int               @default(1)
   aiScore         Decimal?          @db.Decimal(5, 2)
   aiScoreDetails  Json?
+  resumeMatchScore Float?
+  resumeText      String?
+  matchedKeywords String[]
+  missingKeywords String[]
+  atsScore        Float?
+  atsScoreData    Json?
   isIntern        Boolean           @default(false)
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt

@@ -179,7 +179,7 @@ export class WalkInController {
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await walkInService.remove(req.params.id as string);
+      const result = await walkInService.remove(req.params.id as string, req.user!.organizationId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }

@@ -35,17 +35,20 @@ const SOURCE_BADGE: Record<string, string> = {
   WALK_IN: 'badge-danger',
 };
 
-// Valid stage transitions (mirrors backend state machine)
+// Valid stage transitions — mirrors ApplicationStatus enum exactly (no invented statuses)
 const VALID_TRANSITIONS: Record<string, string[]> = {
   APPLIED: ['SCREENING', 'REJECTED', 'WITHDRAWN'],
   SCREENING: ['ASSESSMENT', 'INTERVIEW_1', 'REJECTED', 'WITHDRAWN'],
-  ASSESSMENT: ['INTERVIEW_1', 'INTERVIEW_2', 'HR_ROUND', 'REJECTED', 'WITHDRAWN'],
+  ASSESSMENT: ['INTERVIEW_1', 'HR_ROUND', 'REJECTED', 'WITHDRAWN'],
   INTERVIEW_1: ['INTERVIEW_2', 'HR_ROUND', 'FINAL_ROUND', 'REJECTED', 'WITHDRAWN'],
   INTERVIEW_2: ['HR_ROUND', 'FINAL_ROUND', 'REJECTED', 'WITHDRAWN'],
   HR_ROUND: ['FINAL_ROUND', 'OFFER', 'REJECTED', 'WITHDRAWN'],
   FINAL_ROUND: ['OFFER', 'REJECTED', 'WITHDRAWN'],
-  OFFER: ['OFFER_ACCEPTED', 'OFFER_REJECTED', 'NEGOTIATING', 'WITHDRAWN'],
+  OFFER: ['OFFER_ACCEPTED', 'REJECTED', 'WITHDRAWN'],
   OFFER_ACCEPTED: ['JOINED'],
+  JOINED: [],
+  REJECTED: [],
+  WITHDRAWN: [],
 };
 
 interface KanbanBoardProps {
