@@ -1026,6 +1026,60 @@ export async function processCombinedPdfFallback(
   }
 
   const totalPages = pageTexts.length;
+
+  // ── Early exit: image-based (scanned) PDF ─────────────────────────────────
+  // pdf-parse cannot OCR image-only PDFs — it returns empty strings per page.
+  // When 60%+ pages have no extractable text, this is almost certainly a scanned
+  // document, not fraud. Return LOW risk with a clear re-run instruction instead
+  // of falsely scoring 100/100 suspicion.
+  if (totalPages > 0) {
+    const emptyPageCount = pageTexts.filter(t => t.trim().length < BLANK_PAGE_TEXT_THRESHOLD).length;
+    if (emptyPageCount / totalPages >= 0.6) {
+      logger.warn(`[CombinedPDF Fallback] Image-based PDF detected: ${emptyPageCount}/${totalPages} pages have no extractable text. Python OCR required.`);
+      return {
+        processingMode: 'node_fallback',
+        fallbackUsed: true,
+        totalPages,
+        pageResults: pageTexts.map((_, i) => ({
+          pageNumber: i + 1,
+          rawText: '',
+          textSource: 'empty' as const,
+          detectedType: 'UNKNOWN',
+          confidence: 0,
+          keywords: [],
+          isBlank: true,
+          isPossibleScreenshot: false,
+        })),
+        detectedDocs: [],
+        pageGroups: [],
+        missingFromRequired: requiredDocs,
+        duplicateDocs: [],
+        blankPages: pageTexts.map((_, i) => i + 1),
+        unknownPages: [],
+        unsupportedPages: [],
+        suspicionFlags: [{
+          severity: 'MEDIUM' as const,
+          message: `PDF contains scanned images — ${emptyPageCount} of ${totalPages} pages have no machine-readable text. Python OCR is required.`,
+        }],
+        suspicionScore: 0,
+        riskLevel: 'LOW' as const,
+        overallConfidence: 0,
+        requiresManualReview: true,
+        manualReviewReasons: [
+          `Scanned image PDF detected — Python OCR service was offline at upload time (${emptyPageCount}/${totalPages} pages are image-only)`,
+        ],
+        employeeVisibleReasons: ['Your documents have been received and are pending HR review.'],
+        hrVisibleFindings: [
+          `⚠ IMAGE-BASED PDF: ${emptyPageCount} of ${totalPages} pages contain scanned images (no machine-readable text).`,
+          'This PDF was created by scanning or photographing physical documents — this is normal.',
+          'Python OCR (ai-service Docker) was unavailable when this file was processed — documents are NOT flagged as suspicious.',
+          'ACTION: Once the Python OCR service is restored, click "Re-run AI Classifier" to properly classify all pages.',
+        ],
+        summary: `Scanned image PDF — Python OCR required. ${totalPages} pages received. Risk: LOW.`,
+      };
+    }
+  }
+
   if (totalPages === 0) {
     return {
       processingMode: 'node_fallback',

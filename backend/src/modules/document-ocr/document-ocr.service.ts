@@ -150,6 +150,75 @@ export class DocumentOcrService {
       logger.warn(`OCR: AI service call failed for document ${documentId}: ${err.message}`);
     }
 
+    // ── AI Vision Scan: send image directly to configured AI provider ─────────
+    // Works for image files (jpg/png/webp/bmp). PDFs require Python for page rendering.
+    // Vision AI reads the document visually — catches what Tesseract misses.
+    const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'bmp'];
+    if (imageExts.includes(ext)) {
+      try {
+        const imgMime = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+        const imageBase64 = fileBuffer.toString('base64');
+        const visionResp = await aiService.scanDocument(organizationId, imageBase64, imgMime);
+        if (visionResp.success && visionResp.data) {
+          const cleaned = visionResp.data.replace(/```json[\s\S]*?```|```/g, '').trim();
+          const visionJson = JSON.parse(cleaned);
+          if (!ocrResult) ocrResult = { extracted_fields: {}, validation_reasons: [], raw_text: '' };
+          const vf = visionJson.extracted_fields || {};
+          const of_ = ocrResult.extracted_fields || {};
+          // Vision AI field values take priority — Tesseract often misreads characters
+          ocrResult.extracted_fields = {
+            name: vf.name || of_.name,
+            date_of_birth: vf.date_of_birth || of_.date_of_birth,
+            document_number: vf.document_number || of_.aadhaar_number || of_.pan_number || of_.passport_number || of_.document_number,
+            aadhaar_number: vf.document_number || of_.aadhaar_number,
+            pan_number: of_.pan_number || (visionJson.document_type === 'PAN' ? vf.document_number : null),
+            passport_number: of_.passport_number || (visionJson.document_type === 'PASSPORT' ? vf.document_number : null),
+            father_name: vf.father_name || of_.father_name,
+            mother_name: vf.mother_name || of_.mother_name,
+            gender: vf.gender || of_.gender,
+            address: vf.address || of_.address,
+            issuing_authority: vf.issuing_authority || of_.issuing_authority,
+            issue_date: vf.issue_date || of_.issue_date,
+            expiry_date: vf.expiry_date || of_.expiry_date,
+            account_number: vf.account_number || of_.account_number,
+            ifsc_code: vf.ifsc_code || of_.ifsc_code,
+            bank_name: vf.bank_name || of_.bank_name,
+          };
+          // Vision-generated validation pointers
+          if (Array.isArray(visionJson.validation_pointers) && visionJson.validation_pointers.length > 0) {
+            ocrResult.validation_reasons = [
+              ...(ocrResult.validation_reasons || []),
+              ...visionJson.validation_pointers.map((p: string) => `👁 Vision AI: ${p}`),
+            ];
+          }
+          if (Array.isArray(visionJson.suspicious_indicators) && visionJson.suspicious_indicators.length > 0) {
+            ocrResult.validation_reasons = [
+              ...(ocrResult.validation_reasons || []),
+              ...visionJson.suspicious_indicators.map((s: string) => `⚠ Vision: ${s}`),
+            ];
+          }
+          // Use vision doc type if Tesseract returned OTHER/UNKNOWN
+          if (visionJson.document_type && visionJson.document_type !== 'OTHER' &&
+              (!ocrResult.document_type || ocrResult.document_type === 'OTHER')) {
+            ocrResult.document_type = visionJson.document_type;
+          }
+          // Vision raw text as fallback if Tesseract got very little
+          if (visionJson.raw_text && (ocrResult.raw_text || '').length < 100) {
+            ocrResult.raw_text = visionJson.raw_text;
+          }
+          // Boost confidence if vision is more confident
+          if (typeof visionJson.confidence === 'number' && visionJson.confidence > (ocrResult.confidence || 0)) {
+            ocrResult.confidence = visionJson.confidence;
+          }
+          ocrResult.vision_scanned = true;
+          ocrResult.vision_quality_note = visionJson.quality_note || null;
+          logger.info(`[OCR] Vision AI scan complete for ${documentId} — type: ${visionJson.document_type}, confidence: ${visionJson.confidence}`);
+        }
+      } catch (visionErr: any) {
+        logger.warn(`[OCR] Vision AI scan skipped for ${documentId}: ${visionErr.message}`);
+      }
+    }
+
     // If AI service failed, use local Node.js OCR fallback (tesseract.js + pdf-parse)
     if (!ocrResult) {
       // Combined KYC PDFs cannot be reliably processed by the local fallback —
@@ -324,6 +393,56 @@ export class DocumentOcrService {
     const hasTamperIssues = qualityReport.tamperingIndicators.length > 0 || qualityReport.isScreenshot;
     const autoOcrStatus = (isLowConfidence || isPythonFlagged || hasTamperIssues) ? 'FLAGGED' : 'PENDING';
 
+    // ── AI Enhancement: use configured AI provider (Settings → AI API Config) ──
+    // Augments Python OCR output with LLM-generated validation pointers and field
+    // confirmation. Non-blocking — any failure silently falls back to Python-only output.
+    try {
+      const aiResp = await aiService.prompt(
+        organizationId,
+        `You are a KYC document analyst for an Indian HR system. Given OCR-extracted text from a document, you must:
+1. Confirm or correct the document type.
+2. List 4–6 specific HR validation checkpoints (what HR should visually verify in the original document).
+3. Mention any suspicious patterns if found.
+Respond ONLY with valid compact JSON (no markdown):
+{"confirmed_type":"AADHAAR|PAN|PASSPORT|TENTH_CERTIFICATE|TWELFTH_CERTIFICATE|DEGREE|BANK_PASSBOOK|EXPERIENCE_LETTER|OFFER_LETTER|PROFESSIONAL_CERTIFICATION|OTHER","validation_pointers":["..."],"suspicious_indicators":[],"confidence_note":"..."}`,
+        `Document type from OCR: ${ocrResult.document_type || 'UNKNOWN'}\n\nOCR Text (first 1500 chars):\n${(ocrResult.raw_text || '').substring(0, 1500)}`,
+        700,
+      );
+      if (aiResp.success && aiResp.data) {
+        try {
+          const cleaned = aiResp.data.replace(/```json|```/g, '').trim();
+          const aiJson = JSON.parse(cleaned);
+          if (Array.isArray(aiJson.validation_pointers) && aiJson.validation_pointers.length > 0) {
+            ocrResult.validation_reasons = [
+              ...(ocrResult.validation_reasons || []),
+              ...aiJson.validation_pointers.map((p: string) => `🤖 AI: ${p}`),
+            ];
+          }
+          if (Array.isArray(aiJson.suspicious_indicators) && aiJson.suspicious_indicators.length > 0) {
+            ocrResult.validation_reasons = [
+              ...(ocrResult.validation_reasons || []),
+              ...aiJson.suspicious_indicators.map((s: string) => `⚠ ${s}`),
+            ];
+          }
+          if (aiJson.confidence_note) {
+            ocrResult.ai_confidence_note = aiJson.confidence_note;
+          }
+          // Use AI-confirmed type only if Python returned OTHER/UNKNOWN
+          if (
+            aiJson.confirmed_type &&
+            aiJson.confirmed_type !== 'OTHER' &&
+            (!ocrResult.document_type || ocrResult.document_type === 'OTHER')
+          ) {
+            ocrResult.document_type = aiJson.confirmed_type;
+          }
+        } catch {
+          // Malformed AI JSON — ignore, keep original Python result
+        }
+      }
+    } catch (aiErr: any) {
+      logger.warn(`[OCR] AI enhancement skipped for ${documentId}: ${aiErr.message}`);
+    }
+
     // Store validation reasons from Python AI in hrNotes for HR display
     const validationReasons: string[] = ocrResult.validation_reasons || [];
     const dynamicFields: Record<string, string> = ocrResult.dynamic_fields || {};
@@ -371,6 +490,10 @@ export class DocumentOcrService {
           dynamic_fields: dynamicFields,
           authenticity_score: authenticityScore,
           is_flagged: isPythonFlagged,
+          ai_confidence_note: ocrResult.ai_confidence_note || null,
+          ai_enhanced: validationReasons.some((r: string) => r.startsWith('🤖 AI:')),
+          vision_scanned: ocrResult.vision_scanned === true,
+          vision_quality_note: ocrResult.vision_quality_note || null,
           ...bankExtras,
         } as any,
       },
@@ -399,6 +522,10 @@ export class DocumentOcrService {
           dynamic_fields: dynamicFields,
           authenticity_score: authenticityScore,
           is_flagged: isPythonFlagged,
+          ai_confidence_note: ocrResult.ai_confidence_note || null,
+          ai_enhanced: validationReasons.some((r: string) => r.startsWith('🤖 AI:')),
+          vision_scanned: ocrResult.vision_scanned === true,
+          vision_quality_note: ocrResult.vision_quality_note || null,
           ...bankExtras,
         } as any,
       },

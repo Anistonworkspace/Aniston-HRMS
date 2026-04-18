@@ -120,6 +120,131 @@ Return ONLY a JSON object with these fields:
     return this.prompt(organizationId, systemPrompt, userPrompt, 800);
   }
 
+  /**
+   * Scan a KYC document image using the org's AI provider vision capability.
+   * Sends the raw image (base64) to the AI and asks it to extract all fields,
+   * classify the document type, and generate HR validation pointers.
+   *
+   * Supported providers with vision: OPENAI (gpt-4o), ANTHROPIC (claude-3+), GEMINI.
+   * DEEPSEEK falls back to text-only enhancement (no image reading).
+   *
+   * @param organizationId - The org whose `AiApiConfig` should be used.
+   * @param imageBase64 - Base64-encoded image bytes.
+   * @param mimeType - MIME type of the image (e.g. "image/jpeg", "image/png").
+   * @returns JSON string with document_type, extracted_fields, validation_pointers, etc.
+   */
+  async scanDocument(organizationId: string, imageBase64: string, mimeType: string): Promise<AiResponse> {
+    const config = await aiConfigService.getActiveConfigRaw(organizationId);
+    if (!config?.apiKey) {
+      return { success: false, error: 'No AI provider configured' };
+    }
+
+    try {
+      const text = await this.callProviderVision(
+        config.provider, config.apiKey, config.modelName, config.baseUrl, imageBase64, mimeType,
+      );
+      return { success: true, data: text };
+    } catch (err: any) {
+      return { success: false, error: `Vision scan failed: ${err.message}` };
+    }
+  }
+
+  private async callProviderVision(
+    provider: string,
+    apiKey: string,
+    modelName: string,
+    baseUrl: string | null,
+    imageBase64: string,
+    mimeType: string,
+  ): Promise<string> {
+    const VISION_SYSTEM = `You are a KYC document scanner for an Indian HR system. Analyze this document image carefully.
+Return ONLY valid compact JSON (no markdown, no explanation):
+{"document_type":"AADHAAR|PAN|PASSPORT|TENTH_CERTIFICATE|TWELFTH_CERTIFICATE|DEGREE|BANK_PASSBOOK|EXPERIENCE_LETTER|OFFER_LETTER|PROFESSIONAL_CERTIFICATION|OTHER","confidence":0.95,"extracted_fields":{"name":"","date_of_birth":"","document_number":"","father_name":"","mother_name":"","gender":"","address":"","issuing_authority":"","issue_date":"","expiry_date":"","account_number":"","ifsc_code":"","bank_name":""},"raw_text":"all visible text from document","validation_pointers":["what HR should verify"],"suspicious_indicators":[],"quality_note":"brief image quality assessment"}`;
+
+    switch (provider) {
+      case 'OPENAI':
+      case 'CUSTOM': {
+        const url = provider === 'OPENAI'
+          ? 'https://api.openai.com/v1/chat/completions'
+          : baseUrl?.includes('/v1')
+            ? `${baseUrl.replace(/\/+$/, '')}/chat/completions`
+            : `${baseUrl}/v1/chat/completions`;
+        const visionModel = modelName?.includes('gpt-4') ? modelName : 'gpt-4o';
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model: visionModel,
+            max_tokens: 1000,
+            messages: [{
+              role: 'user',
+              content: [
+                { type: 'text', text: VISION_SYSTEM },
+                { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+              ],
+            }],
+          }),
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!res.ok) throw new Error(`OpenAI vision ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        const data = await res.json() as any;
+        return data.choices?.[0]?.message?.content || '';
+      }
+
+      case 'ANTHROPIC': {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: modelName,
+            max_tokens: 1000,
+            system: VISION_SYSTEM,
+            messages: [{
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: mimeType, data: imageBase64 } },
+                { type: 'text', text: 'Analyze this KYC document and return JSON as instructed.' },
+              ],
+            }],
+          }),
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!res.ok) throw new Error(`Anthropic vision ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        const data = await res.json() as any;
+        return data.content?.[0]?.text || '';
+      }
+
+      case 'GEMINI': {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              role: 'user',
+              parts: [
+                { text: VISION_SYSTEM },
+                { inlineData: { mimeType, data: imageBase64 } },
+              ],
+            }],
+          }),
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!res.ok) throw new Error(`Gemini vision ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        const data = await res.json() as any;
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      }
+
+      case 'DEEPSEEK':
+      default:
+        throw new Error(`Provider ${provider} does not support image vision scanning`);
+    }
+  }
+
   private async callProvider(
     provider: string,
     apiKey: string,

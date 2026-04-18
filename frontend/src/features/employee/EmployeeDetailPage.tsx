@@ -1598,12 +1598,9 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
   const grossEarnings = earnings.reduce((sum, e) => sum + (e.amount || 0), 0);
   const basicAmount = earnings.find(e => e.id === 'basic' || e.name?.toLowerCase().startsWith('basic'))?.amount || 0;
 
-  // Statutory deductions (auto-calculated)
+  // Statutory deductions (auto-calculated) — only EPF; ESI and PT disabled
   const epfEmployee = Math.min(basicAmount, 15000) * 0.12;
   const epfEmployer = Math.min(basicAmount, 15000) * 0.12;
-  const esiEmployee = grossEarnings <= 21000 ? grossEarnings * 0.0075 : 0;
-  const esiEmployer = grossEarnings <= 21000 ? grossEarnings * 0.0325 : 0;
-  const pt = grossEarnings > 15000 ? 200 : grossEarnings > 10000 ? 150 : 0;
 
   const customDeductionTotal = customDeductions.reduce((sum, d) => sum + (d.amount || 0), 0);
 
@@ -1772,19 +1769,14 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
     }
   };
 
-  // Statutory toggles
+  // Statutory toggles — EPF only
   const [epfEnabled, setEpfEnabled] = useState(true);
-  const [esiEnabled, setEsiEnabled] = useState(true);
-  const [ptEnabled, setPtEnabled] = useState(true);
 
   const activeEpfEmployee = epfEnabled ? Math.round(epfEmployee) : 0;
   const activeEpfEmployer = epfEnabled ? Math.round(epfEmployer) : 0;
-  const activeEsiEmployee = esiEnabled && grossEarnings <= 21000 ? Math.round(esiEmployee) : 0;
-  const activeEsiEmployer = esiEnabled && grossEarnings <= 21000 ? Math.round(esiEmployer) : 0;
-  const activePt = ptEnabled ? pt : 0;
 
   const customDeductionTotal2 = customDeductions.reduce((sum, d) => sum + (d.amount || 0), 0);
-  const totalDeductionsCalc = activeEpfEmployee + activeEsiEmployee + activePt + customDeductionTotal2;
+  const totalDeductionsCalc = activeEpfEmployee + customDeductionTotal2;
   const netMonthlyCalc = grossEarnings - totalDeductionsCalc;
 
   return (
@@ -2009,34 +2001,6 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
               <span className={`text-xs font-mono ${epfEnabled ? 'text-red-600' : 'text-gray-300'}`} data-mono>-{formatCurrency(activeEpfEmployee)}</span>
             </div>
 
-            {/* ESI */}
-            <div className="flex items-center justify-between py-1">
-              <div className="flex items-center gap-2">
-                {editing && (
-                  <button onClick={() => setEsiEnabled(!esiEnabled)} className={`w-7 h-4 rounded-full transition-colors relative ${esiEnabled ? 'bg-emerald-500' : 'bg-gray-300'}`}>
-                    <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${esiEnabled ? 'left-3.5' : 'left-0.5'}`} />
-                  </button>
-                )}
-                <span className={`text-xs ${esiEnabled ? 'text-gray-600' : 'text-gray-400 line-through'}`}>ESI 0.75%</span>
-                {grossEarnings > 21000 && <span className="text-[10px] text-amber-500">N/A &gt;21K</span>}
-                {grossEarnings <= 21000 && <span className="text-[10px] text-gray-400">ER: {formatCurrency(activeEsiEmployer)}</span>}
-              </div>
-              <span className={`text-xs font-mono ${esiEnabled && grossEarnings <= 21000 ? 'text-red-600' : 'text-gray-300'}`} data-mono>-{formatCurrency(activeEsiEmployee)}</span>
-            </div>
-
-            {/* PT */}
-            <div className="flex items-center justify-between py-1">
-              <div className="flex items-center gap-2">
-                {editing && (
-                  <button onClick={() => setPtEnabled(!ptEnabled)} className={`w-7 h-4 rounded-full transition-colors relative ${ptEnabled ? 'bg-emerald-500' : 'bg-gray-300'}`}>
-                    <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${ptEnabled ? 'left-3.5' : 'left-0.5'}`} />
-                  </button>
-                )}
-                <span className={`text-xs ${ptEnabled ? 'text-gray-600' : 'text-gray-400 line-through'}`}>Professional Tax</span>
-                <span className="text-[10px] text-gray-400">Slab</span>
-              </div>
-              <span className={`text-xs font-mono ${ptEnabled ? 'text-red-600' : 'text-gray-300'}`} data-mono>-{formatCurrency(activePt)}</span>
-            </div>
           </div>
 
           {/* Custom deductions */}

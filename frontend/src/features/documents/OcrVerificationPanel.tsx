@@ -656,6 +656,10 @@ export default function OcrVerificationPanel({
   const aiData = ocr?.llmExtractedData as any;
   const validationReasons: string[] = aiData?.validation_reasons || [];
   const dynamicFields: Record<string, string> = aiData?.dynamic_fields || {};
+  const aiEnhanced: boolean = aiData?.ai_enhanced === true;
+  const aiConfidenceNote: string | null = aiData?.ai_confidence_note || null;
+  const visionScanned: boolean = aiData?.vision_scanned === true;
+  const visionQualityNote: string | null = aiData?.vision_quality_note || null;
 
   const isCombinedPdf =
     ocr?.detectedType === 'COMBINED_PDF' ||
@@ -734,6 +738,18 @@ export default function OcrVerificationPanel({
           {ocr && !triggering && (
             <>
               {/* ── COMBINED PDF ── */}
+              {isCombinedPdf && ocr.processingMode === 'node_fallback' && (
+                <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5">
+                  <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800">Python OCR Was Offline</p>
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      This document was analysed using the Node.js text fallback because the Python OCR service was unavailable.
+                      Results may be inaccurate for scanned/image-based PDFs. Once the service is restored, click <strong>Re-run AI Classifier</strong> for accurate results.
+                    </p>
+                  </div>
+                </div>
+              )}
               {isCombinedPdf ? (
                 <CombinedPdfReviewPanel
                   documentStatus={documentStatus}
@@ -812,7 +828,23 @@ export default function OcrVerificationPanel({
                     Resolution: {ocr.resolutionQuality || 'Unknown'}
                   </span>
                   <ConfidenceBadge confidence={ocr.confidence} />
+                  {visionScanned && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-violet-50 text-violet-700">
+                      <Eye size={11} /> Vision Scanned
+                    </span>
+                  )}
+                  {aiEnhanced && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
+                      <Shield size={11} /> AI Enhanced
+                    </span>
+                  )}
                 </div>
+
+                {(aiConfidenceNote || visionQualityNote) && (
+                  <p className="mt-2 text-xs text-indigo-600 italic">
+                    {visionQualityNote || aiConfidenceNote}
+                  </p>
+                )}
 
                 {/* Tampering warnings */}
                 {ocr.tamperingIndicators && (ocr.tamperingIndicators as string[]).length > 0 && (
@@ -997,6 +1029,13 @@ export default function OcrVerificationPanel({
                   </div>
                 </div>
               </div>
+
+              {/* Re-run AI Classifier */}
+              <button onClick={handleTriggerOcr} disabled={triggering}
+                className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors">
+                {triggering ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                {triggering ? 'Re-classifying...' : 'Re-run AI Classifier'}
+              </button>
 
               {/* Save Button */}
               <button onClick={handleSave} disabled={saving}

@@ -58,11 +58,8 @@ const PT_SLABS_BY_STATE: Record<string, { min: number; max: number; amount: numb
 
 const DEFAULT_STATUTORY: StatutoryConfig = {
   epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 },
-  esi: { enabled: true, employeePercent: 0.75, employerPercent: 3.25, grossCap: 21000 },
-  pt: {
-    enabled: true,
-    slabs: PT_SLABS_BY_STATE.MAHARASHTRA,
-  },
+  esi: { enabled: false, employeePercent: 0.75, employerPercent: 3.25, grossCap: 21000 },
+  pt:  { enabled: false, slabs: PT_SLABS_BY_STATE.MAHARASHTRA },
 };
 
 interface StatutoryExemptions {
@@ -339,8 +336,10 @@ function buildComponentsFromMaster(masterComps: any[], annualCtc: number): Salar
     }
   }
 
-  // Include DEDUCTION components from master (e.g. custom org deductions)
+  // Non-statutory custom deductions from master (e.g. Loan Recovery).
+  // Statutory deductions (EPF, ESI, PT) are handled by calculateStatutory — skip here to avoid double-counting.
   for (const mc of deductionComps) {
+    if (mc.isStatutory) continue;
     const value = calcValue(mc);
     if (value > 0) {
       result.push({ name: mc.name, type: 'deduction', value, isPercentage: mc.calculationRule !== 'FIXED' });
@@ -377,10 +376,10 @@ export class PayrollService {
       totalEarnings,
       Number(structure.ctc),
       structure.incomeTaxRegime,
-      structure.statutoryConfig as StatutoryConfig | null,
+      { epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 }, esi: { enabled: false }, pt: { enabled: false } },
     );
 
-    const totalDeductions = componentDeductions + statutory.epfEmployee + statutory.esiEmployee + statutory.professionalTax + statutory.tds;
+    const totalDeductions = componentDeductions + statutory.epfEmployee + statutory.tds;
 
     return {
       ...structure,
@@ -663,7 +662,8 @@ export class PayrollService {
       const ltaComp   = findComponent(autoComponents, 'LTA');
       const totalEar  = sumComponentsByType(autoComponents, 'earning');
       const basicVal  = basicComp?.value ?? 0;
-      const stat      = calculateStatutory(basicVal, totalEar, ctcVal, 'NEW_REGIME', null);
+      const stat      = calculateStatutory(basicVal, totalEar, ctcVal, 'NEW_REGIME',
+        { epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 }, esi: { enabled: false }, pt: { enabled: false } });
 
       try {
         const created = await prisma.salaryStructure.create({
@@ -939,16 +939,12 @@ export class PayrollService {
           const tdsBaseDate = joiningDate && joiningDate > startDate ? joiningDate : startDate;
           const tdsMonths = remainingFinancialYearMonths(tdsBaseDate);
 
-          // Statutory config: use stored config if present, else build from org defaults
-          let statutoryConfig = sal.statutoryConfig as StatutoryConfig | null;
-          if (!statutoryConfig) {
-            // Build a config from org defaults so PT state is respected
-            statutoryConfig = {
-              epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 },
-              esi: { enabled: true, employeePercent: 0.75, employerPercent: 3.25, grossCap: 21000 },
-              pt:  { enabled: true, slabs: PT_SLABS_BY_STATE[orgDefaultPTState.toUpperCase()] ?? PT_SLABS_BY_STATE.MAHARASHTRA },
-            };
-          }
+          // Statutory config: EPF always on; ESI and PT always off (component-master-driven payroll)
+          const statutoryConfig: StatutoryConfig = {
+            epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 },
+            esi: { enabled: false },
+            pt:  { enabled: false },
+          };
 
           let recEpfEmployee: number, recEpfEmployer: number;
           let recEsiEmployee: number, recEsiEmployer: number;

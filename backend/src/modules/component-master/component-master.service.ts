@@ -7,7 +7,6 @@ import { createAuditLog } from '../../utils/auditLogger.js';
 const DEFAULT_COMPONENTS = [
   { name: 'Basic Salary', code: 'BASIC', type: 'EARNING', category: 'STANDARD', calculationRule: 'PERCENTAGE_CTC', percentageOf: 'CTC', defaultPercentage: 50, isTaxable: true, isStatutory: false, sortOrder: 1 },
   { name: 'EPF (Employee)', code: 'EPF_EE', type: 'DEDUCTION', category: 'STATUTORY', calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 12, isTaxable: false, isStatutory: true, sortOrder: 100 },
-  { name: 'EPF (Employer)', code: 'EPF_ER', type: 'DEDUCTION', category: 'STATUTORY', calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 12, isTaxable: false, isStatutory: true, sortOrder: 101 },
 ];
 
 // All codes that were in the old default seed but are no longer defaults.
@@ -16,6 +15,7 @@ const LEGACY_DEFAULT_CODES = [
   'HRA',
   'DA', 'TA', 'MEDICAL', 'SPECIAL', 'LTA', 'PERF_BONUS', 'SHIFT_ALLOW',
   'NIGHT_PREMIUM', 'CCA', 'INTERNET', 'PHONE',
+  'EPF_ER',
   'ESI_EE', 'ESI_ER', 'PT', 'TDS',
   'LOAN_RECOVERY', 'CANTEEN', 'ADVANCE_DED',
 ];
