@@ -1,4 +1,5 @@
 import { createApi, fetchBaseQuery, type BaseQueryFn } from '@reduxjs/toolkit/query/react';
+import toast from 'react-hot-toast';
 import type { RootState } from './store';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
@@ -59,6 +60,23 @@ const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
     if (refreshed) {
       // Retry original request with new token
       result = await baseQuery(args, api, extraOptions);
+    }
+  }
+
+  // Show error toast for failed requests (excluding 401 which is handled by reauth)
+  if (result.error) {
+    const status = result.error.status;
+    // Don't toast on 401 (handled by reauth), 404 (callers decide), or offline (already handled)
+    if (status !== 401 && status !== 'FETCH_ERROR') {
+      const message =
+        (result.error as any)?.data?.error?.message ||
+        (result.error as any)?.data?.message ||
+        (result.error as any)?.error ||
+        `Error ${status}: Something went wrong. Please try again.`;
+      // Only toast errors from mutations, not background queries (prevents spam)
+      if ((args as any)?.method && (args as any).method !== 'GET') {
+        toast.error(message, { id: `api-err-${status}`, duration: 4000 });
+      }
     }
   }
 

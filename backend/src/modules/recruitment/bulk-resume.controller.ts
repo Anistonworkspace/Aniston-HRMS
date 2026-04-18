@@ -10,10 +10,7 @@ export class BulkResumeController {
       if (!files || files.length === 0) {
         return res.status(400).json({ success: false, error: { message: 'No files uploaded' } });
       }
-      const { jobOpeningId } = req.body;
-      if (!jobOpeningId) {
-        return res.status(400).json({ success: false, error: { message: 'jobOpeningId is required' } });
-      }
+      const { jobOpeningId } = z.object({ jobOpeningId: z.string().uuid('Invalid job opening ID') }).parse(req.body);
       const result = await bulkResumeService.uploadBulkResumes(
         files, jobOpeningId, req.user!.userId, req.user!.organizationId
       );

@@ -20,20 +20,20 @@ router.get('/', requirePermission('recruitment', 'read'), (req, res, next) =>
   bulkResumeController.list(req, res, next)
 );
 
-router.get('/:uploadId', requirePermission('recruitment', 'read'), (req, res, next) =>
-  bulkResumeController.getUpload(req, res, next)
-);
-
 router.post('/:itemId/create-application', requirePermission('recruitment', 'create'), (req, res, next) =>
   bulkResumeController.createApplication(req, res, next)
 );
 
-router.delete('/:uploadId', requirePermission('recruitment', 'delete'), (req, res, next) =>
-  bulkResumeController.deleteUpload(req, res, next)
+router.get('/:uploadId', requirePermission('recruitment', 'read'), (req, res, next) =>
+  bulkResumeController.getUpload(req, res, next)
 );
 
 router.delete('/items/:itemId', requirePermission('recruitment', 'delete'), (req, res, next) =>
   bulkResumeController.deleteItem(req, res, next)
+);
+
+router.delete('/uploads/:uploadId', requirePermission('recruitment', 'delete'), (req, res, next) =>
+  bulkResumeController.deleteUpload(req, res, next)
 );
 
 export { router as bulkResumeRouter };

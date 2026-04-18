@@ -12,8 +12,8 @@ export const registerWalkInSchema = z.object({
   aadhaarBackUrl: z.string().optional(),
   panCardUrl: z.string().optional(),
   selfieUrl: z.string().optional(),
-  aadhaarNumber: z.string().max(16).optional(),
-  panNumber: z.string().max(10).optional(),
+  aadhaarNumber: z.string().regex(/^\d{12}$/, 'Aadhaar must be 12 digits').optional(),
+  panNumber: z.string().regex(/^[A-Z]{5}[0-9]{4}[A-Z]$/, 'Invalid PAN format').optional(),
 
   // OCR results
   ocrVerifiedName: z.string().optional(),

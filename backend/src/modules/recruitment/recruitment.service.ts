@@ -103,7 +103,7 @@ export class RecruitmentService {
     if (job._count.applications > 0) {
       throw new BadRequestError('Cannot delete job with existing applications. Close it instead.');
     }
-    await prisma.jobOpening.update({ where: { id }, data: { status: 'CLOSED', closedAt: new Date() } });
+    await prisma.jobOpening.update({ where: { id, organizationId }, data: { status: 'CLOSED', closedAt: new Date() } });
     return { message: 'Job closed successfully' };
   }
 
@@ -370,7 +370,7 @@ export class RecruitmentService {
             template: 'onboarding-invite',
             context: {
               name: offer.application.candidateName || offer.candidateEmail.split('@')[0],
-              link: `${process.env.FRONTEND_BASE_URL || 'https://hr.anistonav.com'}/onboarding/invite/${invitation.inviteToken}`,
+              link: `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`,
             },
           });
 
@@ -395,9 +395,14 @@ Return a JSON object with: { "description": string, "keyResponsibilities": strin
 Keep it concise, professional, and relevant to the Indian job market.
 Return ONLY valid JSON, no markdown or extra text.`;
 
-    // Sanitize user inputs: strip bracket-based injection patterns, truncate
+    // Sanitize user inputs: strip prompt injection patterns, truncate
     const safe = (s?: string, max = 500) =>
-      (s || '').replace(/\[.*?\]/g, '').replace(/```/g, '').slice(0, max).trim();
+      (s || '')
+        .replace(/[\[\]`{}]/g, '')    // Remove brackets, backticks, braces
+        .replace(/\n{2,}/g, ' ')      // Collapse multi-line injections
+        .replace(/--+/g, '-')         // Collapse dash separators
+        .slice(0, max)
+        .trim();
 
     const userPrompt = `Generate a job description for the following position:
 Title: ${safe(data.title, 200)}
@@ -855,21 +860,19 @@ ${data.requirements ? `Additional Requirements/Notes: ${safe(data.requirements)}
 
     for (const item of items) {
       try {
-        await prisma.bulkResumeItem.update({ where: { id: item.id }, data: { status: 'PROCESSING' } });
+        await prisma.bulkResumeItem.update({ where: { id: item.id, organizationId }, data: { status: 'PROCESSING' } });
 
-        // Resolve file buffer
-        const filePath = item.fileUrl.startsWith('http')
-          ? item.fileUrl
-          : path.join(process.cwd(), item.fileUrl.startsWith('/') ? item.fileUrl.slice(1) : item.fileUrl);
-
+        // Resolve file buffer — basename-only to prevent path traversal
         let buffer: Buffer;
-        if (typeof filePath === 'string' && filePath.startsWith('http')) {
-          const res = await fetch(filePath, { signal: AbortSignal.timeout(20000) });
+        if (item.fileUrl.startsWith('http://') || item.fileUrl.startsWith('https://')) {
+          const res = await fetch(item.fileUrl, { signal: AbortSignal.timeout(20000) });
           if (!res.ok) throw new Error('Failed to download file');
           buffer = Buffer.from(await res.arrayBuffer());
         } else {
-          if (!fs.existsSync(filePath)) throw new Error('File not found');
-          buffer = fs.readFileSync(filePath);
+          const uploadsRoot = path.resolve(process.cwd(), 'uploads');
+          const safePath = path.join(uploadsRoot, path.basename(item.fileUrl));
+          if (!safePath.startsWith(uploadsRoot) || !fs.existsSync(safePath)) throw new Error('File not found');
+          buffer = fs.readFileSync(safePath);
         }
 
         const result = await publicApplyService.scoreResumeBuffer(

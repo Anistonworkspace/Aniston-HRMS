@@ -302,9 +302,20 @@ export class WalkInService {
     const candidate = await prisma.walkInCandidate.findFirst({ where: { id, organizationId } });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
 
+    // Whitelist editable fields — never spread raw data into Prisma update
+    const allowed: Record<string, any> = {};
+    const editableFields = [
+      'fullName', 'email', 'phone', 'city', 'qualification', 'fieldOfStudy',
+      'experienceYears', 'experienceMonths', 'isFresher', 'currentCompany',
+      'currentCtc', 'expectedCtc', 'noticePeriod', 'skills', 'aboutMe', 'totalRounds',
+    ];
+    for (const field of editableFields) {
+      if (data[field] !== undefined) allowed[field] = data[field];
+    }
+
     return prisma.walkInCandidate.update({
       where: { id },
-      data,
+      data: allowed,
       include: {
         jobOpening: { select: { title: true, department: true, location: true } },
         interviewRounds: { orderBy: { roundNumber: 'asc' } },
@@ -336,7 +347,7 @@ export class WalkInService {
     const candidate = await prisma.walkInCandidate.findFirst({ where: { id, organizationId } });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
 
-    const timestamp = new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
     const author = authorName || 'HR';
     const entry = `[${timestamp} — ${author}] ${notes}`;
     const existing = candidate.hrNotes ? candidate.hrNotes + '\n---\n' : '';
@@ -432,7 +443,9 @@ export class WalkInService {
         where: { id: round.walkInId },
         include: { interviewRounds: { orderBy: { roundNumber: 'asc' } } },
       });
-      if (candidate) {
+      if (!candidate) {
+        logger.warn(`[WalkIn] Candidate ${round.walkInId} not found after round update — status not synced`);
+      } else {
         const completedRounds = candidate.interviewRounds.filter(r => r.status === 'COMPLETED' || r.id === roundId).length;
         const candidateUpdate: any = { currentRound: completedRounds };
 
@@ -678,12 +691,11 @@ export class WalkInService {
         candidate.panCardUrl, candidate.selfieUrl,
       ].filter(Boolean) as string[];
 
+      const uploadsRoot = path.resolve(process.cwd(), 'uploads');
       for (const docUrl of docUrls) {
-        const srcPath = path.join(
-          process.cwd(),
-          docUrl.startsWith('/') ? docUrl.slice(1) : docUrl
-        );
-        if (fs.existsSync(srcPath)) {
+        // Resolve via basename only to prevent path traversal
+        const srcPath = path.join(uploadsRoot, path.basename(docUrl));
+        if (srcPath.startsWith(uploadsRoot) && fs.existsSync(srcPath)) {
           fs.copyFileSync(srcPath, path.join(destDir, path.basename(srcPath)));
         }
       }

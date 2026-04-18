@@ -100,19 +100,27 @@ export class BulkResumeService {
         if (!res.ok) throw new Error(`Failed to fetch resume from URL: ${item.fileUrl}`);
         buffer = Buffer.from(await res.arrayBuffer());
       } else {
-        // Local file — try multiple resolution strategies
+        // Local file — always resolve via basename to prevent path traversal
+        const basename = path.basename(item.fileUrl);
+        const uploadsRoot = path.resolve(process.cwd(), 'uploads');
         const candidates = [
-          item.fileUrl,
-          path.resolve(process.cwd(), item.fileUrl.replace(/^\/+/, '')),
-          path.resolve(process.cwd(), '..', item.fileUrl.replace(/^\/+/, '')),
-          path.resolve(process.cwd(), 'uploads', path.basename(item.fileUrl)),
+          path.join(uploadsRoot, 'resumes', 'bulk', basename),
+          path.join(uploadsRoot, 'resumes', basename),
+          path.join(uploadsRoot, basename),
         ];
 
         let resolvedPath: string | undefined;
         for (const candidate of candidates) {
-          if (fs.existsSync(candidate)) { resolvedPath = candidate; break; }
+          // Verify resolved path stays within uploads directory
+          if (candidate.startsWith(uploadsRoot) && fs.existsSync(candidate)) {
+            resolvedPath = candidate;
+            break;
+          }
         }
-        if (!resolvedPath) throw new Error(`Resume file not found on disk: ${item.fileUrl}`);
+        if (!resolvedPath) {
+          logger.warn(`[BulkResume] Resume file not found for item ${itemId}. Tried: ${candidates.join(', ')}`);
+          throw new Error(`Resume file not found on disk: ${basename}`);
+        }
         buffer = fs.readFileSync(resolvedPath);
       }
 

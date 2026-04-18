@@ -84,7 +84,7 @@ export class WalkInController {
   async addNotes(req: Request, res: Response, next: NextFunction) {
     try {
       const { notes } = z.object({ notes: z.string().min(1).max(2000) }).parse(req.body);
-      const authorName = req.user?.email?.split('@')[0] || 'HR';
+      const authorName = req.user?.email ? req.user.email.split('@')[0] : 'HR';
       const candidate = await walkInService.addHRNotes(req.params.id as string, notes, req.user!.organizationId, authorName);
       res.json({ success: true, data: candidate, message: 'Notes added' });
     } catch (err) { next(err); }
@@ -194,6 +194,11 @@ export class WalkInController {
       const targetDir = storageService.getAbsoluteDir(StoragePath.walkinSession(sessionId));
 
       const ext = path.extname(req.file.originalname).toLowerCase();
+      const allowedExts = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.webp'];
+      if (!allowedExts.includes(ext)) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ success: false, error: { message: `File type '${ext}' is not allowed. Allowed: ${allowedExts.join(', ')}` } });
+      }
       const safeFilename = `upload${ext}`;
       const targetPath = path.join(targetDir, safeFilename);
 

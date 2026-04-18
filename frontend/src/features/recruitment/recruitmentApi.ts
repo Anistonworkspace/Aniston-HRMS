@@ -56,6 +56,7 @@ export const recruitmentApi = api.injectEndpoints({
     }),
     shareJobEmail: builder.mutation<any, { jobId: string; email: string; message?: string }>({
       query: ({ jobId, ...body }) => ({ url: `/recruitment/jobs/${jobId}/share-email`, method: 'POST', body }),
+      invalidatesTags: ['Recruitment'],
     }),
     getReadyForOnboarding: builder.query<any, void>({
       query: () => '/recruitment/ready-for-onboarding',
@@ -96,7 +97,7 @@ export const recruitmentApi = api.injectEndpoints({
       invalidatesTags: ['Recruitment'],
     }),
     deleteBulkUpload: builder.mutation<any, string>({
-      query: (uploadId) => ({ url: `/recruitment/bulk-resume/${uploadId}`, method: 'DELETE' }),
+      query: (uploadId) => ({ url: `/recruitment/bulk-resume/uploads/${uploadId}`, method: 'DELETE' }),
       invalidatesTags: ['Recruitment'],
     }),
     deleteBulkResumeItem: builder.mutation<any, string>({
