@@ -60,7 +60,7 @@ export class WalkInController {
 
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      const candidate = await walkInService.getById(req.params.id as string);
+      const candidate = await walkInService.getById(req.params.id as string, req.user!.organizationId);
       res.json({ success: true, data: candidate });
     } catch (err) { next(err); }
   }
@@ -68,7 +68,7 @@ export class WalkInController {
   async updateCandidate(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateCandidateSchema.parse(req.body);
-      const candidate = await walkInService.updateCandidate(req.params.id as string, data);
+      const candidate = await walkInService.updateCandidate(req.params.id as string, data, req.user!.organizationId);
       res.json({ success: true, data: candidate, message: 'Candidate details updated' });
     } catch (err) { next(err); }
   }
@@ -76,7 +76,7 @@ export class WalkInController {
   async updateStatus(req: Request, res: Response, next: NextFunction) {
     try {
       const { status } = updateWalkInStatusSchema.parse(req.body);
-      const candidate = await walkInService.updateStatus(req.params.id as string, status);
+      const candidate = await walkInService.updateStatus(req.params.id as string, status, req.user!.organizationId);
       res.json({ success: true, data: candidate, message: `Status updated to ${status}` });
     } catch (err) { next(err); }
   }
@@ -85,7 +85,7 @@ export class WalkInController {
     try {
       const { notes } = z.object({ notes: z.string().min(1).max(2000) }).parse(req.body);
       const authorName = req.user?.email?.split('@')[0] || 'HR';
-      const candidate = await walkInService.addHRNotes(req.params.id as string, notes, authorName);
+      const candidate = await walkInService.addHRNotes(req.params.id as string, notes, req.user!.organizationId, authorName);
       res.json({ success: true, data: candidate, message: 'Notes added' });
     } catch (err) { next(err); }
   }
@@ -94,7 +94,7 @@ export class WalkInController {
   async addInterviewRound(req: Request, res: Response, next: NextFunction) {
     try {
       const data = addInterviewRoundSchema.parse(req.body);
-      const round = await walkInService.addInterviewRound(req.params.id as string, data);
+      const round = await walkInService.addInterviewRound(req.params.id as string, data, req.user!.organizationId);
       res.status(201).json({ success: true, data: round, message: 'Interview round added' });
     } catch (err) { next(err); }
   }
@@ -102,21 +102,21 @@ export class WalkInController {
   async updateInterviewRound(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateInterviewRoundSchema.parse(req.body);
-      const round = await walkInService.updateInterviewRound(req.params.roundId as string, data);
+      const round = await walkInService.updateInterviewRound(req.params.roundId as string, data, req.user!.organizationId);
       res.json({ success: true, data: round, message: 'Round updated' });
     } catch (err) { next(err); }
   }
 
   async deleteInterviewRound(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await walkInService.deleteInterviewRound(req.params.roundId as string);
+      const result = await walkInService.deleteInterviewRound(req.params.roundId as string, req.user!.organizationId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
 
   async convertToApplication(req: Request, res: Response, next: NextFunction) {
     try {
-      const application = await walkInService.convertToApplication(req.params.id as string);
+      const application = await walkInService.convertToApplication(req.params.id as string, req.user!.organizationId);
       res.json({ success: true, data: application, message: 'Converted to application' });
     } catch (err) { next(err); }
   }
@@ -164,7 +164,7 @@ export class WalkInController {
 
   async getMyInterviewDetail(req: Request, res: Response, next: NextFunction) {
     try {
-      const round = await walkInService.getMyInterviewDetail(req.user!.userId, req.params.roundId);
+      const round = await walkInService.getMyInterviewDetail(req.user!.userId, req.params.roundId as string);
       res.json({ success: true, data: round });
     } catch (err) { next(err); }
   }
@@ -172,7 +172,7 @@ export class WalkInController {
   async submitMyScore(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateInterviewRoundSchema.parse(req.body);
-      const result = await walkInService.submitMyInterviewScore(req.user!.userId, req.params.roundId, data);
+      const result = await walkInService.submitMyInterviewScore(req.user!.userId, req.params.roundId as string, data);
       res.json({ success: true, data: result, message: 'Score submitted' });
     } catch (err) { next(err); }
   }

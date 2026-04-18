@@ -4,7 +4,8 @@ import { enqueueEmail } from '../../jobs/queues.js';
 import { aiService } from '../../services/ai.service.js';
 import { logger } from '../../lib/logger.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
-import type { CreateJobInput, CreateApplicationInput, InterviewScoreInput, CreateOfferInput, JobQuery } from './recruitment.validation.js';
+import { emitToOrg } from '../../sockets/index.js';
+import type { CreateJobInput, UpdateJobInput, CreateApplicationInput, InterviewScoreInput, CreateOfferInput, JobQuery } from './recruitment.validation.js';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -77,14 +78,19 @@ export class RecruitmentService {
     return job;
   }
 
-  async updateJob(id: string, data: any, organizationId: string, updatedBy?: string) {
+  async updateJob(id: string, data: UpdateJobInput, organizationId: string, updatedBy?: string) {
     const existing = await prisma.jobOpening.findFirst({ where: { id, organizationId } });
     if (!existing) throw new NotFoundError('Job opening');
-    // Remove fields that should not be overwritable
-    delete data.organizationId;
-    delete data.postedBy;
-    const updated = await prisma.jobOpening.update({ where: { id }, data });
-    await createAuditLog({ userId: updatedBy || organizationId, organizationId, entity: 'JobOpening', entityId: id, action: 'UPDATE', newValue: data });
+    // Whitelist only editable fields — never spread raw data into Prisma update
+    const allowedUpdate: Record<string, any> = {};
+    const editableFields = ['title', 'department', 'location', 'type', 'experience', 'salaryRange',
+      'description', 'requirements', 'openings', 'status', 'publishToNaukri', 'publishToWebsite'];
+    for (const field of editableFields) {
+      if ((data as any)[field] !== undefined) allowedUpdate[field] = (data as any)[field];
+    }
+    if (allowedUpdate.status === 'CLOSED') allowedUpdate.closedAt = new Date();
+    const updated = await prisma.jobOpening.update({ where: { id, organizationId }, data: allowedUpdate });
+    await createAuditLog({ userId: updatedBy || organizationId, organizationId, entity: 'JobOpening', entityId: id, action: 'UPDATE', newValue: allowedUpdate });
     return updated;
   }
 
@@ -97,8 +103,8 @@ export class RecruitmentService {
     if (job._count.applications > 0) {
       throw new BadRequestError('Cannot delete job with existing applications. Close it instead.');
     }
-    await prisma.jobOpening.update({ where: { id }, data: { status: 'CLOSED', deletedAt: new Date() } });
-    return { message: 'Job deleted successfully' };
+    await prisma.jobOpening.update({ where: { id }, data: { status: 'CLOSED', closedAt: new Date() } });
+    return { message: 'Job closed successfully' };
   }
 
   // ==================
@@ -137,15 +143,21 @@ export class RecruitmentService {
   }
 
   async createApplication(data: CreateApplicationInput) {
-    // Check if job is open
-    const job = await prisma.jobOpening.findUnique({ where: { id: data.jobOpeningId } });
-    if (!job || job.status !== 'OPEN') {
-      throw new BadRequestError('Job opening is not accepting applications');
+    // Verify job is open — single query, no org bypass possible
+    const job = await prisma.jobOpening.findFirst({
+      where: { id: data.jobOpeningId, status: 'OPEN' },
+      select: { id: true, organizationId: true, status: true },
+    });
+    if (!job) throw new BadRequestError('Job opening is not accepting applications');
+
+    // Reject if caller passes a mismatched organizationId (prevents cross-org submit)
+    if ((data as any).organizationId && (data as any).organizationId !== job.organizationId) {
+      throw new BadRequestError('Job opening does not belong to the specified organization');
     }
 
-    // Check duplicate
+    const normalizedEmail = data.email.trim().toLowerCase();
     const existing = await prisma.application.findFirst({
-      where: { jobOpeningId: data.jobOpeningId, email: data.email },
+      where: { jobOpeningId: data.jobOpeningId, email: normalizedEmail },
     });
     if (existing) {
       throw new BadRequestError('An application with this email already exists for this job');
@@ -154,6 +166,7 @@ export class RecruitmentService {
     return prisma.application.create({
       data: {
         ...data,
+        email: normalizedEmail,
         status: 'APPLIED',
         currentStage: 1,
       },
@@ -200,8 +213,10 @@ export class RecruitmentService {
   // INTERVIEW SCORES
   // ==================
 
-  async addInterviewScore(data: InterviewScoreInput, interviewerId?: string) {
-    const app = await prisma.application.findUnique({ where: { id: data.applicationId } });
+  async addInterviewScore(data: InterviewScoreInput, interviewerId?: string, organizationId?: string) {
+    const app = await prisma.application.findFirst({
+      where: { id: data.applicationId, ...(organizationId ? { jobOpening: { organizationId } } : {}) },
+    });
     if (!app) throw new NotFoundError('Application');
 
     // Calculate overall if not provided
@@ -227,11 +242,14 @@ export class RecruitmentService {
     const allScores = await prisma.interviewScore.findMany({
       where: { applicationId: data.applicationId },
     });
-    const avgOverall = allScores.reduce((sum, s) => sum + (Number(s.overallScore) || 0), 0) / allScores.length;
-    await prisma.application.update({
-      where: { id: data.applicationId },
-      data: { aiScore: Math.round(avgOverall * 100) / 100 },
-    });
+    if (allScores.length > 0) {
+      const avgOverall = allScores.reduce((sum, s) => sum + (Number(s.overallScore) || 0), 0) / allScores.length;
+      const clamped = Math.max(0, Math.min(100, Math.round(avgOverall * 100) / 100));
+      await prisma.application.update({
+        where: { id: data.applicationId },
+        data: { aiScore: clamped },
+      });
+    }
 
     return score;
   }
@@ -240,11 +258,16 @@ export class RecruitmentService {
   // OFFER LETTERS
   // ==================
 
-  async createOffer(data: CreateOfferInput) {
-    const app = await prisma.application.findUnique({ where: { id: data.applicationId } });
+  async createOffer(data: CreateOfferInput, organizationId?: string) {
+    const app = organizationId
+      ? await prisma.application.findFirst({ where: { id: data.applicationId, jobOpening: { organizationId } } })
+      : await prisma.application.findUnique({ where: { id: data.applicationId } });
     if (!app) throw new NotFoundError('Application');
 
-    const existing = await prisma.offerLetter.findUnique({ where: { applicationId: data.applicationId } });
+    // app already validated as belonging to this org above — scoping via application join is sufficient
+    const existing = await prisma.offerLetter.findFirst({
+      where: { applicationId: data.applicationId, application: { jobOpening: { organizationId } } },
+    });
     if (existing) throw new BadRequestError('Offer already exists for this application');
 
     const offer = await prisma.$transaction(async (tx) => {
@@ -270,11 +293,13 @@ export class RecruitmentService {
     return offer;
   }
 
-  async updateOfferStatus(offerId: string, status: string) {
-    const offer = await prisma.offerLetter.findUnique({
-      where: { id: offerId },
-      include: { application: true },
-    });
+  async updateOfferStatus(offerId: string, status: string, organizationId?: string) {
+    const offer = organizationId
+      ? await prisma.offerLetter.findFirst({
+          where: { id: offerId, application: { jobOpening: { organizationId } } },
+          include: { application: true },
+        })
+      : await prisma.offerLetter.findUnique({ where: { id: offerId }, include: { application: true } });
     if (!offer) throw new NotFoundError('Offer letter');
 
     // State machine: validate legal offer transitions
@@ -314,8 +339,8 @@ export class RecruitmentService {
     // Auto-trigger invite flow when offer is accepted
     if (status === 'ACCEPTED' && offer.candidateEmail && offer.application) {
       try {
-        const job = await prisma.jobOpening.findUnique({
-          where: { id: offer.application.jobOpeningId },
+        const job = await prisma.jobOpening.findFirst({
+          where: { id: offer.application.jobOpeningId, ...(organizationId ? { organizationId } : {}) },
           select: { organizationId: true, department: true },
         });
         if (job) {
@@ -345,7 +370,7 @@ export class RecruitmentService {
             template: 'onboarding-invite',
             context: {
               name: offer.application.candidateName || offer.candidateEmail.split('@')[0],
-              link: `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`,
+              link: `${process.env.FRONTEND_BASE_URL || 'https://hr.anistonav.com'}/onboarding/invite/${invitation.inviteToken}`,
             },
           });
 
@@ -370,17 +395,21 @@ Return a JSON object with: { "description": string, "keyResponsibilities": strin
 Keep it concise, professional, and relevant to the Indian job market.
 Return ONLY valid JSON, no markdown or extra text.`;
 
+    // Sanitize user inputs: strip bracket-based injection patterns, truncate
+    const safe = (s?: string, max = 500) =>
+      (s || '').replace(/\[.*?\]/g, '').replace(/```/g, '').slice(0, max).trim();
+
     const userPrompt = `Generate a job description for the following position:
-Title: ${data.title}
-${data.department ? `Department: ${data.department}` : ''}
-${data.type ? `Employment Type: ${data.type}` : ''}
-${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''}`;
+Title: ${safe(data.title, 200)}
+${data.department ? `Department: ${safe(data.department, 100)}` : ''}
+${data.type ? `Employment Type: ${safe(data.type, 50)}` : ''}
+${data.requirements ? `Additional Requirements/Notes: ${safe(data.requirements)}` : ''}`;
 
     const aiResponse = await aiService.prompt(organizationId, systemPrompt, userPrompt, 2048);
 
     let parsed: any;
     try {
-      const content = (aiResponse.data || aiResponse.content || '') as string;
+      const content = (aiResponse.data || '') as string;
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
     } catch (parseErr) {
@@ -395,28 +424,28 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
   // AI SCORING
   // ==================
 
-  async triggerAIScoring(applicationId: string, _aiServiceUrl: string) {
-    const app = await prisma.application.findUnique({
-      where: { id: applicationId },
-      include: { jobOpening: true },
-    });
+  async triggerAIScoring(applicationId: string, organizationId?: string) {
+    const app = organizationId
+      ? await prisma.application.findFirst({
+          where: { id: applicationId, jobOpening: { organizationId } },
+          include: { jobOpening: true },
+        })
+      : await prisma.application.findUnique({ where: { id: applicationId }, include: { jobOpening: true } });
     if (!app) throw new NotFoundError('Application');
+    const resolvedOrgId = organizationId || app.jobOpening?.organizationId || '';
     if (!app.resumeUrl) {
       logger.warn(`[AI Scoring] No resume URL for application ${applicationId} — skipping`);
-      return null;
+      if (resolvedOrgId) emitToOrg(resolvedOrgId, 'recruitment:ai_scored', { applicationId, aiScore: null, reason: 'no_resume' });
+      return { matchScore: null, summary: 'No resume uploaded for this application', strengths: [], gaps: [], matchedKeywords: [], missingKeywords: [] };
     }
 
-    const organizationId = app.jobOpening?.organizationId || '';
-
-    // Use the full pipeline: pdf-parse → OCR fallback → AI/keyword scoring.
-    // Never send a raw URL as resume_text.
     const { publicApplyService } = await import('../public-apply/public-apply.service.js');
     const result = await publicApplyService.analyzeResumeMatch(
       app.resumeUrl,
       app.jobOpening?.description || app.jobOpening?.title || '',
       app.jobOpening?.title || '',
       app.jobOpening?.requirements || [],
-      organizationId,
+      resolvedOrgId,
     );
 
     await prisma.application.update({
@@ -435,6 +464,13 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
         },
       },
     });
+
+    if (resolvedOrgId) {
+      emitToOrg(resolvedOrgId, 'recruitment:ai_scored', {
+        applicationId,
+        aiScore: result.matchScore ?? null,
+      });
+    }
 
     return result;
   }
@@ -493,7 +529,7 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
       }
     }
 
-    const mcqScore = Math.round((totalCorrect / questions.length) * 100);
+    const mcqScore = Math.max(0, Math.min(100, Math.round((totalCorrect / questions.length) * 100)));
     const scoreDetails = {
       mcqScore,
       intelligenceScore: intTotal > 0 ? Math.round((intCorrect / intTotal) * 100) : null,
@@ -581,7 +617,7 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
     // Keep only the latest invite per email
     const latestInviteByEmail = new Map<string, typeof invitations[number]>();
     for (const inv of invitations) {
-      const key = inv.email.toLowerCase();
+      const key = (inv.email ?? '').toLowerCase();
       if (!latestInviteByEmail.has(key)) latestInviteByEmail.set(key, inv);
     }
 
@@ -679,6 +715,7 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
         await walkInService.hireCandidate(id, hireEmail, organizationId, hiredBy);
         results.push({ id, name: candidate.fullName, status: 'sent' });
       } catch (err: any) {
+        logger.error(`[BulkInvite] Failed to hire candidate ${id}:`, err);
         results.push({ id, name: '', status: 'failed', error: err.message || 'Unknown error' });
       }
     }
@@ -728,13 +765,13 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
 
     const job = await prisma.jobOpening.findFirst({
       where: { id: jobId, organizationId },
-      include: { organization: { select: { name: true } } },
     });
     if (!job) throw new NotFoundError('Job opening');
     if (!job.publicFormToken) throw new BadRequestError('This job does not have a public application form');
 
+    const org = await prisma.organization.findUnique({ where: { id: job.organizationId }, select: { name: true } });
     const applyUrl = `https://hr.anistonav.com/apply/${job.publicFormToken}`;
-    const orgName = job.organization?.name || 'Aniston Technologies';
+    const orgName = org?.name || 'Aniston Technologies';
 
     await enqueueEmail({
       to: email,
@@ -909,49 +946,51 @@ ${data.requirements ? `Additional Requirements/Notes: ${data.requirements}` : ''
    * Promote a scored bulk resume item into a PublicApplication record.
    */
   async createApplicationFromBulkItem(itemId: string, jobOpeningId: string, organizationId: string) {
-    const item = await prisma.bulkResumeItem.findFirst({ where: { id: itemId, organizationId } });
-    if (!item) throw new NotFoundError('Bulk resume item not found');
-    if (item.status !== 'SCORED') throw new BadRequestError('Item must be fully scored before creating an application');
-    if (item.applicationId) throw new BadRequestError('An application already exists for this item');
-
     const job = await prisma.jobOpening.findFirst({ where: { id: jobOpeningId, organizationId } });
     if (!job) throw new NotFoundError('Job opening not found');
 
-    const uid = 'BULK-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+    return prisma.$transaction(async (tx) => {
+      // Re-fetch inside transaction to prevent TOCTOU race (two concurrent requests for same item)
+      const item = await tx.bulkResumeItem.findFirst({ where: { id: itemId, organizationId } });
+      if (!item) throw new NotFoundError('Bulk resume item not found');
+      if (item.status !== 'SCORED') throw new BadRequestError('Item must be fully scored before creating an application');
+      if (item.applicationId) throw new BadRequestError('An application already exists for this item');
 
-    const details: any = item.aiScoreDetails || {};
+      const uid = 'BULK-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+      const details: any = item.aiScoreDetails || {};
 
-    const app = await prisma.publicApplication.create({
-      data: {
-        uid,
-        candidateUid: uid,
-        jobOpeningId,
-        organizationId,
-        candidateName: item.candidateName || item.fileName.replace(/\.[^.]+$/, ''),
-        email: item.email || null,
-        mobileNumber: item.phone || null,
-        resumeUrl: item.fileUrl,
-        resumeText: item.resumeText || null,
-        matchedKeywords: item.matchedKeywords,
-        missingKeywords: item.missingKeywords,
-        resumeMatchScore: item.aiScore ? Number(item.aiScore) : null,
-        atsScore: item.atsScore ? Number(item.atsScore) : null,
-        atsScoreData: item.aiScoreDetails,
-        resumeScoreData: {
-          matchScore: item.aiScore ? Number(item.aiScore) : null,
-          strengths: details.strengths || [],
-          gaps: details.gaps || [],
-          summary: details.summary || '',
-          parseMethod: details.parseMethod || 'bulk-upload',
+      const app = await tx.publicApplication.create({
+        data: {
+          uid,
+          candidateUid: uid,
+          jobOpeningId,
+          organizationId,
+          candidateName: item.candidateName || item.fileName.replace(/\.[^.]+$/, ''),
+          email: item.email || null,
+          mobileNumber: item.phone || null,
+          resumeUrl: item.fileUrl,
+          resumeText: item.resumeText || null,
+          matchedKeywords: item.matchedKeywords,
+          missingKeywords: item.missingKeywords,
+          resumeMatchScore: item.aiScore ? Number(item.aiScore) : null,
+          atsScore: item.atsScore ? Number(item.atsScore) : null,
+          atsScoreData: item.aiScoreDetails as any,
+          resumeScoreData: {
+            matchScore: item.aiScore ? Number(item.aiScore) : null,
+            strengths: details.strengths || [],
+            gaps: details.gaps || [],
+            summary: details.summary || '',
+            parseMethod: details.parseMethod || 'bulk-upload',
+          },
+          totalAiScore: item.aiScore ? Number(item.aiScore) : null,
+          status: 'SUBMITTED',
         },
-        totalAiScore: item.aiScore ? Number(item.aiScore) : null,
-        status: 'SUBMITTED',
-      },
+      });
+
+      await tx.bulkResumeItem.update({ where: { id: itemId }, data: { applicationId: app.id } });
+
+      return app;
     });
-
-    await prisma.bulkResumeItem.update({ where: { id: itemId }, data: { applicationId: app.id } });
-
-    return app;
   }
 
   async deleteBulkUpload(uploadId: string, organizationId: string) {

@@ -19,8 +19,8 @@ const resumeWorker = new Worker(
     });
 
     // Get upload with job info
-    const upload = await prisma.bulkResumeUpload.findUnique({
-      where: { id: uploadId },
+    const upload = await prisma.bulkResumeUpload.findFirst({
+      where: { id: uploadId, organizationId },
       include: {
         items: true,
         jobOpening: { select: { id: true, title: true, description: true, requirements: true } },
@@ -28,7 +28,7 @@ const resumeWorker = new Worker(
     });
 
     if (!upload) {
-      throw new Error(`Upload not found: ${uploadId}`);
+      throw new Error(`Upload not found or org mismatch: ${uploadId}`);
     }
 
     const jobDescription = upload.jobOpening.description;
@@ -67,8 +67,8 @@ const resumeWorker = new Worker(
             processed: processedCount,
             total: upload.items.length,
           });
-        } catch {
-          // Socket emission failure is non-blocking
+        } catch (emitErr) {
+          logger.debug(`[BulkResume] Socket emit failed for ${item.fileName}:`, emitErr);
         }
 
         logger.info(`Scored resume: ${item.fileName} → ${result.aiScore}/100`);
@@ -86,8 +86,8 @@ const resumeWorker = new Worker(
             processed: processedCount,
             total: upload.items.length,
           });
-        } catch {
-          // Non-blocking
+        } catch (emitErr) {
+          logger.debug(`[BulkResume] Socket emit (error) failed for ${item.fileName}:`, emitErr);
         }
       }
     }

@@ -228,13 +228,107 @@ def extract_text_from_pdf_native(pdf_bytes: bytes) -> str:
 
 MAX_PDF_PAGES_FOR_OCR = 50  # Reasonable limit — combined KYC PDFs rarely exceed 30 pages
 
+def optimize_pdf_for_ocr(pdf_bytes: bytes) -> bytes:
+    """
+    Size-adaptive PDF compression using Ghostscript.
+
+    Strategy by file size:
+      < 5 MB  — skip (already small, no quality loss)
+      5–12 MB — /printer (300 DPI, moderate compression, sharp text)
+     > 12 MB  — /ebook   (150 DPI, aggressive compression, still OCR-readable)
+
+    This prevents blurring small/clean PDFs while aggressively taming large
+    scanned PDFs that would otherwise OOM during image rendering.
+    Falls back to original bytes if Ghostscript is unavailable or fails.
+    """
+    import subprocess, tempfile, os
+
+    size_mb = len(pdf_bytes) / (1024 * 1024)
+
+    # Small PDFs need no compression — skip entirely
+    if size_mb < 5:
+        logger.info(f"[PDF Optimize] {size_mb:.1f} MB — skipping (already small)")
+        return pdf_bytes
+
+    # Choose compression level based on size
+    if size_mb > 12:
+        gs_setting = '/ebook'    # 150 DPI — aggressive
+        label = "aggressive (>12 MB)"
+    else:
+        gs_setting = '/printer'  # 300 DPI — moderate, keeps text sharp
+        label = "moderate (5–12 MB)"
+
+    inp_path = None
+    out_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as inp:
+            inp.write(pdf_bytes)
+            inp_path = inp.name
+        out_path = inp_path + '_opt.pdf'
+
+        result = subprocess.run(
+            [
+                'gs', '-sDEVICE=pdfwrite', '-dCompatibilityLevel=1.4',
+                f'-dPDFSETTINGS={gs_setting}',
+                '-dNOPAUSE', '-dQUIET', '-dBATCH',
+                f'-sOutputFile={out_path}', inp_path,
+            ],
+            timeout=90, capture_output=True,
+        )
+
+        if result.returncode == 0 and os.path.exists(out_path):
+            with open(out_path, 'rb') as f:
+                optimized = f.read()
+            orig_mb = size_mb
+            opt_mb = len(optimized) / (1024 * 1024)
+            reduction = 100 - int(opt_mb * 100 / orig_mb)
+            logger.info(
+                f"[PDF Optimize] {label} | {orig_mb:.1f} MB → {opt_mb:.1f} MB "
+                f"({reduction}% reduction) using {gs_setting}"
+            )
+            # Safety check: if Ghostscript somehow made it larger, keep original
+            if len(optimized) >= len(pdf_bytes):
+                logger.info("[PDF Optimize] Compressed file not smaller — keeping original")
+                return pdf_bytes
+            return optimized
+
+        logger.warning(f"[PDF Optimize] Ghostscript failed (rc={result.returncode}) — using original")
+
+    except FileNotFoundError:
+        logger.info("[PDF Optimize] Ghostscript not found — skipping pre-compression")
+    except Exception as e:
+        logger.warning(f"[PDF Optimize] Failed: {e} — using original")
+    finally:
+        for p in [inp_path, out_path]:
+            if p:
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+
+    return pdf_bytes
+
+
+def _resize_if_large(image: "Image.Image", max_side: int = 2200) -> "Image.Image":
+    """Downscale image if either dimension exceeds max_side, preserving aspect ratio."""
+    w, h = image.size
+    if max(w, h) > max_side:
+        scale = max_side / max(w, h)
+        image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    return image
+
+
 def convert_pdf_to_images(pdf_bytes: bytes, last_page: int = MAX_PDF_PAGES_FOR_OCR) -> List[Image.Image]:
-    """Convert PDF pages to images for OCR. Processes up to last_page pages (default 50)."""
+    """Convert PDF pages to images for OCR. Processes up to last_page pages (default 50).
+    DPI is chosen based on file size: 200 DPI for small PDFs (sharp), 150 DPI for large ones (RAM-safe).
+    Each page is capped at 2200px to limit RAM use."""
     if not HAS_PDF2IMAGE:
         return []
+    size_mb = len(pdf_bytes) / (1024 * 1024)
+    dpi = 150 if size_mb > 8 else 200  # large files already Ghostscript-compressed; small need sharpness
     try:
-        images = convert_from_bytes(pdf_bytes, dpi=200, first_page=1, last_page=last_page)
-        return images
+        images = convert_from_bytes(pdf_bytes, dpi=dpi, first_page=1, last_page=last_page)
+        return [_resize_if_large(img) for img in images]
     except Exception as e:
         logger.warning(f"pdf2image conversion failed: {e}")
         return []
@@ -2320,6 +2414,12 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
         f"required_docs={required_docs or 'STANDARD_FALLBACK'}"
     )
 
+    # Size-adaptive pre-compression: skips <5 MB, /printer for 5–12 MB, /ebook for >12 MB
+    pdf_bytes = optimize_pdf_for_ocr(pdf_bytes)
+    optimized_kb = len(pdf_bytes) // 1024
+    if optimized_kb != pdf_size_kb:
+        logger.info(f"[classify_combined_pdf] After optimization: {optimized_kb} KB")
+
     if not HAS_PDF2IMAGE:
         logger.error("[classify_combined_pdf] ABORT — pdf2image not installed; cannot render PDF pages")
         return {
@@ -2334,28 +2434,40 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
             "summary": "Combined PDF classification unavailable (pdf2image not installed).",
         }
 
+    # Get total page count first without loading all images into RAM
     try:
-        images = convert_pdf_to_images(pdf_bytes)
+        from pdf2image import pdfinfo_from_bytes
+        info = pdfinfo_from_bytes(pdf_bytes)
+        total_pages = min(int(info.get("Pages", 0)), MAX_PDF_PAGES_FOR_OCR)
     except Exception as e:
+        logger.warning(f"[classify_combined_pdf] pdfinfo failed ({e}) — falling back to full render for page count")
+        try:
+            probe = convert_from_bytes(pdf_bytes, dpi=72, first_page=1, last_page=MAX_PDF_PAGES_FOR_OCR)
+            total_pages = len(probe)
+            del probe
+        except Exception as e2:
+            return {
+                "error": f"Failed to render PDF: {str(e2)}",
+                "total_pages": 0, "page_results": [], "detected_docs": [], "page_groups": [],
+                "quality_flags": [f"PDF rendering failed: {str(e2)}"],
+                "suspicion_flags": [], "suspicion_score": 50,
+                "summary": "Could not process the combined PDF. It may be corrupt or password-protected.",
+            }
+
+    if total_pages == 0:
         return {
-            "error": f"Failed to render PDF: {str(e)}",
-            "total_pages": 0,
-            "page_results": [],
-            "detected_docs": [],
-            "page_groups": [],
-            "quality_flags": [f"PDF rendering failed: {str(e)}"],
-            "suspicion_flags": [],
-            "suspicion_score": 50,
-            "summary": "Could not process the combined PDF. It may be corrupt, password-protected, or in an unsupported format.",
+            "error": "PDF has no pages",
+            "total_pages": 0, "page_results": [], "detected_docs": [], "page_groups": [],
+            "quality_flags": ["PDF appears empty"], "suspicion_flags": [], "suspicion_score": 0,
+            "summary": "No pages found in the PDF.",
         }
 
-    total_pages = len(images)
     page_results = []
     quality_flags = []
     suspicion_flags = []
     suspicion_score = 0  # initialized here — accumulated during page loop below
 
-    logger.info(f"[classify_combined_pdf] PDF rendered — total_pages={total_pages}")
+    logger.info(f"[classify_combined_pdf] PDF has {total_pages} pages — processing one at a time (low-RAM mode)")
 
     # Also try native text extraction for digital PDFs (faster, more accurate)
     native_text = extract_text_from_pdf_native(pdf_bytes)
@@ -2365,12 +2477,36 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
     else:
         logger.info("[classify_combined_pdf] No native PDF text — will use image OCR for all pages")
 
-    for idx, image in enumerate(images):
+    # DPI per page: after Ghostscript pre-compression large files are already ~4–6 MB;
+    # small files were never compressed so they need higher DPI for sharp OCR.
+    page_dpi = 150 if len(pdf_bytes) / (1024 * 1024) > 8 else 200
+
+    for idx in range(total_pages):
+        # Load ONE page at a time — avoids loading all 17+ huge images into RAM simultaneously
+        try:
+            page_images = convert_from_bytes(
+                pdf_bytes, dpi=page_dpi, first_page=idx + 1, last_page=idx + 1,
+            )
+            image = _resize_if_large(page_images[0]) if page_images else None
+        except Exception as render_err:
+            logger.warning(f"[classify_combined_pdf] Page {idx+1} render failed: {render_err}")
+            image = None
         # ── Text extraction: native PDF text → multi-strategy image OCR ──────
         #
         # Native extraction works for digitally-created PDFs (text is embedded).
         # For scanned PDFs the native text is empty and we must OCR each page.
         # _ocr_page_with_fallback tries 3 strategies in order (raw → conservative
+        # If page render failed, record as blank and continue
+        if image is None:
+            page_results.append({
+                "page": idx + 1, "detected_type": "OTHER", "confidence": 0,
+                "text_snippet": "", "full_text_for_dob": "", "quality": "LOW",
+                "is_blank": True, "has_image_content": False, "is_likely_screenshot": False,
+                "source": "render_failed", "text_length": 0, "flags": ["Page render failed"],
+                "validation_reasons": [], "extracted_name": None, "extracted_dob": None,
+            })
+            continue
+
         # → binary-preprocessed) and returns whichever produces the most text,
         # so mobile-scan PDFs that already have high contrast are not destroyed
         # by a second round of adaptive thresholding.
@@ -2539,6 +2675,9 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
 
         # Roll page suspicion boost into the overall suspicion score
         suspicion_score += int(page_suspicion_boost * 20)  # scale 0.0-1.0 boost → 0-20 pts
+
+        # Free image memory immediately — critical for large scanned PDFs
+        del image
 
     # Group consecutive pages by detected type
     page_groups = []

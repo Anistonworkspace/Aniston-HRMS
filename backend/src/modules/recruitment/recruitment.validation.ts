@@ -69,7 +69,20 @@ export const jobQuerySchema = z.object({
   search: z.string().optional(),
 });
 
+export const aiDescriptionSchema = z.object({
+  title: z.string().min(1).max(200),
+  department: z.string().max(100).optional(),
+  requirements: z.string().max(1000).optional(),
+  type: z.string().max(50).optional(),
+});
+
+export const interviewScoreSchemaRefined = interviewScoreSchema.refine(
+  (d) => [d.communicationScore, d.technicalScore, d.problemSolving, d.culturalFit, d.overallScore].some(s => s !== undefined),
+  { message: 'At least one score field must be provided' }
+);
+
 export type CreateJobInput = z.infer<typeof createJobSchema>;
+export type UpdateJobInput = z.infer<typeof updateJobSchema>;
 export type CreateApplicationInput = z.infer<typeof createApplicationSchema>;
 export type InterviewScoreInput = z.infer<typeof interviewScoreSchema>;
 export type CreateOfferInput = z.infer<typeof createOfferSchema>;

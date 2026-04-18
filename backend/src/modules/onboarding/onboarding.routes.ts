@@ -39,6 +39,7 @@ function normalizeCombinedPdfAnalysis(data: any, source: 'python' | 'node_fallba
     // Infrastructure warning: non-null when Python OCR failed for systemic reasons
     // (missing language data, Tesseract crash, etc.) rather than genuinely blank pages
     ocrInfrastructureWarning: data.ocr_infrastructure_warning ?? data.ocrInfrastructureWarning ?? null,
+    pythonTimedOut: data.pythonTimedOut ?? false,
     // Cross-verification results (NEW)
     nameCrossVerification: data.name_cross_verification ?? data.nameCrossVerification ?? null,
     dobCrossVerification: data.dob_cross_verification ?? data.dobCrossVerification ?? null,
@@ -317,7 +318,7 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
                 const classifyRes = await fetch(`${AI_URL}/ai/ocr/classify-combined-pdf`, {
                   method: 'POST',
                   body: formData,
-                  signal: AbortSignal.timeout(300_000),
+                  signal: AbortSignal.timeout(600_000),
                 });
                 if (classifyRes.ok) {
                   const classifyJson = await classifyRes.json() as { success: boolean; data: any };
@@ -332,7 +333,8 @@ router.post('/kyc/:employeeId/combined-pdf', authenticate,
                   }
                 }
               } catch (pythonErr: any) {
-                logger.warn(`[KYC Combined PDF] Python AI service unavailable for employee ${employeeId}: ${pythonErr.message}`);
+                const isTimeout = (pythonErr as any)?.name === 'TimeoutError' || (pythonErr as any)?.name === 'AbortError';
+                logger.warn(`[KYC Combined PDF] Python AI ${isTimeout ? 'timed out' : 'unavailable'} for employee ${employeeId}: ${pythonErr.message}`);
               }
 
               // ── Node.js fallback (if Python failed) ──
@@ -960,6 +962,8 @@ router.post('/kyc/:employeeId/reclassify-combined-pdf', authenticate, authorize(
       ].filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i);
 
       // ── Try Python AI service ──
+      let pythonTimedOut = false;
+      let pythonCrashReason: string | null = null;
       try {
         const blob = new Blob([new Uint8Array(fileBuffer)], { type: 'application/pdf' });
         const formData = new FormData();
@@ -968,7 +972,7 @@ router.post('/kyc/:employeeId/reclassify-combined-pdf', authenticate, authorize(
         const classifyRes = await fetch(`${AI_URL}/ai/ocr/classify-combined-pdf`, {
           method: 'POST',
           body: formData,
-          signal: AbortSignal.timeout(300_000),
+          signal: AbortSignal.timeout(600_000),
         });
         if (classifyRes.ok) {
           const classifyJson = await classifyRes.json() as { success: boolean; data: any };
@@ -977,11 +981,18 @@ router.post('/kyc/:employeeId/reclassify-combined-pdf', authenticate, authorize(
             pythonSuccess = true;
             logger.info(`[Reclassify] Python AI succeeded for employee ${employeeId} — pages=${classifyJson.data.total_pages ?? 0} detected=${JSON.stringify(classifyJson.data.detected_docs ?? [])}`);
           } else if (classifyJson.data?.error) {
+            pythonCrashReason = classifyJson.data.error;
             logger.warn(`[Reclassify] Python returned error (falling back to Node.js) for employee ${employeeId}: ${classifyJson.data.error}`);
           }
+        } else {
+          pythonCrashReason = `HTTP ${classifyRes.status}`;
+          logger.warn(`[Reclassify] Python returned non-OK status ${classifyRes.status} for employee ${employeeId}`);
         }
       } catch (pythonErr: any) {
-        logger.warn(`[Reclassify] Python unavailable for employee ${employeeId}: ${(pythonErr as Error).message}`);
+        const isTimeout = (pythonErr as any)?.name === 'TimeoutError' || (pythonErr as any)?.name === 'AbortError';
+        pythonTimedOut = isTimeout;
+        pythonCrashReason = isTimeout ? 'timeout' : (pythonErr as Error).message;
+        logger.warn(`[Reclassify] Python ${isTimeout ? 'timed out' : 'unavailable'} for employee ${employeeId}: ${(pythonErr as Error).message}`);
       }
 
       // ── Node.js fallback ──
@@ -1015,6 +1026,9 @@ router.post('/kyc/:employeeId/reclassify-combined-pdf', authenticate, authorize(
           detectedDocs: analysisResult?.detectedDocs ?? [],
           totalPages: analysisResult?.totalPages ?? 0,
           source: pythonSuccess ? 'python' : 'node_fallback',
+          pythonTimedOut: pythonTimedOut,
+          pythonCrashReason: pythonCrashReason,
+          fallbackUsed: !pythonSuccess,
         },
       });
     } catch (err) { next(err); }

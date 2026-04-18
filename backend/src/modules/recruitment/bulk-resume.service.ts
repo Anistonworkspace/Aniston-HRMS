@@ -83,7 +83,7 @@ export class BulkResumeService {
     jobRequirements: string[],
     organizationId: string
   ) {
-    const item = await prisma.bulkResumeItem.findUnique({ where: { id: itemId } });
+    const item = await prisma.bulkResumeItem.findFirst({ where: { id: itemId, organizationId } });
     if (!item) throw new NotFoundError('Resume item');
 
     await prisma.bulkResumeItem.update({
@@ -170,33 +170,6 @@ export class BulkResumeService {
       });
       throw error;
     }
-  }
-
-  async createApplicationFromItem(itemId: string, jobOpeningId: string, organizationId: string) {
-    const item = await prisma.bulkResumeItem.findFirst({ where: { id: itemId, organizationId } });
-    if (!item) throw new NotFoundError('Resume item');
-    if (item.status !== 'SCORED') throw new BadRequestError('Resume must be scored before creating application');
-    if (item.applicationId) throw new BadRequestError('Application already created for this resume');
-
-    const application = await prisma.application.create({
-      data: {
-        jobOpeningId,
-        candidateName: item.candidateName || item.fileName,
-        email: item.email || 'unknown@placeholder.com',
-        phone: item.phone || '',
-        resumeUrl: item.fileUrl,
-        source: 'PORTAL',
-        aiScore: item.aiScore,
-        aiScoreDetails: item.aiScoreDetails || undefined,
-      },
-    });
-
-    await prisma.bulkResumeItem.update({
-      where: { id: itemId },
-      data: { applicationId: application.id },
-    });
-
-    return application;
   }
 
   async deleteUpload(uploadId: string, organizationId: string) {

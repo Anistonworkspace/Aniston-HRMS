@@ -238,9 +238,9 @@ export class WalkInService {
   /**
    * Get a single walk-in candidate by ID
    */
-  async getById(id: string) {
-    const candidate = await prisma.walkInCandidate.findUnique({
-      where: { id },
+  async getById(id: string, organizationId: string) {
+    const candidate = await prisma.walkInCandidate.findFirst({
+      where: { id, organizationId },
       include: {
         jobOpening: { select: { title: true, department: true, location: true } },
         interviewRounds: {
@@ -298,8 +298,8 @@ export class WalkInService {
   /**
    * Update walk-in candidate details (HR)
    */
-  async updateCandidate(id: string, data: any) {
-    const candidate = await prisma.walkInCandidate.findUnique({ where: { id } });
+  async updateCandidate(id: string, data: any, organizationId: string) {
+    const candidate = await prisma.walkInCandidate.findFirst({ where: { id, organizationId } });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
 
     return prisma.walkInCandidate.update({
@@ -315,8 +315,8 @@ export class WalkInService {
   /**
    * Update walk-in status (HR action)
    */
-  async updateStatus(id: string, status: string) {
-    const candidate = await prisma.walkInCandidate.findUnique({ where: { id } });
+  async updateStatus(id: string, status: string, organizationId: string) {
+    const candidate = await prisma.walkInCandidate.findFirst({ where: { id, organizationId } });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
 
     return prisma.walkInCandidate.update({
@@ -332,8 +332,8 @@ export class WalkInService {
   /**
    * Add HR notes — appends with author name and timestamp
    */
-  async addHRNotes(id: string, notes: string, authorName?: string) {
-    const candidate = await prisma.walkInCandidate.findUnique({ where: { id } });
+  async addHRNotes(id: string, notes: string, organizationId: string, authorName?: string) {
+    const candidate = await prisma.walkInCandidate.findFirst({ where: { id, organizationId } });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
 
     const timestamp = new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -354,9 +354,9 @@ export class WalkInService {
   /**
    * Add an interview round
    */
-  async addInterviewRound(walkInId: string, data: { roundName: string; interviewerName?: string; interviewerId?: string; scheduledAt?: string }) {
-    const candidate = await prisma.walkInCandidate.findUnique({
-      where: { id: walkInId },
+  async addInterviewRound(walkInId: string, data: { roundName: string; interviewerName?: string; interviewerId?: string; scheduledAt?: string }, organizationId: string) {
+    const candidate = await prisma.walkInCandidate.findFirst({
+      where: { id: walkInId, organizationId },
       include: { interviewRounds: true },
     });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
@@ -395,8 +395,10 @@ export class WalkInService {
   /**
    * Update an interview round (score, status, result, schedule)
    */
-  async updateInterviewRound(roundId: string, data: any) {
-    const round = await prisma.walkInInterviewRound.findUnique({ where: { id: roundId } });
+  async updateInterviewRound(roundId: string, data: any, organizationId?: string) {
+    const round = organizationId
+      ? await prisma.walkInInterviewRound.findFirst({ where: { id: roundId, walkIn: { organizationId } } })
+      : await prisma.walkInInterviewRound.findUnique({ where: { id: roundId } });
     if (!round) throw new NotFoundError('Interview round');
 
     const updateData: any = {};
@@ -457,8 +459,10 @@ export class WalkInService {
   /**
    * Delete an interview round
    */
-  async deleteInterviewRound(roundId: string) {
-    const round = await prisma.walkInInterviewRound.findUnique({ where: { id: roundId } });
+  async deleteInterviewRound(roundId: string, organizationId: string) {
+    const round = await prisma.walkInInterviewRound.findFirst({
+      where: { id: roundId, walkIn: { organizationId } },
+    });
     if (!round) throw new NotFoundError('Interview round');
 
     await prisma.walkInInterviewRound.delete({ where: { id: roundId } });
@@ -488,9 +492,9 @@ export class WalkInService {
   /**
    * Convert walk-in candidate to a full recruitment application
    */
-  async convertToApplication(id: string) {
-    const candidate = await prisma.walkInCandidate.findUnique({
-      where: { id },
+  async convertToApplication(id: string, organizationId: string) {
+    const candidate = await prisma.walkInCandidate.findFirst({
+      where: { id, organizationId },
       include: { jobOpening: true },
     });
     if (!candidate) throw new NotFoundError('Walk-in candidate');
@@ -556,8 +560,8 @@ export class WalkInService {
         await prisma.whatsAppMessage.deleteMany({
           where: { to: { contains: phone }, organizationId: candidate.organizationId },
         });
-      } catch {
-        // Silently continue if WhatsApp cleanup fails
+      } catch (err) {
+        logger.warn(`[WalkIn] WhatsApp cleanup failed for candidate ${id}:`, err);
       }
     }
 
@@ -576,8 +580,8 @@ export class WalkInService {
     }
     teamsEmail = teamsEmail.trim().toLowerCase();
 
-    const candidate = await prisma.walkInCandidate.findUnique({
-      where: { id: walkInId },
+    const candidate = await prisma.walkInCandidate.findFirst({
+      where: { id: walkInId, organizationId },
       include: { jobOpening: { select: { title: true } } },
     });
     if (!candidate) throw new NotFoundError('Walk-in candidate');

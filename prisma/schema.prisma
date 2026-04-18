@@ -1267,6 +1267,7 @@ model Application {
   interviewScores InterviewScore[]
   offerLetter    OfferLetter?
 
+  @@unique([jobOpeningId, email])
   @@index([jobOpeningId, status])
 }
 
@@ -1408,13 +1409,14 @@ model BulkResumeItem {
   resumeText      String?          // Extracted plaintext
   matchedKeywords String[]
   missingKeywords String[]
-  applicationId   String?
+  applicationId   String?          @unique
   status          ResumeItemStatus @default(PENDING)
   errorMessage    String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  bulkUpload BulkResumeUpload @relation(fields: [bulkUploadId], references: [id])
+  bulkUpload      BulkResumeUpload    @relation(fields: [bulkUploadId], references: [id])
+  publicApplication PublicApplication? @relation(fields: [applicationId], references: [id])
 
   @@index([bulkUploadId])
   @@index([organizationId])
@@ -2394,8 +2396,9 @@ model PublicApplication {
   updatedAt             DateTime         @updatedAt
   deletedAt             DateTime?
 
-  jobOpening JobOpening @relation(fields: [jobOpeningId], references: [id])
-  interviewRounds InterviewRound[]
+  jobOpening        JobOpening       @relation(fields: [jobOpeningId], references: [id])
+  interviewRounds   InterviewRound[]
+  bulkResumeItem    BulkResumeItem?
 
   @@index([jobOpeningId])
   @@index([organizationId])

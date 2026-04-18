@@ -584,7 +584,17 @@ export default function OcrVerificationPanel({
     const hasAnalysis = gate.combinedPdfAnalysis && Object.keys(gate.combinedPdfAnalysis).length > 0;
     // Auto-trigger once if combined PDF is uploaded but analysis is missing
     if (isCombined && !hasAnalysis && !reclassifying) {
-      reclassifyCombinedPdf(employeeId).then(() => refetchHrReview()).catch(() => {});
+      reclassifyCombinedPdf(employeeId).then((res: any) => {
+        const d = res?.data?.data;
+        if (d?.pythonTimedOut) {
+          toast.error('OCR service timed out — results are limited. Re-run manually or split the PDF.', { duration: 7000 });
+        } else if (d?.fallbackUsed) {
+          toast('⚠ OCR service offline — basic analysis only. Results may be limited.', { duration: 5000, icon: '⚠' });
+        }
+        refetchHrReview();
+      }).catch(() => {
+        toast.error('OCR classification failed — check the AI service status.', { duration: 6000 });
+      });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employeeId, hrReviewRes?.data?.gate?.combinedPdfUploaded]);
@@ -614,7 +624,23 @@ export default function OcrVerificationPanel({
     try {
       const result = await reclassifyCombinedPdf(employeeId).unwrap();
       const detected: string[] = result?.data?.detectedDocs ?? [];
-      if (detected.length > 0) {
+      const pythonTimedOut: boolean = result?.data?.pythonTimedOut ?? false;
+      const fallbackUsed: boolean = result?.data?.fallbackUsed ?? false;
+      const crashReason: string | null = result?.data?.pythonCrashReason ?? null;
+
+      if (pythonTimedOut) {
+        toast.error(
+          'OCR service timed out processing this PDF — results shown are from the Node.js fallback (limited accuracy). Try again or split the PDF into smaller files.',
+          { duration: 8000 }
+        );
+      } else if (fallbackUsed && crashReason) {
+        toast(
+          `⚠ OCR service unavailable (${crashReason}) — results are from Node.js fallback (limited accuracy).`,
+          { duration: 6000, icon: '⚠' }
+        );
+      } else if (fallbackUsed) {
+        toast('⚠ OCR service offline — results shown are from Node.js fallback (limited accuracy).', { duration: 5000, icon: '⚠' });
+      } else if (detected.length > 0) {
         toast.success(`Re-classification complete — ${detected.length} document type(s) detected`);
       } else {
         toast.success('Re-classification complete — results updated');

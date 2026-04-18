@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { bulkResumeService } from './bulk-resume.service.js';
+import { recruitmentService } from './recruitment.service.js';
 
 export class BulkResumeController {
   async upload(req: Request, res: Response, next: NextFunction) {
@@ -28,29 +30,31 @@ export class BulkResumeController {
 
   async getUpload(req: Request, res: Response, next: NextFunction) {
     try {
-      const upload = await bulkResumeService.getBulkUpload(req.params.uploadId, req.user!.organizationId);
+      const upload = await bulkResumeService.getBulkUpload(req.params.uploadId as string, req.user!.organizationId);
       res.json({ success: true, data: upload });
     } catch (err) { next(err); }
   }
 
   async createApplication(req: Request, res: Response, next: NextFunction) {
     try {
-      const { jobOpeningId } = req.body;
-      const application = await bulkResumeService.createApplicationFromItem(req.params.itemId, jobOpeningId, req.user!.organizationId);
+      const { jobOpeningId } = z.object({ jobOpeningId: z.string().uuid('Invalid job opening ID') }).parse(req.body);
+      const application = await recruitmentService.createApplicationFromBulkItem(
+        req.params.itemId as string, jobOpeningId, req.user!.organizationId
+      );
       res.status(201).json({ success: true, data: application, message: 'Application created' });
     } catch (err) { next(err); }
   }
 
   async deleteUpload(req: Request, res: Response, next: NextFunction) {
     try {
-      await bulkResumeService.deleteUpload(req.params.uploadId, req.user!.organizationId);
+      await bulkResumeService.deleteUpload(req.params.uploadId as string, req.user!.organizationId);
       res.json({ success: true, message: 'Upload and all items deleted' });
     } catch (err) { next(err); }
   }
 
   async deleteItem(req: Request, res: Response, next: NextFunction) {
     try {
-      await bulkResumeService.deleteItem(req.params.itemId, req.user!.organizationId);
+      await bulkResumeService.deleteItem(req.params.itemId as string, req.user!.organizationId);
       res.json({ success: true, message: 'Resume item deleted' });
     } catch (err) { next(err); }
   }
