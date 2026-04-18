@@ -246,6 +246,73 @@ export async function generatePayrollExcel(
     to: { row: 3 + filteredRecords.length, column: headers.length },
   };
 
+  // ── Legend: Column Guide ──────────────────────────────────────────────────
+  summarySheet.addRow([]);
+  const lgTitle = summarySheet.addRow(['📋  COLUMN GUIDE — What each column means']);
+  summarySheet.mergeCells(lgTitle.number, 1, lgTitle.number, 17);
+  lgTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
+  lgTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BRAND } };
+  lgTitle.height = 22;
+
+  const colGuide: [string, string][] = [
+    ['Working Days',      'Total Mon–Sat days in the month (Sundays not counted). Shorter if employee joined or left mid-month.'],
+    ['Present',           'Days clocked in. Half-day = 0.5. Sundays worked appear as "Sunday Bonus" in Other Earnings.'],
+    ['LOP Days',          'Loss of Pay days = Explicit ABSENT + Half-day×0.5 + Implicit no-show on working day + Unpaid leave.'],
+    ['Basic',             'Pro-rated basic salary = (Annual CTC ÷ 12) × Basic% × (Emp Working Days ÷ Total Working Days).'],
+    ['Other Earnings',    'Sum of all other earning components — HRA, DA, Sunday Bonus, adjustments, etc.'],
+    ['Gross Salary',      'Basic + Other Earnings. This is before any deductions.'],
+    ['EPF (Emp)',         'Employee EPF = 12% × Basic, capped at ₹1,800/month (Indian statutory ceiling: 12% × ₹15,000).'],
+    ['ESI (Emp)',         'Employee ESI = 0.75% × Gross (only if Gross ≤ ₹21,000). Currently component-master driven (shown if configured).'],
+    ['Prof Tax',          'Professional Tax per state slab. Currently component-master driven (shown if configured).'],
+    ['TDS',               'Monthly TDS = Projected annual income tax ÷ remaining months in financial year.'],
+    ['LOP Ded.',          'LOP Deduction = (Gross ÷ Working Days) × LOP Days. Capped so Net Salary never goes below ₹0.'],
+    ['Total Deductions',  'EPF + ESI + Prof Tax + TDS + Custom Deductions + LOP Deduction.'],
+    ['Net Salary',        'Gross Salary − Total Deductions. This is the amount transferred to the employee\'s bank account.'],
+  ];
+
+  for (const [col, desc] of colGuide) {
+    const r = summarySheet.addRow(['', col, desc]);
+    summarySheet.mergeCells(r.number, 3, r.number, 17);
+    r.getCell(2).font = { bold: true, size: 9, name: 'Calibri', color: { argb: '1E3A8A' } };
+    r.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EFF6FF' } };
+    r.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+    r.getCell(3).font = { size: 9, name: 'Calibri' };
+    r.getCell(3).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
+    r.height = 20;
+  }
+
+  summarySheet.addRow([]);
+  const fTitle = summarySheet.addRow(['🧮  PAYROLL FORMULA SUMMARY — How salary is calculated']);
+  summarySheet.mergeCells(fTitle.number, 1, fTitle.number, 17);
+  fTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
+  fTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '065F46' } };
+  fTitle.height = 22;
+
+  const formulas: string[] = [
+    'Pro-ration Ratio  =  Employee Working Days ÷ Total Working Days in Month  (1.0 for full-month employees)',
+    'Gross Salary  =  Each component value × Pro-ration Ratio  (e.g. Basic = Annual CTC × 50% ÷ 12 × Ratio)',
+    'LOP Days  =  Explicit ABSENT + Half-day×0.5 + Working day with no attendance record + Unpaid ON_LEAVE record',
+    'Daily Rate  =  Gross Salary ÷ Employee Working Days  (not Total Working Days)',
+    'LOP Deduction  =  Daily Rate × LOP Days   [Capped so Net ≥ ₹0]',
+    'EPF Employee  =  12% × Actual Basic   (capped at 12% × ₹15,000 = ₹1,800/month — Indian statutory)',
+    'EPF Employer  =  12% × Actual Basic   (same cap — shown in Employer Cost sheet)',
+    'Net Salary  =  Gross − EPF(Employee) − ESI(Employee) − Prof Tax − TDS − Custom Deductions − LOP Deduction',
+    'Sunday Rule  =  Sundays are PAID weekly off. Only Mon–Sat absences count as LOP. Working on Sunday = extra bonus.',
+    'Mid-month Joiner  =  Effective period starts from Onboarding Date. Working days and salary counted from that date only.',
+    'Mid-month Exit  =  Effective period ends on Last Working Date. Salary prorated to that date.',
+  ];
+
+  for (const f of formulas) {
+    const r = summarySheet.addRow(['→', '', f]);
+    summarySheet.mergeCells(r.number, 2, r.number, 17);
+    r.getCell(1).font = { bold: true, color: { argb: GREEN }, size: 11 };
+    r.getCell(1).alignment = { horizontal: 'center' };
+    r.getCell(2).font = { size: 9, name: 'Calibri' };
+    r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
+    r.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F0FDF4' } };
+    r.height = 18;
+  }
+
   await summarySheet.protect(xlsxPassword, {
     selectLockedCells: true, selectUnlockedCells: true,
     autoFilter: true, sort: true,
@@ -368,6 +435,36 @@ export async function generatePayrollExcel(
     row.getCell(dedSheet.columnCount).font = { bold: true, color: { argb: GREEN }, size: 10 };
   });
 
+  // ── Legend: Deductions explained ─────────────────────────────────────────
+  dedSheet.addRow([]);
+  const dedLgTitle = dedSheet.addRow(['📋  DEDUCTIONS GUIDE']);
+  dedLgTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
+  dedLgTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: RED } };
+  const dedLgColCount = dedSheet.columnCount;
+  if (dedLgColCount > 1) dedSheet.mergeCells(dedLgTitle.number, 1, dedLgTitle.number, dedLgColCount);
+  dedLgTitle.height = 22;
+
+  const dedGuide: [string, string][] = [
+    ['EPF (Employee)',   '12% of Basic Salary, capped at ₹1,800/month (wage ceiling ₹15,000). Deducted from employee salary.'],
+    ['EPF (Employer)',   '12% of Basic Salary (same cap). Paid BY the company — shown in Employer Cost sheet, not deducted from employee.'],
+    ['ESI (Employee)',   '0.75% of Gross Salary. Applicable only if Gross ≤ ₹21,000/month. Currently component-master driven.'],
+    ['Prof Tax',        'Professional Tax — state-specific slab. E.g. Maharashtra: ₹200/month for salary > ₹10,000. Currently component-master driven.'],
+    ['TDS',             'Tax Deducted at Source. Computed monthly = Projected Annual Tax ÷ Remaining Months in Financial Year (Apr–Mar).'],
+    ['LOP Ded.',        'Loss of Pay Deduction = (Gross ÷ Working Days) × LOP Days. Capped so employee never owes money to company.'],
+    ['Custom Deductions','Any non-statutory components configured as DEDUCTION type in Settings → Salary Components.'],
+  ];
+
+  for (const [col, desc] of dedGuide) {
+    const r = dedSheet.addRow([col, desc]);
+    if (dedLgColCount > 1) dedSheet.mergeCells(r.number, 2, r.number, dedLgColCount);
+    r.getCell(1).font = { bold: true, size: 9, name: 'Calibri', color: { argb: RED } };
+    r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF2F2' } };
+    r.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+    r.getCell(2).font = { size: 9, name: 'Calibri' };
+    r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
+    r.height = 20;
+  }
+
   await dedSheet.protect(xlsxPassword, {
     selectLockedCells: true, selectUnlockedCells: true,
     autoFilter: true, sort: true,
@@ -406,6 +503,114 @@ export async function generatePayrollExcel(
   await costSheet.protect(xlsxPassword, {
     selectLockedCells: true, selectUnlockedCells: true,
     autoFilter: true, sort: true,
+  });
+
+  // ===== SHEET 5: Formula Guide =====
+  const guideSheet = workbook.addWorksheet('Formula Guide', {
+    views: [{}],
+  });
+
+  guideSheet.getColumn(1).width = 30;
+  guideSheet.getColumn(2).width = 80;
+
+  const addGuideSection = (title: string, color: string, rows: [string, string][]) => {
+    const titleRow = guideSheet.addRow([title]);
+    guideSheet.mergeCells(titleRow.number, 1, titleRow.number, 2);
+    titleRow.font = { bold: true, size: 12, color: { argb: 'FFFFFF' } };
+    titleRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } };
+    titleRow.height = 24;
+    for (const [label, value] of rows) {
+      const r = guideSheet.addRow([label, value]);
+      r.getCell(1).font = { bold: true, size: 9, name: 'Calibri' };
+      r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F3F4F6' } };
+      r.getCell(1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+      r.getCell(2).font = { size: 9, name: 'Calibri' };
+      r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
+      r.height = 20;
+    }
+    guideSheet.addRow([]);
+  };
+
+  const headingRow = guideSheet.addRow([`${orgName} — Payroll Formula Guide — ${periodLabel}`]);
+  guideSheet.mergeCells(1, 1, 1, 2);
+  headingRow.font = { bold: true, size: 14, color: { argb: BRAND } };
+  headingRow.height = 28;
+  guideSheet.addRow(['This sheet explains every formula and rule used to compute payroll. Share with HR for reference.']);
+  guideSheet.mergeCells(2, 1, 2, 2);
+  guideSheet.getRow(2).font = { italic: true, size: 10, color: { argb: GRAY } };
+  guideSheet.addRow([]);
+
+  addGuideSection('STEP 1 — PRO-RATION (Partial Month Salary)', BRAND, [
+    ['Who gets pro-rated?', 'Employees who join or exit mid-month. Full-month employees get Pro-ration = 1.0.'],
+    ['Pro-ration Ratio', 'Employee Working Days ÷ Total Working Days in Month'],
+    ['Employee Working Days', 'Mon–Sat days from Onboarding Date (or Joining Date) to Last Working Date (or month end).'],
+    ['Total Working Days', `Total Mon–Sat working days in the month, excluding org holidays. For ${periodLabel}: count of Mon–Sat days.`],
+    ['Example', 'Employee joins Apr 16 → Effective days = Apr 16–30 (Mon–Sat only). If that = 13 days and April has 26 working days → Ratio = 13/26 = 0.50'],
+    ['Gross after pro-ration', 'Each salary component value is multiplied by the Pro-ration Ratio before any deductions.'],
+  ]);
+
+  addGuideSection('STEP 2 — EARNINGS (Salary Components)', '065F46', [
+    ['Basic Salary', 'Configured as % of CTC in Settings → Salary Components. E.g. 50% of ₹2,00,000/yr = ₹8,333/month (after ÷12).'],
+    ['HRA', 'House Rent Allowance — % of Basic or fixed amount. Configured in component master.'],
+    ['Custom Components', 'Any EARNING components HR added in Settings → Salary Components (DA, TA, Medical Allow., etc.).'],
+    ['Gross Salary', 'Sum of ALL earning components after pro-ration.'],
+    ['Daily Rate', 'Gross Salary ÷ Employee Working Days. Used for LOP calculation only.'],
+    ['Sunday Bonus', 'If employee works on Sunday (paid day off), they earn 1 extra day\'s pay (Daily Rate × sundays worked).'],
+    ['Adjustment (Earning)', 'One-off additions — bonus, incentive, arrear. Added to gross before deductions.'],
+  ]);
+
+  addGuideSection('STEP 3 — LOP (Loss of Pay Calculation)', RED, [
+    ['What is LOP?', 'Salary deducted for days employee did not work and has no approved paid leave or holiday.'],
+    ['Layer 1 — Explicit ABSENT', 'Attendance records marked ABSENT (not covered by paid leave or holiday) = 1 LOP day each.'],
+    ['Layer 2 — Half Day', 'Attendance records marked HALF_DAY (not covered by paid leave) = 0.5 LOP day each.'],
+    ['Layer 3 — Implicit no-show', 'Working days (Mon–Sat) within the effective period with NO attendance record at all = 1 LOP day each.'],
+    ['Layer 4 — Unpaid ON_LEAVE', 'ON_LEAVE attendance not matched to an approved paid leave balance = 1 LOP day each.'],
+    ['What is NOT LOP?', 'Sundays, Public holidays, Approved paid leave days — these never reduce salary.'],
+    ['LOP Deduction Formula', 'LOP Deduction = Daily Rate × Total LOP Days'],
+    ['LOP Cap', 'LOP is capped so Net Salary ≥ ₹0. Employee can never owe money to the company.'],
+    ['Example', 'Gross ₹16,667 | Working Days 26 | LOP 10 → Daily Rate = ₹641 | LOP Ded = ₹6,411 | Net = ₹16,667 − ₹1,800(EPF) − ₹6,411 = ₹8,456'],
+  ]);
+
+  addGuideSection('STEP 4 — STATUTORY DEDUCTIONS (EPF, ESI, PT, TDS)', '78350F', [
+    ['EPF Employee', '12% × Basic Salary. Statutory wage ceiling = ₹15,000 → Max EPF = 12% × ₹15,000 = ₹1,800/month.'],
+    ['EPF Employer', '12% × Basic Salary (same cap). This is a company cost — does NOT reduce employee take-home. See Employer Cost sheet.'],
+    ['When EPF < ₹1,800', 'If Basic < ₹15,000 (e.g. mid-month joiner with pro-rated basic), EPF = 12% × actual basic (no cap needed).'],
+    ['ESI Employee', '0.75% × Gross Salary. Only applies if Gross ≤ ₹21,000/month. Currently component-master driven.'],
+    ['ESI Employer', '3.25% × Gross Salary. Company cost. Currently component-master driven.'],
+    ['Professional Tax', 'Fixed slab per state (e.g. Maharashtra ₹200/month for salary > ₹10,000). Currently component-master driven.'],
+    ['TDS', 'Projected Annual Tax (based on CTC and regime) ÷ Remaining Financial Year Months. Re-projected each month.'],
+    ['Tax Regime', 'Employee can choose OLD or NEW regime. Regime affects TDS computation only.'],
+    ['Exemption Flags', 'HR can mark individual employees as EPF Exempt / ESI Exempt / PT Exempt on their profile.'],
+  ]);
+
+  addGuideSection('STEP 5 — FINAL CALCULATION', '4338CA', [
+    ['Net Salary Formula', 'Net = Gross − EPF(Emp) − ESI(Emp) − Prof Tax − TDS − Custom Deductions − LOP Deduction'],
+    ['Adjustment (Deduction)', 'One-off deductions (loan recovery, advance recovery) subtracted before LOP cap.'],
+    ['Order of operations', '1. Compute Gross | 2. Compute all deductions except LOP | 3. Compute LOP (daily rate × LOP days) | 4. Cap LOP | 5. Net = Gross − all deductions'],
+    ['Bank Transfer', 'Net Salary amount is what goes in the Bank Transfer sheet for NEFT/RTGS payment.'],
+  ]);
+
+  addGuideSection('ATTENDANCE RULES (Sunday & Holiday Policy)', '0369A1', [
+    ['Working Days (Mon–Sat)', 'Your org is configured Mon–Sat. Only these days count for LOP or Present calculations.'],
+    ['Sunday', 'PAID weekly off. Employee always gets paid for Sundays — no attendance needed. Sunday absence = no penalty.'],
+    ['Sunday worked', 'If employee clocks in on Sunday, a Sunday Bonus (1 day pay) is added to earnings.'],
+    ['Public Holiday', 'Org holidays (added in Settings → Holidays) are PAID off-days — not LOP, not deducted.'],
+    ['Half Day', 'HALF_DAY attendance = 0.5 present day + 0.5 LOP. Covered if paired with half-day paid leave.'],
+    ['Paid Leave', 'Approved leave requests against paid leave balance = no LOP deduction for those days.'],
+    ['Unpaid Leave', 'Leave requests not backed by leave balance = ON_LEAVE attendance = LOP.'],
+  ]);
+
+  addGuideSection('EXCEL SHEET GUIDE', '374151', [
+    ['Sheet 1 — Payroll Summary', 'Master view: all employees, all columns, totals. Use this for monthly review and sign-off.'],
+    ['Sheet 2 — Earnings Breakdown', 'Per-employee breakdown of every earning component (Basic, HRA, custom components, bonuses).'],
+    ['Sheet 3 — Deductions Breakdown', 'Per-employee breakdown of every deduction (EPF, ESI, PT, TDS, LOP, custom deductions).'],
+    ['Sheet 4 — Employer Cost', 'Total company cost = Gross + Employer EPF + Employer ESI. Use for budget planning.'],
+    ['Sheet 5 — Formula Guide', 'This sheet. Payroll methodology reference for HR and Finance.'],
+    ['Password', `All sheets are password-protected. Password: ${xlsxPassword}`],
+  ]);
+
+  await guideSheet.protect(xlsxPassword, {
+    selectLockedCells: true, selectUnlockedCells: true,
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -624,6 +829,73 @@ export async function generateAttendanceSalaryExcel(
     from: { row: 3, column: 1 },
     to: { row: 3 + attFilteredRecords.length, column: NUM_COLS },
   };
+
+  // ── Legend: Attendance column guide ─────────────────────────────────────
+  sheet.addRow([]);
+  const attLgTitle = sheet.addRow(['📋  ATTENDANCE COLUMN GUIDE — What each column means']);
+  sheet.mergeCells(attLgTitle.number, 1, attLgTitle.number, NUM_COLS);
+  attLgTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
+  attLgTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
+  attLgTitle.height = 22;
+
+  const attColGuide: [string, string][] = [
+    ['Working Days (Mon–Sat)', 'Total Mon–Sat days in the employee\'s effective period. Shorter for mid-month joiners/exits. Sundays and holidays NOT included.'],
+    ['Sundays (Paid Week-off)', 'Number of Sundays in the employee\'s effective period. Sundays are PAID — no attendance needed. Working on Sunday earns a bonus.'],
+    ['Paid Holidays', 'Public holidays declared in Settings → Holidays, within the employee\'s effective period. Always paid — no LOP.'],
+    ['Present Days', 'Days marked PRESENT in attendance. Half-day = 0.5. Does NOT include Sundays or holidays (those are auto-paid).'],
+    ['Half Days', 'Raw count of HALF_DAY attendance records (for display). Each half-day = 0.5 in Present Days column.'],
+    ['Paid Leave Days', 'Approved paid leave requests consumed from leave balance. These days are paid — not LOP.'],
+    ['Absent / LOP Days', 'Days counted as Loss of Pay = Explicit ABSENT + Implicit no-show + Unpaid leave. Does not include Sundays or holidays.'],
+    ['Total Paid Days', 'Present + Paid Leave + Sundays + Paid Holidays. This many days the employee earns salary for.'],
+    ['LOP Deduction Days', 'Exact LOP days stored for payroll. Formula: LOP Ded = Daily Rate × this number.'],
+    ['Formula Check', 'Verifies: Present + Paid Leave + LOP Days = Working Days. ✓ = balanced. Any other value = discrepancy.'],
+    ['Comments', 'Blank column — HR can write notes for specific employees.'],
+  ];
+
+  const attLgCols = ['Column', 'Explanation'];
+  const attLgHeaderRow = sheet.addRow(attLgCols);
+  sheet.mergeCells(attLgHeaderRow.number, 2, attLgHeaderRow.number, NUM_COLS);
+  attLgHeaderRow.font = { bold: true, size: 9, color: { argb: 'FFFFFF' } };
+  attLgHeaderRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '374151' } };
+  attLgHeaderRow.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '374151' } };
+  attLgHeaderRow.height = 18;
+
+  for (const [col, desc] of attColGuide) {
+    const r = sheet.addRow([col, desc]);
+    sheet.mergeCells(r.number, 2, r.number, NUM_COLS);
+    r.getCell(1).font = { bold: true, size: 9, name: 'Calibri', color: { argb: '1E3A8A' } };
+    r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EFF6FF' } };
+    r.getCell(1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+    r.getCell(2).font = { size: 9, name: 'Calibri' };
+    r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
+    r.height = 20;
+  }
+
+  sheet.addRow([]);
+  const attFormulaTitle = sheet.addRow(['🧮  KEY FORMULAS']);
+  sheet.mergeCells(attFormulaTitle.number, 1, attFormulaTitle.number, NUM_COLS);
+  attFormulaTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
+  attFormulaTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREEN } };
+  attFormulaTitle.height = 22;
+
+  const attFormulas: string[] = [
+    'Total Paid Days  =  Present Days + Paid Leave Days + Sundays + Paid Holidays',
+    'LOP Days  =  Working Days − Present Days − Paid Leave Days   (must equal LOP Deduction Days)',
+    'LOP Deduction  =  (Gross Salary ÷ Working Days) × LOP Days',
+    'Formula Check  =  Present + Paid Leave + LOP = Working Days  →  ✓ means payroll is balanced',
+    'Pro-ration  =  Working Days ÷ Total Month Working Days  (only for mid-month joiners/exits)',
+  ];
+
+  for (const f of attFormulas) {
+    const r = sheet.addRow(['→', f]);
+    sheet.mergeCells(r.number, 2, r.number, NUM_COLS);
+    r.getCell(1).font = { bold: true, color: { argb: GREEN }, size: 11 };
+    r.getCell(1).alignment = { horizontal: 'center' };
+    r.getCell(2).font = { size: 9, name: 'Calibri' };
+    r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
+    r.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F0FDF4' } };
+    r.height = 18;
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
