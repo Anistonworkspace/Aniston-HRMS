@@ -626,7 +626,11 @@ jobs:
             echo "=== [10/17] Seeding database ==="
             npx --no-install prisma db seed || echo "Seed completed (or already seeded)"
 
-            echo "=== [11/17] Building frontend ==="
+            echo "=== [11/17] Building backend ==="
+            npm run build --workspace=backend
+            echo "✅ Backend compiled to backend/dist/"
+
+            echo "=== [11.5/17] Building frontend ==="
             cd frontend && VITE_API_URL=/api npx vite build && cd ..
 
             echo "=== [12/17] Semantic versioning + OTA bundle ==="
