@@ -129,7 +129,6 @@ export class ComponentMasterService {
       where: { id, organizationId, deletedAt: null },
     });
     if (!existing) throw new NotFoundError('Salary component');
-    if (existing.isStatutory) throw new BadRequestError('Cannot delete statutory components');
 
     // Hard delete — component is permanently removed and will NOT reappear on server restart
     await prisma.salaryComponentMaster.delete({ where: { id } });

@@ -291,7 +291,7 @@ export default function SalaryComponentsTab() {
                   </label>
                   <label className="flex items-center gap-2.5 cursor-pointer">
                     <input type="checkbox" checked={form.isStatutory} onChange={e => setForm({ ...form, isStatutory: e.target.checked })} className="w-4 h-4 rounded border-gray-300 text-brand-600" />
-                    <span className="text-sm text-gray-700">Statutory <span className="text-xs text-gray-400">(cannot be deleted)</span></span>
+                    <span className="text-sm text-gray-700">Statutory</span>
                   </label>
                 </div>
               </div>
@@ -376,9 +376,7 @@ export default function SalaryComponentsTab() {
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       <button onClick={() => handleEdit(comp)} className="text-xs text-brand-600 hover:text-brand-700 p-1"><Pencil size={13} /></button>
-                      {!comp.isStatutory && (
-                        <button onClick={() => handleDelete(comp.id)} className="text-xs text-red-500 hover:text-red-600 p-1"><Trash2 size={13} /></button>
-                      )}
+                      <button onClick={() => handleDelete(comp.id)} className="text-xs text-red-500 hover:text-red-600 p-1"><Trash2 size={13} /></button>
                     </div>
                   </td>
                 </tr>

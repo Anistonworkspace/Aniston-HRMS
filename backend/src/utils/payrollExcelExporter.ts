@@ -117,6 +117,7 @@ export async function generatePayrollExcel(
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'];
   const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
+  const xlsxPassword = `ANI-${monthNames[run.month - 1]}`;
 
   // ===== SHEET 1: Payroll Summary =====
   const summarySheet = workbook.addWorksheet('Payroll Summary', {
@@ -245,7 +246,7 @@ export async function generatePayrollExcel(
     to: { row: 3 + filteredRecords.length, column: headers.length },
   };
 
-  await summarySheet.protect('aniston@payroll', {
+  await summarySheet.protect(xlsxPassword, {
     selectLockedCells: true, selectUnlockedCells: true,
     autoFilter: true, sort: true,
   });
@@ -299,6 +300,11 @@ export async function generatePayrollExcel(
       row.getCell(col).numFmt = '₹#,##0';
     }
     row.getCell(ebSheet.columnCount).font = { bold: true, color: { argb: GREEN }, size: 10 };
+  });
+
+  await ebSheet.protect(xlsxPassword, {
+    selectLockedCells: true, selectUnlockedCells: true,
+    autoFilter: true, sort: true,
   });
 
   // ===== SHEET 3: Deductions Breakdown =====
@@ -362,7 +368,7 @@ export async function generatePayrollExcel(
     row.getCell(dedSheet.columnCount).font = { bold: true, color: { argb: GREEN }, size: 10 };
   });
 
-  await dedSheet.protect('aniston@payroll', {
+  await dedSheet.protect(xlsxPassword, {
     selectLockedCells: true, selectUnlockedCells: true,
     autoFilter: true, sort: true,
   });
@@ -397,7 +403,7 @@ export async function generatePayrollExcel(
     row.getCell(6).font = { bold: true, color: { argb: BRAND }, size: 10 };
   });
 
-  await costSheet.protect('aniston@payroll', {
+  await costSheet.protect(xlsxPassword, {
     selectLockedCells: true, selectUnlockedCells: true,
     autoFilter: true, sort: true,
   });
