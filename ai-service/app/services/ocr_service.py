@@ -50,6 +50,84 @@ def _normalize_kw_text(text: str) -> str:
 
 # ===== IMAGE PREPROCESSING =====
 
+def _preprocess_aggressive_upscale(image: Image.Image) -> Image.Image:
+    """
+    Aggressive 3x upscale + CLAHE contrast enhancement for very low-quality scans.
+    Used as last-resort Strategy 5 when all other strategies produce < 15 chars.
+    Specifically helps crumpled, faded, or camera-photographed marksheets.
+    """
+    if not HAS_OPENCV:
+        return image
+    try:
+        img_array = np.array(image)
+        if len(img_array.shape) == 3:
+            if img_array.shape[2] == 4:
+                gray = cv2.cvtColor(img_array[:, :, :3], cv2.COLOR_RGB2GRAY)
+            else:
+                gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img_array.copy()
+        # 3x upscale using INTER_LANCZOS4 for best quality
+        h, w = gray.shape[:2]
+        gray = cv2.resize(gray, (w * 3, h * 3), interpolation=cv2.INTER_LANCZOS4)
+        # Aggressive CLAHE (higher clip limit for very low contrast)
+        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+        gray = clahe.apply(gray)
+        # Denoise after upscale
+        gray = cv2.fastNlMeansDenoising(gray, h=15)
+        # Adaptive threshold for clean binary image
+        binary = cv2.adaptiveThreshold(
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10
+        )
+        return Image.fromarray(binary)
+    except Exception:
+        return image
+
+
+def _detect_ocr_language(image: Image.Image) -> str:
+    """
+    Detect the script/language of a page by running a fast eng-only Tesseract pass
+    and inspecting the Unicode code-point ranges of the extracted characters.
+    This is far more accurate than pixel-density heuristics.
+
+    Returns a Tesseract lang string like 'eng+hin' or 'eng+hin+tam+tel+kan+mar+ben'.
+    """
+    default_lang = "eng+hin"
+    try:
+        # Quick low-quality pass for character detection only (psm 3, no preprocessing)
+        sample_text = pytesseract.image_to_string(image, lang="eng", config="--psm 3 --oem 1")
+    except Exception:
+        return default_lang
+
+    # Unicode block ranges for Indic scripts
+    _DEVANAGARI = (0x0900, 0x097F)   # Hindi / Marathi
+    _BENGALI     = (0x0980, 0x09FF)
+    _GUJARATI    = (0x0A80, 0x0AFF)
+    _TAMIL       = (0x0B80, 0x0BFF)
+    _TELUGU      = (0x0C00, 0x0C7F)
+    _KANNADA     = (0x0C80, 0x0CFF)
+
+    langs = {"eng"}
+    for ch in sample_text:
+        cp = ord(ch)
+        if _DEVANAGARI[0] <= cp <= _DEVANAGARI[1]:
+            langs.update(["hin", "mar"])
+        elif _BENGALI[0] <= cp <= _BENGALI[1]:
+            langs.add("ben")
+        elif _GUJARATI[0] <= cp <= _GUJARATI[1]:
+            langs.add("guj")
+        elif _TAMIL[0] <= cp <= _TAMIL[1]:
+            langs.add("tam")
+        elif _TELUGU[0] <= cp <= _TELUGU[1]:
+            langs.add("tel")
+        elif _KANNADA[0] <= cp <= _KANNADA[1]:
+            langs.add("kan")
+
+    # Always include Hindi — almost every Indian doc has bilingual header
+    langs.add("hin")
+    return "+".join(sorted(langs))
+
+
 def _preprocess_conservative(image: Image.Image) -> Image.Image:
     """
     Minimal preprocessing: grayscale + mild unsharp sharpening only.
@@ -503,6 +581,18 @@ def detect_document_type(text: str) -> str:
     ]
     if any(kw in text_norm for kw in rent_keywords):
         return "RENT_AGREEMENT"
+
+    # Passport-size photograph / photo page
+    # Detected when text is very short (photo pages have no meaningful text)
+    # AND the caller provides image context (face detection handles the rest)
+    photo_keywords = [
+        "passport size photo", "passport size photograph", "passport photo",
+        "recent photograph", "recent passport", "affix photo", "paste photo",
+        "photograph of applicant", "applicant photo", "photo here",
+        "stick photograph", "attach photograph",
+    ]
+    if any(kw in text_norm for kw in photo_keywords):
+        return "PHOTO"
 
     return "OTHER"
 
@@ -1553,12 +1643,49 @@ def assess_page_quality(image: "Image.Image", raw_text: str, page_idx: int) -> d
                 gray = img_array
 
             h, w = gray.shape[:2]
+            screenshot_signals = 0
 
-            # Very uniform backgrounds (screenshots often have solid background)
-            unique_vals = len(set(gray.flatten().tolist()[::100]))  # sample every 100th px
+            # Signal 1: Very uniform overall background (solid-color app background)
+            unique_vals = len(set(gray.flatten().tolist()[::100]))
             if unique_vals < 20 and text_len > 50:
-                is_likely_screenshot = True
+                screenshot_signals += 2
                 flags.append(f"Page {page_idx + 1}: Uniform background — possible screenshot")
+
+            # Signal 2: Corner uniformity — screenshots have very uniform corners
+            # (status bar, rounded corners, notification area)
+            if h > 80 and w > 80:
+                corners = [
+                    gray[:40, :40],        # top-left
+                    gray[:40, w-40:],      # top-right
+                    gray[h-40:, :40],      # bottom-left
+                    gray[h-40:, w-40:],    # bottom-right
+                ]
+                uniform_corners = sum(1 for c in corners if np.std(c) < 15)
+                if uniform_corners >= 3:
+                    screenshot_signals += 1
+                    flags.append(f"Page {page_idx + 1}: Uniform corners ({uniform_corners}/4) — typical of phone screenshots")
+
+            # Signal 3: Aspect ratio matches common phone screen ratios (16:9, 19.5:9, 20:9)
+            if h > 0 and w > 0:
+                ratio = max(h, w) / min(h, w)
+                if 1.6 <= ratio <= 2.3:  # phone screen aspect ratio range
+                    screenshot_signals += 1
+
+            # Signal 4: OS UI text patterns in OCR text (status bar indicators)
+            _os_ui_patterns = [
+                r'\b(wifi|wi-fi|4g|5g|lte|signal)\b',
+                r'\d{1,2}:\d{2}\s*(am|pm)',       # time display like "10:55 PM"
+                r'\b(battery|charging|%)\b',
+                r'\b(notification|swipe|tap)\b',
+            ]
+            ui_hits = sum(1 for p in _os_ui_patterns if re.search(p, raw_text, re.IGNORECASE))
+            if ui_hits >= 2:
+                screenshot_signals += 2
+                flags.append(f"Page {page_idx + 1}: OS UI text detected ({ui_hits} signals) — likely a phone screenshot")
+
+            # Classify as screenshot if 3+ signals triggered
+            if screenshot_signals >= 3:
+                is_likely_screenshot = True
 
             # Very low resolution (< 300x300)
             if w < 300 or h < 300:
@@ -1599,16 +1726,18 @@ def detect_page_document_type(text: str, page_idx: int) -> dict:
     text_len = len(text.strip())
 
     if text_len < 20:
-        confidence = 0.1
+        # Very short text: could be a photo page (no text by design)
+        confidence = 0.1 if doc_type == "OTHER" else 0.4
     elif doc_type == "OTHER":
         confidence = 0.3
     elif doc_type in ("AADHAAR", "PAN", "SALARY_SLIP"):
-        # These have very distinctive patterns — high confidence if detected
         confidence = 0.9
     elif doc_type in ("PASSPORT", "VOTER_ID", "DRIVING_LICENSE"):
         confidence = 0.8
     elif doc_type in ("TENTH_CERTIFICATE", "TWELFTH_CERTIFICATE"):
         confidence = 0.8
+    elif doc_type == "PHOTO":
+        confidence = 0.7
     elif doc_type in ("EXPERIENCE_LETTER", "OFFER_LETTER"):
         confidence = 0.75
     elif doc_type == "CERTIFICATE":
@@ -1649,16 +1778,22 @@ def _ocr_page_with_fallback(image: "Image.Image", page_idx: int, quality_flags: 
 
     page_num = page_idx + 1
 
-    def _run_tesseract(img: "Image.Image") -> str:
-        """Run tesseract, fall back from eng+hin → eng on any error."""
+    # Detect script/language for this page (Tamil, Kannada, Telugu, etc.)
+    _ocr_lang = _detect_ocr_language(image)
+
+    def _run_tesseract(img: "Image.Image", lang: str = _ocr_lang, psm: int = 3) -> str:
+        """Run tesseract with detected language, fall back to eng on error."""
         try:
-            return pytesseract.image_to_string(img, lang="eng+hin", config="--psm 3").strip()
+            return pytesseract.image_to_string(img, lang=lang, config=f"--psm {psm}").strip()
         except Exception:
             try:
-                return pytesseract.image_to_string(img, lang="eng", config="--psm 3").strip()
-            except Exception as e:
-                logger.warning(f"Page {page_num}: tesseract eng failed: {e}")
-                return ""
+                return pytesseract.image_to_string(img, lang="eng+hin", config=f"--psm {psm}").strip()
+            except Exception:
+                try:
+                    return pytesseract.image_to_string(img, lang="eng", config=f"--psm {psm}").strip()
+                except Exception as e:
+                    logger.warning(f"Page {page_num}: tesseract eng failed: {e}")
+                    return ""
 
     w, h = image.size
     logger.info(f"[OCR] Page {page_num}: image={w}x{h}px mode={image.mode}")
@@ -1703,10 +1838,7 @@ def _ocr_page_with_fallback(image: "Image.Image", page_idx: int, quality_flags: 
     text4 = ""
     try:
         conservative_img2 = _preprocess_conservative(image)
-        try:
-            text4 = pytesseract.image_to_string(conservative_img2, lang="eng+hin", config="--psm 6").strip()
-        except Exception:
-            text4 = pytesseract.image_to_string(conservative_img2, lang="eng", config="--psm 6").strip()
+        text4 = _run_tesseract(conservative_img2, psm=6)
         if len(text4) >= 15:
             logger.info(f"[OCR] Page {page_num}: strategy=psm6 chars={len(text4)} → SUCCESS")
             return text4, "image_ocr_psm6"
@@ -1714,8 +1846,28 @@ def _ocr_page_with_fallback(image: "Image.Image", page_idx: int, quality_flags: 
     except Exception as e:
         logger.warning(f"[OCR] Page {page_num}: strategy=psm6 raised: {e}")
 
+    # ── Strategy 5: aggressive 3x upscale + CLAHE (last-resort for crumpled/faded scans) ──
+    # Specifically helps photographed marksheets, crumpled certificates, and
+    # very low DPI documents that all previous strategies failed to read.
+    text5 = ""
+    try:
+        aggressive_img = _preprocess_aggressive_upscale(image)
+        text5 = _run_tesseract(aggressive_img, psm=6)
+        if len(text5) >= 15:
+            logger.info(f"[OCR] Page {page_num}: strategy=aggressive chars={len(text5)} → SUCCESS")
+            return text5, "image_ocr_aggressive"
+        # Also try PSM 11 (sparse text) on the aggressive image
+        text5b = _run_tesseract(aggressive_img, psm=11)
+        if len(text5b) >= 15:
+            logger.info(f"[OCR] Page {page_num}: strategy=aggressive_psm11 chars={len(text5b)} → SUCCESS")
+            return text5b, "image_ocr_aggressive_sparse"
+        logger.debug(f"[OCR] Page {page_num}: strategy=aggressive chars={len(text5)} → short")
+    except Exception as e:
+        logger.warning(f"[OCR] Page {page_num}: strategy=aggressive raised: {e}")
+        text5 = ""
+
     # ── All strategies exhausted — return best effort ────────────────────────
-    best = max([text1, text2, text3, text4], key=len)
+    best = max([text1, text2, text3, text4, text5], key=len)
     if best:
         logger.warning(
             f"[OCR] Page {page_num}: all 4 strategies returned short text "
@@ -1756,6 +1908,7 @@ OCR_TYPE_TO_DOC_TYPE: dict = {
     "SALARY_SLIP": "SALARY_SLIP_DOC",
     "UTILITY_BILL": "UTILITY_BILL",
     "RENT_AGREEMENT": "RENT_AGREEMENT",
+    "PHOTO": "PHOTO",
     "OTHER": "OTHER",
 }
 
@@ -1843,25 +1996,55 @@ def _extract_primary_name_for_doc(text: str, doc_type: str) -> "str | None":
     return None
 
 
+def _levenshtein(s1: str, s2: str) -> int:
+    """Standard Levenshtein edit distance."""
+    if s1 == s2:
+        return 0
+    if not s1:
+        return len(s2)
+    if not s2:
+        return len(s1)
+    prev = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        curr = [i + 1]
+        for j, c2 in enumerate(s2):
+            curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (0 if c1 == c2 else 1)))
+        prev = curr
+    return prev[-1]
+
+
 def _names_are_similar(name1: str, name2: str, threshold: float = 0.6) -> bool:
     """
-    Fuzzy name match: split into tokens, check overlap.
-    "JATIN" matches "Jatin", "JATIN KUMAR" partially matches "JATIN".
+    Fuzzy name match combining token overlap AND normalized edit distance.
+    - Token overlap catches "JATIN KUMAR" vs "JATIN" (same first name, different doc)
+    - Edit distance catches OCR typos: "JATIM KUMAR" vs "JATIN KUMAR"
+    - Both must agree for a PASS to avoid false positives from short name collisions.
     """
     if not name1 or not name2:
         return False
-    tokens1 = set(re.sub(r'[^a-z ]', '', name1.lower()).split())
-    tokens2 = set(re.sub(r'[^a-z ]', '', name2.lower()).split())
-    if not tokens1 or not tokens2:
+    n1 = re.sub(r'[^a-z ]', '', name1.lower()).strip()
+    n2 = re.sub(r'[^a-z ]', '', name2.lower()).strip()
+    if not n1 or not n2:
         return False
-    # Remove very short tokens (initials)
-    tokens1 = {t for t in tokens1 if len(t) > 1}
-    tokens2 = {t for t in tokens2 if len(t) > 1}
-    if not tokens1 or not tokens2:
-        return False
-    intersection = tokens1 & tokens2
-    smaller = min(len(tokens1), len(tokens2))
-    return len(intersection) / smaller >= threshold
+
+    # Token overlap (original logic, catches partial name matches)
+    tokens1 = {t for t in n1.split() if len(t) > 1}
+    tokens2 = {t for t in n2.split() if len(t) > 1}
+    if tokens1 and tokens2:
+        intersection = tokens1 & tokens2
+        smaller = min(len(tokens1), len(tokens2))
+        token_score = len(intersection) / smaller
+    else:
+        token_score = 0.0
+
+    # Normalized edit distance on the full name string
+    max_len = max(len(n1), len(n2))
+    edit_dist = _levenshtein(n1, n2)
+    edit_score = 1.0 - (edit_dist / max_len) if max_len > 0 else 0.0
+
+    # Use the higher of the two scores — one method may compensate for the other
+    combined_score = max(token_score, edit_score)
+    return combined_score >= threshold
 
 
 def cross_verify_document_names(page_results: list) -> dict:
@@ -2091,6 +2274,29 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
         type_info = detect_page_document_type(raw_text, idx)
         page_doc_type = type_info["detected_type"]
 
+        # ── PHOTO page detection via face detection ─────────────────────────
+        # If text is very short (< 50 chars) and a face is detected, classify as PHOTO.
+        # This catches passport-photo pages that OCR returns nothing meaningful for.
+        if page_doc_type == "OTHER" and len(raw_text.strip()) < 50 and HAS_OPENCV:
+            try:
+                _face_img = np.array(image)
+                if len(_face_img.shape) == 3:
+                    _face_gray = cv2.cvtColor(
+                        _face_img[:, :, :3] if _face_img.shape[2] == 4 else _face_img,
+                        cv2.COLOR_RGB2GRAY
+                    )
+                else:
+                    _face_gray = _face_img
+                _cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+                _face_cascade = cv2.CascadeClassifier(_cascade_path)
+                _faces = _face_cascade.detectMultiScale(_face_gray, scaleFactor=1.1, minNeighbors=4)
+                if len(_faces) > 0:
+                    page_doc_type = "PHOTO"
+                    type_info = {"detected_type": "PHOTO", "confidence": 0.75, "page": idx + 1}
+                    logger.info(f"[classify_combined_pdf] Page {idx + 1}: face detected → classified as PHOTO")
+            except Exception:
+                pass
+
         # Per-page structured log — visible in System Logs UI
         logger.info(
             f"[classify_combined_pdf] Page {idx + 1}/{total_pages}: "
@@ -2233,11 +2439,42 @@ async def classify_combined_pdf(pdf_bytes: bytes, required_docs: list = None) ->
 
     # Suspicion analysis (suspicion_score already accumulated during page loop above)
 
-    # Count blank pages
+    # ── Document expiry validation ────────────────────────────────────────────
+    from datetime import date as _date
+    for pr in page_results:
+        _dtype = pr.get("detected_type", "OTHER")
+        _text = pr.get("full_text_for_dob", "") + " " + pr.get("text_snippet", "")
+        if _dtype in ("PASSPORT", "DRIVING_LICENSE"):
+            _expiry_match = re.search(
+                r"(?:expiry|expiration|valid(?:ity)?\s*(?:till|upto|up\s*to)|date\s*of\s*expiry|exp\.?)[:\s]+(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})",
+                _text, re.IGNORECASE
+            )
+            if _expiry_match:
+                _exp_str = _expiry_match.group(1)
+                _exp_norm = _normalize_date(_exp_str)
+                if _exp_norm:
+                    try:
+                        _parts = re.split(r"[/\-\.]", _exp_norm)
+                        if len(_parts) == 3:
+                            _exp_date = _date(int(_parts[2]), int(_parts[1]), int(_parts[0]))
+                            if _exp_date < _date.today():
+                                suspicion_flags.append(
+                                    f"Page {pr['page']}: {_dtype} appears EXPIRED (expiry: {_exp_str}) — "
+                                    f"expired documents must not be accepted for KYC"
+                                )
+                                suspicion_score += 50
+                                pr["validation_reasons"] = (pr.get("validation_reasons") or []) + [
+                                    f"✗ Document EXPIRED: expiry date {_exp_str} is in the past — "
+                                    f"employee must submit a valid, unexpired document"
+                                ]
+                    except Exception:
+                        pass
+
+    # Count blank pages — only penalise beyond 2 (multi-page bank statements have blanks)
     blank_pages = [pr["page"] for pr in page_results if pr["is_blank"]]
     if blank_pages:
         suspicion_flags.append(f"Blank page(s) detected: {blank_pages}")
-        suspicion_score += len(blank_pages) * 5
+        suspicion_score += max(0, len(blank_pages) - 2) * 5  # first 2 blanks are free
 
     # Screenshot pages
     screenshot_pages = [pr["page"] for pr in page_results if pr["is_likely_screenshot"]]

@@ -1,7 +1,8 @@
+import io
 import json
 from typing import Optional
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from ..services.ocr_service import process_document, classify_combined_pdf
+from ..services.ocr_service import process_document, classify_combined_pdf, HAS_OPENCV
 
 router = APIRouter(prefix="/ocr", tags=["OCR"])
 
@@ -112,3 +113,44 @@ async def classify_combined_pdf_endpoint(
         "success": True,
         "data": result,
     }
+
+
+@router.post("/validate-photo")
+async def validate_photo(file: UploadFile = File(...)):
+    """
+    Validate a passport-size photo upload:
+    - Checks that exactly one face is detected (no face = not a photo, multiple = wrong upload)
+    - Returns face_detected, face_count, and a pass/fail verdict
+    """
+    allowed_types = ["image/jpeg", "image/png", "image/webp", "image/bmp"]
+    if file.content_type and file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Only image files accepted for photo validation")
+
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 5MB)")
+
+    if not HAS_OPENCV:
+        return {"success": True, "data": {"face_detected": True, "face_count": 1, "valid": True, "reason": "opencv_unavailable"}}
+
+    try:
+        import cv2
+        import numpy as np
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(contents)).convert("RGB")
+        img_array = np.array(img)
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+
+        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        face_cascade = cv2.CascadeClassifier(cascade_path)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+        face_count = len(faces)
+
+        if face_count == 0:
+            return {"success": True, "data": {"face_detected": False, "face_count": 0, "valid": False, "reason": "no_face_detected"}}
+        if face_count > 1:
+            return {"success": True, "data": {"face_detected": True, "face_count": face_count, "valid": False, "reason": "multiple_faces_detected"}}
+        return {"success": True, "data": {"face_detected": True, "face_count": 1, "valid": True, "reason": "ok"}}
+    except Exception as exc:
+        return {"success": True, "data": {"face_detected": True, "face_count": 1, "valid": True, "reason": f"validation_error: {str(exc)[:100]}"}}

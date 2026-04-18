@@ -556,7 +556,7 @@ export default function OcrVerificationPanel({
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectingDoc, setRejectingDoc] = useState(false);
 
-  const { data: hrReviewRes } = useGetKycHrReviewQuery(employeeId!, { skip: !employeeId });
+  const { data: hrReviewRes, refetch: refetchHrReview } = useGetKycHrReviewQuery(employeeId!, { skip: !employeeId });
   const kycStatus: string = hrReviewRes?.data?.gate?.kycStatus || '';
 
   const ocr = ocrRes?.data;
@@ -565,6 +565,20 @@ export default function OcrVerificationPanel({
   useEffect(() => {
     if (ocr) setPollInterval(0);
   }, [ocr]);
+
+  // Auto-run classifier when panel opens for a combined KYC PDF with no analysis yet
+  useEffect(() => {
+    if (!employeeId) return;
+    const gate = hrReviewRes?.data?.gate;
+    if (!gate) return;
+    const isCombined = gate.uploadMode === 'COMBINED' || gate.combinedPdfUploaded;
+    const hasAnalysis = gate.combinedPdfAnalysis && Object.keys(gate.combinedPdfAnalysis).length > 0;
+    // Auto-trigger once if combined PDF is uploaded but analysis is missing
+    if (isCombined && !hasAnalysis && !reclassifying) {
+      reclassifyCombinedPdf(employeeId).then(() => refetchHrReview()).catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employeeId, hrReviewRes?.data?.gate?.combinedPdfUploaded]);
 
   useEffect(() => {
     if (ocr) {
@@ -596,7 +610,7 @@ export default function OcrVerificationPanel({
       } else {
         toast.success('Re-classification complete — results updated');
       }
-      refetch();
+      refetchHrReview();
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Re-classification failed');
     }
@@ -1008,56 +1022,55 @@ export default function OcrVerificationPanel({
                   />
                 )}
 
-                {/* Portal access — approve KYC & grant access */}
-                {employeeId && kycStatus !== 'VERIFIED' && (
-                  <button onClick={async () => {
-                    try {
-                      if (documentStatus === 'PENDING' || documentStatus === 'FLAGGED') {
-                        await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
+                {/* KYC access toggle — single location, switches between Approve / Revoke / Restore */}
+                {employeeId && (
+                  <div className="rounded-lg border overflow-hidden">
+                    {/* Status indicator */}
+                    <div className={`px-3 py-2 flex items-center gap-2 text-xs font-semibold ${
+                      kycStatus === 'VERIFIED' ? 'bg-green-50 text-green-700 border-b border-green-100'
+                      : kycStatus === 'REJECTED' ? 'bg-red-50 text-red-700 border-b border-red-100'
+                      : 'bg-slate-50 text-slate-600 border-b border-slate-100'
+                    }`}>
+                      {kycStatus === 'VERIFIED'
+                        ? <><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Portal Access: Granted</>
+                        : kycStatus === 'REJECTED'
+                        ? <><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Portal Access: Revoked</>
+                        : <><span className="w-2 h-2 rounded-full bg-orange-400 inline-block" /> Portal Access: Pending</>
                       }
-                      await verifyKyc(employeeId).unwrap();
-                      toast.success('KYC approved! Employee can now access the portal.');
-                      onClose();
-                    } catch (err: any) {
-                      toast.error(err?.data?.error?.message || 'Failed to approve KYC');
-                    }
-                  }} disabled={verifyingKyc}
-                    className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors">
-                    {verifyingKyc ? <Loader2 size={14} className="animate-spin" /> : <Unlock size={14} />}
-                    Approve KYC & Grant Portal Access
-                  </button>
-                )}
-
-                {/* Revoke portal access (reversible toggle) */}
-                {employeeId && kycStatus === 'VERIFIED' && (
-                  <button onClick={async () => {
-                    try {
-                      await rejectKyc({ employeeId: employeeId!, reason: 'Portal access revoked by HR' }).unwrap();
-                      toast.success('Portal access revoked. Employee cannot log in until re-verified.');
-                    } catch (err: any) {
-                      toast.error(err?.data?.error?.message || 'Failed to revoke access');
-                    }
-                  }} disabled={revokingKyc}
-                    className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
-                    {revokingKyc ? <Loader2 size={14} className="animate-spin" /> : <Lock size={14} />}
-                    Revoke Portal Access
-                  </button>
-                )}
-
-                {/* Restore portal access (revoked → active) */}
-                {employeeId && kycStatus === 'REJECTED' && (
-                  <button onClick={async () => {
-                    try {
-                      await verifyKyc(employeeId!).unwrap();
-                      toast.success('Portal access restored. Employee can log in again.');
-                    } catch (err: any) {
-                      toast.error(err?.data?.error?.message || 'Failed to restore access');
-                    }
-                  }} disabled={verifyingKyc}
-                    className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors">
-                    {verifyingKyc ? <Loader2 size={14} className="animate-spin" /> : <Unlock size={14} />}
-                    Restore Portal Access
-                  </button>
+                    </div>
+                    {/* Action button */}
+                    {kycStatus !== 'VERIFIED' && (
+                      <button onClick={async () => {
+                        try {
+                          if (documentStatus === 'PENDING' || documentStatus === 'FLAGGED') {
+                            await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
+                          }
+                          await verifyKyc(employeeId).unwrap();
+                          toast.success('KYC approved — employee can now access the portal.');
+                        } catch (err: any) {
+                          toast.error(err?.data?.error?.message || 'Failed to approve KYC');
+                        }
+                      }} disabled={verifyingKyc}
+                        className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white transition-colors">
+                        {verifyingKyc ? <Loader2 size={14} className="animate-spin" /> : <Unlock size={14} />}
+                        {kycStatus === 'REJECTED' ? 'Restore Portal Access' : 'Approve KYC & Grant Portal Access'}
+                      </button>
+                    )}
+                    {kycStatus === 'VERIFIED' && (
+                      <button onClick={async () => {
+                        try {
+                          await rejectKyc({ employeeId: employeeId!, reason: 'Portal access revoked by HR' }).unwrap();
+                          toast.success('Portal access revoked.');
+                        } catch (err: any) {
+                          toast.error(err?.data?.error?.message || 'Failed to revoke access');
+                        }
+                      }} disabled={revokingKyc}
+                        className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 border-t border-red-100 text-red-600 hover:bg-red-50 transition-colors bg-white">
+                        {revokingKyc ? <Loader2 size={14} className="animate-spin" /> : <Lock size={14} />}
+                        Revoke Portal Access
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
 

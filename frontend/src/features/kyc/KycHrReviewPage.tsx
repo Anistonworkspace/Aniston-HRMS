@@ -565,6 +565,14 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
   const [hrNotes, setHrNotes] = useState('');
   const [notesSaved, setNotesSaved] = useState(false);
   const [viewerDoc, setViewerDoc] = useState<{ docId: string; name: string } | null>(null);
+  const [processingElapsed, setProcessingElapsed] = useState(0);
+
+  // Elapsed-time ticker while OCR is PROCESSING
+  useEffect(() => {
+    if (gate?.kycStatus !== 'PROCESSING') { setProcessingElapsed(0); return; }
+    const t = setInterval(() => setProcessingElapsed((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [gate?.kycStatus]);
 
   if (isLoading) {
     return (
@@ -585,6 +593,18 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
   const docRejectReasons = gate?.documentRejectReasons || {};
 
   const handleApprove = async () => {
+    // Block HIGH risk (>=50) — require explicit override confirmation
+    const suspicionScore = combinedAnalysis?.suspicion_score ?? combinedAnalysis?.suspicionScore ?? 0;
+    if (suspicionScore >= 50) {
+      if (!confirm(
+        `⛔ HIGH FRAUD RISK — Score ${suspicionScore}/100\n\n` +
+        `The AI classifier flagged this submission with a high fraud risk score.\n` +
+        `Common causes: screenshot of document, duplicate pages, wrong document type, expiry date.\n\n` +
+        `Approving a high-risk submission may violate compliance policy.\n\n` +
+        `Type OK only if you have physically verified the original documents.`
+      )) return;
+    }
+
     // Auto-run duplicate check before approving — warn HR if duplicates found
     try {
       const ocrDocs = documents?.filter((d: any) => d.ocrVerification?.extractedDocNumber);
@@ -782,8 +802,15 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
               <p className="text-sm font-bold text-indigo-900">AI Document Scanner Running</p>
               <p className="text-xs text-indigo-700 mt-0.5">
                 The Python OCR engine is scanning every page of the combined PDF and identifying document types.
-                This takes 30–120 seconds depending on file size. The page will refresh automatically when complete.
+                This typically takes 30–120 seconds depending on file size.
               </p>
+              <div className="mt-2 flex items-center gap-3 text-xs text-indigo-600">
+                <span className="font-mono font-semibold">
+                  {Math.floor(processingElapsed / 60)}:{String(processingElapsed % 60).padStart(2, '0')} elapsed
+                </span>
+                <span>·</span>
+                <span>{Math.min(99, Math.round((processingElapsed / 90) * 100))}% estimated</span>
+              </div>
               {/* Animated scan lines */}
               <div className="mt-3 space-y-1.5">
                 {[0, 1, 2].map((i) => (
@@ -1016,9 +1043,28 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
                     <p className="text-2xl font-bold font-mono text-slate-800">{detectedDocs.length}</p>
                     <p className="text-xs text-slate-500">Doc Types Found</p>
                   </div>
-                  <div className="bg-slate-50 rounded-lg px-3 py-2 text-center">
-                    <p className="text-2xl font-bold font-mono text-slate-800">{suspicionScore}</p>
-                    <p className="text-xs text-slate-500">Suspicion Score</p>
+                  {/* Required docs progress */}
+                  {(() => {
+                    const reqTotal = (combinedAnalysis.present_docs?.length ?? 0) + (missingDocs.length ?? 0);
+                    const reqFound = combinedAnalysis.present_docs?.length ?? 0;
+                    return reqTotal > 0 ? (
+                      <div className="bg-slate-50 rounded-lg px-3 py-2 text-center min-w-[80px]">
+                        <p className={`text-2xl font-bold font-mono ${reqFound === reqTotal ? 'text-green-600' : 'text-orange-600'}`}>
+                          {reqFound}/{reqTotal}
+                        </p>
+                        <p className="text-xs text-slate-500">Required Docs</p>
+                      </div>
+                    ) : null;
+                  })()}
+                  <div className={`rounded-lg px-3 py-2 text-center ${
+                    suspicionScore >= 50 ? 'bg-red-50' : suspicionScore >= 20 ? 'bg-orange-50' : 'bg-green-50'
+                  }`}>
+                    <p className={`text-2xl font-bold font-mono ${
+                      suspicionScore >= 50 ? 'text-red-700' : suspicionScore >= 20 ? 'text-orange-700' : 'text-green-700'
+                    }`}>{suspicionScore}/100</p>
+                    <p className={`text-xs ${
+                      suspicionScore >= 50 ? 'text-red-500' : suspicionScore >= 20 ? 'text-orange-500' : 'text-green-500'
+                    }`}>Fraud Risk Score</p>
                   </div>
                   {riskLevel && !ocrInfrastructureWarning && <RiskBadge level={riskLevel} />}
                 </div>
@@ -1056,6 +1102,34 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
                     </div>
                   </div>
                 )}
+
+                {/* Duplicate document detection across employees (cross-employee fraud) */}
+                {(() => {
+                  const dups = combinedAnalysis.duplicate_detection ?? combinedAnalysis.duplicateDetection;
+                  if (!dups || !Array.isArray(dups) || dups.length === 0) return null;
+                  return (
+                    <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <p className="text-xs font-bold text-red-700 mb-2 flex items-center gap-1.5">
+                        <span>🔴</span> Duplicate Document Detection — {dups.length} match{dups.length !== 1 ? 'es' : ''} found
+                      </p>
+                      <div className="space-y-1.5">
+                        {dups.map((dup: any, i: number) => (
+                          <div key={i} className="flex flex-wrap items-center gap-2 text-xs text-red-700 bg-red-100 rounded px-2 py-1">
+                            <span className="font-semibold">{dup.docType || dup.doc_type}</span>
+                            <span>·</span>
+                            <span className="font-mono">{dup.maskedNumber || dup.masked_number || dup.docNumber || dup.doc_number}</span>
+                            <span>·</span>
+                            <span>also registered to <strong>{dup.employeeName || dup.employee_name}</strong></span>
+                            {(dup.employeeCode || dup.employee_code) && (
+                              <span className="text-red-500">({dup.employeeCode || dup.employee_code})</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-red-600 mt-2">⚠ Verify originals before approving. Cross-reference with the duplicate employee's HR record.</p>
+                    </div>
+                  );
+                })()}
 
                 {/* DOB Cross-Verification from AI batch analysis (Category 1 item 1 + Category 4 item 16) */}
                 {combinedAnalysis?.dobCrossVerification && combinedAnalysis.dobCrossVerification.status !== 'INSUFFICIENT_DATA' && (

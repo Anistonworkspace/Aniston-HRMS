@@ -283,6 +283,36 @@ export class DocumentOcrService {
       }
     }
 
+    // Face validation for PHOTO type documents — flag if no face detected
+    if (doc.type === 'PHOTO' && ['jpg', 'jpeg', 'png', 'webp', 'bmp'].includes(ext)) {
+      try {
+        const mimeType = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+        const photoBlob = new Blob([new Uint8Array(fileBuffer)], { type: mimeType });
+        const photoForm = new FormData();
+        photoForm.append('file', photoBlob, `photo.${ext}`);
+        const photoRes = await fetch(`${AI_SERVICE_URL}/ai/ocr/validate-photo`, {
+          method: 'POST',
+          body: photoForm,
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (photoRes.ok) {
+          const photoJson = await photoRes.json() as { data: { valid: boolean; face_count: number; reason: string } };
+          const photoData = photoJson?.data;
+          if (photoData && !photoData.valid && photoData.reason !== 'opencv_unavailable') {
+            const faceWarning = photoData.reason === 'no_face_detected'
+              ? 'No human face detected in this photo. Please upload a clear passport-size photograph.'
+              : `Multiple faces detected (${photoData.face_count}). Upload a photo containing only the employee.`;
+            if (!ocrResult) ocrResult = {};
+            ocrResult.is_flagged = true;
+            ocrResult.validation_reasons = [...(ocrResult.validation_reasons || []), `🚩 Photo validation: ${faceWarning}`];
+            logger.info(`[OCR] Photo validation failed for ${documentId}: ${photoData.reason}`);
+          }
+        }
+      } catch (photoErr: any) {
+        logger.warn(`[OCR] Photo face-validation skipped for ${documentId}: ${photoErr.message}`);
+      }
+    }
+
     // Analyze image quality
     const qualityReport = this.analyzeImageQuality(fileBuffer, ocrResult, ext);
     const fields = ocrResult.extracted_fields || {};

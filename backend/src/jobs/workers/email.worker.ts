@@ -1229,6 +1229,31 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     </p>`,
     standardFooter(ctx.orgName || 'Aniston Technologies', ctx.reuploadUrl)
   ),
+
+  'kyc-verified': (ctx) => emailLayout(
+    'linear-gradient(135deg,#059669 0%,#047857 100%)', '✅', 'KYC Verified!', 'Your identity documents have been approved',
+    `<p style="color:#374151;font-size:15px;margin:0 0 16px;">Hi <strong>${esc(ctx.employeeName)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;margin:0 0 20px;">
+      Great news! Your KYC documents have been reviewed and verified by HR on <strong>${esc(ctx.verifiedAt)}</strong>.
+      Your Aniston HRMS portal access is now fully active.
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0FDF4;border:1px solid #BBF7D0;margin:0 0 24px;">
+      <tr><td style="padding:20px 24px;">
+        <p style="color:#166534;font-weight:700;font-size:14px;margin:0 0 12px;">✅ What's now unlocked for you</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:4px 0;color:#14532D;font-size:13px;">&#8226; Full access to your employee dashboard</td></tr>
+          <tr><td style="padding:4px 0;color:#14532D;font-size:13px;">&#8226; Salary slips and payroll history</td></tr>
+          <tr><td style="padding:4px 0;color:#14532D;font-size:13px;">&#8226; Leave applications and attendance</td></tr>
+          <tr><td style="padding:4px 0;color:#14532D;font-size:13px;">&#8226; Profile auto-filled from your verified documents</td></tr>
+        </table>
+      </td></tr>
+    </table>
+    ${ctaButton('https://hr.anistonav.com', 'Go to My Dashboard', '#059669')}
+    <p style="color:#6B7280;font-size:12px;text-align:center;margin:8px 0 0;">
+      If you have questions, contact your HR team directly.
+    </p>`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
 };
 
 /**

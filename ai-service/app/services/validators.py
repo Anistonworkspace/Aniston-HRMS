@@ -884,13 +884,29 @@ _SELFIE_PHOTO_PATTERNS = [
     # Very little text but is an image — handled by caller via text_len check
 ]
 
-# Keywords that appear in genuine KYC documents
+# Keywords that appear in genuine KYC documents (English + regional languages)
 _KYC_ANCHOR_WORDS = {
+    # English
     "aadhaar", "aadhar", "pan", "income tax", "passport", "republic of india",
     "voter", "election", "driving", "licence", "license", "bank statement",
     "account", "ifsc", "marksheet", "certificate", "university", "board",
     "uidai", "permanent account", "ministry", "government", "govt",
-    "विभाग", "भारत", "सरकार", "आधार",
+    "secondary", "higher secondary", "matriculation", "examination", "council",
+    # Hindi (Devanagari)
+    "विभाग", "भारत", "सरकार", "आधार", "पहचान", "प्रमाण", "परीक्षा",
+    "विश्वविद्यालय", "मंडल", "अंकपत्र", "प्रमाणपत्र", "बैंक", "खाता",
+    # Tamil
+    "ஆதார்", "வாக்காளர்", "வங்கி", "சான்றிதழ்", "பாஸ்போர்ட்",
+    # Telugu
+    "ఆధార్", "ఓటరు", "బ్యాంకు", "సర్టిఫికేట్", "పాస్పోర్ట్",
+    # Kannada
+    "ಆಧಾರ್", "ಮತದಾರ", "ಬ್ಯಾಂಕ್", "ಪ್ರಮಾಣಪತ್ರ",
+    # Marathi
+    "आधार", "मतदार", "बँक", "प्रमाणपत्र", "परीक्षा",
+    # Bengali
+    "আধার", "ভোটার", "ব্যাংক", "সার্টিফিকেট",
+    # Gujarati
+    "આધાર", "મતદાર", "બેન્ક", "પ્રમાણપત્ર",
 }
 
 
