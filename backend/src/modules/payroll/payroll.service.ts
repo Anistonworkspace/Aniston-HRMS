@@ -620,11 +620,12 @@ export class PayrollService {
     const orgDefaultPTState = (org as any)?.defaultPTState ?? 'MAHARASHTRA';
     const orgDefaultTaxRegime = (org as any)?.defaultTaxRegime ?? 'NEW_REGIME';
 
-    // Include all working statuses — only exclude definitively terminated/gone employees
+    // Only process employees with an active working status.
+    // SUSPENDED, TERMINATED, INACTIVE, ABSCONDED employees are excluded.
     const employees = await prisma.employee.findMany({
       where: {
         organizationId,
-        status: { notIn: ['TERMINATED', 'INACTIVE', 'ABSCONDED'] },
+        status: { in: ['ONBOARDING', 'ACTIVE', 'PROBATION', 'INTERN', 'NOTICE_PERIOD'] as any[] },
         deletedAt: null,
         isSystemAccount: { not: true },
       },
@@ -794,18 +795,22 @@ export class PayrollService {
           const empAdjustments = adjustmentsByEmp.get(emp.id) || [];
 
           // ── Determine the employee's effective work period for this month ──────
-          // Mid-month joiner: only count from joiningDate onward.
-          // Mid-month exit:   only count up to lastWorkingDate.
-          // This affects: LOP scan range, pro-ration ratio, working-days for TDS.
+          // Pro-ration uses onboardingDate (HRMS registration date) rather than
+          // joiningDate (contractual). This matters for pre-existing employees who
+          // were added to the system later — their contractual date may predate HRMS.
+          // Falls back to joiningDate only when onboardingDate is not set.
+          // Mid-month exit: only count up to lastWorkingDate.
           let effectiveStart = new Date(startDate);
           let effectiveEnd   = new Date(endDate);
 
-          const joiningDate    = (emp as any).joiningDate    ? new Date((emp as any).joiningDate)    : null;
+          const joiningDate     = (emp as any).joiningDate     ? new Date((emp as any).joiningDate)     : null;
+          const onboardingDate  = (emp as any).onboardingDate  ? new Date((emp as any).onboardingDate)  : null;
           const lastWorkingDate = (emp as any).lastWorkingDate ? new Date((emp as any).lastWorkingDate) : null;
 
-          // If employee joined this month, salary starts from joining date
-          if (joiningDate && joiningDate > startDate && joiningDate <= endDate) {
-            effectiveStart = new Date(joiningDate);
+          // Use onboardingDate for payroll start; fall back to joiningDate
+          const payrollStartDate = onboardingDate ?? joiningDate;
+          if (payrollStartDate && payrollStartDate > startDate && payrollStartDate <= endDate) {
+            effectiveStart = new Date(payrollStartDate);
             effectiveStart.setHours(0, 0, 0, 0);
           }
           // If employee's last working date is this month, salary ends on that day
@@ -881,10 +886,12 @@ export class PayrollService {
             return !orgWorkingDayNums.has(d.getDay()) && d >= effectiveStart && d <= effectiveEnd;
           }).length;
 
-          // presentDays = actual check-ins within effective period (half-days = 0.5)
+          // presentDays: count from month start (not effectiveStart) so HR-backdated
+          // attendance records created before the onboardingDate are included.
+          // LOP scan still uses effectiveStart — no penalty for pre-onboarding gaps.
           const presentDays =
-            presentRecords.filter(r => { const d = new Date(r.date); return d >= effectiveStart && d <= effectiveEnd; }).length
-            + halfDayRecords.filter(r => { const d = new Date(r.date); return d >= effectiveStart && d <= effectiveEnd; }).length * 0.5;
+            presentRecords.filter(r => { const d = new Date(r.date); return d >= startDate && d <= effectiveEnd; }).length
+            + halfDayRecords.filter(r => { const d = new Date(r.date); return d >= startDate && d <= effectiveEnd; }).length * 0.5;
 
           // ── Salary components ─────────────────────────────────────────────────
           let components: SalaryComponent[];
@@ -1234,7 +1241,7 @@ export class PayrollService {
           select: {
             firstName: true, lastName: true, employeeCode: true,
             isSystemAccount: true,
-            joiningDate: true, lastWorkingDate: true,
+            joiningDate: true, onboardingDate: true, lastWorkingDate: true,
             department: { select: { name: true } },
             bankAccountNumber: true, bankName: true, ifscCode: true,
             accountHolderName: true, accountType: true,

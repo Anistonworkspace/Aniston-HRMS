@@ -2,19 +2,21 @@ import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 
-// Default components seeded for new orgs — Basic + HRA only.
-// HR can add any additional components from Settings → Salary Components.
+// Default components seeded for new orgs — Basic Salary + EPF only.
+// HR can add any additional components (HRA, DA, TA, etc.) from Settings → Salary Components.
 const DEFAULT_COMPONENTS = [
   { name: 'Basic Salary', code: 'BASIC', type: 'EARNING', category: 'STANDARD', calculationRule: 'PERCENTAGE_CTC', percentageOf: 'CTC', defaultPercentage: 50, isTaxable: true, isStatutory: false, sortOrder: 1 },
-  { name: 'House Rent Allowance', code: 'HRA', type: 'EARNING', category: 'STANDARD', calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 40, isTaxable: true, isStatutory: false, sortOrder: 2 },
+  { name: 'EPF (Employee)', code: 'EPF_EE', type: 'DEDUCTION', category: 'STATUTORY', calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 12, isTaxable: false, isStatutory: true, sortOrder: 100 },
+  { name: 'EPF (Employer)', code: 'EPF_ER', type: 'DEDUCTION', category: 'STATUTORY', calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 12, isTaxable: false, isStatutory: true, sortOrder: 101 },
 ];
 
-// Codes from the old 20-component default seed that are no longer part of defaults.
-// Used by cleanupLegacyDefaults() to remove them from existing orgs.
+// All codes that were in the old default seed but are no longer defaults.
+// cleanupLegacyDefaults() hard-deletes these from any org that has them.
 const LEGACY_DEFAULT_CODES = [
+  'HRA',
   'DA', 'TA', 'MEDICAL', 'SPECIAL', 'LTA', 'PERF_BONUS', 'SHIFT_ALLOW',
   'NIGHT_PREMIUM', 'CCA', 'INTERNET', 'PHONE',
-  'EPF_EE', 'EPF_ER', 'ESI_EE', 'ESI_ER', 'PT', 'TDS',
+  'ESI_EE', 'ESI_ER', 'PT', 'TDS',
   'LOAN_RECOVERY', 'CANTEEN', 'ADVANCE_DED',
 ];
 

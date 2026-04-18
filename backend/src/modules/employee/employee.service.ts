@@ -205,6 +205,7 @@ export class EmployeeService {
             officeLocationId: data.officeLocationId || null,
             managerId: data.managerId || null,
             joiningDate: new Date(data.joiningDate),
+            onboardingDate: data.onboardingDate ? new Date(data.onboardingDate) : new Date(), // auto-set to today (HRMS registration date)
             probationEndDate: data.probationEndDate ? new Date(data.probationEndDate) : null,
             ctc: data.ctc || null,
             address: data.address || null,
@@ -430,6 +431,7 @@ export class EmployeeService {
     if (data.email) updateData.email = data.email.toLowerCase();
     if (data.dateOfBirth) updateData.dateOfBirth = new Date(data.dateOfBirth);
     if (data.joiningDate) updateData.joiningDate = new Date(data.joiningDate);
+    if (data.onboardingDate) updateData.onboardingDate = new Date(data.onboardingDate);
     if (data.probationEndDate) updateData.probationEndDate = new Date(data.probationEndDate);
 
     let employee: any;

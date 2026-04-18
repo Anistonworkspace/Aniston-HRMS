@@ -359,6 +359,7 @@ export default function EmployeeDetailPage() {
                     <InfoRow label="Office" value={employee.officeLocation?.name || '—'} />
                     <InfoRow label="Current Shift" value={employee.currentShift ? `${employee.currentShift.name} (${employee.currentShift.startTime}–${employee.currentShift.endTime})` : 'No shift assigned'} />
                     <InfoRow label="Joining Date" value={formatDate(employee.joiningDate, 'long')} />
+                    <InfoRow label="Onboarding Date" value={employee.onboardingDate ? formatDate(employee.onboardingDate, 'long') : '—'} />
                     <InfoRow label="Status" value={employee.status?.replace(/_/g, ' ')} />
                     {isManagement && employee.ctc && <InfoRow label="CTC" value={formatCurrency(Number(employee.ctc))} mono />}
                   </dl>
@@ -543,6 +544,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose }: { employee: 
     maritalStatus: employee.maritalStatus || '',
     workMode: employee.workMode || 'OFFICE',
     joiningDate: employee.joiningDate ? employee.joiningDate.split('T')[0] : '',
+    onboardingDate: employee.onboardingDate ? employee.onboardingDate.split('T')[0] : '',
     status: employee.status || 'ONBOARDING',
     ctc: employee.ctc ? Number(employee.ctc) : '',
     departmentId: employee.department?.id || '',
@@ -671,8 +673,12 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose }: { employee: 
                 <option value="OFFICE">Office</option><option value="HYBRID">Hybrid</option><option value="REMOTE">Remote</option>
                 <option value="FIELD_SALES">Field Sales</option><option value="PROJECT_SITE">Project Site</option>
               </select></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Joining Date</label>
+            <div><label className="block text-xs text-gray-500 mb-1">Joining Date <span className="text-gray-400 font-normal">(Contractual)</span></label>
               <input type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} className="input-glass w-full text-sm" /></div>
+            <div><label className="block text-xs text-gray-500 mb-1">Onboarding Date <span className="text-gray-400 font-normal">(HRMS — used for payroll)</span></label>
+              <input type="date" value={form.onboardingDate} onChange={(e) => setForm({ ...form, onboardingDate: e.target.value })} className="input-glass w-full text-sm" /></div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Status</label>
               {canEditStatus ? (
                 <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="input-glass w-full text-sm">
@@ -1314,12 +1320,11 @@ interface SalaryComponent {
 // Hardcoded fallback defaults (used only if component master hasn't loaded yet)
 const FALLBACK_DEFAULTS: SalaryComponent[] = [
   { id: 'basic', name: 'Basic Salary', amount: 0, mode: 'percent', percentValue: 50, type: 'earning', isRequired: true },
-  { id: 'hra', name: 'House Rent Allowance', amount: 0, mode: 'percent', percentValue: 40, type: 'earning' },
 ];
 
 // Map component master code to legacy field names (for backward-compat with old saved structures)
 const CODE_TO_FIELD: Record<string, string> = {
-  BASIC: 'basic', HRA: 'hra',
+  BASIC: 'basic',
 };
 
 /**
@@ -1415,6 +1420,35 @@ function buildComponentsFromStructure(structure: any, annualCtc: number, masterC
   return earnings;
 }
 
+/**
+ * Build non-statutory deductions from the component master (for default-mode employees).
+ * Statutory deductions (EPF/ESI/PT) are shown separately as hardcoded rows.
+ */
+function buildDeductionsFromMaster(masterComps: any[], annualCtc: number): SalaryComponent[] {
+  const monthly = annualCtc / 12;
+  const basicMc = masterComps.find((c: any) => c.code === 'BASIC' && c.type === 'EARNING');
+  const basicPct = basicMc ? (Number(basicMc.defaultPercentage) || 50) : 50;
+  const basicMonthly = monthly > 0 ? Math.round(monthly * basicPct / 100) : 0;
+
+  return masterComps
+    .filter((c: any) => c.type === 'DEDUCTION' && c.isActive && !c.isStatutory)
+    .sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0))
+    .map((mc: any) => {
+      const isPercent = mc.calculationRule === 'PERCENTAGE_CTC' || mc.calculationRule === 'PERCENTAGE_BASIC';
+      const defaultPct = mc.defaultPercentage ? Number(mc.defaultPercentage) : 0;
+      const base = mc.calculationRule === 'PERCENTAGE_BASIC' ? basicMonthly : monthly;
+      const amount = isPercent && base > 0 ? Math.round(base * defaultPct / 100) : (mc.defaultValue ? Number(mc.defaultValue) : 0);
+      return {
+        id: `master_ded_${mc.code}`,
+        name: mc.name,
+        amount,
+        mode: isPercent ? 'percent' as const : 'fixed' as const,
+        percentValue: defaultPct,
+        type: 'deduction' as const,
+      };
+    });
+}
+
 function buildDeductionsFromStructure(structure: any, _annualCtc: number): SalaryComponent[] {
   const deductions: SalaryComponent[] = [];
   if (structure?.enabledComponents?.customDeductions) {
@@ -1426,7 +1460,14 @@ function buildDeductionsFromStructure(structure: any, _annualCtc: number): Salar
   if (structure?.components && Array.isArray(structure.components)) {
     for (const c of structure.components) {
       if (c.type === 'deduction') {
-        deductions.push({ id: c.name?.toLowerCase().replace(/\s+/g, '_') || `ded_${deductions.length}`, name: c.name, amount: Number(c.value || 0), mode: 'fixed', percentValue: 0, type: 'deduction' });
+        deductions.push({
+          id: c.name?.toLowerCase().replace(/\s+/g, '_') || `ded_${deductions.length}`,
+          name: c.name,
+          amount: Number(c.value || 0),
+          mode: c.isPercentage ? 'percent' as const : 'fixed' as const,
+          percentValue: c.percentage || 0,
+          type: 'deduction' as const,
+        });
       }
     }
   }
@@ -1512,13 +1553,14 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
       setTaxRegime(structure.incomeTaxRegime || 'NEW_REGIME');
       const mode = (structure as any).isCustom ? 'custom' : 'default';
       setSalaryMode(mode);
-      // For display, always show component master defaults for default mode
       if (mode === 'default') {
         setEarnings(componentMaster.length > 0 ? buildDefaultsFromMaster(componentMaster, annual) : FALLBACK_DEFAULTS);
+        // Also show non-statutory deductions from master (payroll applies these too)
+        setCustomDeductions(componentMaster.length > 0 ? buildDeductionsFromMaster(componentMaster, annual) : []);
       } else {
         setEarnings(buildComponentsFromStructure(structure, annual, componentMaster));
+        setCustomDeductions(buildDeductionsFromStructure(structure, annual));
       }
-      setCustomDeductions(buildDeductionsFromStructure(structure, annual));
     } else {
       // No structure yet — default mode, use component master defaults
       const annual = ctc ? Number(ctc) : 0;
@@ -1531,6 +1573,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
             return { ...e, amount: e.mode === 'percent' && monthly > 0 ? Math.round(monthly * e.percentValue / 100) : 0 };
           });
       setEarnings(defaults);
+      setCustomDeductions(componentMaster.length > 0 ? buildDeductionsFromMaster(componentMaster, annual) : []);
     }
   }, [structure, ctc, componentMaster]);
 
@@ -1715,16 +1758,17 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
       setSalaryMode(mode);
       if (mode === 'default') {
         setEarnings(componentMaster.length > 0 ? buildDefaultsFromMaster(componentMaster, annual) : FALLBACK_DEFAULTS);
+        setCustomDeductions(componentMaster.length > 0 ? buildDeductionsFromMaster(componentMaster, annual) : []);
       } else {
         setEarnings(buildComponentsFromStructure(structure, annual, componentMaster));
+        setCustomDeductions(buildDeductionsFromStructure(structure, annual));
       }
-      setCustomDeductions(buildDeductionsFromStructure(structure, annual));
     } else {
       const annual = ctc ? Number(ctc) : 0;
       setAnnualCtc(annual);
       setSalaryMode('default');
       setEarnings(componentMaster.length > 0 ? buildDefaultsFromMaster(componentMaster, annual) : FALLBACK_DEFAULTS);
-      setCustomDeductions([]);
+      setCustomDeductions(componentMaster.length > 0 ? buildDeductionsFromMaster(componentMaster, annual) : []);
     }
   };
 
@@ -1791,7 +1835,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
                     ? buildDefaultsFromMaster(componentMaster, annualCtc)
                     : FALLBACK_DEFAULTS;
                   setEarnings(defaults);
-                  setCustomDeductions([]);
+                  setCustomDeductions(componentMaster.length > 0 ? buildDeductionsFromMaster(componentMaster, annualCtc) : []);
                   if (!editing) setEditing(true);
                 }
               }}

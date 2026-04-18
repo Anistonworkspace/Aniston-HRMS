@@ -125,7 +125,7 @@ export async function generatePayrollExcel(
 
   summarySheet.addRow([`${orgName} — Payroll Report`]);
   summarySheet.getRow(1).font = { bold: true, size: 14, color: { argb: BRAND } };
-  summarySheet.mergeCells(1, 1, 1, 18);
+  summarySheet.mergeCells(1, 1, 1, 17);
 
   summarySheet.addRow([
     `Period: ${periodLabel}`, '', `Status: ${run.status}`, '',
@@ -137,7 +137,7 @@ export async function generatePayrollExcel(
   const headers = [
     '#', 'Emp Code', 'Employee Name', 'Department',
     'Working Days', 'Present', 'LOP Days',
-    'Basic', 'HRA', 'Other Earnings', 'Gross Salary',
+    'Basic', 'Other Earnings', 'Gross Salary',
     'EPF (Emp)', 'ESI (Emp)', 'Prof Tax', 'TDS', 'LOP Ded.',
     'Total Deductions', 'Net Salary',
   ];
@@ -145,7 +145,7 @@ export async function generatePayrollExcel(
   const headerRow = summarySheet.addRow(headers);
   styleHeaderRow(headerRow);
 
-  [5, 12, 24, 16, 11, 8, 8, 13, 13, 13, 14, 11, 11, 9, 11, 11, 15, 14].forEach((w, i) => {
+  [5, 12, 24, 16, 11, 8, 8, 13, 13, 14, 11, 11, 9, 11, 11, 15, 14].forEach((w, i) => {
     summarySheet.getColumn(i + 1).width = w;
   });
 
@@ -174,14 +174,12 @@ export async function generatePayrollExcel(
 
     const empName = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim();
 
-    // For custom-component employees, Basic/HRA cells show blank when the employee
-    // genuinely has no such component (earningsBreakdown exists but doesn't include them).
+    // For custom-component employees, Basic cell shows blank when the employee
+    // genuinely has no Basic component (earningsBreakdown exists but doesn't include it).
     const eb: Record<string, number> = rec.earningsBreakdown || {};
     const hasEb = Object.keys(eb).length > 0;
     const hasBasicComp = !hasEb || 'Basic' in eb || 'Basic Salary' in eb;
-    const hasHraComp   = !hasEb || 'HRA'   in eb || 'House Rent Allowance' in eb;
     const basicCell    = hasBasicComp ? n(rec.basic) : '';
-    const hraCell      = hasHraComp   ? n(rec.hra)   : '';
 
     const row = summarySheet.addRow([
       idx + 1,
@@ -192,7 +190,6 @@ export async function generatePayrollExcel(
       rec.presentDays ?? 'N/A',
       rec.lopDays ?? 0,
       basicCell,
-      hraCell,
       otherTotal,
       n(rec.grossSalary),
       n(rec.epfEmployee),
@@ -207,16 +204,16 @@ export async function generatePayrollExcel(
     row.font = { size: 9, name: 'Calibri' };
     row.alignment = { horizontal: 'center' };
 
-    // Currency format for money columns (8-18)
-    for (const col of [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]) {
+    // Currency format for money columns (8-17)
+    for (const col of [8, 9, 10, 11, 12, 13, 14, 15, 16, 17]) {
       row.getCell(col).numFmt = '₹#,##0';
     }
 
-    row.getCell(18).font = { bold: true, size: 10, color: { argb: GREEN } };
+    row.getCell(17).font = { bold: true, size: 10, color: { argb: GREEN } };
 
     if (n(rec.lopDays) > 0) {
       row.getCell(7).font  = { bold: true, color: { argb: RED }, size: 9 };
-      row.getCell(16).font = { bold: true, color: { argb: RED }, size: 9 };
+      row.getCell(15).font = { bold: true, color: { argb: RED }, size: 9 };
     }
 
     // Alternate row shading
@@ -230,15 +227,15 @@ export async function generatePayrollExcel(
   // Totals row
   const totalsRow = summarySheet.addRow([
     '', '', 'TOTAL', '', '', '', '',
-    '', '', '', totalGross,
+    '', '', totalGross,
     '', '', '', '', '',
     totalDeductions, totalNet,
   ]);
   totalsRow.font = { bold: true, size: 11, name: 'Calibri' };
-  totalsRow.getCell(11).numFmt = '₹#,##0';
+  totalsRow.getCell(10).numFmt = '₹#,##0';
+  totalsRow.getCell(16).numFmt = '₹#,##0';
   totalsRow.getCell(17).numFmt = '₹#,##0';
-  totalsRow.getCell(18).numFmt = '₹#,##0';
-  totalsRow.getCell(18).font = { bold: true, size: 12, color: { argb: GREEN } };
+  totalsRow.getCell(17).font = { bold: true, size: 12, color: { argb: GREEN } };
   totalsRow.eachCell((cell) => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EEF2FF' } };
   });
@@ -258,28 +255,28 @@ export async function generatePayrollExcel(
     views: [{ state: 'frozen', ySplit: 1 }],
   });
 
-  // Collect all unique component names across all records
+  // Collect all unique earning component names across all records (fully dynamic)
   const allCompNames = new Set<string>();
   filteredRecords.forEach((rec: any) => {
     const eb: Record<string, number> = rec.earningsBreakdown || {};
     Object.keys(eb).forEach(k => allCompNames.add(k));
   });
-  // Exclude dedicated columns (Basic/HRA already have their own columns),
-  // both short codes AND component-master full names.
-  // Also exclude _proRation (internal metadata, not a real salary component).
-  const SHEET2_SKIP = new Set([
-    'Basic', 'basic', 'Basic Salary', 'basic salary',
-    'HRA', 'hra', 'House Rent Allowance', 'house rent allowance',
-    '_proRation',
-  ]);
-  const compNames = [...allCompNames].filter(k => !SHEET2_SKIP.has(k));
+  // Only exclude internal metadata key — all real components (Basic, HRA, custom) are dynamic columns
+  const compNames = [...allCompNames]
+    .filter(k => k !== '_proRation')
+    .sort((a, b) => {
+      // Basic-named components always appear first
+      const aIsBasic = a.toLowerCase().includes('basic');
+      const bIsBasic = b.toLowerCase().includes('basic');
+      if (aIsBasic && !bIsBasic) return -1;
+      if (!aIsBasic && bIsBasic) return 1;
+      return a.localeCompare(b);
+    });
 
   ebSheet.columns = [
     { header: 'Emp Code', key: 'code', width: 12 },
     { header: 'Employee Name', key: 'name', width: 24 },
-    { header: 'Basic', key: 'basic', width: 14 },
-    { header: 'HRA', key: 'hra', width: 12 },
-    ...compNames.map(c => ({ header: c, key: c, width: 16 })),
+    ...compNames.map(c => ({ header: c, key: `eb_${c}`, width: 16 })),
     { header: 'Total Gross', key: 'gross', width: 14 },
     { header: 'Net Salary', key: 'net', width: 14 },
   ];
@@ -287,21 +284,17 @@ export async function generatePayrollExcel(
 
   filteredRecords.forEach((rec: any) => {
     const eb: Record<string, number> = rec.earningsBreakdown || {};
-    const hasEbSh2 = Object.keys(eb).length > 0;
     const rowData: any = {
       code: t(rec.employee?.employeeCode),
       name: `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim() || 'N/A',
-      // Show blank (not ₹0) when this employee genuinely has no Basic/HRA component
-      basic: (!hasEbSh2 || 'Basic' in eb || 'Basic Salary' in eb) ? n(rec.basic) : '',
-      hra:   (!hasEbSh2 || 'HRA'   in eb || 'House Rent Allowance' in eb) ? n(rec.hra) : '',
       gross: n(rec.grossSalary),
       net: n(rec.netSalary),
     };
-    // For each custom column: blank when the component doesn't exist for this employee
-    compNames.forEach(c => { rowData[c] = c in eb ? n(eb[c]) : ''; });
+    // Each component column: blank when this employee has no such component
+    compNames.forEach(c => { rowData[`eb_${c}`] = c in eb ? n(eb[c]) : ''; });
     const row = ebSheet.addRow(rowData);
     row.font = { size: 9 };
-    // Currency format for numeric columns (starting from col 3)
+    // Currency format for all numeric columns (starting from col 3)
     for (let col = 3; col <= ebSheet.columnCount; col++) {
       row.getCell(col).numFmt = '₹#,##0';
     }
@@ -513,8 +506,11 @@ export async function generateAttendanceSalaryExcel(
     let effStart = new Date(startOfMonth);
     let effEnd   = new Date(endOfMonth);
     const joiningDate     = rec.employee?.joiningDate     ? new Date(rec.employee.joiningDate)     : null;
+    const onboardingDate  = rec.employee?.onboardingDate  ? new Date(rec.employee.onboardingDate)  : null;
     const lastWorkingDate = rec.employee?.lastWorkingDate ? new Date(rec.employee.lastWorkingDate) : null;
-    if (joiningDate && joiningDate > startOfMonth && joiningDate <= endOfMonth) effStart = new Date(joiningDate);
+    // Mirror payroll logic: use onboardingDate (HRMS date) for pro-ration, fall back to joiningDate
+    const payrollStartDate = onboardingDate ?? joiningDate;
+    if (payrollStartDate && payrollStartDate > startOfMonth && payrollStartDate <= endOfMonth) effStart = new Date(payrollStartDate);
     if (lastWorkingDate && lastWorkingDate >= startOfMonth && lastWorkingDate < endOfMonth) effEnd = new Date(lastWorkingDate);
     // Paid holidays scoped to this employee's effective period only.
     // A mid-month joiner (e.g. Apr 16) must NOT get credit for Apr 10 holiday.

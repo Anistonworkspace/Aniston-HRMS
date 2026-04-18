@@ -138,6 +138,7 @@ model Employee {
   workMode         WorkMode       @default(OFFICE)
   officeLocationId String?
   joiningDate      DateTime
+  onboardingDate   DateTime?  // Date employee was first registered in this HRMS (auto-set on creation). Used for payroll pro-ration. Differs from joiningDate (contractual employment date).
   probationEndDate DateTime?
   ctc              Decimal?       @db.Decimal(12, 2)
   status           EmployeeStatus @default(ONBOARDING)

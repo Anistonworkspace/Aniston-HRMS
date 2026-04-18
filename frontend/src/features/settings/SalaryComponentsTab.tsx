@@ -145,7 +145,7 @@ export default function SalaryComponentsTab() {
   const resetForm = () => { setForm(emptyForm); setEditingId(null); setShowForm(false); };
 
   const handleCleanupLegacy = async () => {
-    if (!confirm('This will remove all old default components (DA, TA, Medical, Special, LTA, etc.) and keep only Basic Salary + HRA. Continue?')) return;
+    if (!confirm('This will remove all old default components (HRA, DA, TA, Medical, Special, LTA, ESI, PT, TDS, etc.) and keep only Basic Salary + EPF (Employee/Employer). Continue?')) return;
     try {
       const result = await cleanupLegacy().unwrap();
       toast.success(`Cleanup done — ${result.data?.deleted ?? 0} legacy component(s) removed`);
@@ -155,7 +155,7 @@ export default function SalaryComponentsTab() {
   };
 
   // Check if any legacy default codes are still present
-  const LEGACY_CODES = new Set(['DA','TA','MEDICAL','SPECIAL','LTA','PERF_BONUS','SHIFT_ALLOW','NIGHT_PREMIUM','CCA','INTERNET','PHONE','EPF_EE','EPF_ER','ESI_EE','ESI_ER','PT','TDS','LOAN_RECOVERY','CANTEEN','ADVANCE_DED']);
+  const LEGACY_CODES = new Set(['HRA','DA','TA','MEDICAL','SPECIAL','LTA','PERF_BONUS','SHIFT_ALLOW','NIGHT_PREMIUM','CCA','INTERNET','PHONE','ESI_EE','ESI_ER','PT','TDS','LOAN_RECOVERY','CANTEEN','ADVANCE_DED']);
   const hasLegacyComponents = components.some((c: any) => LEGACY_CODES.has(c.code));
 
   return (
@@ -256,14 +256,28 @@ export default function SalaryComponentsTab() {
                       {CALC_RULES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                     </select>
                   </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600 mb-1.5 block">Default Value (₹)</label>
-                    <input type="number" className="input-glass w-full text-sm font-mono" placeholder="0.00" value={form.defaultValue} onChange={e => setForm({ ...form, defaultValue: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600 mb-1.5 block">Default Percentage (%)</label>
-                    <input type="number" className="input-glass w-full text-sm font-mono" placeholder="0.00" value={form.defaultPercentage} onChange={e => setForm({ ...form, defaultPercentage: e.target.value })} />
-                  </div>
+                  {/* Show Fixed value only for FIXED rule */}
+                  {form.calculationRule === 'FIXED' && (
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1.5 block">Default Value (₹)</label>
+                      <input type="number" className="input-glass w-full text-sm font-mono" placeholder="e.g. 1600" value={form.defaultValue} onChange={e => setForm({ ...form, defaultValue: e.target.value })} />
+                    </div>
+                  )}
+                  {/* Show % only for percentage-based rules */}
+                  {(form.calculationRule === 'PERCENTAGE_CTC' || form.calculationRule === 'PERCENTAGE_BASIC') && (
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1.5 block">
+                        Default % {form.calculationRule === 'PERCENTAGE_BASIC' ? '(of Basic)' : '(of CTC)'}
+                      </label>
+                      <input type="number" className="input-glass w-full text-sm font-mono" placeholder="e.g. 40" min={0} max={100} step={0.5} value={form.defaultPercentage} onChange={e => setForm({ ...form, defaultPercentage: e.target.value })} />
+                    </div>
+                  )}
+                  {/* SLAB — no default value, calculated at runtime */}
+                  {form.calculationRule === 'SLAB' && (
+                    <div className="col-span-1 flex items-end pb-1">
+                      <p className="text-xs text-gray-400 italic">Slab-based — calculated at payroll time</p>
+                    </div>
+                  )}
                   <div>
                     <label className="text-xs font-medium text-gray-600 mb-1.5 block">Description</label>
                     <input className="input-glass w-full text-sm" placeholder="Optional description" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />

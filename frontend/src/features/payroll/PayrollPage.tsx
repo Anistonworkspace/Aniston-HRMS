@@ -462,7 +462,7 @@ function PayrollAdminView() {
                               disabled={downloading === `/payroll/runs/${run.id}/export`}
                               className="text-xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-colors"
                             >
-                              {downloading === `/payroll/runs/${run.id}/export` ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />} Excel
+                              {downloading === `/payroll/runs/${run.id}/export` ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />} Payroll
                             </button>
                             <button
                               onClick={() => authDownload(`/payroll/runs/${run.id}/attendance-export`, `attendance-salary-${MONTH_NAMES[run.month - 1]}-${run.year}.xlsx`)}
