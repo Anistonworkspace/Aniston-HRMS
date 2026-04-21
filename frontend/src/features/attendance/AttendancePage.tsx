@@ -490,7 +490,13 @@ function AttendancePersonalView() {
         }
         setGpsAccuracy(pos.coords.accuracy);
       },
-      () => { /* silent — user already on permission-granted screen */ },
+      (err) => {
+        // Location became unavailable while app is open — invalidate the pre-warmed cache
+        // so the next check-in attempt gets a fresh fix (or fails cleanly)
+        bestPosRef.current = null;
+        setGpsAccuracy(null);
+        if (err.code === 1) setLocationStatus('denied');
+      },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 },
     );
     gpsWatchRef.current = watchId;
