@@ -173,14 +173,14 @@ export default function KanbanBoard({ applications, jobId }: KanbanBoardProps) {
       </AnimatePresence>
 
       {/* Board */}
-      <div className="flex gap-3 overflow-x-auto pb-4 custom-scrollbar">
+      <div className="flex gap-3 overflow-x-auto pb-4 custom-scrollbar scroll-smooth snap-x snap-mandatory sm:snap-none -mx-4 sm:mx-0 px-4 sm:px-0">
         {STAGES.map((stage) => {
           const stageApps = applications.filter((a: any) => a.status === stage.key);
           const isOver = dragOverStage === stage.key;
           return (
             <div
               key={stage.key}
-              className={`min-w-[260px] w-[260px] shrink-0 rounded-xl transition-all duration-150 ${isOver ? 'ring-2 ring-brand-400 ring-offset-1 scale-[1.01]' : ''}`}
+              className={`min-w-[260px] w-[260px] shrink-0 rounded-xl transition-all duration-150 snap-start ${isOver ? 'ring-2 ring-brand-400 ring-offset-1 scale-[1.01]' : ''}`}
               onDragOver={e => onDragOver(e, stage.key)}
               onDragLeave={onDragLeave}
               onDrop={e => onDrop(e, stage.key)}

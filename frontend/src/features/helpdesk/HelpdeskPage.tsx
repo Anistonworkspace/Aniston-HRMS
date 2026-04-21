@@ -78,7 +78,7 @@ function HelpdeskManagementView() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         {Object.entries(stats).map(([status, count]) => (
           <button key={status} onClick={() => { setStatusFilter(statusFilter === status ? '' : status); setPage(1); }}
             className={cn('stat-card text-center transition-all', statusFilter === status && 'ring-2 ring-brand-500')}>
@@ -107,6 +107,7 @@ function HelpdeskManagementView() {
 
       {/* Tickets Table */}
       <div className="layer-card overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100">
@@ -163,6 +164,7 @@ function HelpdeskManagementView() {
             ))}
           </tbody>
         </table>
+        </div>
 
         {meta.totalPages > 1 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100">
@@ -362,7 +364,7 @@ function HelpdeskPersonalView() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         {['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'].map(status => (
           <div key={status} className="stat-card text-center">
             <p className="text-lg font-bold font-mono text-gray-900" data-mono>

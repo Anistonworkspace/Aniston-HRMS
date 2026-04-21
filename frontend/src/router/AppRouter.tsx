@@ -4,6 +4,7 @@ import AppUpdateGuard from '../features/app-update/AppUpdateGuard';
 import AppShell from '../components/layout/AppShell';
 import ProtectedRoute from './ProtectedRoute';
 import ErrorBoundary from '../components/ErrorBoundary';
+import RouteErrorBoundary from '../components/layout/RouteErrorBoundary';
 
 // Lazy-loaded pages
 const LoginPage = lazy(() => import('../features/auth/LoginPage'));
@@ -170,7 +171,7 @@ export default function AppRouter() {
           <Route path="/employee-onboarding" element={<ProtectedRoute><EmployeeOnboardingPage /></ProtectedRoute>} />
 
           {/* KYC Gate — no sidebar, just the KYC form */}
-          <Route path="/kyc-pending" element={<ProtectedRoute><KycGatePage /></ProtectedRoute>} />
+          <Route path="/kyc-pending" element={<ProtectedRoute><RouteErrorBoundary pageName="KYC"><KycGatePage /></RouteErrorBoundary></ProtectedRoute>} />
 
           {/* Employee Detail — standalone (no sidebar), restricted to management */}
           <Route path="/employees/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER']}><EmployeeDetailPage /></ProtectedRoute>} />
@@ -192,9 +193,9 @@ export default function AppRouter() {
             <Route path="/attendance/employee/:employeeId" element={<EmployeeAttendanceDetailPage />} />
             <Route path="/activity-tracking" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER']}><ActivityTrackingPage /></ProtectedRoute>} />
             <Route path="/leaves" element={<LeavePage />} />
-            <Route path="/payroll" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN']}><PayrollPage /></ProtectedRoute>} />
+            <Route path="/payroll" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN']}><RouteErrorBoundary pageName="Payroll"><PayrollPage /></RouteErrorBoundary></ProtectedRoute>} />
             <Route path="/salary-templates" element={<Navigate to="/payroll" replace />} />
-            <Route path="/recruitment" element={<RecruitmentPage />} />
+            <Route path="/recruitment" element={<RouteErrorBoundary pageName="Recruitment"><RecruitmentPage /></RouteErrorBoundary>} />
             <Route path="/recruitment/:jobId" element={<JobDetailPage />} />
             <Route path="/recruitment/candidate/:id" element={<CandidateDetailPage />} />
             <Route path="/recruitment/public-applications/:id" element={<PublicApplicationDetailPage />} />
@@ -202,9 +203,9 @@ export default function AppRouter() {
             <Route path="/policies" element={<PoliciesPage />} />
             <Route path="/announcements" element={<AnnouncementsPage />} />
             <Route path="/org-chart" element={<OrgChartPage />} />
-            <Route path="/helpdesk" element={<HelpdeskPage />} />
-            <Route path="/reports" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER']}><ReportsPage /></ProtectedRoute>} />
-            <Route path="/settings" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><SettingsPage /></ProtectedRoute>} />
+            <Route path="/helpdesk" element={<RouteErrorBoundary pageName="Helpdesk"><HelpdeskPage /></RouteErrorBoundary>} />
+            <Route path="/reports" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER']}><RouteErrorBoundary pageName="Reports"><ReportsPage /></RouteErrorBoundary></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><RouteErrorBoundary pageName="Settings"><SettingsPage /></RouteErrorBoundary></ProtectedRoute>} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/roster" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><RosterPage /></ProtectedRoute>} />
             <Route path="/hiring-passed" element={<HiringPassedPage />} />

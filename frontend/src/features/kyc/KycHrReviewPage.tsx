@@ -712,21 +712,23 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
   return (
     <div className="max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-4">
-        <button onClick={onBack} className="p-2 rounded-lg hover:bg-white/50 transition-colors">
-          <ArrowLeft className="w-5 h-5 text-slate-600" />
-        </button>
-        <div className="flex-1">
-          <h1 className="text-xl font-bold text-slate-900 font-sora">
-            KYC Review — {employeeName}
-          </h1>
-          <p className="text-sm text-slate-500">{employee?.employeeCode} · {employee?.email}</p>
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            <StatusBadge status={gate?.kycStatus} />
-            <ProcessingModeBadge mode={gate?.processingMode} />
+      <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-4">
+        <div className="flex items-start gap-3 flex-1">
+          <button onClick={onBack} className="p-2 rounded-lg hover:bg-white/50 transition-colors shrink-0 mt-0.5">
+            <ArrowLeft className="w-5 h-5 text-slate-600" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl font-bold text-slate-900 font-sora">
+              KYC Review — {employeeName}
+            </h1>
+            <p className="text-sm text-slate-500">{employee?.employeeCode} · {employee?.email}</p>
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              <StatusBadge status={gate?.kycStatus} />
+              <ProcessingModeBadge mode={gate?.processingMode} />
+            </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 shrink-0">
           <button
             onClick={handleRetriggerOcr}
             disabled={retriggering || reclassifying}
@@ -1751,7 +1753,7 @@ export default function KycHrReviewPage() {
         )}
 
         {/* Table */}
-        <div className="layer-card overflow-hidden">
+        <div className="layer-card overflow-x-auto">
           {isLoading ? (
             <div className="flex items-center justify-center h-48">
               <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
@@ -1763,7 +1765,7 @@ export default function KycHrReviewPage() {
               <p className="text-slate-400 text-sm mt-1">No pending KYC submissions.</p>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="min-w-full">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/50">
                   <th className="px-4 py-3 w-10">

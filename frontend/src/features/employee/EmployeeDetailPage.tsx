@@ -124,7 +124,7 @@ export default function EmployeeDetailPage() {
   return (
     <div className="min-h-screen bg-surface-1">
       {/* Top breadcrumb bar */}
-      <div className="bg-white border-b border-gray-100 px-6 py-3">
+      <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3">
         <div className="flex items-center gap-2 text-sm">
           <button onClick={() => navigate('/employees')} className="text-gray-400 hover:text-brand-600 transition-colors flex items-center gap-1">
             <ArrowLeft size={14} /> {t('employees.breadcrumb')}
@@ -135,7 +135,7 @@ export default function EmployeeDetailPage() {
       </div>
 
       {/* Main content — 2-column layout */}
-      <div className="flex gap-0 h-[calc(100dvh-49px)]">
+      <div className="flex gap-0 min-h-[calc(100dvh-49px)] lg:h-[calc(100dvh-49px)]">
         {/* Left sidebar — Profile card */}
         <div className="w-64 shrink-0 border-r border-gray-100 bg-white p-5 overflow-y-auto hidden lg:block">
           <div className="flex flex-col items-center mb-5">
@@ -295,7 +295,7 @@ export default function EmployeeDetailPage() {
         </div>
 
         {/* Right content area */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto min-w-0">
           {/* Mobile profile header */}
           <div className="lg:hidden p-4 bg-white border-b border-gray-100">
             <div className="flex items-center gap-3">
@@ -316,8 +316,8 @@ export default function EmployeeDetailPage() {
           </div>
 
           {/* Tabs */}
-          <div className="bg-white border-b border-gray-100 px-6">
-            <div className="flex gap-0 overflow-x-auto">
+          <div className="bg-white border-b border-gray-100 px-4 sm:px-6">
+            <div className="flex gap-0 overflow-x-auto scrollbar-hide">
               {tabs.map((tab) => (
                 <button
                   key={tab.key}
@@ -335,7 +335,7 @@ export default function EmployeeDetailPage() {
           </div>
 
           {/* Tab content */}
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             {activeTab === 'attendance' && (
               <div className="space-y-4">
                 {/* Shift Assignment */}

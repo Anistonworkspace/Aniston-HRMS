@@ -148,6 +148,7 @@ export default function AssetManagementPage() {
             </div>
           ) : (
             <div className="layer-card overflow-hidden">
+              <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/50">
@@ -230,6 +231,7 @@ export default function AssetManagementPage() {
                 </tbody>
               </table>
 
+              </div>
               {meta && meta.totalPages > 1 && (
                 <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
                   <p className="text-xs text-gray-400">Page {meta.page} of {meta.totalPages} ({meta.total} total)</p>
@@ -875,6 +877,7 @@ function AssetDetailModal({ asset, onClose }: { asset: any; onClose: () => void 
             <p className="text-sm text-gray-400 italic">No assignment history</p>
           ) : (
             <div className="border border-gray-100 rounded-xl overflow-hidden">
+              <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-gray-50">
@@ -908,6 +911,7 @@ function AssetDetailModal({ asset, onClose }: { asset: any; onClose: () => void 
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </div>

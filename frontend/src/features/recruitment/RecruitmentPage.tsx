@@ -193,13 +193,13 @@ function JobOpeningsTab() {
 
   return (
     <>
-      <div className="flex items-center gap-3 mb-6">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
+        <div className="relative flex-1 sm:max-w-sm">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="Search jobs..." className="input-glass w-full pl-9 text-sm" />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {['', 'OPEN', 'DRAFT', 'CLOSED'].map((s) => (
             <button key={s} onClick={() => setStatusFilter(s)}
               className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
@@ -208,7 +208,7 @@ function JobOpeningsTab() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
           <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
             onClick={() => setShowBulkUpload(true)} className="btn-secondary flex items-center gap-2">
             <Upload size={16} /> {t('common.upload')}
@@ -884,7 +884,7 @@ function HiringPassedTab() {
   return (
     <>
       {/* Summary KPI Strip */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         {[
           { label: 'Total Selected', value: summary?.total ?? 0, color: 'text-gray-700', bg: 'bg-gray-50', icon: Award },
           { label: 'Pending Onboarding', value: summary?.pendingOnboarding ?? 0, color: 'text-amber-700', bg: 'bg-amber-50', icon: AlertCircle },

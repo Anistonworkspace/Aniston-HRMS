@@ -161,12 +161,12 @@ export default function SalaryComponentsTab() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h3 className="text-lg font-semibold text-gray-800">Salary Components</h3>
           <p className="text-xs text-gray-500 mt-0.5">Manage your organization's salary component library</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {hasLegacyComponents && (
             <button onClick={handleCleanupLegacy} disabled={cleaningUp}
               className="btn-secondary text-xs flex items-center gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50"
@@ -182,7 +182,7 @@ export default function SalaryComponentsTab() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 sm:grid-cols-3 gap-4">
         <div className="layer-card p-4 text-center">
           <DollarSign size={16} className="mx-auto text-emerald-500 mb-1" />
           <p className="text-xl font-bold font-mono" data-mono>{earningCount}</p>
@@ -216,7 +216,7 @@ export default function SalaryComponentsTab() {
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
               onClick={e => e.stopPropagation()}
-              className="relative w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden bg-white"
+              className="relative w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden bg-white max-h-[90vh] flex flex-col"
             >
               {/* Modal Header */}
               <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
@@ -228,8 +228,8 @@ export default function SalaryComponentsTab() {
               </div>
 
               {/* Modal Body */}
-              <div className="p-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs font-medium text-gray-600 mb-1.5 block">Component Name *</label>
                     <input className="input-glass w-full text-sm" placeholder="e.g. Night Premium" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
@@ -310,7 +310,7 @@ export default function SalaryComponentsTab() {
       </AnimatePresence>
 
       {/* Search & Filter */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
         <div className="relative flex-1 max-w-xs">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Search components..." className="input-glass text-sm py-2 pl-8 pr-3 w-full" />
@@ -331,8 +331,8 @@ export default function SalaryComponentsTab() {
           <p className="text-sm text-gray-500">No components found</p>
         </div>
       ) : (
-        <div className="data-table">
-          <table className="w-full">
+        <div className="data-table overflow-x-auto -mx-0">
+          <table className="min-w-full">
             <thead>
               <tr className="border-b border-gray-100">
                 <th className="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Component</th>

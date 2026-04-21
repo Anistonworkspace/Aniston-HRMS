@@ -33,6 +33,25 @@ export function connectSocket(token: string) {
     }
   });
 
+  // Server warns ~60s before JWT access token expires so we can refresh & reconnect
+  // before the socket session silently goes stale for long-lived sessions.
+  socket.on('token:expire-soon', () => {
+    if (import.meta.env.DEV) console.log('[Socket] Token expiring soon — refreshing and reconnecting');
+    // Fire the RTK Query refresh endpoint; on success update socket auth token.
+    import('../app/api').then(({ baseApi }) =>
+      import('../app/store').then(({ store }) => {
+        store.dispatch(baseApi.util.invalidateTags(['Auth']) as any);
+        setTimeout(() => {
+          const newToken = store.getState().auth?.accessToken;
+          if (newToken && socket) {
+            (socket as any).auth = { token: newToken };
+            socket!.disconnect().connect();
+          }
+        }, 500); // small delay for the invalidation + re-fetch to settle
+      })
+    ).catch(() => { /* non-critical — socket reconnects naturally on next user action */ });
+  });
+
   socket.on('disconnect', (reason) => {
     if (import.meta.env.DEV) console.log('[Socket] Disconnected:', reason);
   });

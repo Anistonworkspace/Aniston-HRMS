@@ -253,7 +253,7 @@ export default function LoginPage() {
                     </div>
                   ) : (
                     /* 6-box TOTP input */
-                    <div className="flex gap-3 justify-center">
+                    <div className="flex gap-2 sm:gap-3 justify-center">
                       {mfaCode.map((digit, i) => (
                         <input
                           key={i}
@@ -272,7 +272,7 @@ export default function LoginPage() {
                               mfaInputRefs.current[5]?.focus();
                             }
                           }}
-                          className={`w-12 h-14 text-center text-xl font-mono font-bold border-2 rounded-xl transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 ${
+                          className={`w-10 h-12 sm:w-12 sm:h-14 text-center text-lg sm:text-xl font-mono font-bold border-2 rounded-xl transition-all focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 ${
                             mfaError ? 'border-red-400 bg-red-50' : 'border-gray-300 bg-white'
                           }`}
                         />
