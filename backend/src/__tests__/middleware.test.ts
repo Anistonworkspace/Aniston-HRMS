@@ -11,12 +11,34 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
 
-// ── env stubs — must precede module imports ────────────────────────────────────
-process.env.JWT_SECRET = 'test-secret-key-that-is-at-least-32-characters-long';
-process.env.JWT_REFRESH_SECRET = 'test-refresh-secret-that-is-at-least-32-chars';
-process.env.ENCRYPTION_KEY = 'test-encryption-key-at-least-32-chars-long!!';
-process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
-process.env.NODE_ENV = 'test';
+// ── env stubs ─────────────────────────────────────────────────────────────────
+// ESM hoists import statements before any regular code runs, so process.env
+// assignments here execute AFTER the env module is already loaded. In CI the
+// real JWT_SECRET env var differs from the value we sign tokens with, causing
+// signature mismatches. Mock the env module directly so auth.middleware picks
+// up a known secret regardless of the CI environment.
+const TEST_JWT_SECRET = 'test-secret-key-that-is-at-least-32-characters-long';
+
+vi.mock('../config/env.js', () => ({
+  env: {
+    JWT_SECRET: 'test-secret-key-that-is-at-least-32-characters-long',
+    JWT_REFRESH_SECRET: 'test-refresh-secret-that-is-at-least-32-chars-long',
+    ENCRYPTION_KEY: 'test-encryption-key-at-least-32-chars-long!!',
+    DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+    NODE_ENV: 'test',
+    PORT: 4000,
+    REDIS_URL: 'redis://localhost:6379',
+    FRONTEND_URL: 'http://localhost:5173',
+    API_URL: 'http://localhost:4000',
+    AI_SERVICE_URL: 'http://localhost:8000',
+    STORAGE_BUCKET: 'aniston-hrms',
+    SMTP_HOST: 'smtp.office365.com',
+    SMTP_PORT: 587,
+    SMTP_FROM: 'noreply@aniston.in',
+    JWT_ACCESS_EXPIRY: '15m',
+    JWT_REFRESH_EXPIRY: '7d',
+  },
+}));
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 vi.mock('../lib/prisma.js', () => ({
@@ -88,9 +110,9 @@ function makeNext(): NextFunction {
   return vi.fn() as unknown as NextFunction;
 }
 
-/** Build a signed JWT for middleware tests (uses the test secret). */
+/** Build a signed JWT for middleware tests (uses the mocked test secret). */
 function signToken(payload: Record<string, any>, expiresIn = '1h') {
-  return jwt.sign(payload, process.env.JWT_SECRET!, { expiresIn } as any);
+  return jwt.sign(payload, TEST_JWT_SECRET, { expiresIn } as any);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
