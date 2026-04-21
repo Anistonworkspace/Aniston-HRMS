@@ -171,8 +171,8 @@ export class DocumentService {
           entity: 'Document',
           entityId: id,
           action: 'DELETE',
-          description: `Document "${doc.name}" (type: ${doc.type}) deleted by HR/Admin`,
           oldValue: { name: doc.name, type: doc.type, fileUrl: doc.fileUrl, status: doc.status },
+          newValue: { description: `Document "${doc.name}" (type: ${doc.type}) deleted by HR/Admin` },
         });
       } catch { /* audit log failure should not block deletion */ }
     }

@@ -187,15 +187,14 @@ router.put('/policy', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (r
 
     // Audit log for policy changes
     try {
-      const { auditLogger } = await import('../../utils/auditLogger.js');
-      await auditLogger.log({
+      const { createAuditLog } = await import('../../utils/auditLogger.js');
+      await createAuditLog({
         action: 'UPDATE',
         entity: 'AttendancePolicy',
         entityId: policy.id,
-        userId: req.user!.id,
+        userId: req.user!.userId,
         organizationId: req.user!.organizationId,
-        changes: data,
-        description: 'Attendance policy updated',
+        newValue: { ...data, description: 'Attendance policy updated' },
       });
     } catch { /* audit log failure should not block policy save */ }
 

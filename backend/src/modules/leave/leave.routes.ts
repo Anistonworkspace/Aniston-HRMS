@@ -1,7 +1,17 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { leaveController } from './leave.controller.js';
 import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
+
+// Reusable query schemas for inline route handlers
+const yearQuerySchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100).optional(),
+});
+const searchYearQuerySchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100).optional(),
+  search: z.string().max(100).optional(),
+});
 
 const router = Router();
 router.use(authenticate);
@@ -116,10 +126,14 @@ router.get(
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
     try {
+      const parsed = searchYearQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, error: { code: 'INVALID_QUERY', message: parsed.error.errors[0]?.message ?? 'Invalid query parameters' } });
+      }
       const { prisma: db } = await import('../../lib/prisma.js');
       const orgId = req.user!.organizationId;
-      const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
-      const search = (req.query.search as string || '').toLowerCase();
+      const year = parsed.data.year ?? new Date().getFullYear();
+      const search = (parsed.data.search ?? '').toLowerCase();
 
       const employees = await db.employee.findMany({
         where: {
@@ -217,10 +231,14 @@ router.get(
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
     try {
+      const parsed = yearQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, error: { code: 'INVALID_QUERY', message: parsed.error.errors[0]?.message ?? 'Invalid query parameters' } });
+      }
       const { prisma: db } = await import('../../lib/prisma.js');
       const orgId = req.user!.organizationId;
       const { employeeId } = req.params;
-      const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
+      const year = parsed.data.year ?? new Date().getFullYear();
 
       const employee = await db.employee.findFirst({
         where: { id: employeeId, organizationId: orgId, deletedAt: null },

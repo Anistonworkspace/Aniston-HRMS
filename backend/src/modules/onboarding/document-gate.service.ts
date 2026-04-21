@@ -475,8 +475,8 @@ export class DocumentGateService {
         select: { userId: true, organizationId: true, firstName: true, lastName: true, user: { select: { email: true } } },
       });
       if (emp?.user?.email) {
-        const { addEmailJob } = await import('../../jobs/queues.js');
-        await addEmailJob({
+        const { enqueueEmail } = await import('../../jobs/queues.js');
+        await enqueueEmail({
           to: emp.user.email,
           subject: '✅ KYC Verified — Your Aniston HRMS Portal Access is Now Active',
           template: 'kyc-verified',
@@ -514,13 +514,13 @@ export class DocumentGateService {
         include: { user: { select: { email: true } } },
       });
       if (emp?.user?.email) {
-        const { addEmailJob } = await import('../../jobs/queues.js');
-        await addEmailJob({
+        const { enqueueEmail } = await import('../../jobs/queues.js');
+        await enqueueEmail({
           to: emp.user.email,
           subject: 'KYC Verification — Action Required',
           template: 'kyc-rejected',
           context: {
-            employeeName: [emp.firstName, emp.lastName].filter(Boolean).join(' ') || emp.name || 'Employee',
+            employeeName: [emp.firstName, emp.lastName].filter(Boolean).join(' ') || 'Employee',
             rejectionReason: reason,
             rejectedAt: new Date().toLocaleDateString('en-IN', { dateStyle: 'long' }),
           },

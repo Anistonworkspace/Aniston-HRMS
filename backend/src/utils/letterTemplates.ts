@@ -185,7 +185,7 @@ Organization: ${data.organization}`;
 
     const aiResponse = await aiService.prompt(organizationId, systemPrompt, userPrompt, 1024);
 
-    const content = aiResponse.content || '';
+    const content = aiResponse.data || '';
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
 

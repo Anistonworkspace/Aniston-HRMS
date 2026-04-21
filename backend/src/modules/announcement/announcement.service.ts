@@ -2,24 +2,32 @@ import { prisma } from '../../lib/prisma.js';
 import { emitToOrg } from '../../sockets/index.js';
 import { NotFoundError, AppError } from '../../middleware/errorHandler.js';
 import { logger } from '../../lib/logger.js';
-import type { CreateAnnouncementInput, UpdateAnnouncementInput, CreateSocialPostInput, CreateSocialCommentInput } from './announcement.validation.js';
+import type { CreateAnnouncementInput, UpdateAnnouncementInput, CreateSocialPostInput, CreateSocialCommentInput, ListAnnouncementsQuery, ListSocialPostsQuery } from './announcement.validation.js';
 
 // Helper to look up user display info
 const userSelect = { id: true, email: true, employee: { select: { firstName: true, lastName: true, avatar: true } } };
 
 export class AnnouncementService {
-  async list(organizationId: string) {
-    const announcements = await prisma.announcement.findMany({
-      where: {
-        organizationId,
-        OR: [
-          { expiresAt: null },
-          { expiresAt: { gte: new Date() } },
-        ],
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
+  async list(organizationId: string, query: ListAnnouncementsQuery = { page: 1, limit: 20 }) {
+    const { page, limit } = query;
+    const skip = (page - 1) * limit;
+    const where = {
+      organizationId,
+      OR: [
+        { expiresAt: null },
+        { expiresAt: { gte: new Date() } },
+      ],
+    };
+
+    const [announcements, total] = await Promise.all([
+      prisma.announcement.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.announcement.count({ where }),
+    ]);
 
     // Enrich with author info
     const userIds = [...new Set(announcements.map(a => a.createdBy))];
@@ -27,10 +35,20 @@ export class AnnouncementService {
       .catch((err: any) => { logger.warn('[Announcement] Failed to fetch authors:', err.message); return []; });
     const userMap = new Map(users.map(u => [u.id, u]));
 
-    return announcements.map(a => ({
-      ...a,
-      author: userMap.get(a.createdBy) || null,
-    }));
+    return {
+      data: announcements.map(a => ({
+        ...a,
+        author: userMap.get(a.createdBy) || null,
+      })),
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
+      },
+    };
   }
 
   async create(data: CreateAnnouncementInput, organizationId: string, userId: string) {
@@ -72,17 +90,25 @@ export class AnnouncementService {
   // SOCIAL WALL
   // ==================
 
-  async listSocialPosts(organizationId: string, userId: string) {
-    const posts = await prisma.socialPost.findMany({
-      where: { organizationId },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-      include: {
-        comments: { orderBy: { createdAt: 'asc' }, take: 20 },
-        likes: { where: { userId }, select: { id: true } },
-        _count: { select: { comments: true, likes: true } },
-      },
-    });
+  async listSocialPosts(organizationId: string, userId: string, query: ListSocialPostsQuery = { page: 1, limit: 20 }) {
+    const { page, limit } = query;
+    const skip = (page - 1) * limit;
+    const where = { organizationId };
+
+    const [posts, total] = await Promise.all([
+      prisma.socialPost.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          comments: { orderBy: { createdAt: 'asc' }, take: 20 },
+          likes: { where: { userId }, select: { id: true } },
+          _count: { select: { comments: true, likes: true } },
+        },
+      }),
+      prisma.socialPost.count({ where }),
+    ]);
 
     // Enrich posts and comments with author info
     const authorIds = new Set<string>();
@@ -94,16 +120,26 @@ export class AnnouncementService {
       .catch((err: any) => { logger.warn('[Announcement] Failed to fetch post authors:', err.message); return []; });
     const userMap = new Map(users.map(u => [u.id, u]));
 
-    return posts.map(p => ({
-      ...p,
-      author: userMap.get(p.authorId) || null,
-      likedByMe: p.likes.length > 0,
-      likes: undefined, // strip raw likes array
-      comments: p.comments.map(c => ({
-        ...c,
-        author: userMap.get(c.authorId) || null,
+    return {
+      data: posts.map(p => ({
+        ...p,
+        author: userMap.get(p.authorId) || null,
+        likedByMe: p.likes.length > 0,
+        likes: undefined, // strip raw likes array
+        comments: p.comments.map(c => ({
+          ...c,
+          author: userMap.get(c.authorId) || null,
+        })),
       })),
-    }));
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
+      },
+    };
   }
 
   async createSocialPost(data: CreateSocialPostInput, organizationId: string, userId: string) {

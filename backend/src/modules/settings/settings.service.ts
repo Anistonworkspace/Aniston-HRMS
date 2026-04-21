@@ -79,7 +79,7 @@ export class SettingsService {
     const { page, limit, entity } = query;
     const skip = (page - 1) * limit;
 
-    const where: any = { organizationId };
+    const where: { organizationId: string; entity?: string } = { organizationId };
     if (entity) where.entity = entity;
 
     const [logs, total] = await Promise.all([
@@ -139,7 +139,7 @@ export class SettingsService {
     };
   }
 
-  async saveEmailConfig(organizationId: string, config: any, userId: string) {
+  async saveEmailConfig(organizationId: string, config: Record<string, unknown>, userId: string) {
     // Validate email config fields before saving
     const emailConfigSchema = z.object({
       authMethod: z.enum(['smtp', 'oauth2']).default('smtp'),
@@ -176,7 +176,7 @@ export class SettingsService {
     const existingSettings = (org?.settings as any) || {};
     const existingEmail = existingSettings.email || {};
 
-    const emailConfig: any = {
+    const emailConfig: Record<string, unknown> = {
       authMethod: parsed.data.authMethod,
       // SMTP fields
       host: parsed.data.host || existingEmail.host || '',
@@ -194,14 +194,14 @@ export class SettingsService {
     };
 
     // Also save payrollEmail if provided (stored on Organization model directly)
-    const updateData: any = { settings: { ...existingSettings, email: emailConfig } };
+    const updateData: Record<string, unknown> = { settings: { ...existingSettings, email: emailConfig } };
     if (config.payrollEmail !== undefined) {
-      updateData.payrollEmail = config.payrollEmail || null;
+      updateData['payrollEmail'] = config.payrollEmail || null;
     }
 
     await prisma.organization.update({
       where: { id: organizationId },
-      data: updateData,
+      data: updateData as Parameters<typeof prisma.organization.update>[0]['data'],
     });
 
     await createAuditLog({
@@ -210,7 +210,7 @@ export class SettingsService {
       entity: 'EmailConfig',
       entityId: organizationId,
       action: 'UPDATE',
-      newValue: { authMethod: emailConfig.authMethod, host: config.host, user: config.user, fromAddress: config.fromAddress, senderEmail: config.senderEmail, payrollEmail: config.payrollEmail },
+      newValue: { authMethod: emailConfig['authMethod'], host: config['host'], user: config['user'], fromAddress: config['fromAddress'], senderEmail: config['senderEmail'], payrollEmail: config['payrollEmail'] } as Record<string, unknown>,
     });
 
     return { success: true };
@@ -340,7 +340,7 @@ export class SettingsService {
     const existingSettings = (org?.settings as any) || {};
     const existingTeams = existingSettings.microsoftTeams || {};
 
-    const teamsConfig: any = {
+    const teamsConfig: Record<string, unknown> = {
       tenantId: config.tenantId,
       clientId: config.clientId,
       clientSecret: config.clientSecret ? encrypt(config.clientSecret) : existingTeams.clientSecret || '',

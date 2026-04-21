@@ -24,6 +24,7 @@
 
 import path from 'path';
 import fs from 'fs';
+import { env } from '../config/env.js';
 
 // ---------------------------------------------------------------------------
 // Folder constants
@@ -159,8 +160,9 @@ class S3StorageService {
   }
 
   buildUrl(bucket: string, key: string): string {
-    // TODO: return signed URL or CDN URL
-    throw new Error(`S3StorageService: buildUrl() not yet implemented. bucket=${bucket} key=${key}`);
+    // S3 public URL — for signed/CDN URLs configure STORAGE_ENDPOINT with a CDN prefix
+    const endpoint = env.STORAGE_ENDPOINT ?? `https://${bucket}.s3.amazonaws.com`;
+    return `${endpoint.replace(/\/$/, '')}/${key}`;
   }
 
   resolvePath(_relativeUrl: string): string {

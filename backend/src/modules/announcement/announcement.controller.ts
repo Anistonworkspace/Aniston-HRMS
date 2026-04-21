@@ -1,12 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { announcementService } from './announcement.service.js';
-import { createAnnouncementSchema, updateAnnouncementSchema, createSocialPostSchema, createSocialCommentSchema } from './announcement.validation.js';
+import { createAnnouncementSchema, updateAnnouncementSchema, createSocialPostSchema, createSocialCommentSchema, listAnnouncementsQuerySchema, listSocialPostsQuerySchema } from './announcement.validation.js';
 
 export class AnnouncementController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const announcements = await announcementService.list(req.user!.organizationId);
-      res.json({ success: true, data: announcements });
+      const query = listAnnouncementsQuerySchema.parse(req.query);
+      const result = await announcementService.list(req.user!.organizationId, query);
+      res.json({ success: true, data: result.data, meta: result.meta });
     } catch (err) {
       next(err);
     }
@@ -47,8 +48,9 @@ export class AnnouncementController {
 
   async listSocialPosts(req: Request, res: Response, next: NextFunction) {
     try {
-      const posts = await announcementService.listSocialPosts(req.user!.organizationId, req.user!.userId);
-      res.json({ success: true, data: posts });
+      const query = listSocialPostsQuerySchema.parse(req.query);
+      const result = await announcementService.listSocialPosts(req.user!.organizationId, req.user!.userId, query);
+      res.json({ success: true, data: result.data, meta: result.meta });
     } catch (err) {
       next(err);
     }

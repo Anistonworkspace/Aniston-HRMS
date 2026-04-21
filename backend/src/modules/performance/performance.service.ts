@@ -11,6 +11,9 @@ import type {
   UpdateGoalInput,
   CreateReviewInput,
   UpdateReviewInput,
+  GoalQuery,
+  ReviewQuery,
+  CycleQuery,
 } from './performance.validation.js';
 
 export class PerformanceService {
@@ -18,13 +21,33 @@ export class PerformanceService {
   // REVIEW CYCLES
   // ==================
 
-  async listCycles(organizationId: string) {
-    const cycles = await prisma.reviewCycle.findMany({
-      where: { organizationId },
-      orderBy: { startDate: 'desc' },
-      include: { _count: { select: { reviews: true, goals: true } } },
-    });
-    return cycles;
+  async listCycles(organizationId: string, query: CycleQuery = { page: 1, limit: 20 }) {
+    const { page, limit } = query;
+    const skip = (page - 1) * limit;
+    const where = { organizationId };
+
+    const [cycles, total] = await Promise.all([
+      prisma.reviewCycle.findMany({
+        where,
+        orderBy: { startDate: 'desc' },
+        skip,
+        take: limit,
+        include: { _count: { select: { reviews: true, goals: true } } },
+      }),
+      prisma.reviewCycle.count({ where }),
+    ]);
+
+    return {
+      data: cycles,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
+      },
+    };
   }
 
   async createCycle(data: CreateReviewCycleInput, organizationId: string) {
@@ -53,12 +76,32 @@ export class PerformanceService {
   // GOALS
   // ==================
 
-  async listGoals(employeeId: string, organizationId: string) {
-    const goals = await prisma.goal.findMany({
-      where: { employeeId, organizationId },
-      orderBy: { createdAt: 'desc' },
-    });
-    return goals;
+  async listGoals(employeeId: string, organizationId: string, query: GoalQuery = { page: 1, limit: 20 }) {
+    const { page, limit } = query;
+    const skip = (page - 1) * limit;
+    const where = { employeeId, organizationId };
+
+    const [goals, total] = await Promise.all([
+      prisma.goal.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.goal.count({ where }),
+    ]);
+
+    return {
+      data: goals,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
+      },
+    };
   }
 
   async createGoal(data: CreateGoalInput, organizationId: string) {
@@ -68,7 +111,7 @@ export class PerformanceService {
         targetValue: data.targetValue || null,
         dueDate: data.dueDate ? new Date(data.dueDate) : null,
         organizationId,
-      },
+      } as any,
     });
     return goal;
   }
@@ -90,16 +133,37 @@ export class PerformanceService {
   // REVIEWS
   // ==================
 
-  async listReviews(employeeId: string, organizationId: string) {
+  async listReviews(employeeId: string, organizationId: string, query: ReviewQuery = { page: 1, limit: 20 }) {
     // Verify employee belongs to org
     const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId } });
     if (!employee) throw new NotFoundError('Employee');
-    const reviews = await prisma.performanceReview.findMany({
-      where: { employeeId, reviewCycle: { organizationId } },
-      orderBy: { createdAt: 'desc' },
-      include: { reviewCycle: { select: { name: true, type: true } } },
-    });
-    return reviews;
+
+    const { page, limit } = query;
+    const skip = (page - 1) * limit;
+    const where = { employeeId, reviewCycle: { organizationId } };
+
+    const [reviews, total] = await Promise.all([
+      prisma.performanceReview.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: { reviewCycle: { select: { name: true, type: true } } },
+      }),
+      prisma.performanceReview.count({ where }),
+    ]);
+
+    return {
+      data: reviews,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
+      },
+    };
   }
 
   async createReview(data: CreateReviewInput, reviewerId: string, organizationId: string) {

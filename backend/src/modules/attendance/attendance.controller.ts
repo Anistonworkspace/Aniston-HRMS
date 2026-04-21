@@ -6,6 +6,7 @@ import {
   gpsTrailBatchSchema,
   regularizationSchema,
   attendanceQuerySchema,
+  anomalyQuerySchema,
   startBreakSchema,
   markAttendanceSchema,
 } from './attendance.validation.js';
@@ -277,15 +278,7 @@ export class AttendanceController {
 
   async getAnomalies(req: Request, res: Response, next: NextFunction) {
     try {
-      const query = {
-        date: req.query.date as string,
-        type: req.query.type as string,
-        severity: req.query.severity as string,
-        resolution: req.query.resolution as string,
-        employeeId: req.query.employeeId as string,
-        page: parseInt(req.query.page as string) || 1,
-        limit: parseInt(req.query.limit as string) || 25,
-      };
+      const query = anomalyQuerySchema.parse(req.query);
       const result = await attendanceService.getAnomalies(req.user!.organizationId, query);
       res.json({ success: true, ...result });
     } catch (err) { next(err); }
@@ -295,7 +288,7 @@ export class AttendanceController {
     try {
       const { id } = req.params;
       const { resolution, remarks } = req.body;
-      const result = await attendanceService.resolveAnomaly(id, req.user!.organizationId, resolution, req.user!.id, remarks);
+      const result = await attendanceService.resolveAnomaly(id, req.user!.organizationId, resolution, req.user!.userId, remarks);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }

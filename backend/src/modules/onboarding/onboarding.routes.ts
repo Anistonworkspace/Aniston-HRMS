@@ -163,7 +163,7 @@ router.get('/kyc/me', authenticate,
       // Auto-create gate if it doesn't exist (e.g., first visit to KYC page)
       let gate = await documentGateService.getGate(employeeId);
       if (!gate) {
-        gate = await documentGateService.createGate(employeeId);
+        await documentGateService.createGate(employeeId);
         // Re-fetch with relations
         gate = await documentGateService.getGate(employeeId);
       }
@@ -716,14 +716,14 @@ router.post('/kyc/:employeeId/revoke-kyc', authenticate, authorize(Role.SUPER_AD
         userId: req.user!.userId,
         organizationId: req.user!.organizationId,
         action: 'KYC_REVOKED',
-        entityType: 'KYC',
+        entity: 'KYC',
         entityId: employeeId,
-        details: { reason: req.body.reason || 'HR revoked KYC access', revokedBy: req.user!.userId },
+        newValue: { reason: req.body.reason || 'HR revoked KYC access', revokedBy: req.user!.userId },
       });
 
       // Emit real-time revocation — AppShell listener will immediately lock the employee out
-      const { getIo } = await import('../../sockets/index.js');
-      const io = getIo();
+      const { getIO } = await import('../../sockets/index.js');
+      const io = getIO();
       if (io) {
         io.to(`employee:${employeeId}`).emit('kyc:status-changed', { kycStatus: 'PENDING_HR_REVIEW', kycCompleted: false });
       }
@@ -742,12 +742,12 @@ router.get('/kyc/:employeeId/audit-log', authenticate, authorize(Role.SUPER_ADMI
       const { prisma } = await import('../../lib/prisma.js');
       const employeeId = req.params.employeeId as string;
 
-      // Fetch from AuditLog where entityType = 'KYC' and entityId = employeeId
+      // Fetch from AuditLog where entity = 'KYC' and entityId = employeeId
       const logs = await prisma.auditLog.findMany({
         where: {
           OR: [
-            { entityType: 'KYC', entityId: employeeId },
-            { entityType: 'DOCUMENT', entityId: employeeId },
+            { entity: 'KYC', entityId: employeeId },
+            { entity: 'DOCUMENT', entityId: employeeId },
           ],
           organizationId: req.user!.organizationId,
         },
@@ -756,15 +756,14 @@ router.get('/kyc/:employeeId/audit-log', authenticate, authorize(Role.SUPER_ADMI
         select: {
           id: true,
           action: true,
-          entityType: true,
+          entity: true,
           entityId: true,
-          details: true,
+          newValue: true,
           createdAt: true,
           userId: true,
           user: {
             select: {
               id: true,
-              name: true,
               email: true,
               role: true,
             },

@@ -85,6 +85,17 @@ export const attendancePolicySchema = z.object({
 export type MarkAttendanceInput = z.infer<typeof markAttendanceSchema>;
 export type ClockInInput = z.infer<typeof clockInSchema>;
 export type ClockOutInput = z.infer<typeof clockOutSchema>;
+export const anomalyQuerySchema = z.object({
+  date: z.string().optional(),
+  type: z.string().optional(),
+  severity: z.string().optional(),
+  resolution: z.string().optional(),
+  employeeId: z.string().uuid().optional(),
+  page: z.coerce.number().min(1).default(1),
+  limit: z.coerce.number().min(1).max(100).default(25),
+});
+
 export type GPSTrailBatchInput = z.infer<typeof gpsTrailBatchSchema>;
 export type RegularizationInput = z.infer<typeof regularizationSchema>;
 export type AttendanceQuery = z.infer<typeof attendanceQuerySchema>;
+export type AnomalyQuery = z.infer<typeof anomalyQuerySchema>;

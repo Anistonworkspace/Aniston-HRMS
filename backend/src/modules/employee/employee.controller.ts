@@ -212,7 +212,7 @@ export class EmployeeController {
           lastName: true,
           employeeCode: true,
           managerId: true,
-          profilePhoto: true,
+          avatar: true,
           workMode: true,
           status: true,
           department: { select: { id: true, name: true } },
@@ -227,7 +227,7 @@ export class EmployeeController {
         employeeCode: string;
         title: string | null;
         department: string | null;
-        profilePhoto: string | null;
+        avatar: string | null;
         workMode: string;
         status: string;
         children: OrgNode[];
@@ -241,7 +241,7 @@ export class EmployeeController {
           employeeCode: emp.employeeCode,
           title: emp.designation?.name ?? null,
           department: emp.department?.name ?? null,
-          profilePhoto: emp.profilePhoto,
+          avatar: emp.avatar,
           workMode: emp.workMode,
           status: emp.status,
           children: [],

@@ -72,7 +72,6 @@ export class HelpdeskService {
           where: {
             organizationId,
             role: { in: ['HR', 'ADMIN', 'SUPER_ADMIN'] },
-            deletedAt: null,
           },
           select: { email: true },
         }),
@@ -197,7 +196,7 @@ export class HelpdeskService {
         } else {
           // Employee commented → notify HR/Admin
           const hrUsers = await prisma.user.findMany({
-            where: { organizationId, role: { in: ['HR', 'ADMIN', 'SUPER_ADMIN'] }, deletedAt: null },
+            where: { organizationId, role: { in: ['HR', 'ADMIN', 'SUPER_ADMIN'] } },
             select: { email: true },
           });
           const employeeName = ticket.employee

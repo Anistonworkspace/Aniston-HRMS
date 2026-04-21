@@ -50,10 +50,19 @@ export const updateReviewSchema = z.object({
 
 export const goalQuerySchema = z.object({
   employeeId: z.string().uuid().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 export const reviewQuerySchema = z.object({
   employeeId: z.string().uuid().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const cycleQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 export type CreateReviewCycleInput = z.infer<typeof createReviewCycleSchema>;
@@ -62,3 +71,6 @@ export type CreateGoalInput = z.infer<typeof createGoalSchema>;
 export type UpdateGoalInput = z.infer<typeof updateGoalSchema>;
 export type CreateReviewInput = z.infer<typeof createReviewSchema>;
 export type UpdateReviewInput = z.infer<typeof updateReviewSchema>;
+export type GoalQuery = z.infer<typeof goalQuerySchema>;
+export type ReviewQuery = z.infer<typeof reviewQuerySchema>;
+export type CycleQuery = z.infer<typeof cycleQuerySchema>;

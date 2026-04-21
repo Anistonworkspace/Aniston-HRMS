@@ -7,6 +7,9 @@ import {
   updateGoalSchema,
   createReviewSchema,
   updateReviewSchema,
+  cycleQuerySchema,
+  goalQuerySchema,
+  reviewQuerySchema,
 } from './performance.validation.js';
 
 export class PerformanceController {
@@ -16,8 +19,9 @@ export class PerformanceController {
 
   async listCycles(req: Request, res: Response, next: NextFunction) {
     try {
-      const cycles = await performanceService.listCycles(req.user!.organizationId);
-      res.json({ success: true, data: cycles });
+      const query = cycleQuerySchema.parse(req.query);
+      const result = await performanceService.listCycles(req.user!.organizationId, query);
+      res.json({ success: true, data: result.data, meta: result.meta });
     } catch (err) {
       next(err);
     }
@@ -49,9 +53,10 @@ export class PerformanceController {
 
   async listGoals(req: Request, res: Response, next: NextFunction) {
     try {
-      const employeeId = (req.query.employeeId as string) || req.user!.employeeId;
-      const goals = await performanceService.listGoals(employeeId!, req.user!.organizationId);
-      res.json({ success: true, data: goals });
+      const query = goalQuerySchema.parse(req.query);
+      const employeeId = query.employeeId || req.user!.employeeId;
+      const result = await performanceService.listGoals(employeeId!, req.user!.organizationId, query);
+      res.json({ success: true, data: result.data, meta: result.meta });
     } catch (err) {
       next(err);
     }
@@ -88,9 +93,10 @@ export class PerformanceController {
 
   async listReviews(req: Request, res: Response, next: NextFunction) {
     try {
-      const employeeId = (req.query.employeeId as string) || req.user!.employeeId;
-      const reviews = await performanceService.listReviews(employeeId!, req.user!.organizationId);
-      res.json({ success: true, data: reviews });
+      const query = reviewQuerySchema.parse(req.query);
+      const employeeId = query.employeeId || req.user!.employeeId;
+      const reviews = await performanceService.listReviews(employeeId!, req.user!.organizationId, query);
+      res.json({ success: true, data: reviews.data, meta: reviews.meta });
     } catch (err) {
       next(err);
     }

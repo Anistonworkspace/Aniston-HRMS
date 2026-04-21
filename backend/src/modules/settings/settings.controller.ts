@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { settingsService } from './settings.service.js';
+
+const p = (v: string | string[]) => (Array.isArray(v) ? v[0] : v);
 import { updateOrganizationSchema, createLocationSchema, updateLocationSchema, auditLogQuerySchema, teamsConfigSchema } from './settings.validation.js';
 
 export class SettingsController {
@@ -44,7 +46,7 @@ export class SettingsController {
   async updateLocation(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateLocationSchema.parse(req.body);
-      const location = await settingsService.updateLocation(req.params.id, data, req.user!.organizationId);
+      const location = await settingsService.updateLocation(p(req.params.id), data, req.user!.organizationId);
       res.json({ success: true, data: location });
     } catch (err) {
       next(err);
@@ -53,7 +55,7 @@ export class SettingsController {
 
   async deleteLocation(req: Request, res: Response, next: NextFunction) {
     try {
-      await settingsService.deleteLocation(req.params.id, req.user!.organizationId);
+      await settingsService.deleteLocation(p(req.params.id), req.user!.organizationId);
       res.json({ success: true, data: null, message: 'Location deleted' });
     } catch (err) {
       next(err);

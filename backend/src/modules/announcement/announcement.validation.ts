@@ -1,5 +1,15 @@
 import { z } from 'zod';
 
+export const listAnnouncementsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const listSocialPostsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
 export const createAnnouncementSchema = z.object({
   title: z.string().min(1),
   content: z.string().min(5),
@@ -25,3 +35,5 @@ export type CreateAnnouncementInput = z.infer<typeof createAnnouncementSchema>;
 export type UpdateAnnouncementInput = z.infer<typeof updateAnnouncementSchema>;
 export type CreateSocialPostInput = z.infer<typeof createSocialPostSchema>;
 export type CreateSocialCommentInput = z.infer<typeof createSocialCommentSchema>;
+export type ListAnnouncementsQuery = z.infer<typeof listAnnouncementsQuerySchema>;
+export type ListSocialPostsQuery = z.infer<typeof listSocialPostsQuerySchema>;
