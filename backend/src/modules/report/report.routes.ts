@@ -27,4 +27,17 @@ router.get('/recruitment-funnel', (req, res, next) =>
   reportController.recruitmentFunnel(req, res, next)
 );
 
+// Statutory compliance exports
+router.get('/epf-challan', (req, res, next) =>
+  reportController.epfChallan(req, res, next)
+);
+
+router.get('/esi-return', (req, res, next) =>
+  reportController.esiReturn(req, res, next)
+);
+
+router.get('/form-24q', (req, res, next) =>
+  reportController.form24Q(req, res, next)
+);
+
 export { router as reportRouter };

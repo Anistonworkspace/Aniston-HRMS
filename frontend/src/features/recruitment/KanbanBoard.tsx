@@ -21,6 +21,8 @@ const STAGES = [
 
 const TERMINAL_STAGES = [
   { key: 'OFFER_ACCEPTED', label: 'Accepted', color: 'bg-emerald-100 text-emerald-800', border: 'border-emerald-400' },
+  { key: 'NEGOTIATING', label: 'Negotiating', color: 'bg-yellow-50 text-yellow-700', border: 'border-yellow-300' },
+  { key: 'OFFER_REJECTED', label: 'Offer Rejected', color: 'bg-orange-50 text-orange-700', border: 'border-orange-300' },
   { key: 'JOINED', label: 'Joined', color: 'bg-green-100 text-green-800', border: 'border-green-400' },
   { key: 'REJECTED', label: 'Rejected', color: 'bg-red-50 text-red-700', border: 'border-red-300' },
   { key: 'WITHDRAWN', label: 'Withdrawn', color: 'bg-gray-100 text-gray-600', border: 'border-gray-300' },
@@ -39,15 +41,17 @@ const SOURCE_BADGE: Record<string, string> = {
 const VALID_TRANSITIONS: Record<string, string[]> = {
   APPLIED: ['SCREENING', 'REJECTED', 'WITHDRAWN'],
   SCREENING: ['ASSESSMENT', 'INTERVIEW_1', 'REJECTED', 'WITHDRAWN'],
-  ASSESSMENT: ['INTERVIEW_1', 'HR_ROUND', 'REJECTED', 'WITHDRAWN'],
+  ASSESSMENT: ['INTERVIEW_1', 'REJECTED', 'WITHDRAWN'],
   INTERVIEW_1: ['INTERVIEW_2', 'HR_ROUND', 'FINAL_ROUND', 'REJECTED', 'WITHDRAWN'],
   INTERVIEW_2: ['HR_ROUND', 'FINAL_ROUND', 'REJECTED', 'WITHDRAWN'],
   HR_ROUND: ['FINAL_ROUND', 'OFFER', 'REJECTED', 'WITHDRAWN'],
   FINAL_ROUND: ['OFFER', 'REJECTED', 'WITHDRAWN'],
-  OFFER: ['OFFER_ACCEPTED', 'REJECTED', 'WITHDRAWN'],
+  OFFER: ['OFFER_ACCEPTED', 'OFFER_REJECTED', 'NEGOTIATING', 'WITHDRAWN'],
   OFFER_ACCEPTED: ['JOINED'],
+  OFFER_REJECTED: [],
+  NEGOTIATING: ['OFFER', 'REJECTED', 'WITHDRAWN'],
   JOINED: [],
-  REJECTED: [],
+  REJECTED: ['APPLIED'],
   WITHDRAWN: [],
 };
 

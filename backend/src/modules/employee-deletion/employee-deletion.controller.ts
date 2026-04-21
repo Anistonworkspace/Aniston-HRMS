@@ -116,13 +116,36 @@ export const employeeDeletionController = {
   // Super Admin: DELETE /api/employees/:employeeId/permanent — direct delete
   async directDelete(req: Request, res: Response, next: NextFunction) {
     try {
-      const { reason } = req.body;
+      const { reason, confirmEmail } = req.body;
+
       if (!reason || typeof reason !== 'string' || reason.trim().length < 3) {
         res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'A reason is required for direct deletion' } });
         return;
       }
 
+      if (!confirmEmail || typeof confirmEmail !== 'string') {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'confirmEmail is required for permanent deletion' } });
+        return;
+      }
+
       const user = req.user!;
+
+      // Server-side: verify that the typed email matches the actual employee email
+      const targetEmployee = await prisma.employee.findFirst({
+        where: { id: req.params.employeeId, organizationId: user.organizationId, deletedAt: null },
+        select: { email: true, firstName: true, lastName: true },
+      });
+
+      if (!targetEmployee) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Employee not found' } });
+        return;
+      }
+
+      if (confirmEmail.trim().toLowerCase() !== targetEmployee.email.toLowerCase()) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'Email confirmation does not match employee email' } });
+        return;
+      }
+
       const requestorEmployee = await prisma.employee.findFirst({
         where: { userId: user.userId, organizationId: user.organizationId },
         select: { firstName: true, lastName: true },

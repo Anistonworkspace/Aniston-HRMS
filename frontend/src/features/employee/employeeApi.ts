@@ -141,6 +141,43 @@ export const employeeApi = api.injectEndpoints({
       }),
       invalidatesTags: ['EmployeeList'],
     }),
+
+    // Enhanced bulk email with custom subject/body/filters
+    sendEnhancedBulkEmail: builder.mutation<
+      { success: boolean; data: { queued: number; totalMatched: number }; message: string },
+      {
+        templateType: 'WELCOME' | 'PAYROLL_REMINDER' | 'ATTENDANCE_REMINDER' | 'ANNOUNCEMENT' | 'CUSTOM';
+        subject: string;
+        body: string;
+        recipientFilter?: {
+          departmentIds?: string[];
+          designationIds?: string[];
+          statuses?: string[];
+          roles?: string[];
+        };
+        testEmail?: string;
+      }
+    >({
+      query: (body) => ({
+        url: '/employees/bulk-email',
+        method: 'POST',
+        body,
+      }),
+    }),
+
+    // Preview recipient count for bulk email
+    getBulkEmailPreview: builder.query<
+      { success: boolean; data: { recipientCount: number } },
+      { departmentIds?: string; designationIds?: string; statuses?: string; roles?: string }
+    >({
+      query: (params) => ({ url: '/employees/bulk-email/preview', params }),
+    }),
+
+    // Org Chart — full tree (no pagination)
+    getOrgChart: builder.query<{ success: boolean; data: any[] }, void>({
+      query: () => '/employees/org-chart',
+      providesTags: ['EmployeeList'],
+    }),
   }),
 });
 
@@ -158,4 +195,7 @@ export const {
   useChangeEmployeeRoleMutation,
   useSendActivationInviteMutation,
   useUpdateEmployeeManagerMutation,
+  useSendEnhancedBulkEmailMutation,
+  useGetBulkEmailPreviewQuery,
+  useGetOrgChartQuery,
 } = employeeApi;

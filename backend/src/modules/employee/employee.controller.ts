@@ -90,6 +90,180 @@ export class EmployeeController {
     }
   }
 
+  async bulkEmail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const schema = z.object({
+        templateType: z.enum(['WELCOME', 'PAYROLL_REMINDER', 'ATTENDANCE_REMINDER', 'ANNOUNCEMENT', 'CUSTOM']),
+        subject: z.string().min(1, 'Subject is required').max(200),
+        body: z.string().min(1, 'Body is required').max(10000),
+        recipientFilter: z.object({
+          departmentIds: z.array(z.string()).optional(),
+          designationIds: z.array(z.string()).optional(),
+          statuses: z.array(z.string()).optional(),
+          roles: z.array(z.string()).optional(),
+        }).optional(),
+        testEmail: z.string().email().optional(),
+      });
+
+      const { templateType, subject, body, recipientFilter, testEmail } = schema.parse(req.body);
+
+      const { enqueueEmail } = await import('../../jobs/queues.js');
+      const { prisma } = await import('../../lib/prisma.js');
+
+      // If testEmail is provided, send a single test email without fetching employees
+      if (testEmail) {
+        await enqueueEmail({ to: testEmail, subject: `[TEST] ${subject}`, template: 'generic', context: { title: subject, message: body } });
+        res.json({ success: true, data: { queued: 1, testMode: true }, message: `Test email queued to ${testEmail}` });
+        return;
+      }
+
+      // Build employee filter
+      const where: Record<string, any> = {
+        organizationId: req.user!.organizationId,
+        deletedAt: null,
+        email: { not: null },
+      };
+
+      if (recipientFilter?.departmentIds?.length) where.departmentId = { in: recipientFilter.departmentIds };
+      if (recipientFilter?.designationIds?.length) where.designationId = { in: recipientFilter.designationIds };
+      if (recipientFilter?.statuses?.length) where.status = { in: recipientFilter.statuses };
+      if (recipientFilter?.roles?.length) where.user = { role: { in: recipientFilter.roles } };
+
+      const employees = await prisma.employee.findMany({
+        where,
+        select: { id: true, firstName: true, lastName: true, email: true },
+      });
+
+      const org = await prisma.organization.findUnique({
+        where: { id: req.user!.organizationId },
+        select: { name: true },
+      });
+      const orgName = org?.name || 'Aniston Technologies';
+
+      const eligible = employees.filter((emp) => !!emp.email);
+
+      await Promise.all(
+        eligible.map((emp) =>
+          enqueueEmail({
+            to: emp.email!,
+            subject,
+            template: 'generic',
+            context: { title: subject, message: body, employeeName: `${emp.firstName} ${emp.lastName}`, orgName },
+          }).catch((err: any) => {
+            console.error(`[BulkEmail] Failed to queue for ${emp.email}:`, err?.message);
+          })
+        )
+      );
+
+      res.json({
+        success: true,
+        data: { queued: eligible.length, totalMatched: employees.length },
+        message: `${eligible.length} emails queued successfully`,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async bulkEmailPreview(req: Request, res: Response, next: NextFunction) {
+    try {
+      // Query params come as comma-separated strings, e.g. departmentIds=id1,id2
+      const splitParam = (v: unknown): string[] | undefined => {
+        if (!v) return undefined;
+        const arr = String(v).split(',').map((s) => s.trim()).filter(Boolean);
+        return arr.length ? arr : undefined;
+      };
+
+      const filter = {
+        departmentIds: splitParam(req.query.departmentIds),
+        designationIds: splitParam(req.query.designationIds),
+        statuses: splitParam(req.query.statuses),
+        roles: splitParam(req.query.roles),
+      };
+      const { prisma } = await import('../../lib/prisma.js');
+
+      const where: Record<string, any> = {
+        organizationId: req.user!.organizationId,
+        deletedAt: null,
+        email: { not: null },
+      };
+
+      if (filter.departmentIds?.length) where.departmentId = { in: filter.departmentIds };
+      if (filter.designationIds?.length) where.designationId = { in: filter.designationIds };
+      if (filter.statuses?.length) where.status = { in: filter.statuses };
+      if (filter.roles?.length) where.user = { role: { in: filter.roles } };
+
+      const count = await prisma.employee.count({ where });
+      res.json({ success: true, data: { recipientCount: count } });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getOrgChart(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+
+      const employees = await prisma.employee.findMany({
+        where: { organizationId: req.user!.organizationId, deletedAt: null },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          employeeCode: true,
+          managerId: true,
+          profilePhoto: true,
+          workMode: true,
+          status: true,
+          department: { select: { id: true, name: true } },
+          designation: { select: { id: true, name: true } },
+        },
+      });
+
+      // Build recursive tree
+      type OrgNode = {
+        id: string;
+        name: string;
+        employeeCode: string;
+        title: string | null;
+        department: string | null;
+        profilePhoto: string | null;
+        workMode: string;
+        status: string;
+        children: OrgNode[];
+      };
+
+      const map = new Map<string, OrgNode>();
+      for (const emp of employees) {
+        map.set(emp.id, {
+          id: emp.id,
+          name: `${emp.firstName} ${emp.lastName}`,
+          employeeCode: emp.employeeCode,
+          title: emp.designation?.name ?? null,
+          department: emp.department?.name ?? null,
+          profilePhoto: emp.profilePhoto,
+          workMode: emp.workMode,
+          status: emp.status,
+          children: [],
+        });
+      }
+
+      const roots: OrgNode[] = [];
+      for (const emp of employees) {
+        const node = map.get(emp.id)!;
+        if (emp.managerId && map.has(emp.managerId)) {
+          map.get(emp.managerId)!.children.push(node);
+        } else {
+          roots.push(node);
+        }
+      }
+
+      res.json({ success: true, data: roots });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async sendBulkEmail(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeIds, templateType } = z.object({

@@ -4,6 +4,9 @@ import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { enqueueEmail } from '../../jobs/queues.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
+import { emitToOrg } from '../../sockets/index.js';
+import { logger } from '../../lib/logger.js';
 
 const TOKEN_PREFIX = 'onboarding:';
 const TOKEN_TTL = 7 * 86400; // 7 days in seconds
@@ -188,15 +191,22 @@ export class OnboardingService {
     const data = await getTokenData(token);
     if (!data) throw new BadRequestError('Invalid token');
 
-    // Mark employee as fully onboarded — do NOT auto-promote status.
-    // HR must manually assign the employment status (PROBATION, INTERN, ACTIVE, etc.).
-    await prisma.employee.update({
+    // Mark employee as fully onboarded
+    const employee = await prisma.employee.update({
       where: { id: data.employeeId },
       data: { onboardingComplete: true },
+      select: { id: true, status: true, organizationId: true, firstName: true },
     });
 
     // Clean up token
     await deleteToken(token);
+
+    // GAP-002: Auto-promote from ONBOARDING → PROBATION (non-blocking)
+    setImmediate(() => {
+      this._autoPromoteOnboardingComplete(employee.id, employee.organizationId, employee.status).catch(
+        (err) => logger.warn('[Onboarding] Auto-promote (token flow) failed:', err),
+      );
+    });
 
     return { completed: true, message: 'Onboarding complete! Your HR team will assign your employment status shortly.' };
   }
@@ -342,15 +352,64 @@ export class OnboardingService {
    * Complete authenticated onboarding — marks the employee as fully onboarded.
    */
   async completeMyOnboarding(employeeId: string) {
-    // Mark onboarding complete but do NOT auto-promote status.
-    // HR must manually assign the employment status (PROBATION, INTERN, ACTIVE, etc.)
-    // before the employee can see and apply for leaves.
-    await prisma.employee.update({
+    const employee = await prisma.employee.update({
       where: { id: employeeId },
       data: { onboardingComplete: true },
+      select: { id: true, status: true, organizationId: true },
+    });
+
+    // GAP-002: Auto-promote from ONBOARDING → PROBATION (non-blocking)
+    setImmediate(() => {
+      this._autoPromoteOnboardingComplete(employee.id, employee.organizationId, employee.status).catch(
+        (err) => logger.warn('[Onboarding] Auto-promote (auth flow) failed:', err),
+      );
     });
 
     return { completed: true, message: 'Onboarding complete! Your HR team will assign your employment status shortly.' };
+  }
+
+  /**
+   * GAP-002: Auto-promotes employee from ONBOARDING to PROBATION after onboarding completes.
+   * Non-blocking — caller wraps in setImmediate + .catch(). Onboarding success is never
+   * affected if this step fails.
+   */
+  private async _autoPromoteOnboardingComplete(
+    employeeId: string,
+    organizationId: string,
+    currentStatus: string,
+  ): Promise<void> {
+    // Only promote if still in ONBOARDING state (guard against duplicate calls)
+    if (currentStatus !== 'ONBOARDING') {
+      logger.info(`[Onboarding] Employee ${employeeId} is already ${currentStatus} — skipping auto-promote`);
+      return;
+    }
+
+    const targetStatus = 'PROBATION';
+
+    await prisma.employee.update({
+      where: { id: employeeId },
+      data: { status: targetStatus as any },
+    });
+
+    // Emit socket event for real-time UI update
+    emitToOrg(organizationId, 'employee:status-changed', {
+      employeeId,
+      oldStatus: 'ONBOARDING',
+      newStatus: targetStatus,
+      reason: 'onboarding_completed',
+    });
+
+    // Audit log
+    await createAuditLog({
+      userId: 'system',
+      organizationId,
+      entity: 'Employee',
+      entityId: employeeId,
+      action: 'STATUS_CHANGED',
+      newValue: { oldStatus: 'ONBOARDING', newStatus: targetStatus, trigger: 'onboarding_completed' },
+    });
+
+    logger.info(`[Onboarding] Employee ${employeeId} auto-promoted ONBOARDING → ${targetStatus}`);
   }
 }
 

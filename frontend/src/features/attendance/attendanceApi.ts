@@ -186,6 +186,7 @@ export const attendanceApi = api.injectEndpoints({
     // Bug #9: Single query returns summaries for ALL employees — eliminates N+1 from EmployeeRow
     getActivityBulkSummary: builder.query<{ success: boolean; data: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number; productivityScore?: number | null }> }, { date: string }>({
       query: ({ date }) => `/agent/activity/bulk-summary?date=${date}`,
+      providesTags: ['Attendance'],
     }),
 
     // Returns an Excel workbook as a blob — trigger a browser download in the UI
@@ -199,10 +200,12 @@ export const attendanceApi = api.injectEndpoints({
 
     getEmployeeActivityLogs: builder.query<{ success: boolean; data: ActivityLogResponse }, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => `/agent/activity/${employeeId}/${date}`,
+      providesTags: ['Attendance'],
     }),
 
     getEmployeeScreenshots: builder.query<{ success: boolean; data: AgentScreenshot[] }, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => `/agent/screenshots/${employeeId}/${date}`,
+      providesTags: ['Attendance'],
     }),
 
     getAgentStatus: builder.query<{ success: boolean; data: AgentStatusResponse }, void>({

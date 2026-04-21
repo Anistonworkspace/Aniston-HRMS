@@ -32,7 +32,7 @@ router.delete('/items/:itemId', requirePermission('recruitment', 'delete'), (req
   bulkResumeController.deleteItem(req, res, next)
 );
 
-router.delete('/uploads/:uploadId', requirePermission('recruitment', 'delete'), (req, res, next) =>
+router.delete('/:uploadId', requirePermission('recruitment', 'delete'), (req, res, next) =>
   bulkResumeController.deleteUpload(req, res, next)
 );
 

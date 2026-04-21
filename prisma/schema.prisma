@@ -55,6 +55,17 @@ model Organization {
   databaseBackups   DatabaseBackup[]
   deletionRequests         EmployeeDeletionRequest[]
   payrollDeletionRequests  PayrollDeletionRequest[]
+
+  // Denormalized child relations (nullable FK — backfill required for existing rows)
+  breaks               Break[]
+  attendanceLogs       AttendanceLog[]
+  gpsTrailPoints       GPSTrailPoint[]
+  projectSiteCheckIns  ProjectSiteCheckIn[]
+  leaveBalances        LeaveBalance[]
+  locationVisits       LocationVisit[]
+  socialComments       SocialComment[]
+  socialLikes          SocialLike[]
+  ticketComments       TicketComment[]
 }
 
 model User {
@@ -544,12 +555,18 @@ enum AttendanceSource {
 model Break {
   id               String    @id @default(uuid())
   attendanceId     String
+  organizationId   String?
   startTime        DateTime
   endTime          DateTime?
   type             BreakType @default(LUNCH)
   durationMinutes  Int?
+  createdAt        DateTime  @default(now())
 
-  attendance AttendanceRecord @relation(fields: [attendanceId], references: [id])
+  attendance   AttendanceRecord  @relation(fields: [attendanceId], references: [id])
+  organization Organization?     @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([attendanceId, startTime])
 }
 
 enum BreakType {
@@ -562,6 +579,7 @@ enum BreakType {
 model AttendanceLog {
   id             String   @id @default(uuid())
   attendanceId   String
+  organizationId String?
   action         String   // CLOCK_IN, CLOCK_OUT, RE_CLOCK_IN, BREAK_START, BREAK_END
   timestamp      DateTime @default(now())
   location       Json?    // { lat, lng, accuracy }
@@ -571,10 +589,12 @@ model AttendanceLog {
   shiftName      String?
   ipAddress      String?
 
-  attendance AttendanceRecord @relation(fields: [attendanceId], references: [id])
+  attendance   AttendanceRecord  @relation(fields: [attendanceId], references: [id])
+  organization Organization?     @relation(fields: [organizationId], references: [id])
 
   @@index([attendanceId])
   @@index([attendanceId, timestamp])
+  @@index([organizationId])
 }
 
 model AttendanceRegularization {
@@ -676,42 +696,48 @@ enum AnomalyResolution {
 }
 
 model GPSTrailPoint {
-  id           String   @id @default(uuid())
-  employeeId   String
-  date         DateTime @db.Date
-  lat          Decimal  @db.Decimal(10, 7)
-  lng          Decimal  @db.Decimal(10, 7)
-  accuracy     Decimal? @db.Decimal(6, 2)
-  altitude     Decimal? @db.Decimal(8, 2)
-  speed        Decimal? @db.Decimal(6, 2)
-  heading      Decimal? @db.Decimal(5, 2)
-  batteryLevel Int?
-  timestamp    DateTime
-  visitLabel   String?
-  isVisitStop  Boolean  @default(false)
-  stopDuration Int?
+  id             String   @id @default(uuid())
+  employeeId     String
+  organizationId String?
+  date           DateTime @db.Date
+  lat            Decimal  @db.Decimal(10, 7)
+  lng            Decimal  @db.Decimal(10, 7)
+  accuracy       Decimal? @db.Decimal(6, 2)
+  altitude       Decimal? @db.Decimal(8, 2)
+  speed          Decimal? @db.Decimal(6, 2)
+  heading        Decimal? @db.Decimal(5, 2)
+  batteryLevel   Int?
+  timestamp      DateTime
+  visitLabel     String?
+  isVisitStop    Boolean  @default(false)
+  stopDuration   Int?
 
-  employee Employee @relation(fields: [employeeId], references: [id])
+  employee     Employee      @relation(fields: [employeeId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
 
   @@index([employeeId, date])
+  @@index([organizationId, date])
 }
 
 model ProjectSiteCheckIn {
-  id           String   @id @default(uuid())
-  employeeId   String
-  date         DateTime @db.Date
-  siteName     String
-  siteAddress  String?
-  checkInPhoto String?
-  checkInLat   Decimal? @db.Decimal(10, 7)
-  checkInLng   Decimal? @db.Decimal(10, 7)
-  notes        String?
-  approvedBy   String?
-  createdAt    DateTime @default(now())
+  id             String   @id @default(uuid())
+  employeeId     String
+  organizationId String?
+  date           DateTime @db.Date
+  siteName       String
+  siteAddress    String?
+  checkInPhoto   String?
+  checkInLat     Decimal? @db.Decimal(10, 7)
+  checkInLng     Decimal? @db.Decimal(10, 7)
+  notes          String?
+  approvedBy     String?
+  createdAt      DateTime @default(now())
 
-  employee Employee @relation(fields: [employeeId], references: [id])
+  employee     Employee      @relation(fields: [employeeId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
 
   @@index([employeeId, date])
+  @@index([organizationId, date])
 }
 
 model Geofence {
@@ -770,8 +796,9 @@ model LeaveType {
   isActive           Boolean  @default(true)      // Soft toggle
 
   organizationId String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
   organization Organization @relation(fields: [organizationId], references: [id])
   leaveBalances LeaveBalance[]
@@ -783,19 +810,24 @@ model LeaveType {
 }
 
 model LeaveBalance {
-  id            String  @id @default(uuid())
-  employeeId    String
-  leaveTypeId   String
-  year          Int
-  allocated     Decimal @db.Decimal(5, 1)
-  used          Decimal @default(0) @db.Decimal(5, 1)
-  carriedForward Decimal @default(0) @db.Decimal(5, 1)
-  pending       Decimal @default(0) @db.Decimal(5, 1)
+  id             String    @id @default(uuid())
+  employeeId     String
+  leaveTypeId    String
+  organizationId String?
+  year           Int
+  allocated      Decimal   @db.Decimal(5, 1)
+  used           Decimal   @default(0) @db.Decimal(5, 1)
+  carriedForward Decimal   @default(0) @db.Decimal(5, 1)
+  pending        Decimal   @default(0) @db.Decimal(5, 1)
+  createdAt      DateTime  @default(now())
+  deletedAt      DateTime?
 
-  employee  Employee  @relation(fields: [employeeId], references: [id])
-  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+  employee     Employee      @relation(fields: [employeeId], references: [id])
+  leaveType    LeaveType     @relation(fields: [leaveTypeId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
 
   @@unique([employeeId, leaveTypeId, year])
+  @@index([organizationId, year])
 }
 
 model LeaveRequest {
@@ -1255,8 +1287,8 @@ model Application {
   aiScoreDetails  Json?
   resumeMatchScore Float?
   resumeText      String?
-  matchedKeywords String[]
-  missingKeywords String[]
+  matchedKeywords String[]          @default([])
+  missingKeywords String[]          @default([])
   atsScore        Float?
   atsScoreData    Json?
   isIntern        Boolean           @default(false)
@@ -1407,8 +1439,8 @@ model BulkResumeItem {
   atsScore        Decimal?         @db.Decimal(5, 2)
   aiScoreDetails  Json?            // strengths, gaps, summary, matchedKeywords, missingKeywords
   resumeText      String?          // Extracted plaintext
-  matchedKeywords String[]
-  missingKeywords String[]
+  matchedKeywords String[]         @default([])
+  missingKeywords String[]         @default([])
   applicationId   String?          @unique
   status          ResumeItemStatus @default(PENDING)
   errorMessage    String?
@@ -1662,6 +1694,7 @@ model Asset {
   organizationId String
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
 
   assignments        AssetAssignment[]
   tickets            Ticket[]
@@ -1706,9 +1739,13 @@ model AssetAssignment {
   returnCondition AssetCondition?
   returnNotes     String?
   notes           String?
+  deletedAt       DateTime?
 
   asset    Asset    @relation(fields: [assetId], references: [id])
   employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([assetId])
+  @@index([employeeId])
 }
 
 model ExitChecklist {
@@ -1955,16 +1992,17 @@ model PerformanceReview {
 // =====================
 
 model SocialPost {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   authorId       String
   content        String
   imageUrl       String?
-  postType       String   @default("GENERAL")
-  likesCount     Int      @default(0)
-  commentsCount  Int      @default(0)
+  postType       String    @default("GENERAL")
+  likesCount     Int       @default(0)
+  commentsCount  Int       @default(0)
   organizationId String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
   comments SocialComment[]
   likes    SocialLike[]
@@ -1973,24 +2011,33 @@ model SocialPost {
 }
 
 model SocialComment {
-  id        String   @id @default(uuid())
-  postId    String
-  authorId  String
-  content   String
-  createdAt DateTime @default(now())
+  id             String   @id @default(uuid())
+  postId         String
+  authorId       String
+  organizationId String?
+  content        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  post SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  post         SocialPost    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([postId])
 }
 
 model SocialLike {
-  id        String   @id @default(uuid())
-  postId    String
-  userId    String
-  createdAt DateTime @default(now())
+  id             String   @id @default(uuid())
+  postId         String
+  userId         String
+  organizationId String?
+  createdAt      DateTime @default(now())
 
-  post SocialPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  post         SocialPost    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id])
 
   @@unique([postId, userId])
+  @@index([organizationId])
 }
 
 // =====================
@@ -1998,20 +2045,21 @@ model SocialLike {
 // =====================
 
 model Ticket {
-  id             String   @id @default(uuid())
-  ticketCode     String   @unique
+  id             String    @id @default(uuid())
+  ticketCode     String    @unique
   employeeId     String
   category       String
   subject        String
   description    String
-  priority       String   @default("MEDIUM")
-  status         String   @default("OPEN")
+  priority       String    @default("MEDIUM")
+  status         String    @default("OPEN")
   assignedTo     String?
   resolvedAt     DateTime?
   resolution     String?
   organizationId String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
   assetId        String?
 
@@ -2023,14 +2071,20 @@ model Ticket {
 }
 
 model TicketComment {
-  id        String   @id @default(uuid())
-  ticketId  String
-  authorId  String
-  content   String
-  isInternal Boolean @default(false)
-  createdAt DateTime @default(now())
+  id             String   @id @default(uuid())
+  ticketId       String
+  authorId       String
+  organizationId String?
+  content        String
+  isInternal     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticket       Ticket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([ticketId])
 }
 
 // =====================
@@ -2060,10 +2114,13 @@ model Shift {
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
+  deletedAt      DateTime?
+
   organization Organization     @relation(fields: [organizationId], references: [id])
   assignments  ShiftAssignment[]
 
   @@unique([code, organizationId])
+  @@index([organizationId])
 }
 
 model ShiftAssignment {
@@ -2374,8 +2431,8 @@ model PublicApplication {
   resumeScoreData       Json?
   resumeMatchScore      Float?          // 0-100 resume-to-JD match from OCR analysis
   resumeText            String?         // Extracted plaintext from resume (for HR view)
-  matchedKeywords       String[]        // JD keywords found in resume
-  missingKeywords       String[]        // JD keywords NOT found in resume
+  matchedKeywords       String[]        @default([])   // JD keywords found in resume
+  missingKeywords       String[]        @default([])   // JD keywords NOT found in resume
   atsScore              Float?          // ATS compatibility score 0-100
   atsScoreData          Json?           // ATS score breakdown (sections, density, contact, etc.)
   mcqAnswers            Json?           // [{questionId, selectedOption}]
@@ -2768,21 +2825,23 @@ model UserMFA {
 
 model WhatsAppOtp {
   id         String   @id @default(uuid())
-  employeeId String
+  employeeId String?
   phone      String
   otp        String
   expiresAt  DateTime
   verified   Boolean  @default(false)
   attempts   Int      @default(0)
   createdAt  DateTime @default(now())
-  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
 
   @@index([employeeId])
+  @@index([phone])
 }
 
 model LocationVisit {
   id              String           @id @default(uuid())
   attendanceId    String
+  organizationId  String?
   latitude        Float
   longitude       Float
   arrivalTime     DateTime
@@ -2790,9 +2849,11 @@ model LocationVisit {
   durationMinutes Int
   pointCount      Int              @default(1)
   createdAt       DateTime         @default(now())
-  attendance      AttendanceRecord @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  attendance      AttendanceRecord  @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  organization    Organization?     @relation(fields: [organizationId], references: [id])
 
   @@index([attendanceId])
+  @@index([organizationId])
 }
 
 model LeavePolicy {
@@ -2804,6 +2865,7 @@ model LeavePolicy {
   isActive       Boolean           @default(true)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
+  deletedAt      DateTime?
   organization   Organization      @relation(fields: [organizationId], references: [id])
   rules          LeavePolicyRule[]
   employees      Employee[]
@@ -2832,7 +2894,7 @@ model AttendancePolicy {
   organizationId        String   @unique
   // Late penalty
   lateGraceMinutes      Int      @default(15)
-  lateHalfDayAfterMins  Int      @default(120)
+  lateHalfDayAfterMins  Int      @default(30)
   latePenaltyEnabled    Boolean  @default(false)
   latePenaltyPerCount   Int      @default(3)
   // Half-day cutoff

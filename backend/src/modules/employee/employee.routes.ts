@@ -80,9 +80,24 @@ router.post('/invite-whatsapp', requirePermission('employee', 'create'), async (
   } catch (err) { next(err); }
 });
 
-// HR: Bulk send app download / attendance instruction emails
+// HR: Bulk send app download / attendance instruction emails (legacy)
 router.post('/send-bulk-email', requirePermission('employee', 'manage'), (req, res, next) =>
   employeeController.sendBulkEmail(req, res, next)
+);
+
+// HR: Enhanced bulk email with template type, custom subject/body, and recipient filters
+router.post('/bulk-email', requirePermission('employee', 'manage'), (req, res, next) =>
+  employeeController.bulkEmail(req, res, next)
+);
+
+// HR: Preview recipient count for bulk email filters
+router.get('/bulk-email/preview', requirePermission('employee', 'manage'), (req, res, next) =>
+  employeeController.bulkEmailPreview(req, res, next)
+);
+
+// Org Chart: full hierarchy tree (no pagination)
+router.get('/org-chart', requirePermission('employee', 'read'), (req, res, next) =>
+  employeeController.getOrgChart(req, res, next)
 );
 
 router.post('/me/resign', (req, res, next) =>

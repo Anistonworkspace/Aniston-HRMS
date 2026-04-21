@@ -607,6 +607,7 @@ function AttendancePersonalView() {
   const [startBreak] = useStartBreakMutation();
   const [endBreak] = useEndBreakMutation();
   const actionLockRef = useRef(false); // debounce guard for clock-in/out
+  const [shiftWarning, setShiftWarning] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   // Live clock
   useEffect(() => {
@@ -666,8 +667,8 @@ function AttendancePersonalView() {
     }
   };
 
-  const handleClockIn = async () => {
-    if (actionLockRef.current) return; // prevent double-tap
+  const doClockIn = async () => {
+    if (actionLockRef.current) return;
     actionLockRef.current = true;
     try {
       const coords = await getGPS();
@@ -685,6 +686,31 @@ function AttendancePersonalView() {
     } finally {
       setTimeout(() => { actionLockRef.current = false; }, 2000); // 2s cooldown
     }
+  };
+
+  const handleClockIn = () => {
+    // Shift boundary guard — frontend UX warning only (backend enforces separately)
+    if (today?.shift) {
+      const now = new Date();
+      const [startH, startM] = today.shift.startTime.split(':').map(Number);
+      const [endH, endM] = today.shift.endTime.split(':').map(Number);
+      const shiftStartMins = startH * 60 + startM;
+      const shiftEndMins = endH * 60 + endM;
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+
+      const tooEarly = nowMins < shiftStartMins - 30;
+      const tooLate = nowMins > shiftStartMins + 120;
+      const pastEnd = nowMins > shiftEndMins;
+
+      if (tooEarly || tooLate || pastEnd) {
+        setShiftWarning({
+          message: `You are clocking in outside your scheduled shift time (Shift: ${today.shift.startTime} – ${today.shift.endTime}). Do you want to continue?`,
+          onConfirm: () => { setShiftWarning(null); doClockIn(); },
+        });
+        return;
+      }
+    }
+    doClockIn();
   };
 
   const handleClockOut = async () => {
@@ -875,6 +901,35 @@ function AttendancePersonalView() {
   // Both location permission states handled — show attendance UI (notification is non-blocking)
   return (
     <div className="page-container">
+      {/* Shift boundary warning dialog */}
+      {shiftWarning && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <AlertTriangle size={20} className="text-amber-600" />
+              </div>
+              <h3 className="text-base font-semibold text-gray-900">Outside Shift Hours</h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-5">{shiftWarning.message}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShiftWarning(null)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={shiftWarning.onConfirm}
+                className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold transition-colors"
+              >
+                Clock In Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {notificationStatus === 'denied' && !dismissedNotifBanner && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex items-center justify-between">
           <p className="text-sm text-amber-700">{t('attendance.notificationsDisabled')}</p>

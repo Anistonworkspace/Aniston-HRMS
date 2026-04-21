@@ -78,13 +78,36 @@ app.set('trust proxy', 1);
 
 // Security
 app.use(helmet({
-  // CSP disabled for now — the React SPA uses inline styles (Tailwind) and
-  // dynamic script loading (lazy routes) which strict CSP blocks.
-  // TODO: Enable CSP with nonce-based script loading in a future sprint.
-  contentSecurityPolicy: false,
-  hsts: env.NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true } : false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: [
+        "'self'",
+        // Swagger UI loads its bundles from the same origin (express serves them)
+        "'unsafe-inline'",
+      ],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      fontSrc: ["'self'", "data:"],
+      connectSrc: [
+        "'self'",
+        // Socket.io WebSocket upgrade
+        "ws://localhost:4000",
+        "wss://hr.anistonav.com",
+      ],
+      objectSrc: ["'none'"],
+      frameSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      ...(env.NODE_ENV === 'production' ? { upgradeInsecureRequests: [] } : {}),
+    },
+  },
+  hsts: env.NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   frameguard: { action: 'deny' },
+  crossOriginEmbedderPolicy: false, // Allow embedding uploads in other origins
+  crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allow CDN-style file access
 }));
 app.use(cors({
   origin: env.NODE_ENV === 'development'

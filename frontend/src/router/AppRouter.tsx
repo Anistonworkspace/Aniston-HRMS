@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppUpdateGuard from '../features/app-update/AppUpdateGuard';
 import AppShell from '../components/layout/AppShell';
 import ProtectedRoute from './ProtectedRoute';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 // Lazy-loaded pages
 const LoginPage = lazy(() => import('../features/auth/LoginPage'));
@@ -57,6 +58,7 @@ const KycHrReviewPage = lazy(() => import('../features/kyc/KycHrReviewPage'));
 const MyDocumentsPage = lazy(() => import('../features/my-documents/MyDocumentsPage'));
 const EmployeeOnboardingPage = lazy(() => import('../features/onboarding/EmployeeOnboardingPage'));
 const SendBulkEmailPage = lazy(() => import('../features/employee/SendBulkEmailPage'));
+const BulkEmailPage = lazy(() => import('../features/bulk-email/BulkEmailPage'));
 
 function PageLoader() {
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
@@ -139,6 +141,7 @@ export default function AppRouter() {
   return (
     <BrowserRouter>
       <AppUpdateGuard>
+      <ErrorBoundary>
       <Suspense fallback={<PageLoader />}>
         <Routes>
           {/* Public routes */}
@@ -213,6 +216,7 @@ export default function AppRouter() {
             <Route path="/walk-in-management" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><WalkInManagementPage /></ProtectedRoute>} />
             <Route path="/walk-in-management/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><WalkInDetailPage /></ProtectedRoute>} />
             <Route path="/send-bulk-email" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><SendBulkEmailPage /></ProtectedRoute>} />
+            <Route path="/bulk-email" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><BulkEmailPage /></ProtectedRoute>} />
             <Route path="/whatsapp" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><WhatsAppPage /></ProtectedRoute>} />
             <Route path="/exit-management" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><ExitManagementPage /></ProtectedRoute>} />
             <Route path="/exit-management/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><ExitDetailPage /></ProtectedRoute>} />
@@ -224,6 +228,7 @@ export default function AppRouter() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Suspense>
+      </ErrorBoundary>
       </AppUpdateGuard>
     </BrowserRouter>
   );

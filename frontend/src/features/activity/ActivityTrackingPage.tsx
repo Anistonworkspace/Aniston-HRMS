@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Monitor, Search, Calendar, Eye, Activity, Clock, Mouse, Keyboard,
-  WifiOff, X, Maximize2, Radio, Globe, Download, TrendingDown, TrendingUp,
+  WifiOff, X, Maximize2, Radio, Globe, Download, TrendingDown, TrendingUp, Camera,
 } from 'lucide-react';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
 import {
@@ -195,7 +195,7 @@ function EmployeeRow({ employee, isSelected, bulkSummary, onClick }: {
 function ActivityDetail({ employee, date, onScreenshotClick }: {
   employee: any; date: string; onScreenshotClick: (url: string) => void;
 }) {
-  const [viewMode, setViewMode] = useState<'activity' | 'live'>('activity');
+  const [viewMode, setViewMode] = useState<'activity' | 'screenshots' | 'live'>('activity');
   const [exporting, setExporting] = useState(false);
   const employeeUserId: string | undefined = employee?.user?.id;
   const { data: activityRes, isLoading: loadingActivity, isError: activityError } = useGetEmployeeActivityLogsQuery(
@@ -271,6 +271,16 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
               viewMode === 'activity' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
             <Activity size={14} /> Activity Log
           </button>
+          <button onClick={() => setViewMode('screenshots')}
+            className={cn('flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-all',
+              viewMode === 'screenshots' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
+            <Camera size={14} /> Screenshots
+            {screenshotRes?.data && screenshotRes.data.length > 0 && (
+              <span className="ml-1 text-[10px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full font-semibold">
+                {screenshotRes.data.length}
+              </span>
+            )}
+          </button>
           <button onClick={() => setViewMode('live')}
             className={cn('flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-all',
               viewMode === 'live' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
@@ -278,6 +288,11 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
           </button>
         </div>
       </div>
+
+      {/* Screenshots Tab */}
+      {viewMode === 'screenshots' && (
+        <ScreenshotsGallery screenshots={screenshots} loading={loadingScreenshots} onScreenshotClick={onScreenshotClick} />
+      )}
 
       {/* Live Feed Mode */}
       {viewMode === 'live' && (

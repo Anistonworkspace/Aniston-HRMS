@@ -235,7 +235,7 @@ export class AuthService {
     await redis.setex(`${RESET_TOKEN_PREFIX}${resetToken}`, 3600, user.id); // 1 hour
 
     // Send password reset email
-    const resetUrl = `https://hr.anistonav.com/reset-password/${resetToken}`;
+    const resetUrl = `${env.FRONTEND_URL}/reset-password/${resetToken}`;
     await enqueueEmail({
       to: user.email,
       subject: 'Reset Your Aniston HRMS Password',
@@ -245,10 +245,6 @@ export class AuthService {
         link: resetUrl,
       },
     }).catch((err) => logger.error(`[Auth] Failed to enqueue password reset email for ${email}:`, err));
-
-    if (process.env.NODE_ENV === 'development') {
-      logger.info(`[DEV] Password reset token for ${email}: ${resetToken}`);
-    }
 
     return { message: 'If the email exists, a reset link has been sent' };
   }

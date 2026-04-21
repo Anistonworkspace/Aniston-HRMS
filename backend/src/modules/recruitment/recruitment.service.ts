@@ -350,11 +350,16 @@ export class RecruitmentService {
             select: { id: true },
           }) : null;
 
+          const candidateEmail = offer.candidateEmail.toLowerCase();
+          const candidateName = (offer.application as any).candidateName as string | null | undefined;
+          const isIntern = (offer.application as any).isIntern as boolean | undefined;
+          const role = isIntern ? 'INTERN' : 'EMPLOYEE';
+
           // Auto-create invitation for the accepted candidate
           const invitation = await prisma.employeeInvitation.create({
             data: {
-              email: offer.candidateEmail,
-              role: offer.application.isIntern ? 'INTERN' : 'EMPLOYEE',
+              email: candidateEmail,
+              role,
               departmentId: dept?.id || null,
               invitedBy: 'system',
               organizationId: job.organizationId,
@@ -363,18 +368,104 @@ export class RecruitmentService {
             },
           });
 
+          // GAP-001: Auto-create User + Employee record if not already present
+          const existingEmployee = await prisma.employee.findFirst({
+            where: { email: candidateEmail, organizationId: job.organizationId, deletedAt: null },
+          });
+
+          if (existingEmployee) {
+            logger.warn(`[Recruitment] Employee already exists for ${candidateEmail} — skipping auto-creation`);
+          } else {
+            try {
+              // Determine next employee code
+              const lastEmployee = await prisma.employee.findFirst({
+                where: { organizationId: job.organizationId },
+                orderBy: { employeeCode: 'desc' },
+                select: { employeeCode: true },
+              });
+              const lastNum = lastEmployee?.employeeCode
+                ? parseInt(lastEmployee.employeeCode.replace('EMP-', ''), 10)
+                : 0;
+              const employeeCode = `EMP-${String(lastNum + 1).padStart(3, '0')}`;
+
+              const nameParts = (candidateName || candidateEmail.split('@')[0]).split(' ');
+              const firstName = nameParts[0] || candidateEmail.split('@')[0];
+              const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : 'Pending';
+
+              const newEmployee = await prisma.$transaction(async (tx) => {
+                // Check again inside transaction to guard against race conditions
+                const existingUser = await tx.user.findUnique({ where: { email: candidateEmail } });
+
+                const user = existingUser || await tx.user.create({
+                  data: {
+                    email: candidateEmail,
+                    passwordHash: '',
+                    role,
+                    status: 'PENDING_VERIFICATION',
+                    organizationId: job.organizationId,
+                  },
+                });
+
+                const employee = await tx.employee.create({
+                  data: {
+                    employeeCode,
+                    userId: user.id,
+                    firstName,
+                    lastName,
+                    email: candidateEmail,
+                    phone: '0000000000',
+                    gender: 'PREFER_NOT_TO_SAY',
+                    workMode: 'OFFICE',
+                    joiningDate: new Date(),
+                    status: 'ONBOARDING',
+                    organizationId: job.organizationId,
+                    departmentId: dept?.id || null,
+                  },
+                });
+
+                // Update invitation with the new employeeId if field exists on model
+                try {
+                  await tx.employeeInvitation.update({
+                    where: { id: invitation.id },
+                    data: { employeeId: employee.id } as any,
+                  });
+                } catch {
+                  // employeeId column may not exist on EmployeeInvitation — skip silently
+                }
+
+                await tx.auditLog.create({
+                  data: {
+                    userId: 'system',
+                    entity: 'Employee',
+                    entityId: employee.id,
+                    action: 'CREATE',
+                    newValue: { employeeCode, source: 'offer_acceptance', offerId: offer.id },
+                    organizationId: job.organizationId,
+                  },
+                });
+
+                return employee;
+              });
+
+              logger.info(`[Recruitment] Auto-created employee ${newEmployee.employeeCode} for ${candidateEmail} after offer acceptance`);
+            } catch (empErr) {
+              // Non-blocking: employee creation failure should not block invite flow
+              logger.warn(`[Recruitment] Auto-employee creation failed for ${candidateEmail}:`, empErr);
+            }
+          }
+
           // Queue invite email
           await enqueueEmail({
-            to: offer.candidateEmail,
+            to: candidateEmail,
             subject: 'Welcome! Complete your onboarding',
             template: 'onboarding-invite',
             context: {
-              name: offer.application.candidateName || offer.candidateEmail.split('@')[0],
+              name: candidateName || candidateEmail.split('@')[0],
               link: `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`,
             },
           });
 
-          logger.info(`[Recruitment] Auto-invite sent to ${offer.candidateEmail} after offer acceptance`);
+          logger.info(`[Recruitment] Auto-invite sent to ${candidateEmail} after offer acceptance`);
         }
       } catch (err) {
         // Non-blocking: invite failure should not rollback offer acceptance

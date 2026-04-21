@@ -58,6 +58,7 @@ export default function EmployeeListPage() {
   const [activeView, setActiveView] = useState<'employees' | 'invitations'>('employees');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [statModal, setStatModal] = useState<StatModalConfig | null>(null);
 
   // Filters
   const [filterStatus, setFilterStatus] = useState('');
@@ -227,17 +228,33 @@ export default function EmployeeListPage() {
         </div>
       </div>
 
-      {/* Metrics Row */}
+      {/* Metrics Row — clickable to show filtered employee popup */}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
-          <MetricCard label="Total" value={stats.total} icon={<Users size={16} />} color="indigo" />
-          <MetricCard label="Active" value={stats.active} icon={<UserCheck size={16} />} color="green" />
-          <MetricCard label="Invited" value={stats.invited} icon={<Mail size={16} />} color="blue" />
-          <MetricCard label="Onboarding" value={stats.onboarding} icon={<Clock size={16} />} color="amber" />
-          <MetricCard label="Probation" value={stats.probation} icon={<Shield size={16} />} color="orange" />
-          <MetricCard label="Inactive" value={stats.inactive} icon={<UserX size={16} />} color="gray" />
-          <MetricCard label="Notice / Exit" value={stats.noticePeriod + stats.terminated} icon={<AlertTriangle size={16} />} color="red" />
+          <MetricCard label="Total" value={stats.total} icon={<Users size={16} />} color="indigo"
+            onClick={() => setStatModal({ label: 'All Employees' })} />
+          <MetricCard label="Active" value={stats.active} icon={<UserCheck size={16} />} color="green"
+            onClick={() => setStatModal({ label: 'Active Employees', status: 'ACTIVE' })} />
+          <MetricCard label="Invited" value={stats.invited} icon={<Mail size={16} />} color="blue"
+            onClick={() => setStatModal({ label: 'Pending Invitations', type: 'invitations' })} />
+          <MetricCard label="Onboarding" value={stats.onboarding} icon={<Clock size={16} />} color="amber"
+            onClick={() => setStatModal({ label: 'Employees in Onboarding', onboardingStatus: 'pending' })} />
+          <MetricCard label="Probation" value={stats.probation} icon={<Shield size={16} />} color="orange"
+            onClick={() => setStatModal({ label: 'Employees on Probation', status: 'PROBATION' })} />
+          <MetricCard label="Inactive" value={stats.inactive} icon={<UserX size={16} />} color="gray"
+            onClick={() => setStatModal({ label: 'Inactive Employees', status: 'INACTIVE' })} />
+          <MetricCard label="Notice / Exit" value={stats.noticePeriod + stats.terminated} icon={<AlertTriangle size={16} />} color="red"
+            onClick={() => setStatModal({ label: 'Notice Period / Exit', status: 'NOTICE_PERIOD' })} />
         </div>
+      )}
+
+      {/* Stat Detail Popup */}
+      {statModal && (
+        <StatDetailModal
+          config={statModal}
+          onClose={() => setStatModal(null)}
+          navigate={navigate}
+        />
       )}
 
       {/* Tab Switcher */}
@@ -744,13 +761,166 @@ const COLOR_MAP: Record<string, string> = {
   red: 'bg-red-50 text-red-600 border-red-100',
 };
 
-function MetricCard({ label, value, icon, color }: { label: string; value: number; icon: React.ReactNode; color: string }) {
+function MetricCard({ label, value, icon, color, onClick }: {
+  label: string; value: number; icon: React.ReactNode; color: string; onClick?: () => void;
+}) {
   return (
-    <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${COLOR_MAP[color] || COLOR_MAP.gray}`}>
+    <div
+      onClick={onClick}
+      className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${COLOR_MAP[color] || COLOR_MAP.gray} ${
+        onClick ? 'cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-150 select-none' : ''
+      }`}
+    >
       <div className="flex-shrink-0">{icon}</div>
       <div>
         <p className="text-lg font-bold font-mono leading-tight" data-mono>{value}</p>
         <p className="text-xs font-medium opacity-75">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Stat Detail Modal
+// ──────────────────────────────────────────────
+type StatModalConfig = {
+  label: string;
+  status?: string;
+  statuses?: string[];
+  onboardingStatus?: string;
+  type?: 'invitations';
+};
+
+function StatDetailModal({ config, onClose, navigate }: {
+  config: StatModalConfig;
+  onClose: () => void;
+  navigate: (path: string) => void;
+}) {
+  const isInvitations = config.type === 'invitations';
+
+  const { data: empData, isLoading: empLoading } = useGetEmployeesQuery(
+    {
+      page: 1, limit: 100,
+      ...(config.status && { status: config.status }),
+      ...(config.onboardingStatus && { onboardingStatus: config.onboardingStatus }),
+    },
+    { skip: isInvitations }
+  );
+
+  const { data: invData, isLoading: invLoading } = useGetInvitationsQuery(undefined, { skip: !isInvitations });
+
+  const employees = empData?.data || [];
+  const invitations = invData?.data || [];
+  const isLoading = isInvitations ? invLoading : empLoading;
+
+  // For Notice/Exit, also fetch TERMINATED employees and merge
+  const { data: terminatedData } = useGetEmployeesQuery(
+    { page: 1, limit: 100, status: 'TERMINATED' },
+    { skip: config.status !== 'NOTICE_PERIOD' }
+  );
+  const terminatedEmployees = terminatedData?.data || [];
+  const allEmployees = config.status === 'NOTICE_PERIOD'
+    ? [...employees, ...terminatedEmployees]
+    : employees;
+
+  const STATUS_BADGE: Record<string, string> = {
+    ACTIVE: 'bg-green-50 text-green-700 border-green-200',
+    PROBATION: 'bg-orange-50 text-orange-700 border-orange-200',
+    ONBOARDING: 'bg-amber-50 text-amber-700 border-amber-200',
+    INACTIVE: 'bg-gray-100 text-gray-500 border-gray-200',
+    NOTICE_PERIOD: 'bg-red-50 text-red-700 border-red-200',
+    TERMINATED: 'bg-red-100 text-red-800 border-red-300',
+  };
+
+  const INV_STATUS_BADGE: Record<string, string> = {
+    PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
+    ACCEPTED: 'bg-green-50 text-green-700 border-green-200',
+    EXPIRED: 'bg-red-50 text-red-600 border-red-200',
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-lg font-display font-bold text-gray-900">{config.label}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {isLoading ? 'Loading…' : isInvitations ? `${invitations.length} invitation(s)` : `${allEmployees.length} employee(s)`}
+            </p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 p-4">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 size={28} className="animate-spin text-indigo-500" />
+            </div>
+          ) : isInvitations ? (
+            invitations.length === 0 ? (
+              <div className="text-center py-16 text-gray-400 text-sm">No invitations found</div>
+            ) : (
+              <div className="space-y-2">
+                {invitations.map((inv: any) => {
+                  const isExpired = inv.expiresAt && new Date(inv.expiresAt) < new Date() && inv.status === 'PENDING';
+                  const statusKey = isExpired ? 'EXPIRED' : inv.status;
+                  return (
+                    <div key={inv.id} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:border-indigo-100 hover:bg-indigo-50/30 transition-colors">
+                      <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                        <Mail size={16} className="text-indigo-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{inv.email || inv.mobileNumber || '—'}</p>
+                        <p className="text-xs text-gray-400">{inv.role?.replace(/_/g, ' ')} · Sent {formatDate(inv.createdAt)}</p>
+                      </div>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${INV_STATUS_BADGE[statusKey] || INV_STATUS_BADGE.PENDING}`}>
+                        {isExpired ? 'Expired' : inv.status}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : allEmployees.length === 0 ? (
+            <div className="text-center py-16 text-gray-400 text-sm">No employees found</div>
+          ) : (
+            <div className="space-y-2">
+              {allEmployees.map((emp: any) => {
+                const initials = getInitials(emp.firstName, emp.lastName);
+                const avatarUrl = emp.avatar ? getUploadUrl(emp.avatar) : null;
+                return (
+                  <div
+                    key={emp.id}
+                    onClick={() => { navigate(`/employees/${emp.id}`); onClose(); }}
+                    className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:border-indigo-100 hover:bg-indigo-50/30 transition-colors cursor-pointer"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                      {avatarUrl
+                        ? <img src={avatarUrl} alt={initials} className="w-full h-full object-cover" />
+                        : <span className="text-xs font-bold text-indigo-600">{initials}</span>
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{emp.firstName} {emp.lastName}</p>
+                      <p className="text-xs text-gray-400 truncate">{emp.employeeCode} · {emp.department?.name || emp.designation?.title || '—'}</p>
+                    </div>
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${STATUS_BADGE[emp.status] || STATUS_BADGE.INACTIVE}`}>
+                      {emp.status?.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

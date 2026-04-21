@@ -3,11 +3,14 @@ import { z } from 'zod';
 import { publicApplyService } from './public-apply.service.js';
 import { storageService, StorageFolder } from '../../services/storage.service.js';
 
+// @types/express v5 widens req.params values to string | string[]; cast back to string
+const p = (v: string | string[]) => (Array.isArray(v) ? v[0] : v);
+
 export class PublicApplyController {
   // Public: Get job form
   async getJobForm(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await publicApplyService.getJobForm(req.params.token);
+      const data = await publicApplyService.getJobForm(p(req.params.token));
       res.json({ success: true, data });
     } catch (err) { next(err); }
   }
@@ -41,7 +44,7 @@ export class PublicApplyController {
         body.resumeUrl = storageService.buildUrl(StorageFolder.EMPLOYEE_DOCUMENTS, file.filename);
       }
 
-      const result = await publicApplyService.submitApplication(req.params.token, body);
+      const result = await publicApplyService.submitApplication(p(req.params.token), body);
       res.status(201).json({ success: true, data: result });
     } catch (err) { next(err); }
   }
@@ -49,7 +52,7 @@ export class PublicApplyController {
   // Public: Track application
   async trackApplication(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await publicApplyService.trackApplication(req.params.uid);
+      const data = await publicApplyService.trackApplication(p(req.params.uid));
       res.json({ success: true, data });
     } catch (err) { next(err); }
   }
@@ -57,7 +60,7 @@ export class PublicApplyController {
   // HR: Generate screening questions
   async generateQuestions(req: Request, res: Response, next: NextFunction) {
     try {
-      const questions = await publicApplyService.generateQuestions(req.params.jobId, req.user!.organizationId);
+      const questions = await publicApplyService.generateQuestions(p(req.params.jobId), req.user!.organizationId);
       res.json({ success: true, data: questions });
     } catch (err) { next(err); }
   }
@@ -74,7 +77,7 @@ export class PublicApplyController {
         messageType: z.enum(['whatsapp', 'email', 'both']).optional(),
         roundType: z.enum(['HR', 'MANAGER', 'SUPERADMIN']).optional(),
       }).parse(req.body);
-      const result = await publicApplyService.scheduleInterview(req.params.id, data, req.user!.organizationId, req.user!.userId);
+      const result = await publicApplyService.scheduleInterview(p(req.params.id), data, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: result, message: 'Interview scheduled & notifications sent' });
     } catch (err) { next(err); }
   }
@@ -98,7 +101,7 @@ export class PublicApplyController {
   // HR: Generate interview questions for a round
   async generateInterviewQuestions(req: Request, res: Response, next: NextFunction) {
     try {
-      const questions = await publicApplyService.generateInterviewQuestions(req.params.roundId, req.user!.organizationId);
+      const questions = await publicApplyService.generateInterviewQuestions(p(req.params.roundId), req.user!.organizationId);
       res.json({ success: true, data: questions });
     } catch (err) { next(err); }
   }
@@ -107,7 +110,7 @@ export class PublicApplyController {
   async scoreRound(req: Request, res: Response, next: NextFunction) {
     try {
       const { score, feedback } = z.object({ score: z.number().min(0).max(100), feedback: z.string().optional() }).parse(req.body);
-      const result = await publicApplyService.scoreRound(req.params.roundId, score, feedback || '', req.user!.userId, req.user!.organizationId);
+      const result = await publicApplyService.scoreRound(p(req.params.roundId), score, feedback || '', req.user!.userId, req.user!.organizationId);
       res.json({ success: true, data: result, message: 'Score submitted' });
     } catch (err) { next(err); }
   }
@@ -120,7 +123,7 @@ export class PublicApplyController {
         conductedBy: z.string().uuid(),
         scheduledAt: z.string().optional(),
       }).parse(req.body);
-      const result = await publicApplyService.createRound(req.params.id, data, req.user!.organizationId);
+      const result = await publicApplyService.createRound(p(req.params.id), data, req.user!.organizationId);
       res.status(201).json({ success: true, data: result });
     } catch (err) { next(err); }
   }
@@ -129,7 +132,7 @@ export class PublicApplyController {
   async finalizeCandidate(req: Request, res: Response, next: NextFunction) {
     try {
       const { finalStatus } = z.object({ finalStatus: z.enum(['SELECTED', 'REJECTED', 'ON_HOLD']) }).parse(req.body);
-      const result = await publicApplyService.finalizeCandidate(req.params.id, finalStatus, req.user!.userId, req.user!.organizationId);
+      const result = await publicApplyService.finalizeCandidate(p(req.params.id), finalStatus, req.user!.userId, req.user!.organizationId);
       res.json({ success: true, data: result, message: `Candidate marked as ${finalStatus}` });
     } catch (err) { next(err); }
   }
@@ -145,7 +148,7 @@ export class PublicApplyController {
   // HR: Get application detail
   async getApplicationDetail(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await publicApplyService.getApplicationDetail(req.params.id, req.user!.organizationId);
+      const data = await publicApplyService.getApplicationDetail(p(req.params.id), req.user!.organizationId);
       res.json({ success: true, data });
     } catch (err) { next(err); }
   }

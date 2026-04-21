@@ -3,7 +3,7 @@ import crypto, { randomBytes } from 'crypto';
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { NotFoundError, ConflictError, BadRequestError, AppError } from '../../middleware/errorHandler.js';
-import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
+import { enqueueEmail, enqueueNotification, payrollQueue } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
@@ -911,7 +911,93 @@ export class EmployeeService {
       console.error('Failed to create exit checklist:', e);
     }
 
+    // GAP-006: Trigger Full & Final settlement on exit approval (non-blocking)
+    setImmediate(() => {
+      this._triggerFnFSettlement(employeeId, organizationId, approvedBy, updated.lastWorkingDate).catch(
+        (err) => logger.warn('[ExitApproval] FnF trigger failed (non-blocking):', err),
+      );
+    });
+
     return updated;
+  }
+
+  /**
+   * GAP-006: Full & Final settlement trigger on exit approval.
+   * Creates a PayrollAdjustment record (type OTHER, component "Full & Final Settlement") for manual
+   * processing, or enqueues a payroll job when no open run exists for the final month.
+   * Non-blocking — caller wraps in setImmediate + .catch(). Exit approval is never
+   * affected if this step fails.
+   */
+  private async _triggerFnFSettlement(
+    employeeId: string,
+    organizationId: string,
+    approvedBy: string,
+    lastWorkingDate: Date | null,
+  ): Promise<void> {
+    const now = new Date();
+    const finalMonth = lastWorkingDate ? lastWorkingDate.getMonth() + 1 : now.getMonth() + 1;
+    const finalYear = lastWorkingDate ? lastWorkingDate.getFullYear() : now.getFullYear();
+
+    // Find or use an existing DRAFT payroll run for the final month, or create an ad-hoc record
+    const existingRun = await prisma.payrollRun.findFirst({
+      where: { organizationId, month: finalMonth, year: finalYear, status: { in: ['DRAFT', 'REVIEW'] } },
+      select: { id: true },
+    });
+
+    if (existingRun) {
+      // Attach a FnF adjustment to the existing run (type OTHER — no FINAL_SETTLEMENT enum value)
+      await prisma.payrollAdjustment.create({
+        data: {
+          payrollRunId: existingRun.id,
+          employeeId,
+          type: 'OTHER',
+          componentName: 'Full & Final Settlement',
+          amount: 0, // HR will fill in the actual settlement amount
+          isDeduction: false,
+          reason: `Auto-generated FnF on exit approval (last working date: ${lastWorkingDate?.toLocaleDateString('en-IN') ?? 'TBD'})`,
+          organizationId,
+        },
+      });
+
+      logger.info(`[FnF] PayrollAdjustment FINAL_SETTLEMENT created for employee ${employeeId} on run ${existingRun.id}`);
+    } else {
+      // No open run — enqueue a payroll processing job so payroll team is notified
+      await payrollQueue.add(
+        'fnf-settlement',
+        {
+          employeeId,
+          organizationId,
+          month: finalMonth,
+          year: finalYear,
+          type: 'FINAL_SETTLEMENT',
+          lastWorkingDate: lastWorkingDate?.toISOString() ?? null,
+          triggeredBy: approvedBy,
+        },
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+        },
+      );
+
+      logger.info(`[FnF] Payroll job enqueued for employee ${employeeId} — month ${finalMonth}/${finalYear}`);
+    }
+
+    // Audit the FnF trigger
+    await createAuditLog({
+      userId: approvedBy,
+      organizationId,
+      entity: 'Employee',
+      entityId: employeeId,
+      action: 'FNF_TRIGGERED',
+      newValue: {
+        finalMonth,
+        finalYear,
+        lastWorkingDate: lastWorkingDate?.toISOString() ?? null,
+        runId: existingRun?.id ?? null,
+      },
+    });
+
+    logger.info(`[FnF] Settlement triggered for employee ${employeeId} (${finalMonth}/${finalYear})`);
   }
 
   async completeExit(employeeId: string, userId: string, organizationId: string) {

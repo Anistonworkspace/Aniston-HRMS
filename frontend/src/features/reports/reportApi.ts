@@ -6,7 +6,10 @@ export const reportApi = api.injectEndpoints({
       query: () => '/reports/headcount',
       providesTags: ['Employee', 'Dashboard'],
     }),
-    getAttendanceSummary: builder.query<any, { startDate?: string; endDate?: string }>({
+    getAttendanceSummary: builder.query<
+      any,
+      { startDate?: string; endDate?: string; includePendingRegularizations?: boolean }
+    >({
       query: (params) => ({ url: '/reports/attendance-summary', params }),
       providesTags: ['Attendance'],
     }),

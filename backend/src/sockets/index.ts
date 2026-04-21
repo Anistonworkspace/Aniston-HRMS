@@ -3,6 +3,7 @@ import { Server as SocketServer } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
+import { prisma } from '../lib/prisma.js';
 
 let io: SocketServer | null = null;
 
@@ -50,10 +51,24 @@ export function initSocketServer(httpServer: HttpServer) {
 
     // Admin requests to start streaming an employee's screen
     socket.on('stream:request', async (data: { employeeUserId: string }) => {
-      if (!['SUPER_ADMIN', 'ADMIN'].includes(role)) return; // Only admin can request
+      if (!['SUPER_ADMIN', 'ADMIN'].includes(role)) return;
+
+      // Audit log: record who initiated monitoring and of whom
+      try {
+        await prisma.auditLog.create({
+          data: {
+            action: 'STREAM_REQUEST',
+            entity: 'ActivityMonitoring',
+            entityId: data.employeeUserId,
+            userId,
+            organizationId,
+            newValue: { adminUserId: userId, targetEmployeeUserId: data.employeeUserId, event: 'stream:request' },
+          },
+        });
+      } catch { /* non-blocking */ }
+
       logger.info(`Stream requested by admin ${userId} for employee ${data.employeeUserId}`);
 
-      // Check if agent is connected before forwarding — avoids silent 15s timeout on admin side
       const agentSockets = await io!.in(`agent:${data.employeeUserId}`).fetchSockets();
       if (agentSockets.length === 0) {
         socket.emit('stream:error', {
@@ -63,7 +78,6 @@ export function initSocketServer(httpServer: HttpServer) {
         return;
       }
 
-      // Tell the agent to start streaming, pass the admin's socket ID for direct P2P signaling
       io!.to(`agent:${data.employeeUserId}`).emit('stream:start', {
         adminSocketId: socket.id,
         adminUserId: userId,
@@ -71,17 +85,46 @@ export function initSocketServer(httpServer: HttpServer) {
     });
 
     // Admin requests to stop streaming
-    socket.on('stream:stop-request', (data: { employeeUserId: string }) => {
+    socket.on('stream:stop-request', async (data: { employeeUserId: string }) => {
       if (!['SUPER_ADMIN', 'ADMIN'].includes(socket.data?.role)) return;
+
+      try {
+        await prisma.auditLog.create({
+          data: {
+            action: 'STREAM_STOP',
+            entity: 'ActivityMonitoring',
+            entityId: data.employeeUserId,
+            userId,
+            organizationId,
+            newValue: { adminUserId: userId, targetEmployeeUserId: data.employeeUserId, event: 'stream:stop' },
+          },
+        });
+      } catch { /* non-blocking */ }
+
       io!.to(`agent:${data.employeeUserId}`).emit('stream:stop');
     });
 
-    // WebRTC signaling relay — forward offer/answer/ICE between agent and admin
-    socket.on('stream:signal', (data: { type: string; sdp?: any; candidate?: any; targetSocketId?: string }) => {
+    // WebRTC signaling relay — only ADMIN/SUPER_ADMIN or registered agents may relay signals.
+    // Agents are identified by being registered in the agent: room.
+    socket.on('stream:signal', async (data: { type: string; sdp?: any; candidate?: any; targetSocketId?: string }) => {
+      const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(socket.data?.role);
+      const agentRoom = io!.sockets.adapter.rooms.get(`agent:${userId}`);
+      const isAgent = agentRoom ? agentRoom.has(socket.id) : false;
+
+      // Only admins and registered agents may participate in WebRTC signaling
+      if (!isAdmin && !isAgent) return;
+
       if (data.targetSocketId) {
         const targetSocket = io!.sockets.sockets.get(data.targetSocketId);
         if (!targetSocket || targetSocket.data?.organizationId !== socket.data?.organizationId) return;
-        // Direct to specific socket (agent → admin or admin → agent)
+
+        // Validate that the target is either an admin or a registered agent (no arbitrary relay)
+        const targetIsAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(targetSocket.data?.role);
+        const targetAgentRoom = io!.sockets.adapter.rooms.get(`agent:${targetSocket.data?.userId}`);
+        const targetIsAgent = targetAgentRoom ? targetAgentRoom.has(data.targetSocketId) : false;
+
+        if (!targetIsAdmin && !targetIsAgent) return;
+
         io!.to(data.targetSocketId).emit('stream:signal', {
           ...data,
           fromSocketId: socket.id,
@@ -89,17 +132,24 @@ export function initSocketServer(httpServer: HttpServer) {
       }
     });
 
-    // Bug #2: Agent renderer reports a WebRTC/getUserMedia error — relay to the admin.
-    // socket.data.userId is the agent's userId, which equals the employeeUserId the admin requested.
+    // Agent reports a WebRTC error — relay to the requesting admin (sanitize message).
     socket.on('stream:agent-error', (data: { message: string; targetSocketId?: string }) => {
+      const agentRoom = io!.sockets.adapter.rooms.get(`agent:${userId}`);
+      const isAgent = agentRoom ? agentRoom.has(socket.id) : false;
+      if (!isAgent) return; // Only registered agents may send errors
+
       const targetId = data.targetSocketId;
       if (targetId) {
         const targetSocket = io!.sockets.sockets.get(targetId);
-        // Only relay within the same org (security guard)
         if (targetSocket && targetSocket.data?.organizationId === socket.data?.organizationId) {
+          const isTargetAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(targetSocket.data?.role);
+          if (!isTargetAdmin) return; // Only relay errors to admins
+
+          // Sanitize message to prevent XSS via relay
+          const safeMessage = String(data.message ?? 'Agent error').slice(0, 500).replace(/[<>]/g, '');
           io!.to(targetId).emit('stream:error', {
-            message: data.message,
-            employeeUserId: socket.data.userId, // lets admin LiveVideoStream match which employee errored
+            message: safeMessage,
+            employeeUserId: socket.data.userId,
           });
         }
       }

@@ -37,6 +37,8 @@ export class BulkResumeService {
             fileName: file.originalname,
             fileUrl: storageService.buildUrl(StorageFolder.RESUMES_BULK, file.filename),
             status: 'PENDING',
+            matchedKeywords: [],
+            missingKeywords: [],
           },
         })
       )

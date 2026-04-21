@@ -165,6 +165,8 @@ export enum OfferStatus {
 export enum PayrollRunStatus {
   DRAFT = 'DRAFT',
   PROCESSING = 'PROCESSING',
+  REVIEW = 'REVIEW',
+  APPROVED = 'APPROVED',
   COMPLETED = 'COMPLETED',
   LOCKED = 'LOCKED',
 }
@@ -399,6 +401,9 @@ export enum WaContactSource {
 export enum KycStatus {
   PENDING = 'PENDING',
   SUBMITTED = 'SUBMITTED',
+  PROCESSING = 'PROCESSING',
+  PENDING_HR_REVIEW = 'PENDING_HR_REVIEW',
+  REUPLOAD_REQUIRED = 'REUPLOAD_REQUIRED',
   VERIFIED = 'VERIFIED',
   REJECTED = 'REJECTED',
 }
@@ -460,4 +465,31 @@ export enum ResumeItemStatus {
   PROCESSING = 'PROCESSING',
   SCORED = 'SCORED',
   FAILED = 'FAILED',
+}
+
+export enum TicketCategory {
+  IT_SUPPORT = 'IT_SUPPORT',
+  HR_QUERY = 'HR_QUERY',
+  PAYROLL = 'PAYROLL',
+  LEAVE = 'LEAVE',
+  ATTENDANCE = 'ATTENDANCE',
+  ASSET = 'ASSET',
+  GENERAL = 'GENERAL',
+  OTHER = 'OTHER',
+}
+
+export enum AnnouncementPriority {
+  LOW = 'LOW',
+  NORMAL = 'NORMAL',
+  HIGH = 'HIGH',
+  URGENT = 'URGENT',
+}
+
+export enum LeaveApplicableTo {
+  ALL = 'ALL',
+  PROBATION = 'PROBATION',
+  CONFIRMED = 'CONFIRMED',
+  INTERN = 'INTERN',
+  NOTICE_PERIOD = 'NOTICE_PERIOD',
+  SPECIFIC = 'SPECIFIC',
 }

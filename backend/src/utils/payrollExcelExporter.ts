@@ -1029,7 +1029,546 @@ export async function generateBankFileExcel(
   return Buffer.from(buffer);
 }
 
-// ─── Export 4: Payroll Import Template ──────────────────────────────────────
+// ─── Export 4: EPF ECR Challan ──────────────────────────────────────────────
+
+/**
+ * Generate EPF ECR (Employee Contribution Register) Excel challan.
+ * Format matches EPFO ECR text-file column spec, exported as Excel for review.
+ *
+ * Columns (EPFO ECR spec):
+ *   SRNO | UAN | MEMBER_NAME | GROSS_WAGES | EPF_WAGES | EPS_WAGES | EDLI_WAGES
+ *   | EPF_CONTR_REMITTED | EPS_CONTR_REMITTED | EPF_EPS_DIFF_REMITTED
+ *   | NCP_DAYS | REFUND_OF_ADVANCES
+ */
+export async function generateEpfChallanExcel(
+  run: any,
+  records: any[],
+  orgName: string
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Aniston HRMS';
+  workbook.created = new Date();
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
+
+  const sheet = workbook.addWorksheet('EPF ECR Challan', {
+    views: [{ state: 'frozen', ySplit: 3 }],
+  });
+
+  // Title block
+  sheet.addRow([`${orgName} — EPF ECR Challan — ${periodLabel}`]);
+  sheet.getRow(1).font = { bold: true, size: 13, color: { argb: BRAND } };
+  sheet.mergeCells(1, 1, 1, 12);
+  sheet.getRow(1).height = 24;
+
+  sheet.addRow([
+    `EPFO ECR Format  |  Period: ${periodLabel}  |  `
+    + 'UAN = Universal Account Number (use PAN if UAN not registered)  |  '
+    + 'EPF/EPS Wages capped at ₹15,000',
+  ]);
+  sheet.getRow(2).font = { italic: true, size: 9, color: { argb: GRAY } };
+  sheet.mergeCells(2, 1, 2, 12);
+
+  const headers = [
+    'SRNO', 'UAN', 'MEMBER_NAME', 'GROSS_WAGES',
+    'EPF_WAGES', 'EPS_WAGES', 'EDLI_WAGES',
+    'EPF_CONTR_REMITTED', 'EPS_CONTR_REMITTED', 'EPF_EPS_DIFF_REMITTED',
+    'NCP_DAYS', 'REFUND_OF_ADVANCES',
+  ];
+  const headerRow = sheet.addRow(headers);
+  styleHeaderRow(headerRow, '1D4ED8'); // deep blue for EPF
+
+  [7, 18, 28, 14, 12, 12, 12, 18, 18, 20, 11, 18].forEach((w, i) => {
+    sheet.getColumn(i + 1).width = w;
+  });
+
+  const filteredRecords = (records as any[]).filter(
+    (r: any) => !r.employee?.isSystemAccount
+  );
+
+  const EPF_WAGE_CAP = 15000;
+  const EPS_WAGE_CAP = 15000; // EPS also capped at 15,000
+
+  let srno = 0;
+  let totalEpfContr = 0;
+  let totalEpsContr = 0;
+
+  filteredRecords.forEach((rec: any) => {
+    srno++;
+    const grossWages   = n(rec.grossSalary);
+    const epfWages     = Math.min(n(rec.basic), EPF_WAGE_CAP);
+    const epsWages     = Math.min(epfWages, EPS_WAGE_CAP);
+    const edliWages    = epfWages; // EDLI = same as EPF wages
+
+    // EPF contribution = 12% of EPF wages
+    const epfContr     = Math.round(epfWages * 12 / 100);
+    // EPS contribution = 8.33% of EPS wages (employer's EPS portion; max ₹1,250)
+    const epsContr     = Math.min(Math.round(epsWages * 8.33 / 100), 1250);
+    // EPF–EPS difference = employer EPF minus EPS portion (goes into EPF proper)
+    const epfEpsDiff   = Math.max(0, epfContr - epsContr);
+    const ncpDays      = n(rec.lopDays);
+
+    totalEpfContr += epfContr;
+    totalEpsContr += epsContr;
+
+    // UAN: use stored UAN if present, else fall back to PAN (EPFO allows PAN-based filing)
+    const uan = t((rec.employee as any)?.epfUan || rec.employee?.panNumber || 'N/A');
+    const memberName = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim() || 'N/A';
+
+    const row = sheet.addRow([
+      srno,
+      uan,
+      memberName,
+      grossWages,
+      epfWages,
+      epsWages,
+      edliWages,
+      epfContr,
+      epsContr,
+      epfEpsDiff,
+      ncpDays,
+      0, // REFUND_OF_ADVANCES — always 0 (manual override for returns)
+    ]);
+
+    row.font = { size: 9, name: 'Calibri' };
+    row.alignment = { horizontal: 'center', vertical: 'middle' };
+    row.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+    row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+
+    // Currency format for wage/contribution columns
+    for (const col of [4, 5, 6, 7, 8, 9, 10]) {
+      row.getCell(col).numFmt = '₹#,##0';
+    }
+
+    if (ncpDays > 0) {
+      row.getCell(11).font = { bold: true, color: { argb: RED }, size: 9 };
+    }
+    if (uan === 'N/A') {
+      row.getCell(2).font = { color: { argb: RED }, size: 9, italic: true };
+    }
+
+    if (srno % 2 === 0) {
+      for (let c = 1; c <= 12; c++) {
+        row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EFF6FF' } };
+      }
+    }
+  });
+
+  // Totals row
+  const totalsRow = sheet.addRow([
+    '', `TOTAL: ${srno} members`, '',
+    '', '', '', '',
+    totalEpfContr, totalEpsContr, totalEpfContr - totalEpsContr,
+    '', '',
+  ]);
+  totalsRow.font = { bold: true, size: 11, name: 'Calibri' };
+  totalsRow.eachCell((cell) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DBEAFE' } };
+  });
+  totalsRow.getCell(8).numFmt = '₹#,##0';
+  totalsRow.getCell(9).numFmt = '₹#,##0';
+  totalsRow.getCell(10).numFmt = '₹#,##0';
+  totalsRow.getCell(8).font = { bold: true, color: { argb: '1D4ED8' }, size: 11 };
+
+  sheet.autoFilter = {
+    from: { row: 3, column: 1 },
+    to: { row: 3 + filteredRecords.length, column: 12 },
+  };
+
+  // Notes section
+  sheet.addRow([]);
+  const notesTitle = sheet.addRow(['NOTES — EPF ECR Filing Instructions']);
+  sheet.mergeCells(notesTitle.number, 1, notesTitle.number, 12);
+  notesTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
+  notesTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1D4ED8' } };
+  notesTitle.height = 22;
+
+  const notes: [string, string][] = [
+    ['UAN', 'Universal Account Number — employees must register UAN on EPFO portal. If blank, use PAN until UAN is available.'],
+    ['EPF_WAGES', 'Basic salary capped at ₹15,000. This is the wage base for 12% EPF computation.'],
+    ['EPS_WAGES', 'EPS (Employees Pension Scheme) wage base — also capped at ₹15,000.'],
+    ['EDLI_WAGES', 'EDLI (Employees Deposit Linked Insurance) — same as EPF wages.'],
+    ['EPF_CONTR_REMITTED', '12% of EPF wages. This is the employer\'s total EPF contribution per member.'],
+    ['EPS_CONTR_REMITTED', '8.33% of EPS wages (max ₹1,250/month). This goes to the pension scheme.'],
+    ['EPF_EPS_DIFF_REMITTED', 'EPF contribution − EPS contribution. This remainder goes to EPF accumulation.'],
+    ['NCP_DAYS', 'Non-Contributing Period (LOP days). Affects pension computation.'],
+    ['Filing', 'Upload this data to EPFO Unified Portal → ECR Upload after verifying all UANs.'],
+  ];
+
+  for (const [col, desc] of notes) {
+    const r = sheet.addRow([col, desc]);
+    sheet.mergeCells(r.number, 2, r.number, 12);
+    r.getCell(1).font = { bold: true, size: 9, name: 'Calibri', color: { argb: '1D4ED8' } };
+    r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EFF6FF' } };
+    r.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+    r.getCell(2).font = { size: 9, name: 'Calibri' };
+    r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
+    r.height = 20;
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+// ─── Export 5: ESI Return ────────────────────────────────────────────────────
+
+/**
+ * Generate ESI contribution return Excel.
+ * Columns: IP_NO | NAME | GROSS_WAGES | TOTAL_WAGES_ESI | EMPLOYEE_SHARE | EMPLOYER_SHARE
+ *
+ * ESI only applies to employees with Gross <= ₹21,000/month.
+ * Employee share: 0.75%, Employer share: 3.25%.
+ */
+export async function generateEsiReturnExcel(
+  run: any,
+  records: any[],
+  orgName: string
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Aniston HRMS';
+  workbook.created = new Date();
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
+
+  const sheet = workbook.addWorksheet('ESI Return', {
+    views: [{ state: 'frozen', ySplit: 3 }],
+  });
+
+  sheet.addRow([`${orgName} — ESI Contribution Return — ${periodLabel}`]);
+  sheet.getRow(1).font = { bold: true, size: 13, color: { argb: '047857' } };
+  sheet.mergeCells(1, 1, 1, 7);
+  sheet.getRow(1).height = 24;
+
+  sheet.addRow([
+    `ESIC Format  |  Period: ${periodLabel}  |  `
+    + 'Applicable only for Gross Salary ≤ ₹21,000/month  |  '
+    + 'Employee: 0.75%  |  Employer: 3.25%',
+  ]);
+  sheet.getRow(2).font = { italic: true, size: 9, color: { argb: GRAY } };
+  sheet.mergeCells(2, 1, 2, 7);
+
+  const headers = [
+    'SRNO', 'IP_NO', 'NAME', 'GROSS_WAGES',
+    'TOTAL_WAGES_ESI', 'EMPLOYEE_SHARE', 'EMPLOYER_SHARE',
+  ];
+  const headerRow = sheet.addRow(headers);
+  styleHeaderRow(headerRow, '047857'); // emerald green for ESI
+
+  [7, 20, 28, 14, 16, 15, 15].forEach((w, i) => {
+    sheet.getColumn(i + 1).width = w;
+  });
+
+  const ESI_GROSS_CAP = 21000;
+  const ESI_EE_RATE   = 0.0075; // 0.75%
+  const ESI_ER_RATE   = 0.0325; // 3.25%
+
+  const filteredRecords = (records as any[]).filter(
+    (r: any) => !r.employee?.isSystemAccount
+  );
+
+  // Separate ESI-applicable vs non-applicable employees
+  const esiRecords = filteredRecords.filter(
+    (r: any) => n(r.grossSalary) <= ESI_GROSS_CAP
+  );
+  const nonEsiRecords = filteredRecords.filter(
+    (r: any) => n(r.grossSalary) > ESI_GROSS_CAP
+  );
+
+  let srno = 0;
+  let totalEsiWages = 0;
+  let totalEeShare = 0;
+  let totalErShare = 0;
+
+  esiRecords.forEach((rec: any) => {
+    srno++;
+    const grossWages  = n(rec.grossSalary);
+    const esiWages    = grossWages; // ESI computed on actual gross (no cap since we pre-filtered)
+    const eeShare     = Math.round(esiWages * ESI_EE_RATE);
+    const erShare     = Math.round(esiWages * ESI_ER_RATE);
+
+    totalEsiWages += esiWages;
+    totalEeShare  += eeShare;
+    totalErShare  += erShare;
+
+    // IP_NO: ESIC Insurance Policy number — stored on employee if available, else use employeeCode
+    const ipNo = t((rec.employee as any)?.esiIpNumber || rec.employee?.employeeCode);
+    const name = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim() || 'N/A';
+
+    const row = sheet.addRow([
+      srno,
+      ipNo,
+      name,
+      grossWages,
+      esiWages,
+      eeShare,
+      erShare,
+    ]);
+
+    row.font = { size: 9, name: 'Calibri' };
+    row.alignment = { horizontal: 'center', vertical: 'middle' };
+    row.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+    row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+
+    for (const col of [4, 5, 6, 7]) {
+      row.getCell(col).numFmt = '₹#,##0';
+    }
+
+    if (srno % 2 === 0) {
+      for (let c = 1; c <= 7; c++) {
+        row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'ECFDF5' } };
+      }
+    }
+  });
+
+  // Totals row
+  const totalsRow = sheet.addRow([
+    '', `TOTAL: ${srno} employees`, '',
+    '', totalEsiWages, totalEeShare, totalErShare,
+  ]);
+  totalsRow.font = { bold: true, size: 11 };
+  totalsRow.eachCell((cell) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'D1FAE5' } };
+  });
+  totalsRow.getCell(5).numFmt = '₹#,##0';
+  totalsRow.getCell(6).numFmt = '₹#,##0';
+  totalsRow.getCell(7).numFmt = '₹#,##0';
+  totalsRow.getCell(7).font = { bold: true, color: { argb: '047857' }, size: 11 };
+
+  sheet.autoFilter = {
+    from: { row: 3, column: 1 },
+    to: { row: 3 + esiRecords.length, column: 7 },
+  };
+
+  // Non-applicable section
+  if (nonEsiRecords.length > 0) {
+    sheet.addRow([]);
+    const exclTitle = sheet.addRow([
+      `EXCLUDED — ${nonEsiRecords.length} employee(s) with Gross > ₹21,000 (ESI not applicable)`,
+    ]);
+    sheet.mergeCells(exclTitle.number, 1, exclTitle.number, 7);
+    exclTitle.font = { bold: true, size: 10, color: { argb: GRAY } };
+    exclTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F3F4F6' } };
+    exclTitle.height = 20;
+
+    nonEsiRecords.forEach((rec: any, idx: number) => {
+      const name = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim() || 'N/A';
+      const excRow = sheet.addRow([
+        idx + 1,
+        t(rec.employee?.employeeCode),
+        name,
+        n(rec.grossSalary),
+        'N/A — Gross > ₹21,000', '', '',
+      ]);
+      excRow.font = { size: 9, color: { argb: GRAY }, italic: true };
+      excRow.getCell(4).numFmt = '₹#,##0';
+    });
+  }
+
+  // Notes section
+  sheet.addRow([]);
+  const notesTitle = sheet.addRow(['NOTES — ESI Return Filing Instructions']);
+  sheet.mergeCells(notesTitle.number, 1, notesTitle.number, 7);
+  notesTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
+  notesTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '047857' } };
+  notesTitle.height = 22;
+
+  const notes: [string, string][] = [
+    ['IP_NO', 'Insurance Policy Number — ESIC registration number. Use employee code until ESIC registration is done.'],
+    ['GROSS_WAGES', 'Total gross salary for the contribution period. ESI applies if Gross ≤ ₹21,000/month.'],
+    ['TOTAL_WAGES_ESI', 'Gross wages on which ESI is calculated (same as Gross here since pre-filtered).'],
+    ['EMPLOYEE_SHARE', '0.75% of ESI wages — deducted from employee salary.'],
+    ['EMPLOYER_SHARE', '3.25% of ESI wages — paid by the company.'],
+    ['Total Contribution', 'Employee (0.75%) + Employer (3.25%) = 4% total to be remitted to ESIC.'],
+    ['Filing', 'Log in to ESIC portal → Contribution → File Monthly Contribution → upload or enter these values.'],
+    ['Due Date', 'ESI contribution is due by the 15th of the following month.'],
+  ];
+
+  for (const [col, desc] of notes) {
+    const r = sheet.addRow([col, desc]);
+    sheet.mergeCells(r.number, 2, r.number, 7);
+    r.getCell(1).font = { bold: true, size: 9, name: 'Calibri', color: { argb: '047857' } };
+    r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'ECFDF5' } };
+    r.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+    r.getCell(2).font = { size: 9, name: 'Calibri' };
+    r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
+    r.height = 20;
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+// ─── Export 6: Form 24Q (TDS Summary) ───────────────────────────────────────
+
+/**
+ * Generate Form 24Q TDS return summary Excel for a financial year quarter.
+ * Columns: PAN | NAME | TOTAL_INCOME | TDS_DEDUCTED | SURCHARGE | EDUCATION_CESS
+ */
+export async function generateForm24QExcel(
+  records: any[],  // PayrollRecord[] covering the quarter (may span multiple runs)
+  orgName: string,
+  financialYear: string, // e.g. "2025-26"
+  quarter: string,        // e.g. "Q1"
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Aniston HRMS';
+  workbook.created = new Date();
+
+  const QUARTER_MONTHS: Record<string, string> = {
+    Q1: 'Apr–Jun', Q2: 'Jul–Sep', Q3: 'Oct–Dec', Q4: 'Jan–Mar',
+  };
+  const quarterLabel = `${quarter} (${QUARTER_MONTHS[quarter] || quarter}) FY ${financialYear}`;
+
+  const sheet = workbook.addWorksheet('Form 24Q', {
+    views: [{ state: 'frozen', ySplit: 3 }],
+  });
+
+  sheet.addRow([`${orgName} — Form 24Q TDS Return Summary — ${quarterLabel}`]);
+  sheet.getRow(1).font = { bold: true, size: 13, color: { argb: '7C3AED' } };
+  sheet.mergeCells(1, 1, 1, 8);
+  sheet.getRow(1).height = 24;
+
+  sheet.addRow([
+    `TDS Return Format  |  Quarter: ${quarterLabel}  |  `
+    + 'TDS = Tax Deducted at Source from salary. File quarterly via TRACES / TIN NSDL.',
+  ]);
+  sheet.getRow(2).font = { italic: true, size: 9, color: { argb: GRAY } };
+  sheet.mergeCells(2, 1, 2, 8);
+
+  const headers = [
+    'SRNO', 'PAN', 'EMPLOYEE_NAME', 'TOTAL_INCOME_QUARTER',
+    'TDS_DEDUCTED', 'SURCHARGE', 'EDUCATION_CESS', 'TOTAL_TAX_DEPOSITED',
+  ];
+  const headerRow = sheet.addRow(headers);
+  styleHeaderRow(headerRow, '7C3AED'); // purple for TDS
+
+  [7, 16, 28, 20, 16, 14, 14, 20].forEach((w, i) => {
+    sheet.getColumn(i + 1).width = w;
+  });
+
+  // Aggregate per employee across all payroll records in the quarter
+  const empMap = new Map<string, {
+    name: string; pan: string; totalIncome: number; totalTds: number;
+  }>();
+
+  (records as any[]).filter((r: any) => !r.employee?.isSystemAccount).forEach((rec: any) => {
+    const empId = rec.employeeId as string;
+    const name = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim() || 'N/A';
+    const pan  = t(rec.employee?.panNumber || 'N/A');
+
+    if (!empMap.has(empId)) {
+      empMap.set(empId, { name, pan, totalIncome: 0, totalTds: 0 });
+    }
+    const entry = empMap.get(empId)!;
+    entry.totalIncome += n(rec.grossSalary);
+    entry.totalTds    += n(rec.tds);
+  });
+
+  let srno = 0;
+  let grandIncome = 0;
+  let grandTds    = 0;
+
+  empMap.forEach((entry) => {
+    srno++;
+    // Surcharge: 10% of TDS if projected annual income > ₹50L (simplified — show 0 if no surcharge flag)
+    const surcharge   = 0; // Surcharge computed during TDS calculation; show 0 here unless stored
+    // Education Cess: 4% of (TDS + Surcharge)
+    const eduCess     = Math.round((entry.totalTds + surcharge) * 0.04);
+    const totalTaxDep = entry.totalTds + surcharge + eduCess;
+
+    grandIncome += entry.totalIncome;
+    grandTds    += totalTaxDep;
+
+    const row = sheet.addRow([
+      srno,
+      entry.pan,
+      entry.name,
+      entry.totalIncome,
+      entry.totalTds,
+      surcharge,
+      eduCess,
+      totalTaxDep,
+    ]);
+
+    row.font = { size: 9, name: 'Calibri' };
+    row.alignment = { horizontal: 'center', vertical: 'middle' };
+    row.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+    row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+
+    for (const col of [4, 5, 6, 7, 8]) {
+      row.getCell(col).numFmt = '₹#,##0';
+    }
+
+    if (entry.pan === 'N/A') {
+      row.getCell(2).font = { color: { argb: RED }, size: 9, italic: true };
+    }
+
+    if (srno % 2 === 0) {
+      for (let c = 1; c <= 8; c++) {
+        row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F5F3FF' } };
+      }
+    }
+  });
+
+  // Totals row
+  const totalsRow = sheet.addRow([
+    '', `TOTAL: ${srno} employees`, '',
+    grandIncome, grandTds, '', '', grandTds,
+  ]);
+  totalsRow.font = { bold: true, size: 11 };
+  totalsRow.eachCell((cell) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EDE9FE' } };
+  });
+  totalsRow.getCell(4).numFmt = '₹#,##0';
+  totalsRow.getCell(5).numFmt = '₹#,##0';
+  totalsRow.getCell(8).numFmt = '₹#,##0';
+  totalsRow.getCell(8).font = { bold: true, color: { argb: '7C3AED' }, size: 11 };
+
+  sheet.autoFilter = {
+    from: { row: 3, column: 1 },
+    to: { row: 3 + srno, column: 8 },
+  };
+
+  // Notes section
+  sheet.addRow([]);
+  const notesTitle = sheet.addRow(['NOTES — Form 24Q TDS Return Filing Instructions']);
+  sheet.mergeCells(notesTitle.number, 1, notesTitle.number, 8);
+  notesTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
+  notesTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '7C3AED' } };
+  notesTitle.height = 22;
+
+  const notes: [string, string][] = [
+    ['PAN', 'Permanent Account Number — mandatory for TDS filing. Employees without PAN attract higher TDS (20% flat rate).'],
+    ['TOTAL_INCOME_QUARTER', 'Sum of gross salary paid during the quarter. Used for income projection.'],
+    ['TDS_DEDUCTED', 'Total TDS deducted from employee salary during the quarter.'],
+    ['SURCHARGE', '10% of TDS for income > ₹50 Lakh/year. Currently shown as 0 — override manually if applicable.'],
+    ['EDUCATION_CESS', '4% of (TDS + Surcharge). Also called "Health & Education Cess" under new tax regime.'],
+    ['TOTAL_TAX_DEPOSITED', 'TDS + Surcharge + Education Cess. This is the amount remitted to Income Tax Dept via challan.'],
+    ['Due Dates', 'Q1: 31 Jul | Q2: 31 Oct | Q3: 31 Jan | Q4: 31 May'],
+    ['Filing', 'Prepare Form 24Q using TRACES/RPU software. This Excel is a summary reference — use RPU for actual e-filing.'],
+    ['Challan', 'Deposit TDS via Challan 281 at bank or online (TIN NSDL). Reference CIN while filing 24Q.'],
+  ];
+
+  for (const [col, desc] of notes) {
+    const r = sheet.addRow([col, desc]);
+    sheet.mergeCells(r.number, 2, r.number, 8);
+    r.getCell(1).font = { bold: true, size: 9, name: 'Calibri', color: { argb: '7C3AED' } };
+    r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F5F3FF' } };
+    r.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+    r.getCell(2).font = { size: 9, name: 'Calibri' };
+    r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
+    r.height = 20;
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+// ─── Export 7: Payroll Import Template ──────────────────────────────────────
 
 /**
  * Generate downloadable payroll import template with existing employee data pre-filled.

@@ -291,9 +291,9 @@ export class AttendanceService {
         data.notes = `${data.notes || ''} [Late by ${lateMinutes} min — shift ${shift.name} starts at ${shift.startTime}]`.trim();
       }
 
-      // Auto-mark HALF_DAY: use policy.lateHalfDayAfterMins (org-level) if set, else grace + 30
+      // Auto-mark HALF_DAY note: threshold = grace period itself (checking in after grace = half day)
       if (!isReClockIn) {
-        const halfDayThreshold = policy?.lateHalfDayAfterMins || (graceMinutes + 30);
+        const halfDayThreshold = policy?.lateHalfDayAfterMins ?? graceMinutes;
         const minutesLate = Math.round((istNow.getTime() - shiftStart.getTime()) / (1000 * 60));
         if (minutesLate > halfDayThreshold) {
           data.notes = `${data.notes || ''} [Auto-marked HALF_DAY: ${minutesLate} min late, threshold ${halfDayThreshold} min]`.trim();
@@ -345,13 +345,13 @@ export class AttendanceService {
         },
       });
     } else {
-      // Determine initial status: HALF_DAY if very late, else PRESENT
-      // Uses policy.lateHalfDayAfterMins as org-level half-day threshold
-      const autoHalfDay = shift && (() => {
+      // Determine initial status: HALF_DAY if checked in after grace period ends, else PRESENT.
+      // Grace period IS the half-day cutoff: shift 09:30 + grace 30 min → after 10:00 AM = HALF_DAY.
+      const autoHalfDay = !isReClockIn && shift && (() => {
         const [sh, sm] = shift.startTime.split(':').map(Number);
         const ss = new Date(istNow); ss.setHours(sh, sm, 0, 0);
-        const graceMin = shift.graceMinutes || policy?.lateGraceMinutes || 15;
-        const threshold = policy?.lateHalfDayAfterMins || (graceMin + 30);
+        const graceMin = shift.graceMinutes ?? policy?.lateGraceMinutes ?? 15;
+        const threshold = policy?.lateHalfDayAfterMins ?? graceMin;
         return Math.round((istNow.getTime() - ss.getTime()) / 60000) > threshold;
       })();
 
@@ -647,15 +647,57 @@ export class AttendanceService {
             where: { attendanceId: record.id, action: 'COMP_OFF_GRANTED' },
           });
           if (!existingCompOff) {
+            const organizationId = employee?.organizationId || '';
+            const workReason = isHoliday ? `holiday (${isHoliday.name})` : 'week-off day';
+            const noteText = `Comp-off granted: worked ${totalHours.toFixed(1)}h on ${workReason}. Expires: ${compOffExpiry.toISOString().split('T')[0]}. Min OT required: ${clockOutPolicy.compOffMinOTHours}h.`;
+
+            // Find or auto-create the COMP_OFF leave type for this org
+            let compOffLeaveType = await prisma.leaveType.findFirst({
+              where: { organizationId, code: 'COMP_OFF', deletedAt: null },
+            });
+            if (!compOffLeaveType) {
+              compOffLeaveType = await prisma.leaveType.create({
+                data: {
+                  name: 'Compensatory Off',
+                  code: 'COMP_OFF',
+                  defaultBalance: 0,
+                  carryForward: false,
+                  isPaid: true,
+                  minDays: 0.5,
+                  allowSameDay: false,
+                  requiresApproval: false,
+                  isActive: true,
+                  organizationId,
+                },
+              });
+              logger.info(`[CompOff] Auto-created COMP_OFF leave type for org ${organizationId}`);
+            }
+
+            // Credit 1 day to leave balance for current year
+            const currentYear = new Date().getFullYear();
+            await prisma.leaveBalance.upsert({
+              where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: compOffLeaveType.id, year: currentYear } },
+              create: {
+                employeeId,
+                leaveTypeId: compOffLeaveType.id,
+                year: currentYear,
+                allocated: 1,
+                used: 0,
+                carriedForward: 0,
+                pending: 0,
+              },
+              update: { allocated: { increment: 1 } },
+            });
+
             await prisma.attendanceLog.create({
               data: {
                 attendanceId: record.id,
                 action: 'COMP_OFF_GRANTED',
                 timestamp: new Date(),
-                notes: `Comp-off granted: worked ${totalHours.toFixed(1)}h on ${isHoliday ? `holiday (${isHoliday.name})` : 'week-off day'}. Expires: ${compOffExpiry.toISOString().split('T')[0]}. Min OT required: ${clockOutPolicy.compOffMinOTHours}h.`,
+                notes: noteText,
               },
             });
-            logger.info(`Comp-off granted to employee ${employeeId} for working on ${isHoliday ? 'holiday' : 'weekoff'} (${record.date})`);
+            logger.info(`[CompOff] Granted to employee ${employeeId} for working on ${workReason} (${record.date})`);
           }
         } catch (e) { logger.error(`Comp-off grant error:`, e); }
       }

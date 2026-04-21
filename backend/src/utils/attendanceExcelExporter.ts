@@ -197,7 +197,7 @@ export async function generateMonthlyAttendanceExcel(
     // Alternate row shading
     if (idx % 2 === 1) {
       row.eachCell((cell, colNumber) => {
-        if (colNumber <= 4 && !cell.fill?.fgColor) {
+        if (colNumber <= 4 && !(cell.fill as any)?.fgColor) {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F9FAFB' } };
         }
       });

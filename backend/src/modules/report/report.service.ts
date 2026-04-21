@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import type { AttendanceSummaryQuery, LeaveSummaryQuery } from './report.validation.js';
 
 export class ReportService {
@@ -63,7 +64,10 @@ export class ReportService {
     };
   }
 
-  async getAttendanceSummary(organizationId: string, query: AttendanceSummaryQuery) {
+  async getAttendanceSummary(
+    organizationId: string,
+    query: AttendanceSummaryQuery & { includePendingRegularizations?: boolean }
+  ) {
     const now = new Date();
     const start = query.startDate ? new Date(query.startDate) : new Date(now.getFullYear(), now.getMonth(), 1);
     const end = query.endDate ? new Date(query.endDate) : new Date(now.getFullYear(), now.getMonth() + 1, 0);
@@ -88,11 +92,90 @@ export class ReportService {
       orderBy: { date: 'asc' },
     });
 
+    // ── GAP-009: Pending regularization annotation ────────────────────────────
+    let pendingRegularizations: Array<{
+      attendanceId: string;
+      employeeId: string;
+      reason: string;
+      requestedCheckIn: Date | null;
+      requestedCheckOut: Date | null;
+    }> = [];
+
+    if (query.includePendingRegularizations) {
+      pendingRegularizations = await prisma.attendanceRegularization.findMany({
+        where: {
+          status: 'PENDING',
+          employee: { organizationId },
+          attendance: { date: { gte: start, lte: end } },
+        },
+        select: {
+          attendanceId: true,
+          employeeId: true,
+          reason: true,
+          requestedCheckIn: true,
+          requestedCheckOut: true,
+        },
+      });
+    }
+
     return {
       period: { start, end },
       statusBreakdown: statusCounts.map((s) => ({ status: s.status, count: s._count })),
       dailyPresent: dailyAttendance.map((d) => ({ date: d.date, count: d._count })),
+      pendingRegularizations: query.includePendingRegularizations
+        ? pendingRegularizations
+        : undefined,
+      pendingRegularizationCount: query.includePendingRegularizations
+        ? pendingRegularizations.length
+        : undefined,
     };
+  }
+
+  /**
+   * Get attendance records for date range, annotating any that have PENDING
+   * regularization requests. Used by the Excel export with pending-reg flag.
+   */
+  async getAttendanceRecordsWithRegularizationFlag(
+    organizationId: string,
+    query: AttendanceSummaryQuery & { includePendingRegularizations?: boolean }
+  ) {
+    const now = new Date();
+    const start = query.startDate ? new Date(query.startDate) : new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = query.endDate ? new Date(query.endDate) : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    const records = await prisma.attendanceRecord.findMany({
+      where: {
+        employee: { organizationId },
+        date: { gte: start, lte: end },
+      },
+      include: {
+        employee: { select: { firstName: true, lastName: true, employeeCode: true } },
+      },
+      orderBy: [{ date: 'asc' }, { employee: { firstName: 'asc' } }],
+    });
+
+    let pendingRegMap = new Map<string, { reason: string }>();
+
+    if (query.includePendingRegularizations) {
+      const pending = await prisma.attendanceRegularization.findMany({
+        where: {
+          status: 'PENDING',
+          employee: { organizationId },
+          attendance: { date: { gte: start, lte: end } },
+        },
+        select: {
+          attendanceId: true,
+          reason: true,
+        },
+      });
+      pendingRegMap = new Map(pending.map((p) => [p.attendanceId, { reason: p.reason }]));
+    }
+
+    return records.map((rec) => ({
+      ...rec,
+      pendingRegularization: pendingRegMap.has(rec.id),
+      regularizationReason: pendingRegMap.get(rec.id)?.reason ?? null,
+    }));
   }
 
   async getLeaveSummary(organizationId: string, query: LeaveSummaryQuery) {
@@ -144,6 +227,97 @@ export class ReportService {
         deductions: Number(r.totalDeductions || 0),
       })),
     };
+  }
+
+  // ── Statutory Compliance Reports ────────────────────────────────────────────
+
+  /**
+   * Fetch payroll records for a given run, validating org ownership.
+   * Shared by EPF, ESI, and Form 24Q exports.
+   */
+  private async getPayrollRunRecords(payrollRunId: string, organizationId: string) {
+    const run = await prisma.payrollRun.findFirst({
+      where: { id: payrollRunId, organizationId },
+    });
+    if (!run) throw new NotFoundError('Payroll run');
+
+    const records = await prisma.payrollRecord.findMany({
+      where: { payrollRunId },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            employeeCode: true,
+            isSystemAccount: true,
+            panNumber: true,
+          },
+        },
+      },
+      orderBy: { employee: { firstName: 'asc' } },
+    });
+
+    return { run, records };
+  }
+
+  async getEpfChallanData(payrollRunId: string, organizationId: string) {
+    return this.getPayrollRunRecords(payrollRunId, organizationId);
+  }
+
+  async getEsiReturnData(payrollRunId: string, organizationId: string) {
+    return this.getPayrollRunRecords(payrollRunId, organizationId);
+  }
+
+  /**
+   * Fetch payroll records for all months in a given quarter of a financial year.
+   * Financial year format: "2025-26". Quarter: "Q1"–"Q4".
+   *
+   * Q1 = Apr–Jun, Q2 = Jul–Sep, Q3 = Oct–Dec, Q4 = Jan–Mar
+   */
+  async getForm24QData(financialYear: string, quarter: string, organizationId: string) {
+    // Parse financial year start (e.g. "2025-26" → startYear = 2025)
+    const [startYearStr] = financialYear.split('-');
+    const startYear = parseInt(startYearStr, 10);
+    if (isNaN(startYear)) throw new BadRequestError('Invalid financialYear format. Expected e.g. 2025-26');
+
+    const QUARTER_MONTHS: Record<string, { months: number[]; year: (fy: number) => number }> = {
+      Q1: { months: [4, 5, 6],    year: (fy) => fy },
+      Q2: { months: [7, 8, 9],    year: (fy) => fy },
+      Q3: { months: [10, 11, 12], year: (fy) => fy },
+      Q4: { months: [1, 2, 3],    year: (fy) => fy + 1 },
+    };
+
+    const qDef = QUARTER_MONTHS[quarter];
+    if (!qDef) throw new BadRequestError('Invalid quarter. Expected Q1, Q2, Q3, or Q4');
+
+    const calYear = qDef.year(startYear);
+
+    const records = await prisma.payrollRecord.findMany({
+      where: {
+        payrollRun: {
+          organizationId,
+          month: { in: qDef.months },
+          year: calYear,
+          status: { in: ['COMPLETED', 'LOCKED'] },
+        },
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            employeeCode: true,
+            isSystemAccount: true,
+            panNumber: true,
+          },
+        },
+      },
+      orderBy: { employee: { firstName: 'asc' } },
+    });
+
+    return records;
   }
 
   async getRecruitmentFunnel(organizationId: string) {

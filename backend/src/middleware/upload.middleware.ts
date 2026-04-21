@@ -172,10 +172,31 @@ export const uploadAgent = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-/** Generic any-type uploads (large imports, etc.). 100 MB. */
+/** Generic uploads for bulk data (Excel, CSV, PDF only). 50 MB. No executables. */
+const bulkDataFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) =>
+  validateFileType(
+    file,
+    [
+      'application/pdf',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+      'application/csv',
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ],
+    ['.pdf', '.xls', '.xlsx', '.csv', '.jpg', '.jpeg', '.png', '.webp', '.doc', '.docx'],
+    'Only PDF, Excel, CSV, images, and Word documents are allowed',
+    cb,
+  );
+
 export const uploadAny = multer({
   storage: diskStorageFor(StorageFolder.EMPLOYEE_DOCUMENTS),
-  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: bulkDataFilter,
+  limits: { fileSize: 50 * 1024 * 1024 },
 });
 
 // ---------------------------------------------------------------------------

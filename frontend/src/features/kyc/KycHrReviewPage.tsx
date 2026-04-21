@@ -44,9 +44,9 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }>
   PENDING:           { bg: 'bg-slate-100', text: 'text-slate-600', label: 'Pending' },
   SUBMITTED:         { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Submitted' },
   PROCESSING:        { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Processing' },
-  PENDING_HR_REVIEW: { bg: 'bg-indigo-100', text: 'text-indigo-700', label: 'Needs Review' },
-  REUPLOAD_REQUIRED: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Re-upload Requested' },
-  VERIFIED:          { bg: 'bg-green-100', text: 'text-green-700', label: 'Approved' },
+  PENDING_HR_REVIEW: { bg: 'bg-indigo-100', text: 'text-indigo-700', label: 'Pending HR Review' },
+  REUPLOAD_REQUIRED: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Re-upload Required' },
+  VERIFIED:          { bg: 'bg-green-100', text: 'text-green-700', label: 'Verified' },
   REJECTED:          { bg: 'bg-red-100', text: 'text-red-700', label: 'Rejected' },
 };
 
@@ -777,6 +777,90 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
           </div>
         </div>
       )}
+
+      {/* Risk Assessment Card — shows tamper score, risk level, OCR match status from combinedPdfAnalysis */}
+      {combinedAnalysis && (() => {
+        const suspicionScore = combinedAnalysis.suspicion_score ?? combinedAnalysis.suspicionScore ?? 0;
+        const riskLevel = combinedAnalysis.risk_level ?? combinedAnalysis.riskLevel ?? 'LOW';
+        const ocrMatchStatus = combinedAnalysis.ocr_match_status ?? combinedAnalysis.ocrMatchStatus ?? null;
+        const tamperNotes: string[] = combinedAnalysis.tamper_notes ?? combinedAnalysis.tamperNotes ?? combinedAnalysis.suspicion_flags ?? combinedAnalysis.suspicionFlags ?? [];
+        const riskColors: Record<string, { bg: string; border: string; text: string; bar: string }> = {
+          LOW:    { bg: 'bg-green-50',  border: 'border-green-200',  text: 'text-green-800',  bar: 'bg-green-500' },
+          MEDIUM: { bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-800', bar: 'bg-yellow-500' },
+          HIGH:   { bg: 'bg-red-50',    border: 'border-red-200',    text: 'text-red-800',    bar: 'bg-red-500' },
+        };
+        const rc = riskColors[riskLevel] ?? riskColors.LOW;
+        return (
+          <div className={`layer-card p-4 mb-4 border ${rc.border} ${rc.bg}`}>
+            <div className="flex items-center gap-2 mb-3">
+              <Shield className={`w-4 h-4 ${rc.text}`} />
+              <span className={`text-sm font-bold ${rc.text}`}>Risk Assessment</span>
+              <RiskBadge level={riskLevel} />
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+              {/* Suspicion Score */}
+              <div className="bg-white/70 rounded-lg p-3">
+                <p className="text-xs text-slate-500 mb-1">Suspicion Score</p>
+                <p className={`text-2xl font-bold font-mono ${
+                  suspicionScore >= 50 ? 'text-red-700' : suspicionScore >= 20 ? 'text-orange-700' : 'text-green-700'
+                }`}>{suspicionScore}<span className="text-sm font-normal text-slate-400">/100</span></p>
+                {/* Score bar */}
+                <div className="mt-1.5 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${rc.bar} transition-all`} style={{ width: `${suspicionScore}%` }} />
+                </div>
+              </div>
+              {/* Risk Level */}
+              <div className="bg-white/70 rounded-lg p-3">
+                <p className="text-xs text-slate-500 mb-1">Risk Level</p>
+                <p className={`text-sm font-bold ${rc.text}`}>{riskLevel}</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {riskLevel === 'LOW' ? 'Documents appear genuine' : riskLevel === 'MEDIUM' ? 'Some anomalies detected' : 'High fraud indicators'}
+                </p>
+              </div>
+              {/* OCR Match Status */}
+              <div className="bg-white/70 rounded-lg p-3">
+                <p className="text-xs text-slate-500 mb-1">OCR Match Status</p>
+                {ocrMatchStatus ? (
+                  <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
+                    ocrMatchStatus === 'PASS' || ocrMatchStatus === 'pass' ? 'bg-green-100 text-green-700' :
+                    ocrMatchStatus === 'PARTIAL' || ocrMatchStatus === 'partial' ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-red-100 text-red-700'
+                  }`}>
+                    {(ocrMatchStatus === 'PASS' || ocrMatchStatus === 'pass') ? <CheckCircle className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                    {String(ocrMatchStatus).toUpperCase()}
+                  </span>
+                ) : (
+                  <span className="text-xs text-slate-400">N/A</span>
+                )}
+              </div>
+              {/* Tamper Flags Count */}
+              <div className="bg-white/70 rounded-lg p-3">
+                <p className="text-xs text-slate-500 mb-1">Tamper Flags</p>
+                <p className={`text-2xl font-bold font-mono ${tamperNotes.length > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  {tamperNotes.length}
+                </p>
+                <p className="text-xs text-slate-400 mt-0.5">{tamperNotes.length === 0 ? 'No flags' : 'issue(s) detected'}</p>
+              </div>
+            </div>
+            {/* Tamper Detection Notes */}
+            {tamperNotes.length > 0 && (
+              <div className="bg-white/60 rounded-lg p-3 border border-red-200">
+                <p className="text-xs font-semibold text-red-700 mb-1.5 flex items-center gap-1">
+                  <Flag className="w-3 h-3" /> Tamper Detection Notes
+                </p>
+                <ul className="space-y-1">
+                  {tamperNotes.map((note: string, i: number) => (
+                    <li key={i} className="text-xs text-red-600 flex items-start gap-1.5">
+                      <span className="shrink-0 mt-px">•</span>
+                      <span>{note}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Duplicate Document Alert — cross-employee fraud detection (Category 2 item 8) */}
       <DuplicateDocAlert duplicateData={combinedAnalysis?.duplicateDetection} />
