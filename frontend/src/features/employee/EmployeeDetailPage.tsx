@@ -40,7 +40,7 @@ export default function EmployeeDetailPage() {
   const employee = response?.data;
   const [activeTab, setActiveTab] = useState<TabKey>('attendance');
   const [showEditModal, setShowEditModal] = useState(false);
-  const [updateEmployee] = useUpdateEmployeeMutation();
+  const [updateEmployee, { isLoading: savingEmployee }] = useUpdateEmployeeMutation();
   const [sendActivationInvite, { isLoading: sendingInvite }] = useSendActivationInviteMutation();
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -496,6 +496,7 @@ export default function EmployeeDetailPage() {
           <EditEmployeeModal
             employee={employee}
             userRole={user?.role}
+            isSaving={savingEmployee}
             onSave={async (data) => {
               try {
                 await updateEmployee({ id: employee.id, data }).unwrap();
@@ -528,7 +529,7 @@ function SidebarMeta({ icon: Icon, label, count, onClick }: { icon: any; label: 
 
 const MANAGEMENT_CAN_EDIT_STATUS = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
-function EditEmployeeModal({ employee, userRole, onSave, onClose }: { employee: any; userRole?: string; onSave: (data: any) => void; onClose: () => void }) {
+function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { employee: any; userRole?: string; onSave: (data: any) => void; onClose: () => void; isSaving?: boolean }) {
   const canEditStatus = MANAGEMENT_CAN_EDIT_STATUS.includes(userRole || '');
   const [changeRole] = useChangeEmployeeRoleMutation();
   const [selectedRole, setSelectedRole] = useState<string>(employee.user?.role || 'EMPLOYEE');
@@ -819,8 +820,11 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose }: { employee: 
             </div>
           </div>
           <div className="flex gap-3 pt-3">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" className="btn-primary flex-1">Save Changes</button>
+            <button type="button" onClick={onClose} disabled={isSaving} className="btn-secondary flex-1">Cancel</button>
+            <button type="submit" disabled={isSaving} className="btn-primary flex-1 flex items-center justify-center gap-2">
+              {isSaving && <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
+              {isSaving ? 'Saving…' : 'Save Changes'}
+            </button>
           </div>
         </form>
       </motion.div>

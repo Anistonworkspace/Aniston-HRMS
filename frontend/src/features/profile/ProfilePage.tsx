@@ -149,7 +149,10 @@ export default function ProfilePage() {
     if (!user?.employeeId) return;
     setSavingBank(true);
     try {
-      await updateEmployee({ id: user.employeeId, data: bankForm as any }).unwrap();
+      // Strip empty accountType — Zod rejects '' for enum fields
+      const bankData: any = { ...bankForm };
+      if (!bankData.accountType) delete bankData.accountType;
+      await updateEmployee({ id: user.employeeId, data: bankData }).unwrap();
       toast.success('Bank details saved');
       setShowBankEdit(false);
     } catch { toast.error('Failed to save bank details'); }
