@@ -137,7 +137,7 @@ function ShiftsPanel() {
 
   const handleEdit = (s: any) => {
     setEditShift(s);
-    setShowPolicy(false);
+    setShowPolicy(true);
     setForm({
       name: s.name, code: s.code, shiftType: s.shiftType || 'OFFICE', startTime: s.startTime, endTime: s.endTime,
       graceMinutes: s.graceMinutes, halfDayHours: Number(s.halfDayHours || 4), fullDayHours: Number(s.fullDayHours),
@@ -201,199 +201,205 @@ function ShiftsPanel() {
       </div>
 
       {showForm && (
-        <div className="layer-card p-5 space-y-3">
-          <div className="flex items-center justify-between mb-1">
-            <h3 className="text-sm font-semibold text-gray-700">{isEditing ? 'Edit Shift' : 'Create Shift'}</h3>
-            <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); setShowPolicy(false); }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
-          </div>
-          {/* Shift Type Selector — only 2 options */}
-          {!isEditing && (
-            <div>
-              <label className="block text-xs text-gray-500 mb-1.5">Shift Type</label>
-              <div className="flex gap-2">
-                {[
-                  { key: 'OFFICE', label: 'General Shift', disabled: !canCreateGeneral },
-                  { key: 'FIELD', label: 'Live Tracking', disabled: !canCreateLiveTracking },
-                ].map(t => (
-                  <button key={t.key} type="button" onClick={() => !t.disabled && handleShiftTypeChange(t.key)}
-                    disabled={t.disabled}
-                    className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all border',
-                      t.disabled ? 'opacity-40 cursor-not-allowed bg-gray-50 text-gray-400 border-gray-200' :
-                      form.shiftType === t.key ? '' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
-                    )}
-                    style={!t.disabled && form.shiftType === t.key ? {
-                      backgroundColor: SHIFT_DISPLAY[t.key].bgColor,
-                      color: SHIFT_DISPLAY[t.key].textColor,
-                      borderColor: SHIFT_DISPLAY[t.key].borderColor,
-                    } : {}}>
-                    {t.label} {t.disabled && '(exists)'}
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 overflow-y-auto">
+          <div className="flex items-start justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-6 mx-auto">
+              <div className="p-5 space-y-3">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-sm font-semibold text-gray-700">{isEditing ? 'Edit Shift' : 'Create Shift'}</h3>
+                  <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); setShowPolicy(false); }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                </div>
+                {/* Shift Type Selector — only 2 options */}
+                {!isEditing && (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1.5">Shift Type</label>
+                    <div className="flex gap-2">
+                      {[
+                        { key: 'OFFICE', label: 'General Shift', disabled: !canCreateGeneral },
+                        { key: 'FIELD', label: 'Live Tracking', disabled: !canCreateLiveTracking },
+                      ].map(t => (
+                        <button key={t.key} type="button" onClick={() => !t.disabled && handleShiftTypeChange(t.key)}
+                          disabled={t.disabled}
+                          className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-all border',
+                            t.disabled ? 'opacity-40 cursor-not-allowed bg-gray-50 text-gray-400 border-gray-200' :
+                            form.shiftType === t.key ? '' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                          )}
+                          style={!t.disabled && form.shiftType === t.key ? {
+                            backgroundColor: SHIFT_DISPLAY[t.key].bgColor,
+                            color: SHIFT_DISPLAY[t.key].textColor,
+                            borderColor: SHIFT_DISPLAY[t.key].borderColor,
+                          } : {}}>
+                          {t.label} {t.disabled && '(exists)'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="block text-xs text-gray-500 mb-1">Shift Name *</label>
+                    <input value={form.name} onChange={e => handleNameChange(e.target.value)} className="input-glass w-full text-sm" placeholder={form.shiftType === 'OFFICE' ? 'General' : 'Live Tracking'} /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">Code <span className="text-gray-300 font-normal">(auto)</span></label>
+                    <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm text-gray-500" /></div>
+                </div>
+                <div className={cn('grid gap-3', form.shiftType === 'FIELD' ? 'grid-cols-6' : 'grid-cols-5')}>
+                  <div><label className="block text-xs text-gray-500 mb-1">Start Time</label>
+                    <input type="time" value={form.startTime} onChange={e => setForm({...form, startTime: e.target.value})} className="input-glass w-full text-sm" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">End Time</label>
+                    <input type="time" value={form.endTime} onChange={e => setForm({...form, endTime: e.target.value})} className="input-glass w-full text-sm" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">Grace (min)</label>
+                    <input type="number" value={form.graceMinutes} onChange={e => setForm({...form, graceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">Half Day (hrs)</label>
+                    <input type="number" value={form.halfDayHours} onChange={e => setForm({...form, halfDayHours: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">Full Day (hrs)</label>
+                    <input type="number" value={form.fullDayHours} onChange={e => setForm({...form, fullDayHours: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                  {form.shiftType === 'FIELD' && (
+                    <div><label className="block text-xs text-gray-500 mb-1">GPS Interval</label>
+                      <select value={form.trackingIntervalMinutes || 60} onChange={e => setForm({...form, trackingIntervalMinutes: Number(e.target.value)})}
+                        className="input-glass w-full text-sm">
+                        <option value={15}>Every 15 min</option>
+                        <option value={30}>Every 30 min</option>
+                        <option value={60}>Every 1 hr</option>
+                        <option value={120}>Every 2 hrs</option>
+                        <option value={240}>Every 4 hrs</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Shift type info */}
+                {form.shiftType === 'OFFICE' && (
+                  <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-1">
+                    <p className="font-semibold">General Shift — Geofence Attendance</p>
+                    <p>Employees must mark attendance within assigned office geofence. If marking outside, an email alert is sent to HR.</p>
+                    <p>This shift is automatically assigned to all employees by default. Different locations can be assigned per employee.</p>
+                  </div>
+                )}
+
+                {form.shiftType === 'FIELD' && (
+                  <div className="bg-green-50 rounded-lg p-3 text-xs text-green-700 space-y-1">
+                    <p className="font-semibold">Live Tracking — GPS Field Tracking</p>
+                    <p>Live GPS tracking at the selected interval. Employee locations are recorded automatically for field visits.</p>
+                  </div>
+                )}
+
+                {/* Attendance Policy Section */}
+                <div className="border-t border-gray-100 pt-3">
+                  <button type="button" onClick={() => setShowPolicy(p => !p)}
+                    className="flex items-center justify-between w-full text-sm font-semibold text-gray-700 hover:text-brand-600 transition-colors">
+                    <span className="flex items-center gap-2"><Shield size={15} className="text-brand-500" /> Attendance Policy</span>
+                    {showPolicy ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                   </button>
-                ))}
-              </div>
-            </div>
-          )}
+                  {showPolicy && (
+                    <div className="mt-3 space-y-4">
+                      {/* Late Arrival */}
+                      <div className="bg-amber-50 rounded-xl p-4">
+                        <p className="text-xs font-semibold text-amber-700 flex items-center gap-1.5 mb-3"><Clock size={13} /> Late Arrival Rules</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div><label className="block text-xs text-gray-500 mb-1">Grace Period (min)</label>
+                            <input type="number" value={form.lateGraceMinutes} onChange={e => setForm({...form, lateGraceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                          <div><label className="block text-xs text-gray-500 mb-1">Half-Day After (min late)</label>
+                            <input type="number" value={form.lateHalfDayAfterMins} onChange={e => setForm({...form, lateHalfDayAfterMins: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                        </div>
+                        <div className="flex items-center justify-between bg-white rounded-lg p-3 mt-3">
+                          <div><p className="text-xs font-medium text-gray-700">Late Penalty (LOP)</p>
+                            <p className="text-[10px] text-gray-400">Every N lates = 1 Loss of Pay day</p></div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" checked={form.latePenaltyEnabled} onChange={e => setForm({...form, latePenaltyEnabled: e.target.checked})} className="sr-only peer" />
+                            <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                          </label>
+                        </div>
+                        {form.latePenaltyEnabled && (
+                          <div className="mt-2"><label className="block text-xs text-gray-500 mb-1">Lates per LOP Day</label>
+                            <input type="number" value={form.latePenaltyPerCount} onChange={e => setForm({...form, latePenaltyPerCount: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                        )}
+                      </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-xs text-gray-500 mb-1">Shift Name *</label>
-              <input value={form.name} onChange={e => handleNameChange(e.target.value)} className="input-glass w-full text-sm" placeholder={form.shiftType === 'OFFICE' ? 'General' : 'Live Tracking'} /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Code <span className="text-gray-300 font-normal">(auto)</span></label>
-              <input value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} className="input-glass w-full text-sm text-gray-500" /></div>
-          </div>
-          <div className={cn('grid gap-3', form.shiftType === 'FIELD' ? 'grid-cols-6' : 'grid-cols-5')}>
-            <div><label className="block text-xs text-gray-500 mb-1">Start Time</label>
-              <input type="time" value={form.startTime} onChange={e => setForm({...form, startTime: e.target.value})} className="input-glass w-full text-sm" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">End Time</label>
-              <input type="time" value={form.endTime} onChange={e => setForm({...form, endTime: e.target.value})} className="input-glass w-full text-sm" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Grace (min)</label>
-              <input type="number" value={form.graceMinutes} onChange={e => setForm({...form, graceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Half Day (hrs)</label>
-              <input type="number" value={form.halfDayHours} onChange={e => setForm({...form, halfDayHours: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Full Day (hrs)</label>
-              <input type="number" value={form.fullDayHours} onChange={e => setForm({...form, fullDayHours: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
-            {form.shiftType === 'FIELD' && (
-              <div><label className="block text-xs text-gray-500 mb-1">GPS Interval</label>
-                <select value={form.trackingIntervalMinutes || 60} onChange={e => setForm({...form, trackingIntervalMinutes: Number(e.target.value)})}
-                  className="input-glass w-full text-sm">
-                  <option value={15}>Every 15 min</option>
-                  <option value={30}>Every 30 min</option>
-                  <option value={60}>Every 1 hr</option>
-                  <option value={120}>Every 2 hrs</option>
-                  <option value={240}>Every 4 hrs</option>
-                </select>
-              </div>
-            )}
-          </div>
+                      {/* Week Off */}
+                      <div className="bg-blue-50 rounded-xl p-4">
+                        <p className="text-xs font-semibold text-blue-700 flex items-center gap-1.5 mb-3"><Shield size={13} /> Week Off Days</p>
+                        <div className="flex gap-1.5 flex-wrap">
+                          {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, i) => (
+                            <button key={i} type="button"
+                              onClick={() => {
+                                const days = new Set(form.weekOffDays);
+                                days.has(i) ? days.delete(i) : days.add(i);
+                                setForm({...form, weekOffDays: Array.from(days)});
+                              }}
+                              className={`w-9 h-9 rounded-lg text-xs font-semibold transition-colors ${
+                                form.weekOffDays.includes(i) ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-100'
+                              }`}>{day}</button>
+                          ))}
+                        </div>
+                      </div>
 
-          {/* Shift type info */}
-          {form.shiftType === 'OFFICE' && (
-            <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-1">
-              <p className="font-semibold">General Shift — Geofence Attendance</p>
-              <p>Employees must mark attendance within assigned office geofence. If marking outside, an email alert is sent to HR.</p>
-              <p>This shift is automatically assigned to all employees by default. Different locations can be assigned per employee.</p>
-            </div>
-          )}
+                      {/* Overtime */}
+                      <div className="bg-orange-50 rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-xs font-semibold text-orange-700 flex items-center gap-1.5"><Zap size={13} /> Overtime Rules</p>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" checked={form.otEnabled} onChange={e => setForm({...form, otEnabled: e.target.checked})} className="sr-only peer" />
+                            <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                          </label>
+                        </div>
+                        {form.otEnabled && (
+                          <div className="grid grid-cols-3 gap-3">
+                            <div><label className="block text-xs text-gray-500 mb-1">Min Extra Min</label>
+                              <input type="number" value={form.otThresholdMinutes} onChange={e => setForm({...form, otThresholdMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                            <div><label className="block text-xs text-gray-500 mb-1">Rate Multiplier</label>
+                              <input type="number" step="0.1" value={form.otRateMultiplier} onChange={e => setForm({...form, otRateMultiplier: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                            <div><label className="block text-xs text-gray-500 mb-1">Max OT Hrs/Day</label>
+                              <input type="number" step="0.5" value={form.otMaxHoursPerDay} onChange={e => setForm({...form, otMaxHoursPerDay: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                          </div>
+                        )}
+                      </div>
 
-          {form.shiftType === 'FIELD' && (
-            <div className="bg-green-50 rounded-lg p-3 text-xs text-green-700 space-y-1">
-              <p className="font-semibold">Live Tracking — GPS Field Tracking</p>
-              <p>Live GPS tracking at the selected interval. Employee locations are recorded automatically for field visits.</p>
-            </div>
-          )}
+                      {/* Comp-Off */}
+                      <div className="bg-green-50 rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-xs font-semibold text-green-700 flex items-center gap-1.5"><Calendar size={13} /> Comp-Off Rules</p>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" checked={form.compOffEnabled} onChange={e => setForm({...form, compOffEnabled: e.target.checked})} className="sr-only peer" />
+                            <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                          </label>
+                        </div>
+                        {form.compOffEnabled && (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div><label className="block text-xs text-gray-500 mb-1">Min OT Hrs for Comp-Off</label>
+                              <input type="number" step="0.5" value={form.compOffMinOTHours} onChange={e => setForm({...form, compOffMinOTHours: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                            <div><label className="block text-xs text-gray-500 mb-1">Expiry (days)</label>
+                              <input type="number" value={form.compOffExpiryDays} onChange={e => setForm({...form, compOffExpiryDays: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                          </div>
+                        )}
+                      </div>
 
-          {/* Attendance Policy Section */}
-          <div className="border-t border-gray-100 pt-3">
-            <button type="button" onClick={() => setShowPolicy(p => !p)}
-              className="flex items-center justify-between w-full text-sm font-semibold text-gray-700 hover:text-brand-600 transition-colors">
-              <span className="flex items-center gap-2"><Shield size={15} className="text-brand-500" /> Attendance Policy</span>
-              {showPolicy ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-            </button>
-            {showPolicy && (
-              <div className="mt-3 space-y-4">
-                {/* Late Arrival */}
-                <div className="bg-amber-50 rounded-xl p-4">
-                  <p className="text-xs font-semibold text-amber-700 flex items-center gap-1.5 mb-3"><Clock size={13} /> Late Arrival Rules</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs text-gray-500 mb-1">Grace Period (min)</label>
-                      <input type="number" value={form.lateGraceMinutes} onChange={e => setForm({...form, lateGraceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
-                    <div><label className="block text-xs text-gray-500 mb-1">Half-Day After (min late)</label>
-                      <input type="number" value={form.lateHalfDayAfterMins} onChange={e => setForm({...form, lateHalfDayAfterMins: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
-                  </div>
-                  <div className="flex items-center justify-between bg-white rounded-lg p-3 mt-3">
-                    <div><p className="text-xs font-medium text-gray-700">Late Penalty (LOP)</p>
-                      <p className="text-[10px] text-gray-400">Every N lates = 1 Loss of Pay day</p></div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" checked={form.latePenaltyEnabled} onChange={e => setForm({...form, latePenaltyEnabled: e.target.checked})} className="sr-only peer" />
-                      <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
-                    </label>
-                  </div>
-                  {form.latePenaltyEnabled && (
-                    <div className="mt-2"><label className="block text-xs text-gray-500 mb-1">Lates per LOP Day</label>
-                      <input type="number" value={form.latePenaltyPerCount} onChange={e => setForm({...form, latePenaltyPerCount: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
-                  )}
-                </div>
-
-                {/* Week Off */}
-                <div className="bg-blue-50 rounded-xl p-4">
-                  <p className="text-xs font-semibold text-blue-700 flex items-center gap-1.5 mb-3"><Shield size={13} /> Week Off Days</p>
-                  <div className="flex gap-1.5 flex-wrap">
-                    {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, i) => (
-                      <button key={i} type="button"
-                        onClick={() => {
-                          const days = new Set(form.weekOffDays);
-                          days.has(i) ? days.delete(i) : days.add(i);
-                          setForm({...form, weekOffDays: Array.from(days)});
-                        }}
-                        className={`w-9 h-9 rounded-lg text-xs font-semibold transition-colors ${
-                          form.weekOffDays.includes(i) ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-100'
-                        }`}>{day}</button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Overtime */}
-                <div className="bg-orange-50 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-semibold text-orange-700 flex items-center gap-1.5"><Zap size={13} /> Overtime Rules</p>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" checked={form.otEnabled} onChange={e => setForm({...form, otEnabled: e.target.checked})} className="sr-only peer" />
-                      <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
-                    </label>
-                  </div>
-                  {form.otEnabled && (
-                    <div className="grid grid-cols-3 gap-3">
-                      <div><label className="block text-xs text-gray-500 mb-1">Min Extra Min</label>
-                        <input type="number" value={form.otThresholdMinutes} onChange={e => setForm({...form, otThresholdMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
-                      <div><label className="block text-xs text-gray-500 mb-1">Rate Multiplier</label>
-                        <input type="number" step="0.1" value={form.otRateMultiplier} onChange={e => setForm({...form, otRateMultiplier: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
-                      <div><label className="block text-xs text-gray-500 mb-1">Max OT Hrs/Day</label>
-                        <input type="number" step="0.5" value={form.otMaxHoursPerDay} onChange={e => setForm({...form, otMaxHoursPerDay: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                      {/* Sunday Working */}
+                      <div className="bg-yellow-50 rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-xs font-semibold text-yellow-700 flex items-center gap-1.5"><Sun size={13} /> Sunday Working</p>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" checked={form.sundayWorkEnabled} onChange={e => setForm({...form, sundayWorkEnabled: e.target.checked})} className="sr-only peer" />
+                            <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                          </label>
+                        </div>
+                        {form.sundayWorkEnabled && (
+                          <div><label className="block text-xs text-gray-500 mb-1">Pay Multiplier (e.g. 2.0 = double)</label>
+                            <input type="number" step="0.1" min={1} max={5} value={form.sundayPayMultiplier} onChange={e => setForm({...form, sundayPayMultiplier: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
 
-                {/* Comp-Off */}
-                <div className="bg-green-50 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-semibold text-green-700 flex items-center gap-1.5"><Calendar size={13} /> Comp-Off Rules</p>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" checked={form.compOffEnabled} onChange={e => setForm({...form, compOffEnabled: e.target.checked})} className="sr-only peer" />
-                      <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
-                    </label>
-                  </div>
-                  {form.compOffEnabled && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div><label className="block text-xs text-gray-500 mb-1">Min OT Hrs for Comp-Off</label>
-                        <input type="number" step="0.5" value={form.compOffMinOTHours} onChange={e => setForm({...form, compOffMinOTHours: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
-                      <div><label className="block text-xs text-gray-500 mb-1">Expiry (days)</label>
-                        <input type="number" value={form.compOffExpiryDays} onChange={e => setForm({...form, compOffExpiryDays: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Sunday Working */}
-                <div className="bg-yellow-50 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-semibold text-yellow-700 flex items-center gap-1.5"><Sun size={13} /> Sunday Working</p>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" checked={form.sundayWorkEnabled} onChange={e => setForm({...form, sundayWorkEnabled: e.target.checked})} className="sr-only peer" />
-                      <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
-                    </label>
-                  </div>
-                  {form.sundayWorkEnabled && (
-                    <div><label className="block text-xs text-gray-500 mb-1">Pay Multiplier (e.g. 2.0 = double)</label>
-                      <input type="number" step="0.1" min={1} max={5} value={form.sundayPayMultiplier} onChange={e => setForm({...form, sundayPayMultiplier: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
-                  )}
+                <div className="flex gap-2">
+                  <button onClick={isEditing ? handleUpdate : handleCreate} disabled={creating}
+                    className="btn-primary text-sm flex items-center gap-1.5">
+                    {isEditing ? <><Save size={14} /> Update</> : creating ? 'Creating...' : 'Create'}
+                  </button>
+                  <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); setShowPolicy(false); }} className="btn-secondary text-sm">Cancel</button>
                 </div>
               </div>
-            )}
-          </div>
-
-          <div className="flex gap-2">
-            <button onClick={isEditing ? handleUpdate : handleCreate} disabled={creating}
-              className="btn-primary text-sm flex items-center gap-1.5">
-              {isEditing ? <><Save size={14} /> Update</> : creating ? 'Creating...' : 'Create'}
-            </button>
-            <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); setShowPolicy(false); }} className="btn-secondary text-sm">Cancel</button>
+            </div>
           </div>
         </div>
       )}
@@ -422,6 +428,14 @@ function ShiftsPanel() {
                 {s.trackingIntervalMinutes && <span>GPS: every {s.trackingIntervalMinutes}min</span>}
                 <span>{s._count?.assignments || 0} assigned</span>
               </div>
+              {(s.otEnabled || s.compOffEnabled || s.sundayWorkEnabled || s.latePenaltyEnabled) && (
+                <div className="flex gap-1.5 mt-2 flex-wrap">
+                  {s.otEnabled && <span className="text-[10px] bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded-full">OT enabled</span>}
+                  {s.compOffEnabled && <span className="text-[10px] bg-green-50 text-green-600 px-1.5 py-0.5 rounded-full">Comp-off</span>}
+                  {s.sundayWorkEnabled && <span className="text-[10px] bg-yellow-50 text-yellow-700 px-1.5 py-0.5 rounded-full">Sun pay ×{Number(s.sundayPayMultiplier||2)}</span>}
+                  {s.latePenaltyEnabled && <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">Late LOP</span>}
+                </div>
+              )}
             </div>
           );
         })}
@@ -509,56 +523,62 @@ function LocationsPanel() {
       </div>
 
       {showForm && (
-        <div className="layer-card p-5 space-y-3">
-          <div className="flex items-center justify-between mb-1">
-            <h3 className="text-sm font-semibold text-gray-700">{isEditing ? 'Edit Location' : 'Add Location'}</h3>
-            <button onClick={() => { setShow(false); setEditLoc(null); setForm(emptyForm); }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
-          </div>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 overflow-y-auto">
+          <div className="flex items-start justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl my-6 mx-auto">
+              <div className="p-5 space-y-3">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-sm font-semibold text-gray-700">{isEditing ? 'Edit Location' : 'Add Location'}</h3>
+                  <button onClick={() => { setShow(false); setEditLoc(null); setForm(emptyForm); }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                </div>
 
-          {/* Location Search */}
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Search location (auto-fills fields below)</label>
-            <LocationSearch onSelect={handleSearchSelect} />
-          </div>
+                {/* Location Search */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Search location (auto-fills fields below)</label>
+                  <LocationSearch onSelect={handleSearchSelect} />
+                </div>
 
-          {/* Interactive Map */}
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Click map or drag marker to set coordinates</label>
-            <LocationPickerMap
-              value={mapCoords}
-              onChange={handleMapChange}
-              radius={form.radiusMeters}
-              height={280}
-            />
-          </div>
+                {/* Interactive Map */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Click map or drag marker to set coordinates</label>
+                  <LocationPickerMap
+                    value={mapCoords}
+                    onChange={handleMapChange}
+                    radius={form.radiusMeters}
+                    height={280}
+                  />
+                </div>
 
-          {/* Form fields */}
-          <div className="grid grid-cols-3 gap-3">
-            <div><label className="block text-xs text-gray-500 mb-1">Name *</label>
-              <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Office name" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">City *</label>
-              <input value={form.city} onChange={e => setForm({...form, city: e.target.value})} className="input-glass w-full text-sm" placeholder="New Delhi" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Radius (m)</label>
-              <input type="number" value={form.radiusMeters} onChange={e => setForm({...form, radiusMeters: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
-          </div>
-          <div><label className="block text-xs text-gray-500 mb-1">Address</label>
-            <input value={form.address} onChange={e => setForm({...form, address: e.target.value})} className="input-glass w-full text-sm" placeholder="Full address" /></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-xs text-gray-500 mb-1">Latitude *</label>
-              <input type="number" step="any" value={form.latitude} onChange={e => setForm({...form, latitude: e.target.value})} className="input-glass w-full text-sm" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Longitude *</label>
-              <input type="number" step="any" value={form.longitude} onChange={e => setForm({...form, longitude: e.target.value})} className="input-glass w-full text-sm" /></div>
-          </div>
-          <label className="flex items-center gap-2 text-sm text-gray-600">
-            <input type="checkbox" checked={form.strictMode} onChange={e => setForm({...form, strictMode: e.target.checked})} className="rounded" />
-            Strict mode (block check-in outside geofence)
-          </label>
-          <div className="flex gap-2">
-            <button onClick={isEditing ? handleUpdate : handleCreate} disabled={creating}
-              className="btn-primary text-sm flex items-center gap-1.5">
-              {isEditing ? <><Save size={14} /> Update</> : creating ? 'Creating...' : 'Create'}
-            </button>
-            <button onClick={() => { setShow(false); setEditLoc(null); setForm(emptyForm); }} className="btn-secondary text-sm">Cancel</button>
+                {/* Form fields */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div><label className="block text-xs text-gray-500 mb-1">Name *</label>
+                    <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="input-glass w-full text-sm" placeholder="Office name" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">City *</label>
+                    <input value={form.city} onChange={e => setForm({...form, city: e.target.value})} className="input-glass w-full text-sm" placeholder="New Delhi" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">Radius (m)</label>
+                    <input type="number" value={form.radiusMeters} onChange={e => setForm({...form, radiusMeters: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                </div>
+                <div><label className="block text-xs text-gray-500 mb-1">Address</label>
+                  <input value={form.address} onChange={e => setForm({...form, address: e.target.value})} className="input-glass w-full text-sm" placeholder="Full address" /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="block text-xs text-gray-500 mb-1">Latitude *</label>
+                    <input type="number" step="any" value={form.latitude} onChange={e => setForm({...form, latitude: e.target.value})} className="input-glass w-full text-sm" /></div>
+                  <div><label className="block text-xs text-gray-500 mb-1">Longitude *</label>
+                    <input type="number" step="any" value={form.longitude} onChange={e => setForm({...form, longitude: e.target.value})} className="input-glass w-full text-sm" /></div>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-gray-600">
+                  <input type="checkbox" checked={form.strictMode} onChange={e => setForm({...form, strictMode: e.target.checked})} className="rounded" />
+                  Strict mode (block check-in outside geofence)
+                </label>
+                <div className="flex gap-2">
+                  <button onClick={isEditing ? handleUpdate : handleCreate} disabled={creating}
+                    className="btn-primary text-sm flex items-center gap-1.5">
+                    {isEditing ? <><Save size={14} /> Update</> : creating ? 'Creating...' : 'Create'}
+                  </button>
+                  <button onClick={() => { setShow(false); setEditLoc(null); setForm(emptyForm); }} className="btn-secondary text-sm">Cancel</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
