@@ -836,20 +836,27 @@ export class AttendanceService {
     const { page, limit, startDate, endDate, employeeId, department, status, workMode } = query;
     const skip = (page - 1) * limit;
 
-    // Determine date for the query
+    // Determine date for the query — always use IST-midnight so date column comparisons
+    // match what the employee clocked in under (avoids UTC-vs-IST off-by-one day bugs)
     let queryDate: Date;
     if (startDate) {
-      queryDate = new Date(startDate);
+      const d = new Date(startDate);
+      queryDate = new Date(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T00:00:00.000Z`);
     } else {
-      queryDate = new Date();
+      queryDate = getISTToday();
     }
-    queryDate.setHours(0, 0, 0, 0);
 
-    const endQueryDate = endDate ? new Date(endDate) : new Date(queryDate);
+    let endQueryDate: Date;
+    if (endDate) {
+      const d = new Date(endDate);
+      endQueryDate = new Date(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T00:00:00.000Z`);
+    } else {
+      endQueryDate = new Date(queryDate);
+    }
     endQueryDate.setHours(23, 59, 59, 999);
 
-    // Build employee filter
-    const empWhere: any = { organizationId, deletedAt: null, status: { in: ['ACTIVE', 'PROBATION'] } };
+    // Build employee filter — include NOTICE_PERIOD so employees serving notice still appear
+    const empWhere: any = { organizationId, deletedAt: null, status: { in: ['ACTIVE', 'PROBATION', 'NOTICE_PERIOD'] } };
     if (department) empWhere.departmentId = department;
     if (employeeId) empWhere.id = employeeId;
     if (workMode) empWhere.workMode = workMode;

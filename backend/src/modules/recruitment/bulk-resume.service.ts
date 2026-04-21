@@ -151,8 +151,8 @@ export class BulkResumeService {
             parseMethod: result.parseMethod,
           },
           resumeText: result.resumeText ? result.resumeText.slice(0, 5000) : null,
-          matchedKeywords: result.matchedKeywords,
-          missingKeywords: result.missingKeywords,
+          matchedKeywords: result.matchedKeywords ?? [],
+          missingKeywords: result.missingKeywords ?? [],
           status: 'SCORED',
         },
       });
@@ -166,8 +166,8 @@ export class BulkResumeService {
         strengths: result.strengths,
         gaps: result.gaps,
         summary: result.summary,
-        matchedKeywords: result.matchedKeywords,
-        missingKeywords: result.missingKeywords,
+        matchedKeywords: result.matchedKeywords ?? [],
+        missingKeywords: result.missingKeywords ?? [],
         parseMethod: result.parseMethod,
       };
     } catch (error: any) {

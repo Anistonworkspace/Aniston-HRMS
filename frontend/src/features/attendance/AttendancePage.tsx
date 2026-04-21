@@ -1033,7 +1033,7 @@ function AttendancePersonalView() {
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
                     onClick={handleClockIn}
-                    disabled={clockingIn || statusLoading}
+                    disabled={clockingIn || statusLoading || (!isDesktop && locationStatus !== 'granted')}
                     className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-semibold text-lg flex items-center justify-center gap-3 transition-colors disabled:opacity-50 shadow-lg shadow-emerald-200"
                   >
                     {clockingIn ? (
@@ -1051,7 +1051,7 @@ function AttendancePersonalView() {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={handleClockIn}
-                    disabled={clockingIn}
+                    disabled={clockingIn || (!isDesktop && locationStatus !== 'granted')}
                     className="w-full bg-amber-500 hover:bg-amber-400 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 mt-3"
                   >
                     {clockingIn ? (

@@ -897,8 +897,8 @@ ${data.requirements ? `Additional Requirements/Notes: ${safe(data.requirements)}
               parseMethod: result.parseMethod,
             },
             resumeText: result.resumeText?.slice(0, 5000) || null,
-            matchedKeywords: result.matchedKeywords,
-            missingKeywords: result.missingKeywords,
+            matchedKeywords: result.matchedKeywords ?? [],
+            missingKeywords: result.missingKeywords ?? [],
           },
         });
       } catch (err: any) {
