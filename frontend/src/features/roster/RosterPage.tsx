@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2 } from 'lucide-react';
+import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation,
   useGetLocationsQuery, useCreateLocationMutation, useUpdateLocationMutation, useDeleteLocationMutation,
@@ -82,7 +82,14 @@ function ShiftsPanel() {
   const [updateShift] = useUpdateShiftMutation();
   const [show, setShow] = useState(false);
   const [editShift, setEditShift] = useState<any>(null);
-  const emptyForm = { name: '', code: '', shiftType: 'OFFICE' as string, startTime: '09:00', endTime: '18:00', graceMinutes: 30, halfDayHours: 4, fullDayHours: 8, trackingIntervalMinutes: undefined as number | undefined, isDefault: true };
+  const [showPolicy, setShowPolicy] = useState(false);
+  const emptyForm = {
+    name: '', code: '', shiftType: 'OFFICE' as string, startTime: '09:00', endTime: '18:00',
+    graceMinutes: 30, halfDayHours: 4, fullDayHours: 8, trackingIntervalMinutes: undefined as number | undefined, isDefault: true,
+    lateGraceMinutes: 15, lateHalfDayAfterMins: 120, latePenaltyEnabled: false, latePenaltyPerCount: 3,
+    weekOffDays: [0] as number[], otEnabled: false, otThresholdMinutes: 30, otRateMultiplier: 1.5, otMaxHoursPerDay: 4,
+    compOffEnabled: false, compOffMinOTHours: 4, compOffExpiryDays: 30, sundayWorkEnabled: false, sundayPayMultiplier: 2.0,
+  };
   const [form, setForm] = useState(emptyForm);
 
   const autoGenerateCode = (name: string, shiftType: string) => {
@@ -106,8 +113,14 @@ function ShiftsPanel() {
   };
 
   const preparePayload = () => {
-    const { name, code, shiftType, startTime, endTime, graceMinutes, halfDayHours, fullDayHours, trackingIntervalMinutes, isDefault } = form;
-    const payload: any = { name, code, shiftType, startTime, endTime, graceMinutes, halfDayHours, fullDayHours, isDefault };
+    const { name, code, shiftType, startTime, endTime, graceMinutes, halfDayHours, fullDayHours, trackingIntervalMinutes, isDefault,
+      lateGraceMinutes, lateHalfDayAfterMins, latePenaltyEnabled, latePenaltyPerCount, weekOffDays,
+      otEnabled, otThresholdMinutes, otRateMultiplier, otMaxHoursPerDay,
+      compOffEnabled, compOffMinOTHours, compOffExpiryDays, sundayWorkEnabled, sundayPayMultiplier } = form;
+    const payload: any = { name, code, shiftType, startTime, endTime, graceMinutes, halfDayHours, fullDayHours, isDefault,
+      lateGraceMinutes, lateHalfDayAfterMins, latePenaltyEnabled, latePenaltyPerCount, weekOffDays,
+      otEnabled, otThresholdMinutes, otRateMultiplier, otMaxHoursPerDay,
+      compOffEnabled, compOffMinOTHours, compOffExpiryDays, sundayWorkEnabled, sundayPayMultiplier };
     if (shiftType === 'FIELD' && trackingIntervalMinutes) payload.trackingIntervalMinutes = trackingIntervalMinutes;
     return payload;
   };
@@ -124,10 +137,25 @@ function ShiftsPanel() {
 
   const handleEdit = (s: any) => {
     setEditShift(s);
+    setShowPolicy(false);
     setForm({
       name: s.name, code: s.code, shiftType: s.shiftType || 'OFFICE', startTime: s.startTime, endTime: s.endTime,
       graceMinutes: s.graceMinutes, halfDayHours: Number(s.halfDayHours || 4), fullDayHours: Number(s.fullDayHours),
       trackingIntervalMinutes: s.trackingIntervalMinutes || undefined, isDefault: s.isDefault,
+      lateGraceMinutes: s.lateGraceMinutes ?? 15,
+      lateHalfDayAfterMins: s.lateHalfDayAfterMins ?? 120,
+      latePenaltyEnabled: s.latePenaltyEnabled ?? false,
+      latePenaltyPerCount: s.latePenaltyPerCount ?? 3,
+      weekOffDays: s.weekOffDays ?? [0],
+      otEnabled: s.otEnabled ?? false,
+      otThresholdMinutes: s.otThresholdMinutes ?? 30,
+      otRateMultiplier: Number(s.otRateMultiplier ?? 1.5),
+      otMaxHoursPerDay: Number(s.otMaxHoursPerDay ?? 4),
+      compOffEnabled: s.compOffEnabled ?? false,
+      compOffMinOTHours: Number(s.compOffMinOTHours ?? 4),
+      compOffExpiryDays: s.compOffExpiryDays ?? 30,
+      sundayWorkEnabled: s.sundayWorkEnabled ?? false,
+      sundayPayMultiplier: Number(s.sundayPayMultiplier ?? 2.0),
     });
   };
 
@@ -164,7 +192,7 @@ function ShiftsPanel() {
       <div className="flex justify-end">
         {!showForm && canCreate && (
           <button onClick={() => {
-            setShow(true); setEditShift(null);
+            setShow(true); setEditShift(null); setShowPolicy(false);
             const defaultType = canCreateGeneral ? 'OFFICE' : 'FIELD';
             setForm({ ...emptyForm, shiftType: defaultType, name: defaultType === 'OFFICE' ? 'General' : 'Live Tracking', code: defaultType === 'OFFICE' ? 'GENERAL-GEN' : 'LIVE-TRACKING-LT', trackingIntervalMinutes: defaultType === 'FIELD' ? 60 : undefined, isDefault: defaultType === 'OFFICE' });
           }}
@@ -176,7 +204,7 @@ function ShiftsPanel() {
         <div className="layer-card p-5 space-y-3">
           <div className="flex items-center justify-between mb-1">
             <h3 className="text-sm font-semibold text-gray-700">{isEditing ? 'Edit Shift' : 'Create Shift'}</h3>
-            <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+            <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); setShowPolicy(false); }} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
           </div>
           {/* Shift Type Selector — only 2 options */}
           {!isEditing && (
@@ -252,12 +280,120 @@ function ShiftsPanel() {
             </div>
           )}
 
+          {/* Attendance Policy Section */}
+          <div className="border-t border-gray-100 pt-3">
+            <button type="button" onClick={() => setShowPolicy(p => !p)}
+              className="flex items-center justify-between w-full text-sm font-semibold text-gray-700 hover:text-brand-600 transition-colors">
+              <span className="flex items-center gap-2"><Shield size={15} className="text-brand-500" /> Attendance Policy</span>
+              {showPolicy ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            </button>
+            {showPolicy && (
+              <div className="mt-3 space-y-4">
+                {/* Late Arrival */}
+                <div className="bg-amber-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-amber-700 flex items-center gap-1.5 mb-3"><Clock size={13} /> Late Arrival Rules</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="block text-xs text-gray-500 mb-1">Grace Period (min)</label>
+                      <input type="number" value={form.lateGraceMinutes} onChange={e => setForm({...form, lateGraceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                    <div><label className="block text-xs text-gray-500 mb-1">Half-Day After (min late)</label>
+                      <input type="number" value={form.lateHalfDayAfterMins} onChange={e => setForm({...form, lateHalfDayAfterMins: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                  </div>
+                  <div className="flex items-center justify-between bg-white rounded-lg p-3 mt-3">
+                    <div><p className="text-xs font-medium text-gray-700">Late Penalty (LOP)</p>
+                      <p className="text-[10px] text-gray-400">Every N lates = 1 Loss of Pay day</p></div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={form.latePenaltyEnabled} onChange={e => setForm({...form, latePenaltyEnabled: e.target.checked})} className="sr-only peer" />
+                      <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                    </label>
+                  </div>
+                  {form.latePenaltyEnabled && (
+                    <div className="mt-2"><label className="block text-xs text-gray-500 mb-1">Lates per LOP Day</label>
+                      <input type="number" value={form.latePenaltyPerCount} onChange={e => setForm({...form, latePenaltyPerCount: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                  )}
+                </div>
+
+                {/* Week Off */}
+                <div className="bg-blue-50 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-blue-700 flex items-center gap-1.5 mb-3"><Shield size={13} /> Week Off Days</p>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, i) => (
+                      <button key={i} type="button"
+                        onClick={() => {
+                          const days = new Set(form.weekOffDays);
+                          days.has(i) ? days.delete(i) : days.add(i);
+                          setForm({...form, weekOffDays: Array.from(days)});
+                        }}
+                        className={`w-9 h-9 rounded-lg text-xs font-semibold transition-colors ${
+                          form.weekOffDays.includes(i) ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-100'
+                        }`}>{day}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Overtime */}
+                <div className="bg-orange-50 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-semibold text-orange-700 flex items-center gap-1.5"><Zap size={13} /> Overtime Rules</p>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={form.otEnabled} onChange={e => setForm({...form, otEnabled: e.target.checked})} className="sr-only peer" />
+                      <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                    </label>
+                  </div>
+                  {form.otEnabled && (
+                    <div className="grid grid-cols-3 gap-3">
+                      <div><label className="block text-xs text-gray-500 mb-1">Min Extra Min</label>
+                        <input type="number" value={form.otThresholdMinutes} onChange={e => setForm({...form, otThresholdMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                      <div><label className="block text-xs text-gray-500 mb-1">Rate Multiplier</label>
+                        <input type="number" step="0.1" value={form.otRateMultiplier} onChange={e => setForm({...form, otRateMultiplier: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                      <div><label className="block text-xs text-gray-500 mb-1">Max OT Hrs/Day</label>
+                        <input type="number" step="0.5" value={form.otMaxHoursPerDay} onChange={e => setForm({...form, otMaxHoursPerDay: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Comp-Off */}
+                <div className="bg-green-50 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-semibold text-green-700 flex items-center gap-1.5"><Calendar size={13} /> Comp-Off Rules</p>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={form.compOffEnabled} onChange={e => setForm({...form, compOffEnabled: e.target.checked})} className="sr-only peer" />
+                      <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                    </label>
+                  </div>
+                  {form.compOffEnabled && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="block text-xs text-gray-500 mb-1">Min OT Hrs for Comp-Off</label>
+                        <input type="number" step="0.5" value={form.compOffMinOTHours} onChange={e => setForm({...form, compOffMinOTHours: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                      <div><label className="block text-xs text-gray-500 mb-1">Expiry (days)</label>
+                        <input type="number" value={form.compOffExpiryDays} onChange={e => setForm({...form, compOffExpiryDays: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Sunday Working */}
+                <div className="bg-yellow-50 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-semibold text-yellow-700 flex items-center gap-1.5"><Sun size={13} /> Sunday Working</p>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={form.sundayWorkEnabled} onChange={e => setForm({...form, sundayWorkEnabled: e.target.checked})} className="sr-only peer" />
+                      <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                    </label>
+                  </div>
+                  {form.sundayWorkEnabled && (
+                    <div><label className="block text-xs text-gray-500 mb-1">Pay Multiplier (e.g. 2.0 = double)</label>
+                      <input type="number" step="0.1" min={1} max={5} value={form.sundayPayMultiplier} onChange={e => setForm({...form, sundayPayMultiplier: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-2">
             <button onClick={isEditing ? handleUpdate : handleCreate} disabled={creating}
               className="btn-primary text-sm flex items-center gap-1.5">
               {isEditing ? <><Save size={14} /> Update</> : creating ? 'Creating...' : 'Create'}
             </button>
-            <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); }} className="btn-secondary text-sm">Cancel</button>
+            <button onClick={() => { setShow(false); setEditShift(null); setForm(emptyForm); setShowPolicy(false); }} className="btn-secondary text-sm">Cancel</button>
           </div>
         </div>
       )}

@@ -26,14 +26,13 @@ import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
 import { useGetKnowledgeBaseQuery, useAddKnowledgeDocMutation, useDeleteKnowledgeDocMutation } from '../ai-assistant/aiAssistantApi';
 import { useGetTaskConfigQuery, useUpsertTaskConfigMutation, useTestTaskConnectionMutation } from '../task-integration/taskIntegrationApi';
 
-import AttendancePolicyTab from './AttendancePolicyTab';
 import SalaryComponentsTab from './SalaryComponentsTab';
 import DatabaseBackupTab from './DatabaseBackupTab';
 import DeletionRequestsTab from './DeletionRequestsTab';
 import SystemLogsTab from './SystemLogsTab';
 // LeaveSettingsTab removed — leave type management is now in Leave Management page
 
-type Tab = 'organization' | 'locations' | 'shifts' | 'attendance-policy' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs';
+type Tab = 'organization' | 'locations' | 'shifts' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs';
 
 export default function SettingsPage() {
   const { t } = useTranslation();
@@ -42,7 +41,7 @@ export default function SettingsPage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   // Tabs visible to HR (non-admin) users
-  const HR_VISIBLE_TABS: Tab[] = ['organization', 'locations', 'shifts', 'attendance-policy', 'salary-components', 'email', 'whatsapp'];
+  const HR_VISIBLE_TABS: Tab[] = ['organization', 'locations', 'shifts', 'salary-components', 'email', 'whatsapp'];
   // Tabs visible only to Super Admin
   const SUPER_ADMIN_ONLY_TABS: Tab[] = ['deletion-requests', 'system-logs'];
 
@@ -73,7 +72,6 @@ export default function SettingsPage() {
     { key: 'organization', label: t('settings.organization'), icon: Building2 },
     { key: 'locations', label: t('settings.officeLocations'), icon: MapPin },
     { key: 'shifts', label: t('settings.shiftsRosters'), icon: Clock },
-    { key: 'attendance-policy', label: t('settings.attendancePolicy'), icon: Shield },
     { key: 'salary-components', label: t('settings.salaryComponents'), icon: DollarSign },
     { key: 'email', label: t('settings.emailConfig'), icon: Mail },
     { key: 'whatsapp', label: t('settings.whatsapp'), icon: MessageCircle },
@@ -145,7 +143,6 @@ export default function SettingsPage() {
             {activeTab === 'organization' && <OrgSettings />}
             {activeTab === 'locations' && <LocationSettings />}
             {activeTab === 'shifts' && <ShiftSettings />}
-            {activeTab === 'attendance-policy' && <AttendancePolicyTab />}
             {activeTab === 'salary-components' && <SalaryComponentsTab />}
             {activeTab === 'email' && <EmailConfig />}
             {activeTab === 'whatsapp' && <WhatsAppConfig />}
