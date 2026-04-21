@@ -540,7 +540,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
     phone: employee.phone || '',
     personalEmail: employee.personalEmail || '',
     dateOfBirth: employee.dateOfBirth ? employee.dateOfBirth.split('T')[0] : '',
-    gender: employee.gender || 'MALE',
+    gender: employee.gender || '',
     bloodGroup: employee.bloodGroup || '',
     maritalStatus: employee.maritalStatus || '',
     workMode: employee.workMode || 'OFFICE',
@@ -561,6 +561,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
       name: (employee.emergencyContact as any)?.name || '',
       phone: (employee.emergencyContact as any)?.phone || '',
       relationship: (employee.emergencyContact as any)?.relationship || '',
+      email: (employee.emergencyContact as any)?.email || '',
     },
     bankAccountNumber: employee.bankAccountNumber || '',
     bankName: employee.bankName || '',
@@ -760,7 +761,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
           {/* Emergency Contact */}
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Emergency Contact</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Name</label>
                 <input value={form.emergencyContact.name} onChange={e => setForm({ ...form, emergencyContact: { ...form.emergencyContact, name: e.target.value } })}
@@ -782,6 +783,11 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
                   <option value="FRIEND">Friend</option>
                   <option value="OTHER">Other</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Email (optional)</label>
+                <input value={(form.emergencyContact as any).email || ''} onChange={e => setForm({ ...form, emergencyContact: { ...form.emergencyContact, email: e.target.value } })}
+                  className="input-glass w-full text-sm" placeholder="contact@email.com" type="email" />
               </div>
             </div>
           </div>

@@ -361,7 +361,7 @@ export class EmployeeService {
     // CTC: SUPER_ADMIN only
     const SUPER_ADMIN_ONLY_FIELDS = ['ctc'];
     // Status + org fields: SUPER_ADMIN, ADMIN, HR only
-    const MANAGEMENT_ONLY_FIELDS = ['status', 'joiningDate', 'probationEndDate', 'workMode', 'officeLocationId'];
+    const MANAGEMENT_ONLY_FIELDS = ['status', 'joiningDate', 'probationEndDate', 'workMode', 'officeLocationId', 'email'];
 
     if (callerRole && !['SUPER_ADMIN'].includes(callerRole)) {
       for (const field of SUPER_ADMIN_ONLY_FIELDS) {

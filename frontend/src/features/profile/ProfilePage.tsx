@@ -63,7 +63,7 @@ export default function ProfilePage() {
     personalEmail: '',
     bloodGroup: '',
     maritalStatus: '',
-    emergencyContact: { name: '', phone: '', relationship: '' },
+    emergencyContact: { name: '', phone: '', relationship: '', email: '' },
     address: { line1: '', city: '', state: '', pincode: '' },
   });
   const [bankForm, setBankForm] = useState({
@@ -104,7 +104,12 @@ export default function ProfilePage() {
         personalEmail: employee.personalEmail || '',
         bloodGroup: employee.bloodGroup || '',
         maritalStatus: employee.maritalStatus || '',
-        emergencyContact: (employee.emergencyContact as any) || { name: '', phone: '', relationship: '' },
+        emergencyContact: {
+          name: (employee.emergencyContact as any)?.name || '',
+          phone: (employee.emergencyContact as any)?.phone || '',
+          relationship: (employee.emergencyContact as any)?.relationship || '',
+          email: (employee.emergencyContact as any)?.email || '',
+        },
         address: (employee.address as any) || { line1: '', city: '', state: '', pincode: '' },
       });
       setBankForm({
@@ -474,7 +479,7 @@ export default function ProfilePage() {
                   className="input-glass w-full text-sm" placeholder={t('common.pincode')} />
               </div>
               <h4 className="text-xs font-semibold text-gray-600">{t('profile.emergencyContact')}</h4>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <input value={form.emergencyContact.name} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, name: e.target.value}})}
                   className="input-glass w-full text-sm" placeholder={t('common.name')} />
                 <input value={form.emergencyContact.phone} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, phone: e.target.value}})}
@@ -488,6 +493,8 @@ export default function ProfilePage() {
                   <option value="FRIEND">Friend</option>
                   <option value="OTHER">Other</option>
                 </select>
+                <input value={(form.emergencyContact as any).email || ''} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, email: e.target.value}})}
+                  className="input-glass w-full text-sm" placeholder="Email (optional)" type="email" />
               </div>
             </div>
             <div className="p-5 border-t border-gray-100 shrink-0">
