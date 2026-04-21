@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { authService } from './auth.service.js';
 import { loginSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema, mfaCodeSchema, mfaVerifySchema } from './auth.validation.js';
 import { employeeService } from '../employee/employee.service.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
 
 export class AuthController {
   async login(req: Request, res: Response, next: NextFunction) {
@@ -13,6 +14,21 @@ export class AuthController {
         userAgent: data.userAgent,
         forceLogin: data.forceLogin,
       });
+
+      // MFA required — return temp token, do NOT set httpOnly cookie yet
+      if ((result as any).mfaRequired) {
+        res.json({
+          success: true,
+          data: {
+            mfaRequired: true,
+            tempToken: (result as any).tempToken,
+            user: result.user,
+            accessToken: '',
+          },
+          message: 'MFA verification required',
+        });
+        return;
+      }
 
       // Set refresh token as httpOnly cookie
       res.cookie('refreshToken', result.refreshToken, {
@@ -211,6 +227,7 @@ export class AuthController {
       }
 
       await prisma.userMFA.update({ where: { userId: req.user!.userId }, data: { isEnabled: true, enabledAt: new Date() } });
+      createAuditLog({ userId: req.user!.userId, organizationId: req.user!.organizationId, entity: 'UserMFA', entityId: req.user!.userId, action: 'MFA_ENABLED', newValue: { enabledAt: new Date().toISOString() }, ipAddress: req.ip }).catch(() => {});
       res.json({ success: true, data: { message: 'Two-factor authentication enabled!' } });
     } catch (err) { next(err); }
   }
@@ -301,6 +318,7 @@ export class AuthController {
       }
 
       await prisma.userMFA.update({ where: { userId: req.user!.userId }, data: { isEnabled: false, enabledAt: null } });
+      createAuditLog({ userId: req.user!.userId, organizationId: req.user!.organizationId, entity: 'UserMFA', entityId: req.user!.userId, action: 'MFA_DISABLED', newValue: { disabledAt: new Date().toISOString() }, ipAddress: req.ip }).catch(() => {});
       res.json({ success: true, data: { message: 'Two-factor authentication disabled.' } });
     } catch (err) { next(err); }
   }

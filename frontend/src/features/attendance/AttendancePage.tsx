@@ -58,7 +58,7 @@ export default function AttendancePage() {
 
   return (
     <>
-      <div className="px-6 pt-5 pb-1 flex gap-2">
+      <div className="px-4 sm:px-6 pt-5 pb-1 flex flex-wrap gap-2">
         <button onClick={() => setView('team')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
             view === 'team' ? 'bg-brand-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -88,7 +88,7 @@ function AttendanceManagementView() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [page, setPage] = useState(1);
 
-  const { data: response, isLoading, refetch } = useGetAllAttendanceQuery({
+  const { data: response, isLoading, isError, error, refetch } = useGetAllAttendanceQuery({
     startDate: selectedDate,
     endDate: selectedDate,
     status: statusFilter !== 'ALL' ? statusFilter : undefined,
@@ -146,7 +146,7 @@ function AttendanceManagementView() {
 
   return (
     <div className="page-container">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-display font-bold text-gray-900">{t('attendance.title')}</h1>
           <p className="text-gray-500 text-sm mt-0.5">{t('attendance.subtitle')}</p>
@@ -271,6 +271,16 @@ function AttendanceManagementView() {
           </div>
         </div>
       </motion.div>
+
+      {isError && (
+        <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-5 py-4 text-sm text-red-700 mb-4">
+          <AlertTriangle size={18} className="text-red-500 shrink-0" />
+          <div>
+            <p className="font-medium">Failed to load attendance records</p>
+            <p className="text-red-500 mt-0.5">{(error as any)?.data?.error?.message || 'Please refresh the page or try again.'}</p>
+          </div>
+        </div>
+      )}
 
       {/* Attendance Table */}
       <motion.div
@@ -624,10 +634,14 @@ function AttendancePersonalView() {
    *    current GPS signal — no cached/stale positions are ever accepted.
    * 3. Always include gpsTimestamp so the backend can verify freshness server-side.
    */
+  // Returns null when location is unavailable/denied — callers must abort on null.
   const getGPS = async (): Promise<{
-    latitude?: number; longitude?: number; accuracy?: number; gpsTimestamp?: string;
-  }> => {
-    if (!navigator.geolocation) return {};
+    latitude: number; longitude: number; accuracy: number; gpsTimestamp: string;
+  } | null> => {
+    if (!navigator.geolocation) {
+      toast.error('Location is not supported on this device.');
+      return null;
+    }
 
     const toPayload = (pos: GeolocationPosition) => ({
       latitude: pos.coords.latitude,
@@ -661,9 +675,16 @@ function AttendancePersonalView() {
       }
       return toPayload(pos);
     } catch (err: any) {
-      if (err?.code === 1) toast.error(t('attendance.locationDenied'));
-      else if (err?.code === 3) toast.error(t('attendance.locationTimeout'));
-      return {};
+      if (err?.code === 1) {
+        // Permission denied — move to blocked screen so user sees the enable-location instructions
+        setLocationStatus('denied');
+        toast.error('Location access denied. Please enable location to mark attendance.', { duration: 4000 });
+      } else if (err?.code === 3) {
+        toast.error(t('attendance.locationTimeout'));
+      } else {
+        toast.error('Could not get your location. Please try again.');
+      }
+      return null; // abort — do NOT proceed with clock-in/out
     }
   };
 
@@ -672,6 +693,7 @@ function AttendancePersonalView() {
     actionLockRef.current = true;
     try {
       const coords = await getGPS();
+      if (coords === null) return; // location denied/failed — toast already shown
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
       toast.success(t('attendance.checkedIn'));
@@ -718,6 +740,7 @@ function AttendancePersonalView() {
     actionLockRef.current = true;
     try {
       const coords = await getGPS();
+      if (coords === null) return; // location denied/failed — toast already shown
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockOut({ ...coords, deviceType }).unwrap();
       toast.success(t('attendance.checkedOut'));
