@@ -593,7 +593,7 @@ export class EmployeeService {
     if (!employee) throw new NotFoundError('Employee');
     if (!employee.userId) throw new BadRequestError('Employee has no linked user account');
 
-    const validRoles = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'];
+    const validRoles = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN', 'GUEST_INTERVIEWER'];
     if (!validRoles.includes(role)) throw new BadRequestError(`Invalid role: ${role}`);
 
     const oldRole = employee.user?.role;

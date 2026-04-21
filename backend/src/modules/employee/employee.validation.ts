@@ -25,7 +25,7 @@ export const createEmployeeSchema = z.object({
     name: z.string(),
     relationship: z.string(),
     phone: z.string(),
-    email: z.string().email().optional(),
+    email: z.string().email().optional().or(z.literal('')),
   }).optional(),
   bankAccountNumber: z.string().optional(),
   bankName: z.string().optional(),
