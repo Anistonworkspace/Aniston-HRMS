@@ -40,6 +40,26 @@ export const authApi = api.injectEndpoints({
         body,
       }),
     }),
+
+    // ── MFA ─────────────────────────────────────────────────────────────────
+    getMfaStatus: builder.query<ApiResponse<{ isEnabled: boolean; enabledAt: string | null }>, void>({
+      query: () => '/auth/mfa/status',
+      providesTags: ['MFA'],
+    }),
+    setupMfa: builder.mutation<ApiResponse<{ qrCode: string; backupCodes: string[] }>, void>({
+      query: () => ({ url: '/auth/mfa/setup', method: 'POST' }),
+    }),
+    verifyMfaSetup: builder.mutation<ApiResponse<{ message: string }>, { code: string }>({
+      query: (body) => ({ url: '/auth/mfa/verify-setup', method: 'POST', body }),
+      invalidatesTags: ['MFA'],
+    }),
+    verifyMfa: builder.mutation<ApiResponse<LoginResponse>, { tempToken: string; token: string }>({
+      query: (body) => ({ url: '/auth/mfa/verify', method: 'POST', body }),
+    }),
+    disableMfa: builder.mutation<ApiResponse<{ message: string }>, { code: string }>({
+      query: (body) => ({ url: '/auth/mfa/disable', method: 'POST', body }),
+      invalidatesTags: ['MFA'],
+    }),
   }),
 });
 
@@ -50,4 +70,9 @@ export const {
   useChangePasswordMutation,
   useForgotPasswordMutation,
   useResetPasswordMutation,
+  useGetMfaStatusQuery,
+  useSetupMfaMutation,
+  useVerifyMfaSetupMutation,
+  useVerifyMfaMutation,
+  useDisableMfaMutation,
 } = authApi;

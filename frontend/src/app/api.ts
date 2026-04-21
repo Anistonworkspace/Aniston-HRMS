@@ -139,6 +139,7 @@ export const api = createApi({
     'Branding',
     'Backup',
     'DeletionRequests',
+    'MFA',
   ],
   endpoints: () => ({}),
 });

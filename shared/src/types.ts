@@ -73,6 +73,8 @@ export interface LoginRequest {
 export interface LoginResponse {
   accessToken: string;
   user: AuthUser;
+  mfaRequired?: boolean;
+  tempToken?: string;
 }
 
 export interface AuthUser {

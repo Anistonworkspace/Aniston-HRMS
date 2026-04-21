@@ -164,26 +164,32 @@ export class AuthController {
       const { prisma } = await import('../../lib/prisma.js');
       const otplib = await import('otplib');
       const QRCode = await import('qrcode');
+      const bcrypt = await import('bcryptjs');
+      const crypto = await import('crypto');
 
       const secret = otplib.generateSecret();
       const otpauthUrl = otplib.generateURI({ issuer: 'Aniston HRMS', label: req.user!.email, secret });
       const qrCode = await QRCode.toDataURL(otpauthUrl);
-      const crypto = await import('crypto');
-      const backupCodes = Array.from({ length: 8 }, () => {
+
+      // Generate plain codes to show user once, then store hashed
+      const plainCodes = Array.from({ length: 8 }, () => {
         const bytes = crypto.randomBytes(5);
         const hex = bytes.toString('hex').toUpperCase();
         return hex.slice(0, 4) + '-' + hex.slice(4, 8);
       });
+      const hashedCodes = await Promise.all(plainCodes.map(c => bcrypt.default.hash(c, 10)));
+
       const { encrypt } = await import('../../utils/encryption.js');
       const encSecret = encrypt(secret);
 
       await prisma.userMFA.upsert({
         where: { userId: req.user!.userId },
-        create: { userId: req.user!.userId, secret: encSecret, isEnabled: false, backupCodes },
-        update: { secret: encSecret, isEnabled: false, backupCodes },
+        create: { userId: req.user!.userId, secret: encSecret, isEnabled: false, backupCodes: hashedCodes },
+        update: { secret: encSecret, isEnabled: false, backupCodes: hashedCodes },
       });
 
-      res.json({ success: true, data: { qrCode, backupCodes } });
+      // Return plain codes to user — only time they are ever visible
+      res.json({ success: true, data: { qrCode, backupCodes: plainCodes } });
     } catch (err) { next(err); }
   }
 
@@ -197,7 +203,9 @@ export class AuthController {
 
       const { decrypt } = await import('../../utils/encryption.js');
       const secret = decrypt(mfa.secret);
-      if (!otplib.verifySync({ token: code, secret })?.valid) {
+      let setupCodeValid = false;
+      try { setupCodeValid = otplib.verifySync({ token: code, secret })?.valid ?? false; } catch { setupCodeValid = false; }
+      if (!setupCodeValid) {
         res.status(400).json({ success: false, error: { message: 'Invalid code. Check your authenticator app and try again.' } });
         return;
       }
@@ -226,16 +234,29 @@ export class AuthController {
 
       const { decrypt } = await import('../../utils/encryption.js');
       const secret = decrypt(mfa.secret);
-      let isValid = otplib.verifySync({ token: code, secret })?.valid ?? false;
 
-      // Check backup codes
-      if (!isValid) {
+      const isBackupCodeFormat = /^[A-F0-9]{4}-[A-F0-9]{4}$/i.test(code);
+      let isValid = false;
+
+      if (!isBackupCodeFormat) {
+        // Only pass to TOTP verifier if it looks like a 6-digit code (avoids TokenLengthError)
+        try {
+          isValid = otplib.verifySync({ token: code, secret })?.valid ?? false;
+        } catch { isValid = false; }
+      }
+
+      // Check backup codes (stored as bcrypt hashes)
+      if (!isValid && isBackupCodeFormat) {
+        const bcrypt = await import('bcryptjs');
         const upperCode = code.toUpperCase();
-        const idx = mfa.backupCodes.indexOf(upperCode);
-        if (idx !== -1) {
+        let matchIdx = -1;
+        for (let i = 0; i < mfa.backupCodes.length; i++) {
+          if (await bcrypt.default.compare(upperCode, mfa.backupCodes[i])) { matchIdx = i; break; }
+        }
+        if (matchIdx !== -1) {
           isValid = true;
           const codes = [...mfa.backupCodes];
-          codes.splice(idx, 1);
+          codes.splice(matchIdx, 1);
           await prisma.userMFA.update({ where: { userId: payload.userId }, data: { backupCodes: codes } });
         }
       }
@@ -269,7 +290,9 @@ export class AuthController {
 
       const { decrypt } = await import('../../utils/encryption.js');
       const secret = decrypt(mfa.secret);
-      if (!otplib.verifySync({ token: code, secret })?.valid) {
+      let codeValid = false;
+      try { codeValid = otplib.verifySync({ token: code, secret })?.valid ?? false; } catch { codeValid = false; }
+      if (!codeValid) {
         res.status(401).json({ success: false, error: { message: 'Invalid code. MFA was NOT disabled.' } });
         return;
       }

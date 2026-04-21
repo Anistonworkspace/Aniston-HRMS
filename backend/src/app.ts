@@ -145,6 +145,8 @@ app.use('/api/auth/activate', rateLimiter({ windowMs: 15 * 60 * 1000, max: 20, k
 app.use('/api/auth/login', rateLimiter({ windowMs: 15 * 60 * 1000, max: 30, keyPrefix: 'rl:login' }));
 app.use('/api/auth/forgot-password', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:forgot-pwd' }));
 app.use('/api/auth/reset-password', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:reset-pwd' }));
+// MFA verify: strict limit to prevent TOTP brute-force (5 attempts per 15 min)
+app.use('/api/auth/mfa/verify', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:mfa-verify' }));
 app.use('/api/auth', rateLimiter({ windowMs: 15 * 60 * 1000, max: 200, keyPrefix: 'rl:auth' }));
 app.use('/api/onboarding/kyc', rateLimiter({ windowMs: 60 * 1000, max: 30, keyPrefix: 'rl:kyc-ops' }));
 app.use('/api', rateLimiter({ windowMs: 60 * 1000, max: 100, keyPrefix: 'rl:api' }));

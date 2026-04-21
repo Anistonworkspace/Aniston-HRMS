@@ -12,6 +12,7 @@ export interface JwtPayload {
   role: Role;
   organizationId: string;
   employeeId?: string;
+  mfaPending?: boolean;
 }
 
 declare global {
@@ -30,6 +31,9 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
     }
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+    if (decoded.mfaPending) {
+      throw new UnauthorizedError('MFA verification required. Complete two-factor authentication first.');
+    }
     req.user = decoded;
     next();
   } catch (err) {

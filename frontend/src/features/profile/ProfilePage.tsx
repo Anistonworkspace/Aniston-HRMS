@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard, MessageSquare } from 'lucide-react';
+import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard, MessageSquare, ShieldCheck, ShieldOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setAccessToken } from '../auth/authSlice';
-import { useGetMeQuery, useChangePasswordMutation } from '../auth/authApi';
+import { useGetMeQuery, useChangePasswordMutation, useGetMfaStatusQuery } from '../auth/authApi';
+import { MFASetupModal, MFADisableModal } from '../auth/MFASetupModal';
 import { useUpdateEmployeeMutation, useGetEmployeeQuery } from '../employee/employeeApi';
 import { useSubmitResignationMutation } from '../exit/exitApi';
 import { useCreateTicketMutation, useGetMyTicketsQuery, useUpdateTicketMutation } from '../helpdesk/helpdeskApi';
@@ -30,6 +31,9 @@ export default function ProfilePage() {
   const [updateTicket] = useUpdateTicketMutation();
   const [showEdit, setShowEdit] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showMfaSetup, setShowMfaSetup] = useState(false);
+  const [showMfaDisable, setShowMfaDisable] = useState(false);
+  const { data: mfaStatus, refetch: refetchMfa } = useGetMfaStatusQuery();
 
   // One-time edit flow:
   // - First fill (no phone/DOB yet): "Edit Profile" → opens modal directly
@@ -550,8 +554,48 @@ export default function ProfilePage() {
                 </p>
               </div>
             </div>
+
+            {/* MFA Row */}
+            <div className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
+              <div className="flex items-center gap-3">
+                {mfaStatus?.data?.isEnabled
+                  ? <ShieldCheck size={16} className="text-emerald-500" />
+                  : <ShieldOff size={16} className="text-gray-400" />
+                }
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Two-Factor Authentication</p>
+                  <p className="text-xs text-gray-400">
+                    {mfaStatus?.data?.isEnabled
+                      ? `Enabled${mfaStatus.data.enabledAt ? ` · ${formatDate(mfaStatus.data.enabledAt, 'short')}` : ''}`
+                      : 'Not enabled — add extra security to your account'}
+                  </p>
+                </div>
+              </div>
+              {mfaStatus?.data?.isEnabled ? (
+                <button
+                  onClick={() => setShowMfaDisable(true)}
+                  className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                >
+                  Disable
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowMfaSetup(true)}
+                  className="text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors"
+                >
+                  Set Up
+                </button>
+              )}
+            </div>
           </div>
         </motion.div>
+
+        {showMfaSetup && (
+          <MFASetupModal onClose={() => setShowMfaSetup(false)} onEnabled={() => refetchMfa()} />
+        )}
+        {showMfaDisable && (
+          <MFADisableModal onClose={() => setShowMfaDisable(false)} onDisabled={() => refetchMfa()} />
+        )}
 
         {/* Address & Emergency */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
