@@ -10,7 +10,17 @@ export const bullmqConnection = {
   maxRetriesPerRequest: null as null,
 };
 
-const connection = { connection: bullmqConnection };
+// G-04: Default retry options for all queues — 3 attempts with exponential back-off.
+// Without this, BullMQ defaults to 1 attempt and 0 retries, meaning any failed job
+// (email, OCR, payroll) is permanently lost on first failure.
+const defaultJobOptions = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 2000 },
+  removeOnComplete: { count: 500 },
+  removeOnFail: { count: 200 },
+};
+
+const connection = { connection: bullmqConnection, defaultJobOptions };
 
 export const emailQueue = new Queue('email', connection);
 export const notificationQueue = new Queue('notification', connection);

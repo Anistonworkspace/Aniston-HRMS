@@ -173,7 +173,7 @@ export default function EmployeeListPage() {
     }
   };
 
-  const { data, isLoading } = useGetEmployeesQuery({
+  const { data, isLoading, isError, error } = useGetEmployeesQuery({
     page,
     limit: 15,
     search: searchDebounce,
@@ -531,6 +531,16 @@ export default function EmployeeListPage() {
                 <X size={14} /> Clear
               </button>
             )}
+          </div>
+        )}
+
+        {isError && (
+          <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-5 py-4 text-sm text-red-700 mb-4">
+            <AlertTriangle size={18} className="text-red-500 shrink-0" />
+            <div>
+              <p className="font-medium">Failed to load employees</p>
+              <p className="text-red-500 mt-0.5">{(error as any)?.data?.error?.message || 'Please refresh the page or try again.'}</p>
+            </div>
           </div>
         )}
 

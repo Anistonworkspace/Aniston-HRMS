@@ -24,9 +24,14 @@ export function initSocketServer(httpServer: HttpServer) {
     }
     try {
       const decoded = jwt.verify(token, env.JWT_SECRET) as any;
+      // G-03: Reject MFA temp tokens — they are only valid for the /auth/mfa/verify endpoint
+      if (decoded.mfaPending) {
+        return next(new Error('MFA verification required. Complete MFA before connecting.'));
+      }
       socket.data.userId = decoded.userId;
       socket.data.organizationId = decoded.organizationId;
       socket.data.role = decoded.role;
+      socket.data.tokenExp = decoded.exp ?? 0; // Unix timestamp
       next();
     } catch {
       next(new Error('Invalid token'));
@@ -40,6 +45,19 @@ export function initSocketServer(httpServer: HttpServer) {
     // Join personal room and org room
     socket.join(`user:${userId}`);
     socket.join(`org:${organizationId}`);
+
+    // Warn client ~60s before token expiry so it can refresh before socket auth goes stale.
+    // On expiry the client should reconnect with a new token via socket.auth.token update.
+    const tokenExp: number = socket.data.tokenExp ?? 0;
+    if (tokenExp > 0) {
+      const warnAt = (tokenExp - Math.floor(Date.now() / 1000) - 60) * 1000;
+      if (warnAt > 0) {
+        const warnTimer = setTimeout(() => {
+          socket.emit('token:expire-soon', { expiresAt: tokenExp });
+        }, warnAt);
+        socket.on('disconnect', () => clearTimeout(warnTimer));
+      }
+    }
 
     // Agent registers itself with employeeId for direct communication
     socket.on('agent:register', () => {

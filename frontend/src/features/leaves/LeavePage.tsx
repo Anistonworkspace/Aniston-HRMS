@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  CalendarDays, Plus, X, Clock, CheckCircle, XCircle, AlertCircle,
+  CalendarDays, Plus, X, Clock, CheckCircle, XCircle, AlertCircle, AlertTriangle,
   Search, FileText, ThumbsUp, ThumbsDown, Pencil, Trash2, Loader2,
   Users, ChevronRight, TrendingUp, UserCheck, Info,
 } from 'lucide-react';
@@ -54,7 +54,7 @@ export default function LeavePage() {
 
   return (
     <>
-      <div className="px-6 pt-6 pb-2 flex gap-2">
+      <div className="px-4 sm:px-6 pt-6 pb-2 flex flex-wrap gap-2">
         <button
           onClick={() => setView('management')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -129,7 +129,7 @@ function LeaveManagementView() {
   }, [dispatch]);
 
   // Pending approvals (PENDING + MANAGER_APPROVED) — used for pending tab
-  const { data: approvalsRes, isLoading: approvalsLoading } = useGetPendingApprovalsQuery(
+  const { data: approvalsRes, isLoading: approvalsLoading, isError: approvalsError, error: approvalsErrorData } = useGetPendingApprovalsQuery(
     { page, limit: 20 },
     { skip: approvalStatusFilter !== 'pending' }
   );
@@ -138,7 +138,7 @@ function LeaveManagementView() {
   const allLeavesStatus = approvalStatusFilter === 'approved' ? 'APPROVED'
     : approvalStatusFilter === 'rejected' ? 'REJECTED'
     : undefined;
-  const { data: allLeavesRes, isLoading: allLeavesLoading } = useGetAllLeavesQuery(
+  const { data: allLeavesRes, isLoading: allLeavesLoading, isError: allLeavesIsError, error: allLeavesErrorData } = useGetAllLeavesQuery(
     { page, limit: 20, status: allLeavesStatus },
     { skip: approvalStatusFilter === 'pending' }
   );
@@ -151,6 +151,8 @@ function LeaveManagementView() {
   // Combine data based on active filter tab
   const activeRes = approvalStatusFilter === 'pending' ? approvalsRes : allLeavesRes;
   const isLoadingApprovals = approvalStatusFilter === 'pending' ? approvalsLoading : allLeavesLoading;
+  const isApprovalsError = approvalStatusFilter === 'pending' ? approvalsError : allLeavesIsError;
+  const approvalsErrorMsg = approvalStatusFilter === 'pending' ? approvalsErrorData : allLeavesErrorData;
   const approvals = activeRes?.data || [];
   const leaveTypes = typesRes?.data || [];
   const holidays = holidaysRes?.data || [];
@@ -221,7 +223,7 @@ function LeaveManagementView() {
 
   return (
     <div className="page-container">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-display font-bold text-gray-900">{t('leaves.title')}</h1>
           <p className="text-gray-500 text-sm mt-0.5">{t('leaves.subtitle')}</p>
@@ -280,7 +282,7 @@ function LeaveManagementView() {
       </div>
 
       {/* Tabs */}
-      <div role="tablist" className="flex gap-1 bg-surface-2 rounded-xl p-1 mb-6 w-fit">
+      <div role="tablist" className="flex gap-1 bg-surface-2 rounded-xl p-1 mb-6 w-full sm:w-fit overflow-x-auto">
         <button
           role="tab" aria-selected={activeTab === 'approvals'}
           onClick={() => { setActiveTab('approvals'); setLiveNewCount(0); }}
@@ -409,17 +411,27 @@ function LeaveManagementView() {
             ))}
 
             {/* Search */}
-            <div className="relative ml-auto">
+            <div className="relative sm:ml-auto w-full sm:w-auto">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search by name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="input-glass pl-8 pr-3 py-1.5 text-xs w-48"
+                className="input-glass pl-8 pr-3 py-1.5 text-xs w-full sm:w-48"
               />
             </div>
           </div>
+
+          {isApprovalsError && (
+            <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-5 py-4 text-sm text-red-700 mb-4">
+              <AlertTriangle size={18} className="text-red-500 shrink-0" />
+              <div>
+                <p className="font-medium">Failed to load leave requests</p>
+                <p className="text-red-500 mt-0.5">{(approvalsErrorMsg as any)?.data?.error?.message || 'Please refresh the page or try again.'}</p>
+              </div>
+            </div>
+          )}
 
           {/* Approval cards */}
           {isLoadingApprovals ? (
@@ -618,13 +630,13 @@ function LeaveManagementView() {
           {/* Org Working Days Settings */}
           <OrgWorkingDaysCard />
 
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
             <p className="text-sm text-gray-500">{leaveTypes.length} leave types configured</p>
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={handleCreateLeaveType}
-              className="btn-primary flex items-center gap-2 text-sm"
+              className="btn-primary flex items-center gap-2 text-sm self-start sm:self-auto"
             >
               <Plus size={16} />
               {t('leaves.createLeaveType')}

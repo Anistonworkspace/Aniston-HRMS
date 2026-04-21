@@ -77,7 +77,7 @@ function PayrollAdminWrapper() {
   return (
     <div className="page-container">
       {/* Page header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div>
           <h1 className="text-2xl font-display font-bold text-gray-900">Payroll</h1>
           <p className="text-gray-500 text-sm mt-0.5">Enterprise salary processing & compliance</p>
@@ -85,7 +85,7 @@ function PayrollAdminWrapper() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex items-center gap-1 mb-6 border-b border-gray-200">
+      <div className="flex items-center gap-1 mb-6 border-b border-gray-200 overflow-x-auto">
         <button
           onClick={() => setActiveTab('runs')}
           className={cn(
@@ -124,7 +124,7 @@ function PayrollAdminWrapper() {
 function PayrollAdminView() {
   const { t } = useTranslation();
   const user = useAppSelector((state) => state.auth.user);
-  const { data: runsRes, isLoading } = useGetPayrollRunsQuery();
+  const { data: runsRes, isLoading, isError, error } = useGetPayrollRunsQuery();
   const [createRun] = useCreatePayrollRunMutation();
   const [processPayroll] = useProcessPayrollMutation();
   const [importSalaries] = useImportSalariesMutation();
@@ -217,8 +217,8 @@ function PayrollAdminView() {
   return (
     <div>
       {/* Action buttons */}
-      <div className="flex flex-wrap items-center gap-2 mb-6">
-        <div className="flex flex-wrap items-center gap-2 ml-auto">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 mb-6">
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
           <button
             onClick={() => authDownload('/payroll/template', 'salary-template.xlsx')}
             disabled={downloading === '/payroll/template'}
@@ -257,7 +257,7 @@ function PayrollAdminView() {
 
       {/* Summary cards */}
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         <div className="stat-card">
           <div className="flex items-center justify-between mb-2">
             <BarChart3 size={18} className="text-brand-500" />
@@ -337,6 +337,16 @@ function PayrollAdminView() {
         )}
       </AnimatePresence>
 
+      {isError && (
+        <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-5 py-4 text-sm text-red-700 mb-4">
+          <AlertTriangle size={18} className="text-red-500 shrink-0" />
+          <div>
+            <p className="font-medium">Failed to load payroll runs</p>
+            <p className="text-red-500 mt-0.5">{(error as any)?.data?.error?.message || 'Please refresh the page or try again.'}</p>
+          </div>
+        </div>
+      )}
+
       {/* Search + Filters */}
       <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1 max-w-xs">
@@ -351,8 +361,8 @@ function PayrollAdminView() {
       </div>
 
       {/* Payroll runs table */}
-      <div className="data-table">
-        <table className="w-full">
+      <div className="data-table overflow-x-auto">
+        <table className="min-w-full">
           <thead>
             <tr className="border-b border-gray-100">
               <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">{t('payroll.month')}</th>
@@ -567,8 +577,8 @@ function PayrollAdminView() {
               <span className="text-xs bg-red-100 text-red-700 font-semibold px-2 py-0.5 rounded-full">{pendingDeletions} pending</span>
             )}
           </div>
-          <div className="data-table">
-            <table className="w-full text-sm">
+          <div className="data-table overflow-x-auto">
+            <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   <th className="text-left text-xs text-gray-500 px-4 py-2.5">Payroll Run</th>

@@ -404,24 +404,24 @@ export class LeaveService {
       }
     }
 
-    // Check for overlapping leaves — include DRAFT so user can't stack multiple drafts for same dates
-    const overlapping = await prisma.leaveRequest.findFirst({
-      where: {
-        employeeId,
-        status: { in: ['DRAFT', 'PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] },
-        OR: [{ startDate: { lte: endDate }, endDate: { gte: startDate } }],
-      },
-    });
-    if (overlapping) {
-      throw new BadRequestError('You already have a leave request for these dates. Cancel the existing request first or choose different dates.');
-    }
-
     // Determine final status — auto-approve if requiresApproval=false
     const autoApprove = leaveType.requiresApproval === false;
     const finalStatus = autoApprove ? 'APPROVED' : 'PENDING';
 
-    // Create leave request
+    // Create leave request — overlap check is INSIDE the transaction to prevent
+    // TOCTOU race where two concurrent applications for the same dates both pass (G-02).
     const request = await prisma.$transaction(async (tx) => {
+      // G-02: Re-check overlap inside the transaction to close the TOCTOU race window
+      const overlapping = await tx.leaveRequest.findFirst({
+        where: {
+          employeeId,
+          status: { in: ['DRAFT', 'PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] },
+          OR: [{ startDate: { lte: endDate }, endDate: { gte: startDate } }],
+        },
+      });
+      if (overlapping) {
+        throw new BadRequestError('You already have a leave request for these dates. Cancel the existing request first or choose different dates.');
+      }
       const leaveRequest = await tx.leaveRequest.create({
         data: {
           employeeId,
@@ -1342,6 +1342,7 @@ export class LeaveService {
     }
 
     const finalStatus = action;
+    const expectedCurrentStatus = request.status; // captured before transaction
 
     const updated = await prisma.$transaction(async (tx) => {
       const updateData: any = {
@@ -1356,14 +1357,26 @@ export class LeaveService {
         updateData.approvedBy = approvedBy;
       }
 
-      const updatedRequest = await tx.leaveRequest.update({
-        where: { id: requestId },
-        data: updateData,
-        include: {
-          leaveType: { select: { name: true, code: true } },
-          employee: { select: { firstName: true, lastName: true } },
-        },
-      });
+      // G-01: Optimistic lock — include current status in the WHERE clause.
+      // If a concurrent approval already changed the status, Prisma throws P2025
+      // (record not found) which the error handler converts to 404, preventing
+      // double balance deduction from two simultaneous approvals.
+      let updatedRequest;
+      try {
+        updatedRequest = await tx.leaveRequest.update({
+          where: { id: requestId, status: expectedCurrentStatus },
+          data: updateData,
+          include: {
+            leaveType: { select: { name: true, code: true } },
+            employee: { select: { firstName: true, lastName: true } },
+          },
+        });
+      } catch (err: any) {
+        if (err?.code === 'P2025') {
+          throw new BadRequestError('This leave request was already acted on by another approver. Please refresh and try again.');
+        }
+        throw err;
+      }
 
       const year = new Date(request.startDate).getFullYear();
       const balance = await tx.leaveBalance.findUnique({
