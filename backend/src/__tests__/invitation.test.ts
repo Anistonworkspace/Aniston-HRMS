@@ -131,7 +131,7 @@ describe('InvitationService', () => {
     vi.mocked(empCodeModule.generateEmployeeCode).mockResolvedValue('EMP-001');
     // Re-set enqueueEmail
     const queuesModule = await import('../jobs/queues.js');
-    vi.mocked(queuesModule.enqueueEmail).mockResolvedValue(undefined);
+    vi.mocked(queuesModule.enqueueEmail).mockResolvedValue(undefined as any);
     // Re-set authService
     const authModule = await import('../modules/auth/auth.service.js');
     vi.mocked(authModule.authService.generateAccessToken).mockReturnValue('mock-access-token' as any);
@@ -154,7 +154,7 @@ describe('InvitationService', () => {
 
       const beforeCall = Date.now();
       const result = await service.createInvitation(
-        { email: 'newjoin@example.com', role: 'EMPLOYEE' as const },
+        { email: 'newjoin@example.com', role: 'EMPLOYEE' as const, sendWelcomeEmail: false },
         ORG_ID,
         ADMIN_USER_ID
       );
@@ -187,7 +187,7 @@ describe('InvitationService', () => {
       } as any);
 
       await service.createInvitation(
-        { email: 'newjoin@example.com', role: 'EMPLOYEE' as const },
+        { email: 'newjoin@example.com', role: 'EMPLOYEE' as const, sendWelcomeEmail: false },
         ORG_ID,
         ADMIN_USER_ID
       );
@@ -204,7 +204,7 @@ describe('InvitationService', () => {
       );
 
       await expect(
-        service.createInvitation({ email: 'newjoin@example.com', role: 'EMPLOYEE' as const }, ORG_ID, ADMIN_USER_ID)
+        service.createInvitation({ email: 'newjoin@example.com', role: 'EMPLOYEE' as const, sendWelcomeEmail: false }, ORG_ID, ADMIN_USER_ID)
       ).rejects.toThrow('A pending invitation already exists for this email');
 
       expect(prisma.employeeInvitation.create).not.toHaveBeenCalled();
@@ -218,7 +218,7 @@ describe('InvitationService', () => {
       } as any);
 
       await expect(
-        service.createInvitation({ email: 'newjoin@example.com', role: 'EMPLOYEE' as const }, ORG_ID, ADMIN_USER_ID)
+        service.createInvitation({ email: 'newjoin@example.com', role: 'EMPLOYEE' as const, sendWelcomeEmail: false }, ORG_ID, ADMIN_USER_ID)
       ).rejects.toThrow('An employee with this email already exists');
     });
 
@@ -233,7 +233,7 @@ describe('InvitationService', () => {
         name: 'Aniston Technologies',
       } as any);
 
-      await service.createInvitation({ email: 'UPPER@EXAMPLE.COM', role: 'EMPLOYEE' as const }, ORG_ID, ADMIN_USER_ID);
+      await service.createInvitation({ email: 'UPPER@EXAMPLE.COM', role: 'EMPLOYEE' as const, sendWelcomeEmail: false }, ORG_ID, ADMIN_USER_ID);
 
       const createArg = vi.mocked(prisma.employeeInvitation.create).mock.calls[0][0] as any;
       expect(createArg.data.email).toBe('upper@example.com');
@@ -525,7 +525,7 @@ describe('/api/invitations (integration)', () => {
     vi.mocked(redisModule.redis.incr).mockResolvedValue(1);
     vi.mocked(redisModule.redis.expire).mockResolvedValue(1);
     const queuesModule = await import('../jobs/queues.js');
-    vi.mocked(queuesModule.enqueueEmail).mockResolvedValue(undefined);
+    vi.mocked(queuesModule.enqueueEmail).mockResolvedValue(undefined as any);
     const supertest = await import('supertest');
     jwtLib = await import('jsonwebtoken');
     const appModule = await import('../app.js');

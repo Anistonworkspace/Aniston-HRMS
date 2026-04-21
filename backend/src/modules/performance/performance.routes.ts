@@ -3,21 +3,24 @@ import { performanceController } from './performance.controller.js';
 import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
 import { performanceService } from './performance.service.js';
 import { getLeavePerformanceSummary } from '../../utils/leavePerformance.js';
+import { rateLimiter } from '../../middleware/rateLimiter.js';
 import { Role } from '@aniston/shared';
 
 const router = Router();
 
 router.use(authenticate);
 
+const aiRateLimit = rateLimiter({ windowMs: 60_000, max: 20, keyPrefix: 'rl:ai' });
+
 // AI Features (before parameterized routes)
-router.post('/ai-suggest-goals/:employeeId', authenticate, async (req, res, next) => {
+router.post('/ai-suggest-goals/:employeeId', aiRateLimit, async (req, res, next) => {
   try {
     const result = await performanceService.suggestGoals(req.params.employeeId, req.user!.organizationId);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 });
 
-router.post('/ai-review-summary/:reviewId', authenticate, async (req, res, next) => {
+router.post('/ai-review-summary/:reviewId', aiRateLimit, async (req, res, next) => {
   try {
     const result = await performanceService.generateReviewSummary(req.params.reviewId, req.user!.organizationId);
     res.json({ success: true, data: result });

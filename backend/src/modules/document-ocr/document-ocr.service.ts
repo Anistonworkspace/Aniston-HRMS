@@ -120,7 +120,7 @@ export class DocumentOcrService {
             ? `${wrongUploadCount} page(s) in combined PDF contain non-KYC content — please re-upload correct documents.`
             : null,
           tamperDetected: suspicionScore >= 70,
-          tamperDetails: suspicionScore >= 70 ? [`Combined PDF suspicion score: ${suspicionScore}/100, risk: ${riskLevel}`] : [],
+          tamperDetails: suspicionScore >= 70 ? `Combined PDF suspicion score: ${suspicionScore}/100, risk: ${riskLevel}` : null,
         },
       }).catch(() => {});
       return ocr;

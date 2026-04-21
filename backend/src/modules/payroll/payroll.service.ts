@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { Decimal } from '@prisma/client/runtime/library.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { aiService } from '../../services/ai.service.js';
@@ -66,6 +67,68 @@ interface StatutoryExemptions {
   epfExempt?: boolean;
   esiExempt?: boolean;
   ptExempt?: boolean;
+}
+
+/** Minimal shape of a legacy flat salary record used by legacyToComponents(). */
+interface LegacySalaryRecord {
+  basic?: number | string | Decimal | null;
+  hra?: number | string | Decimal | null;
+  da?: number | string | Decimal | null;
+  ta?: number | string | Decimal | null;
+  medicalAllowance?: number | string | Decimal | null;
+  specialAllowance?: number | string | Decimal | null;
+  lta?: number | string | Decimal | null;
+}
+
+/** Minimal shape of a SalaryComponentMaster row consumed by buildComponentsFromMaster(). */
+interface ComponentMasterRecord {
+  code?: string | null;
+  name: string;
+  type: string;
+  isActive: boolean;
+  isStatutory?: boolean;
+  calculationRule?: string | null;
+  defaultPercentage?: number | string | Decimal | null;
+  defaultValue?: number | string | Decimal | null;
+  sortOrder?: number | null;
+}
+
+/** Snapshot of a payroll adjustment stored inside a PayrollRecord. */
+interface AdjustmentSnapshot {
+  type: string;
+  componentName: string | null;
+  amount: number;
+  isDeduction: boolean;
+  reason: string | null;
+}
+
+/** A row in the payroll preflight ready/autoCreatable/missing lists. */
+interface PayrollPreflightEmployee {
+  id: string;
+  name: string;
+  employeeCode: string;
+  department: string;
+  ctc: number;
+  hasSalaryStructure: boolean;
+  hasCtc: boolean;
+  source: 'saved' | 'auto-create' | 'missing';
+}
+
+/** Fields updated during payroll record amendment. */
+interface PayrollRecordAmendFields {
+  amendedBy: string;
+  amendedAt: Date;
+  amendmentReason: string;
+  grossSalary?: number;
+  netSalary?: number;
+  basic?: number;
+  hra?: number;
+  epfEmployee?: number;
+  esiEmployee?: number;
+  professionalTax?: number;
+  tds?: number;
+  lopDays?: number;
+  lopDeduction?: number;
 }
 
 function calculateStatutory(
@@ -256,7 +319,7 @@ function findComponent(components: SalaryComponent[], name: string): SalaryCompo
 }
 
 /** Convert legacy fixed-column salary to components array */
-function legacyToComponents(sal: any): SalaryComponent[] {
+function legacyToComponents(sal: LegacySalaryRecord): SalaryComponent[] {
   const comps: SalaryComponent[] = [];
   const addEarning = (name: string, val: any) => {
     const v = Number(val || 0);
@@ -297,14 +360,14 @@ function toEarningsKey(name: string): string {
  * Computes values based on CTC/Basic using each component's calculationRule.
  * Includes both EARNING and DEDUCTION components from the master.
  */
-function buildComponentsFromMaster(masterComps: any[], annualCtc: number): SalaryComponent[] {
+function buildComponentsFromMaster(masterComps: ComponentMasterRecord[], annualCtc: number): SalaryComponent[] {
   const monthly = annualCtc / 12;
   const activeComps = masterComps
-    .filter((c: any) => c.isActive)
-    .sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    .filter((c) => c.isActive)
+    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
 
-  const earningComps = activeComps.filter((c: any) => c.type === 'EARNING');
-  const deductionComps = activeComps.filter((c: any) => c.type === 'DEDUCTION');
+  const earningComps = activeComps.filter((c) => c.type === 'EARNING');
+  const deductionComps = activeComps.filter((c) => c.type === 'DEDUCTION');
 
   const result: SalaryComponent[] = [];
 
@@ -319,7 +382,7 @@ function buildComponentsFromMaster(masterComps: any[], annualCtc: number): Salar
   }
   if (basicMonthly === 0 && monthly > 0) basicMonthly = Math.round(monthly * 0.5);
 
-  const calcValue = (mc: any): number => {
+  const calcValue = (mc: ComponentMasterRecord): number => {
     if (mc.calculationRule === 'PERCENTAGE_CTC') {
       return Math.round(monthly * (mc.defaultPercentage ? Number(mc.defaultPercentage) : 0) / 100);
     }
@@ -992,7 +1055,7 @@ export class PayrollService {
 
           // ── Adjustments ───────────────────────────────────────────────────────
           let adjustmentAdditions = 0, adjustmentDeductions = 0;
-          const adjustmentSnapshot: any[] = [];
+          const adjustmentSnapshot: AdjustmentSnapshot[] = [];
           for (const adj of empAdjustments) {
             const amount = Number(adj.amount);
             if (adj.isDeduction) adjustmentDeductions += amount;
@@ -1067,7 +1130,7 @@ export class PayrollService {
               lopDeduction,
               workingDays:     empWorkingDays,   // employee's actual working days (not full month if mid-joiner/exit)
               presentDays,      // Decimal — half-days preserved
-              adjustments:     adjustmentSnapshot.length > 0 ? adjustmentSnapshot : undefined,
+              adjustments:     adjustmentSnapshot.length > 0 ? (adjustmentSnapshot as unknown as Parameters<typeof tx.payrollRecord.create>[0]['data']['adjustments']) : undefined,
               earningsBreakdown,
               deductionsBreakdown,
             },
@@ -1139,9 +1202,9 @@ export class PayrollService {
       }),
     ]);
 
-    const ready: any[] = [];
-    const autoCreatable: any[] = [];
-    const missing: any[] = [];
+    const ready: PayrollPreflightEmployee[] = [];
+    const autoCreatable: PayrollPreflightEmployee[] = [];
+    const missing: PayrollPreflightEmployee[] = [];
 
     for (const emp of employees) {
       const row = {
@@ -1275,12 +1338,12 @@ export class PayrollService {
    * Get employee's payslips with optional month/year filter
    */
   async getMyPayslips(employeeId: string, month?: number, year?: number) {
-    const where: any = {
-      employeeId,
-      payrollRun: { status: { in: ['COMPLETED', 'LOCKED'] } },
+    const payrollRunFilter: { status: { in: string[] }; month?: number; year?: number } = {
+      status: { in: ['COMPLETED', 'LOCKED'] },
     };
-    if (month) where.payrollRun.month = month;
-    if (year) where.payrollRun.year = year;
+    if (month) payrollRunFilter.month = month;
+    if (year) payrollRunFilter.year = year;
+    const where = { employeeId, payrollRun: payrollRunFilter } as any;
 
     return prisma.payrollRecord.findMany({
       where,
@@ -1383,7 +1446,7 @@ export class PayrollService {
       lopDays: record.lopDays,
     };
 
-    const updateData: any = {
+    const updateData: PayrollRecordAmendFields = {
       amendedBy,
       amendedAt: new Date(),
       amendmentReason: data.reason,
@@ -1452,9 +1515,27 @@ export class PayrollService {
    * Save salary history entry when salary structure changes
    */
   private async saveSalaryHistory(
-    employeeId: string, data: any, changeType: string, reason: string | undefined,
-    changedBy: string, organizationId: string,
-    previousCtc?: number | null, changedByName?: string,
+    employeeId: string,
+    data: {
+      ctc: number;
+      components?: SalaryComponent[];
+      basic?: number | null;
+      hra?: number | null;
+      da?: number | null;
+      ta?: number | null;
+      medicalAllowance?: number | null;
+      specialAllowance?: number | null;
+      lta?: number | null;
+      templateId?: string | null;
+      templateName?: string | null;
+      effectiveFrom?: string | Date;
+    },
+    changeType: string,
+    reason: string | undefined,
+    changedBy: string,
+    organizationId: string,
+    previousCtc?: number | null,
+    changedByName?: string,
   ) {
     await prisma.salaryHistory.create({
       data: {

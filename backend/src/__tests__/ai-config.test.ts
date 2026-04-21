@@ -172,7 +172,7 @@ describe('AiConfigService', () => {
         ...configOverrides,
       };
 
-      vi.mocked(prisma.$transaction).mockImplementationOnce(async (ops: any[]) => {
+      (vi.mocked(prisma.$transaction) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (ops: any[]) => {
         // ops[0] is the updateMany promise, ops[1] is the upsert promise
         // Execute both against our mocked prisma
         const results = await Promise.all(ops);
@@ -257,11 +257,11 @@ describe('AiConfigService', () => {
       } as any);
 
       // $transaction mock that captures the upsert args
-      vi.mocked(prisma.$transaction).mockImplementationOnce(async (ops: any[]) =>
+      (vi.mocked(prisma.$transaction) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (ops: any[]) =>
         Promise.all(ops)
       );
       vi.mocked(prisma.aiApiConfig.updateMany).mockResolvedValueOnce({ count: 0 });
-      vi.mocked(prisma.aiApiConfig.upsert).mockImplementationOnce(async (args: any) => ({
+      (vi.mocked(prisma.aiApiConfig.upsert) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => ({
         id: 'cfg-existing',
         organizationId: ORG_ID,
         provider: 'DEEPSEEK',
@@ -441,7 +441,7 @@ describe('POST /api/settings/ai-config (integration)', () => {
       updatedAt: new Date(),
       updatedBy: 'u-1',
     };
-    vi.mocked(prisma.$transaction).mockImplementationOnce(async (ops: any[]) =>
+    (vi.mocked(prisma.$transaction) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (ops: any[]) =>
       Promise.all(ops)
     );
     vi.mocked(prisma.aiApiConfig.updateMany).mockResolvedValueOnce({ count: 0 });
@@ -470,7 +470,7 @@ describe('POST /api/settings/ai-config (integration)', () => {
       updatedAt: new Date(),
       updatedBy: 'u-2',
     };
-    vi.mocked(prisma.$transaction).mockImplementationOnce(async (ops: any[]) =>
+    (vi.mocked(prisma.$transaction) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (ops: any[]) =>
       Promise.all(ops)
     );
     vi.mocked(prisma.aiApiConfig.updateMany).mockResolvedValueOnce({ count: 0 });

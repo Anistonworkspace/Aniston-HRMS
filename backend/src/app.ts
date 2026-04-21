@@ -76,15 +76,43 @@ const app = express();
 // Trust reverse proxy (Nginx) — required for accurate IP-based rate limiting
 app.set('trust proxy', 1);
 
+// Route-specific relaxed CSP for Swagger UI — must come BEFORE the global helmet()
+// because Express applies middleware in order and the first CSP header wins.
+// Swagger UI requires 'unsafe-inline' for its inline scripts and styles. Rather
+// than polluting the global CSP for all API routes, we scope it to /api/docs only.
+app.use('/api/docs', helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      // Swagger UI injects inline <script> tags and uses dynamic eval for its UI
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      fontSrc: ["'self'", "data:"],
+      connectSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      // Allow embedding in same origin only (Swagger iframe)
+      frameSrc: ["'self'"],
+      frameAncestors: ["'self'"],
+      baseUri: ["'self'"],
+    },
+  },
+  // Swagger UI is browser-facing documentation — HSTS not required here
+  hsts: false,
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+
 // Security
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: [
+        // 'unsafe-inline' removed — it was only needed for Swagger UI, which now
+        // has its own scoped CSP middleware on /api/docs (registered above).
         "'self'",
-        // Swagger UI loads its bundles from the same origin (express serves them)
-        "'unsafe-inline'",
       ],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "blob:"],
@@ -149,8 +177,10 @@ app.use('/api/auth/activate', rateLimiter({ windowMs: 15 * 60 * 1000, max: 20, k
 app.use('/api/auth/login', rateLimiter({ windowMs: 15 * 60 * 1000, max: 30, keyPrefix: 'rl:login' }));
 app.use('/api/auth/forgot-password', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:forgot-pwd' }));
 app.use('/api/auth/reset-password', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:reset-pwd' }));
-// MFA verify: strict limit to prevent TOTP brute-force (5 attempts per 15 min)
+// MFA endpoints: strict limits to prevent TOTP/backup-code brute-force
 app.use('/api/auth/mfa/verify', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:mfa-verify' }));
+app.use('/api/auth/mfa/verify-setup', rateLimiter({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'rl:mfa-setup' }));
+app.use('/api/auth/mfa/disable', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:mfa-disable' }));
 app.use('/api/auth', rateLimiter({ windowMs: 15 * 60 * 1000, max: 200, keyPrefix: 'rl:auth' }));
 app.use('/api/onboarding/kyc', rateLimiter({ windowMs: 60 * 1000, max: 30, keyPrefix: 'rl:kyc-ops' }));
 app.use('/api', rateLimiter({ windowMs: 60 * 1000, max: 100, keyPrefix: 'rl:api' }));

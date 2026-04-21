@@ -169,11 +169,17 @@ export class AiConfigService {
       where: { organizationId, provider: provider as AiProvider },
     });
     const createBaseUrl = resolvedBaseUrl !== undefined ? resolvedBaseUrl : existingConfig?.baseUrl ?? null;
-    const updateData: any = { apiKeyEncrypted, modelName, isActive: true, updatedBy: userId };
+    const updateData: {
+      apiKeyEncrypted: string;
+      modelName: string;
+      isActive: boolean;
+      updatedBy: string;
+      baseUrl?: string | null;
+    } = { apiKeyEncrypted, modelName, isActive: true, updatedBy: userId };
     if (resolvedBaseUrl !== undefined) updateData.baseUrl = resolvedBaseUrl;
 
     // Atomic: deactivate all + upsert active config
-    let config: any;
+    let config: { id: string; provider: string; modelName: string; baseUrl: string | null; isActive: boolean; updatedBy: string | null; updatedAt: Date };
     try {
       const [, saved] = await prisma.$transaction([
         prisma.aiApiConfig.updateMany({
@@ -254,7 +260,7 @@ export class AiConfigService {
     const startTime = Date.now();
 
     try {
-      const result = await this.callProvider(testProvider as any, apiKey, testModel, testBaseUrl, 'Say OK in one word.');
+      const result = await this.callProvider(testProvider, apiKey, testModel, testBaseUrl, 'Say OK in one word.');
       const latencyMs = Date.now() - startTime;
       return {
         success: true,

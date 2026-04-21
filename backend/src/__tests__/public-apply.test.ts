@@ -227,7 +227,7 @@ describe('PublicApplyService', () => {
       );
 
       let capturedCreate: any = null;
-      vi.mocked(prisma.publicApplication.create).mockImplementationOnce(async (args: any) => {
+      (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => {
         capturedCreate = args.data;
         return { id: 'app-1', candidateUid: 'ANST-XXXX', uid: 'ANST-XXXX', ...args.data };
       });
@@ -267,7 +267,7 @@ describe('PublicApplyService', () => {
       );
 
       let capturedScore: number | null = null;
-      vi.mocked(prisma.publicApplication.create).mockImplementationOnce(async (args: any) => {
+      (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => {
         capturedScore = args.data.mcqScore;
         return { id: 'app-2', candidateUid: 'ANST-1234', uid: 'ANST-1234', ...args.data };
       });
@@ -293,7 +293,7 @@ describe('PublicApplyService', () => {
       );
 
       let capturedScore: number | null = null;
-      vi.mocked(prisma.publicApplication.create).mockImplementationOnce(async (args: any) => {
+      (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => {
         capturedScore = args.data.mcqScore;
         return { id: 'app-3', candidateUid: 'ANST-ZZZZ', uid: 'ANST-ZZZZ', ...args.data };
       });
@@ -313,7 +313,7 @@ describe('PublicApplyService', () => {
       vi.mocked(prisma.jobOpening.findUnique).mockResolvedValueOnce(makeJob() as any);
 
       let capturedUid: string | null = null;
-      vi.mocked(prisma.publicApplication.create).mockImplementationOnce(async (args: any) => {
+      (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => {
         capturedUid = args.data.candidateUid;
         return { id: 'app-4', candidateUid: capturedUid!, uid: capturedUid!, ...args.data };
       });
@@ -356,7 +356,7 @@ describe('PublicApplyService', () => {
       vi.mocked(prisma.jobApplicationQuestion.deleteMany).mockResolvedValueOnce({ count: 0 } as any);
 
       // $transaction should execute each create call
-      vi.mocked(prisma.$transaction).mockImplementationOnce(async (ops: any[]) => {
+      (vi.mocked(prisma.$transaction) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (ops: any[]) => {
         return Promise.all(ops);
       });
 
@@ -377,7 +377,7 @@ describe('PublicApplyService', () => {
         data: `Here are your questions:\n${JSON.stringify(aiQuestions)}\nHope that helps!`,
       });
       vi.mocked(prisma.jobApplicationQuestion.deleteMany).mockResolvedValueOnce({ count: 0 } as any);
-      vi.mocked(prisma.$transaction).mockImplementationOnce(async (ops: any[]) =>
+      (vi.mocked(prisma.$transaction) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (ops: any[]) =>
         Promise.all(ops)
       );
 
@@ -392,7 +392,7 @@ describe('PublicApplyService', () => {
         error: 'No AI provider configured. Go to Settings → API Integrations.',
       });
       vi.mocked(prisma.jobApplicationQuestion.deleteMany).mockResolvedValueOnce({ count: 0 } as any);
-      vi.mocked(prisma.$transaction).mockImplementationOnce(async (ops: any[]) =>
+      (vi.mocked(prisma.$transaction) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (ops: any[]) =>
         Promise.all(ops)
       );
 
@@ -427,7 +427,7 @@ describe('PublicApplyService', () => {
       vi.mocked(prisma.jobApplicationQuestion.deleteMany).mockResolvedValueOnce({ count: 0 } as any);
 
       let transactionArg: any[] = [];
-      vi.mocked(prisma.$transaction).mockImplementationOnce(async (ops: any[]) => {
+      (vi.mocked(prisma.$transaction) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (ops: any[]) => {
         transactionArg = ops;
         return Promise.all(ops);
       });
@@ -697,7 +697,7 @@ describe('MCQ scoring algorithm (edge cases)', () => {
     );
 
     let capturedScore: number | null = null;
-    vi.mocked(prisma.publicApplication.create).mockImplementationOnce(async (args: any) => {
+    (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => {
       capturedScore = args.data.mcqScore;
       return { id: 'app-empty', candidateUid: 'ANST-0000', uid: 'ANST-0000', ...args.data };
     });
@@ -717,7 +717,7 @@ describe('MCQ scoring algorithm (edge cases)', () => {
     );
 
     let capturedScore: number | null = null;
-    vi.mocked(prisma.publicApplication.create).mockImplementationOnce(async (args: any) => {
+    (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => {
       capturedScore = args.data.mcqScore;
       return { id: 'app-miss', candidateUid: 'ANST-MISS', uid: 'ANST-MISS', ...args.data };
     });
@@ -739,7 +739,7 @@ describe('MCQ scoring algorithm (edge cases)', () => {
     );
 
     let capturedData: any = null;
-    vi.mocked(prisma.publicApplication.create).mockImplementationOnce(async (args: any) => {
+    (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => {
       capturedData = args.data;
       return { id: 'app-cat', candidateUid: 'ANST-CAT1', uid: 'ANST-CAT1', ...args.data };
     });

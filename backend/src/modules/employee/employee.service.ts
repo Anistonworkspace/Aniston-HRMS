@@ -166,6 +166,16 @@ export class EmployeeService {
       throw new ConflictError('An employee with this email already exists');
     }
 
+    // Require department for non-onboarding employees
+    const createStatus = (data as any).status as string | undefined;
+    if (createStatus && !['ONBOARDING', 'INTERN'].includes(createStatus) && !data.departmentId) {
+      throw new BadRequestError('Department is required for active employees');
+    }
+    // If no status provided (defaults to ACTIVE), also enforce
+    if (!createStatus && !data.departmentId) {
+      throw new BadRequestError('Department is required for active employees');
+    }
+
     // Generate employee code
     const employeeCode = await this.generateEmployeeCode(organizationId);
 
@@ -205,11 +215,11 @@ export class EmployeeService {
             officeLocationId: data.officeLocationId || null,
             managerId: data.managerId || null,
             joiningDate: new Date(data.joiningDate),
-            onboardingDate: data.onboardingDate ? new Date(data.onboardingDate) : new Date(), // auto-set to today (HRMS registration date)
+            onboardingDate: (data as any).onboardingDate ? new Date((data as any).onboardingDate) : new Date(),
             probationEndDate: data.probationEndDate ? new Date(data.probationEndDate) : null,
             ctc: data.ctc || null,
             address: data.address || null,
-            emergencyContact: data.emergencyContact || null,
+            emergencyContact: (data.emergencyContact || null) as any,
             status: 'ACTIVE',
             organizationId,
           },
@@ -387,7 +397,7 @@ export class EmployeeService {
           }
           if (visited.has(currentId)) break; // already-existing cycle safeguard
           visited.add(currentId);
-          const parent = await prisma.employee.findFirst({
+          const parent: { managerId: string | null } | null = await prisma.employee.findFirst({
             where: { id: currentId, organizationId, deletedAt: null },
             select: { managerId: true },
           });
@@ -404,6 +414,12 @@ export class EmployeeService {
       if (duplicate) {
         throw new ConflictError('An employee with this email already exists');
       }
+    }
+
+    // Prevent removing department from ACTIVE/PROBATION employees
+    const targetStatus = data.status ?? existing.status;
+    if (data.departmentId === null && !['ONBOARDING', 'TERMINATED', 'INTERN'].includes(targetStatus)) {
+      throw new BadRequestError('Department cannot be removed from active employees');
     }
 
     // Enforce valid status transitions for non-management roles only.
@@ -431,7 +447,7 @@ export class EmployeeService {
     if (data.email) updateData.email = data.email.toLowerCase();
     if (data.dateOfBirth) updateData.dateOfBirth = new Date(data.dateOfBirth);
     if (data.joiningDate) updateData.joiningDate = new Date(data.joiningDate);
-    if (data.onboardingDate) updateData.onboardingDate = new Date(data.onboardingDate);
+    if ((data as any).onboardingDate) updateData.onboardingDate = new Date((data as any).onboardingDate);
     if (data.probationEndDate) updateData.probationEndDate = new Date(data.probationEndDate);
 
     let employee: any;
@@ -685,7 +701,6 @@ export class EmployeeService {
     if (existing.userId) {
       bestEffortDeletions.push(
         { name: 'AuditLog(user)', fn: () => prisma.auditLog.deleteMany({ where: { userId: existing.userId! } }) },
-        { name: 'RefreshToken', fn: () => prisma.refreshToken.deleteMany({ where: { userId: existing.userId! } }) },
       );
     }
 
@@ -955,7 +970,7 @@ export class EmployeeService {
           amount: 0, // HR will fill in the actual settlement amount
           isDeduction: false,
           reason: `Auto-generated FnF on exit approval (last working date: ${lastWorkingDate?.toLocaleDateString('en-IN') ?? 'TBD'})`,
-          organizationId,
+          addedBy: 'system',
         },
       });
 

@@ -363,7 +363,7 @@ export class AttendanceService {
           status: autoHalfDay ? 'HALF_DAY' : 'PRESENT',
           workMode: employee.workMode,
           source: data.source || 'MANUAL_APP',
-          checkInLocation: locationData,
+          checkInLocation: locationData as any,
           notes: data.notes,
           geofenceViolation,
           clockInCount: 1,
@@ -377,7 +377,7 @@ export class AttendanceService {
         attendanceId: record.id,
         action: isReClockIn ? 'RE_CLOCK_IN' : 'CLOCK_IN',
         timestamp: now,
-        location: locationData,
+        location: locationData as any,
         notes: data.notes || null,
         geofenceStatus,
         distanceMeters: geofenceDistance,
@@ -509,8 +509,8 @@ export class AttendanceService {
     const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { organizationId: true } });
     const clockOutPolicy = await prisma.attendancePolicy.findUnique({ where: { organizationId: employee?.organizationId || '' } });
     // Shift-level overrides policy-level; policy is org-wide default; hardcoded is last resort
-    const fullDayHours = shift ? Number(shift.fullDayHours) : (clockOutPolicy?.fullDayMinHours || 8);
-    const halfDayHours = shift ? Number(shift.halfDayHours) : (clockOutPolicy?.halfDayMinHours || 4);
+    const fullDayHours = shift ? Number(shift.fullDayHours) : Number(clockOutPolicy?.fullDayMinHours || 8);
+    const halfDayHours = shift ? Number(shift.halfDayHours) : Number(clockOutPolicy?.halfDayMinHours || 4);
 
     // Determine status based on shift/policy hours
     let status: 'PRESENT' | 'HALF_DAY' = 'PRESENT';
@@ -549,8 +549,8 @@ export class AttendanceService {
 
     // ===== Overtime detection: gated by policy.otEnabled =====
     const extraHours = totalHours - fullDayHours;
-    const otThresholdMin = clockOutPolicy?.otThresholdMinutes || 30;
-    const otMaxPerDay = clockOutPolicy?.otMaxHoursPerDay || 4;
+    const otThresholdMin = Number(clockOutPolicy?.otThresholdMinutes || 30);
+    const otMaxPerDay = Number(clockOutPolicy?.otMaxHoursPerDay || 4);
     if (clockOutPolicy?.otEnabled && extraHours > (otThresholdMin / 60)) {
       overtimeFlag = true;
       overtimeHours = Math.min(Math.round(extraHours * 100) / 100, otMaxPerDay);
@@ -585,7 +585,7 @@ export class AttendanceService {
         checkOut: now,
         totalHours: Math.round(totalHours * 100) / 100,
         status,
-        checkOutLocation: locationData,
+        checkOutLocation: locationData as any,
         notes,
       },
     });
@@ -596,7 +596,7 @@ export class AttendanceService {
         attendanceId: record.id,
         action: 'CLOCK_OUT',
         timestamp: now,
-        location: locationData,
+        location: locationData as any,
         notes: [
           isEarlyCheckout && earlyMinutes > 15 ? `Early checkout by ${earlyMinutes} min` : '',
           isPreviousDayClockOut ? 'Previous day clock-out' : '',
@@ -630,7 +630,7 @@ export class AttendanceService {
     }
 
     // ===== Comp-Off auto-grant: if employee worked on weekoff/holiday and policy allows =====
-    if (clockOutPolicy?.compOffEnabled && totalHours >= (clockOutPolicy.compOffMinOTHours || 4)) {
+    if (clockOutPolicy?.compOffEnabled && totalHours >= Number(clockOutPolicy.compOffMinOTHours || 4)) {
       const recordDay = new Date(record.date).getDay();
       const policyWeekOffs = new Set(clockOutPolicy.weekOffDays || [0]);
       const isWeekOff = policyWeekOffs.has(recordDay);
@@ -1557,7 +1557,7 @@ export class AttendanceService {
       },
       update: {
         status: data.status,
-        workMode: data.workMode || employee.workMode,
+        workMode: (data.workMode || employee.workMode) as any,
         source: 'MANUAL_HR',
         notes: `Marked by HR/Admin (userId: ${markedBy})`,
       },
@@ -1565,7 +1565,7 @@ export class AttendanceService {
         employeeId: data.employeeId,
         date,
         status: data.status,
-        workMode: data.workMode || employee.workMode,
+        workMode: (data.workMode || employee.workMode) as any,
         source: 'MANUAL_HR',
         notes: `Marked by HR/Admin (userId: ${markedBy})`,
       },
@@ -1641,7 +1641,7 @@ export class AttendanceService {
       if (!lastPoint) {
         // Also check last attendance log with location
         const lastLog = await prisma.attendanceLog.findFirst({
-          where: { attendance: { employeeId }, location: { not: null } },
+          where: { attendance: { employeeId }, location: { not: undefined } } as any,
           orderBy: { timestamp: 'desc' },
         });
         if (!lastLog?.location) return { spoofing: false };
@@ -2344,7 +2344,7 @@ export class AttendanceService {
         if (loc?.lat && loc?.lng) {
           // Check if there was a previous day's checkout location and compare
           const prevRecord = await prisma.attendanceRecord.findFirst({
-            where: { employeeId: empId, date: { lt: queryDate }, checkOutLocation: { not: null } },
+            where: { employeeId: empId, date: { lt: queryDate }, checkOutLocation: { not: undefined } } as any,
             orderBy: { date: 'desc' },
             select: { checkOutLocation: true, checkOut: true },
           });

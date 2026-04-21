@@ -725,7 +725,7 @@ export class PublicApplyService {
         const aiApiKey = process.env.AI_SERVICE_API_KEY || '';
         if (aiServiceUrl) {
           const formData = new FormData();
-          const blob = new Blob([buffer], { type: 'application/pdf' });
+          const blob = new Blob([buffer as unknown as ArrayBuffer], { type: 'application/pdf' });
           formData.append('file', blob, 'resume.pdf');
           const headers: Record<string, string> = {};
           if (aiApiKey) headers['X-API-Key'] = aiApiKey;
@@ -880,7 +880,7 @@ ${resumeText.slice(0, 4000)}`;
         const aiApiKey = process.env.AI_SERVICE_API_KEY || '';
         if (aiServiceUrl) {
           const formData = new FormData();
-          const blob = new Blob([buffer], { type: 'application/pdf' });
+          const blob = new Blob([buffer as unknown as ArrayBuffer], { type: 'application/pdf' });
           formData.append('file', blob, 'resume.pdf');
           const headers: Record<string, string> = {};
           if (aiApiKey) headers['X-API-Key'] = aiApiKey;

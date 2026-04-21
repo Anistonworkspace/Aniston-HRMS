@@ -1,14 +1,15 @@
 import { prisma } from '../lib/prisma.js';
+import { Prisma } from '@prisma/client';
 import { logger } from '../lib/logger.js';
 
-interface AuditLogParams {
+export interface AuditLogParams {
   userId: string;
   organizationId: string;
   entity: string;      // e.g. 'Employee', 'LeaveRequest', 'PayrollRun'
   entityId: string;
   action: string;       // 'CREATE', 'UPDATE', 'DELETE', 'APPROVE', 'REJECT'
-  oldValue?: any;
-  newValue?: any;
+  oldValue?: Record<string, unknown>;
+  newValue?: Record<string, unknown>;
   ipAddress?: string;
 }
 
@@ -21,8 +22,8 @@ export async function createAuditLog(params: AuditLogParams) {
         entity: params.entity,
         entityId: params.entityId,
         action: params.action,
-        oldValue: params.oldValue || null,
-        newValue: params.newValue || null,
+        oldValue: params.oldValue !== undefined ? (params.oldValue as Prisma.InputJsonValue) : Prisma.JsonNull,
+        newValue: params.newValue !== undefined ? (params.newValue as Prisma.InputJsonValue) : Prisma.JsonNull,
         ipAddress: params.ipAddress || null,
       },
     });

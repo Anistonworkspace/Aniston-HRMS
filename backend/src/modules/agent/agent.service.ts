@@ -56,8 +56,8 @@ export class AgentService {
     // Use Math.ceil so that any sub-minute active period (e.g. 30s = 0.5min) counts as 1min
     // instead of rounding to 0 — prevents losing activity data for short heartbeat batches.
     const totalActiveSeconds = activities.reduce((sum, a) => sum + a.durationSeconds, 0);
+    const activeMinutesIncrement = Math.ceil(totalActiveSeconds / 60);
     if (totalActiveSeconds > 0) {
-      const activeMinutesIncrement = Math.ceil(totalActiveSeconds / 60);
       await prisma.attendanceRecord.updateMany({
         where: { employeeId, date: today, checkOut: null },
         data: {
@@ -553,7 +553,7 @@ export class AgentService {
       appSheet.addRow({ app, minutes: Math.round(data.seconds / 60), cat: data.category });
     });
 
-    return wb.xlsx.writeBuffer() as Promise<Buffer>;
+    return wb.xlsx.writeBuffer() as unknown as Promise<Buffer>;
   }
 
   // ===================== LEGACY PAIRING (backward compat) =====================
