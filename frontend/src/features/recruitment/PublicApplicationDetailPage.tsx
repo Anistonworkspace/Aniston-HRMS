@@ -103,6 +103,7 @@ export default function PublicApplicationDetailPage() {
 
   /* Resume URL resolution */
   const resolvedResumeUrl = app.resumeUrl ? getUploadUrl(app.resumeUrl) : null;
+  const resumeIsPdf = resolvedResumeUrl?.toLowerCase().endsWith('.pdf') ?? false;
 
   const handleFinalize = async (status: string) => {
     if (!confirm(`Are you sure you want to mark this candidate as ${status}?`)) return;
@@ -271,7 +272,23 @@ export default function PublicApplicationDetailPage() {
           <AnimatePresence>
             {showResumeViewer && (
               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-4">
-                <iframe src={resolvedResumeUrl} className="w-full h-96 rounded-lg border border-gray-200" title="Resume viewer" />
+                {resumeIsPdf ? (
+                  <iframe
+                    src={resolvedResumeUrl}
+                    className="w-full h-96 rounded-lg border border-gray-200"
+                    title="Resume viewer"
+                    sandbox="allow-same-origin allow-scripts"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-10 gap-3 rounded-lg border border-gray-200 bg-gray-50">
+                    <FileText className="w-10 h-10 text-gray-300" />
+                    <p className="text-sm text-gray-500">Preview not available for this file type.</p>
+                    <a href={resolvedResumeUrl} target="_blank" rel="noopener noreferrer"
+                      className="btn-primary text-sm flex items-center gap-1.5 px-4 py-2">
+                      <Download size={14} /> Download to View
+                    </a>
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>

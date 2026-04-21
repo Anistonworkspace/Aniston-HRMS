@@ -128,8 +128,8 @@ app.use(helmet({
         return [...new Set(origins)];
       })(),
       objectSrc: ["'none'"],
-      frameSrc: ["'none'"],
-      frameAncestors: ["'none'"],
+      frameSrc: ["'self'"],
+      frameAncestors: ["'self'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
       ...(env.NODE_ENV === 'production' ? { upgradeInsecureRequests: [] } : {}),
@@ -137,7 +137,7 @@ app.use(helmet({
   },
   hsts: env.NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-  frameguard: { action: 'deny' },
+  frameguard: { action: 'sameorigin' },
   crossOriginEmbedderPolicy: false, // Allow embedding uploads in other origins
   crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allow CDN-style file access
 }));
@@ -335,7 +335,16 @@ app.get('/api/app-updates/latest', (_req, res) => {
 // the file *paths themselves* — a caller must be authenticated to learn
 // which path a file lives at.
 const uploadsRoot = storageService.getUploadsRoot();
+// Allow HR to preview uploaded files (PDFs/images) in same-origin iframes
+app.use('/uploads', (_req, res, next) => {
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  next();
+});
 app.use('/uploads', express.static(uploadsRoot));
+app.use('/api/uploads', (_req, res, next) => {
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  next();
+});
 app.use('/api/uploads', express.static(uploadsRoot));
 
 // 404 handler
