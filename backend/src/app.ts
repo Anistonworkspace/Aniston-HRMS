@@ -89,12 +89,16 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "blob:"],
       fontSrc: ["'self'", "data:"],
-      connectSrc: [
-        "'self'",
-        // Socket.io WebSocket upgrade
-        "ws://localhost:4000",
-        "wss://hr.anistonav.com",
-      ],
+      connectSrc: (() => {
+        // Derive WebSocket origins from FRONTEND_URL — no hardcoded domains
+        const origins: string[] = ["'self'", "ws://localhost:4000", "ws://localhost:5173"];
+        try {
+          const parsed = new URL(env.FRONTEND_URL);
+          const wsProto = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+          origins.push(`${wsProto}//${parsed.host}`);
+        } catch { /* ignore malformed URL */ }
+        return [...new Set(origins)];
+      })(),
       objectSrc: ["'none'"],
       frameSrc: ["'none'"],
       frameAncestors: ["'none'"],

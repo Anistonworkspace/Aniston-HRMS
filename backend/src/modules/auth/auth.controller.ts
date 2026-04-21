@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from './auth.service.js';
-import { loginSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema } from './auth.validation.js';
+import { loginSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema, mfaCodeSchema, mfaVerifySchema } from './auth.validation.js';
 import { employeeService } from '../employee/employee.service.js';
 
 export class AuthController {
@@ -195,9 +195,9 @@ export class AuthController {
 
   async verifyMFASetup(req: Request, res: Response, next: NextFunction) {
     try {
+      const { code } = mfaCodeSchema.parse(req.body);
       const { prisma } = await import('../../lib/prisma.js');
       const otplib = await import('otplib');
-      const { code } = req.body;
       const mfa = await prisma.userMFA.findUnique({ where: { userId: req.user!.userId } });
       if (!mfa) { res.status(404).json({ success: false, error: { message: 'MFA not initialized. Call /mfa/setup first.' } }); return; }
 
@@ -217,11 +217,11 @@ export class AuthController {
 
   async verifyMFA(req: Request, res: Response, next: NextFunction) {
     try {
+      const { tempToken, token: code } = mfaVerifySchema.parse(req.body);
       const { prisma } = await import('../../lib/prisma.js');
       const otplib = await import('otplib');
       const jwt = await import('jsonwebtoken');
       const { env } = await import('../../config/env.js');
-      const { tempToken, code } = req.body;
 
       let payload: any;
       try { payload = jwt.default.verify(tempToken, env.JWT_SECRET); }
@@ -273,6 +273,9 @@ export class AuthController {
       const accessToken = authService.generateAccessToken(user);
       const refreshToken = await authService.generateRefreshToken(user.id);
 
+      // Update last login timestamp (same as normal login flow)
+      await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+
       res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000, path: '/api/auth' });
 
       const userData = await authService.getMe(user.id);
@@ -282,9 +285,9 @@ export class AuthController {
 
   async disableMFA(req: Request, res: Response, next: NextFunction) {
     try {
+      const { code } = mfaCodeSchema.parse(req.body);
       const { prisma } = await import('../../lib/prisma.js');
       const otplib = await import('otplib');
-      const { code } = req.body;
       const mfa = await prisma.userMFA.findUnique({ where: { userId: req.user!.userId } });
       if (!mfa?.isEnabled) { res.status(400).json({ success: false, error: { message: 'MFA is not enabled' } }); return; }
 

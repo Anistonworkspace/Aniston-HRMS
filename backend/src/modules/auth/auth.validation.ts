@@ -37,7 +37,18 @@ export const changePasswordSchema = z.object({
     .regex(/[^A-Za-z0-9]/, 'Password must contain a special character'),
 });
 
+export const mfaCodeSchema = z.object({
+  code: z.string().min(6, 'Code is required').max(9, 'Code too long'),
+});
+
+export const mfaVerifySchema = z.object({
+  tempToken: z.string().min(1, 'Session token is required'),
+  token: z.string().min(6, 'Code is required').max(9, 'Code too long'),
+});
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type MfaCodeInput = z.infer<typeof mfaCodeSchema>;
+export type MfaVerifyInput = z.infer<typeof mfaVerifySchema>;

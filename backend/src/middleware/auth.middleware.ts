@@ -13,6 +13,45 @@ export interface JwtPayload {
   organizationId: string;
   employeeId?: string;
   mfaPending?: boolean;
+  kycCompleted?: boolean;
+}
+
+/** Shape of an ExitAccessConfig row (subset used by the middleware). */
+interface ExitAccessConfigFields {
+  isActive: boolean;
+  accessExpiresAt?: Date | string | null;
+  canViewDashboard: boolean;
+  canViewPayslips: boolean;
+  canViewAttendance: boolean;
+  canMarkAttendance: boolean;
+  canApplyLeave: boolean;
+  canViewLeaveBalance: boolean;
+  canViewDocuments: boolean;
+  canViewHelpdesk: boolean;
+  canCreateTicket: boolean;
+  canViewAnnouncements: boolean;
+  canViewProfile: boolean;
+  [key: string]: unknown;
+}
+
+/** Shape returned by employeePermissionService.getEffectivePermissions(). */
+interface EffectivePermissions {
+  canMarkAttendance: boolean;
+  canViewAttendanceHistory: boolean;
+  canApplyLeaves: boolean;
+  canViewLeaveBalance: boolean;
+  canViewPayslips: boolean;
+  canDownloadPayslips: boolean;
+  canViewDocuments: boolean;
+  canDownloadDocuments: boolean;
+  canViewDashboardStats: boolean;
+  canViewAnnouncements: boolean;
+  canViewPolicies: boolean;
+  canRaiseHelpdeskTickets: boolean;
+  canViewOrgChart: boolean;
+  canViewPerformance: boolean;
+  canViewEditProfile: boolean;
+  [key: string]: boolean;
 }
 
 declare global {
@@ -97,16 +136,16 @@ export async function checkExitAccess(req: Request, _res: Response, next: NextFu
     if (adminRoles.includes(req.user.role)) return next();
 
     const cacheKey = `exit_access:${req.user.employeeId}`;
-    let config: any = null;
+    let config: ExitAccessConfigFields | null = null;
 
     try {
       const cached = await redis.get(cacheKey);
       if (cached) {
-        config = JSON.parse(cached);
+        config = JSON.parse(cached) as ExitAccessConfigFields;
       } else {
         config = await prisma.exitAccessConfig.findUnique({
           where: { employeeId: req.user.employeeId },
-        });
+        }) as ExitAccessConfigFields | null;
         if (config) {
           await redis.setex(cacheKey, 300, JSON.stringify(config));
         }
@@ -149,7 +188,7 @@ export async function checkExitAccess(req: Request, _res: Response, next: NextFu
         : next(new ForbiddenError('Ticket creation is not available in limited access mode'));
     }
 
-    if (!(config as any)[featureKey]) {
+    if (!config[featureKey]) {
       return next(new ForbiddenError('This feature is not available in limited access mode'));
     }
 
@@ -170,12 +209,12 @@ export async function checkEmployeePermissions(req: Request, _res: Response, nex
     const adminRoles: Role[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR];
     if (adminRoles.includes(req.user.role)) return next();
 
-    let perms: any;
+    let perms: EffectivePermissions;
     try {
       const { employeePermissionService } = await import('../modules/employee-permissions/employee-permissions.service.js');
       perms = await employeePermissionService.getEffectivePermissions(
-        req.user.employeeId, req.user.role as any, req.user.organizationId
-      );
+        req.user.employeeId, req.user.role, req.user.organizationId
+      ) as EffectivePermissions;
     } catch {
       // Fail closed — cannot verify permissions, deny access
       return next(new ForbiddenError('Permission verification failed. Please try again.'));
@@ -204,22 +243,22 @@ export async function checkEmployeePermissions(req: Request, _res: Response, nex
     if (!permKey) return next();
 
     if (path.startsWith('/api/attendance') && ['POST', 'PATCH'].includes(req.method)) {
-      return (perms as any).canMarkAttendance
+      return perms.canMarkAttendance
         ? next()
         : next(new ForbiddenError('Attendance marking has been restricted by your administrator'));
     }
     if (path.startsWith('/api/leaves') && req.method === 'POST') {
-      return (perms as any).canApplyLeaves
+      return perms.canApplyLeaves
         ? next()
         : next(new ForbiddenError('Leave application has been restricted by your administrator'));
     }
     if (path.startsWith('/api/helpdesk') && req.method === 'POST') {
-      return (perms as any).canRaiseHelpdeskTickets
+      return perms.canRaiseHelpdeskTickets
         ? next()
         : next(new ForbiddenError('Helpdesk access has been restricted by your administrator'));
     }
 
-    if (!(perms as any)[permKey]) {
+    if (!perms[permKey]) {
       return next(new ForbiddenError('This feature has been restricted by your administrator'));
     }
 
