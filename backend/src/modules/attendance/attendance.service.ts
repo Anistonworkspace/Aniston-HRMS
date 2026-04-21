@@ -291,7 +291,7 @@ export class AttendanceService {
 
       // Auto-mark HALF_DAY note: prefer shift-level lateHalfDayAfterMins
       if (!isReClockIn) {
-        const halfDayThreshold = shift.lateHalfDayAfterMins || policy?.lateHalfDayAfterMins ?? graceMinutes;
+        const halfDayThreshold = (shift.lateHalfDayAfterMins || policy?.lateHalfDayAfterMins) ?? graceMinutes;
         const minutesLate = Math.round((istNow.getTime() - shiftStart.getTime()) / (1000 * 60));
         if (minutesLate > halfDayThreshold) {
           data.notes = `${data.notes || ''} [Auto-marked HALF_DAY: ${minutesLate} min late, threshold ${halfDayThreshold} min]`.trim();

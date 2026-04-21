@@ -1,8 +1,15 @@
 # Dependencies
 node_modules/
 
-# Claude logs
+# Claude logs and worktrees
 .claude/logs/
+.claude/worktrees/
+
+# Local VS Code overrides
+*.local.json
+
+# Auto-generated audit/report docs
+docs/AUDIT_REPORT*.md
 
 # Playwright MCP screenshots
 .playwright-mcp/
