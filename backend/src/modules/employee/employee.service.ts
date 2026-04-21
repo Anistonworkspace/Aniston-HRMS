@@ -445,10 +445,19 @@ export class EmployeeService {
 
     const updateData: any = { ...data };
     if (data.email) updateData.email = data.email.toLowerCase();
+
+    // Date fields: convert non-empty strings to Date objects; delete empty strings
+    // because Prisma 6 rejects '' for DateTime fields (PrismaClientValidationError)
     if (data.dateOfBirth) updateData.dateOfBirth = new Date(data.dateOfBirth);
+    else delete updateData.dateOfBirth;
+
     if (data.joiningDate) updateData.joiningDate = new Date(data.joiningDate);
+
     if ((data as any).onboardingDate) updateData.onboardingDate = new Date((data as any).onboardingDate);
+    else delete updateData.onboardingDate;
+
     if (data.probationEndDate) updateData.probationEndDate = new Date(data.probationEndDate);
+    else delete updateData.probationEndDate;
 
     let employee: any;
     try {

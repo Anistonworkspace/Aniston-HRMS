@@ -20,7 +20,7 @@ const EMPTY_FORM = {
   noticeDays: 0,
   allowSameDay: false,
   maxPerMonth: '',
-  applicableTo: 'ALL' as 'ALL' | 'PROBATION' | 'CONFIRMED',
+  applicableTo: 'ALL' as string,
   requiresApproval: true,
   isActive: true,
 };
@@ -127,7 +127,19 @@ export default function LeaveSettingsTab() {
     return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-brand-500" /></div>;
   }
 
-  const APPLICABILITY_LABELS: Record<string, string> = { ALL: 'All Employees', PROBATION: 'On Probation Only', CONFIRMED: 'Confirmed Only' };
+  const APPLICABILITY_LABELS: Record<string, string> = {
+    ALL: 'All Employees',
+    PROBATION: 'Probation Employees',
+    CONFIRMED: 'Confirmed / Active Only',
+    ACTIVE: 'Active Employees',
+    INTERN: 'Interns Only',
+    NOTICE_PERIOD: 'On Notice Period',
+    ONBOARDING: 'Onboarding Only',
+    SUSPENDED: 'Suspended Employees',
+    INACTIVE: 'Inactive Employees',
+    TERMINATED: 'Terminated Employees',
+    ABSCONDED: 'Absconded Employees',
+  };
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -196,8 +208,21 @@ export default function LeaveSettingsTab() {
               <select value={form.applicableTo} onChange={e => set('applicableTo', e.target.value)}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300">
                 <option value="ALL">All Employees</option>
-                <option value="PROBATION">On Probation Only</option>
-                <option value="CONFIRMED">Confirmed Employees Only</option>
+                <optgroup label="Active States">
+                  <option value="ONBOARDING">Onboarding</option>
+                  <option value="PROBATION">Probation Only</option>
+                  <option value="CONFIRMED">Confirmed / Active</option>
+                  <option value="INTERN">Interns Only</option>
+                </optgroup>
+                <optgroup label="Transition States">
+                  <option value="NOTICE_PERIOD">On Notice Period</option>
+                  <option value="SUSPENDED">Suspended</option>
+                </optgroup>
+                <optgroup label="Terminal States">
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="TERMINATED">Terminated</option>
+                  <option value="ABSCONDED">Absconded</option>
+                </optgroup>
               </select>
             </div>
           </div>
