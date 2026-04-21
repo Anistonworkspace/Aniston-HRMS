@@ -28,10 +28,12 @@ const config: CapacitorConfig = {
 
     SplashScreen: {
       launchShowDuration: 1800,
-      backgroundColor: '#4f46e5',
+      backgroundColor: '#ffffff',
       showSpinner: false,
       androidSplashResourceName: 'splash',
       iosSplashResourceName: 'LaunchScreen',
+      splashFullScreen: true,
+      splashImmersive: true,
     },
   },
 };

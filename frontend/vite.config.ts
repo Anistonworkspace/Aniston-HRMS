@@ -36,7 +36,7 @@ export default defineConfig({
 
       manifest: {
         name: 'Aniston HRMS',
-        short_name: 'Aniston',
+        short_name: 'Aniston HRMS',
         description:
           'Enterprise Human Resource Management System — Attendance, Leave, Payroll & more',
         start_url: '/dashboard?source=pwa',
@@ -54,7 +54,7 @@ export default defineConfig({
           'standalone',
           'minimal-ui',
         ],
-        background_color: '#f8fafc',
+        background_color: '#ffffff',
         theme_color: '#4F46E5',
         orientation: 'portrait-primary',
         lang: 'en',
