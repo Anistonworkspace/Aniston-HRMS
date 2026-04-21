@@ -115,29 +115,45 @@ export class AttendanceService {
       data.notes = `${data.notes || ''} [Working on optional holiday: ${holiday.name}]`.trim();
     }
 
+    // Fetch shift assignment early — needed for per-shift policy fields
+    const shiftAssignment = await prisma.shiftAssignment.findFirst({
+      where: { employeeId, startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+      include: { shift: true, location: { include: { geofence: true } } },
+      orderBy: { startDate: 'desc' },
+    });
+    let shift = shiftAssignment?.shift;
+    if (!shift) {
+      const defaultShift = await prisma.shift.findFirst({
+        where: { organizationId, isDefault: true, isActive: true },
+      });
+      if (defaultShift) shift = defaultShift;
+    }
+
     // ===== PHASE 3: Weekend/Sunday clock-in check =====
     const policy = await prisma.attendancePolicy.findUnique({ where: { organizationId } });
-    const weekOffDays = new Set(policy?.weekOffDays || [0]); // 0=Sunday
+    // Prefer shift-level weekOffDays; fall back to org policy
+    const effectiveWeekOffDays = (shift?.weekOffDays?.length ? shift.weekOffDays : null) ?? policy?.weekOffDays ?? [0];
+    const weekOffDays = new Set(effectiveWeekOffDays);
     const dayOfWeek = today.getDay();
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const isSunday = dayOfWeek === 0;
 
     if (weekOffDays.has(dayOfWeek)) {
-      // Check employee-level Sunday work override
-      const isSundayWorker = isSunday && (policy as any)?.sundayWorkEnabled && employee.allowSundayWork;
+      // Prefer shift-level sunday settings; fall back to org policy
+      const sundayWorkEnabled = shift?.sundayWorkEnabled ?? (policy as any)?.sundayWorkEnabled ?? false;
+      const sundayPayMultiplier = Number(shift?.sundayPayMultiplier ?? (policy as any)?.sundayPayMultiplier ?? 2.0);
+      const isSundayWorker = isSunday && sundayWorkEnabled && employee.allowSundayWork;
       if (isSunday && !isSundayWorker) {
         throw new BadRequestError(
           'Sunday is a week off. Contact HR to enable Sunday working on your profile if you need to work today.'
         );
       }
       if (isSundayWorker) {
-        data.notes = `${data.notes || ''} [Sunday work — pay multiplier: ${(policy as any)?.sundayPayMultiplier ?? 2.0}x]`.trim();
-        // Fire-and-forget email notification to HR
-        this._notifySundayAttendance(employee, organizationId, (policy as any)?.sundayPayMultiplier ?? 2.0).catch(err =>
+        data.notes = `${data.notes || ''} [Sunday work — pay multiplier: ${sundayPayMultiplier}x]`.trim();
+        this._notifySundayAttendance(employee, organizationId, sundayPayMultiplier).catch(err =>
           logger.warn(`[Attendance] Sunday notification email failed for ${employeeId}: ${err.message}`)
         );
       } else if (!isSunday) {
-        // Non-Sunday week-off day (e.g., Saturday)
         data.notes = `${data.notes || ''} [Weekend clock-in: ${dayNames[dayOfWeek]}]`.trim();
       }
     }
@@ -160,24 +176,6 @@ export class AttendanceService {
     // ===== PHASE 1: Re-clock-in limit =====
     if (isReClockIn && existing && existing.clockInCount >= this.MAX_RECLOCKIN_PER_DAY) {
       throw new BadRequestError(`Maximum re-clock-in limit (${this.MAX_RECLOCKIN_PER_DAY}) reached for today. Please contact HR for manual attendance.`);
-    }
-
-    // Check shift assignment — employee must have a shift assigned (or use org default)
-    const shiftAssignment = await prisma.shiftAssignment.findFirst({
-      where: { employeeId, startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
-      include: { shift: true, location: { include: { geofence: true } } },
-      orderBy: { startDate: 'desc' },
-    });
-
-    // If no shift assignment, try to find the default shift for the org
-    let shift = shiftAssignment?.shift;
-    if (!shift) {
-      const defaultShift = await prisma.shift.findFirst({
-        where: { organizationId, isDefault: true, isActive: true },
-      });
-      if (defaultShift) {
-        shift = defaultShift;
-      }
     }
 
     const currentShiftType = shift?.shiftType || 'OFFICE';
@@ -267,8 +265,8 @@ export class AttendanceService {
 
     if (shift) {
       const [shiftHour, shiftMin] = shift.startTime.split(':').map(Number);
-      // Grace: shift-level overrides policy-level; policy is org-wide default
-      const graceMinutes = shift.graceMinutes || policy?.lateGraceMinutes || 15;
+      // Grace: shift.lateGraceMinutes (new policy field) > shift.graceMinutes > org policy > default
+      const graceMinutes = shift.lateGraceMinutes || shift.graceMinutes || policy?.lateGraceMinutes || 15;
       const shiftStart = new Date(istNow);
       shiftStart.setHours(shiftHour, shiftMin, 0, 0);
       const graceEnd = new Date(shiftStart);
@@ -291,9 +289,9 @@ export class AttendanceService {
         data.notes = `${data.notes || ''} [Late by ${lateMinutes} min — shift ${shift.name} starts at ${shift.startTime}]`.trim();
       }
 
-      // Auto-mark HALF_DAY note: threshold = grace period itself (checking in after grace = half day)
+      // Auto-mark HALF_DAY note: prefer shift-level lateHalfDayAfterMins
       if (!isReClockIn) {
-        const halfDayThreshold = policy?.lateHalfDayAfterMins ?? graceMinutes;
+        const halfDayThreshold = shift.lateHalfDayAfterMins || policy?.lateHalfDayAfterMins ?? graceMinutes;
         const minutesLate = Math.round((istNow.getTime() - shiftStart.getTime()) / (1000 * 60));
         if (minutesLate > halfDayThreshold) {
           data.notes = `${data.notes || ''} [Auto-marked HALF_DAY: ${minutesLate} min late, threshold ${halfDayThreshold} min]`.trim();
@@ -350,8 +348,8 @@ export class AttendanceService {
       const autoHalfDay = !isReClockIn && shift && (() => {
         const [sh, sm] = shift.startTime.split(':').map(Number);
         const ss = new Date(istNow); ss.setHours(sh, sm, 0, 0);
-        const graceMin = shift.graceMinutes ?? policy?.lateGraceMinutes ?? 15;
-        const threshold = policy?.lateHalfDayAfterMins ?? graceMin;
+        const graceMin = shift.lateGraceMinutes || shift.graceMinutes || policy?.lateGraceMinutes || 15;
+        const threshold = shift.lateHalfDayAfterMins || policy?.lateHalfDayAfterMins || graceMin;
         return Math.round((istNow.getTime() - ss.getTime()) / 60000) > threshold;
       })();
 
@@ -547,14 +545,16 @@ export class AttendanceService {
       }
     }
 
-    // ===== Overtime detection: gated by policy.otEnabled =====
+    // ===== Overtime detection: prefer shift-level policy fields over org-level =====
     const extraHours = totalHours - fullDayHours;
-    const otThresholdMin = Number(clockOutPolicy?.otThresholdMinutes || 30);
-    const otMaxPerDay = Number(clockOutPolicy?.otMaxHoursPerDay || 4);
-    if (clockOutPolicy?.otEnabled && extraHours > (otThresholdMin / 60)) {
+    const effectiveOtEnabled = shift?.otEnabled ?? clockOutPolicy?.otEnabled ?? false;
+    const otThresholdMin = Number(shift?.otThresholdMinutes ?? clockOutPolicy?.otThresholdMinutes ?? 30);
+    const otMaxPerDay = Number(shift?.otMaxHoursPerDay ?? clockOutPolicy?.otMaxHoursPerDay ?? 4);
+    const otRateMultiplier = Number(shift?.otRateMultiplier ?? clockOutPolicy?.otRateMultiplier ?? 1.5);
+    if (effectiveOtEnabled && extraHours > (otThresholdMin / 60)) {
       overtimeFlag = true;
       overtimeHours = Math.min(Math.round(extraHours * 100) / 100, otMaxPerDay);
-    } else if (!clockOutPolicy?.otEnabled && totalHours > fullDayHours + this.OVERTIME_FLAG_EXTRA_HOURS) {
+    } else if (!effectiveOtEnabled && totalHours > fullDayHours + this.OVERTIME_FLAG_EXTRA_HOURS) {
       // Fallback: flag excessive hours even if OT tracking is off (informational only)
       overtimeFlag = true;
     }
@@ -574,7 +574,7 @@ export class AttendanceService {
       notes = `${notes} [Late clock-out: ${lateClockoutMinutes} min after shift end]`.trim();
     }
     if (overtimeFlag && overtimeHours > 0) {
-      notes = `${notes} [OT: ${overtimeHours.toFixed(1)}h overtime (policy: ${clockOutPolicy?.otRateMultiplier || 1.5}x rate, max ${otMaxPerDay}h/day)]`.trim();
+      notes = `${notes} [OT: ${overtimeHours.toFixed(1)}h overtime (policy: ${otRateMultiplier}x rate, max ${otMaxPerDay}h/day)]`.trim();
     } else if (overtimeFlag) {
       notes = `${notes} [Overtime flagged: ${totalHours.toFixed(1)}h, expected ${fullDayHours}h]`.trim();
     }
@@ -629,10 +629,13 @@ export class AttendanceService {
       } catch { /* non-blocking */ }
     }
 
-    // ===== Comp-Off auto-grant: if employee worked on weekoff/holiday and policy allows =====
-    if (clockOutPolicy?.compOffEnabled && totalHours >= Number(clockOutPolicy.compOffMinOTHours || 4)) {
+    // ===== Comp-Off auto-grant: prefer shift-level policy over org-level =====
+    const effectiveCompOffEnabled = shift?.compOffEnabled ?? clockOutPolicy?.compOffEnabled ?? false;
+    const effectiveCompOffMinOTHours = Number(shift?.compOffMinOTHours ?? clockOutPolicy?.compOffMinOTHours ?? 4);
+    const effectiveCompOffWeekOffDays = (shift?.weekOffDays?.length ? shift.weekOffDays : null) ?? clockOutPolicy?.weekOffDays ?? [0];
+    if (effectiveCompOffEnabled && totalHours >= effectiveCompOffMinOTHours) {
       const recordDay = new Date(record.date).getDay();
-      const policyWeekOffs = new Set(clockOutPolicy.weekOffDays || [0]);
+      const policyWeekOffs = new Set(effectiveCompOffWeekOffDays);
       const isWeekOff = policyWeekOffs.has(recordDay);
       const isHoliday = await prisma.holiday.findFirst({
         where: { organizationId: employee?.organizationId || '', date: new Date(record.date) },
@@ -640,7 +643,8 @@ export class AttendanceService {
 
       if (isWeekOff || isHoliday) {
         const compOffExpiry = new Date();
-        compOffExpiry.setDate(compOffExpiry.getDate() + (clockOutPolicy.compOffExpiryDays || 30));
+        const effectiveCompOffExpiryDays = shift?.compOffExpiryDays ?? clockOutPolicy?.compOffExpiryDays ?? 30;
+        compOffExpiry.setDate(compOffExpiry.getDate() + effectiveCompOffExpiryDays);
         try {
           // Check if comp-off not already granted for this date
           const existingCompOff = await prisma.attendanceLog.findFirst({
@@ -649,7 +653,7 @@ export class AttendanceService {
           if (!existingCompOff) {
             const organizationId = employee?.organizationId || '';
             const workReason = isHoliday ? `holiday (${isHoliday.name})` : 'week-off day';
-            const noteText = `Comp-off granted: worked ${totalHours.toFixed(1)}h on ${workReason}. Expires: ${compOffExpiry.toISOString().split('T')[0]}. Min OT required: ${clockOutPolicy.compOffMinOTHours}h.`;
+            const noteText = `Comp-off granted: worked ${totalHours.toFixed(1)}h on ${workReason}. Expires: ${compOffExpiry.toISOString().split('T')[0]}. Min OT required: ${effectiveCompOffMinOTHours}h.`;
 
             // Find or auto-create the COMP_OFF leave type for this org
             let compOffLeaveType = await prisma.leaveType.findFirst({

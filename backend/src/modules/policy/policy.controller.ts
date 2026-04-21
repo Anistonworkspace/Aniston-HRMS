@@ -79,7 +79,7 @@ export class PolicyController {
   async stream(req: Request, res: Response, next: NextFunction) {
     try {
       const isAdmin = ADMIN_ROLES.includes(req.user!.role);
-      const { buffer } = await policyService.streamFile(
+      const { fullPath, fileName } = await policyService.streamFile(
         req.params.id as string,
         req.user!.organizationId,
         req.user!.employeeId,
@@ -88,13 +88,18 @@ export class PolicyController {
 
       res.set({
         'Content-Type': 'application/pdf',
-        'Content-Disposition': 'inline',
+        'Content-Disposition': `inline; filename="${fileName}"`,
         'Cache-Control': 'no-store, no-cache, must-revalidate, private',
         'Pragma': 'no-cache',
         'X-Content-Type-Options': 'nosniff',
-        'X-Frame-Options': 'DENY',
       });
-      res.send(buffer);
+
+      res.sendFile(fullPath, (err) => {
+        if (err && !res.headersSent) {
+          console.error(`[Policy:stream] sendFile error for ${fullPath}:`, err.message);
+          next(err);
+        }
+      });
     } catch (err) {
       next(err);
     }
@@ -104,7 +109,7 @@ export class PolicyController {
   async download(req: Request, res: Response, next: NextFunction) {
     try {
       const isAdmin = ADMIN_ROLES.includes(req.user!.role);
-      const { buffer, fileName, downloadAllowed } = await policyService.streamFile(
+      const { fullPath, fileName, downloadAllowed } = await policyService.streamFile(
         req.params.id as string,
         req.user!.organizationId,
         req.user!.employeeId,
@@ -121,7 +126,13 @@ export class PolicyController {
         'Content-Disposition': `attachment; filename="${fileName}"`,
         'Cache-Control': 'no-store',
       });
-      res.send(buffer);
+
+      res.sendFile(fullPath, (err) => {
+        if (err && !res.headersSent) {
+          console.error(`[Policy:download] sendFile error for ${fullPath}:`, err.message);
+          next(err);
+        }
+      });
     } catch (err) {
       next(err);
     }

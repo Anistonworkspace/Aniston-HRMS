@@ -126,16 +126,21 @@ export class PolicyService {
     return ack;
   }
 
-  // Secure stream — returns file buffer with proper headers
+  // Secure stream — returns file path for sendFile (streaming, not buffered)
   async streamFile(id: string, organizationId: string, employeeId: string | undefined, isAdmin: boolean) {
     const policy = await prisma.policy.findFirst({ where: { id, organizationId, isActive: true } });
-    if (!policy || !policy.filePath) throw new NotFoundError('Policy');
+    if (!policy) throw new NotFoundError('Policy');
+    if (!policy.filePath) throw new NotFoundError('Policy has no file attached');
 
     const fullPath = storageService.resolvePath(policy.filePath);
-    if (!fs.existsSync(fullPath)) throw new NotFoundError('Policy file');
+    if (!fs.existsSync(fullPath)) {
+      // Log for server-side diagnosis
+      console.error(`[Policy] File not found on disk. id=${id} filePath=${policy.filePath} resolved=${fullPath}`);
+      throw new NotFoundError('Policy file not found on server. Please re-upload the document.');
+    }
 
     return {
-      buffer: fs.readFileSync(fullPath),
+      fullPath,
       fileName: policy.fileName || 'policy.pdf',
       downloadAllowed: isAdmin || policy.downloadAllowed,
     };
