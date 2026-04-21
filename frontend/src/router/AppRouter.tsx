@@ -202,7 +202,7 @@ export default function AppRouter() {
             <Route path="/performance" element={<PerformancePage />} />
             <Route path="/policies" element={<PoliciesPage />} />
             <Route path="/announcements" element={<AnnouncementsPage />} />
-            <Route path="/org-chart" element={<OrgChartPage />} />
+            <Route path="/org-chart" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER']}><OrgChartPage /></ProtectedRoute>} />
             <Route path="/helpdesk" element={<RouteErrorBoundary pageName="Helpdesk"><HelpdeskPage /></RouteErrorBoundary>} />
             <Route path="/reports" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER']}><RouteErrorBoundary pageName="Reports"><ReportsPage /></RouteErrorBoundary></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><RouteErrorBoundary pageName="Settings"><SettingsPage /></RouteErrorBoundary></ProtectedRoute>} />

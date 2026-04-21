@@ -75,7 +75,7 @@ const navItems: NavItem[] = [
   { nameKey: 'nav.sendBulkEmail', path: '/send-bulk-email', icon: Send, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { nameKey: 'nav.bulkEmail', path: '/bulk-email', icon: Mail, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { nameKey: 'nav.whatsapp', path: '/whatsapp', icon: MessageCircle, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { nameKey: 'nav.orgChart', path: '/org-chart', icon: Network, permissionKey: 'canViewOrgChart' },
+  { nameKey: 'nav.orgChart', path: '/org-chart', icon: Network, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { nameKey: 'nav.reports', path: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
   { nameKey: 'nav.settings', path: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { nameKey: 'nav.profile', path: '/profile', icon: Users, exitAccessKey: 'canViewProfile', permissionKey: 'canViewEditProfile' },
