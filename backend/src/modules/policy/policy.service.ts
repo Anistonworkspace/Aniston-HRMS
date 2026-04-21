@@ -116,10 +116,14 @@ export class PolicyService {
     });
   }
 
-  async acknowledge(policyId: string, employeeId: string | undefined) {
-    if (!employeeId) {
-      throw new BadRequestError('No employee profile');
-    }
+  async acknowledge(policyId: string, employeeId: string | undefined, organizationId: string) {
+    if (!employeeId) throw new BadRequestError('No employee profile');
+    // Verify policy belongs to the user's organization
+    const policy = await prisma.policy.findFirst({ where: { id: policyId, organizationId, isActive: true } });
+    if (!policy) throw new NotFoundError('Policy');
+    // Idempotent — silently ignore if already acknowledged
+    const existing = await prisma.policyAcknowledgment.findFirst({ where: { policyId, employeeId } });
+    if (existing) return existing;
     const ack = await prisma.policyAcknowledgment.create({
       data: { policyId, employeeId },
     });

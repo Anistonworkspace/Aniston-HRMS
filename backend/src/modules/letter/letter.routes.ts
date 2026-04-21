@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { letterController } from './letter.controller.js';
-import { authenticate, requirePermission } from '../../middleware/auth.middleware.js';
+import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
+import { Role } from '@aniston/shared';
 
 const router = Router();
 
@@ -16,8 +17,8 @@ router.get('/my', requirePermission('letter', 'read'), (req, res, next) =>
   letterController.getMyLetters(req, res, next)
 );
 
-// List all letters (HR view)
-router.get('/', requirePermission('letter', 'read'), (req, res, next) =>
+// List all letters (HR/Admin view only — employees must use /my)
+router.get('/', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res, next) =>
   letterController.list(req, res, next)
 );
 

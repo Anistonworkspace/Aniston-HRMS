@@ -265,15 +265,13 @@ export class LetterService {
       }
     }
 
-    // Read file
-    let base = process.cwd();
-    if (base.endsWith('backend') || base.endsWith('backend\\') || base.endsWith('backend/')) {
-      base = path.resolve(base, '..');
+    const fullPath = storageService.resolvePath(letter.filePath);
+    if (!fs.existsSync(fullPath)) {
+      console.error(`[Letter] File not found on disk. id=${letterId} filePath=${letter.filePath} resolved=${fullPath}`);
+      throw new NotFoundError('Letter file not found on server. Please re-generate the letter.');
     }
-    const fullPath = path.join(base, letter.filePath);
-    if (!fs.existsSync(fullPath)) throw new NotFoundError('Letter file');
 
-    return { buffer: fs.readFileSync(fullPath), filePath: letter.filePath };
+    return { fullPath, filePath: letter.filePath };
   }
 
   // Check if download is allowed for employee

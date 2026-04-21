@@ -68,7 +68,7 @@ export class PolicyController {
 
   async acknowledge(req: Request, res: Response, next: NextFunction) {
     try {
-      const ack = await policyService.acknowledge(req.params.id as string, req.user!.employeeId);
+      const ack = await policyService.acknowledge(req.params.id as string, req.user!.employeeId, req.user!.organizationId);
       res.json({ success: true, data: ack, message: 'Policy acknowledged' });
     } catch (err) {
       next(err);

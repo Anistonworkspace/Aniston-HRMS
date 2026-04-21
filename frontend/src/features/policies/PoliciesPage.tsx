@@ -1,7 +1,8 @@
 import { useState, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, Check, Plus, X, Eye, Upload, Loader2, Download, Trash2, BookOpen, Mail, Palette } from 'lucide-react';
+import { FileText, Check, Plus, X, Eye, Upload, Loader2, Download, Trash2, BookOpen, Mail, Palette, Award } from 'lucide-react';
 import { useGetPoliciesQuery, useAcknowledgePolicyMutation, useCreatePolicyMutation, useDeletePolicyMutation } from './policyApi';
+import { useGetMyLettersQuery } from './letterApi';
 import { useAppSelector } from '../../app/store';
 import { formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -12,6 +13,18 @@ const BrandingTab = lazy(() => import('./BrandingTab'));
 
 const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
+const LETTER_TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  OFFER_LETTER: { label: 'Offer Letter', color: 'bg-blue-100 text-blue-700' },
+  JOINING_LETTER: { label: 'Joining Letter', color: 'bg-emerald-100 text-emerald-700' },
+  EXPERIENCE_LETTER: { label: 'Experience Letter', color: 'bg-purple-100 text-purple-700' },
+  RELIEVING_LETTER: { label: 'Relieving Letter', color: 'bg-orange-100 text-orange-700' },
+  SALARY_SLIP_LETTER: { label: 'Salary Slip', color: 'bg-cyan-100 text-cyan-700' },
+  PROMOTION_LETTER: { label: 'Promotion Letter', color: 'bg-amber-100 text-amber-700' },
+  WARNING_LETTER: { label: 'Warning Letter', color: 'bg-red-100 text-red-700' },
+  APPRECIATION_LETTER: { label: 'Appreciation', color: 'bg-pink-100 text-pink-700' },
+  CUSTOM: { label: 'Letter', color: 'bg-gray-100 text-gray-700' },
+};
+
 type Tab = 'policies' | 'letters' | 'branding';
 
 export default function PoliciesPage() {
@@ -21,7 +34,7 @@ export default function PoliciesPage() {
 
   const tabs: { id: Tab; label: string; icon: any; adminOnly?: boolean }[] = [
     { id: 'policies', label: 'Policies', icon: BookOpen },
-    { id: 'letters', label: 'Letters', icon: Mail, adminOnly: true },
+    { id: 'letters', label: 'Letters', icon: Mail },
     { id: 'branding', label: 'Branding', icon: Palette, adminOnly: true },
   ];
 
@@ -61,9 +74,116 @@ export default function PoliciesPage() {
       {/* Tab Content */}
       <Suspense fallback={<div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-indigo-600" /></div>}>
         {activeTab === 'policies' && <PoliciesTab isAdmin={!!isAdmin} canDelete={!!user && ['SUPER_ADMIN', 'ADMIN'].includes(user.role)} />}
-        {activeTab === 'letters' && isAdmin && <LettersTab />}
+        {activeTab === 'letters' && (isAdmin ? <LettersTab /> : <MyLettersTab />)}
         {activeTab === 'branding' && isAdmin && <BrandingTab />}
       </Suspense>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  My Letters — Employee self-view of assigned letters               */
+/* ================================================================== */
+function MyLettersTab() {
+  const { data: res, isLoading } = useGetMyLettersQuery();
+  const token = useAppSelector((s) => s.auth.accessToken);
+  const [viewAssignment, setViewAssignment] = useState<any>(null);
+
+  const assignments = res?.data || [];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 size={24} className="animate-spin text-indigo-600" />
+      </div>
+    );
+  }
+
+  if (assignments.length === 0) {
+    return (
+      <div className="layer-card p-16 text-center">
+        <Award size={48} className="mx-auto text-gray-200 mb-4" />
+        <h3 className="text-lg font-display font-semibold text-gray-600">No letters yet</h3>
+        <p className="text-sm text-gray-400 mt-1">Letters issued to you by HR will appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {assignments.map((a: any) => {
+        const letter = a.letter;
+        const typeInfo = LETTER_TYPE_LABELS[letter?.type] || LETTER_TYPE_LABELS.CUSTOM;
+        return (
+          <motion.div
+            key={a.id}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="layer-card p-4 flex items-center justify-between gap-4"
+          >
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <div className="p-2 rounded-lg bg-indigo-50 shrink-0">
+                <FileText size={18} className="text-indigo-600" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${typeInfo.color}`}>
+                    {typeInfo.label}
+                  </span>
+                  <h4 className="text-sm font-semibold text-gray-800 truncate">{letter?.title}</h4>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+                  <span>Issued: {formatDate(a.createdAt)}</span>
+                  {a.viewedAt && <span className="text-emerald-600">Viewed</span>}
+                  {a.downloadAllowed
+                    ? <span className="text-indigo-600">Download allowed</span>
+                    : <span className="text-gray-400">View only</span>
+                  }
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setViewAssignment(a)}
+                className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700 font-medium px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition-colors"
+              >
+                <Eye size={14} /> View
+              </button>
+              {a.downloadAllowed && (
+                <a
+                  href={`/api/letters/${letter?.id}/download`}
+                  className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-800 font-medium px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    const res = await fetch(`/api/letters/${letter?.id}/download`, {
+                      headers: token ? { Authorization: `Bearer ${token}` } : {},
+                    });
+                    if (!res.ok) { toast.error('Download failed'); return; }
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `${letter?.title || 'letter'}.pdf`; a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  <Download size={14} /> Download
+                </a>
+              )}
+            </div>
+          </motion.div>
+        );
+      })}
+
+      {viewAssignment && (
+        <SecureDocumentViewer
+          streamUrl={`/letters/${viewAssignment.letter?.id}/stream`}
+          title={viewAssignment.letter?.title || 'Letter'}
+          downloadAllowed={viewAssignment.downloadAllowed}
+          downloadUrl={viewAssignment.downloadAllowed ? `/letters/${viewAssignment.letter?.id}/download` : undefined}
+          onClose={() => setViewAssignment(null)}
+        />
+      )}
     </div>
   );
 }

@@ -41,7 +41,11 @@ export const letterApi = api.injectEndpoints({
     // Assign letter to more employees
     assignLetter: builder.mutation<any, { id: string; body: Record<string, any> }>({
       query: ({ id, body }) => ({ url: `/letters/${id}/assign`, method: 'POST', body }),
-      invalidatesTags: (result, error, { id }) => [{ type: 'Letter', id }, { type: 'Letter', id: 'LIST' }],
+      invalidatesTags: (result, error, { id }) => [
+        { type: 'Letter', id },
+        { type: 'Letter', id: 'LIST' },
+        { type: 'Letter', id: 'MY' },
+      ],
     }),
 
     // Update assignment permissions
@@ -51,13 +55,13 @@ export const letterApi = api.injectEndpoints({
         method: 'PATCH',
         body: { downloadAllowed },
       }),
-      invalidatesTags: [{ type: 'Letter', id: 'LIST' }],
+      invalidatesTags: [{ type: 'Letter', id: 'LIST' }, { type: 'Letter', id: 'MY' }],
     }),
 
     // Delete letter
     deleteLetter: builder.mutation<any, string>({
       query: (id) => ({ url: `/letters/${id}`, method: 'DELETE' }),
-      invalidatesTags: [{ type: 'Letter', id: 'LIST' }],
+      invalidatesTags: [{ type: 'Letter', id: 'LIST' }, { type: 'Letter', id: 'MY' }],
     }),
   }),
 });

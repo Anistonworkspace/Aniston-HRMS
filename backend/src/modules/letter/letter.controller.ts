@@ -91,38 +91,43 @@ export class LetterController {
     }
   }
 
-  // Secure stream — returns PDF with no-cache headers for canvas rendering
+  // Secure stream — canvas rendering, no download
   async stream(req: Request, res: Response, next: NextFunction) {
     try {
       const isAdmin = ADMIN_ROLES.includes(req.user!.role);
-      const { buffer } = await letterService.getLetterFile(
+      const { fullPath, filePath } = await letterService.getLetterFile(
         req.params.id as string,
         req.user!.employeeId,
         req.user!.organizationId,
         isAdmin,
       );
+      const fileName = filePath.split('/').pop() || 'letter.pdf';
 
       res.set({
         'Content-Type': 'application/pdf',
-        'Content-Disposition': 'inline',
+        'Content-Disposition': `inline; filename="${fileName}"`,
         'Cache-Control': 'no-store, no-cache, must-revalidate, private',
         'Pragma': 'no-cache',
         'X-Content-Type-Options': 'nosniff',
-        'X-Frame-Options': 'DENY',
       });
-      res.send(buffer);
+
+      res.sendFile(fullPath, (err) => {
+        if (err && !res.headersSent) {
+          console.error(`[Letter:stream] sendFile error for ${fullPath}:`, err.message);
+          next(err);
+        }
+      });
     } catch (err) {
       next(err);
     }
   }
 
-  // Controlled download — checks permission
+  // Controlled download — checks per-assignment permission
   async download(req: Request, res: Response, next: NextFunction) {
     try {
       const isAdmin = ADMIN_ROLES.includes(req.user!.role);
       const employeeId = req.user!.employeeId;
 
-      // Non-admins need download permission
       if (!isAdmin && employeeId) {
         const canDownload = await letterService.canDownload(req.params.id as string, employeeId, req.user!.organizationId);
         if (!canDownload) {
@@ -132,7 +137,7 @@ export class LetterController {
         await letterService.recordDownload(req.params.id as string, employeeId, req.user!.organizationId);
       }
 
-      const { buffer, filePath } = await letterService.getLetterFile(
+      const { fullPath, filePath } = await letterService.getLetterFile(
         req.params.id as string,
         employeeId,
         req.user!.organizationId,
@@ -145,7 +150,13 @@ export class LetterController {
         'Content-Disposition': `attachment; filename="${fileName}"`,
         'Cache-Control': 'no-store',
       });
-      res.send(buffer);
+
+      res.sendFile(fullPath, (err) => {
+        if (err && !res.headersSent) {
+          console.error(`[Letter:download] sendFile error for ${fullPath}:`, err.message);
+          next(err);
+        }
+      });
     } catch (err) {
       next(err);
     }

@@ -565,7 +565,7 @@ export default function LettersTab() {
         </div>
       )}
 
-      {/* Secure Viewer */}
+      {/* Secure Viewer — HR/Admin can always download */}
       {viewLetter && (
         <SecureDocumentViewer
           streamUrl={`/letters/${viewLetter.id}/stream`}
