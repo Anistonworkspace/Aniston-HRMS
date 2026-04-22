@@ -1,108 +1,101 @@
 /**
- * One-time production cleanup script.
- * Removes ALL employees and users EXCEPT the SuperAdmin (superadmin@anistonav.com).
- * After this, only the invitation flow can create new employees.
+ * SAFE demo-data cleanup script.
+ *
+ * ONLY deletes the seed demo user (demo@anistonav.com / EMP-001).
+ * System accounts (superadmin, hr, admin) are NEVER touched.
+ * Real production employees invited via the Invite flow are NEVER touched.
  *
  * Usage: npx tsx scripts/cleanup-employees.ts
+ * Run manually on the server when you want to remove seed demo data only.
+ * This script is NOT called from the CI/CD pipeline.
  */
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// Only these seed demo emails will ever be deleted — nothing else
+const DEMO_EMAILS = ['demo@anistonav.com'];
+
 async function cleanup() {
-  console.log('🧹 Cleaning up production employees...');
+  console.log('🧹 Removing seed demo users only (production employees are safe)...');
 
-  // System accounts that should NEVER be deleted
-  const systemEmails = ['superadmin@anistonav.com', 'hr@anistonav.com', 'admin@anistonav.com'];
-
-  // Find all system users
-  const systemUsers = await prisma.user.findMany({
-    where: { email: { in: systemEmails } },
+  // Find demo users
+  const demoUsers = await prisma.user.findMany({
+    where: { email: { in: DEMO_EMAILS } },
     select: { id: true, email: true },
   });
 
-  if (systemUsers.length === 0) {
-    console.error('❌ No system accounts found! Run seed first.');
-    process.exit(1);
-  }
-
-  const systemUserIds = systemUsers.map(u => u.id);
-  console.log(`  ✅ System accounts found: ${systemUsers.map(u => u.email).join(', ')}`);
-
-  // Count before cleanup
-  const userCount = await prisma.user.count();
-  const employeeCount = await prisma.employee.count({ where: { isSystemAccount: { not: true } } });
-  console.log(`  📊 Before: ${userCount} users, ${employeeCount} regular employees`);
-
-  if (userCount <= systemUsers.length && employeeCount === 0) {
-    console.log('  ✅ Already clean — only system accounts exist.');
+  if (demoUsers.length === 0) {
+    console.log('  ✅ No demo users found — nothing to delete.');
     return;
   }
 
-  // Delete in dependency order to avoid foreign key violations
-  // Get all non-system employee IDs and user IDs
-  const otherEmployees = await prisma.employee.findMany({
-    where: { userId: { notIn: systemUserIds } },
-    select: { id: true, userId: true, email: true, employeeCode: true },
+  const demoUserIds = demoUsers.map(u => u.id);
+  console.log(`  Found demo users: ${demoUsers.map(u => u.email).join(', ')}`);
+
+  // Find their employee records
+  const demoEmployees = await prisma.employee.findMany({
+    where: { userId: { in: demoUserIds } },
+    select: { id: true, email: true, employeeCode: true },
   });
 
-  const otherUserIds = otherEmployees.map(e => e.userId).filter(Boolean);
-  const otherEmployeeIds = otherEmployees.map(e => e.id);
+  const demoEmployeeIds = demoEmployees.map(e => e.id);
+  console.log(`  Found demo employees: ${demoEmployees.map(e => `${e.employeeCode} (${e.email})`).join(', ')}`);
+  console.log(`  Will delete ${demoEmployees.length} demo employee(s) and their data.`);
+  console.log(`  All other production employees are untouched.`);
 
-  console.log(`  🗑️  Removing ${otherEmployees.length} employees (keeping ${systemUsers.length} system accounts)...`);
+  if (demoEmployeeIds.length === 0) {
+    // User exists but no employee record — just delete the user
+    await prisma.user.deleteMany({ where: { id: { in: demoUserIds } } });
+    console.log('  ✅ Demo user(s) deleted (no employee record found).');
+    return;
+  }
 
-  // Delete dependent records first (order matters for FK constraints)
-  // Each delete is wrapped in try-catch so missing tables don't break the script
+  // Delete all dependent data for demo employees in FK-safe order
   const dependentDeletes = [
-    // WhatsApp sessions & messages are PRESERVED across deploys — only deleted on manual logout
-    // { name: 'WhatsAppMessages', fn: () => prisma.whatsAppMessage.deleteMany({}) },
-    // { name: 'WhatsAppSessions', fn: () => prisma.whatsAppSession.deleteMany({}) },
-    { name: 'EmployeeInvitations', fn: () => prisma.employeeInvitation.deleteMany({}) },
-    { name: 'AuditLogs', fn: () => prisma.auditLog.deleteMany({ where: { userId: { in: otherUserIds } } }) },
-    { name: 'ActivityLogs', fn: () => prisma.activityLog.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'Notifications', fn: () => prisma.notification.deleteMany({ where: { userId: { in: otherUserIds } } }) },
-    { name: 'DeviceSessions', fn: () => prisma.deviceSession.deleteMany({ where: { userId: { in: otherUserIds } } }) },
-    { name: 'PermissionOverrides', fn: () => prisma.permissionOverride.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'ProfileEditRequests', fn: () => prisma.profileEditRequest.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    // Leave FK deps (must delete children before leaveRequest)
-    { name: 'LeaveTaskAudits', fn: async () => { const ids = await prisma.leaveRequest.findMany({ where: { employeeId: { in: otherEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.leaveTaskAudit.deleteMany({ where: { leaveRequestId: { in: ids } } }); } },
-    { name: 'LeaveHandovers', fn: async () => { const ids = await prisma.leaveRequest.findMany({ where: { employeeId: { in: otherEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.leaveHandover.deleteMany({ where: { leaveRequestId: { in: ids } } }); } },
-    { name: 'LeaveApprovalDecisions', fn: async () => { const ids = await prisma.leaveRequest.findMany({ where: { employeeId: { in: otherEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.leaveApprovalDecision.deleteMany({ where: { leaveRequestId: { in: ids } } }); } },
-    { name: 'LeaveNotificationLogs', fn: async () => { const ids = await prisma.leaveRequest.findMany({ where: { employeeId: { in: otherEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.leaveNotificationLog.deleteMany({ where: { leaveRequestId: { in: ids } } }); } },
-    { name: 'LeaveRequests', fn: () => prisma.leaveRequest.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'LeaveBalances', fn: () => prisma.leaveBalance.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    // Attendance FK deps (must delete children before attendanceRecord)
-    { name: 'AttendanceLogs', fn: async () => { const ids = await prisma.attendanceRecord.findMany({ where: { employeeId: { in: otherEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.attendanceLog.deleteMany({ where: { attendanceId: { in: ids } } }); } },
-    { name: 'AttendanceAnomalies', fn: () => prisma.attendanceAnomaly.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'AttendanceRegularizations', fn: () => prisma.attendanceRegularization.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'GPSTrailPoints', fn: () => prisma.gPSTrailPoint.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'AttendanceRecords', fn: () => prisma.attendanceRecord.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    { name: 'AuditLogs', fn: () => prisma.auditLog.deleteMany({ where: { userId: { in: demoUserIds } } }) },
+    { name: 'ActivityLogs', fn: () => prisma.activityLog.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    { name: 'Notifications', fn: () => prisma.notification.deleteMany({ where: { userId: { in: demoUserIds } } }) },
+    { name: 'DeviceSessions', fn: () => prisma.deviceSession.deleteMany({ where: { userId: { in: demoUserIds } } }) },
+    { name: 'PermissionOverrides', fn: () => prisma.permissionOverride.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    { name: 'ProfileEditRequests', fn: () => prisma.profileEditRequest.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    // Leave FK deps
+    { name: 'LeaveTaskAudits', fn: async () => { const ids = await prisma.leaveRequest.findMany({ where: { employeeId: { in: demoEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.leaveTaskAudit.deleteMany({ where: { leaveRequestId: { in: ids } } }); } },
+    { name: 'LeaveHandovers', fn: async () => { const ids = await prisma.leaveRequest.findMany({ where: { employeeId: { in: demoEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.leaveHandover.deleteMany({ where: { leaveRequestId: { in: ids } } }); } },
+    { name: 'LeaveApprovalDecisions', fn: async () => { const ids = await prisma.leaveRequest.findMany({ where: { employeeId: { in: demoEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.leaveApprovalDecision.deleteMany({ where: { leaveRequestId: { in: ids } } }); } },
+    { name: 'LeaveNotificationLogs', fn: async () => { const ids = await prisma.leaveRequest.findMany({ where: { employeeId: { in: demoEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.leaveNotificationLog.deleteMany({ where: { leaveRequestId: { in: ids } } }); } },
+    { name: 'LeaveRequests', fn: () => prisma.leaveRequest.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    { name: 'LeaveBalances', fn: () => prisma.leaveBalance.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    // Attendance FK deps
+    { name: 'AttendanceLogs', fn: async () => { const ids = await prisma.attendanceRecord.findMany({ where: { employeeId: { in: demoEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.attendanceLog.deleteMany({ where: { attendanceId: { in: ids } } }); } },
+    { name: 'AttendanceAnomalies', fn: () => prisma.attendanceAnomaly.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    { name: 'AttendanceRegularizations', fn: () => prisma.attendanceRegularization.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    { name: 'GPSTrailPoints', fn: () => prisma.gPSTrailPoint.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    { name: 'AttendanceRecords', fn: () => prisma.attendanceRecord.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
     // Payroll
-    { name: 'PayrollAdjustments', fn: () => prisma.payrollAdjustment.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'PayrollRecords', fn: () => prisma.payrollRecord.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    { name: 'PayrollAdjustments', fn: () => prisma.payrollAdjustment.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    { name: 'PayrollRecords', fn: () => prisma.payrollRecord.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
     // Documents, assets
-    { name: 'Documents', fn: () => prisma.document.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'AssetAssignments', fn: () => prisma.assetAssignment.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    // Shifts
-    { name: 'ShiftAssignments', fn: () => prisma.shiftAssignment.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    // Salary
-    { name: 'SalaryHistories', fn: () => prisma.salaryHistory.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'SalaryStructures', fn: () => prisma.salaryStructure.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    { name: 'Documents', fn: () => prisma.document.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    { name: 'AssetAssignments', fn: () => prisma.assetAssignment.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    // Shifts, salary
+    { name: 'ShiftAssignments', fn: () => prisma.shiftAssignment.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    { name: 'SalaryHistories', fn: () => prisma.salaryHistory.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    { name: 'SalaryStructures', fn: () => prisma.salaryStructure.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
     // Performance
-    { name: 'PerformanceReviews', fn: () => prisma.performanceReview.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'Goals', fn: () => prisma.goal.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'OvertimeRequests', fn: () => prisma.overtimeRequest.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    // Helpdesk (model is Ticket, not HelpdeskTicket)
-    { name: 'HelpdeskTickets', fn: () => prisma.ticket.deleteMany({ where: { createdBy: { in: otherUserIds } } }) },
+    { name: 'PerformanceReviews', fn: () => prisma.performanceReview.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    { name: 'Goals', fn: () => prisma.goal.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    { name: 'OvertimeRequests', fn: () => prisma.overtimeRequest.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
+    // Helpdesk
+    { name: 'HelpdeskTickets', fn: () => prisma.ticket.deleteMany({ where: { createdBy: { in: demoUserIds } } }) },
     // Intern
-    { name: 'InternAchievementLetters', fn: () => prisma.internAchievementLetter.deleteMany({ where: { internProfile: { employeeId: { in: otherEmployeeIds } } } }) },
-    { name: 'InternProfiles', fn: () => prisma.internProfile.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    { name: 'InternAchievementLetters', fn: () => prisma.internAchievementLetter.deleteMany({ where: { internProfile: { employeeId: { in: demoEmployeeIds } } } }) },
+    { name: 'InternProfiles', fn: () => prisma.internProfile.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
     // Exit/offboarding
-    { name: 'ExitChecklistItems', fn: () => prisma.exitChecklistItem.deleteMany({ where: { checklist: { employeeId: { in: otherEmployeeIds } } } }) },
-    { name: 'ExitChecklists', fn: () => prisma.exitChecklist.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    { name: 'ExitChecklistItems', fn: () => prisma.exitChecklistItem.deleteMany({ where: { checklist: { employeeId: { in: demoEmployeeIds } } } }) },
+    { name: 'ExitChecklists', fn: () => prisma.exitChecklist.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
     // Onboarding
-    { name: 'OnboardingDocumentGates', fn: () => prisma.onboardingDocumentGate.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    // Refresh tokens are in Redis — no DB model
+    { name: 'OnboardingDocumentGates', fn: () => prisma.onboardingDocumentGate.deleteMany({ where: { employeeId: { in: demoEmployeeIds } } }) },
   ];
 
   for (const { name, fn } of dependentDeletes) {
@@ -112,29 +105,20 @@ async function cleanup() {
         console.log(`    ✅ ${name}: ${(result as any).count} deleted`);
       }
     } catch (err: any) {
-      // Table might not exist or no matching records — that's fine
-      console.log(`    ⚠️  ${name}: skipped (${err.message?.slice(0, 60)})`);
+      console.log(`    ⚠️  ${name}: skipped (${err.message?.slice(0, 80)})`);
     }
   }
 
-  // Delete employees (except system accounts)
-  const empResult = await prisma.employee.deleteMany({
-    where: { userId: { notIn: systemUserIds } },
-  });
-  console.log(`  ✅ Employees deleted: ${empResult.count}`);
+  // Delete the demo employee records
+  await prisma.employee.deleteMany({ where: { id: { in: demoEmployeeIds } } });
+  console.log(`  ✅ Demo employee record(s) deleted`);
 
-  // Delete users (except system accounts)
-  const userResult = await prisma.user.deleteMany({
-    where: { id: { notIn: systemUserIds } },
-  });
-  console.log(`  ✅ Users deleted: ${userResult.count}`);
+  // Delete the demo user accounts
+  await prisma.user.deleteMany({ where: { id: { in: demoUserIds } } });
+  console.log(`  ✅ Demo user account(s) deleted`);
 
-  // Verify
-  const finalUserCount = await prisma.user.count();
-  const finalEmployeeCount = await prisma.employee.count({ where: { isSystemAccount: { not: true } } });
-  console.log(`\n  📊 After: ${finalUserCount} users (${systemUsers.length} system), ${finalEmployeeCount} regular employees`);
-  console.log('  🎉 Cleanup complete! Only system accounts remain.');
-  console.log('  📝 New employees must be created via Invite Employee flow.');
+  console.log('\n  🎉 Done — only demo@anistonav.com removed.');
+  console.log('  All production employees and system accounts are untouched.');
 }
 
 cleanup()
