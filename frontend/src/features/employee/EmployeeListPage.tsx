@@ -817,7 +817,7 @@ function StatDetailModal({ config, onClose, navigate }: {
     { skip: isInvitations }
   );
 
-  const { data: invData, isLoading: invLoading } = useGetInvitationsQuery(undefined, { skip: !isInvitations });
+  const { data: invData, isLoading: invLoading } = useGetInvitationsQuery({}, { skip: !isInvitations });
 
   const employees = empData?.data || [];
   const invitations = invData?.data || [];

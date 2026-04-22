@@ -193,7 +193,7 @@ export const attendanceApi = api.injectEndpoints({
     downloadActivityExcel: builder.query<Blob, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => ({
         url: `/agent/activity/export/${employeeId}/${date}`,
-        responseHandler: (response) => response.blob(),
+        responseHandler: (response: Response) => response.blob(),
         cache: 'no-cache',
       }),
     }),

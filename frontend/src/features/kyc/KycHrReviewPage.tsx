@@ -568,11 +568,12 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
   const [processingElapsed, setProcessingElapsed] = useState(0);
 
   // Elapsed-time ticker while OCR is PROCESSING
+  const kycStatus = data?.data?.gate?.kycStatus;
   useEffect(() => {
-    if (gate?.kycStatus !== 'PROCESSING') { setProcessingElapsed(0); return; }
+    if (kycStatus !== 'PROCESSING') { setProcessingElapsed(0); return; }
     const t = setInterval(() => setProcessingElapsed((s) => s + 1), 1000);
     return () => clearInterval(t);
-  }, [gate?.kycStatus]);
+  }, [kycStatus]);
 
   if (isLoading) {
     return (

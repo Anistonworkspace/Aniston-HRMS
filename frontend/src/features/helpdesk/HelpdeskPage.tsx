@@ -53,8 +53,8 @@ function HelpdeskManagementView() {
   const { data: res, isLoading, refetch } = useGetAllTicketsQuery({
     page, limit: 20,
     status: statusFilter || undefined,
-    targetDept: isSuperAdmin && deptFilter !== 'ALL' ? deptFilter : undefined,
-  });
+    ...(isSuperAdmin && deptFilter !== 'ALL' ? { targetDept: deptFilter } : {}),
+  } as any);
   const tickets = res?.data?.data || res?.data || [];
   const meta = res?.data?.meta || res?.meta || {};
 

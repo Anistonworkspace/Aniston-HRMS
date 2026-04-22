@@ -361,7 +361,7 @@ export default function EmployeeDetailPage() {
                     <InfoRow label="Office" value={employee.officeLocation?.name || '—'} />
                     <InfoRow label="Current Shift" value={employee.currentShift ? `${employee.currentShift.name} (${employee.currentShift.startTime}–${employee.currentShift.endTime})` : 'No shift assigned'} />
                     <InfoRow label="Joining Date" value={formatDate(employee.joiningDate, 'long')} />
-                    <InfoRow label="Onboarding Date" value={employee.onboardingDate ? formatDate(employee.onboardingDate, 'long') : '—'} />
+                    <InfoRow label="Onboarding Date" value={(employee as any).onboardingDate ? formatDate((employee as any).onboardingDate, 'long') : '—'} />
                     <InfoRow label="Status" value={employee.status?.replace(/_/g, ' ')} />
                     {isManagement && employee.ctc && <InfoRow label="CTC" value={formatCurrency(Number(employee.ctc))} mono />}
                   </dl>

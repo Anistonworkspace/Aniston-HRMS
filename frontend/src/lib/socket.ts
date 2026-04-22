@@ -38,7 +38,7 @@ export function connectSocket(token: string) {
   socket.on('token:expire-soon', () => {
     if (import.meta.env.DEV) console.log('[Socket] Token expiring soon — refreshing and reconnecting');
     // Fire the RTK Query refresh endpoint; on success update socket auth token.
-    import('../app/api').then(({ baseApi }) =>
+    import('../app/api').then(({ api: baseApi }) =>
       import('../app/store').then(({ store }) => {
         store.dispatch(baseApi.util.invalidateTags(['Auth']) as any);
         setTimeout(() => {

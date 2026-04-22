@@ -444,7 +444,7 @@ function Step2MFA({ onSkip, onEnabled, isMfaEnabled }: { onSkip: () => void; onE
       {showSetup && (
         <MFASetupModal
           onClose={() => setShowSetup(false)}
-          onSuccess={() => { setShowSetup(false); refetch(); onEnabled(); }}
+          onEnabled={() => { setShowSetup(false); refetch(); onEnabled(); }}
         />
       )}
     </div>

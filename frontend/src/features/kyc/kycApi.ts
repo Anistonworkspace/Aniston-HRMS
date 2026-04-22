@@ -164,7 +164,7 @@ export const kycApi = api.injectEndpoints({
     viewKycDocument: builder.query<string, { employeeId: string; docId: string }>({
       query: ({ employeeId, docId }) => ({
         url: `/onboarding/kyc/${employeeId}/document/${docId}/view`,
-        responseHandler: async (response) => {
+        responseHandler: async (response: Response) => {
           const blob = await response.blob();
           return URL.createObjectURL(blob);
         },

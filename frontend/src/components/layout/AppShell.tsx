@@ -36,6 +36,7 @@ export default function AppShell() {
       toast.success(t('appShell.backOnline'));
     }
   }, [isOnline, t]);
+  const dispatch = useAppDispatch();
   const user = useAppSelector(s => s.auth.user);
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
   const { resetTimer } = useInactivityTimeout(() => setShowTimeoutWarning(true));
@@ -90,7 +91,6 @@ export default function AppShell() {
 
   // Connect Socket.io when user is logged in
   const accessToken = useAppSelector(s => s.auth.accessToken);
-  const dispatch = useAppDispatch();
   useEffect(() => {
     if (accessToken) {
       connectSocket(accessToken);
