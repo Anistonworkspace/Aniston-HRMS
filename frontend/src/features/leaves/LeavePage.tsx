@@ -2302,10 +2302,10 @@ function LeavePersonalView() {
         <span><strong>Policy:</strong> Max 2 paid leaves/month · 1st-10th mandatory attendance · CL needs 2-day notice · PL needs 7-day notice</span>
       </div>
 
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4 md:mb-6">
         <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">{t('leaves.title')}</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{t('leaves.subtitle')}</p>
+          <h1 className="text-lg md:text-2xl font-display font-bold text-gray-900">{t('leaves.title')}</h1>
+          <p className="text-gray-500 text-xs md:text-sm mt-0.5">{t('leaves.subtitle')}</p>
         </div>
         {/* Only employee accounts can apply leave; system accounts (HR/Admin/SA) cannot */}
         {!['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '') ? (
@@ -2313,10 +2313,12 @@ function LeavePersonalView() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => setShowApplyModal(true)}
-            className="btn-primary flex items-center gap-2"
+            className="flex items-center gap-1.5 bg-brand-600 text-white text-xs md:text-sm font-medium px-3 py-2 md:px-4 md:py-2.5 rounded-lg md:rounded-xl hover:bg-brand-700 active:bg-brand-800 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/30"
           >
-            <Plus size={18} />
-            {t('leaves.applyLeave')}
+            <Plus size={14} className="md:hidden" />
+            <Plus size={16} className="hidden md:block" />
+            <span className="hidden xs:inline">{t('leaves.applyLeave')}</span>
+            <span className="xs:hidden">Apply</span>
           </motion.button>
         ) : (
           <div className="text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2 max-w-xs text-right">
@@ -2336,22 +2338,22 @@ function LeavePersonalView() {
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2 md:gap-4 mb-6 md:mb-8">
           {balances.map((bal: any, index: number) => (
             <motion.div
               key={bal.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
-              className="layer-card p-4 text-center"
+              className="layer-card p-3 md:p-4 text-center"
             >
-              <span className="text-2xl">{LEAVE_ICONS[bal.leaveType.code] || '📅'}</span>
-              <p className="text-sm font-medium text-gray-700 mt-2">{bal.leaveType.name}</p>
-              <div className="mt-3">
-                <p className="text-2xl font-bold font-mono text-brand-600" data-mono>
+              <span className="text-xl md:text-2xl">{LEAVE_ICONS[bal.leaveType.code] || '📅'}</span>
+              <p className="text-xs md:text-sm font-medium text-gray-700 mt-1 md:mt-2 leading-tight">{bal.leaveType.name}</p>
+              <div className="mt-2 md:mt-3">
+                <p className="text-xl md:text-2xl font-bold font-mono text-brand-600" data-mono>
                   {bal.remaining}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-[10px] md:text-xs text-gray-500">
                   of {Number(bal.allocated)} available
                 </p>
               </div>
@@ -2374,10 +2376,10 @@ function LeavePersonalView() {
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* My leave requests */}
-        <div className="lg:col-span-2 layer-card p-6">
+        <div className="lg:col-span-2 layer-card p-4 md:p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-display font-semibold text-gray-800 flex items-center gap-2">
-              <CalendarDays size={18} className="text-brand-500" />
+            <h2 className="text-sm md:text-lg font-display font-semibold text-gray-800 flex items-center gap-2">
+              <CalendarDays size={16} className="text-brand-500" />
               My Leave Requests
             </h2>
             <select
@@ -2442,8 +2444,8 @@ function LeavePersonalView() {
         </div>
 
         {/* Holidays */}
-        <div className="layer-card p-6">
-          <h2 className="text-lg font-display font-semibold text-gray-800 mb-4 flex items-center justify-between">
+        <div className="layer-card p-4 md:p-6">
+          <h2 className="text-sm md:text-lg font-display font-semibold text-gray-800 mb-3 md:mb-4 flex items-center justify-between">
             <span>🎉 Holidays {new Date().getFullYear()}</span>
             {holidays.length > 0 && (
               <span className="text-xs font-medium text-brand-600 bg-brand-50 px-2 py-1 rounded-full">
@@ -2495,15 +2497,20 @@ function LeavePersonalView() {
       </div>
 
       {/* Holiday detail popup */}
+      <AnimatePresence>
       {selectedHoliday && (
-        <div
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
           className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm"
           onClick={() => setSelectedHoliday(null)}
         >
           <motion.div
-            initial={{ opacity: 0, y: 40 }}
+            initial={{ opacity: 0, y: 60 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 40 }}
+            exit={{ opacity: 0, y: 60 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
             className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-sm p-5 mx-auto"
           >
@@ -2548,8 +2555,9 @@ function LeavePersonalView() {
               Close
             </button>
           </motion.div>
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
       {/* Apply Leave Wizard */}
       {showApplyModal && (
         <LeaveApplyWizard
