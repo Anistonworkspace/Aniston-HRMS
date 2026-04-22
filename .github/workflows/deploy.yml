@@ -498,7 +498,7 @@ jobs:
               libgbm1 libpango-1.0-0 libcairo2 libnspr4 libnss3 libxss1 \
               libxtst6 xdg-utils fonts-liberation \
               libasound2t64 || sudo apt-get install -y -qq libasound2 || true
-            sudo apt-get install -y -qq --fix-missing postgresql-client || true
+            sudo apt-get install -y -qq --fix-missing postgresql-client zip || true
             PG_DUMP_BIN=$(which pg_dump 2>/dev/null || true)
             if [ -n "$PG_DUMP_BIN" ]; then
               echo "pg_dump found at: $PG_DUMP_BIN ($(pg_dump --version))"

@@ -13,12 +13,18 @@ TIMESTAMP="$(date +%Y-%m-%d_%H-%M-%S)"
 BACKUP_FILE="backup_${TIMESTAMP}.sql"
 MANIFEST="$BACKUP_DIR/manifest.json"
 
-# Database connection — reads from .env or uses Docker defaults
+# Database connection — reads from env vars, then falls back to parsing DATABASE_URL
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-aniston}"
-DB_PASSWORD="${DB_PASSWORD:-aniston_hrms_2026}"
 DB_NAME="${DB_NAME:-aniston_hrms}"
+
+# Resolve password: explicit DB_PASSWORD > parse from DATABASE_URL > Docker default
+if [ -z "${DB_PASSWORD:-}" ] && [ -n "${DATABASE_URL:-}" ]; then
+  # Extract password from postgresql://user:password@host:port/dbname
+  DB_PASSWORD="$(echo "$DATABASE_URL" | sed -E 's|.*://[^:]+:([^@]+)@.*|\1|')"
+fi
+DB_PASSWORD="${DB_PASSWORD:-aniston_hrms_dev}"
 
 echo "=== Aniston HRMS — Database Backup ==="
 echo "Timestamp: $TIMESTAMP"

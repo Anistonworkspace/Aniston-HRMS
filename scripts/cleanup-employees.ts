@@ -59,17 +59,50 @@ async function cleanup() {
     // { name: 'WhatsAppSessions', fn: () => prisma.whatsAppSession.deleteMany({}) },
     { name: 'EmployeeInvitations', fn: () => prisma.employeeInvitation.deleteMany({}) },
     { name: 'AuditLogs', fn: () => prisma.auditLog.deleteMany({ where: { userId: { in: otherUserIds } } }) },
+    { name: 'ActivityLogs', fn: () => prisma.activityLog.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
     { name: 'Notifications', fn: () => prisma.notification.deleteMany({ where: { userId: { in: otherUserIds } } }) },
+    { name: 'DeviceSessions', fn: () => prisma.deviceSession.deleteMany({ where: { userId: { in: otherUserIds } } }) },
+    { name: 'PermissionOverrides', fn: () => prisma.permissionOverride.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    { name: 'ProfileEditRequests', fn: () => prisma.profileEditRequest.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    // Leave FK deps (must delete children before leaveRequest)
+    { name: 'LeaveTaskAudits', fn: async () => { const ids = await prisma.leaveRequest.findMany({ where: { employeeId: { in: otherEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.leaveTaskAudit.deleteMany({ where: { leaveRequestId: { in: ids } } }); } },
+    { name: 'LeaveHandovers', fn: async () => { const ids = await prisma.leaveRequest.findMany({ where: { employeeId: { in: otherEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.leaveHandover.deleteMany({ where: { leaveRequestId: { in: ids } } }); } },
+    { name: 'LeaveApprovalDecisions', fn: async () => { const ids = await prisma.leaveRequest.findMany({ where: { employeeId: { in: otherEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.leaveApprovalDecision.deleteMany({ where: { leaveRequestId: { in: ids } } }); } },
+    { name: 'LeaveNotificationLogs', fn: async () => { const ids = await prisma.leaveRequest.findMany({ where: { employeeId: { in: otherEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.leaveNotificationLog.deleteMany({ where: { leaveRequestId: { in: ids } } }); } },
     { name: 'LeaveRequests', fn: () => prisma.leaveRequest.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
     { name: 'LeaveBalances', fn: () => prisma.leaveBalance.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'AttendanceRecords', fn: () => prisma.attendance.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'PayrollRecords', fn: () => prisma.payroll.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    // Attendance FK deps (must delete children before attendanceRecord)
+    { name: 'AttendanceLogs', fn: async () => { const ids = await prisma.attendanceRecord.findMany({ where: { employeeId: { in: otherEmployeeIds } }, select: { id: true } }).then(rs => rs.map(r => r.id)); return prisma.attendanceLog.deleteMany({ where: { attendanceId: { in: ids } } }); } },
+    { name: 'AttendanceAnomalies', fn: () => prisma.attendanceAnomaly.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    { name: 'AttendanceRegularizations', fn: () => prisma.attendanceRegularization.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    { name: 'GPSTrailPoints', fn: () => prisma.gPSTrailPoint.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    { name: 'AttendanceRecords', fn: () => prisma.attendanceRecord.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    // Payroll
+    { name: 'PayrollAdjustments', fn: () => prisma.payrollAdjustment.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    { name: 'PayrollRecords', fn: () => prisma.payrollRecord.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    // Documents, assets
     { name: 'Documents', fn: () => prisma.document.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
     { name: 'AssetAssignments', fn: () => prisma.assetAssignment.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'PerformanceGoals', fn: () => prisma.performanceGoal.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    // Shifts
+    { name: 'ShiftAssignments', fn: () => prisma.shiftAssignment.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    // Salary
+    { name: 'SalaryHistories', fn: () => prisma.salaryHistory.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    { name: 'SalaryStructures', fn: () => prisma.salaryStructure.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    // Performance
     { name: 'PerformanceReviews', fn: () => prisma.performanceReview.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
-    { name: 'HelpdeskTickets', fn: () => prisma.helpdeskTicket.deleteMany({ where: { createdBy: { in: otherUserIds } } }) },
-    { name: 'RefreshTokens', fn: () => prisma.refreshToken.deleteMany({ where: { userId: { in: otherUserIds } } }) },
+    { name: 'Goals', fn: () => prisma.goal.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    { name: 'OvertimeRequests', fn: () => prisma.overtimeRequest.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    // Helpdesk (model is Ticket, not HelpdeskTicket)
+    { name: 'HelpdeskTickets', fn: () => prisma.ticket.deleteMany({ where: { createdBy: { in: otherUserIds } } }) },
+    // Intern
+    { name: 'InternAchievementLetters', fn: () => prisma.internAchievementLetter.deleteMany({ where: { internProfile: { employeeId: { in: otherEmployeeIds } } } }) },
+    { name: 'InternProfiles', fn: () => prisma.internProfile.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    // Exit/offboarding
+    { name: 'ExitChecklistItems', fn: () => prisma.exitChecklistItem.deleteMany({ where: { checklist: { employeeId: { in: otherEmployeeIds } } } }) },
+    { name: 'ExitChecklists', fn: () => prisma.exitChecklist.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    // Onboarding
+    { name: 'OnboardingDocumentGates', fn: () => prisma.onboardingDocumentGate.deleteMany({ where: { employeeId: { in: otherEmployeeIds } } }) },
+    // Refresh tokens are in Redis — no DB model
   ];
 
   for (const { name, fn } of dependentDeletes) {
