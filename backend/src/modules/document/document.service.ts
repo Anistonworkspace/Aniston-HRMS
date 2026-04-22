@@ -85,6 +85,12 @@ export class DocumentService {
       },
     });
 
+    // Auto-set Employee.avatar when a PHOTO document is uploaded
+    if (data.type === 'PHOTO' && data.employeeId) {
+      prisma.employee.update({ where: { id: data.employeeId }, data: { avatar: fileUrl } })
+        .catch((err) => logger.warn(`[Document] Failed to update avatar for employee ${data.employeeId}: ${err.message}`));
+    }
+
     // Trigger OCR processing for identity/financial documents — best-effort, non-blocking
     const OCR_ELIGIBLE_TYPES = ['AADHAAR', 'PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE',
       'POST_GRADUATION_CERTIFICATE', 'CANCELLED_CHEQUE', 'BANK_STATEMENT', 'OFFER_LETTER_DOC',
@@ -393,7 +399,7 @@ export class DocumentService {
     if (doc.type === 'PAN' && !employee.panNumber && ocrData.extractedDocNumber) {
       const pan = ocrData.extractedDocNumber.toUpperCase().replace(/[\s\-]/g, '');
       if (/^[A-Z]{5}\d{4}[A-Z]$/.test(pan)) {
-        updates.panNumber = pan;
+        updates.panNumber = encrypt(pan);
         filledFields.push('PAN Number');
       }
     }
@@ -414,7 +420,7 @@ export class DocumentService {
       if (!employee.bankAccountNumber && rawAccNo) {
         const accNo = rawAccNo.replace(/[\s\-]/g, '');
         if (/^\d{9,18}$/.test(accNo)) {
-          updates.bankAccountNumber = accNo;
+          updates.bankAccountNumber = encrypt(accNo);
           filledFields.push('Bank Account Number');
         }
       }

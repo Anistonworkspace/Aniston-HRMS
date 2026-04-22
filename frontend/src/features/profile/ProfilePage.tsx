@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard, MessageSquare, ShieldCheck, ShieldOff, HardHat } from 'lucide-react';
+import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard, MessageSquare, ShieldCheck, ShieldOff, HardHat, FileText } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setAccessToken } from '../auth/authSlice';
@@ -71,6 +71,7 @@ export default function ProfilePage() {
     personalEmail: '',
     bloodGroup: '',
     maritalStatus: '',
+    qualification: '',
     emergencyContact: { name: '', phone: '', relationship: '', email: '' },
     address: { line1: '', city: '', state: '', pincode: '' },
   });
@@ -112,6 +113,7 @@ export default function ProfilePage() {
         personalEmail: employee.personalEmail || '',
         bloodGroup: employee.bloodGroup || '',
         maritalStatus: employee.maritalStatus || '',
+        qualification: (employee as any).qualification || '',
         emergencyContact: {
           name: (employee.emergencyContact as any)?.name || '',
           phone: (employee.emergencyContact as any)?.phone || '',
@@ -490,6 +492,13 @@ export default function ProfilePage() {
                       </select>
                     </div>
                   </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Highest Qualification</label>
+                    <select value={form.qualification} onChange={e => setForm({...form, qualification: e.target.value})} className="input-glass w-full text-sm">
+                      <option value="">Select qualification</option>
+                      {['10th Pass', '12th Pass', 'Diploma', 'Graduation', 'Post Graduation', 'PhD'].map(q => <option key={q} value={q}>{q}</option>)}
+                    </select>
+                  </div>
                 </>
               )}
 
@@ -771,6 +780,36 @@ export default function ProfilePage() {
             </div>
           )}
         </motion.div>
+
+        {/* Documents */}
+        {employee?.documents && employee.documents.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}
+            className="layer-card p-4 md:p-6">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              <FileText size={16} className="text-brand-500" /> My Documents
+            </h3>
+            <div className="space-y-2">
+              {(employee.documents as any[]).map((doc: any) => {
+                const statusColor = doc.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700'
+                  : doc.status === 'REJECTED' ? 'bg-red-100 text-red-600'
+                  : doc.status === 'REUPLOAD_REQUIRED' ? 'bg-amber-100 text-amber-700'
+                  : 'bg-gray-100 text-gray-500';
+                const label = doc.type?.replace(/_/g, ' ')?.replace(/\b\w/g, (c: string) => c.toUpperCase());
+                return (
+                  <div key={doc.id} className="flex items-center justify-between py-2 px-3 bg-surface-2 rounded-lg">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText size={13} className="text-brand-400 shrink-0" />
+                      <span className="text-sm text-gray-700 truncate">{doc.name || label}</span>
+                    </div>
+                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0 ml-2 ${statusColor}`}>
+                      {doc.status === 'APPROVED' ? 'Verified' : doc.status === 'REJECTED' ? 'Rejected' : doc.status === 'REUPLOAD_REQUIRED' ? 'Re-upload needed' : 'Pending review'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
 
       </div>
 
