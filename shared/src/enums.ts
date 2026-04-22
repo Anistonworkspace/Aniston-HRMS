@@ -62,6 +62,7 @@ export enum AttendanceSource {
   MANUAL_HR = 'MANUAL_HR',
   QR_CODE = 'QR_CODE',
   BIOMETRIC = 'BIOMETRIC',
+  SYSTEM_AUTO_CLOSE = 'SYSTEM_AUTO_CLOSE',
 }
 
 export enum BreakType {
@@ -320,6 +321,8 @@ export enum AnomalyType {
   UNAPPROVED_REMOTE = 'UNAPPROVED_REMOTE',
   POLICY_BREACH = 'POLICY_BREACH',
   GPS_SPOOF = 'GPS_SPOOF',
+  GPS_SIGNAL_LOST = 'GPS_SIGNAL_LOST',
+  GPS_GAP = 'GPS_GAP',
 }
 
 export enum AnomalySeverity {

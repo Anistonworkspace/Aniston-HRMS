@@ -61,6 +61,8 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [gpsPaused, setGpsPaused] = useState(false); // iOS background pause indicator
   const [bannerVisible, setBannerVisible] = useState(!isBannerDismissed());
+  const [gpsLostAt, setGpsLostAt] = useState<number | null>(null);
+  const [gpsPauseNote, setGpsPauseNote] = useState('');
   const watchIdRef = useRef<number | null>(null);
   const bufferRef = useRef<GPSPoint[]>(loadPersistedBuffer());
   const syncRetryRef = useRef(0);
@@ -156,6 +158,19 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       watchIdRef.current = navigator.geolocation.watchPosition(
         (position) => {
           setGpsPaused(false); // position resumed after any pause
+
+          // GPS restored — check if there was a gap
+          setGpsLostAt(prev => {
+            if (prev !== null) {
+              const gapMinutes = Math.round((Date.now() - prev) / 60000);
+              if (gapMinutes >= 5) {
+                toast(`GPS restored after ${gapMinutes} min gap.`, { icon: '📍' });
+                // Optionally call API to log the gap
+              }
+            }
+            return null;
+          });
+
           const point: GPSPoint = {
             lat: position.coords.latitude,
             lng: position.coords.longitude,
@@ -178,7 +193,16 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           }
         },
         (err) => {
-          if (import.meta.env.DEV) console.error('GPS error:', err);
+          if (err.code === 1) {
+            // Permission revoked mid-session
+            toast.error('Location permission was revoked. Please re-enable GPS to continue tracking.', { duration: 6000 });
+          } else if (err.code === 2) {
+            // Signal lost
+            toast.error('GPS signal lost. Tracking paused — resume will be detected automatically.', { duration: 4000 });
+          }
+          // code 3 = timeout — retry is automatic, no need for toast
+          // In all cases, record the gap start time for later anomaly detection
+          setGpsLostAt(prev => prev ?? Date.now());
         },
         { enableHighAccuracy: true, maximumAge: GPS_INTERVAL, timeout: 30000 }
       );
@@ -203,6 +227,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       await clockOut({
         latitude: currentPos?.lat,
         longitude: currentPos?.lng,
+        notes: gpsPauseNote || undefined,
       }).unwrap();
       toast.success('Field day ended!');
       setIsTracking(false);
@@ -234,8 +259,15 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
         // If app was in background > 3 min, GPS was likely paused on iOS
         if (isIOS && pausedMs > 3 * 60 * 1000) {
           setGpsPaused(true);
-          toast(`GPS was paused for ${Math.round(pausedMs / 60000)} min while phone was locked.\nKeep screen on for uninterrupted tracking.`,
+          const pauseMins = Math.round(pausedMs / 60000);
+          toast(`GPS was paused for ${pauseMins} min while phone was locked.\nKeep screen on for uninterrupted tracking.`,
             { icon: '📍', duration: 5000 });
+          // Store pause note to append to clock-out notes
+          setGpsPauseNote(prev =>
+            prev
+              ? `${prev}; [iOS GPS paused: ${pauseMins} min]`
+              : `[iOS GPS paused: ${pauseMins} min]`
+          );
         }
         // Grab a fresh position to fill the gap
         navigator.geolocation.getCurrentPosition(

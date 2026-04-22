@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { bullmqConnection } from '../queues.js';
+import { bullmqConnection, enqueueNotification } from '../queues.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 import { attendanceService } from '../../modules/attendance/attendance.service.js';
@@ -35,7 +35,7 @@ async function autoCloseStaleRecords() {
       date: { lt: today },
     },
     include: {
-      employee: { select: { id: true, organizationId: true } },
+      employee: { select: { id: true, organizationId: true, userId: true } },
     },
     take: 200, // process in batches
   });
@@ -90,9 +90,26 @@ async function autoCloseStaleRecords() {
           checkOut: autoCheckOut,
           totalHours: Math.min(totalHours, fullDayHours), // cap at shift hours
           status,
+          source: 'SYSTEM_AUTO_CLOSE',
           notes: `${record.notes || ''} [Auto-closed: employee did not clock out. Set to shift end ${shift?.endTime || '18:00'}]`.trim(),
         },
       });
+
+      // E7: Send in-app notification to employee
+      if (record.employee.userId) {
+        try {
+          await enqueueNotification({
+            userId: record.employee.userId,
+            organizationId: record.employee.organizationId,
+            type: 'ATTENDANCE',
+            title: 'Auto clock-out applied',
+            message: `You were automatically clocked out at ${autoCheckOut.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} (shift end). Please review your attendance if needed.`,
+            link: '/attendance',
+          });
+        } catch (e) {
+          // non-blocking
+        }
+      }
 
       // Log the auto-close event
       await prisma.attendanceLog.create({
@@ -264,12 +281,68 @@ async function autoDetectAnomalies() {
   const organizations = await prisma.organization.findMany({ select: { id: true } });
   let totalDetected = 0;
 
+  const GAP_THRESHOLD_MINUTES = 30;
+
   for (const org of organizations) {
     try {
       const result = await attendanceService.detectAnomalies(org.id, dateStr);
       totalDetected += (result as any)?.created ?? 0;
     } catch (err) {
       logger.error(`[Attendance Cron] Anomaly detection failed for org ${org.id}:`, err);
+    }
+
+    // E12: GPS trail gap detection for FIELD_SALES employees
+    try {
+      const fieldRecords = await prisma.attendanceRecord.findMany({
+        where: {
+          date: yesterday,
+          workMode: 'FIELD_SALES',
+          employee: { organizationId: org.id, deletedAt: null },
+        },
+        select: { id: true, employeeId: true },
+      });
+
+      for (const record of fieldRecords) {
+        try {
+          const points = await prisma.gPSTrailPoint.findMany({
+            where: { employeeId: record.employeeId, date: yesterday },
+            orderBy: { timestamp: 'asc' },
+          });
+
+          for (let i = 1; i < points.length; i++) {
+            const gapMs = new Date(points[i].timestamp).getTime() - new Date(points[i - 1].timestamp).getTime();
+            const gapMin = gapMs / 60000;
+            if (gapMin > GAP_THRESHOLD_MINUTES) {
+              await prisma.attendanceAnomaly.upsert({
+                where: { attendanceId_type: { attendanceId: record.id, type: 'GPS_GAP' } },
+                create: {
+                  attendanceId: record.id,
+                  employeeId: record.employeeId,
+                  organizationId: org.id,
+                  date: yesterday,
+                  type: 'GPS_GAP',
+                  severity: 'MEDIUM',
+                  description: `GPS signal gap of ${Math.round(gapMin)} min detected during shift`,
+                  metadata: {
+                    gapMinutes: Math.round(gapMin),
+                    gapStartAt: new Date(points[i - 1].timestamp).toISOString(),
+                    gapEndAt: new Date(points[i].timestamp).toISOString(),
+                  },
+                  resolution: 'PENDING',
+                  autoDetected: true,
+                },
+                update: {},
+              });
+              totalDetected++;
+              break; // One GPS_GAP anomaly per record is enough
+            }
+          }
+        } catch (recordErr) {
+          logger.error(`[Attendance Cron] GPS gap detection failed for record ${record.id}:`, recordErr);
+        }
+      }
+    } catch (gpsErr) {
+      logger.error(`[Attendance Cron] GPS gap detection failed for org ${org.id}:`, gpsErr);
     }
   }
 

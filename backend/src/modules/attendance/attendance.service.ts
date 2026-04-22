@@ -186,13 +186,13 @@ export class AttendanceService {
 
     const currentShiftType = shift?.shiftType || 'OFFICE';
 
-    // WFH employees skip all geofence enforcement
+    // WFH shift employees skip all geofence enforcement
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const isWfh = (employee.workMode as any) === 'WORK_FROM_HOME';
+    const isWfhShift = (shiftAssignment?.shift as any)?.isWfhShift === true;
 
     // ===== Location enforcement: OFFICE shift requires assigned location =====
     const assignedLocation = shiftAssignment?.location || employee.officeLocation;
-    if (!isWfh && currentShiftType === 'OFFICE' && !assignedLocation?.geofence) {
+    if (!isWfhShift && currentShiftType === 'OFFICE' && !assignedLocation?.geofence) {
       throw new BadRequestError(
         'No office location assigned. Please ask your HR/Admin to assign an office location to your profile before marking attendance.'
       );
@@ -215,7 +215,7 @@ export class AttendanceService {
     let geofenceDistance: number | null = null;
     let geofenceStatus = 'NO_GEOFENCE';
 
-    if (!isWfh && currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude && data.longitude) {
+    if (!isWfhShift && currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude && data.longitude) {
       // GPS accuracy check — reject unreliable readings (>150m) for geofence decisions
       if (data.accuracy && data.accuracy > 150) {
         data.notes = `${data.notes || ''} [GPS accuracy poor: ±${Math.round(data.accuracy)}m — geofence check skipped]`.trim();
@@ -346,7 +346,7 @@ export class AttendanceService {
           employeeId,
           date: today,
           checkIn: now,
-          status: autoHalfDay ? 'HALF_DAY' : 'PRESENT',
+          status: autoHalfDay ? 'HALF_DAY' : (isWfhShift ? 'WORK_FROM_HOME' : 'PRESENT'),
           workMode: employee.workMode,
           source: data.source || 'MANUAL_APP',
           checkInLocation: locationData as any,
@@ -467,9 +467,9 @@ export class AttendanceService {
       orderBy: { startDate: 'desc' },
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const isWfhCheckout = (empStatus?.workMode as any) === 'WORK_FROM_HOME';
+    const isWfhShiftCheckout = (clockOutShiftAssignment?.shift as any)?.isWfhShift === true;
     const geofenceForCheckout = clockOutShiftAssignment?.location?.geofence ?? empStatus?.officeLocation?.geofence ?? null;
-    if (!isWfhCheckout && geofenceForCheckout && geofenceForCheckout.radiusMeters && data.latitude && data.longitude) {
+    if (!isWfhShiftCheckout && geofenceForCheckout && geofenceForCheckout.radiusMeters && data.latitude && data.longitude) {
       if (!(data.accuracy && data.accuracy > 150)) {
         const gfCoords = geofenceForCheckout.coordinates as any;
         if (gfCoords?.lat && gfCoords?.lng) {
@@ -1295,7 +1295,25 @@ export class AttendanceService {
   async storeGPSTrail(employeeId: string, data: GPSTrailBatchInput) {
     const today = getISTToday();
 
-    const points = data.points.map((p) => ({
+    // E11: Only FIELD_SALES employees may store GPS trail
+    const gpsEmployee = await prisma.employee.findFirst({
+      where: { id: employeeId, deletedAt: null },
+      select: { workMode: true, shiftAssignments: { where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] }, take: 1, include: { shift: { select: { shiftType: true } } }, orderBy: { startDate: 'desc' } } },
+    });
+    const empWorkMode = gpsEmployee?.workMode;
+    const empShiftType = gpsEmployee?.shiftAssignments?.[0]?.shift?.shiftType;
+    if (empWorkMode !== 'FIELD_SALES' && empShiftType !== 'FIELD') {
+      throw new BadRequestError('GPS tracking is only available for field sales employees');
+    }
+
+    // E8: Filter out GPS points that are more than 10 minutes old
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const freshPoints = data.points.filter(p => new Date(p.timestamp) > tenMinutesAgo);
+    if (freshPoints.length === 0) {
+      throw new BadRequestError('All GPS points are more than 10 minutes old. Please ensure your GPS is active.');
+    }
+
+    const points = freshPoints.map((p) => ({
       employeeId,
       date: today,
       lat: p.lat,
@@ -2529,8 +2547,11 @@ export class AttendanceService {
       // Fix #6: Use policy grace as fallback when shift doesn't have it
       const graceMinutes = shift.graceMinutes ?? policy?.lateGraceMinutes ?? 15;
 
-      // --- LATE ARRIVAL ---
-      if (record.checkIn && shift) {
+      // E10: WFH shift records — only check MISSING_PUNCH and INSUFFICIENT_HOURS
+      const isWfhRecord = (shift as any).isWfhShift === true || record.status === 'WORK_FROM_HOME';
+
+      // --- LATE ARRIVAL --- (skip for WFH)
+      if (!isWfhRecord && record.checkIn && shift) {
         const [shiftH, shiftM] = shift.startTime.split(':').map(Number);
         const shiftStart = new Date(queryDate);
         shiftStart.setHours(shiftH, shiftM, 0, 0);
@@ -2548,7 +2569,7 @@ export class AttendanceService {
         }
       }
 
-      // --- MISSING PUNCH ---
+      // --- MISSING PUNCH --- (applies to WFH too)
       if (record.checkIn && !record.checkOut && shift) {
         const now = getISTNow();
         const [endH, endM] = shift.endTime.split(':').map(Number);
@@ -2580,8 +2601,8 @@ export class AttendanceService {
         }
       }
 
-      // --- GEOFENCE VIOLATION ---
-      if (record.geofenceViolation) {
+      // --- GEOFENCE VIOLATION --- (skip for WFH)
+      if (!isWfhRecord && record.geofenceViolation) {
         anomalies.push({
           attendanceId: record.id, employeeId: empId, date: queryDate,
           type: 'OUTSIDE_GEOFENCE', severity: 'HIGH',
@@ -2591,8 +2612,8 @@ export class AttendanceService {
         });
       }
 
-      // --- EARLY EXIT ---
-      if (record.checkOut && shift) {
+      // --- EARLY EXIT --- (skip for WFH)
+      if (!isWfhRecord && record.checkOut && shift) {
         const [endH, endM] = shift.endTime.split(':').map(Number);
         const shiftEnd = new Date(queryDate);
         shiftEnd.setHours(endH, endM, 0, 0);
@@ -2608,8 +2629,8 @@ export class AttendanceService {
         }
       }
 
-      // --- Fix #5: GPS SPOOFING (detect large jumps in GPS trail) ---
-      if (record.checkIn && record.checkInLocation) {
+      // --- Fix #5: GPS SPOOFING (detect large jumps in GPS trail) --- (skip for WFH)
+      if (!isWfhRecord && record.checkIn && record.checkInLocation) {
         const loc = record.checkInLocation as any;
         if (loc?.lat && loc?.lng) {
           // Check if there was a previous day's checkout location and compare
@@ -2638,8 +2659,8 @@ export class AttendanceService {
         }
       }
 
-      // --- Fix #5: HOLIDAY ATTENDANCE (worked on a non-optional holiday) ---
-      if (holiday && !holiday.isOptional && record.checkIn) {
+      // --- Fix #5: HOLIDAY ATTENDANCE (worked on a non-optional holiday) --- (skip for WFH)
+      if (!isWfhRecord && holiday && !holiday.isOptional && record.checkIn) {
         anomalies.push({
           attendanceId: record.id, employeeId: empId, date: queryDate,
           type: 'HOLIDAY_ATTENDANCE', severity: 'MEDIUM',

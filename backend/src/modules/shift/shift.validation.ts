@@ -31,6 +31,8 @@ export const createShiftSchema = z.object({
   // WFH policy
   allowWfh: z.boolean().default(false),
   wfhDays: z.array(z.number().int().min(0).max(6)).default([]),
+  // WFH Shift — entire shift is WFH; no geofence or GPS tracking
+  isWfhShift: z.boolean().default(false).optional(),
 });
 
 export const updateShiftSchema = createShiftSchema.partial();

@@ -95,6 +95,7 @@ function ShiftsPanel() {
     weekOffDays: [0] as number[], otEnabled: false, otThresholdMinutes: 30, otRateMultiplier: 1.5, otMaxHoursPerDay: 4,
     compOffEnabled: false, compOffMinOTHours: 4, compOffExpiryDays: 30, sundayWorkEnabled: false, sundayPayMultiplier: 2.0,
     allowWfh: false, wfhDays: [] as number[],
+    isWfhShift: false,
   };
   const [form, setForm] = useState(emptyForm);
 
@@ -123,13 +124,13 @@ function ShiftsPanel() {
       lateGraceMinutes, lateHalfDayAfterMins, latePenaltyEnabled, latePenaltyPerCount, weekOffDays,
       otEnabled, otThresholdMinutes, otRateMultiplier, otMaxHoursPerDay,
       compOffEnabled, compOffMinOTHours, compOffExpiryDays, sundayWorkEnabled, sundayPayMultiplier,
-      allowWfh, wfhDays } = form;
+      allowWfh, wfhDays, isWfhShift } = form;
     // graceMinutes is an alias for lateGraceMinutes — send both so the backend can accept either
     const payload: any = { name, code, shiftType, startTime, endTime, graceMinutes: lateGraceMinutes, halfDayHours, fullDayHours, isDefault,
       lateGraceMinutes, lateHalfDayAfterMins, latePenaltyEnabled, latePenaltyPerCount, weekOffDays,
       otEnabled, otThresholdMinutes, otRateMultiplier, otMaxHoursPerDay,
       compOffEnabled, compOffMinOTHours, compOffExpiryDays, sundayWorkEnabled, sundayPayMultiplier,
-      allowWfh, wfhDays: allowWfh ? wfhDays : [] };
+      allowWfh, wfhDays: allowWfh ? wfhDays : [], isWfhShift };
     if (shiftType === 'FIELD' && trackingIntervalMinutes) payload.trackingIntervalMinutes = trackingIntervalMinutes;
     return payload;
   };
@@ -166,6 +167,7 @@ function ShiftsPanel() {
       sundayPayMultiplier: Number(s.sundayPayMultiplier ?? 2.0),
       allowWfh: s.allowWfh ?? false,
       wfhDays: s.wfhDays ?? [],
+      isWfhShift: s.isWfhShift ?? false,
     });
   };
 
@@ -393,6 +395,28 @@ function ShiftsPanel() {
                       )}
                     </div>
 
+                    {/* WFH Shift */}
+                    <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Home className="h-4 w-4 text-indigo-600" />
+                          <div>
+                            <p className="text-sm font-semibold text-indigo-700">WFH Shift</p>
+                            <p className="text-xs text-gray-500">Employees on this shift work from home — no geofence or GPS required</p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input type="checkbox" checked={form.isWfhShift} onChange={e => setForm(f => ({ ...f, isWfhShift: e.target.checked }))} className="sr-only peer" />
+                          <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600" />
+                        </label>
+                      </div>
+                      {form.isWfhShift && (
+                        <p className="mt-2 text-xs text-indigo-600 bg-indigo-100 rounded-lg px-3 py-2">
+                          Attendance will be marked as Work From Home. Geofence and GPS tracking are disabled for this shift.
+                        </p>
+                      )}
+                    </div>
+
                     {/* Work From Home */}
                     <div className="bg-indigo-50 rounded-xl p-4">
                       <div className="flex items-center justify-between mb-3">
@@ -513,6 +537,11 @@ function ShiftsPanel() {
                           : 'WFH enabled'}
                       </span>
                     : <span className="text-[10px] bg-gray-50 text-gray-400 px-1.5 py-0.5 rounded-full">WFH off</span>}
+                  {s.isWfhShift && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                      <Home className="h-3 w-3" /> WFH Shift
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

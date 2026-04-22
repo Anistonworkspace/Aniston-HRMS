@@ -556,6 +556,7 @@ enum AttendanceSource {
   MANUAL_HR
   QR_CODE
   BIOMETRIC
+  SYSTEM_AUTO_CLOSE
 }
 
 model Break {
@@ -663,6 +664,7 @@ model AttendanceAnomaly {
   attendance AttendanceRecord @relation(fields: [attendanceId], references: [id])
   employee   Employee         @relation(fields: [employeeId], references: [id])
 
+  @@unique([attendanceId, type])
   @@index([employeeId, date])
   @@index([organizationId, date])
   @@index([type])
@@ -683,6 +685,8 @@ enum AnomalyType {
   UNAPPROVED_REMOTE
   POLICY_BREACH
   GPS_SPOOF
+  GPS_SIGNAL_LOST
+  GPS_GAP
 }
 
 enum AnomalySeverity {
@@ -2135,6 +2139,7 @@ model Shift {
   // WFH policy
   allowWfh              Boolean  @default(false)
   wfhDays               Int[]    @default([])
+  isWfhShift            Boolean  @default(false)
   isDefault               Boolean   @default(false)
   isActive                Boolean   @default(true)
   organizationId          String
