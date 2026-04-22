@@ -147,7 +147,7 @@ function AttendanceManagementView() {
     <div className="page-container">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">{t('attendance.title')}</h1>
+          <h1 className="text-xl md:text-2xl font-display font-bold text-gray-900">{t('attendance.title')}</h1>
           <p className="text-gray-500 text-sm mt-0.5">{t('attendance.subtitle')}</p>
         </div>
         <ExportButton selectedDate={selectedDate} />
@@ -1013,7 +1013,7 @@ function AttendancePersonalView() {
       {/* Shift boundary warning dialog */}
       {shiftWarning && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
+          <div className="bg-white rounded-2xl shadow-xl p-4 md:p-6 max-w-sm w-full">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
                 <AlertTriangle size={20} className="text-amber-600" />
@@ -1075,10 +1075,10 @@ function AttendancePersonalView() {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="layer-card p-5 text-center"
+            className="layer-card p-4 md:p-5 text-center"
           >
             {/* Live time */}
-            <p className="text-3xl font-mono font-bold text-gray-900 mb-0.5" data-mono>
+            <p className="text-2xl md:text-3xl font-mono font-bold text-gray-900 mb-0.5" data-mono>
               {liveTime.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' })}
             </p>
             <p className="text-xs text-gray-400 mb-4">{formatDate(new Date(), 'long')}</p>
@@ -1198,7 +1198,7 @@ function AttendancePersonalView() {
                     whileTap={{ scale: 0.97 }}
                     onClick={handleClockIn}
                     disabled={clockingIn || statusLoading || (!isDesktop && locationStatus !== 'granted')}
-                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-xl font-semibold text-lg flex items-center justify-center gap-3 transition-colors disabled:opacity-50 shadow-lg shadow-emerald-200"
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 md:py-4 rounded-xl font-semibold text-sm md:text-lg flex items-center justify-center gap-2 md:gap-3 transition-colors disabled:opacity-50 shadow-lg shadow-emerald-200"
                   >
                     {clockingIn ? (
                       <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1232,7 +1232,7 @@ function AttendancePersonalView() {
                       whileTap={{ scale: checkoutGate?.canCheckOut !== false ? 0.98 : 1 }}
                       onClick={handleClockOut}
                       disabled={clockingOut || checkoutGate?.canCheckOut === false}
-                      className="w-full bg-red-500 hover:bg-red-400 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-full bg-red-500 hover:bg-red-400 text-white py-2.5 md:py-3.5 rounded-xl font-semibold text-sm md:text-base flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {clockingOut ? (
                         <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />

@@ -93,7 +93,7 @@ function HelpdeskManagementView() {
     <div className="page-container">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">Helpdesk Management</h1>
+          <h1 className="text-xl md:text-2xl font-display font-bold text-gray-900">Helpdesk Management</h1>
           <p className="text-gray-500 text-sm mt-0.5">
             {user?.role === 'HR' ? 'HR support tickets' : user?.role === 'ADMIN' ? 'Admin support tickets' : 'All support tickets'}
           </p>
@@ -296,7 +296,7 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
           <div className="p-12 text-center"><Loader2 size={24} className="animate-spin mx-auto text-brand-500" /></div>
         ) : (
           <>
-            <div className="flex items-start justify-between p-6 border-b border-gray-100">
+            <div className="flex items-start justify-between p-4 md:p-6 border-b border-gray-100">
               <div>
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <span className="text-xs font-mono text-gray-400" data-mono>{ticket.ticketCode}</span>
@@ -318,7 +318,7 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
               <button onClick={onClose} aria-label="Close" className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
 
-            <div className="p-6 space-y-5">
+            <div className="p-4 md:p-6 space-y-4 md:space-y-5">
               <div>
                 <p className="text-xs text-gray-400 mb-1">Description</p>
                 <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{ticket.description}</p>
@@ -423,11 +423,11 @@ function HelpdeskPersonalView() {
     <div className="page-container">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">Helpdesk</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Raise and track support tickets</p>
+          <h1 className="text-xl md:text-2xl font-display font-bold text-gray-900">Helpdesk</h1>
+          <p className="text-gray-500 text-xs md:text-sm mt-0.5">Raise and track support tickets</p>
         </div>
-        <button onClick={() => setShowCreate(true)} className="btn-primary flex items-center gap-2">
-          <Plus size={18} /> Raise Ticket
+        <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 bg-brand-600 text-white text-xs md:text-sm font-medium px-3 py-2 md:px-4 md:py-2.5 rounded-lg md:rounded-xl hover:bg-brand-700 transition-colors">
+          <Plus size={14} /> Raise Ticket
         </button>
       </div>
 
@@ -533,7 +533,7 @@ function CreateTicketModal({ onClose }: { onClose: () => void }) {
       onClick={e => e.target === e.currentTarget && onClose()}>
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }} role="dialog" aria-modal="true" aria-label="Create ticket"
-        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-md p-6">
+        className="bg-white rounded-2xl shadow-glass-lg w-full max-w-md p-4 md:p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-display font-semibold text-gray-800">Raise a Ticket</h2>
           <button onClick={onClose} aria-label="Close" className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} className="text-gray-400" /></button>

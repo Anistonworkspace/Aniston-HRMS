@@ -79,7 +79,7 @@ function PayrollAdminWrapper() {
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">Payroll</h1>
+          <h1 className="text-xl md:text-2xl font-display font-bold text-gray-900">Payroll</h1>
           <p className="text-gray-500 text-sm mt-0.5">Enterprise salary processing & compliance</p>
         </div>
       </div>
@@ -263,7 +263,7 @@ function PayrollAdminView() {
             <BarChart3 size={18} className="text-brand-500" />
             <span className="text-[10px] font-medium text-gray-400 uppercase">Runs</span>
           </div>
-          <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{runs.length}</p>
+          <p className="text-xl md:text-2xl font-bold font-mono text-gray-900" data-mono>{runs.length}</p>
           <p className="text-[10px] text-gray-500 mt-1">{completedRuns.length} completed</p>
         </div>
         <div className="stat-card">
@@ -632,7 +632,7 @@ function PayrollAdminView() {
       {rejectForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setRejectForm(null)}>
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-            onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
+            onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-4 md:p-6 w-full max-w-md mx-4">
             <h3 className="text-base font-semibold text-gray-800 mb-3">Reject Deletion Request</h3>
             <textarea value={rejectForm.reason} onChange={e => setRejectForm({ ...rejectForm, reason: e.target.value })}
               className="input-glass w-full text-sm mb-3" rows={3} placeholder="Reason for rejection (optional)" />
@@ -672,15 +672,15 @@ function PayrollAdminView() {
                     {/* Summary */}
                     <div className="grid grid-cols-3 gap-3 mb-5">
                       <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
-                        <p className="text-2xl font-bold text-emerald-600" data-mono>{preflightRes.data.readyCount}</p>
+                        <p className="text-xl md:text-2xl font-bold text-emerald-600" data-mono>{preflightRes.data.readyCount}</p>
                         <p className="text-xs text-emerald-700 mt-0.5 font-medium">Saved Salary</p>
                       </div>
                       <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
-                        <p className="text-2xl font-bold text-blue-600" data-mono>{preflightRes.data.autoCreatableCount}</p>
+                        <p className="text-xl md:text-2xl font-bold text-blue-600" data-mono>{preflightRes.data.autoCreatableCount}</p>
                         <p className="text-xs text-blue-700 mt-0.5 font-medium">Auto-create from CTC</p>
                       </div>
                       <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-center">
-                        <p className="text-2xl font-bold text-red-600" data-mono>{preflightRes.data.missingCount}</p>
+                        <p className="text-xl md:text-2xl font-bold text-red-600" data-mono>{preflightRes.data.missingCount}</p>
                         <p className="text-xs text-red-700 mt-0.5 font-medium">Missing — Skipped</p>
                       </div>
                     </div>
@@ -760,7 +760,7 @@ function PayrollAdminView() {
       {deletionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setDeletionModal(null)}>
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-            onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
+            onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-4 md:p-6 w-full max-w-md mx-4">
             <h3 className="text-base font-semibold text-gray-800 mb-1">Request Payroll Deletion</h3>
             <p className="text-sm text-gray-500 mb-4">Payroll run: <strong>{deletionModal.runLabel}</strong></p>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-700 flex gap-2">
@@ -1227,7 +1227,7 @@ function PayrollEmployeeView() {
     <div className="page-container">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">{t('payroll.salarySlip')}</h1>
+          <h1 className="text-xl md:text-2xl font-display font-bold text-gray-900">{t('payroll.salarySlip')}</h1>
           <p className="text-gray-500 text-sm mt-0.5">{t('payroll.viewPayslip')}</p>
         </div>
       </div>
@@ -1237,7 +1237,7 @@ function PayrollEmployeeView() {
           <div className="stat-card">
             <FileText size={18} className="text-brand-500 mb-2" />
             <p className="text-xs text-gray-500">Total Payslips</p>
-            <p className="text-2xl font-bold font-mono text-gray-900" data-mono>{payslips.length}</p>
+            <p className="text-xl md:text-2xl font-bold font-mono text-gray-900" data-mono>{payslips.length}</p>
           </div>
           <div className="stat-card">
             <Calendar size={18} className="text-blue-500 mb-2" />

@@ -52,7 +52,7 @@ export default function AnnouncementsPage() {
     <div className="page-container">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">Community</h1>
+          <h1 className="text-xl md:text-2xl font-display font-bold text-gray-900">Community</h1>
           <p className="text-gray-500 text-sm mt-0.5">Announcements and social wall</p>
         </div>
       </div>
@@ -216,7 +216,7 @@ function AnnouncementsList() {
         <div className="space-y-4">
           {announcements.map((ann: any, i: number) => (
             <motion.div key={ann.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.04 }} className="layer-card p-6">
+              transition={{ delay: i * 0.04 }} className="layer-card p-4 md:p-6">
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center text-brand-700 font-semibold text-sm flex-shrink-0">
