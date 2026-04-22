@@ -92,9 +92,10 @@ export class DocumentService {
     }
 
     // Trigger OCR processing for identity/financial documents — best-effort, non-blocking
-    const OCR_ELIGIBLE_TYPES = ['AADHAAR', 'PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE',
-      'POST_GRADUATION_CERTIFICATE', 'CANCELLED_CHEQUE', 'BANK_STATEMENT', 'OFFER_LETTER_DOC',
-      'SALARY_SLIP_DOC', 'EXPERIENCE_LETTER', 'RESIDENCE_PROOF'];
+    const OCR_ELIGIBLE_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'VOTER_ID', 'DRIVING_LICENSE',
+      'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE',
+      'CANCELLED_CHEQUE', 'BANK_STATEMENT', 'OFFER_LETTER_DOC', 'SALARY_SLIP_DOC',
+      'EXPERIENCE_LETTER', 'RESIDENCE_PROOF', 'RELIEVING_LETTER'];
     if (data.employeeId && OCR_ELIGIBLE_TYPES.includes(data.type as string)) {
       import('../../jobs/queues.js').then(({ enqueueDocumentOcr }) => {
         const orgId = doc.employeeId ? '' : ''; // fetched below

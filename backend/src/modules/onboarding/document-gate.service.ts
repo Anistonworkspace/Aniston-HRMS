@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { emitToOrg, emitToUser } from '../../sockets/index.js';
 import { logger } from '../../lib/logger.js';
+import { enqueueEmail } from '../../jobs/queues.js';
 
 // =====================
 // CONSTANTS
@@ -304,6 +305,11 @@ export class DocumentGateService {
         data: updateData,
       });
       await this.emitKycUpdate(employeeId, 'SUBMITTED');
+      setImmediate(() => {
+        this._notifyHrKycSubmitted(employeeId).catch((err) =>
+          logger.warn('[KYC] HR notification failed:', err),
+        );
+      });
       return updated;
     }
 
@@ -346,7 +352,43 @@ export class DocumentGateService {
       data: updatedData,
     });
     await this.emitKycUpdate(employeeId, 'SUBMITTED');
+
+    // Notify HR that this employee has submitted documents for review — non-blocking
+    setImmediate(() => {
+      this._notifyHrKycSubmitted(employeeId).catch((err) =>
+        logger.warn('[KYC] HR notification failed:', err),
+      );
+    });
+
     return updated;
+  }
+
+  private async _notifyHrKycSubmitted(employeeId: string) {
+    const emp = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { firstName: true, lastName: true, employeeCode: true, organizationId: true },
+    });
+    if (!emp) return;
+
+    const org = await prisma.organization.findUnique({
+      where: { id: emp.organizationId },
+      select: { name: true, adminNotificationEmail: true },
+    });
+    if (!org?.adminNotificationEmail) return;
+
+    await enqueueEmail({
+      to: org.adminNotificationEmail,
+      subject: `KYC Submitted — ${emp.firstName} ${emp.lastName} (${emp.employeeCode})`,
+      template: 'document-submitted',
+      context: {
+        employeeName: `${emp.firstName} ${emp.lastName}`,
+        employeeCode: emp.employeeCode,
+        documentType: 'KYC_SUBMISSION',
+        documentName: 'All KYC documents submitted for review',
+        orgName: org.name,
+        reviewUrl: `https://hr.anistonav.com/employees/${employeeId}?tab=documents`,
+      },
+    });
   }
 
   /**

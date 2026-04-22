@@ -19,8 +19,93 @@ interface Props {
   onClose: () => void;
 }
 
-// Static typed fields (standard across most Indian documents)
-const OCR_FIELDS = [
+type FieldKey = 'extractedName' | 'extractedDob' | 'extractedFatherName' | 'extractedMotherName' | 'extractedDocNumber' | 'extractedGender' | 'extractedAddress';
+
+type FieldDef = { key: FieldKey; label: string };
+
+// Per-document-type field definitions — only relevant fields shown for each doc type
+const DOC_TYPE_FIELDS: Record<string, FieldDef[]> = {
+  AADHAAR: [
+    { key: 'extractedName', label: 'Name' },
+    { key: 'extractedDob', label: 'Date of Birth' },
+    { key: 'extractedGender', label: 'Gender' },
+    { key: 'extractedAddress', label: 'Address' },
+    { key: 'extractedDocNumber', label: 'Aadhaar Number' },
+  ],
+  PAN: [
+    { key: 'extractedName', label: 'Name' },
+    { key: 'extractedFatherName', label: "Father's Name" },
+    { key: 'extractedDob', label: 'Date of Birth' },
+    { key: 'extractedDocNumber', label: 'PAN Number' },
+  ],
+  PASSPORT: [
+    { key: 'extractedName', label: 'Name' },
+    { key: 'extractedDob', label: 'Date of Birth' },
+    { key: 'extractedGender', label: 'Gender' },
+    { key: 'extractedDocNumber', label: 'Passport Number' },
+    { key: 'extractedAddress', label: 'Place of Birth / Nationality' },
+  ],
+  VOTER_ID: [
+    { key: 'extractedName', label: 'Name' },
+    { key: 'extractedFatherName', label: "Father's Name" },
+    { key: 'extractedDob', label: 'Date of Birth' },
+    { key: 'extractedGender', label: 'Gender' },
+    { key: 'extractedAddress', label: 'Address' },
+    { key: 'extractedDocNumber', label: 'EPIC Number' },
+  ],
+  DRIVING_LICENSE: [
+    { key: 'extractedName', label: 'Name' },
+    { key: 'extractedDob', label: 'Date of Birth' },
+    { key: 'extractedDocNumber', label: 'DL Number' },
+    { key: 'extractedAddress', label: 'Address' },
+  ],
+  BANK_STATEMENT: [
+    { key: 'extractedName', label: 'Account Holder Name' },
+    { key: 'extractedDocNumber', label: 'Account Number' },
+  ],
+  CANCELLED_CHEQUE: [
+    { key: 'extractedName', label: 'Account Holder Name' },
+    { key: 'extractedDocNumber', label: 'Account Number' },
+  ],
+  TENTH_CERTIFICATE: [
+    { key: 'extractedName', label: 'Student Name' },
+    { key: 'extractedDocNumber', label: 'Roll Number' },
+  ],
+  TWELFTH_CERTIFICATE: [
+    { key: 'extractedName', label: 'Student Name' },
+    { key: 'extractedDocNumber', label: 'Roll Number' },
+  ],
+  DEGREE_CERTIFICATE: [
+    { key: 'extractedName', label: 'Student Name' },
+    { key: 'extractedDocNumber', label: 'Roll / Enrollment Number' },
+  ],
+  POST_GRADUATION_CERTIFICATE: [
+    { key: 'extractedName', label: 'Student Name' },
+    { key: 'extractedDocNumber', label: 'Roll / Enrollment Number' },
+  ],
+  RESIDENCE_PROOF: [
+    { key: 'extractedName', label: 'Name' },
+    { key: 'extractedAddress', label: 'Address' },
+  ],
+  EXPERIENCE_LETTER: [
+    { key: 'extractedName', label: 'Employee Name' },
+    { key: 'extractedDocNumber', label: 'Employee ID' },
+  ],
+  SALARY_SLIP_DOC: [
+    { key: 'extractedName', label: 'Employee Name' },
+    { key: 'extractedDocNumber', label: 'Employee ID' },
+  ],
+  OFFER_LETTER_DOC: [
+    { key: 'extractedName', label: 'Candidate Name' },
+    { key: 'extractedDocNumber', label: 'Employee ID' },
+  ],
+  RELIEVING_LETTER: [
+    { key: 'extractedName', label: 'Employee Name' },
+    { key: 'extractedDocNumber', label: 'Employee ID' },
+  ],
+};
+
+const DEFAULT_OCR_FIELDS: FieldDef[] = [
   { key: 'extractedName', label: 'Name' },
   { key: 'extractedDob', label: 'Date of Birth' },
   { key: 'extractedFatherName', label: "Father's Name" },
@@ -28,9 +113,11 @@ const OCR_FIELDS = [
   { key: 'extractedDocNumber', label: 'Document Number' },
   { key: 'extractedGender', label: 'Gender' },
   { key: 'extractedAddress', label: 'Address' },
-] as const;
+];
 
-type FieldKey = typeof OCR_FIELDS[number]['key'];
+function getDocFields(docType: string): FieldDef[] {
+  return DOC_TYPE_FIELDS[docType] ?? DEFAULT_OCR_FIELDS;
+}
 
 // ─── Confidence badge helper ──────────────────────────────────────────────────
 function ConfidenceBadge({ confidence }: { confidence: number }) {
@@ -602,12 +689,12 @@ export default function OcrVerificationPanel({
   useEffect(() => {
     if (ocr) {
       const f: Record<string, string> = {};
-      OCR_FIELDS.forEach(({ key }) => { f[key] = ocr[key] || ''; });
+      getDocFields(documentType).forEach(({ key }) => { f[key] = ocr[key] || ''; });
       setFields(f);
       setHrNotes(ocr.hrNotes || '');
       setOcrStatus(ocr.ocrStatus || 'PENDING');
     }
-  }, [ocr]);
+  }, [ocr, documentType]);
 
   const handleTriggerOcr = async () => {
     try {
@@ -941,7 +1028,7 @@ export default function OcrVerificationPanel({
                 </div>
 
                 <div className="space-y-2.5">
-                  {OCR_FIELDS.map(({ key, label }) => (
+                  {getDocFields(documentType).map(({ key, label }) => (
                     <div key={key} className="flex items-start justify-between py-2 border-b border-gray-50 last:border-0">
                       <label className="text-xs text-gray-500 w-32 flex-shrink-0 pt-0.5">{label}</label>
                       {editing ? (
