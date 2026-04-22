@@ -233,7 +233,7 @@ export default function ProfilePage() {
 
       {/* Profile header */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-        className="layer-card p-4 md:p-6 mb-6">
+        className="md:layer-card md:p-4 md:p-6 mb-6">
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
           <div className="relative">
             <div className="w-24 h-24 rounded-2xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-3xl font-display">
@@ -270,18 +270,18 @@ export default function ProfilePage() {
               )}
             </div>
           </div>
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap justify-center sm:justify-start mt-3 sm:mt-0">
             {isEmployeeRole && (
               <button
                 onClick={() => setShowRequestModal(true)}
-                className="btn-secondary flex items-center gap-2 text-sm"
+                className="btn-secondary flex items-center gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5"
               >
-                <MessageSquare size={14} /> Request Profile Update
+                <MessageSquare size={13} /> Request Profile Update
               </button>
             )}
             {employee && !employee.exitStatus && employee.status !== 'TERMINATED' && (
-              <button onClick={() => setShowResignModal(true)} className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
-                <UserMinus size={14} /> {t('profile.submitResignation')}
+              <button onClick={() => setShowResignModal(true)} className="flex items-center gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
+                <UserMinus size={13} /> {t('profile.submitResignation')}
               </button>
             )}
           </div>

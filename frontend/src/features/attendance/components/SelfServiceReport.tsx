@@ -32,9 +32,10 @@ export default function SelfServiceReport() {
           <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-100"><ChevronRight size={16} /></button>
         </div>
         <button onClick={handleDownloadExcel} disabled={!!downloading}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-medium disabled:opacity-60">
-          {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-          {downloading ? 'Downloading...' : 'Download Excel'}
+          className="flex items-center gap-1 md:gap-1.5 px-2 md:px-3 py-1 md:py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-[11px] md:text-xs font-medium disabled:opacity-60">
+          {downloading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+          <span className="hidden sm:inline">{downloading ? 'Downloading...' : 'Download Excel'}</span>
+          <span className="sm:hidden">{downloading ? '...' : 'Excel'}</span>
         </button>
       </div>
 

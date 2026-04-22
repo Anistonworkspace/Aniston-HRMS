@@ -1075,7 +1075,7 @@ function AttendancePersonalView() {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="layer-card p-4 md:p-5 text-center"
+            className="p-4 md:layer-card md:p-5 text-center"
           >
             {/* Live time */}
             <p className="text-2xl md:text-3xl font-mono font-bold text-gray-900 mb-0.5" data-mono>
@@ -1411,7 +1411,7 @@ function AttendancePersonalView() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="layer-card p-4 mt-4"
+        className="md:layer-card md:p-4 mt-4"
       >
         <SelfServiceReport />
       </motion.div>
