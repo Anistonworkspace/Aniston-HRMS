@@ -300,9 +300,11 @@ export class OnboardingService {
     const permAddr = (employee as any).permanentAddress as any;
     const ec = employee.emergencyContact as any;
 
+    const isSiteEmployee = employee.workMode === 'PROJECT_SITE';
     const sections = {
       password: true,
-      mfa: !!(employee.user as any)?.mfaEnabled,
+      // Site employees skip MFA (auto-pass); office employees must enable it
+      mfa: isSiteEmployee ? true : !!(employee.user as any)?.mfaEnabled,
       personalDetails: !!(
         employee.firstName && employee.lastName &&
         employee.dateOfBirth && employee.gender && employee.gender !== 'PREFER_NOT_TO_SAY' &&
@@ -467,9 +469,19 @@ export class OnboardingService {
   async completeMyOnboarding(employeeId: string) {
     const emp = await prisma.employee.findUnique({
       where: { id: employeeId },
-      include: { documents: { where: { deletedAt: null }, select: { type: true } } },
+      include: {
+        documents: { where: { deletedAt: null }, select: { type: true } },
+        user: { select: { id: true, mfaEnabled: true } },
+      },
     });
     if (!emp) throw new NotFoundError('Employee');
+
+    // Office employees must have MFA enabled before completing onboarding
+    if (emp.workMode !== 'PROJECT_SITE') {
+      if (!(emp.user as any)?.mfaEnabled) {
+        throw new BadRequestError('Two-Factor Authentication (MFA) is required for office employees. Please enable MFA in Step 2 before completing onboarding.');
+      }
+    }
 
     // Validate required employee-filled fields
     const addr = emp.address as any;

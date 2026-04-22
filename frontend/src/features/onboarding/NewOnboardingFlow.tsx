@@ -17,7 +17,7 @@ import toast from 'react-hot-toast';
 
 const STEPS = [
   { num: 1, title: 'Set Password', desc: 'Secure your account' },
-  { num: 2, title: 'MFA Setup', desc: 'Two-factor authentication (optional)' },
+  { num: 2, title: 'MFA Setup', desc: 'Two-factor authentication' },
   { num: 3, title: 'Personal Details', desc: 'Your information' },
   { num: 4, title: 'Emergency Contact', desc: 'In case of emergency' },
   { num: 5, title: 'Bank Details', desc: 'Salary account' },
@@ -222,7 +222,8 @@ export default function NewOnboardingFlow() {
                 currentStep > step.num ? 'text-emerald-600' : 'text-gray-400'
               )}>
                 {step.title}
-                {step.num === 2 && <span className="text-gray-400 ml-0.5">(opt)</span>}
+                {step.num === 2 && workMode === 'PROJECT_SITE' && <span className="text-gray-400 ml-0.5">(opt)</span>}
+                {step.num === 2 && workMode !== 'PROJECT_SITE' && workMode !== null && <span className="text-red-400 ml-0.5">*</span>}
               </span>
               {i < STEPS.length - 1 && (
                 <div className={cn('w-4 sm:w-8 h-0.5 mx-1', currentStep > step.num ? 'bg-emerald-400' : 'bg-gray-200')} />
@@ -258,6 +259,7 @@ export default function NewOnboardingFlow() {
                 onSkip={() => { setCurrentStep(3); }}
                 onEnabled={() => { refetch(); setCurrentStep(3); }}
                 isMfaEnabled={status?.sections?.mfa}
+                workMode={workMode}
               />
             )}
             {currentStep === 3 && (
@@ -452,10 +454,16 @@ function Step1Password({ onSave, onContinue, saving, isAlreadySet, workMode, onW
 // ==================
 // STEP 2: MFA SETUP
 // ==================
-function Step2MFA({ onSkip, onEnabled, isMfaEnabled }: { onSkip: () => void; onEnabled: () => void; isMfaEnabled?: boolean }) {
+function Step2MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
+  onSkip: () => void;
+  onEnabled: () => void;
+  isMfaEnabled?: boolean;
+  workMode?: WorkMode | null;
+}) {
   const [showSetup, setShowSetup] = useState(false);
   const { data: mfaStatus, refetch } = useGetMfaStatusQuery();
   const isEnabled = isMfaEnabled || mfaStatus?.data?.isEnabled;
+  const isSite = workMode === 'PROJECT_SITE';
 
   if (isEnabled) {
     return (
@@ -464,7 +472,7 @@ function Step2MFA({ onSkip, onEnabled, isMfaEnabled }: { onSkip: () => void; onE
           <Shield size={20} className="text-emerald-500 flex-shrink-0" />
           <div>
             <p className="text-sm font-semibold text-emerald-700">Two-Factor Authentication Enabled</p>
-            <p className="text-xs text-emerald-600 mt-0.5">Your account is protected with MFA.</p>
+            <p className="text-xs text-emerald-600 mt-0.5">Your account is protected with MFA. You're all set!</p>
           </div>
         </div>
         <button onClick={onSkip} className="btn-primary w-full">Continue to Next Step</button>
@@ -474,15 +482,28 @@ function Step2MFA({ onSkip, onEnabled, isMfaEnabled }: { onSkip: () => void; onE
 
   return (
     <div className="space-y-5">
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex items-start gap-3">
-          <Shield size={20} className="text-blue-500 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-blue-800">Two-Factor Authentication (Optional)</p>
-            <p className="text-xs text-blue-600 mt-1">Add an extra layer of security to your account. You'll need an authenticator app like Google Authenticator, Authy, or Microsoft Authenticator.</p>
+      {/* Required vs Optional banner */}
+      {isSite ? (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <Shield size={20} className="text-blue-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-blue-800">Two-Factor Authentication <span className="font-normal text-blue-600">(Optional for Site Employees)</span></p>
+              <p className="text-xs text-blue-600 mt-1">MFA is recommended but not required for site employees. You can enable it now or later from your profile.</p>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={20} className="text-red-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-red-800">MFA is Required for Office Employees</p>
+              <p className="text-xs text-red-600 mt-1">You must enable Two-Factor Authentication to complete onboarding. This protects your account and company data. You cannot skip this step.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm text-gray-600">
         <p className="font-medium text-gray-700 text-xs uppercase tracking-wide">How it works:</p>
@@ -496,9 +517,11 @@ function Step2MFA({ onSkip, onEnabled, isMfaEnabled }: { onSkip: () => void; onE
         <button onClick={() => setShowSetup(true)} className="btn-primary w-full flex items-center justify-center gap-2">
           <Shield size={16} /> Enable Two-Factor Authentication
         </button>
-        <button onClick={onSkip} className="text-sm text-gray-500 hover:text-gray-700 text-center py-1">
-          Skip for now — I'll set it up later in Profile settings
-        </button>
+        {isSite && (
+          <button onClick={onSkip} className="text-sm text-gray-500 hover:text-gray-700 text-center py-1">
+            Skip for now — I'll set it up later in Profile settings
+          </button>
+        )}
       </div>
 
       {showSetup && (
