@@ -6,12 +6,14 @@ export const createShiftSchema = z.object({
   shiftType: z.enum(['OFFICE', 'FIELD']).default('OFFICE'),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:mm format'),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:mm format'),
-  graceMinutes: z.coerce.number().int().min(0).default(15),
+  // graceMinutes is an alias for lateGraceMinutes — kept for backward compatibility with older clients
+  graceMinutes: z.coerce.number().int().min(0).optional(),
   halfDayHours: z.coerce.number().min(1).default(4),
   fullDayHours: z.coerce.number().min(1).default(8),
   trackingIntervalMinutes: z.coerce.number().int().min(15).max(480).optional(),
   isDefault: z.boolean().default(false),
   // Attendance policy per shift
+  // If lateGraceMinutes is omitted but graceMinutes is provided, graceMinutes is used as the value
   lateGraceMinutes: z.coerce.number().int().min(0).default(15),
   lateHalfDayAfterMins: z.coerce.number().int().min(0).default(120),
   latePenaltyEnabled: z.boolean().default(false),

@@ -298,8 +298,11 @@ async function generateMonthlyReportData(organizationId: string, month: number, 
     let lopDays = Math.max(0, lopWorkingDays - effectivePresent - onLeave);
 
     let latePenaltyLOP = 0;
-    if (policy?.latePenaltyEnabled && (policy?.latePenaltyPerCount || 0) > 0) {
-      latePenaltyLOP = Math.floor(lateCount / policy.latePenaltyPerCount);
+    // Shift-level settings take priority over org policy
+    const effectiveLatePenaltyEnabled = empShift?.latePenaltyEnabled ?? policy?.latePenaltyEnabled ?? false;
+    const effectiveLatePenaltyPerCount = Number(empShift?.latePenaltyPerCount ?? policy?.latePenaltyPerCount ?? 3);
+    if (effectiveLatePenaltyEnabled && effectiveLatePenaltyPerCount > 0) {
+      latePenaltyLOP = Math.floor(lateCount / effectiveLatePenaltyPerCount);
       lopDays += latePenaltyLOP;
     }
 

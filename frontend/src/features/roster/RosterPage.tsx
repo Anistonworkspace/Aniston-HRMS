@@ -90,7 +90,7 @@ function ShiftsPanel() {
   const [editShift, setEditShift] = useState<any>(null);
   const emptyForm = {
     name: '', code: '', shiftType: 'OFFICE' as string, startTime: '09:00', endTime: '18:00',
-    graceMinutes: 30, halfDayHours: 4, fullDayHours: 8, trackingIntervalMinutes: undefined as number | undefined, isDefault: true,
+    halfDayHours: 4, fullDayHours: 8, trackingIntervalMinutes: undefined as number | undefined, isDefault: true,
     lateGraceMinutes: 15, lateHalfDayAfterMins: 120, latePenaltyEnabled: false, latePenaltyPerCount: 3,
     weekOffDays: [0] as number[], otEnabled: false, otThresholdMinutes: 30, otRateMultiplier: 1.5, otMaxHoursPerDay: 4,
     compOffEnabled: false, compOffMinOTHours: 4, compOffExpiryDays: 30, sundayWorkEnabled: false, sundayPayMultiplier: 2.0,
@@ -119,12 +119,13 @@ function ShiftsPanel() {
   };
 
   const preparePayload = () => {
-    const { name, code, shiftType, startTime, endTime, graceMinutes, halfDayHours, fullDayHours, trackingIntervalMinutes, isDefault,
+    const { name, code, shiftType, startTime, endTime, halfDayHours, fullDayHours, trackingIntervalMinutes, isDefault,
       lateGraceMinutes, lateHalfDayAfterMins, latePenaltyEnabled, latePenaltyPerCount, weekOffDays,
       otEnabled, otThresholdMinutes, otRateMultiplier, otMaxHoursPerDay,
       compOffEnabled, compOffMinOTHours, compOffExpiryDays, sundayWorkEnabled, sundayPayMultiplier,
       allowWfh, wfhDays } = form;
-    const payload: any = { name, code, shiftType, startTime, endTime, graceMinutes, halfDayHours, fullDayHours, isDefault,
+    // graceMinutes is an alias for lateGraceMinutes — send both so the backend can accept either
+    const payload: any = { name, code, shiftType, startTime, endTime, graceMinutes: lateGraceMinutes, halfDayHours, fullDayHours, isDefault,
       lateGraceMinutes, lateHalfDayAfterMins, latePenaltyEnabled, latePenaltyPerCount, weekOffDays,
       otEnabled, otThresholdMinutes, otRateMultiplier, otMaxHoursPerDay,
       compOffEnabled, compOffMinOTHours, compOffExpiryDays, sundayWorkEnabled, sundayPayMultiplier,
@@ -147,7 +148,7 @@ function ShiftsPanel() {
     setEditShift(s);
     setForm({
       name: s.name, code: s.code, shiftType: s.shiftType || 'OFFICE', startTime: s.startTime, endTime: s.endTime,
-      graceMinutes: s.graceMinutes, halfDayHours: Number(s.halfDayHours || 4), fullDayHours: Number(s.fullDayHours),
+      halfDayHours: Number(s.halfDayHours || 4), fullDayHours: Number(s.fullDayHours),
       trackingIntervalMinutes: s.trackingIntervalMinutes || undefined, isDefault: s.isDefault,
       lateGraceMinutes: s.lateGraceMinutes ?? 15,
       lateHalfDayAfterMins: s.lateHalfDayAfterMins ?? 120,
@@ -259,7 +260,7 @@ function ShiftsPanel() {
                   <div><label className="block text-xs text-gray-500 mb-1">End Time</label>
                     <input type="time" value={form.endTime} onChange={e => setForm({...form, endTime: e.target.value})} className="input-glass w-full text-sm" /></div>
                   <div><label className="block text-xs text-gray-500 mb-1">Grace (min)</label>
-                    <input type="number" value={form.graceMinutes} onChange={e => setForm({...form, graceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                    <input type="number" value={form.lateGraceMinutes} onChange={e => setForm({...form, lateGraceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
                   <div><label className="block text-xs text-gray-500 mb-1">Half Day (hrs)</label>
                     <input type="number" value={form.halfDayHours} onChange={e => setForm({...form, halfDayHours: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
                   <div><label className="block text-xs text-gray-500 mb-1">Full Day (hrs)</label>
@@ -301,9 +302,7 @@ function ShiftsPanel() {
                     {/* Late Arrival */}
                     <div className="bg-amber-50 rounded-xl p-4">
                       <p className="text-xs font-semibold text-amber-700 flex items-center gap-1.5 mb-3"><Clock size={13} /> Late Arrival Rules</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><label className="block text-xs text-gray-500 mb-1">Grace Period (min)</label>
-                          <input type="number" value={form.lateGraceMinutes} onChange={e => setForm({...form, lateGraceMinutes: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
+                      <div className="grid grid-cols-1 gap-3">
                         <div><label className="block text-xs text-gray-500 mb-1">Half-Day After (min late)</label>
                           <input type="number" value={form.lateHalfDayAfterMins} onChange={e => setForm({...form, lateHalfDayAfterMins: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
                       </div>
