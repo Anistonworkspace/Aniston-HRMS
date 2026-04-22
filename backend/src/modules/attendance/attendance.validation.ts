@@ -1,12 +1,11 @@
 import { z } from 'zod';
 
 export const clockInSchema = z.object({
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
   accuracy: z.number().optional(),
-  // ISO-8601 timestamp of when the GPS fix was taken on the device.
-  // Backend uses this to reject stale coordinates (> 5 minutes old).
-  gpsTimestamp: z.string().datetime(),
+  // ISO-8601 timestamp of when the GPS fix was taken on the device (optional — GPS may be unavailable).
+  gpsTimestamp: z.string().datetime().optional(),
   source: z.enum(['GEOFENCE_AUTO', 'MANUAL_APP', 'QR_CODE', 'BIOMETRIC']).default('MANUAL_APP'),
   notes: z.string().optional(),
   deviceType: z.enum(['mobile', 'desktop']).optional(),
@@ -18,11 +17,11 @@ export const clockInSchema = z.object({
 });
 
 export const clockOutSchema = z.object({
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
   accuracy: z.number().optional(),
-  // ISO-8601 timestamp of when the GPS fix was taken on the device.
-  gpsTimestamp: z.string().datetime(),
+  // ISO-8601 timestamp of when the GPS fix was taken on the device (optional — GPS may be unavailable).
+  gpsTimestamp: z.string().datetime().optional(),
   notes: z.string().optional(),
   deviceType: z.enum(['mobile', 'desktop']).optional(),
   isPwa: z.boolean().optional(),

@@ -123,12 +123,12 @@ export const attendanceApi = api.injectEndpoints({
 
     startBreak: builder.mutation<any, { type: string }>({
       query: (body) => ({ url: '/attendance/break/start', method: 'POST', body }),
-      invalidatesTags: ['Attendance'],
+      invalidatesTags: ['Attendance', 'Dashboard'],
     }),
 
     endBreak: builder.mutation<any, void>({
       query: () => ({ url: '/attendance/break/end', method: 'POST' }),
-      invalidatesTags: ['Attendance'],
+      invalidatesTags: ['Attendance', 'Dashboard'],
     }),
 
     getMyAttendance: builder.query<{ success: boolean; data: AttendanceData }, { startDate?: string; endDate?: string }>({
@@ -143,7 +143,7 @@ export const attendanceApi = api.injectEndpoints({
 
     submitRegularization: builder.mutation<any, { attendanceId: string; reason: string; requestedCheckIn?: string; requestedCheckOut?: string }>({
       query: (body) => ({ url: '/attendance/regularization', method: 'POST', body }),
-      invalidatesTags: ['Attendance'],
+      invalidatesTags: ['Attendance', 'Dashboard'],
     }),
 
     storeGPSTrail: builder.mutation<any, { points: any[] }>({
@@ -152,7 +152,7 @@ export const attendanceApi = api.injectEndpoints({
 
     projectSiteCheckIn: builder.mutation<any, { siteName: string; siteAddress?: string; notes?: string; latitude?: number; longitude?: number; photoUrl?: string }>({
       query: (body) => ({ url: '/attendance/project-site/check-in', method: 'POST', body }),
-      invalidatesTags: ['Attendance'],
+      invalidatesTags: ['Attendance', 'Dashboard'],
     }),
 
     getProjectSiteCheckIns: builder.query<any, { date?: string }>({
@@ -167,7 +167,7 @@ export const attendanceApi = api.injectEndpoints({
 
     markAttendance: builder.mutation<any, { employeeId: string; date: string; status: string; workMode?: string }>({
       query: (body) => ({ url: '/attendance/mark', method: 'POST', body }),
-      invalidatesTags: ['Attendance', 'Payroll'],
+      invalidatesTags: ['Attendance', 'Payroll', 'Dashboard'],
     }),
 
     getEmployeeGPSTrail: builder.query<any, { employeeId: string; date: string }>({
@@ -245,7 +245,7 @@ export const attendanceApi = api.injectEndpoints({
     }),
     handleRegularization: builder.mutation<any, { id: string; action: string; remarks?: string }>({
       query: ({ id, ...body }) => ({ url: `/attendance/regularization/${id}`, method: 'PATCH', body }),
-      invalidatesTags: ['Attendance'],
+      invalidatesTags: ['Attendance', 'Dashboard'],
     }),
 
     // Hybrid schedule

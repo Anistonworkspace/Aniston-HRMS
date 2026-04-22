@@ -822,7 +822,7 @@ export class PayrollService {
       where: {
         employeeId: { in: empIds },
         // Include all terminal-approved statuses so manager-approved leaves reduce LOP
-        status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
+        status: { in: ['APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
         startDate: { lte: endDate },
         endDate: { gte: startDate },
       },
@@ -1507,7 +1507,7 @@ export class PayrollService {
     const approvedLeaves = await prisma.leaveRequest.findMany({
       where: {
         employeeId,
-        status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
+        status: { in: ['APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
         startDate: { lte: endDate },
         endDate: { gte: startDate },
       },

@@ -142,6 +142,20 @@ export class EmployeeService {
         documentGate: {
           select: { kycStatus: true, reuploadDocTypes: true, documentRejectReasons: true },
         },
+        leaveBalances: {
+          where: { year: new Date().getFullYear() },
+          include: { leaveType: { select: { id: true, name: true, code: true, isPaid: true } } },
+          orderBy: { createdAt: 'asc' as const },
+        },
+        leaveRequests: {
+          where: {
+            status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] },
+            startDate: { gte: new Date(new Date().getFullYear(), 0, 1) },
+          },
+          include: { leaveType: { select: { id: true, name: true, code: true } } },
+          orderBy: { createdAt: 'desc' as const },
+          take: 20,
+        },
       },
     });
 

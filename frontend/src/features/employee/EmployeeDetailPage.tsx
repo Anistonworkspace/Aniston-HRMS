@@ -378,6 +378,7 @@ export default function EmployeeDetailPage() {
                     <InfoRow label="Gender" value={employee.gender?.replace(/_/g, ' ') || '—'} />
                     <InfoRow label="Blood Group" value={employee.bloodGroup || '—'} />
                     <InfoRow label="Marital Status" value={employee.maritalStatus || '—'} />
+                    {(employee as any).qualification && <InfoRow label="Qualification" value={(employee as any).qualification} />}
                     <InfoRow label="Official Email" value={employee.email} />
                     <InfoRow label="Personal Email" value={employee.personalEmail || '—'} />
                     <InfoRow label="Phone" value={employee.phone || '—'} />
@@ -390,14 +391,27 @@ export default function EmployeeDetailPage() {
                     <MapPin size={15} className="text-sky-500" /> Address & Emergency Contact
                   </h3>
                   {employee.address ? (
-                    <div className="mb-3">
-                      <p className="text-xs text-gray-400 mb-1">Address</p>
-                      <p className="text-sm text-gray-700">
-                        {(employee.address as any).line1 && `${(employee.address as any).line1}, `}
-                        {(employee.address as any).city && `${(employee.address as any).city}, `}
-                        {(employee.address as any).state && `${(employee.address as any).state} `}
-                        {(employee.address as any).pincode}
-                      </p>
+                    <div className="mb-3 space-y-2">
+                      <div>
+                        <p className="text-xs text-gray-400 mb-0.5">Current Address</p>
+                        <p className="text-sm text-gray-700">
+                          {(employee.address as any).line1 && `${(employee.address as any).line1}, `}
+                          {(employee.address as any).city && `${(employee.address as any).city}, `}
+                          {(employee.address as any).state && `${(employee.address as any).state} `}
+                          {(employee.address as any).pincode}
+                        </p>
+                      </div>
+                      {(employee as any).permanentAddress && (
+                        <div>
+                          <p className="text-xs text-gray-400 mb-0.5">Permanent Address</p>
+                          <p className="text-sm text-gray-700">
+                            {(employee as any).permanentAddress.line1 && `${(employee as any).permanentAddress.line1}, `}
+                            {(employee as any).permanentAddress.city && `${(employee as any).permanentAddress.city}, `}
+                            {(employee as any).permanentAddress.state && `${(employee as any).permanentAddress.state} `}
+                            {(employee as any).permanentAddress.pincode}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-xs text-gray-400 mb-3">No address on file</p>

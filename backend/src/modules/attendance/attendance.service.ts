@@ -1572,6 +1572,20 @@ export class AttendanceService {
               appUrl: 'https://hr.anistonav.com/attendance',
             },
           });
+          // In-app notification
+          const empUser = await prisma.user.findFirst({
+            where: { employee: { id: reg.employeeId } },
+            select: { id: true },
+          });
+          if (empUser) {
+            await enqueueNotification({
+              userId: empUser.id,
+              type: 'REGULARIZATION_REVIEWED',
+              title: `Regularization ${finalStatus === 'APPROVED' ? 'Approved' : 'Rejected'}`,
+              message: `Your attendance regularization for ${new Date(reg.attendance.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} was ${finalStatus.toLowerCase()}${remarks ? ': ' + remarks : '.'}`,
+              link: '/attendance',
+            });
+          }
         }
       } catch { /* non-blocking */ }
     }
@@ -1702,6 +1716,25 @@ export class AttendanceService {
         notes: manualMarkNote,
       },
     });
+
+    // If marking as ON_LEAVE and a leaveTypeId is provided, adjust leave balance
+    if (data.status === 'ON_LEAVE' && (data as any).leaveTypeId) {
+      try {
+        const year = date.getUTCFullYear();
+        const balance = await prisma.leaveBalance.findFirst({
+          where: { employeeId: data.employeeId, leaveTypeId: (data as any).leaveTypeId, year },
+        });
+        if (balance) {
+          const safeDecrement = Math.min(1, Math.max(0, Number(balance.allocated) - Number(balance.used)));
+          if (safeDecrement > 0) {
+            await prisma.leaveBalance.update({
+              where: { id: balance.id },
+              data: { used: { increment: safeDecrement } },
+            });
+          }
+        }
+      } catch { /* non-blocking — balance update failure should not block HR mark */ }
+    }
 
     // ===== Audit log for HR marking =====
     try {

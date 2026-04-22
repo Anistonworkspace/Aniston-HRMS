@@ -1441,6 +1441,7 @@ export class LeaveService {
                 date: { gte: new Date(request.startDate), lte: new Date(request.endDate) },
                 status: 'ON_LEAVE',
                 source: 'MANUAL_HR',
+                notes: { startsWith: 'Leave:' },
               },
             });
           } else {

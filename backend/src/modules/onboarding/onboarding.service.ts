@@ -273,9 +273,21 @@ export class OnboardingService {
     });
 
     const IDENTITY_DOC_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
+    const qualification = (employee as any).qualification as string | null;
+    const requiredEduDocs = (() => {
+      if (employee.workMode === 'PROJECT_SITE') return [];
+      switch (qualification) {
+        case '12th Pass': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
+        case 'Diploma': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+        case 'Graduation': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+        case 'Post Graduation': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+        case 'PhD': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+        default: return ['TENTH_CERTIFICATE'];
+      }
+    })();
     const REQUIRED_NON_IDENTITY_DOCS = employee.workMode === 'PROJECT_SITE'
-      ? ['PAN', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE']
-      : ['PAN', 'TENTH_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
+      ? ['PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE']
+      : [...requiredEduDocs, 'PAN', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
     const uploadedDocTypes = (employee.documents as any[]).map((d: any) => d.type);
     const hasIdentityProof = uploadedDocTypes.some((t: string) => IDENTITY_DOC_TYPES.includes(t));
     const missingRequiredDocs = [
@@ -284,23 +296,24 @@ export class OnboardingService {
     ];
 
     const addr = employee.address as any;
+    const permAddr = (employee as any).permanentAddress as any;
     const ec = employee.emergencyContact as any;
 
     const sections = {
-      password: true, // assumed set if they can log in
+      password: true,
       mfa: !!(employee.user as any)?.mfaEnabled,
       personalDetails: !!(
         employee.firstName && employee.lastName &&
         employee.dateOfBirth && employee.gender && employee.gender !== 'PREFER_NOT_TO_SAY' &&
         employee.phone && employee.phone !== '0000000000' &&
-        (employee.workMode === 'PROJECT_SITE' || (addr?.line1 && addr?.city && addr?.state && addr?.pincode))
+        addr?.line1 && addr?.city && addr?.state && addr?.pincode &&
+        permAddr?.line1 && permAddr?.city && permAddr?.state && permAddr?.pincode
       ),
       emergencyContact: !!(ec?.name && ec?.relationship && ec?.phone),
       bankDetails: !!(employee.bankAccountNumber && employee.bankName && employee.ifscCode && employee.accountHolderName),
       documents: missingRequiredDocs.length === 0,
     };
 
-    // Determine which step the employee should resume at
     let resumeStep = 1;
     if (sections.password) resumeStep = 2;
     if (sections.mfa) resumeStep = 3;
@@ -312,6 +325,7 @@ export class OnboardingService {
     return {
       employeeId: employee.id,
       workMode: employee.workMode,
+      qualification: qualification || '',
       firstName: employee.firstName,
       lastName: employee.lastName,
       email: employee.email,
@@ -321,7 +335,8 @@ export class OnboardingService {
       gender: employee.gender,
       bloodGroup: employee.bloodGroup || '',
       maritalStatus: employee.maritalStatus || '',
-      address: employee.address || {},
+      currentAddress: employee.address || {},
+      permanentAddress: (employee as any).permanentAddress || {},
       emergencyContact: employee.emergencyContact || {},
       bankAccountNumber: employee.bankAccountNumber || '',
       bankName: employee.bankName || '',
@@ -373,16 +388,15 @@ export class OnboardingService {
     // Step 2: MFA — skip does nothing; enable is handled by existing /auth/mfa endpoints
     // Nothing to save here
 
-    // Step 3: Personal Details (with optional address for site employees)
+    // Step 3: Personal Details — both addresses required for all employee types
     if (step === 3) {
-      const addr = stepData.address;
-      const isSiteEmployee = employee.workMode === 'PROJECT_SITE';
+      const curr = stepData.currentAddress;
+      const perm = stepData.permanentAddress;
       const baseValid = stepData.firstName && stepData.lastName && stepData.dateOfBirth && stepData.gender && stepData.phone;
-      const addressValid = isSiteEmployee || (addr?.line1 && addr?.city && addr?.state && addr?.pincode);
-      if (!baseValid || !addressValid) {
-        throw new BadRequestError(isSiteEmployee
-          ? 'Name, date of birth, gender and phone are required'
-          : 'All required personal detail fields must be filled');
+      const currValid = curr?.line1 && curr?.city && curr?.state && curr?.pincode;
+      const permValid = perm?.line1 && perm?.city && perm?.state && perm?.pincode;
+      if (!baseValid || !currValid || !permValid) {
+        throw new BadRequestError('Name, DOB, gender, phone, current address, and permanent address are all required');
       }
       await prisma.employee.update({
         where: { id: employeeId },
@@ -395,7 +409,9 @@ export class OnboardingService {
           maritalStatus: stepData.maritalStatus || null,
           phone: stepData.phone,
           personalEmail: stepData.personalEmail || null,
-          address: stepData.address,
+          address: stepData.currentAddress,
+          permanentAddress: stepData.permanentAddress,
+          qualification: stepData.qualification || null,
         },
       });
     }
@@ -452,12 +468,17 @@ export class OnboardingService {
 
     // Validate required employee-filled fields
     const addr = emp.address as any;
+    const permAddr = (emp as any).permanentAddress as any;
     const ec = emp.emergencyContact as any;
+    const qualification = (emp as any).qualification as string | null;
     if (!emp.firstName || !emp.lastName || !emp.dateOfBirth || !emp.gender || !emp.phone || emp.phone === '0000000000') {
       throw new BadRequestError('Personal details (name, DOB, gender, phone) are required before completing onboarding');
     }
-    if (emp.workMode !== 'PROJECT_SITE' && (!addr?.line1 || !addr?.city || !addr?.state || !addr?.pincode)) {
-      throw new BadRequestError('Address is required before completing onboarding');
+    if (!addr?.line1 || !addr?.city || !addr?.state || !addr?.pincode) {
+      throw new BadRequestError('Current address is required before completing onboarding');
+    }
+    if (!permAddr?.line1 || !permAddr?.city || !permAddr?.state || !permAddr?.pincode) {
+      throw new BadRequestError('Permanent address is required before completing onboarding');
     }
     if (!ec?.name || !ec?.relationship || !ec?.phone) {
       throw new BadRequestError('Emergency contact is required before completing onboarding');
@@ -466,9 +487,20 @@ export class OnboardingService {
       throw new BadRequestError('Bank details are required before completing onboarding');
     }
     const IDENTITY_DOC_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
+    const requiredEduDocs = (() => {
+      if (emp.workMode === 'PROJECT_SITE') return [];
+      switch (qualification) {
+        case '12th Pass': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
+        case 'Diploma': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+        case 'Graduation': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+        case 'Post Graduation': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+        case 'PhD': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+        default: return ['TENTH_CERTIFICATE'];
+      }
+    })();
     const REQUIRED_NON_IDENTITY_DOCS = emp.workMode === 'PROJECT_SITE'
-      ? ['PAN', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE']
-      : ['PAN', 'TENTH_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
+      ? ['PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE']
+      : [...requiredEduDocs, 'PAN', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
     const uploaded = (emp.documents as any[]).map((d: any) => d.type);
     const missing = REQUIRED_NON_IDENTITY_DOCS.filter(t => !uploaded.includes(t));
     const hasIdentityProof = uploaded.some((t: string) => IDENTITY_DOC_TYPES.includes(t));

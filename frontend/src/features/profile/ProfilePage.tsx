@@ -585,6 +585,7 @@ export default function ProfilePage() {
             <ProfileRow label={t('profile.gender')} value={employee?.gender} />
             <ProfileRow label={t('profile.bloodGroup')} value={employee?.bloodGroup} />
             <ProfileRow label={t('profile.maritalStatus')} value={employee?.maritalStatus} />
+            {(employee as any)?.qualification && <ProfileRow label="Qualification" value={(employee as any).qualification} />}
           </dl>
         </motion.div>
 
@@ -659,20 +660,28 @@ export default function ProfilePage() {
           <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <MapPin size={16} className="text-brand-500" /> {t('profile.addressEmergency')}
           </h3>
-          {employee?.workMode === 'PROJECT_SITE' ? (
-            <div className="flex items-center gap-2 mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
-              <HardHat size={14} className="text-amber-600 shrink-0" />
-              <p className="text-xs text-amber-700">Address not required for site employees. Location details are managed by HR.</p>
-            </div>
-          ) : employee?.address ? (
-            <div className="mb-4">
-              <p className="text-xs text-gray-400 mb-1">{t('common.address')}</p>
-              <p className="text-sm text-gray-700">
-                {(employee.address as any).line1 && `${(employee.address as any).line1}, `}
-                {(employee.address as any).city && `${(employee.address as any).city}, `}
-                {(employee.address as any).state && `${(employee.address as any).state} `}
-                {(employee.address as any).pincode}
-              </p>
+          {employee?.address ? (
+            <div className="mb-3 space-y-2">
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Current Address</p>
+                <p className="text-sm text-gray-700">
+                  {(employee.address as any).line1 && `${(employee.address as any).line1}, `}
+                  {(employee.address as any).city && `${(employee.address as any).city}, `}
+                  {(employee.address as any).state && `${(employee.address as any).state} `}
+                  {(employee.address as any).pincode}
+                </p>
+              </div>
+              {(employee as any).permanentAddress && (
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Permanent Address</p>
+                  <p className="text-sm text-gray-700">
+                    {(employee as any).permanentAddress.line1 && `${(employee as any).permanentAddress.line1}, `}
+                    {(employee as any).permanentAddress.city && `${(employee as any).permanentAddress.city}, `}
+                    {(employee as any).permanentAddress.state && `${(employee as any).permanentAddress.state} `}
+                    {(employee as any).permanentAddress.pincode}
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-sm text-gray-400 mb-4">{t('common.noData')}</p>

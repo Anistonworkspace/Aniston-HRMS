@@ -27,6 +27,7 @@ import {
   useGetEmployeeLeaveOverviewQuery,
   useGetOrgLeaveSettingsQuery,
   useUpdateOrgLeaveSettingsMutation,
+  useAdjustLeaveBalanceMutation,
 } from './leaveApi';
 import { useGetPendingRegularizationsQuery, useHandleRegularizationMutation } from '../attendance/attendanceApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
@@ -777,7 +778,38 @@ function EmployeeBalancesTab() {
   const [search, setSearch] = useState('');
   const [year, setYear] = useState(new Date().getFullYear());
   const { data, isLoading } = useGetAllEmployeeLeaveBalancesQuery({ year, search });
+  const [adjustLeaveBalance] = useAdjustLeaveBalanceMutation();
   const employees: any[] = data?.data || [];
+
+  // Inline balance adjustment state
+  const [adjusting, setAdjusting] = useState<{ empId: string; empName: string; balance: any } | null>(null);
+  const [adjustVal, setAdjustVal] = useState('');
+  const [adjustReason, setAdjustReason] = useState('');
+  const [adjustLoading, setAdjustLoading] = useState(false);
+
+  const handleAdjust = async () => {
+    if (!adjusting) return;
+    const allocated = Number(adjustVal);
+    if (isNaN(allocated) || allocated < 0) { toast.error('Enter a valid number of days'); return; }
+    setAdjustLoading(true);
+    try {
+      await adjustLeaveBalance({
+        employeeId: adjusting.empId,
+        leaveTypeId: adjusting.balance.leaveTypeId,
+        allocated,
+        year,
+        reason: adjustReason || undefined,
+      }).unwrap();
+      toast.success(`${adjusting.balance.leaveTypeName || adjusting.balance.leaveTypeCode} balance updated to ${allocated} days for ${adjusting.empName}`);
+      setAdjusting(null);
+      setAdjustVal('');
+      setAdjustReason('');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to update balance');
+    } finally {
+      setAdjustLoading(false);
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -848,11 +880,17 @@ function EmployeeBalancesTab() {
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
                       {emp.balances?.map((b: any) => (
-                        <span key={b.leaveTypeId} className="inline-flex items-center gap-1 bg-gray-100 text-gray-600 rounded px-1.5 py-0.5 text-[10px]">
+                        <button
+                          key={b.leaveTypeId}
+                          onClick={() => { setAdjusting({ empId: emp.id, empName: `${emp.firstName} ${emp.lastName}`, balance: b }); setAdjustVal(String(b.allocated ?? b.remaining ?? 0)); setAdjustReason(''); }}
+                          title="Click to adjust allocation"
+                          className="inline-flex items-center gap-1 bg-gray-100 hover:bg-brand-50 hover:text-brand-700 text-gray-600 rounded px-1.5 py-0.5 text-[10px] cursor-pointer transition-colors"
+                        >
                           <span className="font-medium">{b.leaveTypeCode}</span>
                           <span className="text-gray-400">:</span>
                           <span className={b.remaining < 1 ? 'text-red-500 font-bold' : 'text-gray-700'}>{b.remaining}</span>
-                        </span>
+                          <span className="text-gray-300">/{b.allocated}</span>
+                        </button>
                       ))}
                     </div>
                   </td>
@@ -860,6 +898,62 @@ function EmployeeBalancesTab() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Adjust Balance Modal */}
+      {adjusting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setAdjusting(null)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6"
+          >
+            <h3 className="text-base font-bold text-gray-900 mb-1">Adjust Leave Balance</h3>
+            <p className="text-xs text-gray-500 mb-4">
+              {adjusting.empName} — <strong>{adjusting.balance.leaveTypeCode || adjusting.balance.leaveTypeName}</strong> ({year})
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">New Allocated Days</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={adjustVal}
+                  onChange={(e) => setAdjustVal(e.target.value)}
+                  className="input-glass w-full text-sm"
+                  placeholder="e.g. 12"
+                  autoFocus
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Current: {adjusting.balance.allocated ?? 0} allocated, {adjusting.balance.used ?? 0} used, {adjusting.balance.remaining ?? 0} remaining
+                </p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Reason (optional)</label>
+                <input
+                  type="text"
+                  value={adjustReason}
+                  onChange={(e) => setAdjustReason(e.target.value)}
+                  className="input-glass w-full text-sm"
+                  placeholder="e.g. Annual allocation, Performance bonus"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setAdjusting(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+              <button
+                onClick={handleAdjust}
+                disabled={adjustLoading}
+                className="flex-1 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {adjustLoading && <Loader2 size={14} className="animate-spin" />}
+                Update & Notify
+              </button>
+            </div>
+          </motion.div>
         </div>
       )}
     </motion.div>
@@ -2077,6 +2171,51 @@ function LeavePersonalView() {
   const [accepted, setAccepted] = useState(false);
   const [selectedHoliday, setSelectedHoliday] = useState<any>(null);
   const user = useAppSelector((s) => s.auth.user);
+  const dispatch = useAppDispatch();
+
+  // Real-time: listen for leave approval/rejection by HR/Manager
+  useEffect(() => {
+    const handler = (data: { action?: string; leaveType?: string; remarks?: string }) => {
+      const isApproved = data.action === 'APPROVED' || data.action === 'APPROVED_WITH_CONDITION' || data.action === 'MANAGER_APPROVED';
+      const leaveTypeName = data.leaveType || 'Your leave';
+      if (isApproved) {
+        toast.success(`${leaveTypeName} request ${data.action === 'MANAGER_APPROVED' ? 'forwarded to HR' : 'approved'}!`, { duration: 5000 });
+      } else if (data.action === 'REJECTED') {
+        toast.error(`${leaveTypeName} request was rejected${data.remarks ? ': ' + data.remarks : '.'}`, { duration: 6000 });
+      }
+      dispatch(api.util.invalidateTags(['Leave' as any]));
+    };
+    onSocketEvent('leave:actioned', handler);
+    return () => offSocketEvent('leave:actioned', handler);
+  }, [dispatch]);
+
+  // Real-time: listen for HR leave balance adjustments
+  useEffect(() => {
+    const handler = (data: { leaveTypeName?: string; allocated?: number; reason?: string }) => {
+      const typeName = data.leaveTypeName || 'Leave';
+      const days = data.allocated !== undefined ? ` — ${data.allocated} day${data.allocated !== 1 ? 's' : ''} allocated` : '';
+      toast.custom((t) => (
+        <motion.div
+          initial={{ opacity: 0, y: -20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          className={cn(
+            'flex items-center gap-3 bg-white border border-green-100 shadow-lg rounded-xl px-4 py-3 max-w-sm',
+            t.visible ? 'pointer-events-auto' : 'pointer-events-none'
+          )}
+        >
+          <span className="text-2xl">🎁</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-800">Leave Balance Updated</p>
+            <p className="text-xs text-gray-500 truncate">{typeName}{days}{data.reason ? ` — ${data.reason}` : ''}</p>
+          </div>
+        </motion.div>
+      ), { duration: 7000, position: 'top-right' });
+      dispatch(api.util.invalidateTags(['LeaveBalance' as any, 'Leave' as any]));
+    };
+    onSocketEvent('leave:balance-adjusted', handler);
+    return () => offSocketEvent('leave:balance-adjusted', handler);
+  }, [dispatch]);
 
   const balances = balancesRes?.data || [];
   const leaveTypes = typesRes?.data || [];
@@ -2306,31 +2445,52 @@ function LeavePersonalView() {
         <div className="layer-card p-6">
           <h2 className="text-lg font-display font-semibold text-gray-800 mb-4 flex items-center justify-between">
             <span>🎉 Holidays {new Date().getFullYear()}</span>
-            <span className="text-xs text-gray-400 font-normal">Tap to view</span>
+            {holidays.length > 0 && (
+              <span className="text-xs font-medium text-brand-600 bg-brand-50 px-2 py-1 rounded-full">
+                {holidays.filter((h: any) => new Date(h.date) >= new Date()).length} upcoming
+              </span>
+            )}
           </h2>
-          <div className="space-y-2">
-            {holidays.map((holiday: any) => {
-              const isPast = new Date(holiday.date) < new Date();
-              return (
-                <div
-                  key={holiday.id}
-                  onClick={() => setSelectedHoliday(holiday)}
-                  className={cn(
-                    'flex items-center justify-between py-2.5 px-3 rounded-lg cursor-pointer transition-all active:scale-[0.98]',
-                    isPast ? 'bg-gray-50 opacity-60' : 'bg-blue-50 hover:bg-blue-100'
-                  )}
-                >
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">{holiday.name}</p>
-                    <p className="text-xs text-gray-500">{formatDate(holiday.date, 'long')}</p>
+          {holidays.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <span className="text-4xl mb-3">📅</span>
+              <p className="text-sm font-medium text-gray-600">No holidays added yet</p>
+              <p className="text-xs text-gray-400 mt-1">HR will update the holiday calendar soon</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {holidays.map((holiday: any) => {
+                const isPast = new Date(holiday.date) < new Date();
+                return (
+                  <div
+                    key={holiday.id}
+                    onClick={() => setSelectedHoliday(holiday)}
+                    className={cn(
+                      'flex items-center justify-between py-2.5 px-3 rounded-lg cursor-pointer transition-all active:scale-[0.98]',
+                      isPast ? 'bg-gray-50 opacity-60' : 'bg-blue-50 hover:bg-blue-100'
+                    )}
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">{holiday.name}</p>
+                      <p className="text-xs text-gray-500">{formatDate(holiday.date, 'long')}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {holiday.isOptional && (
+                        <span className="badge badge-info text-xs">Optional</span>
+                      )}
+                      {isPast ? (
+                        <span className="text-xs text-gray-400">Past</span>
+                      ) : (
+                        <span className="text-xs text-blue-500 font-medium">
+                          {Math.ceil((new Date(holiday.date).getTime() - new Date().getTime()) / 86400000)}d
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  {holiday.isOptional && (
-                    <span className="badge badge-info text-xs">Optional</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 

@@ -20,6 +20,8 @@ router.use(authenticate);
 // Employee routes
 router.post('/clock-in', (req, res, next) => attendanceController.clockIn(req, res, next));
 router.post('/clock-out', (req, res, next) => attendanceController.clockOut(req, res, next));
+router.post('/break/start', (req, res, next) => attendanceController.startBreak(req, res, next));
+router.post('/break/end', (req, res, next) => attendanceController.endBreak(req, res, next));
 router.get('/today', (req, res, next) => attendanceController.getTodayStatus(req, res, next));
 router.get('/my', (req, res, next) => attendanceController.getMyAttendance(req, res, next));
 

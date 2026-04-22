@@ -129,6 +129,8 @@ model Employee {
   maritalStatus    String?
   avatar           String?
   address          Json?
+  permanentAddress Json?
+  qualification    String?
   emergencyContact Json?
   fatherName       String?
 

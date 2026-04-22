@@ -228,18 +228,46 @@ function EmployeeDashboard() {
     return () => clearInterval(id);
   }, [todayStatus?.record?.checkIn, todayStatus?.isCheckedOut]);
 
+  /** Convert a raw backend/Zod error message into a user-friendly string */
+  const friendlyError = (err: any): string => {
+    const raw: string = err?.data?.error?.message || err?.message || '';
+    if (!raw) return t('dashboard.failedToClock');
+    // Known business-logic messages from the service — pass them through as-is
+    const knownPhrases = [
+      'approved leave', 'holiday', 'already clocked in', 'already clocked out',
+      'clock out first', 'No shift assigned', 'inactive', 'Sunday is a week off',
+      'GPS location is', 'Maximum re-clock-in', 'mobile device',
+    ];
+    if (knownPhrases.some(p => raw.toLowerCase().includes(p.toLowerCase()))) return raw;
+    // Zod validation dump — translate to a friendly message
+    if (raw.toLowerCase().includes('latitude') || raw.toLowerCase().includes('longitude') || raw.toLowerCase().includes('gpstimestamp')) {
+      return 'Location access is required for attendance. Please allow GPS permissions in your browser settings and try again.';
+    }
+    if (raw.toLowerCase().includes('validation failed')) {
+      return 'Attendance data validation failed. Please refresh the app and try again.';
+    }
+    return raw || t('dashboard.failedToClock');
+  };
+
   const handleQuickCheckIn = useCallback(async () => {
     if (gettingGps || clockingIn || clockingOut) return;
     setGettingGps(true);
     try {
-      let coords: { latitude?: number; longitude?: number } = {};
+      let coords: { latitude?: number; longitude?: number; accuracy?: number; gpsTimestamp?: string } = {};
       if (navigator.geolocation) {
         try {
           const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000, enableHighAccuracy: true })
           );
-          coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-        } catch { /* proceed without */ }
+          coords = {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy: pos.coords.accuracy ?? undefined,
+            gpsTimestamp: new Date().toISOString(),
+          };
+        } catch {
+          // GPS unavailable — proceed without coordinates (backend accepts optional GPS)
+        }
       }
       setGettingGps(false);
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' as const : 'desktop' as const;
@@ -252,7 +280,7 @@ function EmployeeDashboard() {
       }
     } catch (err: any) {
       setGettingGps(false);
-      toast.error(err?.data?.error?.message || t('dashboard.failedToClock'));
+      toast.error(friendlyError(err), { duration: 6000 });
     }
   }, [gettingGps, clockingIn, clockingOut, todayStatus, clockIn, clockOut, t]);
 

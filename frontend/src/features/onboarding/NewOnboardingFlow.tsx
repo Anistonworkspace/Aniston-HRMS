@@ -34,29 +34,87 @@ const IDENTITY_DOC_LABELS: Record<IdentityDocType, string> = {
   DRIVING_LICENSE: 'Driving License',
   VOTER_ID: 'Voter ID Card',
 };
-// Non-identity required docs (DEGREE_CERTIFICATE is optional — depends on qualification)
-const REQUIRED_NON_IDENTITY_DOCS = ['PAN', 'TENTH_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
 const REQUIRED_NON_IDENTITY_LABELS: Record<string, string> = {
-  PAN: 'PAN Card', TENTH_CERTIFICATE: '10th Certificate', RESIDENCE_PROOF: 'Residence Proof',
-  PHOTO: 'Passport Photo', BANK_STATEMENT: 'Bank Statement', CANCELLED_CHEQUE: 'Cancelled Cheque',
+  PAN: 'PAN Card',
+  TENTH_CERTIFICATE: '10th Certificate',
+  TWELFTH_CERTIFICATE: '12th Certificate',
+  DEGREE_CERTIFICATE: 'Degree Certificate',
+  POST_GRADUATION_CERTIFICATE: 'Post-Graduation Certificate',
+  RESIDENCE_PROOF: 'Residence Proof',
+  PHOTO: 'Passport Photo',
+  BANK_STATEMENT: 'Bank Statement',
+  CANCELLED_CHEQUE: 'Cancelled Cheque',
 };
+
+const QUALIFICATIONS = ['10th Pass', '12th Pass', 'Diploma', 'Graduation', 'Post Graduation', 'PhD'] as const;
 
 type WorkMode = 'OFFICE' | 'PROJECT_SITE';
 
-function getRequiredNonIdentityDocs(workMode: WorkMode | null): string[] {
-  if (workMode === 'PROJECT_SITE') return ['PAN', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
-  return ['PAN', 'TENTH_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
+// Cascading: each level requires ALL certificates below it too
+function getRequiredEducationDocs(qualification: string | null | undefined): string[] {
+  switch (qualification) {
+    case '12th Pass':    return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
+    case 'Diploma':      return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+    case 'Graduation':   return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+    case 'Post Graduation': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+    case 'PhD':          return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+    default:             return ['TENTH_CERTIFICATE'];
+  }
+}
+
+function getRequiredNonIdentityDocs(workMode: WorkMode | null, qualification?: string | null): string[] {
+  if (workMode === 'PROJECT_SITE') return ['PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
+  const eduDocs = getRequiredEducationDocs(qualification);
+  return [...eduDocs, 'PAN', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
 }
 
 function getSiteDocSections() {
   return [
     {
-      title: 'Identity & Financial Proof',
-      docs: [{ name: 'PAN Card', type: 'PAN', required: true }],
-    },
-    {
       title: 'Passport Photo',
       docs: [{ name: 'Passport Size Photograph', type: 'PHOTO', required: true }],
+    },
+    {
+      title: 'Financial Documents',
+      docs: [
+        { name: 'Bank Statement (last 3 months)', type: 'BANK_STATEMENT', required: true },
+        { name: 'Cancelled Cheque', type: 'CANCELLED_CHEQUE', required: true },
+      ],
+    },
+  ];
+}
+
+function getOfficeSections(qualification: string | null | undefined) {
+  const eduDocs: { name: string; type: string; required: boolean }[] = [
+    { name: '10th Marksheet / Certificate', type: 'TENTH_CERTIFICATE', required: true },
+  ];
+  // 12th required for ALL levels above 10th Pass
+  if (['12th Pass', 'Diploma', 'Graduation', 'Post Graduation', 'PhD'].includes(qualification || '')) {
+    eduDocs.push({ name: '12th Marksheet / Certificate', type: 'TWELFTH_CERTIFICATE', required: true });
+  }
+  if (['Diploma', 'Graduation', 'Post Graduation', 'PhD'].includes(qualification || '')) {
+    eduDocs.push({ name: 'Diploma / Degree Certificate', type: 'DEGREE_CERTIFICATE', required: true });
+  }
+  if (['Post Graduation', 'PhD'].includes(qualification || '')) {
+    eduDocs.push({ name: 'Post-Graduation Certificate', type: 'POST_GRADUATION_CERTIFICATE', required: true });
+  }
+  return [
+    { title: 'Education Certificates', docs: eduDocs },
+    {
+      title: 'Address & Financial Proof',
+      docs: [
+        { name: 'PAN Card', type: 'PAN', required: true },
+        { name: 'Residence Proof (Utility Bill / Rent Agreement)', type: 'RESIDENCE_PROOF', required: true },
+      ],
+    },
+    { title: 'Passport Photo', docs: [{ name: 'Passport Size Photograph', type: 'PHOTO', required: true }] },
+    {
+      title: 'Previous Employment (if applicable)',
+      docs: [
+        { name: 'Offer / Appointment Letter', type: 'OFFER_LETTER_DOC', required: false },
+        { name: 'Last 3 Salary Slips / Bank Statements', type: 'SALARY_SLIP_DOC', required: false },
+        { name: 'Relieving / Experience Letter', type: 'EXPERIENCE_LETTER', required: false },
+      ],
     },
     {
       title: 'Financial Documents',
@@ -230,6 +288,7 @@ export default function NewOnboardingFlow() {
                 onContinue={() => setCurrentStep(7)}
                 onRefetch={refetch}
                 workMode={workMode}
+                qualification={status?.qualification}
               />
             )}
             {currentStep === 7 && (
@@ -238,6 +297,7 @@ export default function NewOnboardingFlow() {
                 onComplete={handleComplete}
                 completing={completing}
                 workMode={workMode}
+                qualification={status?.qualification}
               />
             )}
           </motion.div>
@@ -454,19 +514,24 @@ function Step2MFA({ onSkip, onEnabled, isMfaEnabled }: { onSkip: () => void; onE
 // ==================
 // STEP 3: PERSONAL DETAILS
 // ==================
+const ADDR_INIT = { line1: '', line2: '', city: '', state: '', pincode: '', country: 'India' };
 const PERSONAL_INIT = {
   firstName: '', lastName: '', dateOfBirth: '', gender: '',
   bloodGroup: '', maritalStatus: '', phone: '', personalEmail: '',
-  address: { line1: '', line2: '', city: '', state: '', pincode: '', country: 'India' },
+  qualification: '',
+  currentAddress: { ...ADDR_INIT },
+  permanentAddress: { ...ADDR_INIT },
 };
 
 function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave: (d: any) => void; saving: boolean; initialData: any; isSiteEmployee?: boolean }) {
   const [form, setForm] = useState(PERSONAL_INIT);
+  const [sameAsCurrent, setSameAsCurrent] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
 
   useEffect(() => {
     if (initialData) {
-      const addr = (initialData.address as any) || {};
+      const curr = (initialData.currentAddress as any) || (initialData.address as any) || {};
+      const perm = (initialData.permanentAddress as any) || {};
       setForm({
         firstName: initialData.firstName || '',
         lastName: initialData.lastName || '',
@@ -476,25 +541,59 @@ function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave
         maritalStatus: initialData.maritalStatus || '',
         phone: initialData.phone || '',
         personalEmail: initialData.personalEmail || '',
-        address: {
-          line1: addr.line1 || '',
-          line2: addr.line2 || '',
-          city: addr.city || '',
-          state: addr.state || '',
-          pincode: addr.pincode || '',
-          country: addr.country || 'India',
-        },
+        qualification: initialData.qualification || '',
+        currentAddress: { line1: curr.line1 || '', line2: curr.line2 || '', city: curr.city || '', state: curr.state || '', pincode: curr.pincode || '', country: curr.country || 'India' },
+        permanentAddress: { line1: perm.line1 || '', line2: perm.line2 || '', city: perm.city || '', state: perm.state || '', pincode: perm.pincode || '', country: perm.country || 'India' },
       });
     }
   }, [initialData]);
 
+  const addrValid = (a: typeof ADDR_INIT) => !!(a.line1.trim() && a.city.trim() && a.state.trim() && a.pincode.trim());
+  const permAddr = sameAsCurrent ? form.currentAddress : form.permanentAddress;
   const isValid = !!(form.firstName.trim() && form.lastName.trim() && form.dateOfBirth &&
     form.gender && form.phone.trim() &&
-    (isSiteEmployee || (form.address.line1.trim() && form.address.city.trim() && form.address.state.trim() && form.address.pincode.trim())));
+    (isSiteEmployee || !!form.qualification) &&
+    addrValid(form.currentAddress) && addrValid(permAddr));
 
   const set = (field: string, val: string) => setForm(p => ({ ...p, [field]: val }));
-  const setAddr = (field: string, val: string) => setForm(p => ({ ...p, address: { ...p.address, [field]: val } }));
+  const setCurr = (field: string, val: string) => setForm(p => ({ ...p, currentAddress: { ...p.currentAddress, [field]: val } }));
+  const setPerm = (field: string, val: string) => setForm(p => ({ ...p, permanentAddress: { ...p.permanentAddress, [field]: val } }));
   const err = (cond: boolean) => showErrors && !cond ? 'border-red-400 ring-1 ring-red-200' : '';
+
+  const addressBlock = (label: string, addr: typeof ADDR_INIT, onChange: (f: string, v: string) => void, disabled = false) => (
+    <div className="border-t border-gray-100 pt-4">
+      <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">{label}</p>
+      <div className="space-y-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Street Address <span className="text-red-500">*</span></label>
+          <input value={addr.line1} onChange={e => onChange('line1', e.target.value)} disabled={disabled}
+            className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(!!addr.line1.trim()))} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Address Line 2 <span className="text-gray-400 font-normal">(optional)</span></label>
+          <input value={addr.line2} onChange={e => onChange('line2', e.target.value)} disabled={disabled}
+            className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed')} />
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">City <span className="text-red-500">*</span></label>
+            <input value={addr.city} onChange={e => onChange('city', e.target.value)} disabled={disabled}
+              className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(!!addr.city.trim()))} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">State <span className="text-red-500">*</span></label>
+            <input value={addr.state} onChange={e => onChange('state', e.target.value)} disabled={disabled}
+              className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(!!addr.state.trim()))} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Pincode <span className="text-red-500">*</span></label>
+            <input value={addr.pincode} onChange={e => onChange('pincode', e.target.value)} disabled={disabled}
+              className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(!!addr.pincode.trim()))} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -559,43 +658,67 @@ function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave
         </div>
       </div>
 
+      {/* Qualification — office employees only */}
       {!isSiteEmployee && (
         <div className="border-t border-gray-100 pt-4">
-          <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">Address</p>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Street Address <span className="text-red-500">*</span></label>
-              <input value={form.address.line1} onChange={e => setAddr('line1', e.target.value)} className={cn('input-glass w-full text-sm', err(!!form.address.line1.trim()))} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Address Line 2 <span className="text-gray-400 font-normal">(optional)</span></label>
-              <input value={form.address.line2} onChange={e => setAddr('line2', e.target.value)} className="input-glass w-full text-sm" />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">City <span className="text-red-500">*</span></label>
-                <input value={form.address.city} onChange={e => setAddr('city', e.target.value)} className={cn('input-glass w-full text-sm', err(!!form.address.city.trim()))} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">State <span className="text-red-500">*</span></label>
-                <input value={form.address.state} onChange={e => setAddr('state', e.target.value)} className={cn('input-glass w-full text-sm', err(!!form.address.state.trim()))} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Pincode <span className="text-red-500">*</span></label>
-                <input value={form.address.pincode} onChange={e => setAddr('pincode', e.target.value)} className={cn('input-glass w-full text-sm', err(!!form.address.pincode.trim()))} />
-              </div>
-            </div>
+          <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">Education</p>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Highest Qualification <span className="text-red-500">*</span></label>
+            <select value={form.qualification} onChange={e => set('qualification', e.target.value)} className={cn('input-glass w-full text-sm', err(!!form.qualification))}>
+              <option value="">Select qualification</option>
+              {QUALIFICATIONS.map(q => <option key={q} value={q}>{q}</option>)}
+            </select>
+            {form.qualification && (
+              <p className="text-[11px] text-brand-600 mt-1">
+                {form.qualification === '10th Pass' && 'You will upload: 10th Certificate'}
+                {form.qualification === '12th Pass' && 'You will upload: 10th + 12th Certificates'}
+                {form.qualification === 'Diploma' && 'You will upload: 10th Certificate + Diploma Certificate'}
+                {form.qualification === 'Graduation' && 'You will upload: 10th Certificate + Degree Certificate'}
+                {form.qualification === 'Post Graduation' && 'You will upload: 10th + Degree + Post-Graduation Certificates'}
+                {form.qualification === 'PhD' && 'You will upload: 10th + Degree + Post-Graduation Certificates'}
+              </p>
+            )}
           </div>
         </div>
       )}
-      {isSiteEmployee && (
-        <div className="border-t border-gray-100 pt-4 p-3 bg-amber-50 rounded-lg">
-          <p className="text-xs text-amber-700 flex items-center gap-1.5"><HardHat size={13} /> Address not required for site employees. HR will update location details separately.</p>
+
+      {/* Current Address — required for all */}
+      {addressBlock('Current Address', form.currentAddress, setCurr)}
+
+      {/* Permanent Address — required for all */}
+      <div className="border-t border-gray-100 pt-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Permanent Address</p>
+          <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+            <input
+              type="checkbox" checked={sameAsCurrent}
+              onChange={e => setSameAsCurrent(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            Same as current address
+          </label>
         </div>
-      )}
+        {sameAsCurrent ? (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+            <p className="text-xs text-emerald-700 flex items-center gap-2">
+              <CheckCircle2 size={13} /> Permanent address same as current address.
+            </p>
+          </div>
+        ) : (
+          addressBlock('', form.permanentAddress, setPerm)
+        )}
+      </div>
 
       <button
-        onClick={() => { setShowErrors(true); if (isValid) onSave(form); else toast.error('Please fill all required fields'); }}
+        onClick={() => {
+          setShowErrors(true);
+          if (!form.qualification && !isSiteEmployee) { toast.error('Please select your qualification'); return; }
+          if (isValid) {
+            onSave({ ...form, permanentAddress: sameAsCurrent ? form.currentAddress : form.permanentAddress });
+          } else {
+            toast.error('Please fill all required fields');
+          }
+        }}
         disabled={saving}
         className="btn-primary w-full flex items-center justify-center gap-2 mt-2"
       >
@@ -740,61 +863,22 @@ function Step5Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
 // ==================
 // STEP 6: DOCUMENTS (separate upload only)
 // ==================
-const DOC_SECTIONS = [
-  {
-    title: 'Education Certificates',
-    docs: [
-      { name: '10th Marksheet / Certificate', type: 'TENTH_CERTIFICATE', required: true },
-      { name: '12th Marksheet / Certificate', type: 'TWELFTH_CERTIFICATE', required: false },
-      { name: 'Diploma / Degree Certificate', type: 'DEGREE_CERTIFICATE', required: false },
-      { name: 'Post-Graduation Certificate', type: 'POST_GRADUATION_CERTIFICATE', required: false },
-    ],
-  },
-  {
-    title: 'Address & Financial Proof',
-    docs: [
-      { name: 'PAN Card', type: 'PAN', required: true },
-      { name: 'Residence Proof (Utility Bill / Rent Agreement)', type: 'RESIDENCE_PROOF', required: true },
-    ],
-  },
-  {
-    title: 'Passport Photo',
-    docs: [
-      { name: 'Passport Size Photograph', type: 'PHOTO', required: true },
-    ],
-  },
-  {
-    title: 'Previous Employment (if applicable)',
-    docs: [
-      { name: 'Offer / Appointment Letter', type: 'OFFER_LETTER_DOC', required: false },
-      { name: 'Last 3 Salary Slips / Bank Statements', type: 'SALARY_SLIP_DOC', required: false },
-      { name: 'Relieving / Experience Letter', type: 'EXPERIENCE_LETTER', required: false },
-    ],
-  },
-  {
-    title: 'Financial Documents',
-    docs: [
-      { name: 'Bank Statement (last 3 months)', type: 'BANK_STATEMENT', required: true },
-      { name: 'Cancelled Cheque', type: 'CANCELLED_CHEQUE', required: true },
-    ],
-  },
-];
-
 type UploadState = { status: 'idle' | 'uploading' | 'done' | 'error'; fileName?: string; error?: string };
 
-function Step6Documents({ uploadedDocTypes, onContinue, onRefetch, workMode }: {
+function Step6Documents({ uploadedDocTypes, onContinue, onRefetch, workMode, qualification }: {
   uploadedDocTypes: string[];
   onContinue: () => void;
   onRefetch: () => void;
   workMode?: WorkMode | null;
+  qualification?: string | null;
 }) {
   const [uploads, setUploads] = useState<Record<string, UploadState>>({});
   const [identityType, setIdentityType] = useState<IdentityDocType>('AADHAAR');
   const [uploadDocument] = useUploadDocumentMutation();
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const identityFileRef = useRef<HTMLInputElement | null>(null);
-  const requiredNonIdentityDocs = getRequiredNonIdentityDocs(workMode ?? null);
-  const activeSections = workMode === 'PROJECT_SITE' ? getSiteDocSections() : DOC_SECTIONS;
+  const requiredNonIdentityDocs = getRequiredNonIdentityDocs(workMode ?? null, qualification);
+  const activeSections = workMode === 'PROJECT_SITE' ? getSiteDocSections() : getOfficeSections(qualification);
 
   // Sync initial state + identity type from already-uploaded docs
   useEffect(() => {
@@ -854,7 +938,7 @@ function Step6Documents({ uploadedDocTypes, onContinue, onRefetch, workMode }: {
         </div>
       </div>
 
-      {/* Identity Proof — separate section with type selector */}
+      {/* Identity Proof — fixed to Aadhaar for site employees, selector for office */}
       <div>
         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-brand-500" />Identity Proof
@@ -865,16 +949,23 @@ function Step6Documents({ uploadedDocTypes, onContinue, onRefetch, workMode }: {
           identityState.status === 'error' ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-100'
         )}>
           <div className="flex items-center gap-2 px-3 pt-3 pb-2">
-            <select
-              value={identityType}
-              onChange={e => setIdentityType(e.target.value as IdentityDocType)}
-              className="input-glass text-sm flex-1"
-              disabled={identityUploaded}
-            >
-              {IDENTITY_DOC_TYPES.map(t => (
-                <option key={t} value={t}>{IDENTITY_DOC_LABELS[t]}</option>
-              ))}
-            </select>
+            {workMode === 'PROJECT_SITE' ? (
+              <div className="input-glass text-sm flex-1 flex items-center gap-2 bg-amber-50 border-amber-200 text-amber-800 cursor-not-allowed">
+                <Shield size={13} className="text-amber-600 shrink-0" />
+                Aadhaar Card <span className="text-[11px] text-amber-600 ml-1">(required for site employees)</span>
+              </div>
+            ) : (
+              <select
+                value={identityType}
+                onChange={e => setIdentityType(e.target.value as IdentityDocType)}
+                className="input-glass text-sm flex-1"
+                disabled={identityUploaded}
+              >
+                {IDENTITY_DOC_TYPES.map(t => (
+                  <option key={t} value={t}>{IDENTITY_DOC_LABELS[t]}</option>
+                ))}
+              </select>
+            )}
             <span className="text-red-500 text-sm font-bold shrink-0">*</span>
           </div>
           <div className="flex items-center justify-between py-2 px-3">
@@ -995,10 +1086,11 @@ function Step6Documents({ uploadedDocTypes, onContinue, onRefetch, workMode }: {
 // ==================
 // STEP 7: REVIEW & SUBMIT
 // ==================
-function Step7Review({ status, onComplete, completing, workMode }: { status: any; onComplete: () => void; completing: boolean; workMode?: WorkMode | null }) {
+function Step7Review({ status, onComplete, completing, workMode, qualification }: { status: any; onComplete: () => void; completing: boolean; workMode?: WorkMode | null; qualification?: string | null }) {
   const [agreed, setAgreed] = useState(false);
 
-  const addr = status?.address as any;
+  const addr = status?.currentAddress as any;
+  const permAddr = status?.permanentAddress as any;
   const ec = status?.emergencyContact as any;
   const allSectionsDone = status?.sections?.personalDetails && status?.sections?.emergencyContact &&
     status?.sections?.bankDetails && status?.sections?.documents;
@@ -1024,7 +1116,9 @@ function Step7Review({ status, onComplete, completing, workMode }: { status: any
           <ReviewRow label="DOB" value={status?.dateOfBirth} />
           <ReviewRow label="Gender" value={status?.gender} />
           <ReviewRow label="Phone" value={status?.phone} />
-          {addr?.city && <ReviewRow label="City" value={`${addr.city}, ${addr.state} ${addr.pincode}`} />}
+          {qualification && <ReviewRow label="Qualification" value={qualification} />}
+          {addr?.city && <ReviewRow label="Current City" value={`${addr.city}, ${addr.state} ${addr.pincode}`} />}
+          {permAddr?.city && <ReviewRow label="Permanent City" value={`${permAddr.city}, ${permAddr.state} ${permAddr.pincode}`} />}
         </ReviewSection>
 
         <ReviewSection title="Emergency Contact">
@@ -1058,7 +1152,7 @@ function Step7Review({ status, onComplete, completing, workMode }: { status: any
               />
             );
           })()}
-          {getRequiredNonIdentityDocs(workMode ?? null).map(t => (
+          {getRequiredNonIdentityDocs(workMode ?? null, qualification).map(t => (
             <ReviewRow key={t} label={REQUIRED_NON_IDENTITY_LABELS[t] || t.replace(/_/g, ' ')} value={status?.uploadedDocTypes?.includes(t) ? '✓ Uploaded' : '✗ Missing'} valueClass={status?.uploadedDocTypes?.includes(t) ? 'text-emerald-600' : 'text-red-500'} />
           ))}
         </ReviewSection>

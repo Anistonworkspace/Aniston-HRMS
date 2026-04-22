@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
-import { emitToOrg } from '../../sockets/index.js';
+import { emitToOrg, emitToUser } from '../../sockets/index.js';
 import { logger } from '../../lib/logger.js';
 
 // =====================
@@ -356,15 +356,20 @@ export class DocumentGateService {
     try {
       const emp = await prisma.employee.findUnique({
         where: { id: employeeId },
-        select: { organizationId: true, firstName: true, lastName: true, employeeCode: true },
+        select: { organizationId: true, firstName: true, lastName: true, employeeCode: true, userId: true },
       });
       if (emp) {
-        emitToOrg(emp.organizationId, 'kyc:status-changed', {
+        const payload = {
           employeeId,
           employeeName: `${emp.firstName} ${emp.lastName}`,
           employeeCode: emp.employeeCode,
           status,
-        });
+        };
+        emitToOrg(emp.organizationId, 'kyc:status-changed', payload);
+        // Also emit directly to the employee's own socket room so they get it even without org-room membership
+        if (emp.userId && (status === 'VERIFIED' || status === 'REUPLOAD_REQUIRED')) {
+          emitToUser(emp.userId, 'kyc:status-changed', payload);
+        }
       }
     } catch (err) {
       logger.warn('Failed to emit KYC socket event:', err);

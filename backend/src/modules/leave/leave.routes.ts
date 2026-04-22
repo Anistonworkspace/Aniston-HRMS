@@ -433,4 +433,83 @@ router.post('/policies/:id/acknowledge', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// HR: Manually adjust an employee's leave balance allocation for a given leave type + year
+router.patch(
+  '/balance/:employeeId/:leaveTypeId',
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma: db } = await import('../../lib/prisma.js');
+      const { enqueueNotification, enqueueEmail } = await import('../../jobs/queues.js');
+      const { employeeId, leaveTypeId } = req.params;
+      const { allocated, reason } = req.body;
+      const year = Number(req.body.year) || new Date().getFullYear();
+
+      if (typeof allocated !== 'number' || allocated < 0) {
+        return res.status(400).json({ success: false, error: { code: 'INVALID_INPUT', message: 'allocated must be a non-negative number' } });
+      }
+
+      // Verify employee belongs to org
+      const employee = await db.employee.findFirst({
+        where: { id: employeeId, organizationId: req.user!.organizationId, deletedAt: null },
+        select: { id: true, firstName: true, lastName: true, user: { select: { id: true, email: true } } },
+      });
+      if (!employee) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Employee not found' } });
+      }
+
+      const leaveType = await db.leaveType.findFirst({
+        where: { id: leaveTypeId, organizationId: req.user!.organizationId },
+        select: { id: true, name: true },
+      });
+      if (!leaveType) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Leave type not found' } });
+      }
+
+      const balance = await db.leaveBalance.upsert({
+        where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
+        update: { allocated },
+        create: { employeeId, leaveTypeId, year, allocated, used: 0, pending: 0, carriedForward: 0 },
+      });
+
+      // Notify the employee — in-app, email, and real-time socket
+      if (employee.user?.id) {
+        await enqueueNotification({
+          userId: employee.user.id,
+          type: 'LEAVE_BALANCE_ADJUSTED',
+          title: `Leave Balance Updated — ${leaveType.name}`,
+          message: `Your ${leaveType.name} balance for ${year} has been updated to ${allocated} day${allocated !== 1 ? 's' : ''} by HR${reason ? ': ' + reason : '.'}`,
+          link: '/leaves',
+        }).catch(() => {});
+
+        // Real-time socket — employee's personal room
+        const { emitToUser } = await import('../../sockets/index.js');
+        emitToUser(employee.user.id, 'leave:balance-adjusted', {
+          leaveTypeName: leaveType.name,
+          allocated,
+          year,
+          reason: reason || null,
+        });
+      }
+      if (employee.user?.email) {
+        await enqueueEmail({
+          to: employee.user.email,
+          subject: `Leave Balance Updated — ${leaveType.name} (${year})`,
+          template: 'leave-balance-adjusted',
+          context: {
+            employeeName: `${employee.firstName} ${employee.lastName}`,
+            leaveTypeName: leaveType.name,
+            allocated,
+            year,
+            reason: reason || '',
+            appUrl: 'https://hr.anistonav.com/leaves',
+          },
+        }).catch(() => {});
+      }
+
+      res.json({ success: true, data: balance, message: `${leaveType.name} balance updated to ${allocated} days` });
+    } catch (err) { next(err); }
+  }
+);
+
 export { router as leaveRouter };

@@ -172,6 +172,16 @@ export const leaveApi = api.injectEndpoints({
       query: (body) => ({ url: '/leaves/org-settings', method: 'PATCH', body }),
       invalidatesTags: ['Leave'],
     }),
+
+    // HR: manually adjust an employee's leave balance allocation
+    adjustLeaveBalance: builder.mutation<any, { employeeId: string; leaveTypeId: string; allocated: number; year?: number; reason?: string }>({
+      query: ({ employeeId, leaveTypeId, ...body }) => ({
+        url: `/leaves/balance/${employeeId}/${leaveTypeId}`,
+        method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: ['LeaveBalance', 'Leave'],
+    }),
   }),
 });
 
@@ -206,4 +216,5 @@ export const {
   useGetEmployeeLeaveOverviewQuery,
   useGetOrgLeaveSettingsQuery,
   useUpdateOrgLeaveSettingsMutation,
+  useAdjustLeaveBalanceMutation,
 } = leaveApi;

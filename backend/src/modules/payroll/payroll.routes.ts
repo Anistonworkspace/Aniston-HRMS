@@ -81,7 +81,7 @@ router.get('/runs/:id/records',
 
 // Lock a completed payroll run
 router.post('/runs/:id/lock',
-  authorize(Role.SUPER_ADMIN, Role.ADMIN),
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {
     try {
       const result = await payrollService.lockPayrollRun(req.params.id, req.user!.organizationId, req.user!.userId);
