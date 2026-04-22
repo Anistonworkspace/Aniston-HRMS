@@ -34,6 +34,16 @@ on:
   # Bug #1: Allow manual build trigger — useful for re-deploying the agent
   # exe without a code change (e.g. after updating EC2 secrets or API URL)
   workflow_dispatch:
+    inputs:
+      run_cleanup:
+        description: 'Delete all non-system employees (ONE-TIME use only — irreversible!)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+env:
+  RUN_CLEANUP: ${{ github.event.inputs.run_cleanup || 'false' }}
 
 jobs:
 
@@ -639,7 +649,14 @@ jobs:
             fi
 
             echo "=== [9/17] Cleanup scripts ==="
-            npx tsx scripts/cleanup-employees.ts || echo "Cleanup completed (or already clean)"
+            # SAFETY GUARD: employee cleanup only runs when explicitly requested via
+            # workflow_dispatch with run_cleanup=true — never on automatic push deploys
+            if [ "${RUN_CLEANUP:-false}" = "true" ]; then
+              echo "⚠️  Running employee cleanup (explicitly requested)..."
+              npx tsx scripts/cleanup-employees.ts || echo "Cleanup completed (or already clean)"
+            else
+              echo "Skipping employee cleanup (set RUN_CLEANUP=true on manual dispatch to run)"
+            fi
             npx tsx scripts/cleanup-holidays.ts || echo "Holiday cleanup skipped"
 
             echo "=== [10/17] Seeding database ==="
