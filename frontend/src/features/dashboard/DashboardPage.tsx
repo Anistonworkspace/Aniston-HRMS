@@ -361,22 +361,23 @@ function EmployeeDashboard() {
 
   return (
     <div className="page-container pb-6">
-      {/* Greeting */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-4 md:mb-8">
+      {/* Greeting — centered */}
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-4 md:mb-8 text-center">
         <h1 className="text-2xl md:text-3xl font-display font-bold text-gray-900">
           {greeting}, {user?.firstName || 'there'}
         </h1>
         <p className="text-gray-500 mt-1">{t('dashboard.manageDesc')}</p>
       </motion.div>
 
-      {/* Today's Hours Circular Chart — only for non-management */}
-      {!isManagement && <motion.div variants={container} initial="hidden" animate="show" className="mb-8">
-        <motion.div variants={item} className="layer-card p-3 md:p-6">
-          <div className="flex flex-col md:flex-row items-center gap-3 md:gap-6">
+      {/* Today's Hours Circular Chart — no card background */}
+      {!isManagement && <motion.div variants={container} initial="hidden" animate="show" className="mb-6">
+        <motion.div variants={item}>
+          <div className="flex flex-col items-center gap-4">
+            {/* Circle */}
             <div className="relative">
               <RadialBarChart
-                width={isMobile ? 140 : 200} height={isMobile ? 140 : 200} cx={isMobile ? 70 : 100} cy={isMobile ? 70 : 100}
-                innerRadius={isMobile ? 49 : 70} outerRadius={isMobile ? 63 : 90} barSize={isMobile ? 10 : 14}
+                width={isMobile ? 160 : 200} height={isMobile ? 160 : 200} cx={isMobile ? 80 : 100} cy={isMobile ? 80 : 100}
+                innerRadius={isMobile ? 56 : 70} outerRadius={isMobile ? 72 : 90} barSize={isMobile ? 12 : 14}
                 data={[{ value: hoursPercent, fill: hoursPercent >= 100 ? '#10b981' : hoursPercent >= 50 ? '#6366f1' : '#f59e0b' }]}
                 startAngle={90} endAngle={-270}
               >
@@ -395,18 +396,19 @@ function EmployeeDashboard() {
               </div>
             </div>
 
-            <div className="flex-1 space-y-3">
-              <h2 className="text-base md:text-lg font-display font-semibold text-gray-800">{t('dashboard.todaysProgress')}</h2>
-              <div className="grid grid-cols-2 gap-2 md:gap-3">
+            {/* Today's Progress stats — no outer card, just the 4 stat tiles */}
+            <div className="w-full space-y-2">
+              <p className="text-sm font-semibold text-gray-500 text-center">{t('dashboard.todaysProgress')}</p>
+              <div className="grid grid-cols-2 gap-2">
                 <div className="p-2 md:p-3 bg-surface-2 rounded-xl">
-                  <p className="text-[10px] md:text-xs text-gray-400 mb-0.5 md:mb-1">{t('dashboard.statusLabel')}</p>
+                  <p className="text-[10px] md:text-xs text-gray-400 mb-0.5">{t('dashboard.statusLabel')}</p>
                   <p className="text-xs md:text-sm font-semibold text-gray-700">
                     {todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut ? t('dashboard.working')
                       : todayStatus?.isCheckedOut ? t('dashboard.completed') : t('dashboard.notStarted')}
                   </p>
                 </div>
                 <div className="p-2 md:p-3 bg-surface-2 rounded-xl">
-                  <p className="text-[10px] md:text-xs text-gray-400 mb-0.5 md:mb-1">{t('dashboard.checkIn')}</p>
+                  <p className="text-[10px] md:text-xs text-gray-400 mb-0.5">{t('dashboard.checkIn')}</p>
                   <p className="text-xs md:text-sm font-semibold text-gray-700" data-mono>
                     {todayStatus?.record?.checkIn
                       ? new Date(todayStatus.record.checkIn).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
@@ -414,7 +416,7 @@ function EmployeeDashboard() {
                   </p>
                 </div>
                 <div className="p-2 md:p-3 bg-surface-2 rounded-xl">
-                  <p className="text-[10px] md:text-xs text-gray-400 mb-0.5 md:mb-1">{t('dashboard.checkOut')}</p>
+                  <p className="text-[10px] md:text-xs text-gray-400 mb-0.5">{t('dashboard.checkOut')}</p>
                   <p className="text-xs md:text-sm font-semibold text-gray-700" data-mono>
                     {todayStatus?.record?.checkOut
                       ? new Date(todayStatus.record.checkOut).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
@@ -422,7 +424,7 @@ function EmployeeDashboard() {
                   </p>
                 </div>
                 <div className="p-2 md:p-3 bg-surface-2 rounded-xl">
-                  <p className="text-[10px] md:text-xs text-gray-400 mb-0.5 md:mb-1">{t('dashboard.shift')}</p>
+                  <p className="text-[10px] md:text-xs text-gray-400 mb-0.5">{t('dashboard.shift')}</p>
                   <p className="text-xs md:text-sm font-semibold text-gray-700">
                     {todayStatus?.shift ? `${todayStatus.shift.startTime}–${todayStatus.shift.endTime}` : t('dashboard.default')}
                   </p>
@@ -433,111 +435,47 @@ function EmployeeDashboard() {
         </motion.div>
       </motion.div>}
 
-      {/* Two column layout */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Quick actions */}
-        <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-4 md:p-6">
-          <h2 className="text-base md:text-lg font-display font-semibold text-gray-800 mb-3 md:mb-4 flex items-center gap-2">
-            <Clock size={18} className="text-brand-500" />
-            {t('dashboard.quickActions')}
-          </h2>
-          {!isManagement && todayStatus && (
-            <div className="mb-4 p-4 bg-surface-2 rounded-xl flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-700">
-                  {todayStatus.isCheckedIn && !todayStatus.isCheckedOut && todayStatus.record?.checkIn
-                    ? t('dashboard.checkedInAt', { time: new Date(todayStatus.record.checkIn).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) })
-                    : todayStatus.isCheckedOut
-                    ? t('dashboard.doneForToday', { hours: Number(todayStatus.totalHours || 0).toFixed(1) })
-                    : t('dashboard.notCheckedInYet')}
-                </p>
-                <p className="text-xs text-gray-400 flex items-center gap-1">
-                  <MapPin size={10} />
-                  {todayStatus.shift ? `${todayStatus.shift.name || t('dashboard.shift')} (${todayStatus.shift.startTime}–${todayStatus.shift.endTime})` : t('dashboard.gpsAttendance')}
-                </p>
-              </div>
-              {canCheckIn ? (
-                <button
-                  onClick={handleQuickCheckIn}
-                  disabled={isCheckingInOut}
-                  className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-all active:scale-95 ${
-                    isCheckingInOut ? 'bg-brand-500 text-white animate-pulse'
-                      : todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'bg-red-500 hover:bg-red-600 text-white'
-                      : todayStatus.isCheckedOut ? 'bg-amber-500 hover:bg-amber-600 text-white'
-                      : 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                  }`}
-                >
-                  {isCheckingInOut ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
-                  {isCheckingInOut
-                    ? (gettingGps ? t('dashboard.gettingGps') : t('dashboard.marking'))
-                    : todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? t('dashboard.checkOut')
-                    : todayStatus.isCheckedOut ? t('dashboard.reCheckIn') : t('dashboard.checkIn')}
-                </button>
-              ) : (
-                <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg">{t('common.mobileOnly')}</span>
-              )}
-            </div>
-          )}
-          <QuickActionGrid actions={EMP_QUICK_ACTIONS} columns="grid-cols-2" />
-        </motion.div>
-
-        {/* Monthly Attendance History */}
-        <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-4 md:p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base md:text-lg font-display font-semibold text-gray-800">{t('dashboard.attendanceHistory')}</h2>
-            <div className="flex items-center gap-2">
-              <button onClick={() => navigateMonth(-1)} aria-label={t('common.previousPage')} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                <ChevronLeft size={16} className="text-gray-500" />
-              </button>
-              <span className="text-sm font-medium text-gray-700 min-w-[140px] text-center">{monthLabel}</span>
-              <button onClick={() => navigateMonth(1)} aria-label={t('common.nextPage')} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" disabled={isCurrentMonth}>
-                <ChevronRight size={16} className={isCurrentMonth ? 'text-gray-200' : 'text-gray-500'} />
-              </button>
-            </div>
-          </div>
-
-          {myAttendance?.summary && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-              {[
-                { label: t('dashboard.present'), value: myAttendance.summary.present, bg: 'bg-emerald-50', text: 'text-emerald-700', sub: 'text-emerald-600' },
-                { label: t('dashboard.absent'), value: myAttendance.summary.absent, bg: 'bg-red-50', text: 'text-red-700', sub: 'text-red-600' },
-                { label: t('dashboard.halfDay'), value: myAttendance.summary.halfDay, bg: 'bg-amber-50', text: 'text-amber-700', sub: 'text-amber-600' },
-                { label: t('dashboard.onLeave'), value: myAttendance.summary.onLeave, bg: 'bg-purple-50', text: 'text-purple-700', sub: 'text-purple-600' },
-              ].map((s) => (
-                <div key={s.label} className={`p-2.5 ${s.bg} rounded-lg text-center`}>
-                  <p className={`text-lg font-bold ${s.text} font-mono`} data-mono>{s.value}</p>
-                  <p className={`text-[10px] ${s.sub}`}>{s.label}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="space-y-1 max-h-[300px] overflow-y-auto pr-1">
-            {sortedRecords.length > 0 ? (
-              sortedRecords.map((record: AttendanceRecord) => (
-                <AttendanceRow key={record.id || record.date} record={record} />
-              ))
-            ) : (
-              <p className="text-sm text-gray-400 text-center py-8">{t('dashboard.noRecords')}</p>
-            )}
-          </div>
-
-          {myAttendance?.summary && (
-            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-              <p className="text-xs text-gray-400">{t('dashboard.avgDailyHours')}</p>
-              <p className="text-sm font-semibold text-gray-700 font-mono" data-mono>
-                {Number(myAttendance.summary.averageHours || 0).toFixed(1)}h
+      {/* Quick actions — no outer card background */}
+      <motion.div variants={item} initial="hidden" animate="show" className="mt-2">
+        {!isManagement && todayStatus && (
+          <div className="mb-4 p-4 bg-surface-2 rounded-xl flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-700">
+                {todayStatus.isCheckedIn && !todayStatus.isCheckedOut && todayStatus.record?.checkIn
+                  ? t('dashboard.checkedInAt', { time: new Date(todayStatus.record.checkIn).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) })
+                  : todayStatus.isCheckedOut
+                  ? t('dashboard.doneForToday', { hours: Number(todayStatus.totalHours || 0).toFixed(1) })
+                  : t('dashboard.notCheckedInYet')}
+              </p>
+              <p className="text-xs text-gray-400 flex items-center gap-1">
+                <MapPin size={10} />
+                {todayStatus.shift ? `${todayStatus.shift.name || t('dashboard.shift')} (${todayStatus.shift.startTime}–${todayStatus.shift.endTime})` : t('dashboard.gpsAttendance')}
               </p>
             </div>
-          )}
-        </motion.div>
-      </div>
-
-      {/* Leave Balance + Upcoming Holidays */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-        <LeaveBalanceWidget />
-        <UpcomingHolidaysWidget />
-      </div>
+            {canCheckIn ? (
+              <button
+                onClick={handleQuickCheckIn}
+                disabled={isCheckingInOut}
+                className={`px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-all active:scale-95 ${
+                  isCheckingInOut ? 'bg-brand-500 text-white animate-pulse'
+                    : todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? 'bg-red-500 hover:bg-red-600 text-white'
+                    : todayStatus.isCheckedOut ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                    : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                }`}
+              >
+                {isCheckingInOut ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
+                {isCheckingInOut
+                  ? (gettingGps ? t('dashboard.gettingGps') : t('dashboard.marking'))
+                  : todayStatus.isCheckedIn && !todayStatus.isCheckedOut ? t('dashboard.checkOut')
+                  : todayStatus.isCheckedOut ? t('dashboard.reCheckIn') : t('dashboard.checkIn')}
+              </button>
+            ) : (
+              <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1.5 rounded-lg">{t('common.mobileOnly')}</span>
+            )}
+          </div>
+        )}
+        <QuickActionGrid actions={EMP_QUICK_ACTIONS} columns="grid-cols-2" />
+      </motion.div>
 
     </div>
   );
