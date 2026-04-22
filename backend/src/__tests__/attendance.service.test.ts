@@ -159,7 +159,18 @@ describe('AttendanceService', () => {
     vi.mocked(prisma.holiday.findMany).mockResolvedValue([]);
     vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.shiftAssignment.findFirst).mockResolvedValue(null);
-    vi.mocked(prisma.shift.findFirst).mockResolvedValue(null);
+    // Return a default shift so clockIn doesn't fail with "No shift assigned"
+    vi.mocked(prisma.shift.findFirst).mockResolvedValue({
+      id: 'shift-default-001',
+      name: 'Default Shift',
+      isDefault: true,
+      isActive: true,
+      weekOffDays: [0],
+      sundayWorkEnabled: false,
+      sundayPayMultiplier: 2.0,
+      startTime: '09:00',
+      endTime: '18:00',
+    } as any);
     vi.mocked(prisma.attendancePolicy.findUnique).mockResolvedValue({
       weekOffDays: [0],
       sundayWorkEnabled: false,
