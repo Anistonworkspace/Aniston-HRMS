@@ -334,7 +334,7 @@ function EmployeeDashboard() {
   return (
     <div className="page-container pb-6">
       {/* Greeting */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-4 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-display font-bold text-gray-900">
           {greeting}, {user?.firstName || 'there'}
         </h1>
@@ -343,12 +343,12 @@ function EmployeeDashboard() {
 
       {/* Today's Hours Circular Chart — only for non-management */}
       {!isManagement && <motion.div variants={container} initial="hidden" animate="show" className="mb-8">
-        <motion.div variants={item} className="layer-card p-6">
-          <div className="flex flex-col md:flex-row items-center gap-6">
+        <motion.div variants={item} className="layer-card p-3 md:p-6">
+          <div className="flex flex-col md:flex-row items-center gap-3 md:gap-6">
             <div className="relative">
               <RadialBarChart
-                width={200} height={200} cx={100} cy={100}
-                innerRadius={70} outerRadius={90} barSize={14}
+                width={isMobile ? 140 : 200} height={isMobile ? 140 : 200} cx={isMobile ? 70 : 100} cy={isMobile ? 70 : 100}
+                innerRadius={isMobile ? 49 : 70} outerRadius={isMobile ? 63 : 90} barSize={isMobile ? 10 : 14}
                 data={[{ value: hoursPercent, fill: hoursPercent >= 100 ? '#10b981' : hoursPercent >= 50 ? '#6366f1' : '#f59e0b' }]}
                 startAngle={90} endAngle={-270}
               >
@@ -356,7 +356,7 @@ function EmployeeDashboard() {
                 <RadialBar background={{ fill: '#f1f5f9' }} dataKey="value" angleAxisId={0} cornerRadius={10} />
               </RadialBarChart>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <p className="text-2xl font-bold font-mono text-gray-900" data-mono>
+                <p className="text-xl md:text-2xl font-bold font-mono text-gray-900" data-mono>
                   {todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut
                     ? liveElapsed || `${Math.floor(completedHours)}h ${Math.round((completedHours % 1) * 60)}m`
                     : todayStatus?.isCheckedOut
@@ -368,34 +368,34 @@ function EmployeeDashboard() {
             </div>
 
             <div className="flex-1 space-y-3">
-              <h2 className="text-lg font-display font-semibold text-gray-800">{t('dashboard.todaysProgress')}</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-surface-2 rounded-xl">
-                  <p className="text-xs text-gray-400 mb-1">{t('dashboard.statusLabel')}</p>
-                  <p className="text-sm font-semibold text-gray-700">
+              <h2 className="text-base md:text-lg font-display font-semibold text-gray-800">{t('dashboard.todaysProgress')}</h2>
+              <div className="grid grid-cols-2 gap-2 md:gap-3">
+                <div className="p-2 md:p-3 bg-surface-2 rounded-xl">
+                  <p className="text-[10px] md:text-xs text-gray-400 mb-0.5 md:mb-1">{t('dashboard.statusLabel')}</p>
+                  <p className="text-xs md:text-sm font-semibold text-gray-700">
                     {todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut ? t('dashboard.working')
                       : todayStatus?.isCheckedOut ? t('dashboard.completed') : t('dashboard.notStarted')}
                   </p>
                 </div>
-                <div className="p-3 bg-surface-2 rounded-xl">
-                  <p className="text-xs text-gray-400 mb-1">{t('dashboard.checkIn')}</p>
-                  <p className="text-sm font-semibold text-gray-700" data-mono>
+                <div className="p-2 md:p-3 bg-surface-2 rounded-xl">
+                  <p className="text-[10px] md:text-xs text-gray-400 mb-0.5 md:mb-1">{t('dashboard.checkIn')}</p>
+                  <p className="text-xs md:text-sm font-semibold text-gray-700" data-mono>
                     {todayStatus?.record?.checkIn
                       ? new Date(todayStatus.record.checkIn).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
                       : '—'}
                   </p>
                 </div>
-                <div className="p-3 bg-surface-2 rounded-xl">
-                  <p className="text-xs text-gray-400 mb-1">{t('dashboard.checkOut')}</p>
-                  <p className="text-sm font-semibold text-gray-700" data-mono>
+                <div className="p-2 md:p-3 bg-surface-2 rounded-xl">
+                  <p className="text-[10px] md:text-xs text-gray-400 mb-0.5 md:mb-1">{t('dashboard.checkOut')}</p>
+                  <p className="text-xs md:text-sm font-semibold text-gray-700" data-mono>
                     {todayStatus?.record?.checkOut
                       ? new Date(todayStatus.record.checkOut).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
                       : '—'}
                   </p>
                 </div>
-                <div className="p-3 bg-surface-2 rounded-xl">
-                  <p className="text-xs text-gray-400 mb-1">{t('dashboard.shift')}</p>
-                  <p className="text-sm font-semibold text-gray-700">
+                <div className="p-2 md:p-3 bg-surface-2 rounded-xl">
+                  <p className="text-[10px] md:text-xs text-gray-400 mb-0.5 md:mb-1">{t('dashboard.shift')}</p>
+                  <p className="text-xs md:text-sm font-semibold text-gray-700">
                     {todayStatus?.shift ? `${todayStatus.shift.startTime}–${todayStatus.shift.endTime}` : t('dashboard.default')}
                   </p>
                 </div>
@@ -408,8 +408,8 @@ function EmployeeDashboard() {
       {/* Two column layout */}
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Quick actions */}
-        <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
-          <h2 className="text-lg font-display font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-4 md:p-6">
+          <h2 className="text-base md:text-lg font-display font-semibold text-gray-800 mb-3 md:mb-4 flex items-center gap-2">
             <Clock size={18} className="text-brand-500" />
             {t('dashboard.quickActions')}
           </h2>
@@ -454,9 +454,9 @@ function EmployeeDashboard() {
         </motion.div>
 
         {/* Monthly Attendance History */}
-        <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-6">
+        <motion.div variants={item} initial="hidden" animate="show" className="layer-card p-4 md:p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-display font-semibold text-gray-800">{t('dashboard.attendanceHistory')}</h2>
+            <h2 className="text-base md:text-lg font-display font-semibold text-gray-800">{t('dashboard.attendanceHistory')}</h2>
             <div className="flex items-center gap-2">
               <button onClick={() => navigateMonth(-1)} aria-label={t('common.previousPage')} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
                 <ChevronLeft size={16} className="text-gray-500" />

@@ -2068,6 +2068,7 @@ function LeavePersonalView() {
   const { data: policiesRes } = useGetPoliciesQuery({ category: 'LEAVE' });
   const [acknowledgePolicy, { isLoading: acknowledging }] = useAcknowledgePolicyMutation();
   const [accepted, setAccepted] = useState(false);
+  const [selectedHoliday, setSelectedHoliday] = useState<any>(null);
   const user = useAppSelector((s) => s.auth.user);
 
   const balances = balancesRes?.data || [];
@@ -2296,8 +2297,9 @@ function LeavePersonalView() {
 
         {/* Holidays */}
         <div className="layer-card p-6">
-          <h2 className="text-lg font-display font-semibold text-gray-800 mb-4">
-            🎉 Holidays {new Date().getFullYear()}
+          <h2 className="text-lg font-display font-semibold text-gray-800 mb-4 flex items-center justify-between">
+            <span>🎉 Holidays {new Date().getFullYear()}</span>
+            <span className="text-xs text-gray-400 font-normal">Tap to view</span>
           </h2>
           <div className="space-y-2">
             {holidays.map((holiday: any) => {
@@ -2305,9 +2307,10 @@ function LeavePersonalView() {
               return (
                 <div
                   key={holiday.id}
+                  onClick={() => setSelectedHoliday(holiday)}
                   className={cn(
-                    'flex items-center justify-between py-2.5 px-3 rounded-lg',
-                    isPast ? 'bg-gray-50 opacity-60' : 'bg-blue-50'
+                    'flex items-center justify-between py-2.5 px-3 rounded-lg cursor-pointer transition-all active:scale-[0.98]',
+                    isPast ? 'bg-gray-50 opacity-60' : 'bg-blue-50 hover:bg-blue-100'
                   )}
                 >
                   <div>
@@ -2324,6 +2327,62 @@ function LeavePersonalView() {
         </div>
       </div>
 
+      {/* Holiday detail popup */}
+      {selectedHoliday && (
+        <div
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setSelectedHoliday(null)}
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-sm p-5 mx-auto"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex-1">
+                <div className="text-3xl mb-1">🎉</div>
+                <h3 className="text-lg font-bold text-gray-900">{selectedHoliday.name}</h3>
+                <p className="text-sm text-gray-500 mt-0.5">{formatDate(selectedHoliday.date, 'long')}</p>
+              </div>
+              <button
+                onClick={() => setSelectedHoliday(null)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                <span className="text-gray-500">Type</span>
+                <span className="font-medium text-gray-800 capitalize">{selectedHoliday.type?.replace(/_/g, ' ').toLowerCase()}</span>
+              </div>
+              {selectedHoliday.isOptional && (
+                <div className="p-3 bg-amber-50 rounded-xl text-xs text-amber-700 flex items-start gap-2">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  <span>This is an optional holiday — you may choose to work or take it off.</span>
+                </div>
+              )}
+              {selectedHoliday.description && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-gray-400">Description</span>
+                  <span className="text-sm text-gray-700">{selectedHoliday.description}</span>
+                </div>
+              )}
+              {new Date(selectedHoliday.date) < new Date() && (
+                <p className="text-xs text-gray-400 italic text-center mt-2">This holiday has passed</p>
+              )}
+            </div>
+            <button
+              onClick={() => setSelectedHoliday(null)}
+              className="mt-5 w-full py-3 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 transition-colors"
+            >
+              Close
+            </button>
+          </motion.div>
+        </div>
+      )}
       {/* Apply Leave Wizard */}
       {showApplyModal && (
         <LeaveApplyWizard

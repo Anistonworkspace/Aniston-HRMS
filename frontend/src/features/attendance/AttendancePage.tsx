@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import {
-  Clock, LogIn, LogOut, Coffee, Play, Square, MapPin,
+  Clock, LogIn, LogOut, MapPin, FileText,
   ChevronLeft, ChevronRight, Calendar as CalendarIcon,
   Users, Search, Filter, UserCheck, UserX, UserMinus, Eye, Monitor,
   Shield, Bell, RefreshCw, Flag, AlertTriangle, Download, X, Loader2,
@@ -13,10 +13,9 @@ import {
   useGetTodayStatusQuery,
   useClockInMutation,
   useClockOutMutation,
-  useStartBreakMutation,
-  useEndBreakMutation,
   useGetMyAttendanceQuery,
   useGetAllAttendanceQuery,
+  useSubmitRegularizationMutation,
 } from './attendanceApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
@@ -459,7 +458,7 @@ function AttendancePersonalView() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [liveTime, setLiveTime] = useState(new Date());
 
-  const [locationStatus, setLocationStatus] = useState<'checking' | 'granted' | 'denied' | 'prompt'>('checking');
+  const [locationStatus, setLocationStatus] = useState<'checking' | 'granted' | 'denied' | 'prompt' | 'gps_off'>('checking');
 
   // Desktop users cannot mark attendance — only mobile app is allowed
   const isDesktop = !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
@@ -492,10 +491,10 @@ function AttendancePersonalView() {
       },
       (err) => {
         // Location became unavailable while app is open — invalidate the pre-warmed cache
-        // so the next check-in attempt gets a fresh fix (or fails cleanly)
         bestPosRef.current = null;
         setGpsAccuracy(null);
         if (err.code === 1) setLocationStatus('denied');
+        else if (err.code === 2) setLocationStatus('gps_off'); // device GPS turned off
       },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 },
     );
@@ -597,8 +596,12 @@ function AttendancePersonalView() {
   const { data: todayResponse, isLoading: statusLoading, refetch: refetchToday } = useGetTodayStatusQuery();
   const today = todayResponse?.data;
 
-  const startDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0];
-  const endDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0];
+  // Build date strings directly from year/month to avoid UTC-offset shifting
+  const _cmYear = currentMonth.getFullYear();
+  const _cmMonth = currentMonth.getMonth();
+  const _pad = (n: number) => String(n).padStart(2, '0');
+  const startDate = `${_cmYear}-${_pad(_cmMonth + 1)}-01`;
+  const endDate = `${_cmYear}-${_pad(_cmMonth + 1)}-${String(new Date(_cmYear, _cmMonth + 1, 0).getDate())}`;
   const { data: monthResponse, refetch: refetchMonth } = useGetMyAttendanceQuery({ startDate, endDate });
   const monthData = monthResponse?.data;
 
@@ -620,8 +623,34 @@ function AttendancePersonalView() {
 
   const [clockIn, { isLoading: clockingIn }] = useClockInMutation();
   const [clockOut, { isLoading: clockingOut }] = useClockOutMutation();
-  const [startBreak] = useStartBreakMutation();
-  const [endBreak] = useEndBreakMutation();
+  const [submitRegularization, { isLoading: submittingReg }] = useSubmitRegularizationMutation();
+
+  const [showRegModal, setShowRegModal] = useState(false);
+  const [regReason, setRegReason] = useState('');
+  const [regCheckIn, setRegCheckIn] = useState('');
+  const [regCheckOut, setRegCheckOut] = useState('');
+
+  const handleSubmitRegularization = async () => {
+    const attendanceId = today?.record?.id;
+    if (!attendanceId) { toast.error('No attendance record found for today.'); return; }
+    if (regReason.trim().length < 10) { toast.error('Reason must be at least 10 characters.'); return; }
+    try {
+      await submitRegularization({
+        attendanceId,
+        reason: regReason.trim(),
+        ...(regCheckIn ? { requestedCheckIn: new Date(regCheckIn).toISOString() } : {}),
+        ...(regCheckOut ? { requestedCheckOut: new Date(regCheckOut).toISOString() } : {}),
+      }).unwrap();
+      toast.success('Regularization request submitted. HR will review it shortly.');
+      setShowRegModal(false);
+      setRegReason('');
+      setRegCheckIn('');
+      setRegCheckOut('');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to submit regularization request.');
+    }
+  };
+
   const actionLockRef = useRef(false); // debounce guard for clock-in/out
   const [shiftWarning, setShiftWarning] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
@@ -685,6 +714,10 @@ function AttendancePersonalView() {
         // Permission denied — move to blocked screen so user sees the enable-location instructions
         setLocationStatus('denied');
         toast.error('Location access denied. Please enable location to mark attendance.', { duration: 4000 });
+      } else if (err?.code === 2) {
+        // Device GPS / Location Services is turned off
+        setLocationStatus('gps_off');
+        toast.error('Please turn on your device GPS/Location to mark attendance.', { duration: 4000 });
       } else if (err?.code === 3) {
         toast.error(t('attendance.locationTimeout'));
       } else {
@@ -763,24 +796,6 @@ function AttendancePersonalView() {
     }
   };
 
-  const handleBreak = async () => {
-    if (actionLockRef.current) return; // prevent double-tap
-    actionLockRef.current = true;
-    try {
-      if (today?.isOnBreak) {
-        await endBreak().unwrap();
-        toast.success(t('attendance.breakEnded'));
-      } else {
-        await startBreak({ type: 'SHORT' }).unwrap();
-        toast.success(t('attendance.breakStarted'));
-      }
-    } catch (err: any) {
-      toast.error(err?.data?.error?.message || t('common.failed'));
-    } finally {
-      setTimeout(() => { actionLockRef.current = false; }, 2000);
-    }
-  };
-
   // Calculate elapsed time
   const getElapsedTime = () => {
     if (!today?.record?.checkIn) return '00:00:00';
@@ -815,7 +830,10 @@ function AttendancePersonalView() {
       days.push({ date: 0, status: '', isToday: false, record: null });
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    // IST-aware today string — prevents off-by-one when browser clock crosses UTC midnight before IST midnight
+    const _tNow = new Date();
+    const _tIst = new Date(_tNow.getTime() + _tNow.getTimezoneOffset() * 60000 + 5.5 * 3600000);
+    const todayStr = `${_tIst.getUTCFullYear()}-${String(_tIst.getUTCMonth() + 1).padStart(2, '0')}-${String(_tIst.getUTCDate()).padStart(2, '0')}`;
 
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -883,6 +901,44 @@ function AttendancePersonalView() {
               className="btn-primary w-full py-3 text-sm flex items-center justify-center gap-2"
             >
               <RefreshCw size={16} /> {t('common.refresh')}
+            </button>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  // BLOCKING: Device GPS/Location Services is off (browser permission granted, but hardware disabled)
+  if (!isDesktop && locationStatus === 'gps_off') {
+    return (
+      <div className="page-container">
+        <div className="min-h-[70vh] flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="layer-card p-10 text-center max-w-md mx-auto"
+          >
+            <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-5">
+              <MapPin size={40} className="text-amber-500" />
+            </div>
+            <h2 className="text-xl font-display font-bold text-gray-900 mb-3">Turn On Device Location</h2>
+            <p className="text-sm text-gray-500 mb-6">
+              Your phone's GPS / Location Services is turned off. You must enable it to mark attendance.
+            </p>
+            <div className="bg-amber-50 rounded-xl p-4 text-left mb-6">
+              <p className="text-xs font-semibold text-gray-700 mb-2">How to enable:</p>
+              <ol className="text-xs text-gray-500 space-y-1.5 list-decimal list-inside">
+                <li>Open your phone <strong>Settings</strong></li>
+                <li>Go to <strong>Location</strong> (or Privacy → Location)</li>
+                <li>Turn <strong>Location</strong> ON</li>
+                <li>Return here and tap Refresh</li>
+              </ol>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="btn-primary w-full py-3 text-sm flex items-center justify-center gap-2"
+            >
+              <RefreshCw size={16} /> Refresh
             </button>
           </motion.div>
         </div>
@@ -1129,55 +1185,34 @@ function AttendancePersonalView() {
                   </motion.button>
                 )}
 
-                {/* Re-clock-in button (after accidental clock-out) */}
-                {today?.isCheckedOut && (
+                {today?.isCheckedIn && !today?.isCheckedOut && (
                   <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={handleClockIn}
-                    disabled={clockingIn || (!isDesktop && locationStatus !== 'granted')}
-                    className="w-full bg-amber-500 hover:bg-amber-400 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 mt-3"
+                    onClick={handleClockOut}
+                    disabled={clockingOut}
+                    className="w-full bg-red-500 hover:bg-red-400 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                   >
-                    {clockingIn ? (
+                    {clockingOut ? (
                       <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     ) : (
-                      <LogIn size={20} />
+                      <LogOut size={20} />
                     )}
-                    {t('dashboard.reCheckIn')}
+                    {t('attendance.checkOut')}
                   </motion.button>
                 )}
 
-                {today?.isCheckedIn && !today?.isCheckedOut && (
-                  <div className="space-y-3">
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={handleClockOut}
-                      disabled={clockingOut}
-                      className="w-full bg-red-500 hover:bg-red-400 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                    >
-                      {clockingOut ? (
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <LogOut size={20} />
-                      )}
-                      {t('attendance.checkOut')}
-                    </motion.button>
-
-                    <button
-                      onClick={handleBreak}
-                      aria-label={today.isOnBreak ? t('attendance.endBreak') : t('attendance.startBreak')}
-                      className={cn(
-                        'w-full py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-colors',
-                        today.isOnBreak
-                          ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                          : 'bg-surface-2 text-gray-600 hover:bg-surface-3'
-                      )}
-                    >
-                      {today.isOnBreak ? <Square size={16} /> : <Coffee size={16} />}
-                      {today.isOnBreak ? t('attendance.endBreak') : t('attendance.startBreak')}
-                    </button>
-                  </div>
+                {/* Checked out — prompt for regularization */}
+                {today?.isCheckedOut && (
+                  <button
+                    onClick={() => setShowRegModal(true)}
+                    className="mt-3 w-full p-3 bg-amber-50 hover:bg-amber-100 rounded-xl border border-amber-200 text-center transition-colors"
+                  >
+                    <p className="text-xs text-amber-700 font-semibold flex items-center justify-center gap-1.5">
+                      <FileText size={13} />
+                      You have checked out for today. Tap to apply for Regularization
+                    </p>
+                  </button>
                 )}
               </>
             )}
@@ -1325,6 +1360,108 @@ function AttendancePersonalView() {
       >
         <SelfServiceReport />
       </motion.div>
+
+      {/* Regularization Modal */}
+      {showRegModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <FileText size={18} className="text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-display font-bold text-gray-900">Regularization Request</h3>
+                  <p className="text-xs text-gray-500">Attendance correction · goes to HR for approval</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setShowRegModal(false); setRegReason(''); setRegCheckIn(''); setRegCheckOut(''); }}
+                className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-4">
+              {/* Info row */}
+              <div className="bg-amber-50 rounded-xl p-3 text-xs text-amber-700">
+                You have already checked in and checked out today. Re-marking is not allowed.
+                Submit a regularization request if you need to correct your attendance — HR will review and approve it.
+              </div>
+
+              {/* Reason */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  Reason <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={regReason}
+                  onChange={(e) => setRegReason(e.target.value)}
+                  placeholder="Explain why you need to correct your attendance (min. 10 characters)…"
+                  className="input-glass w-full text-sm resize-none"
+                />
+                {regReason.length > 0 && regReason.length < 10 && (
+                  <p className="text-xs text-red-500 mt-1">{10 - regReason.length} more characters needed</p>
+                )}
+              </div>
+
+              {/* Time corrections (optional) */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Requested Check-In</label>
+                  <input
+                    type="datetime-local"
+                    value={regCheckIn}
+                    onChange={(e) => setRegCheckIn(e.target.value)}
+                    className="input-glass w-full text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Requested Check-Out</label>
+                  <input
+                    type="datetime-local"
+                    value={regCheckOut}
+                    onChange={(e) => setRegCheckOut(e.target.value)}
+                    className="input-glass w-full text-sm"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-gray-400">Time corrections are optional. Leave blank to keep original times.</p>
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 pb-5 flex gap-3">
+              <button
+                onClick={() => { setShowRegModal(false); setRegReason(''); setRegCheckIn(''); setRegCheckOut(''); }}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitRegularization}
+                disabled={submittingReg || regReason.trim().length < 10}
+                className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+              >
+                {submittingReg ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <FileText size={15} />
+                )}
+                Submit to HR
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

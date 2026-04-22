@@ -236,7 +236,7 @@ export default function ProfilePage() {
 
       {/* Profile header */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-        className="layer-card p-6 mb-6">
+        className="layer-card p-4 md:p-6 mb-6">
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
           <div className="relative">
             <div className="w-24 h-24 rounded-2xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-3xl font-display">
@@ -507,11 +507,11 @@ export default function ProfilePage() {
         </div>
       )}
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-2 gap-4 md:gap-6">
         {/* Employment info */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="layer-card p-6">
-          <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          className="layer-card p-4 md:p-6">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <Building2 size={16} className="text-brand-500" /> {t('profile.employmentDetails')}
           </h3>
           <dl className="space-y-3">
@@ -527,8 +527,8 @@ export default function ProfilePage() {
 
         {/* Personal info */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-          className="layer-card p-6">
-          <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          className="layer-card p-4 md:p-6">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <User size={16} className="text-brand-500" /> {t('profile.personalInfo')}
           </h3>
           <dl className="space-y-3">
@@ -544,8 +544,8 @@ export default function ProfilePage() {
 
         {/* Security */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          className="layer-card p-6">
-          <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          className="layer-card p-4 md:p-6">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <Key size={16} className="text-amber-500" /> {t('profile.security')}
           </h3>
           <div className="space-y-3">
@@ -609,8 +609,8 @@ export default function ProfilePage() {
 
         {/* Address & Emergency */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
-          className="layer-card p-6">
-          <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          className="layer-card p-4 md:p-6">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <MapPin size={16} className="text-brand-500" /> {t('profile.addressEmergency')}
           </h3>
           {employee?.address ? (
@@ -640,8 +640,8 @@ export default function ProfilePage() {
 
         {/* Bank Details */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-          className="layer-card p-6">
-          <div className="flex items-center justify-between mb-4">
+          className="layer-card p-4 md:p-6">
+          <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
               <CreditCard size={16} className="text-emerald-500" /> Bank Details
             </h3>

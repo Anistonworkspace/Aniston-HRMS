@@ -1,7 +1,7 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { WifiOff } from 'lucide-react';
+import { WifiOff, RefreshCw } from 'lucide-react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import MobileBottomNav from './MobileBottomNav';
@@ -39,6 +39,54 @@ export default function AppShell() {
   const user = useAppSelector(s => s.auth.user);
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
   const { resetTimer } = useInactivityTimeout(() => setShowTimeoutWarning(true));
+
+  // Pull-to-refresh — mobile only
+  const mainRef = useRef<HTMLElement>(null);
+  const [ptrProgress, setPtrProgress] = useState(0);
+  const [ptrRefreshing, setPtrRefreshing] = useState(false);
+  const ptrTouchYRef = useRef<number | null>(null);
+
+  const ptrTouchStart = useCallback((e: TouchEvent) => {
+    const el = mainRef.current;
+    if (!el || el.scrollTop > 5) return;
+    ptrTouchYRef.current = e.touches[0].clientY;
+  }, []);
+
+  const ptrTouchMove = useCallback((e: TouchEvent) => {
+    if (ptrTouchYRef.current === null || ptrRefreshing) return;
+    const el = mainRef.current;
+    if (!el || el.scrollTop > 5) { ptrTouchYRef.current = null; return; }
+    const diff = e.touches[0].clientY - ptrTouchYRef.current;
+    if (diff > 0) setPtrProgress(Math.min((diff / 80) * 100, 100));
+    else ptrTouchYRef.current = null;
+  }, [ptrRefreshing]);
+
+  const ptrTouchEnd = useCallback(async () => {
+    if (ptrTouchYRef.current === null) return;
+    ptrTouchYRef.current = null;
+    if (ptrProgress >= 100) {
+      setPtrRefreshing(true);
+      setPtrProgress(0);
+      dispatch(api.util.invalidateTags(['Dashboard', 'Attendance', 'Leave', 'LeaveBalance', 'Holiday', 'Employee'] as any[]));
+      await new Promise(r => setTimeout(r, 1200));
+      setPtrRefreshing(false);
+    } else {
+      setPtrProgress(0);
+    }
+  }, [ptrProgress, dispatch]);
+
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    el.addEventListener('touchstart', ptrTouchStart, { passive: true });
+    el.addEventListener('touchmove', ptrTouchMove, { passive: true });
+    el.addEventListener('touchend', ptrTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', ptrTouchStart);
+      el.removeEventListener('touchmove', ptrTouchMove);
+      el.removeEventListener('touchend', ptrTouchEnd);
+    };
+  }, [ptrTouchStart, ptrTouchMove, ptrTouchEnd]);
 
   // Connect Socket.io when user is logged in
   const accessToken = useAppSelector(s => s.auth.accessToken);
@@ -110,7 +158,25 @@ export default function AppShell() {
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
         <Topbar />
         {/* pb-[calc(5rem+env(safe-area-inset-bottom,0px))]: accounts for 64px mobile nav + iOS safe area */}
-        <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain pb-[calc(5rem+env(safe-area-inset-bottom,0px))] md:pb-0">
+        <main ref={mainRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain pb-[calc(5rem+env(safe-area-inset-bottom,0px))] md:pb-0">
+          {/* Pull-to-refresh indicator — mobile only */}
+          {(ptrProgress > 0 || ptrRefreshing) && (
+            <div className="md:hidden fixed top-16 left-1/2 -translate-x-1/2 z-[200] pointer-events-none transition-all duration-200">
+              <div
+                className="w-10 h-10 rounded-full bg-white shadow-lg border border-gray-100 flex items-center justify-center"
+                style={{
+                  transform: `scale(${ptrRefreshing ? 1 : 0.4 + (ptrProgress / 100) * 0.6})`,
+                  opacity: ptrRefreshing ? 1 : Math.max(ptrProgress / 100, 0.3),
+                }}
+              >
+                <RefreshCw
+                  size={18}
+                  className={`text-brand-600 ${ptrRefreshing ? 'animate-spin' : ''}`}
+                  style={{ transform: `rotate(${ptrProgress * 3.6}deg)` }}
+                />
+              </div>
+            </div>
+          )}
           {/* Offline banner */}
           <AnimatePresence>
             {!isOnline && (
