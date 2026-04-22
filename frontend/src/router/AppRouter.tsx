@@ -57,7 +57,7 @@ const ResetPasswordPage = lazy(() => import('../features/auth/ResetPasswordPage'
 const KycGatePage = lazy(() => import('../features/kyc/KycGatePage'));
 const KycHrReviewPage = lazy(() => import('../features/kyc/KycHrReviewPage'));
 const MyDocumentsPage = lazy(() => import('../features/my-documents/MyDocumentsPage'));
-const EmployeeOnboardingPage = lazy(() => import('../features/onboarding/EmployeeOnboardingPage'));
+const NewOnboardingFlow = lazy(() => import('../features/onboarding/NewOnboardingFlow'));
 const SendBulkEmailPage = lazy(() => import('../features/employee/SendBulkEmailPage'));
 const BulkEmailPage = lazy(() => import('../features/bulk-email/BulkEmailPage'));
 
@@ -168,7 +168,7 @@ export default function AppRouter() {
           </Route>
 
           {/* Employee Onboarding — no sidebar, just the onboarding wizard */}
-          <Route path="/employee-onboarding" element={<ProtectedRoute><EmployeeOnboardingPage /></ProtectedRoute>} />
+          <Route path="/employee-onboarding" element={<ProtectedRoute><NewOnboardingFlow /></ProtectedRoute>} />
 
           {/* KYC Gate — no sidebar, just the KYC form */}
           <Route path="/kyc-pending" element={<ProtectedRoute><RouteErrorBoundary pageName="KYC"><KycGatePage /></RouteErrorBoundary></ProtectedRoute>} />

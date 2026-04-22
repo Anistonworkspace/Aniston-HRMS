@@ -34,10 +34,12 @@ interface PayrollRecordForPDF {
     bankName?: string | null;
     ifscCode?: string | null;
     accountHolderName?: string | null;
+    organization?: { name: string } | null;
   };
   payrollRun: {
     month: number;
     year: number;
+    organization?: { name: string } | null;
   };
 }
 
@@ -48,7 +50,7 @@ function formatINR(value: number): string {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0 }).format(value);
 }
 
-export function generateSalarySlipPDF(record: PayrollRecordForPDF): Promise<Buffer> {
+export function generateSalarySlipPDF(record: PayrollRecordForPDF, organizationName?: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const buffers: Buffer[] = [];
@@ -61,10 +63,16 @@ export function generateSalarySlipPDF(record: PayrollRecordForPDF): Promise<Buff
     const leftCol = 50;
     const rightCol = 320;
 
+    // Resolve company name: explicit param > payrollRun org > employee org > fallback
+    const companyName = organizationName
+      || record.payrollRun?.organization?.name
+      || record.employee?.organization?.name
+      || 'Your Company';
+
     // =====================
     // Company Header
     // =====================
-    doc.fontSize(18).font('Helvetica-Bold').text('Aniston Technologies LLP', leftCol, 50, { align: 'center' });
+    doc.fontSize(18).font('Helvetica-Bold').text(companyName, leftCol, 50, { align: 'center' });
     doc.fontSize(9).font('Helvetica').fillColor('#666666')
       .text('Enterprise Human Resource Management', leftCol, 72, { align: 'center' });
 

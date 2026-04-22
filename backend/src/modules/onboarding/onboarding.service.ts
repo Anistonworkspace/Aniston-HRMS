@@ -255,11 +255,15 @@ export class OnboardingService {
 
   /**
    * Get onboarding status for the currently logged-in employee.
-   * Used by the post-login onboarding gate.
+   * Returns full employee data so the frontend can pre-fill forms.
    */
   async getMyOnboardingStatus(employeeId: string) {
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
+      include: {
+        documents: { where: { deletedAt: null }, select: { type: true, status: true, id: true, name: true } },
+        user: { select: { mfaEnabled: true } },
+      },
     });
     if (!employee) throw new NotFoundError('Employee');
 
@@ -268,90 +272,214 @@ export class OnboardingService {
       select: { name: true, logo: true },
     });
 
-    const documentCount = await prisma.document.count({
-      where: { employeeId },
-    });
+    const IDENTITY_DOC_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
+    const REQUIRED_NON_IDENTITY_DOCS = employee.workMode === 'PROJECT_SITE'
+      ? ['PAN', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE']
+      : ['PAN', 'TENTH_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
+    const uploadedDocTypes = (employee.documents as any[]).map((d: any) => d.type);
+    const hasIdentityProof = uploadedDocTypes.some((t: string) => IDENTITY_DOC_TYPES.includes(t));
+    const missingRequiredDocs = [
+      ...REQUIRED_NON_IDENTITY_DOCS.filter(t => !uploadedDocTypes.includes(t)),
+      ...(!hasIdentityProof ? ['IDENTITY_PROOF'] : []),
+    ];
+
+    const addr = employee.address as any;
+    const ec = employee.emergencyContact as any;
+
+    const sections = {
+      password: true, // assumed set if they can log in
+      mfa: !!(employee.user as any)?.mfaEnabled,
+      personalDetails: !!(
+        employee.firstName && employee.lastName &&
+        employee.dateOfBirth && employee.gender && employee.gender !== 'PREFER_NOT_TO_SAY' &&
+        employee.phone && employee.phone !== '0000000000' &&
+        (employee.workMode === 'PROJECT_SITE' || (addr?.line1 && addr?.city && addr?.state && addr?.pincode))
+      ),
+      emergencyContact: !!(ec?.name && ec?.relationship && ec?.phone),
+      bankDetails: !!(employee.bankAccountNumber && employee.bankName && employee.ifscCode && employee.accountHolderName),
+      documents: missingRequiredDocs.length === 0,
+    };
+
+    // Determine which step the employee should resume at
+    let resumeStep = 1;
+    if (sections.password) resumeStep = 2;
+    if (sections.mfa) resumeStep = 3;
+    if (sections.personalDetails) resumeStep = 4;
+    if (sections.emergencyContact) resumeStep = 5;
+    if (sections.bankDetails) resumeStep = 6;
+    if (sections.documents) resumeStep = 7;
 
     return {
       employeeId: employee.id,
+      workMode: employee.workMode,
       firstName: employee.firstName,
       lastName: employee.lastName,
       email: employee.email,
+      personalEmail: employee.personalEmail,
+      phone: employee.phone !== '0000000000' ? employee.phone : '',
+      dateOfBirth: employee.dateOfBirth ? employee.dateOfBirth.toISOString().split('T')[0] : '',
+      gender: employee.gender,
+      bloodGroup: employee.bloodGroup || '',
+      maritalStatus: employee.maritalStatus || '',
+      address: employee.address || {},
+      emergencyContact: employee.emergencyContact || {},
+      bankAccountNumber: employee.bankAccountNumber || '',
+      bankName: employee.bankName || '',
+      ifscCode: employee.ifscCode || '',
+      accountHolderName: employee.accountHolderName || '',
+      accountType: employee.accountType || 'SAVINGS',
       onboardingComplete: employee.onboardingComplete,
       organization: org,
-      sections: {
-        personalDetails: !!(employee.dateOfBirth && employee.gender !== 'PREFER_NOT_TO_SAY' && employee.address),
-        documents: documentCount > 0,
-        photo: !!employee.avatar,
-        bankDetails: !!(employee.bankAccountNumber && employee.ifscCode),
-        emergencyContact: !!employee.emergencyContact,
-      },
+      sections,
+      resumeStep,
+      missingRequiredDocs,
+      uploadedDocTypes,
     };
   }
 
   /**
    * Save onboarding data for the currently logged-in employee (authenticated).
-   * Same logic as saveStep but uses employeeId from JWT instead of Redis token.
+   * New 7-step flow:
+   *   1=Set Password  2=MFA (skip/enable)  3=Personal Details
+   *   4=Emergency Contact  5=Bank Details  6=Documents (no-op, uploads handled separately)  7=Complete
    */
   async saveMyOnboardingStep(employeeId: string, step: number, stepData: any) {
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      include: { user: { select: { id: true } } },
+    });
     if (!employee) throw new NotFoundError('Employee');
 
-    // Step: Personal details
-    if (step === 2) {
+    // Step 1: Set Password
+    if (step === 1 && stepData.password) {
+      const bcrypt = await import('bcryptjs');
+      const passwordHash = await bcrypt.default.hash(stepData.password, 12);
+      if (employee.userId) {
+        await prisma.user.update({
+          where: { id: employee.userId },
+          data: { passwordHash, status: 'ACTIVE' },
+        });
+      }
+    }
+
+    // Step 1: also save workMode if provided
+    if (step === 1 && stepData.workMode && ['OFFICE', 'PROJECT_SITE'].includes(stepData.workMode)) {
+      await prisma.employee.update({
+        where: { id: employeeId },
+        data: { workMode: stepData.workMode },
+      });
+    }
+
+    // Step 2: MFA — skip does nothing; enable is handled by existing /auth/mfa endpoints
+    // Nothing to save here
+
+    // Step 3: Personal Details (with optional address for site employees)
+    if (step === 3) {
+      const addr = stepData.address;
+      const isSiteEmployee = employee.workMode === 'PROJECT_SITE';
+      const baseValid = stepData.firstName && stepData.lastName && stepData.dateOfBirth && stepData.gender && stepData.phone;
+      const addressValid = isSiteEmployee || (addr?.line1 && addr?.city && addr?.state && addr?.pincode);
+      if (!baseValid || !addressValid) {
+        throw new BadRequestError(isSiteEmployee
+          ? 'Name, date of birth, gender and phone are required'
+          : 'All required personal detail fields must be filled');
+      }
       await prisma.employee.update({
         where: { id: employeeId },
         data: {
-          firstName: stepData.firstName || undefined,
-          lastName: stepData.lastName || undefined,
-          dateOfBirth: stepData.dateOfBirth ? new Date(stepData.dateOfBirth) : undefined,
-          gender: stepData.gender || undefined,
-          bloodGroup: stepData.bloodGroup || undefined,
-          maritalStatus: stepData.maritalStatus || undefined,
-          phone: stepData.phone || undefined,
-          personalEmail: stepData.personalEmail || undefined,
-          address: stepData.address || undefined,
+          firstName: stepData.firstName,
+          lastName: stepData.lastName,
+          dateOfBirth: new Date(stepData.dateOfBirth),
+          gender: stepData.gender,
+          bloodGroup: stepData.bloodGroup || null,
+          maritalStatus: stepData.maritalStatus || null,
+          phone: stepData.phone,
+          personalEmail: stepData.personalEmail || null,
+          address: stepData.address,
         },
       });
     }
 
-    // Step: Photo & signature
-    if (step === 4 && stepData.avatar) {
+    // Step 4: Emergency Contact
+    if (step === 4) {
+      if (!stepData.name || !stepData.relationship || !stepData.phone) {
+        throw new BadRequestError('Contact name, relationship, and phone are required');
+      }
       await prisma.employee.update({
         where: { id: employeeId },
-        data: { avatar: stepData.avatar },
+        data: {
+          emergencyContact: {
+            name: stepData.name,
+            relationship: stepData.relationship,
+            phone: stepData.phone,
+            email: stepData.email || null,
+          },
+        },
       });
     }
 
-    // Step: Bank details
+    // Step 5: Bank Details
     if (step === 5) {
+      if (!stepData.bankAccountNumber || !stepData.bankName || !stepData.ifscCode || !stepData.accountHolderName) {
+        throw new BadRequestError('All bank detail fields are required');
+      }
       await prisma.employee.update({
         where: { id: employeeId },
         data: {
-          bankAccountNumber: stepData.bankAccountNumber || undefined,
-          bankName: stepData.bankName || undefined,
-          ifscCode: stepData.ifscCode || undefined,
-          accountHolderName: stepData.accountHolderName || undefined,
-          accountType: stepData.accountType || undefined,
+          bankAccountNumber: stepData.bankAccountNumber,
+          bankName: stepData.bankName,
+          ifscCode: stepData.ifscCode,
+          accountHolderName: stepData.accountHolderName,
+          accountType: stepData.accountType || 'SAVINGS',
         },
       });
     }
 
-    // Step: Emergency contact
-    if (step === 6) {
-      await prisma.employee.update({
-        where: { id: employeeId },
-        data: { emergencyContact: stepData },
-      });
-    }
+    // Step 6: Documents — uploads handled via /api/documents; no server-side step save needed
 
-    return { saved: true };
+    return { saved: true, step };
   }
 
   /**
-   * Complete authenticated onboarding — marks the employee as fully onboarded.
+   * Complete authenticated onboarding — validates all required fields then marks complete.
    */
   async completeMyOnboarding(employeeId: string) {
+    const emp = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      include: { documents: { where: { deletedAt: null }, select: { type: true } } },
+    });
+    if (!emp) throw new NotFoundError('Employee');
+
+    // Validate required employee-filled fields
+    const addr = emp.address as any;
+    const ec = emp.emergencyContact as any;
+    if (!emp.firstName || !emp.lastName || !emp.dateOfBirth || !emp.gender || !emp.phone || emp.phone === '0000000000') {
+      throw new BadRequestError('Personal details (name, DOB, gender, phone) are required before completing onboarding');
+    }
+    if (emp.workMode !== 'PROJECT_SITE' && (!addr?.line1 || !addr?.city || !addr?.state || !addr?.pincode)) {
+      throw new BadRequestError('Address is required before completing onboarding');
+    }
+    if (!ec?.name || !ec?.relationship || !ec?.phone) {
+      throw new BadRequestError('Emergency contact is required before completing onboarding');
+    }
+    if (!emp.bankAccountNumber || !emp.bankName || !emp.ifscCode || !emp.accountHolderName) {
+      throw new BadRequestError('Bank details are required before completing onboarding');
+    }
+    const IDENTITY_DOC_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
+    const REQUIRED_NON_IDENTITY_DOCS = emp.workMode === 'PROJECT_SITE'
+      ? ['PAN', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE']
+      : ['PAN', 'TENTH_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
+    const uploaded = (emp.documents as any[]).map((d: any) => d.type);
+    const missing = REQUIRED_NON_IDENTITY_DOCS.filter(t => !uploaded.includes(t));
+    const hasIdentityProof = uploaded.some((t: string) => IDENTITY_DOC_TYPES.includes(t));
+    if (missing.length > 0 || !hasIdentityProof) {
+      const missingList = [
+        ...missing,
+        ...(!hasIdentityProof ? ['an identity proof (Aadhaar / Passport / DL / Voter ID)'] : []),
+      ];
+      throw new BadRequestError(`Please upload all required documents before completing onboarding. Missing: ${missingList.join(', ')}`);
+    }
+
     const employee = await prisma.employee.update({
       where: { id: employeeId },
       data: { onboardingComplete: true },

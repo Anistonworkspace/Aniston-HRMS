@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText, Camera, Upload, CheckCircle2, Clock, XCircle, Loader2,
-  AlertTriangle, Info, FileUp, GraduationCap, ShieldCheck, CreditCard,
-  Home, Briefcase, Award, Image, ArrowRight, ArrowLeft, RefreshCw,
-  ChevronDown, ChevronUp, Eye, LayoutDashboard,
+  AlertTriangle, Info, GraduationCap, ShieldCheck, CreditCard,
+  Home, Briefcase, Image, ArrowRight, ArrowLeft, RefreshCw,
+  ChevronDown, ChevronUp, LayoutDashboard,
 } from 'lucide-react';
 import { useAppSelector } from '../../app/store';
 import {
@@ -13,7 +13,6 @@ import {
   useSaveKycConfigMutation,
   useUploadKycDocumentMutation,
   useUploadKycPhotoMutation,
-  useUploadCombinedPdfMutation,
   useUploadPhotoFileMutation,
   useSubmitKycMutation,
 } from './kycApi';
@@ -25,16 +24,14 @@ import toast from 'react-hot-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type UploadMode = 'COMBINED' | 'SEPARATE' | null;
+type UploadMode = 'SEPARATE' | null;
 type Experience = 'FRESHER' | 'EXPERIENCED' | null;
 type Qualification = 'TENTH' | 'TWELFTH' | 'GRADUATION' | 'POST_GRADUATION' | 'PHD' | null;
 
 type FlowStep =
-  | 'MODE_SELECT'      // Step 1: Choose combined vs separate
-  | 'PROFILE_INFO'     // Step 2: Fresher/experienced + qualification
-  | 'COMBINED_UPLOAD'  // Step 3A: Combined PDF + photo
-  | 'SEPARATE_UPLOAD'  // Step 3B: Separate docs
-  | 'STATUS';          // Final: submission status
+  | 'PROFILE_INFO'    // Step 1: Fresher/experienced + qualification
+  | 'SEPARATE_UPLOAD' // Step 2: Separate docs
+  | 'STATUS';         // Final: submission status
 
 // ─── Document requirement engine (mirrors backend logic) ──────────────────────
 
@@ -160,7 +157,6 @@ export default function KycGatePage() {
   const [saveKycConfig, { isLoading: savingConfig }] = useSaveKycConfigMutation();
   const [uploadDoc] = useUploadKycDocumentMutation();
   const [uploadPhoto] = useUploadKycPhotoMutation();
-  const [uploadCombinedPdf] = useUploadCombinedPdfMutation();
   const [uploadPhotoFile] = useUploadPhotoFileMutation();
   const [submitKyc, { isLoading: submitting }] = useSubmitKycMutation();
 
@@ -195,48 +191,41 @@ export default function KycGatePage() {
   }, [kycStatus, refetch]);
 
   // Local flow state
-  const [flowStep, setFlowStep] = useState<FlowStep>('MODE_SELECT');
-  const [uploadMode, setUploadMode] = useState<UploadMode>(null);
+  const [flowStep, setFlowStep] = useState<FlowStep>('PROFILE_INFO');
+  const [uploadMode, setUploadMode] = useState<UploadMode>('SEPARATE');
   const [experience, setExperience] = useState<Experience>(null);
   const [qualification, setQualification] = useState<Qualification>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [uploading, setUploading] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const combinedPdfRef = useRef<HTMLInputElement | null>(null);
   const photoFileRef = useRef<HTMLInputElement | null>(null);
 
   const submittedDocs: string[] = (kyc?.submittedDocs || []) as string[];
   const photoUrl: string | null = kyc?.photoUrl || null;
-  const combinedPdfUploaded = kyc?.combinedPdfUploaded || false;
   const rejectionReason: string | null = kyc?.rejectionReason || null;
   const reuploadDocTypes: string[] = (kyc?.reuploadDocTypes || []) as string[];
   const documentRejectReasons: Record<string, string> = (kyc?.documentRejectReasons || {}) as Record<string, string>;
 
-  // Restore saved mode from gate (for page reload)
+  // Restore saved config from gate (for page reload)
   useEffect(() => {
-    if (kyc?.uploadMode && !uploadMode) {
-      setUploadMode(kyc.uploadMode as UploadMode);
-      setExperience((kyc.fresherOrExperienced || 'FRESHER') as Experience);
+    if (kyc?.fresherOrExperienced) {
+      setExperience(kyc.fresherOrExperienced as Experience);
       setQualification((kyc.highestQualification || 'GRADUATION') as Qualification);
-      // Stay on upload step for PENDING/PROCESSING/REUPLOAD — only jump to STATUS when truly submitted
-      if (['PENDING', 'PROCESSING', 'REUPLOAD_REQUIRED'].includes(kycStatus)) {
-        setFlowStep(kyc.uploadMode === 'COMBINED' ? 'COMBINED_UPLOAD' : 'SEPARATE_UPLOAD');
-      } else {
-        setFlowStep('STATUS');
-      }
-    } else if (!kyc?.uploadMode && ['SUBMITTED', 'PENDING_HR_REVIEW', 'VERIFIED', 'REJECTED'].includes(kycStatus)) {
-      // Only jump to STATUS when the employee has actually submitted (not during upload/processing)
-      setFlowStep('STATUS');
     }
-  }, [kyc, kycStatus, uploadMode]);
+    if (['SUBMITTED', 'PENDING_HR_REVIEW', 'VERIFIED', 'REJECTED'].includes(kycStatus)) {
+      setFlowStep('STATUS');
+    } else if (kyc?.uploadMode && ['PENDING', 'PROCESSING', 'REUPLOAD_REQUIRED'].includes(kycStatus)) {
+      setFlowStep(kyc.fresherOrExperienced ? 'SEPARATE_UPLOAD' : 'PROFILE_INFO');
+    }
+  }, [kyc, kycStatus]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   // NOTE: ALL hooks must be declared before any conditional early returns.
   // useCallback is a hook and must be here, not below the isLoading guard.
 
   const handleSaveConfig = async () => {
-    if (!uploadMode || !experience || !qualification) {
+    if (!experience || !qualification) {
       toast.error('Please fill in all fields');
       return;
     }
@@ -247,11 +236,11 @@ export default function KycGatePage() {
     try {
       await saveKycConfig({
         employeeId: user.employeeId,
-        uploadMode,
+        uploadMode: 'SEPARATE',
         fresherOrExperienced: experience,
         highestQualification: qualification,
       }).unwrap();
-      setFlowStep(uploadMode === 'COMBINED' ? 'COMBINED_UPLOAD' : 'SEPARATE_UPLOAD');
+      setFlowStep('SEPARATE_UPLOAD');
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to save configuration');
     }
@@ -286,21 +275,6 @@ export default function KycGatePage() {
       </div>
     );
   }
-
-  const handleCombinedPdfUpload = async (file: File) => {
-    if (!user?.employeeId) { toast.error('Employee profile not linked.'); return; }
-    setUploading('COMBINED_PDF');
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      await uploadCombinedPdf({ employeeId: user.employeeId, formData }).unwrap();
-      toast.success('Combined PDF uploaded — OCR is processing your documents');
-      refetch();
-    } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Upload failed');
-    }
-    setUploading(null);
-  };
 
   const handlePhotoCapture = async (blob: Blob) => {
     if (!user?.employeeId) { toast.error('Employee profile not linked.'); return; }
@@ -363,64 +337,24 @@ export default function KycGatePage() {
         </div>
 
         {/* Step indicator */}
-        <StepIndicator flowStep={flowStep} uploadMode={uploadMode} />
+        <StepIndicator flowStep={flowStep} />
 
         <AnimatePresence mode="wait">
-          {/* ── STEP 1: MODE SELECTION ───────────────────────────────────────────── */}
-          {flowStep === 'MODE_SELECT' && (
-            <motion.div key="mode-select" {...fadeSlide}>
-              <ModeSelectScreen
-                uploadMode={uploadMode}
-                onSelect={(mode) => { setUploadMode(mode); setFlowStep('PROFILE_INFO'); }}
-              />
-            </motion.div>
-          )}
-
-          {/* ── STEP 2: PROFILE INFO ─────────────────────────────────────────────── */}
+          {/* ── STEP 1: PROFILE INFO ─────────────────────────────────────────────── */}
           {flowStep === 'PROFILE_INFO' && (
             <motion.div key="profile-info" {...fadeSlide}>
               <ProfileInfoScreen
-                uploadMode={uploadMode!}
                 experience={experience}
                 qualification={qualification}
                 onExperienceChange={setExperience}
                 onQualificationChange={setQualification}
-                onBack={() => setFlowStep('MODE_SELECT')}
                 onNext={handleSaveConfig}
                 saving={savingConfig}
               />
             </motion.div>
           )}
 
-          {/* ── STEP 3A: COMBINED PDF UPLOAD ─────────────────────────────────────── */}
-          {flowStep === 'COMBINED_UPLOAD' && (
-            <motion.div key="combined-upload" {...fadeSlide}>
-              <CombinedUploadScreen
-                combinedPdfUploaded={combinedPdfUploaded}
-                kycStatus={kycStatus}
-                photoUrl={photoUrl}
-                hasPhoto={!!photoUrl || submittedDocs.includes('PHOTO')}
-                uploading={uploading}
-                showCamera={showCamera}
-                onShowCamera={() => setShowCamera(true)}
-                onHideCamera={() => setShowCamera(false)}
-                combinedPdfRef={combinedPdfRef}
-                photoFileRef={photoFileRef}
-                onCombinedPdfChange={(file: File) => handleCombinedPdfUpload(file)}
-                onPhotoFileChange={(file: File) => handlePhotoFileUpload(file)}
-                onPhotoCapture={handlePhotoCapture}
-                onBack={() => setFlowStep('PROFILE_INFO')}
-                onSubmit={handleSubmitKyc}
-                submitting={submitting}
-                experience={experience!}
-                qualification={qualification!}
-                reuploadDocTypes={reuploadDocTypes}
-                documentRejectReasons={documentRejectReasons}
-              />
-            </motion.div>
-          )}
-
-          {/* ── STEP 3B: SEPARATE DOCUMENT UPLOAD ───────────────────────────────── */}
+          {/* ── STEP 2: SEPARATE DOCUMENT UPLOAD ────────────────────────────────── */}
           {flowStep === 'SEPARATE_UPLOAD' && (
             <motion.div key="separate-upload" {...fadeSlide}>
               <SeparateUploadScreen
@@ -444,12 +378,6 @@ export default function KycGatePage() {
                 onBack={() => setFlowStep('PROFILE_INFO')}
                 onSubmit={handleSubmitKyc}
                 submitting={submitting}
-                onChangeMode={() => {
-                  setFlowStep('MODE_SELECT');
-                  setUploadMode(null);
-                  setExperience(null);
-                  setQualification(null);
-                }}
               />
             </motion.div>
           )}
@@ -466,14 +394,11 @@ export default function KycGatePage() {
                 qualification={qualification || (kyc?.highestQualification as Qualification)}
                 submittedDocs={submittedDocs}
                 photoUrl={photoUrl}
-                uploadMode={uploadMode || (kyc?.uploadMode as UploadMode)}
-                combinedPdfAnalysis={kyc?.combinedPdfAnalysis}
                 onStartReupload={() => {
-                  const mode = (kyc?.uploadMode as UploadMode) || 'SEPARATE';
-                  setUploadMode(mode);
+                  setUploadMode('SEPARATE');
                   setExperience((kyc?.fresherOrExperienced as Experience) || 'FRESHER');
                   setQualification((kyc?.highestQualification as Qualification) || 'GRADUATION');
-                  setFlowStep(mode === 'COMBINED' ? 'COMBINED_UPLOAD' : 'SEPARATE_UPLOAD');
+                  setFlowStep('SEPARATE_UPLOAD');
                 }}
               />
             </motion.div>
@@ -495,11 +420,10 @@ const fadeSlide = {
 
 // ─── Step Indicator ────────────────────────────────────────────────────────────
 
-function StepIndicator({ flowStep, uploadMode }: { flowStep: FlowStep; uploadMode: UploadMode }) {
+function StepIndicator({ flowStep }: { flowStep: FlowStep }) {
   const steps = [
-    { id: 'MODE_SELECT', label: 'Upload Mode' },
     { id: 'PROFILE_INFO', label: 'Your Profile' },
-    { id: uploadMode === 'COMBINED' ? 'COMBINED_UPLOAD' : 'SEPARATE_UPLOAD', label: 'Upload Docs' },
+    { id: 'SEPARATE_UPLOAD', label: 'Upload Docs' },
     { id: 'STATUS', label: 'Review' },
   ];
 
@@ -537,98 +461,13 @@ function StepIndicator({ flowStep, uploadMode }: { flowStep: FlowStep; uploadMod
   );
 }
 
-// ─── Step 1: Mode Selection ─────────────────────────────────────────────────────
+// ─── Step 1: Profile Info ───────────────────────────────────────────────────────
 
-function ModeSelectScreen({ uploadMode, onSelect }: {
-  uploadMode: UploadMode;
-  onSelect: (mode: UploadMode) => void;
-}) {
-  const [selected, setSelected] = useState<UploadMode>(uploadMode);
-  const [showError, setShowError] = useState(false);
-
-  return (
-    <div className="layer-card p-6 sm:p-8">
-      <h2 className="text-lg font-display font-bold text-gray-900 mb-1">How would you like to submit your documents?</h2>
-      <p className="text-sm text-gray-500 mb-6">Choose the method that works best for you.</p>
-
-      {showError && !selected && (
-        <div className="mb-4 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2">
-          <AlertTriangle size={13} /> Please select an upload method to continue.
-        </div>
-      )}
-
-      <div className="grid gap-4">
-        <ModeCard
-          selected={selected === 'COMBINED'}
-          icon={FileUp}
-          title="Upload Combined PDF"
-          description="Scan all your documents into one PDF file and upload it together with your photo. Our OCR will automatically identify each document inside."
-          recommended
-          onSelect={() => setSelected('COMBINED')}
-        />
-        <ModeCard
-          selected={selected === 'SEPARATE'}
-          icon={FileText}
-          title="Upload Documents Separately"
-          description="Upload each document one by one using the guided checklist. Recommended if you have individual scans for each document."
-          onSelect={() => setSelected('SEPARATE')}
-        />
-      </div>
-
-      <div className="mt-5 p-3 bg-blue-50 border border-blue-100 rounded-lg flex items-start gap-2 text-xs text-blue-700">
-        <Info size={14} className="mt-0.5 shrink-0" />
-        <span>All documents are reviewed by HR. Make sure scans are clear and complete. Avoid screenshots — use proper scans or photographs of original documents.</span>
-      </div>
-
-      <button
-        onClick={() => {
-          if (!selected) { setShowError(true); return; }
-          onSelect(selected);
-        }}
-        className="btn-primary w-full mt-5 flex items-center justify-center gap-2 text-sm"
-      >
-        Continue <ArrowRight size={15} />
-      </button>
-    </div>
-  );
-}
-
-function ModeCard({ selected, icon: Icon, title, description, recommended, onSelect }: {
-  selected: boolean; icon: any; title: string; description: string; recommended?: boolean; onSelect: () => void;
-}) {
-  return (
-    <button
-      onClick={onSelect}
-      className={cn(
-        'w-full text-left p-5 rounded-xl border-2 transition-all flex items-start gap-4',
-        selected ? 'border-brand-500 bg-brand-50' : 'border-gray-200 bg-white hover:border-brand-300 hover:bg-brand-50/30'
-      )}
-    >
-      <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0', selected ? 'bg-brand-600' : 'bg-gray-100')}>
-        <Icon size={18} className={selected ? 'text-white' : 'text-gray-500'} />
-      </div>
-      <div className="flex-1">
-        <div className="flex items-center gap-2">
-          <p className="font-semibold text-gray-900 text-sm">{title}</p>
-          {recommended && <span className="text-[10px] font-bold bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full">Recommended</span>}
-        </div>
-        <p className="text-xs text-gray-500 mt-1">{description}</p>
-      </div>
-      <div className={cn('w-5 h-5 rounded-full border-2 shrink-0 mt-0.5 flex items-center justify-center', selected ? 'border-brand-500 bg-brand-500' : 'border-gray-300')}>
-        {selected && <div className="w-2 h-2 rounded-full bg-white" />}
-      </div>
-    </button>
-  );
-}
-
-// ─── Step 2: Profile Info ───────────────────────────────────────────────────────
-
-function ProfileInfoScreen({ uploadMode, experience, qualification, onExperienceChange, onQualificationChange, onBack, onNext, saving }: {
-  uploadMode: UploadMode;
+function ProfileInfoScreen({ experience, qualification, onExperienceChange, onQualificationChange, onNext, saving }: {
   experience: Experience; qualification: Qualification;
   onExperienceChange: (e: Experience) => void;
   onQualificationChange: (q: Qualification) => void;
-  onBack: () => void; onNext: () => void; saving: boolean;
+  onNext: () => void; saving: boolean;
 }) {
   const qualOptions: Array<{ value: Qualification; label: string }> = [
     { value: 'TENTH', label: '10th / SSLC' },
@@ -698,184 +537,15 @@ function ProfileInfoScreen({ uploadMode, experience, qualification, onExperience
         </div>
       )}
 
-      <div className="flex gap-3">
-        <button onClick={onBack} className="btn-secondary flex items-center gap-1.5 text-sm">
-          <ArrowLeft size={15} /> Back
-        </button>
-        <button
-          onClick={onNext}
-          disabled={!experience || !qualification || saving}
-          className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm disabled:opacity-50"
-        >
-          {saving ? <Loader2 size={15} className="animate-spin" /> : null}
-          {uploadMode === 'COMBINED' ? 'Upload Combined PDF' : 'Go to Document Checklist'}
-          <ArrowRight size={15} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Step 3A: Combined PDF Upload ──────────────────────────────────────────────
-
-function CombinedUploadScreen({
-  combinedPdfUploaded, kycStatus, photoUrl, hasPhoto, uploading, showCamera,
-  onShowCamera, onHideCamera, combinedPdfRef, photoFileRef,
-  onCombinedPdfChange, onPhotoFileChange, onPhotoCapture,
-  onBack, onSubmit, submitting, experience, qualification,
-  reuploadDocTypes = [], documentRejectReasons = {},
-}: any) {
-  const isProcessing = kycStatus === 'PROCESSING';
-  const isReupload = kycStatus === 'REUPLOAD_REQUIRED';
-  // Submit enabled only when PDF + photo are uploaded AND OCR is not currently running
-  const canSubmit = combinedPdfUploaded && hasPhoto && !isProcessing;
-
-  // Build the combined reason message for display
-  const reuploadReasonText: string | null = (() => {
-    if (!isReupload) return null;
-    const reasons = Object.values(documentRejectReasons as Record<string, string>);
-    if (reasons.length > 0) return reasons[0];
-    return 'Your combined PDF was removed by HR — please upload a new one.';
-  })();
-
-  return (
-    <div className="space-y-4">
-      {/* REUPLOAD_REQUIRED banner — shown when HR deleted the combined PDF */}
-      {isReupload && (
-        <div className="layer-card p-4 border border-orange-300 bg-orange-50 flex items-start gap-3">
-          <AlertTriangle size={18} className="text-orange-600 mt-0.5 shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-orange-800">Re-upload Required</p>
-            <p className="text-xs text-orange-700 mt-0.5 leading-relaxed">
-              {reuploadReasonText}
-            </p>
-            <p className="text-xs text-orange-600 mt-2 font-medium">
-              Please upload a new combined PDF below. Dashboard access will be restored once HR approves your new submission.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* PROCESSING banner — shown while backend classifies the PDF */}
-      {isProcessing && (
-        <div className="layer-card p-4 border border-indigo-200 bg-indigo-50 flex items-start gap-3">
-          <Loader2 size={18} className="animate-spin text-indigo-600 mt-0.5 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-indigo-800">Classifying your documents…</p>
-            <p className="text-xs text-indigo-600 mt-0.5">
-              Our OCR engine is identifying each document in your PDF. This usually takes 30–90 seconds.
-              Once done, you can review and click "Submit for HR Review".
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* OCR complete banner — PDF uploaded and processed, ready to submit */}
-      {combinedPdfUploaded && !isProcessing && (
-        <div className="layer-card p-4 border border-emerald-200 bg-emerald-50 flex items-start gap-3">
-          <CheckCircle2 size={18} className="text-emerald-600 mt-0.5 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-emerald-800">Documents identified — ready to submit</p>
-            <p className="text-xs text-emerald-600 mt-0.5">
-              OCR has processed your PDF. Upload your photo below, then click "Submit for HR Review".
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Combined PDF */}
-      <div className="layer-card p-6">
-        <h2 className="text-base font-display font-bold text-gray-900 mb-1">Upload Combined PDF</h2>
-        <p className="text-sm text-gray-500 mb-4">
-          Combine all your documents (ID proof, PAN, education certificates, employment docs) into a single PDF.
-          Our system will automatically identify each document inside.
-        </p>
-
-        <div className={cn(
-          'border-2 border-dashed rounded-xl p-6 text-center transition-all',
-          combinedPdfUploaded ? 'border-emerald-300 bg-emerald-50' : 'border-gray-300 bg-gray-50 hover:border-brand-400'
-        )}>
-          {combinedPdfUploaded ? (
-            <div className="flex flex-col items-center gap-2">
-              <CheckCircle2 size={32} className="text-emerald-500" />
-              <p className="font-semibold text-emerald-700 text-sm">Combined PDF Uploaded</p>
-              <p className="text-xs text-emerald-600">OCR is processing your documents automatically</p>
-              <button
-                onClick={() => combinedPdfRef.current?.click()}
-                disabled={uploading === 'COMBINED_PDF'}
-                className="text-xs text-emerald-600 underline mt-1"
-              >
-                Replace file
-              </button>
-            </div>
-          ) : uploading === 'COMBINED_PDF' ? (
-            <div className="flex flex-col items-center gap-2">
-              <Loader2 size={28} className="animate-spin text-brand-500" />
-              <p className="text-sm text-gray-600">Uploading...</p>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-3">
-              <FileUp size={28} className="text-gray-400" />
-              <p className="text-sm font-medium text-gray-700">Drop your combined PDF here or click to browse</p>
-              <p className="text-xs text-gray-400">Max 100MB · PDF only</p>
-              <button onClick={() => combinedPdfRef.current?.click()} className="btn-primary text-sm">
-                Select PDF
-              </button>
-            </div>
-          )}
-          <input
-            ref={combinedPdfRef}
-            type="file"
-            accept="application/pdf,.pdf"
-            className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) onCombinedPdfChange(f); e.target.value = ''; }}
-          />
-        </div>
-
-        {/* Document order hint */}
-        <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700 space-y-1">
-          <p className="font-semibold">Recommended document order inside your PDF:</p>
-          {computeRequiredDocs(experience, qualification).filter(d => d.type !== 'PHOTO').map((d, i) => (
-            <p key={d.type}>{i + 1}. {d.label}</p>
-          ))}
-        </div>
-      </div>
-
-      {/* Photo upload */}
-      <div className="layer-card p-6">
-        <h2 className="text-base font-display font-bold text-gray-900 mb-1">
-          Passport Size Photograph <span className="text-red-500">*</span>
-        </h2>
-        <p className="text-sm text-gray-500 mb-4">Upload separately — do not include in the combined PDF.</p>
-
-        <PhotoUploadSection
-          hasPhoto={hasPhoto} photoUrl={photoUrl} uploading={uploading}
-          showCamera={showCamera} onShowCamera={onShowCamera} onHideCamera={onHideCamera}
-          photoFileRef={photoFileRef} onPhotoFileChange={onPhotoFileChange} onPhotoCapture={onPhotoCapture}
-        />
-      </div>
-
-      {/* Actions */}
-      <div className="flex gap-3">
-        <button onClick={onBack} className="btn-secondary flex items-center gap-1.5 text-sm">
-          <ArrowLeft size={15} /> Back
-        </button>
-        <button
-          onClick={onSubmit}
-          disabled={!canSubmit || submitting}
-          className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm disabled:opacity-50"
-        >
-          {submitting ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-          Submit for HR Review
-        </button>
-      </div>
-      {!canSubmit && (
-        <p className="text-xs text-center text-gray-400">
-          {isProcessing ? 'Waiting for OCR to finish classifying your documents…'
-            : !combinedPdfUploaded ? 'Upload combined PDF to continue'
-            : 'Upload your photo to submit'}
-        </p>
-      )}
+      <button
+        onClick={onNext}
+        disabled={!experience || !qualification || saving}
+        className="btn-primary w-full flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+      >
+        {saving ? <Loader2 size={15} className="animate-spin" /> : null}
+        Go to Document Checklist
+        <ArrowRight size={15} />
+      </button>
     </div>
   );
 }
@@ -887,7 +557,7 @@ function SeparateUploadScreen({
   fileInputRefs, photoFileRef, reuploadDocTypes, documentRejectReasons,
   openSections, onToggleSection, onShowCamera, onHideCamera,
   onFileChange, onPhotoFileChange, onPhotoCapture,
-  onBack, onSubmit, submitting, onChangeMode,
+  onBack, onSubmit, submitting,
 }: any) {
   const hasPhoto = !!photoUrl || submittedDocs.includes('PHOTO');
   const requiredDocs = computeRequiredDocs(experience, qualification);
@@ -948,7 +618,6 @@ function SeparateUploadScreen({
       <div className="layer-card p-4 border border-gray-200">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-gray-700">{completedCount}/{requiredDocs.length} documents uploaded</span>
-          <button onClick={onChangeMode} className="text-xs text-brand-600 hover:underline">Change mode</button>
         </div>
         <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
           <div
@@ -1201,13 +870,12 @@ function PhotoUploadSection({ hasPhoto, photoUrl, uploading, showCamera, onShowC
 
 function StatusScreen({
   kycStatus, rejectionReason, reuploadDocTypes, documentRejectReasons,
-  experience, qualification, submittedDocs, photoUrl, uploadMode, combinedPdfAnalysis, onStartReupload,
+  experience, qualification, submittedDocs, photoUrl, onStartReupload,
 }: any) {
   const navigate = useNavigate();
   const cfg = KYC_STATUS_CONFIG[kycStatus] || KYC_STATUS_CONFIG.PENDING;
   const StatusIcon = cfg.icon;
   const hasPhoto = !!photoUrl || (submittedDocs || []).includes('PHOTO');
-  const [showAnalysis, setShowAnalysis] = useState(false);
 
   const canReupload = ['REUPLOAD_REQUIRED', 'REJECTED'].includes(kycStatus);
 
@@ -1231,48 +899,7 @@ function StatusScreen({
       <div className="layer-card p-5 border border-gray-200">
         <p className="text-sm font-semibold text-gray-700 mb-3">Documents Submitted</p>
 
-        {uploadMode === 'COMBINED' ? (
-          <div>
-            <div className="flex items-center gap-3 py-2">
-              {true ? <CheckCircle2 size={16} className="text-emerald-500" /> : <Clock size={16} className="text-gray-400" />}
-              <span className="text-sm text-gray-700">Combined PDF</span>
-              <span className="text-xs text-emerald-600 ml-auto">Uploaded</span>
-            </div>
-            <div className="flex items-center gap-3 py-2">
-              {hasPhoto ? <CheckCircle2 size={16} className="text-emerald-500" /> : <XCircle size={16} className="text-red-400" />}
-              <span className="text-sm text-gray-700">Passport Photo</span>
-              <span className={cn('text-xs ml-auto', hasPhoto ? 'text-emerald-600' : 'text-red-500')}>
-                {hasPhoto ? 'Uploaded' : 'Missing'}
-              </span>
-            </div>
-
-            {/* Combined PDF analysis */}
-            {combinedPdfAnalysis && (
-              <div className="mt-3">
-                <button onClick={() => setShowAnalysis(!showAnalysis)} className="text-xs text-brand-600 flex items-center gap-1 hover:underline">
-                  <Eye size={12} />
-                  {showAnalysis ? 'Hide' : 'View'} OCR analysis results
-                </button>
-                {showAnalysis && (
-                  <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg text-xs space-y-2">
-                    <p className="font-medium text-gray-700">OCR detected {combinedPdfAnalysis.total_pages} page(s)</p>
-                    {combinedPdfAnalysis.detected_docs?.length > 0 && (
-                      <p>Detected: {combinedPdfAnalysis.detected_docs.join(', ')}</p>
-                    )}
-                    {combinedPdfAnalysis.suspicion_flags?.length > 0 && (
-                      <div className="text-orange-600">
-                        {combinedPdfAnalysis.suspicion_flags.map((f: string, i: number) => <p key={i}>⚠ {f}</p>)}
-                      </div>
-                    )}
-                    <p className="text-gray-500">{combinedPdfAnalysis.summary}</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
-          /* Separate docs summary */
-          <div className="space-y-1.5">
+        <div className="space-y-1.5">
             {computeRequiredDocs(experience, qualification).map(doc => {
               const submitted = isDocTypeSubmitted(doc, submittedDocs);
               const needsReupload = doc.acceptsAnyOf
@@ -1299,8 +926,7 @@ function StatusScreen({
                 </div>
               );
             })}
-          </div>
-        )}
+        </div>
 
         {/* Per-doc rejection reasons */}
         {reuploadDocTypes.length > 0 && Object.keys(documentRejectReasons).length > 0 && (

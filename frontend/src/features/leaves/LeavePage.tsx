@@ -466,7 +466,9 @@ function LeaveManagementView() {
                 const leaveBalance = leave.employee?.leaveBalances?.find(
                   (b: any) => b.leaveType?.code === leave.leaveType?.code
                 );
-                const canAct = leave.status === 'PENDING' || leave.status === 'MANAGER_APPROVED';
+                // Managers can only act on PENDING leaves — MANAGER_APPROVED is forwarded to HR (read-only for managers)
+                const canAct = (leave.status === 'PENDING' || leave.status === 'MANAGER_APPROVED') &&
+                  !(user?.role === 'MANAGER' && leave.status === 'MANAGER_APPROVED');
                 // HR/Admin can open the review panel on approved leaves to revoke them
                 const canRevoke = isHRAdmin && (leave.status === 'APPROVED' || leave.status === 'APPROVED_WITH_CONDITION');
 
@@ -549,6 +551,11 @@ function LeaveManagementView() {
                             <XCircle size={14} />
                             Revoke
                           </motion.button>
+                        )}
+                        {leave.status === 'MANAGER_APPROVED' && user?.role === 'MANAGER' && (
+                          <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full border border-blue-200">
+                            Forwarded to HR
+                          </span>
                         )}
                         {canAct && (
                           <>

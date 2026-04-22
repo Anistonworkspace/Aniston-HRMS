@@ -67,6 +67,10 @@ logger.info('✅ BullMQ queues initialized');
     await attendanceCronQueue.add('auto-mark-absent', {}, {
       repeat: { pattern: '34 18 * * *' }, // 18:34 UTC = 00:04 IST
     });
+    // Auto-detect anomalies at 00:15 IST daily (after close + absent marking settle)
+    await attendanceCronQueue.add('auto-detect-anomalies', {}, {
+      repeat: { pattern: '45 18 * * *' }, // 18:45 UTC = 00:15 IST
+    });
     logger.info('✅ Attendance cron jobs scheduled');
   } catch (err) {
     logger.warn('Failed to schedule attendance cron jobs:', err);

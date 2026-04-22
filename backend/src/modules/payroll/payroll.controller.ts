@@ -3,6 +3,7 @@ import { payrollService } from './payroll.service.js';
 import { salaryVisibilityService } from './salary-visibility.service.js';
 import { salaryStructureSchema, createPayrollRunSchema } from './payroll.validation.js';
 import { generateSalarySlipPDF } from '../../utils/pdfGenerator.js';
+import { prisma } from '../../lib/prisma.js';
 
 export class PayrollController {
   async getSalaryStructure(req: Request, res: Response, next: NextFunction) {
@@ -64,7 +65,12 @@ export class PayrollController {
         res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorized to access this salary slip' } });
         return;
       }
-      const pdfBuffer = await generateSalarySlipPDF(record);
+      // Fetch org name for PDF header (non-blocking fallback to undefined)
+      const org = await prisma.organization.findUnique({
+        where: { id: req.user!.organizationId },
+        select: { name: true },
+      }).catch(() => null);
+      const pdfBuffer = await generateSalarySlipPDF(record, org?.name);
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const filename = `salary-slip-${record.employee.employeeCode}-${monthNames[record.payrollRun.month - 1]}-${record.payrollRun.year}.pdf`;
       res.setHeader('Content-Type', 'application/pdf');

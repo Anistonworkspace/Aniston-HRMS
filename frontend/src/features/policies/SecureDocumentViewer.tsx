@@ -50,7 +50,7 @@ export default function SecureDocumentViewer({
     // @ts-ignore
     const lib = await import('pdfjs-dist');
     // Use local worker file from /public instead of CDN to avoid network failures
-    lib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+    lib.GlobalWorkerOptions.workerSrc = '/uploads/pdf.worker.min.mjs';
     pdfjsLib = lib;
     return lib;
   }, []);

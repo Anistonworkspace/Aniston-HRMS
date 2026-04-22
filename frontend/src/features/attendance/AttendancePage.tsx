@@ -596,6 +596,30 @@ function AttendancePersonalView() {
   const { data: todayResponse, isLoading: statusLoading, refetch: refetchToday } = useGetTodayStatusQuery();
   const today = todayResponse?.data;
 
+  // Compute earliest checkout time from shift — updates every second via liveTime
+  const checkoutGate = (() => {
+    if (!today?.isCheckedIn || today?.isCheckedOut) return null;
+    const shift = today?.shift;
+    const nowIST = new Date(liveTime.getTime() + liveTime.getTimezoneOffset() * 60000 + 5.5 * 3600 * 1000);
+    const nowMins = nowIST.getUTCHours() * 60 + nowIST.getUTCMinutes();
+
+    let minMins: number;
+    let label: string;
+    if (shift?.endTime) {
+      const [h, m] = shift.endTime.split(':').map(Number);
+      minMins = h * 60 + m;
+      const h12 = h % 12 || 12;
+      label = `${h12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+    } else {
+      minMins = 18 * 60 + 30; // 6:30 PM default
+      label = '6:30 PM';
+    }
+
+    const canCheckOut = nowMins >= minMins;
+    const minsLeft = minMins - nowMins;
+    return { canCheckOut, label, minsLeft };
+  })();
+
   // Build date strings directly from year/month to avoid UTC-offset shifting
   const _cmYear = currentMonth.getFullYear();
   const _cmMonth = currentMonth.getMonth();
@@ -1186,20 +1210,38 @@ function AttendancePersonalView() {
                 )}
 
                 {today?.isCheckedIn && !today?.isCheckedOut && (
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleClockOut}
-                    disabled={clockingOut}
-                    className="w-full bg-red-500 hover:bg-red-400 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                  >
-                    {clockingOut ? (
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <LogOut size={20} />
+                  <div className="space-y-1.5">
+                    {/* Earliest checkout info — shown when shift hasn't ended yet */}
+                    {checkoutGate && !checkoutGate.canCheckOut && (
+                      <div className="flex items-center gap-1.5 px-2 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+                        <Clock size={12} className="text-amber-600 shrink-0" />
+                        <p className="text-[11px] text-amber-700 font-medium">
+                          Check-out available from <span className="font-bold">{checkoutGate.label}</span>
+                          {checkoutGate.minsLeft > 0 && (
+                            <span className="text-amber-500 font-normal ml-1">
+                              ({checkoutGate.minsLeft >= 60
+                                ? `${Math.floor(checkoutGate.minsLeft / 60)}h ${checkoutGate.minsLeft % 60}m left`
+                                : `${checkoutGate.minsLeft}m left`})
+                            </span>
+                          )}
+                        </p>
+                      </div>
                     )}
-                    {t('attendance.checkOut')}
-                  </motion.button>
+                    <motion.button
+                      whileHover={{ scale: checkoutGate?.canCheckOut !== false ? 1.02 : 1 }}
+                      whileTap={{ scale: checkoutGate?.canCheckOut !== false ? 0.98 : 1 }}
+                      onClick={handleClockOut}
+                      disabled={clockingOut || checkoutGate?.canCheckOut === false}
+                      className="w-full bg-red-500 hover:bg-red-400 text-white py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {clockingOut ? (
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <LogOut size={20} />
+                      )}
+                      {t('attendance.checkOut')}
+                    </motion.button>
+                  </div>
                 )}
 
                 {/* Checked out — prompt for regularization */}
@@ -1210,7 +1252,20 @@ function AttendancePersonalView() {
                   >
                     <p className="text-xs text-amber-700 font-semibold flex items-center justify-center gap-1.5">
                       <FileText size={13} />
-                      You have checked out for today. Tap to apply for Regularization
+                      Tap to apply for Regularization
+                    </p>
+                  </button>
+                )}
+
+                {/* Not checked in at all — allow regularization for missed attendance */}
+                {!today?.isCheckedIn && !today?.isCheckedOut && today?.record?.id && (
+                  <button
+                    onClick={() => setShowRegModal(true)}
+                    className="mt-3 w-full p-3 bg-orange-50 hover:bg-orange-100 rounded-xl border border-orange-200 text-center transition-colors"
+                  >
+                    <p className="text-xs text-orange-700 font-semibold flex items-center justify-center gap-1.5">
+                      <FileText size={13} />
+                      Missed Check-In? Apply for Regularization
                     </p>
                   </button>
                 )}
@@ -1393,8 +1448,10 @@ function AttendancePersonalView() {
             <div className="px-5 py-4 space-y-4">
               {/* Info row */}
               <div className="bg-amber-50 rounded-xl p-3 text-xs text-amber-700">
-                You have already checked in and checked out today. Re-marking is not allowed.
-                Submit a regularization request if you need to correct your attendance — HR will review and approve it.
+                {today?.isCheckedOut
+                  ? 'You have already checked in and checked out today. Re-marking is not allowed.'
+                  : 'You missed check-in today. Re-marking is not allowed.'}
+                {' '}Submit a regularization request — HR will review and approve it.
               </div>
 
               {/* Reason */}

@@ -167,7 +167,7 @@ export const attendanceApi = api.injectEndpoints({
 
     markAttendance: builder.mutation<any, { employeeId: string; date: string; status: string; workMode?: string }>({
       query: (body) => ({ url: '/attendance/mark', method: 'POST', body }),
-      invalidatesTags: ['Attendance'],
+      invalidatesTags: ['Attendance', 'Payroll'],
     }),
 
     getEmployeeGPSTrail: builder.query<any, { employeeId: string; date: string }>({
@@ -316,12 +316,6 @@ export const attendanceApi = api.injectEndpoints({
       invalidatesTags: ['Attendance'],
     }),
 
-    // ===== P1.2: Bulk Upload =====
-    bulkUploadAttendance: builder.mutation<any, { rows: any[] }>({
-      query: (body) => ({ url: '/attendance/bulk/upload', method: 'POST', body }),
-      invalidatesTags: ['Attendance'],
-    }),
-
     // ===== P1.3: Monthly Report =====
     getMonthlyReport: builder.query<any, { month: number; year: number }>({
       query: ({ month, year }) => `/attendance/monthly-report?month=${month}&year=${year}`,
@@ -397,8 +391,6 @@ export const {
   // P1.1
   useGetAttendancePolicyQuery,
   useUpdateAttendancePolicyMutation,
-  // P1.2
-  useBulkUploadAttendanceMutation,
   // P1.3
   useGetMonthlyReportQuery,
   // P2.7

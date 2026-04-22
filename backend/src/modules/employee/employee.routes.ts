@@ -3,6 +3,7 @@ import { employeeController } from './employee.controller.js';
 import { authenticate, requirePermission, requirePermissionOrOwn } from '../../middleware/auth.middleware.js';
 import { employeeDeletionController } from '../employee-deletion/employee-deletion.controller.js';
 import { env } from '../../config/env.js';
+import { uploadProfilePhoto } from '../../middleware/upload.middleware.js';
 
 const router = Router();
 
@@ -209,5 +210,13 @@ router.delete('/:id/device-sessions', requirePermission('employee', 'manage'), a
     res.json({ success: true, message: 'All device sessions cleared' });
   } catch (err) { next(err); }
 });
+
+// Profile photo upload
+router.post(
+  '/:id/photo',
+  requirePermission('employee', 'update'),
+  uploadProfilePhoto.single('photo'),
+  (req, res, next) => employeeController.uploadProfilePhoto(req, res, next)
+);
 
 export { router as employeeRouter };

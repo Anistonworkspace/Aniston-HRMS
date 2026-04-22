@@ -142,9 +142,9 @@ export const uploadBranding = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-/** Resume uploads (single). 50 MB. Lands in resumes/ subfolder. */
+/** Resume uploads (single). 50 MB. Lands in resumes/individual/ subfolder. */
 export const uploadResume = multer({
-  storage: diskStorageFor(StorageFolder.EMPLOYEE_DOCUMENTS),
+  storage: diskStorageFor(StorageFolder.RESUMES_INDIVIDUAL),
   fileFilter: resumeFilter,
   limits: { fileSize: 50 * 1024 * 1024 },
 });
@@ -286,6 +286,20 @@ export function createWalkInUpload(sessionId: string) {
     limits: { fileSize: 10 * 1024 * 1024 },
   });
 }
+
+/** Employee profile photo uploads. 5 MB. JPEG/PNG/WebP only. Lands in profiles/. */
+export const uploadProfilePhoto = multer({
+  storage: diskStorageFor(StorageFolder.PROFILES),
+  fileFilter: imageFilter,
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+/** Project site check-in photo uploads. 10 MB. JPEG/PNG/WebP only. Lands in attendance/photos/. */
+export const uploadAttendancePhoto = multer({
+  storage: diskStorageFor(StorageFolder.ATTENDANCE_PHOTOS),
+  fileFilter: imageFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 // ---------------------------------------------------------------------------
 // URL helpers

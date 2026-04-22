@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard, MessageSquare, ShieldCheck, ShieldOff } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard, MessageSquare, ShieldCheck, ShieldOff, HardHat } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setAccessToken } from '../auth/authSlice';
@@ -9,7 +9,8 @@ import { useGetMeQuery, useChangePasswordMutation, useGetMfaStatusQuery } from '
 import { MFASetupModal, MFADisableModal } from '../auth/MFASetupModal';
 import { useUpdateEmployeeMutation, useGetEmployeeQuery } from '../employee/employeeApi';
 import { useSubmitResignationMutation } from '../exit/exitApi';
-import { useCreateTicketMutation, useGetMyTicketsQuery, useUpdateTicketMutation } from '../helpdesk/helpdeskApi';
+import { useGetMyProfileEditRequestsQuery, useApplyApprovedEditMutation } from './profileEditRequestApi';
+import ProfileUpdateRequestModal from './ProfileUpdateRequestModal';
 import { getInitials, formatDate, getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -27,29 +28,36 @@ export default function ProfilePage() {
 
   const [updateEmployee, { isLoading: updating }] = useUpdateEmployeeMutation();
   const [submitResignation, { isLoading: resigning }] = useSubmitResignationMutation();
-  const [createTicket, { isLoading: requestingEdit }] = useCreateTicketMutation();
-  const [updateTicket] = useUpdateTicketMutation();
+  const [applyApprovedEdit, { isLoading: applyingEdit }] = useApplyApprovedEditMutation();
   const [showEdit, setShowEdit] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showMfaSetup, setShowMfaSetup] = useState(false);
   const [showMfaDisable, setShowMfaDisable] = useState(false);
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [activeEditRequestId, setActiveEditRequestId] = useState<string | null>(null);
+  const [activeEditCategory, setActiveEditCategory] = useState<string | null>(null);
   const { data: mfaStatus, refetch: refetchMfa } = useGetMfaStatusQuery();
 
-  // One-time edit flow:
-  // - First fill (no phone/DOB yet): "Edit Profile" → opens modal directly
-  // - After fill: "Request Edit" → creates helpdesk ticket
-  // - Ticket OPEN/IN_PROGRESS: "Request Pending" (disabled)
-  // - Ticket RESOLVED (HR approved): "Edit Profile" → opens modal; on save, ticket is CLOSED
-  const hasFilledProfile = !!(employee?.phone && employee?.dateOfBirth &&
-    employee?.phone !== '0000000000');
-
-  // Only fetch tickets for employee/intern roles — admins/HR don't need this
   const isEmployeeRole = ['EMPLOYEE', 'INTERN'].includes(user?.role || '');
-  const { data: ticketsRes } = useGetMyTicketsQuery(undefined, { skip: !isEmployeeRole });
-  const myTickets: any[] = (ticketsRes?.data as any[]) || [];
-  const editRequestTickets = myTickets.filter((t: any) => t.subject === 'Profile Edit Request');
-  const openEditTicket = editRequestTickets.find((t: any) => ['OPEN', 'IN_PROGRESS'].includes(t.status));
-  const resolvedEditTicket = !openEditTicket && editRequestTickets.find((t: any) => ['RESOLVED'].includes(t.status));
+  const { data: editRequestsRes } = useGetMyProfileEditRequestsQuery(undefined, { skip: !isEmployeeRole });
+  const myEditRequests: any[] = (editRequestsRes?.data as any[]) || [];
+  const pendingRequests = myEditRequests.filter((r: any) => r.status === 'PENDING');
+  const approvedRequests = myEditRequests.filter((r: any) => r.status === 'APPROVED');
+
+  // Countdown timer helpers
+  const getTimeLeft = (expiresAt: string) => {
+    const diff = new Date(expiresAt).getTime() - Date.now();
+    if (diff <= 0) return 'Expired';
+    const hours = Math.floor(diff / 3_600_000);
+    const mins = Math.floor((diff % 3_600_000) / 60_000);
+    return `${hours}h ${mins}m`;
+  };
+  const CATEGORY_LABELS: Record<string, string> = {
+    PERSONAL_DETAILS: 'Personal Details',
+    ADDRESS: 'Address',
+    EMERGENCY_CONTACT: 'Emergency Contact',
+    BANK_DETAILS: 'Bank Details',
+  };
 
   const [showResignModal, setShowResignModal] = useState(false);
   const [resignForm, setResignForm] = useState({ reason: '', lastWorkingDate: '' });
@@ -126,28 +134,15 @@ export default function ProfilePage() {
     if (!user?.employeeId) return;
     try {
       await updateEmployee({ id: user.employeeId, data: form as any }).unwrap();
-      // If this edit was granted via a resolved helpdesk ticket, close it so the
-      // employee must request again for any future edits.
-      if (resolvedEditTicket?.id) {
-        try { await updateTicket({ id: resolvedEditTicket.id, data: { status: 'CLOSED' } }).unwrap(); } catch { /* non-blocking */ }
+      // If editing via an approved request, apply it to mark it APPLIED
+      if (activeEditRequestId) {
+        try { await applyApprovedEdit(activeEditRequestId).unwrap(); } catch { /* non-blocking */ }
+        setActiveEditRequestId(null);
+        setActiveEditCategory(null);
       }
       toast.success(t('profile.profileUpdated'));
       setShowEdit(false);
     } catch { toast.error(t('profile.failedToUpdate')); }
-  };
-
-  const handleRequestEdit = async () => {
-    try {
-      await createTicket({
-        subject: 'Profile Edit Request',
-        description: 'I would like to update my profile details. Please approve this request.',
-        category: 'HR',
-        priority: 'MEDIUM',
-      }).unwrap();
-      toast.success('Edit request submitted to HR');
-    } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to submit request');
-    }
   };
 
   const handleSaveBankDetails = async () => {
@@ -274,36 +269,12 @@ export default function ProfilePage() {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {/* State 1: Profile not filled yet — free first edit */}
-            {!hasFilledProfile && (
-              <button onClick={() => setShowEdit(true)} className="btn-secondary flex items-center gap-2 text-sm">
-                <Edit2 size={14} /> {t('profile.editProfile')}
-              </button>
-            )}
-            {/* State 2: Profile filled, open ticket pending HR review */}
-            {hasFilledProfile && openEditTicket && (
-              <button disabled className="btn-secondary flex items-center gap-2 text-sm opacity-60 cursor-not-allowed"
-                title="Your edit request is pending HR approval.">
-                <Clock size={14} /> Request Pending
-              </button>
-            )}
-            {/* State 3: Profile filled, HR approved (resolved ticket) — allow one edit */}
-            {hasFilledProfile && resolvedEditTicket && (
-              <button onClick={() => setShowEdit(true)} className="btn-secondary flex items-center gap-2 text-sm ring-2 ring-emerald-400"
-                title="HR has approved your edit request. You can edit your profile once.">
-                <Edit2 size={14} /> Edit Profile
-              </button>
-            )}
-            {/* State 4: Profile filled, no open/resolved ticket — must request */}
-            {hasFilledProfile && !openEditTicket && !resolvedEditTicket && (
+            {isEmployeeRole && (
               <button
-                onClick={handleRequestEdit}
-                disabled={requestingEdit}
+                onClick={() => setShowRequestModal(true)}
                 className="btn-secondary flex items-center gap-2 text-sm"
-                title="Your profile is complete. Submit a request to HR to edit it."
               >
-                {requestingEdit ? <Loader2 size={14} className="animate-spin" /> : <MessageSquare size={14} />}
-                Request Edit
+                <MessageSquare size={14} /> Request Profile Update
               </button>
             )}
             {employee && !employee.exitStatus && employee.status !== 'TERMINATED' && (
@@ -335,6 +306,57 @@ export default function ProfilePage() {
           </div>
         </motion.div>
       )}
+
+      {/* Approved edit request banners */}
+      {approvedRequests.map((req: any) => (
+        <motion.div key={req.id} initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+          className="layer-card p-4 mb-4 border border-emerald-300 bg-emerald-50">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 size={18} className="text-emerald-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-emerald-800">
+                  {CATEGORY_LABELS[req.category]} update approved
+                </p>
+                <p className="text-xs text-emerald-700 mt-0.5">
+                  HR approved your request. Time remaining: <span className="font-medium">{getTimeLeft(req.editWindowExpiresAt)}</span>
+                </p>
+                {req.hrNote && <p className="text-xs text-emerald-600 mt-1">HR note: {req.hrNote}</p>}
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setActiveEditRequestId(req.id);
+                setActiveEditCategory(req.category);
+                setShowEdit(true);
+              }}
+              className="btn-primary text-xs px-3 py-1.5 whitespace-nowrap flex items-center gap-1.5"
+            >
+              <Edit2 size={12} /> Edit Now
+            </button>
+          </div>
+        </motion.div>
+      ))}
+
+      {/* Pending request banners */}
+      {pendingRequests.map((req: any) => (
+        <motion.div key={req.id} initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+          className="layer-card p-4 mb-4 border border-amber-200 bg-amber-50/50">
+          <div className="flex items-center gap-3">
+            <Clock size={16} className="text-amber-600 shrink-0" />
+            <p className="text-sm text-amber-700">
+              <span className="font-medium">{CATEGORY_LABELS[req.category]}</span> update request pending HR review.
+            </p>
+          </div>
+        </motion.div>
+      ))}
+
+      {/* Profile Update Request Modal */}
+      <AnimatePresence>
+        {showRequestModal && (
+          <ProfileUpdateRequestModal onClose={() => setShowRequestModal(false)} />
+        )}
+      </AnimatePresence>
 
       {/* Resign Modal */}
       {showResignModal && (
@@ -405,97 +427,121 @@ export default function ProfilePage() {
               <button onClick={() => setShowEdit(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
             <div className="overflow-y-auto flex-1 p-5 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">First Name *</label>
-                  <input value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})}
-                    className="input-glass w-full text-sm" placeholder="First name" />
+              {/* PERSONAL_DETAILS or no restriction */}
+              {(!activeEditCategory || activeEditCategory === 'PERSONAL_DETAILS') && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">First Name *</label>
+                      <input value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})}
+                        className="input-glass w-full text-sm" placeholder="First name" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Last Name *</label>
+                      <input value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})}
+                        className="input-glass w-full text-sm" placeholder="Last name" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">{t('profile.dateOfBirth')}</label>
+                      <input type="date" value={form.dateOfBirth} onChange={e => setForm({...form, dateOfBirth: e.target.value})}
+                        className="input-glass w-full text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Gender</label>
+                      <select value={form.gender} onChange={e => setForm({...form, gender: e.target.value})} className="input-glass w-full text-sm">
+                        <option value="">{t('common.selectOption')}</option>
+                        <option value="MALE">Male</option>
+                        <option value="FEMALE">Female</option>
+                        <option value="OTHER">Other</option>
+                        <option value="PREFER_NOT_TO_SAY">Prefer not to say</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">{t('common.phone')} *</label>
+                      <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})}
+                        className="input-glass w-full text-sm" placeholder="+91 XXXXXXXXXX" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">{t('profile.personalEmail')}</label>
+                      <input value={form.personalEmail} onChange={e => setForm({...form, personalEmail: e.target.value})}
+                        className="input-glass w-full text-sm" placeholder="personal@email.com" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">{t('profile.bloodGroup')}</label>
+                      <select value={form.bloodGroup} onChange={e => setForm({...form, bloodGroup: e.target.value})} className="input-glass w-full text-sm">
+                        <option value="">{t('common.selectOption')}</option>
+                        {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(bg => <option key={bg} value={bg}>{bg}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">{t('profile.maritalStatus')}</label>
+                      <select value={form.maritalStatus} onChange={e => setForm({...form, maritalStatus: e.target.value})} className="input-glass w-full text-sm">
+                        <option value="">{t('common.selectOption')}</option>
+                        <option value="Single">{t('profile.single')}</option>
+                        <option value="Married">{t('profile.married')}</option>
+                        <option value="Divorced">{t('profile.divorced')}</option>
+                        <option value="Widowed">{t('profile.widowed')}</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* ADDRESS */}
+              {(!activeEditCategory || activeEditCategory === 'ADDRESS') && (
+                <>
+                  <h4 className="text-xs font-semibold text-gray-600">{t('common.address')}</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <input value={form.address.line1} onChange={e => setForm({...form, address: {...form.address, line1: e.target.value}})}
+                        className="input-glass w-full text-sm" placeholder={t('profile.streetAddress')} />
+                    </div>
+                    <input value={form.address.city} onChange={e => setForm({...form, address: {...form.address, city: e.target.value}})}
+                      className="input-glass w-full text-sm" placeholder={t('common.city')} />
+                    <input value={form.address.state} onChange={e => setForm({...form, address: {...form.address, state: e.target.value}})}
+                      className="input-glass w-full text-sm" placeholder={t('common.state')} />
+                    <input value={form.address.pincode} onChange={e => setForm({...form, address: {...form.address, pincode: e.target.value}})}
+                      className="input-glass w-full text-sm" placeholder={t('common.pincode')} />
+                  </div>
+                </>
+              )}
+
+              {/* EMERGENCY_CONTACT */}
+              {(!activeEditCategory || activeEditCategory === 'EMERGENCY_CONTACT') && (
+                <>
+                  <h4 className="text-xs font-semibold text-gray-600">{t('profile.emergencyContact')}</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <input value={form.emergencyContact.name} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, name: e.target.value}})}
+                      className="input-glass w-full text-sm" placeholder={t('common.name')} />
+                    <input value={form.emergencyContact.phone} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, phone: e.target.value}})}
+                      className="input-glass w-full text-sm" placeholder={t('common.phone')} />
+                    <select value={form.emergencyContact.relationship} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, relationship: e.target.value}})}
+                      className="input-glass w-full text-sm">
+                      <option value="">{t('profile.relationship')}</option>
+                      <option value="SPOUSE">Spouse</option>
+                      <option value="PARENT">Parent</option>
+                      <option value="SIBLING">Sibling</option>
+                      <option value="FRIEND">Friend</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                    <input value={(form.emergencyContact as any).email || ''} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, email: e.target.value}})}
+                      className="input-glass w-full text-sm" placeholder="Email (optional)" type="email" />
+                  </div>
+                </>
+              )}
+
+              {/* BANK_DETAILS — handled separately via employee update; show info note */}
+              {activeEditCategory === 'BANK_DETAILS' && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+                  Bank details are updated by HR after reviewing your request. Please wait for HR to contact you, or reach out directly.
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Last Name *</label>
-                  <input value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})}
-                    className="input-glass w-full text-sm" placeholder="Last name" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">{t('profile.dateOfBirth')}</label>
-                  <input type="date" value={form.dateOfBirth} onChange={e => setForm({...form, dateOfBirth: e.target.value})}
-                    className="input-glass w-full text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Gender</label>
-                  <select value={form.gender} onChange={e => setForm({...form, gender: e.target.value})} className="input-glass w-full text-sm">
-                    <option value="">{t('common.selectOption')}</option>
-                    <option value="MALE">Male</option>
-                    <option value="FEMALE">Female</option>
-                    <option value="OTHER">Other</option>
-                    <option value="PREFER_NOT_TO_SAY">Prefer not to say</option>
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">{t('common.phone')} *</label>
-                  <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})}
-                    className="input-glass w-full text-sm" placeholder="+91 XXXXXXXXXX" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">{t('profile.personalEmail')}</label>
-                  <input value={form.personalEmail} onChange={e => setForm({...form, personalEmail: e.target.value})}
-                    className="input-glass w-full text-sm" placeholder="personal@email.com" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">{t('profile.bloodGroup')}</label>
-                  <select value={form.bloodGroup} onChange={e => setForm({...form, bloodGroup: e.target.value})} className="input-glass w-full text-sm">
-                    <option value="">{t('common.selectOption')}</option>
-                    {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(bg => <option key={bg} value={bg}>{bg}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">{t('profile.maritalStatus')}</label>
-                  <select value={form.maritalStatus} onChange={e => setForm({...form, maritalStatus: e.target.value})} className="input-glass w-full text-sm">
-                    <option value="">{t('common.selectOption')}</option>
-                    <option value="Single">{t('profile.single')}</option>
-                    <option value="Married">{t('profile.married')}</option>
-                    <option value="Divorced">{t('profile.divorced')}</option>
-                    <option value="Widowed">{t('profile.widowed')}</option>
-                  </select>
-                </div>
-              </div>
-              <h4 className="text-xs font-semibold text-gray-600">{t('common.address')}</h4>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2">
-                  <input value={form.address.line1} onChange={e => setForm({...form, address: {...form.address, line1: e.target.value}})}
-                    className="input-glass w-full text-sm" placeholder={t('profile.streetAddress')} />
-                </div>
-                <input value={form.address.city} onChange={e => setForm({...form, address: {...form.address, city: e.target.value}})}
-                  className="input-glass w-full text-sm" placeholder={t('common.city')} />
-                <input value={form.address.state} onChange={e => setForm({...form, address: {...form.address, state: e.target.value}})}
-                  className="input-glass w-full text-sm" placeholder={t('common.state')} />
-                <input value={form.address.pincode} onChange={e => setForm({...form, address: {...form.address, pincode: e.target.value}})}
-                  className="input-glass w-full text-sm" placeholder={t('common.pincode')} />
-              </div>
-              <h4 className="text-xs font-semibold text-gray-600">{t('profile.emergencyContact')}</h4>
-              <div className="grid grid-cols-2 gap-3">
-                <input value={form.emergencyContact.name} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, name: e.target.value}})}
-                  className="input-glass w-full text-sm" placeholder={t('common.name')} />
-                <input value={form.emergencyContact.phone} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, phone: e.target.value}})}
-                  className="input-glass w-full text-sm" placeholder={t('common.phone')} />
-                <select value={form.emergencyContact.relationship} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, relationship: e.target.value}})}
-                  className="input-glass w-full text-sm">
-                  <option value="">{t('profile.relationship')}</option>
-                  <option value="SPOUSE">Spouse</option>
-                  <option value="PARENT">Parent</option>
-                  <option value="SIBLING">Sibling</option>
-                  <option value="FRIEND">Friend</option>
-                  <option value="OTHER">Other</option>
-                </select>
-                <input value={(form.emergencyContact as any).email || ''} onChange={e => setForm({...form, emergencyContact: {...form.emergencyContact, email: e.target.value}})}
-                  className="input-glass w-full text-sm" placeholder="Email (optional)" type="email" />
-              </div>
+              )}
             </div>
             <div className="p-5 border-t border-gray-100 shrink-0">
               <button onClick={handleSaveProfile} disabled={updating} className="btn-primary w-full flex items-center justify-center gap-2 text-sm">
@@ -613,7 +659,12 @@ export default function ProfilePage() {
           <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <MapPin size={16} className="text-brand-500" /> {t('profile.addressEmergency')}
           </h3>
-          {employee?.address ? (
+          {employee?.workMode === 'PROJECT_SITE' ? (
+            <div className="flex items-center gap-2 mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <HardHat size={14} className="text-amber-600 shrink-0" />
+              <p className="text-xs text-amber-700">Address not required for site employees. Location details are managed by HR.</p>
+            </div>
+          ) : employee?.address ? (
             <div className="mb-4">
               <p className="text-xs text-gray-400 mb-1">{t('common.address')}</p>
               <p className="text-sm text-gray-700">

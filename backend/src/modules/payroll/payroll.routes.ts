@@ -526,6 +526,13 @@ router.get('/runs/:id/bank-file',
       const org = await prisma.organization.findUnique({
         where: { id: req.user!.organizationId }, select: { name: true },
       });
+      // Validate bank details before generating NEFT file
+      const missingBank = records.filter((r: any) => !r.employee?.bankAccountNumber || !r.employee?.ifscCode || !r.employee?.bankName);
+      if (missingBank.length > 0) {
+        const names = missingBank.slice(0, 5).map((r: any) => `${r.employee?.firstName} ${r.employee?.lastName} (${r.employee?.employeeCode})`).join(', ');
+        const more = missingBank.length > 5 ? ` and ${missingBank.length - 5} more` : '';
+        return res.status(400).json({ success: false, error: { code: 'INCOMPLETE_BANK_DETAILS', message: `${missingBank.length} employee(s) have missing bank details: ${names}${more}. Please complete bank details before generating NEFT file.` } });
+      }
       const { generateBankFileExcel } = await import('../../utils/payrollExcelExporter.js');
       const buffer = await generateBankFileExcel(run, records, org?.name || 'Aniston Technologies LLP');
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

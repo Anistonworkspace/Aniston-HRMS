@@ -74,6 +74,7 @@ export const employeeApi = api.injectEndpoints({
       invalidatesTags: (result, error, { id }) => [
         { type: 'Employee', id },
         'EmployeeList',
+        'Payroll',
       ],
     }),
 

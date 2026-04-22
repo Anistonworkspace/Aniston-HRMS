@@ -22,14 +22,15 @@ import PermissionOverridePanel from '../permissions/PermissionOverridePanel';
 import OcrVerificationPanel from '../documents/OcrVerificationPanel';
 import { useGetEmployeeOcrSummaryQuery } from '../documents/documentOcrApi';
 import { useVerifyKycMutation } from '../kyc/kycApi';
-import { useGetDepartmentsQuery, useGetDesignationsQuery, useGetManagersQuery, useGetOfficeLocationsQuery } from './employeeDepsApi';
+import { useGetDepartmentsQuery, useGetDesignationsQuery, useGetManagersQuery, useGetOfficeLocationsQuery, useCreateDepartmentMutation, useCreateDesignationMutation } from './employeeDepsApi';
+import { useGetProfileEditRequestsForEmployeeQuery, useReviewProfileEditRequestMutation, useGetProfileCompletionQuery } from '../profile/profileEditRequestApi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, formatCurrency, getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
-type TabKey = 'overview' | 'attendance' | 'salary' | 'documents' | 'connections' | 'intern' | 'permissions';
+type TabKey = 'overview' | 'attendance' | 'salary' | 'documents' | 'connections' | 'intern' | 'permissions' | 'profile-requests';
 
 export default function EmployeeDetailPage() {
   const { t } = useTranslation();
@@ -119,6 +120,7 @@ export default function EmployeeDetailPage() {
     ...(isIntern ? [{ key: 'intern' as TabKey, label: t('employees.internProfile') }] : []),
     { key: 'connections', label: t('employees.connections') },
     ...(isManagement ? [{ key: 'permissions' as TabKey, label: t('employees.permissions') }] : []),
+    ...(isManagement ? [{ key: 'profile-requests' as TabKey, label: 'Profile Requests' }] : []),
   ];
 
   return (
@@ -468,7 +470,7 @@ export default function EmployeeDetailPage() {
             )}
 
             {activeTab === 'salary' && (
-              <SalaryTab employeeId={id!} ctc={employee.ctc} workMode={employee.workMode} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} />
+              <SalaryTab employeeId={id!} ctc={employee.ctc} workMode={employee.workMode} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} kycStatus={(employee as any).documentGate?.kycStatus} />
             )}
 
             {activeTab === 'documents' && (
@@ -485,6 +487,10 @@ export default function EmployeeDetailPage() {
 
             {activeTab === 'permissions' && isManagement && (
               <PermissionOverridePanel employeeId={id!} />
+            )}
+
+            {activeTab === 'profile-requests' && isManagement && (
+              <ProfileRequestsTab employeeId={id!} />
             )}
           </div>
         </div>
@@ -524,6 +530,119 @@ function SidebarMeta({ icon: Icon, label, count, onClick }: { icon: any; label: 
 }
 
 /* =============================================================================
+   Profile Requests Tab
+   ============================================================================= */
+
+function ProfileRequestsTab({ employeeId }: { employeeId: string }) {
+  const { data: reqRes, isLoading, refetch } = useGetProfileEditRequestsForEmployeeQuery(employeeId);
+  const [reviewRequest, { isLoading: reviewing }] = useReviewProfileEditRequestMutation();
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [hrNote, setHrNote] = useState('');
+  const requests: any[] = reqRes?.data || [];
+
+  const CATEGORY_LABELS: Record<string, string> = {
+    PERSONAL_DETAILS: 'Personal Details',
+    ADDRESS: 'Address',
+    EMERGENCY_CONTACT: 'Emergency Contact',
+    BANK_DETAILS: 'Bank Details',
+  };
+
+  const handleReview = async (id: string, status: 'APPROVED' | 'REJECTED') => {
+    try {
+      await reviewRequest({ id, status, hrNote: hrNote.trim() || undefined }).unwrap();
+      toast.success(status === 'APPROVED' ? 'Request approved — employee has 48h to apply' : 'Request rejected');
+      setReviewingId(null);
+      setHrNote('');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to review');
+    }
+  };
+
+  if (isLoading) return <div className="flex items-center justify-center py-10"><Loader2 size={20} className="animate-spin text-brand-600" /></div>;
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold text-gray-800">Profile Update Requests ({requests.length})</h3>
+      {requests.length === 0 && (
+        <div className="text-center py-10 text-sm text-gray-400">No profile update requests from this employee.</div>
+      )}
+      {requests.map((req: any) => {
+        const statusColors: Record<string, string> = {
+          PENDING: 'bg-amber-100 text-amber-700',
+          APPROVED: 'bg-emerald-100 text-emerald-700',
+          REJECTED: 'bg-red-100 text-red-600',
+          APPLIED: 'bg-blue-100 text-blue-700',
+        };
+        const isReviewable = req.status === 'PENDING';
+        const isExpanded = reviewingId === req.id;
+        return (
+          <div key={req.id} className="layer-card p-4 border border-gray-200">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-gray-800">{CATEGORY_LABELS[req.category] || req.category}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{new Date(req.createdAt).toLocaleDateString()}</p>
+                {req.hrNote && <p className="text-xs text-gray-500 mt-1">HR note: {req.hrNote}</p>}
+                {req.editWindowExpiresAt && req.status === 'APPROVED' && (
+                  <p className="text-xs text-emerald-600 mt-1">
+                    Window expires: {new Date(req.editWindowExpiresAt).toLocaleString()}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${statusColors[req.status] || 'bg-gray-100 text-gray-500'}`}>
+                  {req.status}
+                </span>
+                {isReviewable && (
+                  <button
+                    onClick={() => { setReviewingId(isExpanded ? null : req.id); setHrNote(''); }}
+                    className="text-xs text-brand-600 hover:underline"
+                  >
+                    {isExpanded ? 'Cancel' : 'Review'}
+                  </button>
+                )}
+              </div>
+            </div>
+            <AnimatePresence>
+              {isExpanded && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden mt-3 pt-3 border-t border-gray-100 space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">HR Note (optional)</label>
+                    <input
+                      value={hrNote}
+                      onChange={e => setHrNote(e.target.value)}
+                      placeholder="Add a note for the employee..."
+                      className="input-glass w-full text-sm"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleReview(req.id, 'REJECTED')}
+                      disabled={reviewing}
+                      className="flex-1 text-sm px-3 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      onClick={() => handleReview(req.id, 'APPROVED')}
+                      disabled={reviewing}
+                      className="flex-1 btn-primary text-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      {reviewing ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                      Approve
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* =============================================================================
    Edit Employee Modal
    ============================================================================= */
 
@@ -533,6 +652,13 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
   const canEditStatus = MANAGEMENT_CAN_EDIT_STATUS.includes(userRole || '');
   const [changeRole] = useChangeEmployeeRoleMutation();
   const [selectedRole, setSelectedRole] = useState<string>(employee.user?.role || 'EMPLOYEE');
+  const [createDepartment, { isLoading: creatingDept }] = useCreateDepartmentMutation();
+  const [createDesignation, { isLoading: creatingDesig }] = useCreateDesignationMutation();
+  const [newDeptName, setNewDeptName] = useState('');
+  const [newDesigName, setNewDesigName] = useState('');
+  const [showNewDept, setShowNewDept] = useState(false);
+  const [showNewDesig, setShowNewDesig] = useState(false);
+  const { data: employeeShiftData } = useGetEmployeeShiftQuery(employee.id);
   const [form, setForm] = useState({
     firstName: employee.firstName || '',
     lastName: employee.lastName || '',
@@ -568,14 +694,24 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
     ifscCode: employee.ifscCode || '',
     accountHolderName: employee.accountHolderName || '',
     accountType: employee.accountType || 'SAVINGS',
+    shiftId: '',
   });
 
-  const { data: deptData } = useGetDepartmentsQuery();
-  const { data: desigData } = useGetDesignationsQuery();
+  // Pre-fill shiftId once loaded
+  useEffect(() => {
+    const currentShift = employeeShiftData?.data?.shiftId;
+    if (currentShift) setForm(f => ({ ...f, shiftId: currentShift }));
+  }, [employeeShiftData]);
+
+  const { data: deptData, refetch: refetchDepts } = useGetDepartmentsQuery();
+  const { data: desigData, refetch: refetchDesigs } = useGetDesignationsQuery();
   const { data: mgrData } = useGetManagersQuery();
   const departments = deptData?.data || [];
   const designations = desigData?.data || [];
   const managers = mgrData?.data || [];
+
+  const { data: shiftsData } = useGetShiftsQuery();
+  const shifts = (shiftsData as any)?.data || [];
 
   const deptOptions = departments.map((d: any) => ({ value: d.id, label: d.name }));
   const desigOptions = designations
@@ -608,6 +744,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
             designationId: form.designationId || null,
             managerId: form.managerId || null,
             ctc: form.ctc !== '' && form.ctc !== undefined ? Number(form.ctc) : undefined,
+            shiftId: form.shiftId || null,
           });
         }} className="space-y-4 px-6 py-5">
           <div className="grid grid-cols-2 gap-3">
@@ -622,22 +759,104 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
             <div><label className="block text-xs text-gray-500 mb-1">Phone</label>
               <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="input-glass w-full text-sm" /></div>
           </div>
-          {/* Department, Designation, Manager */}
+          {/* Department with inline create */}
           <div className="grid grid-cols-3 gap-3">
-            <SearchableSelect
-              label="Department"
-              placeholder="Select..."
-              options={deptOptions}
-              value={form.departmentId}
-              onChange={(v) => setForm({ ...form, departmentId: v, designationId: '' })}
-            />
-            <SearchableSelect
-              label="Designation"
-              placeholder="Select..."
-              options={desigOptions}
-              value={form.designationId}
-              onChange={(v) => setForm({ ...form, designationId: v })}
-            />
+            <div>
+              <SearchableSelect
+                label="Department"
+                placeholder="Select..."
+                options={deptOptions}
+                value={form.departmentId}
+                onChange={(v) => setForm({ ...form, departmentId: v, designationId: '' })}
+              />
+              {showNewDept ? (
+                <div className="flex gap-1 mt-1">
+                  <input
+                    value={newDeptName}
+                    onChange={e => setNewDeptName(e.target.value)}
+                    placeholder="New department name"
+                    className="input-glass flex-1 text-xs py-1.5"
+                    onKeyDown={async e => {
+                      if (e.key === 'Enter' && newDeptName.trim()) {
+                        e.preventDefault();
+                        try {
+                          const res = await createDepartment({ name: newDeptName.trim() }).unwrap();
+                          setForm(f => ({ ...f, departmentId: res.data.id, designationId: '' }));
+                          setNewDeptName('');
+                          setShowNewDept(false);
+                        } catch {}
+                      }
+                    }}
+                  />
+                  <button type="button" disabled={!newDeptName.trim() || creatingDept}
+                    onClick={async () => {
+                      if (!newDeptName.trim()) return;
+                      try {
+                        const res = await createDepartment({ name: newDeptName.trim() }).unwrap();
+                        setForm(f => ({ ...f, departmentId: res.data.id, designationId: '' }));
+                        setNewDeptName('');
+                        setShowNewDept(false);
+                      } catch {}
+                    }}
+                    className="px-2 py-1 bg-brand-600 text-white rounded text-xs disabled:opacity-50">
+                    {creatingDept ? '…' : 'Add'}
+                  </button>
+                  <button type="button" onClick={() => setShowNewDept(false)} className="px-1.5 py-1 text-gray-400 hover:text-gray-600 text-xs">✕</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setShowNewDept(true)} className="mt-1 text-[11px] text-brand-600 hover:underline flex items-center gap-0.5">
+                  <Plus size={11} /> Create new
+                </button>
+              )}
+            </div>
+            <div>
+              <SearchableSelect
+                label="Designation"
+                placeholder="Select..."
+                options={desigOptions}
+                value={form.designationId}
+                onChange={(v) => setForm({ ...form, designationId: v })}
+              />
+              {showNewDesig ? (
+                <div className="flex gap-1 mt-1">
+                  <input
+                    value={newDesigName}
+                    onChange={e => setNewDesigName(e.target.value)}
+                    placeholder="New designation name"
+                    className="input-glass flex-1 text-xs py-1.5"
+                    onKeyDown={async e => {
+                      if (e.key === 'Enter' && newDesigName.trim()) {
+                        e.preventDefault();
+                        try {
+                          const res = await createDesignation({ name: newDesigName.trim(), departmentId: form.departmentId || null }).unwrap();
+                          setForm(f => ({ ...f, designationId: res.data.id }));
+                          setNewDesigName('');
+                          setShowNewDesig(false);
+                        } catch {}
+                      }
+                    }}
+                  />
+                  <button type="button" disabled={!newDesigName.trim() || creatingDesig}
+                    onClick={async () => {
+                      if (!newDesigName.trim()) return;
+                      try {
+                        const res = await createDesignation({ name: newDesigName.trim(), departmentId: form.departmentId || null }).unwrap();
+                        setForm(f => ({ ...f, designationId: res.data.id }));
+                        setNewDesigName('');
+                        setShowNewDesig(false);
+                      } catch {}
+                    }}
+                    className="px-2 py-1 bg-brand-600 text-white rounded text-xs disabled:opacity-50">
+                    {creatingDesig ? '…' : 'Add'}
+                  </button>
+                  <button type="button" onClick={() => setShowNewDesig(false)} className="px-1.5 py-1 text-gray-400 hover:text-gray-600 text-xs">✕</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setShowNewDesig(true)} className="mt-1 text-[11px] text-brand-600 hover:underline flex items-center gap-0.5">
+                  <Plus size={11} /> Create new
+                </button>
+              )}
+            </div>
             <SearchableSelect
               label="Reporting Manager"
               placeholder="Select..."
@@ -645,6 +864,18 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
               value={form.managerId}
               onChange={(v) => setForm({ ...form, managerId: v })}
             />
+          </div>
+          {/* Shift assignment */}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Shift</label>
+              <select value={form.shiftId} onChange={e => setForm({ ...form, shiftId: e.target.value })} className="input-glass w-full text-sm">
+                <option value="">No shift assigned</option>
+                {shifts.map((s: any) => (
+                  <option key={s.id} value={s.id}>{s.name} ({s.type})</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Gender</label>
@@ -1486,7 +1717,7 @@ function buildDeductionsFromStructure(structure: any, _annualCtc: number): Salar
 
 let componentCounter = 0;
 
-function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: string; ctc: any; workMode: string; isManagement: boolean }) {
+function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { employeeId: string; ctc: any; workMode: string; isManagement: boolean; kycStatus?: string }) {
   const { data: salRes } = useGetSalaryStructureQuery(employeeId);
   const { data: historyRes } = useGetSalaryHistoryQuery(employeeId);
   const { data: compMasterRes } = useGetComponentsQuery();
@@ -1791,6 +2022,11 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement }: { employeeId: st
 
   return (
     <div className="space-y-4">
+      {kycStatus !== 'VERIFIED' && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
+          <span className="text-amber-600 text-sm font-medium">⚠️ KYC not verified — payroll may be blocked until employee completes KYC verification.</span>
+        </div>
+      )}
       {/* CTC + Summary — compact row */}
       <div className="grid grid-cols-4 gap-3">
         <div className="layer-card p-3 text-center">
@@ -2554,6 +2790,8 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
   const [verifyDoc] = useVerifyDocumentMutation();
   const [deleteDoc] = useDeleteDocumentMutation();
   const [verifyKyc, { isLoading: verifyingAll }] = useVerifyKycMutation();
+  const { data: completionRes } = useGetProfileCompletionQuery(employeeId, { skip: !isManagement });
+  const profileComplete = completionRes?.data?.allComplete ?? true;
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -2615,21 +2853,46 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
         <h3 className="text-sm font-semibold text-gray-800">Documents ({documents.length})</h3>
         <div className="flex gap-2">
           {isManagement && documents.some((d: any) => d.status === 'PENDING') && (
-            <button onClick={async () => {
-              try {
-                const pending = documents.filter((d: any) => d.status === 'PENDING');
-                for (const doc of pending) {
-                  await verifyDoc({ id: doc.id, status: 'VERIFIED' }).unwrap();
+            <div className="relative group">
+              <button onClick={async () => {
+                if (!profileComplete) {
+                  toast.error('Cannot approve KYC — employee has incomplete profile fields or missing required documents.');
+                  return;
                 }
-                await verifyKyc(employeeId).unwrap();
-                toast.success(`All ${pending.length} documents verified & KYC approved!`);
-              } catch (err: any) {
-                toast.error(err?.data?.error?.message || 'Failed to verify');
-              }
-            }} disabled={verifyingAll} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors">
-              {verifyingAll ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-              Verify All & Approve KYC
-            </button>
+                try {
+                  const pending = documents.filter((d: any) => d.status === 'PENDING');
+                  for (const doc of pending) {
+                    await verifyDoc({ id: doc.id, status: 'VERIFIED' }).unwrap();
+                  }
+                  await verifyKyc(employeeId).unwrap();
+                  toast.success(`All ${pending.length} documents verified & KYC approved!`);
+                } catch (err: any) {
+                  toast.error(err?.data?.error?.message || 'Failed to verify');
+                }
+              }} disabled={verifyingAll || !profileComplete}
+                className={`text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors ${
+                  profileComplete
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}>
+                {verifyingAll ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                Verify All & Approve KYC
+              </button>
+              {!profileComplete && (
+                <div className="absolute bottom-full left-0 mb-1 w-64 bg-gray-800 text-white text-xs rounded-lg p-2 hidden group-hover:block z-10">
+                  Employee profile is incomplete. Required fields or documents are missing.
+                  {completionRes?.data && (
+                    <ul className="mt-1 space-y-0.5 text-gray-300">
+                      {!completionRes.data.sections.personalDetails && <li>• Personal details missing</li>}
+                      {!completionRes.data.sections.address && <li>• Address missing</li>}
+                      {!completionRes.data.sections.emergencyContact && <li>• Emergency contact missing</li>}
+                      {!completionRes.data.sections.bankDetails && <li>• Bank details missing</li>}
+                      {completionRes.data.missingDocs.length > 0 && <li>• Missing docs: {completionRes.data.missingDocs.join(', ')}</li>}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
           )}
           {isManagement && (
             <button onClick={() => setShowKycModal(true)} className="btn-primary text-xs flex items-center gap-1.5">
@@ -2755,17 +3018,44 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                       <span className="text-[9px] text-gray-400 font-mono shrink-0">OCR AI</span>
                     </div>
 
-                    {/* Extracted fields (compact) */}
-                    {(hasName || ocr.extractedDob || ocr.extractedFatherName || hasDocNum) && (
-                      <div className="px-3 pt-2 pb-1 grid grid-cols-2 gap-x-3 gap-y-1">
-                        {ocr.extractedName && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">Name</span><p className="text-[11px] font-semibold text-gray-800 truncate">{ocr.extractedName}</p></div>}
-                        {ocr.extractedDob && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">DOB</span><p className="text-[11px] font-semibold text-gray-800">{ocr.extractedDob}</p></div>}
-                        {ocr.extractedFatherName && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">Father</span><p className="text-[11px] font-semibold text-gray-800 truncate">{ocr.extractedFatherName}</p></div>}
-                        {ocr.extractedDocNumber && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">Doc No.</span><p className="text-[11px] font-semibold text-gray-800 font-mono">{ocr.extractedDocNumber}</p></div>}
-                        {ocr.extractedGender && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">Gender</span><p className="text-[11px] font-semibold text-gray-800">{ocr.extractedGender}</p></div>}
-                        {ocr.extractedAddress && <div className="col-span-2"><span className="text-[9px] text-gray-400 uppercase tracking-wide">Address</span><p className="text-[11px] text-gray-700 line-clamp-1">{ocr.extractedAddress}</p></div>}
-                      </div>
-                    )}
+                    {/* Extracted fields — filtered by document type */}
+                    {(() => {
+                      // Fields shown per document type
+                      const OCR_FIELD_WHITELIST: Record<string, string[]> = {
+                        AADHAAR: ['name', 'dob', 'gender', 'address', 'docNumber'],
+                        PAN: ['name', 'dob', 'fatherName', 'docNumber'],
+                        PASSPORT: ['name', 'dob', 'gender', 'docNumber'],
+                        DRIVING_LICENSE: ['name', 'dob', 'docNumber'],
+                        VOTER_ID: ['name', 'dob', 'address', 'docNumber'],
+                        TENTH_CERTIFICATE: ['name'],
+                        TWELFTH_CERTIFICATE: ['name'],
+                        DEGREE_CERTIFICATE: ['name'],
+                        POST_GRADUATION_CERTIFICATE: ['name'],
+                        BANK_STATEMENT: ['name', 'docNumber'],
+                        CANCELLED_CHEQUE: ['name', 'docNumber'],
+                        RESIDENCE_PROOF: ['name', 'address'],
+                      };
+                      const allowed = OCR_FIELD_WHITELIST[doc.type] || ['name', 'dob', 'docNumber', 'fatherName', 'gender', 'address'];
+                      const show = {
+                        name: allowed.includes('name') && ocr.extractedName,
+                        dob: allowed.includes('dob') && ocr.extractedDob,
+                        fatherName: allowed.includes('fatherName') && ocr.extractedFatherName,
+                        docNumber: allowed.includes('docNumber') && ocr.extractedDocNumber,
+                        gender: allowed.includes('gender') && ocr.extractedGender,
+                        address: allowed.includes('address') && ocr.extractedAddress,
+                      };
+                      if (!Object.values(show).some(Boolean)) return null;
+                      return (
+                        <div className="px-3 pt-2 pb-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                          {show.name && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">Name</span><p className="text-[11px] font-semibold text-gray-800 truncate">{ocr.extractedName}</p></div>}
+                          {show.dob && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">DOB</span><p className="text-[11px] font-semibold text-gray-800">{ocr.extractedDob}</p></div>}
+                          {show.fatherName && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">Father</span><p className="text-[11px] font-semibold text-gray-800 truncate">{ocr.extractedFatherName}</p></div>}
+                          {show.docNumber && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">Doc No.</span><p className="text-[11px] font-semibold text-gray-800 font-mono">{ocr.extractedDocNumber}</p></div>}
+                          {show.gender && <div><span className="text-[9px] text-gray-400 uppercase tracking-wide">Gender</span><p className="text-[11px] font-semibold text-gray-800">{ocr.extractedGender}</p></div>}
+                          {show.address && <div className="col-span-2"><span className="text-[9px] text-gray-400 uppercase tracking-wide">Address</span><p className="text-[11px] text-gray-700 line-clamp-1">{ocr.extractedAddress}</p></div>}
+                        </div>
+                      );
+                    })()}
 
                     {/* KYC verification pointers */}
                     <div className="px-3 py-2 border-t border-gray-50 space-y-1">

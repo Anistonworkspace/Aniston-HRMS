@@ -4,6 +4,62 @@ import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 
 /**
+ * New-year leave balance provisioning.
+ * Creates fresh LeaveBalance records for ALL active leave types for all active employees
+ * who don't yet have a balance for the target year. This covers leave types where
+ * carryForward=false — they simply get allocated=defaultBalance each year.
+ * Idempotent: existing balances are never overwritten.
+ */
+async function provisionNewYearBalances(targetYear: number) {
+  logger.info(`[Leave CF] Provisioning new-year balances for ${targetYear}...`);
+  let created = 0;
+
+  const orgs = await prisma.organization.findMany({ select: { id: true } });
+
+  for (const org of orgs) {
+    const leaveTypes = await prisma.leaveType.findMany({
+      where: { organizationId: org.id, isActive: true },
+      select: { id: true, defaultBalance: true },
+    });
+    if (leaveTypes.length === 0) continue;
+
+    const employees = await prisma.employee.findMany({
+      where: { organizationId: org.id, deletedAt: null, status: { in: ['ACTIVE', 'PROBATION', 'INTERN', 'ONBOARDING'] } },
+      select: { id: true },
+    });
+    if (employees.length === 0) continue;
+
+    for (const lt of leaveTypes) {
+      const existingBalances = await prisma.leaveBalance.findMany({
+        where: { leaveTypeId: lt.id, year: targetYear },
+        select: { employeeId: true },
+      });
+      const existingSet = new Set(existingBalances.map(b => b.employeeId));
+
+      const toCreate = employees
+        .filter(e => !existingSet.has(e.id))
+        .map(e => ({
+          employeeId: e.id,
+          leaveTypeId: lt.id,
+          year: targetYear,
+          allocated: Number(lt.defaultBalance ?? 0),
+          used: 0,
+          pending: 0,
+          carriedForward: 0,
+        }));
+
+      if (toCreate.length > 0) {
+        await prisma.leaveBalance.createMany({ data: toCreate, skipDuplicates: true });
+        created += toCreate.length;
+      }
+    }
+  }
+
+  logger.info(`[Leave CF] Provisioned ${created} new leave balance records for ${targetYear}.`);
+  return { created };
+}
+
+/**
  * Year-end carry forward processor.
  *
  * Runs on April 1 (Indian financial year start) via the leaveCarryForwardQueue cron.
@@ -40,14 +96,15 @@ async function processYearEndCarryForward(targetYear?: number) {
       // Get all employee balances for this leave type in the PREVIOUS year
       const prevBalances = await prisma.leaveBalance.findMany({
         where: { leaveTypeId: lt.id, year: previousYear },
-        select: { id: true, employeeId: true, allocated: true, used: true, carriedForward: true },
+        select: { id: true, employeeId: true, allocated: true, used: true, pending: true, carriedForward: true },
       });
 
       for (const prev of prevBalances) {
         try {
           const allocated = Number(prev.allocated);
           const used      = Number(prev.used);
-          const unused    = Math.max(0, allocated - used);
+          const pending   = Number((prev as any).pending ?? 0);
+          const unused    = Math.max(0, allocated - used - pending);
 
           if (unused <= 0) {
             totalSkipped++;
@@ -115,8 +172,14 @@ export function startLeaveCarryForwardWorker() {
     'leave-carry-forward',
     async (job: Job) => {
       switch (job.name) {
-        case 'year-end-carry-forward':
-          return processYearEndCarryForward(job.data?.targetYear);
+        case 'year-end-carry-forward': {
+          const year = job.data?.targetYear ?? new Date().getFullYear();
+          const provision = await provisionNewYearBalances(year);
+          const carryForward = await processYearEndCarryForward(job.data?.targetYear);
+          return { ...provision, ...carryForward };
+        }
+        case 'provision-balances':
+          return provisionNewYearBalances(job.data?.targetYear ?? new Date().getFullYear());
         default:
           logger.warn(`[Leave CF] Unknown job name: ${job.name}`);
       }

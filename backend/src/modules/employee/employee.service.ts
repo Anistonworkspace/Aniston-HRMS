@@ -3,6 +3,7 @@ import crypto, { randomBytes } from 'crypto';
 import { prisma } from '../../lib/prisma.js';
 import { redis } from '../../lib/redis.js';
 import { NotFoundError, ConflictError, BadRequestError, AppError } from '../../middleware/errorHandler.js';
+import { storageService } from '../../services/storage.service.js';
 import { enqueueEmail, enqueueNotification, payrollQueue } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { env } from '../../config/env.js';
@@ -138,6 +139,9 @@ export class EmployeeService {
           orderBy: { startDate: 'desc' as const },
           include: { shift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } } },
         },
+        documentGate: {
+          select: { kycStatus: true, reuploadDocTypes: true, documentRejectReasons: true },
+        },
       },
     });
 
@@ -249,6 +253,12 @@ export class EmployeeService {
       throw new AppError('Failed to create employee record. Please try again.', 500, 'TRANSACTION_FAILED');
     }
 
+    // Best-effort: auto-assign default shift to new employee
+    try {
+      const { shiftService } = await import('../shift/shift.service.js');
+      await shiftService.autoAssignDefaultShift(organizationId, createdBy);
+    } catch { /* non-blocking — shift assignment is not critical for employee creation */ }
+
     return result;
   }
 
@@ -358,15 +368,13 @@ export class EmployeeService {
     }
 
     // Field-level permission control
-    // CTC: SUPER_ADMIN only
-    const SUPER_ADMIN_ONLY_FIELDS = ['ctc'];
+    // CTC: SUPER_ADMIN, ADMIN, HR only
+    const CTC_ALLOWED_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
     // Status + org fields: SUPER_ADMIN, ADMIN, HR only
     const MANAGEMENT_ONLY_FIELDS = ['status', 'joiningDate', 'probationEndDate', 'workMode', 'officeLocationId', 'email'];
 
-    if (callerRole && !['SUPER_ADMIN'].includes(callerRole)) {
-      for (const field of SUPER_ADMIN_ONLY_FIELDS) {
-        delete (data as any)[field];
-      }
+    if (callerRole && !CTC_ALLOWED_ROLES.includes(callerRole)) {
+      delete (data as any)['ctc'];
     }
     if (callerRole && !['SUPER_ADMIN', 'ADMIN', 'HR'].includes(callerRole)) {
       for (const field of MANAGEMENT_ONLY_FIELDS) {
@@ -443,7 +451,10 @@ export class EmployeeService {
       }
     }
 
+    // Extract shiftId before building updateData (not a direct Employee field)
+    const shiftId: string | null | undefined = (data as any).shiftId;
     const updateData: any = { ...data };
+    delete updateData.shiftId; // never pass shiftId into employee.update
     if (data.email) updateData.email = data.email.toLowerCase();
 
     // Date fields: convert non-empty strings to Date objects; delete empty strings
@@ -477,6 +488,74 @@ export class EmployeeService {
             where: { id: existing.userId },
             data: { email: data.email.toLowerCase() },
           });
+        }
+
+        // CTC change → create SalaryHistory record
+        if (data.ctc !== undefined && Number(existing.ctc) !== Number(data.ctc)) {
+          await tx.salaryHistory.create({
+            data: {
+              employeeId: id,
+              organizationId,
+              previousCtc: existing.ctc ? Number(existing.ctc) : 0,
+              ctc: Number(data.ctc),
+              effectiveFrom: new Date(),
+              changeType: 'REVISION',
+              changedBy: updatedBy,
+              reason: 'CTC updated via employee profile',
+            },
+          });
+        }
+
+        // Shift assignment: end current active assignment, create new one
+        if (shiftId !== undefined) {
+          if (shiftId) {
+            // End any current active assignment
+            await tx.shiftAssignment.updateMany({
+              where: { employeeId: id, endDate: null },
+              data: { endDate: new Date() },
+            });
+            // Create new assignment
+            await tx.shiftAssignment.create({
+              data: {
+                employeeId: id,
+                shiftId,
+                startDate: new Date(),
+                assignedBy: updatedBy,
+              },
+            });
+          } else {
+            // shiftId = null → remove shift assignment
+            await tx.shiftAssignment.updateMany({
+              where: { employeeId: id, endDate: null },
+              data: { endDate: new Date() },
+            });
+          }
+        }
+
+        // workMode change → auto-reassign appropriate default shift
+        if (data.workMode && data.workMode !== existing.workMode) {
+          const targetShiftType = data.workMode === 'FIELD_SALES' ? 'FIELD' : 'OFFICE';
+          const defaultShift = await tx.shift.findFirst({
+            where: { organizationId, shiftType: targetShiftType as any, isActive: true, isDefault: true },
+          });
+          if (defaultShift) {
+            // End current active shift assignment (if not already handled by explicit shiftId above)
+            if (shiftId === undefined) {
+              await tx.shiftAssignment.updateMany({
+                where: { employeeId: id, endDate: null },
+                data: { endDate: new Date() },
+              });
+            }
+            await tx.shiftAssignment.create({
+              data: {
+                employeeId: id,
+                shiftId: defaultShift.id,
+                startDate: new Date(),
+                endDate: null,
+                assignedBy: updatedBy,
+              },
+            });
+          }
         }
 
         // Audit log
@@ -1257,6 +1336,19 @@ export class EmployeeService {
     await createAuditLog({ userId, organizationId, entity: 'Employee', entityId: employeeId, action: 'TERMINATION_INITIATED', newValue: { exitType: 'TERMINATION', exitStatus } });
 
     return updated;
+  }
+
+  async updateProfilePhoto(employeeId: string, photoUrl: string, organizationId: string) {
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, organizationId } });
+    if (!employee) throw new NotFoundError('Employee');
+    // Delete old photo if it exists
+    if ((employee as any).profilePhotoUrl) {
+      await storageService.deleteFile((employee as any).profilePhotoUrl);
+    }
+    return prisma.employee.update({
+      where: { id: employeeId },
+      data: { profilePhotoUrl: photoUrl } as any,
+    });
   }
 }
 

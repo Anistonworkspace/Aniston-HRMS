@@ -21,21 +21,23 @@ interface KpiStripProps {
     pendingRegularizations: number;
   } | null;
   isLoading: boolean;
+  activeFilter?: { status?: string; anomalyType?: string } | null;
+  onCardClick?: (filter: { status?: string; anomalyType?: string } | null) => void;
 }
 
 const KPI_CONFIG = [
-  { key: 'expectedToday', label: 'Expected',      icon: Users,      color: 'text-blue-600',    bg: 'bg-blue-50',    border: 'border-blue-100' },
-  { key: 'present',       label: 'Present',        icon: UserCheck,  color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
-  { key: 'absent',        label: 'Absent',         icon: UserX,      color: 'text-red-500',     bg: 'bg-red-50',     border: 'border-red-100' },
-  { key: 'onLeave',       label: 'On Leave',       icon: CalendarOff,color: 'text-purple-500',  bg: 'bg-purple-50',  border: 'border-purple-100' },
-  { key: 'notCheckedIn',  label: 'Not Checked In', icon: Clock,      color: 'text-gray-500',    bg: 'bg-gray-50',    border: 'border-gray-200' },
-  { key: 'lateArrivals',  label: 'Late',           icon: Timer,      color: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-100' },
-  { key: 'earlyExits',    label: 'Early Exit',     icon: UserMinus,  color: 'text-orange-500',  bg: 'bg-orange-50',  border: 'border-orange-100' },
-  { key: 'halfDay',       label: 'Half Day',       icon: Coffee,     color: 'text-amber-500',   bg: 'bg-amber-50',   border: 'border-amber-100' },
-  { key: 'fieldActive',   label: 'Field Active',   icon: MapPin,     color: 'text-green-600',   bg: 'bg-green-50',   border: 'border-green-100' },
+  { key: 'expectedToday', label: 'Expected',      icon: Users,      color: 'text-blue-600',    bg: 'bg-blue-50',    border: 'border-blue-100',   filter: null },
+  { key: 'present',       label: 'Present',        icon: UserCheck,  color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100', filter: { status: 'PRESENT' } },
+  { key: 'absent',        label: 'Absent',         icon: UserX,      color: 'text-red-500',     bg: 'bg-red-50',     border: 'border-red-100',    filter: { status: 'ABSENT' } },
+  { key: 'onLeave',       label: 'On Leave',       icon: CalendarOff,color: 'text-purple-500',  bg: 'bg-purple-50',  border: 'border-purple-100', filter: { status: 'ON_LEAVE' } },
+  { key: 'notCheckedIn',  label: 'Not Checked In', icon: Clock,      color: 'text-gray-500',    bg: 'bg-gray-50',    border: 'border-gray-200',   filter: { status: 'NOT_CHECKED_IN' } },
+  { key: 'lateArrivals',  label: 'Late',           icon: Timer,      color: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-100',  filter: { anomalyType: 'LATE_ARRIVAL' } },
+  { key: 'earlyExits',    label: 'Early Exit',     icon: UserMinus,  color: 'text-orange-500',  bg: 'bg-orange-50',  border: 'border-orange-100', filter: { anomalyType: 'EARLY_EXIT' } },
+  { key: 'halfDay',       label: 'Half Day',       icon: Coffee,     color: 'text-amber-500',   bg: 'bg-amber-50',   border: 'border-amber-100',  filter: { status: 'HALF_DAY' } },
+  { key: 'fieldActive',   label: 'Field Active',   icon: MapPin,     color: 'text-green-600',   bg: 'bg-green-50',   border: 'border-green-100',  filter: null },
 ] as const;
 
-export default function KpiStrip({ stats, isLoading }: KpiStripProps) {
+export default function KpiStrip({ stats, isLoading, activeFilter, onCardClick }: KpiStripProps) {
   if (isLoading) {
     return (
       <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-2">
@@ -49,17 +51,36 @@ export default function KpiStrip({ stats, isLoading }: KpiStripProps) {
     );
   }
 
+  const isCardActive = (filter: { status?: string; anomalyType?: string } | null) => {
+    if (!filter || !activeFilter) return false;
+    if (filter.status && activeFilter.status === filter.status) return true;
+    if (filter.anomalyType && activeFilter.anomalyType === filter.anomalyType) return true;
+    return false;
+  };
+
   return (
     <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-2">
-      {KPI_CONFIG.map(({ key, label, icon: Icon, color, bg, border }) => {
+      {KPI_CONFIG.map(({ key, label, icon: Icon, color, bg, border, filter }) => {
         const value = stats?.[key as keyof typeof stats] ?? 0;
         const isAlert = (key === 'lateArrivals' || key === 'earlyExits') && (value as number) > 0;
+        const isActive = isCardActive(filter);
+        const isClickable = !!filter && !!onCardClick;
         return (
           <div
             key={key}
+            onClick={() => {
+              if (!onCardClick) return;
+              // Toggle: clicking an active card clears the filter
+              if (isActive) {
+                onCardClick(null);
+              } else {
+                onCardClick(filter);
+              }
+            }}
             className={cn(
-              'rounded-xl border p-3 transition-all hover:shadow-sm cursor-default',
-              isAlert ? `${bg} ${border}` : 'bg-white border-gray-100 hover:border-gray-200',
+              'rounded-xl border p-3 transition-all hover:shadow-sm',
+              isClickable ? 'cursor-pointer' : 'cursor-default',
+              isActive ? `${bg} ${border} ring-2 ring-offset-1 ring-brand-400` : isAlert ? `${bg} ${border}` : 'bg-white border-gray-100 hover:border-gray-200',
             )}
           >
             <div className="flex items-center gap-1.5 mb-1.5">

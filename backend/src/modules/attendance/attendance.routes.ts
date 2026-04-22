@@ -2,6 +2,17 @@ import { Router } from 'express';
 import { attendanceController } from './attendance.controller.js';
 import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
+import { uploadAttendancePhoto } from '../../middleware/upload.middleware.js';
+import { storageService, StorageFolder } from '../../services/storage.service.js';
+import { BadRequestError } from '../../middleware/errorHandler.js';
+
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/** Convert a UTC Date to its IST time-of-day expressed as total minutes since midnight */
+function toISTMinutes(d: Date): number {
+  const ist = new Date(d.getTime() + d.getTimezoneOffset() * 60000 + IST_OFFSET_MS);
+  return ist.getUTCHours() * 60 + ist.getUTCMinutes();
+}
 
 const router = Router();
 router.use(authenticate);
@@ -11,10 +22,6 @@ router.post('/clock-in', (req, res, next) => attendanceController.clockIn(req, r
 router.post('/clock-out', (req, res, next) => attendanceController.clockOut(req, res, next));
 router.get('/today', (req, res, next) => attendanceController.getTodayStatus(req, res, next));
 router.get('/my', (req, res, next) => attendanceController.getMyAttendance(req, res, next));
-
-// Break management
-router.post('/break/start', (req, res, next) => attendanceController.startBreak(req, res, next));
-router.post('/break/end', (req, res, next) => attendanceController.endBreak(req, res, next));
 
 // Activity pulse (hybrid/WFH session tracking)
 router.post('/activity-pulse', (req, res, next) => attendanceController.recordActivityPulse(req, res, next));
@@ -93,6 +100,20 @@ router.get(
         res.setHeader('Content-Disposition', `attachment; filename="attendance-${monthName}-${year}.xlsx"`);
         res.send(buffer);
       }
+    } catch (err) { next(err); }
+  }
+);
+
+// Project site photo upload (returns URL to use in projectSiteCheckIn body)
+router.post(
+  '/project-site/upload-photo',
+  authenticate,
+  uploadAttendancePhoto.single('photo'),
+  (req, res, next) => {
+    try {
+      if (!req.file) throw new BadRequestError('No photo uploaded');
+      const photoUrl = storageService.buildUrl(StorageFolder.ATTENDANCE_PHOTOS, req.file.filename);
+      res.json({ success: true, data: { photoUrl } });
     } catch (err) { next(err); }
   }
 );
@@ -203,80 +224,6 @@ router.put('/policy', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (r
 });
 
 // =====================================================================
-// P1.2: BULK ATTENDANCE UPLOAD
-// =====================================================================
-router.get('/bulk/template', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
-  try {
-    const { prisma } = await import('../../lib/prisma.js');
-    const ExcelJS = await import('exceljs');
-    const employees = await prisma.employee.findMany({
-      where: { organizationId: req.user!.organizationId, deletedAt: null, isSystemAccount: { not: true } },
-      select: { employeeCode: true, firstName: true, lastName: true, email: true },
-      orderBy: { employeeCode: 'asc' },
-    });
-    const wb = new ExcelJS.default.Workbook();
-    const ws = wb.addWorksheet('Attendance');
-    ws.columns = [
-      { header: 'Employee Code', key: 'code', width: 15 },
-      { header: 'Name', key: 'name', width: 25 },
-      { header: 'Date (YYYY-MM-DD)', key: 'date', width: 18 },
-      { header: 'Check In (HH:MM)', key: 'checkIn', width: 18 },
-      { header: 'Check Out (HH:MM)', key: 'checkOut', width: 18 },
-      { header: 'Status (PRESENT/ABSENT/HALF_DAY/ON_LEAVE)', key: 'status', width: 40 },
-      { header: 'Notes', key: 'notes', width: 30 },
-    ];
-    employees.forEach(e => ws.addRow({ code: e.employeeCode, name: `${e.firstName} ${e.lastName}`, date: '', checkIn: '', checkOut: '', status: 'PRESENT', notes: '' }));
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename="attendance-template.xlsx"');
-    await wb.xlsx.write(res);
-    res.end();
-  } catch (err) { next(err); }
-});
-
-router.post('/bulk/upload', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req, res, next) => {
-  try {
-    const { prisma } = await import('../../lib/prisma.js');
-    const rows = req.body.rows as Array<{ employeeCode: string; date: string; checkIn?: string; checkOut?: string; status: string; notes?: string; remarks?: string }>;
-    if (!rows?.length) { res.status(400).json({ success: false, error: { message: 'No rows provided' } }); return; }
-
-    const employees = await prisma.employee.findMany({
-      where: { organizationId: req.user!.organizationId, deletedAt: null },
-      select: { id: true, employeeCode: true, workMode: true },
-    });
-    const empMap = new Map(employees.map(e => [e.employeeCode, e]));
-
-    // Sanitize text fields to prevent CSV formula injection
-    const sanitize = (val: string | undefined) => {
-      if (!val) return val;
-      return val.replace(/^[=+\-@\t\r]+/, '');
-    };
-
-    let created = 0, updated = 0, errors: string[] = [];
-    for (const row of rows) {
-      const noteValue = sanitize(row.notes || row.remarks);
-      row.notes = noteValue;
-      const emp = empMap.get(row.employeeCode);
-      if (!emp) { errors.push(`Row ${row.employeeCode}: Employee not found`); continue; }
-      if (!row.date) { errors.push(`Row ${row.employeeCode}: Date is required`); continue; }
-      const date = new Date(row.date); date.setHours(0, 0, 0, 0);
-      const checkIn = row.checkIn ? new Date(`${row.date}T${row.checkIn}:00+05:30`) : null;
-      const checkOut = row.checkOut ? new Date(`${row.date}T${row.checkOut}:00+05:30`) : null;
-      const totalHours = checkIn && checkOut ? (checkOut.getTime() - checkIn.getTime()) / 3600000 : null;
-
-      try {
-        await prisma.attendanceRecord.upsert({
-          where: { employeeId_date: { employeeId: emp.id, date } },
-          create: { employeeId: emp.id, date, checkIn, checkOut, totalHours, status: row.status as any || 'PRESENT', workMode: emp.workMode as any || 'OFFICE', source: 'MANUAL_HR', notes: row.notes || '[Bulk upload]' },
-          update: { checkIn, checkOut, totalHours, status: row.status as any || 'PRESENT', notes: row.notes || '[Bulk upload update]' },
-        });
-        created++;
-      } catch (e: any) { errors.push(`Row ${row.employeeCode} ${row.date}: ${e.message}`); }
-    }
-    res.json({ success: true, data: { created, updated, errors, total: rows.length } });
-  } catch (err) { next(err); }
-});
-
-// =====================================================================
 // P1.3: MONTHLY REPORT — shared logic extracted for reuse by export
 // =====================================================================
 async function generateMonthlyReportData(organizationId: string, month: number, year: number) {
@@ -300,8 +247,11 @@ async function generateMonthlyReportData(organizationId: string, month: number, 
 
   const holidayDates = new Set(holidays.map(h => h.date.toISOString().split('T')[0]));
 
-  // Cap end date to today — don't count future dates as absent for LOP calculation
-  const todayUTC = new Date(new Date().toISOString().split('T')[0] + 'T00:00:00.000Z');
+  // Cap end date to today in IST — prevents future dates from inflating LOP
+  const _n = new Date();
+  const _ist = new Date(_n.getTime() + _n.getTimezoneOffset() * 60000 + 5.5 * 3600000);
+  const todayISTStr = `${_ist.getUTCFullYear()}-${String(_ist.getUTCMonth() + 1).padStart(2, '0')}-${String(_ist.getUTCDate()).padStart(2, '0')}`;
+  const todayUTC = new Date(todayISTStr + 'T00:00:00.000Z');
   const lopEndDate = end < todayUTC ? end : todayUTC;
 
   // totalWorkingDays = full month (for display), lopWorkingDays = up to today (for LOP calc)
@@ -339,12 +289,9 @@ async function generateMonthlyReportData(organizationId: string, month: number, 
     const [shiftStartH, shiftStartM] = (empShift?.startTime || '09:00').split(':').map(Number);
     const shiftStartMinutes = shiftStartH * 60 + shiftStartM;
     const graceMinutes = empShift?.graceMinutes || policy?.lateGraceMinutes || 15;
-    const lateCount = recs.filter(r => {
-      if (!r.checkIn) return false;
-      const ci = new Date(r.checkIn);
-      const ciMinutes = ci.getHours() * 60 + ci.getMinutes();
-      return ciMinutes > (shiftStartMinutes + graceMinutes);
-    }).length;
+    const lateCount = recs.filter(r =>
+      r.checkIn ? toISTMinutes(new Date(r.checkIn)) > (shiftStartMinutes + graceMinutes) : false
+    ).length;
     const effectivePresent = present + wfh + (halfDay * 0.5);
     let lopDays = Math.max(0, lopWorkingDays - effectivePresent - onLeave);
 
@@ -355,9 +302,9 @@ async function generateMonthlyReportData(organizationId: string, month: number, 
     }
 
     const fullDayHrsForOT = Number(empShift?.fullDayHours || policy?.fullDayMinHours || 8);
-    const otHours = policy?.otEnabled
-      ? Math.max(0, totalHours - (present + wfh) * fullDayHrsForOT)
-      : 0;
+    const halfDayHrsForOT = Number(empShift?.halfDayHours || policy?.halfDayMinHours || 4);
+    const expectedHours = (present + wfh) * fullDayHrsForOT + halfDay * halfDayHrsForOT;
+    const otHours = policy?.otEnabled ? Math.max(0, totalHours - expectedHours) : 0;
 
     return {
       employeeId: emp.id, employeeCode: emp.employeeCode, name: `${emp.firstName} ${emp.lastName}`,
@@ -456,7 +403,9 @@ router.get('/my/report', async (req, res, next) => {
     const halfDay = records.filter(r => r.status === 'HALF_DAY').length;
     const onLeave = records.filter(r => r.status === 'ON_LEAVE').length;
     const totalHours = records.reduce((s, r) => s + (Number(r.totalHours) || 0), 0);
-    const score = totalWorkingDays > 0 ? Math.round(((present + (halfDay * 0.5)) / totalWorkingDays) * 100) : 0;
+    // Score: exclude approved leave days from denominator — leave is not absence
+    const effectiveWorkingDays = Math.max(1, totalWorkingDays - onLeave);
+    const score = Math.round(((present + halfDay * 0.5) / effectiveWorkingDays) * 100);
 
     // Streak calculation
     let currentStreak = 0, longestStreak = 0, streak = 0;
@@ -477,8 +426,7 @@ router.get('/my/report', async (req, res, next) => {
     }
 
     const avgCheckInMinutes = records.filter(r => r.checkIn).reduce((s, r) => {
-      const ci = new Date(r.checkIn!);
-      return s + ci.getHours() * 60 + ci.getMinutes();
+      return s + toISTMinutes(new Date(r.checkIn!));
     }, 0) / (records.filter(r => r.checkIn).length || 1);
 
     const [shiftStartH, shiftStartM] = (empShift?.startTime || '09:00').split(':').map(Number);
@@ -486,8 +434,7 @@ router.get('/my/report', async (req, res, next) => {
     const graceMinutes = empShift?.graceMinutes || policy?.lateGraceMinutes || 15;
     const lateCount = records.filter(r => {
       if (!r.checkIn) return false;
-      const ci = new Date(r.checkIn);
-      return ci.getHours() * 60 + ci.getMinutes() > (shiftStartMinutes + graceMinutes);
+      return toISTMinutes(new Date(r.checkIn)) > (shiftStartMinutes + graceMinutes);
     }).length;
 
     res.json({

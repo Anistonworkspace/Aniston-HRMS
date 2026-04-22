@@ -55,6 +55,7 @@ model Organization {
   databaseBackups   DatabaseBackup[]
   deletionRequests         EmployeeDeletionRequest[]
   payrollDeletionRequests  PayrollDeletionRequest[]
+  profileEditRequests      ProfileEditRequest[]
 
   // Denormalized child relations (nullable FK — backfill required for existing rows)
   breaks               Break[]
@@ -236,6 +237,7 @@ model Employee {
   payrollAdjustments        PayrollAdjustment[]
   letterAssignments         LetterAssignment[]
   deletionRequests          EmployeeDeletionRequest[] @relation("EmployeeDeletionRequests")
+  profileEditRequests       ProfileEditRequest[]
 
   @@index([organizationId, status])
   @@index([departmentId])
@@ -2053,6 +2055,7 @@ model Ticket {
   description    String
   priority       String    @default("MEDIUM")
   status         String    @default("OPEN")
+  targetDept     String    @default("HR")
   assignedTo     String?
   resolvedAt     DateTime?
   resolution     String?
@@ -2068,6 +2071,7 @@ model Ticket {
   comments TicketComment[]
 
   @@index([organizationId, status])
+  @@index([organizationId, targetDept])
 }
 
 model TicketComment {
@@ -3164,4 +3168,45 @@ model DatabaseBackup {
   @@index([organizationId, createdAt])
   @@index([organizationId, status])
   @@index([organizationId, category])
+}
+
+// =====================
+// PROFILE EDIT REQUESTS
+// =====================
+
+enum ProfileEditCategory {
+  PERSONAL_DETAILS
+  ADDRESS
+  EMERGENCY_CONTACT
+  BANK_DETAILS
+}
+
+enum ProfileEditRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  APPLIED
+}
+
+model ProfileEditRequest {
+  id                  String                   @id @default(uuid())
+  employeeId          String
+  organizationId      String
+  category            ProfileEditCategory
+  requestedData       Json
+  status              ProfileEditRequestStatus @default(PENDING)
+  hrNote              String?
+  reviewedBy          String?
+  reviewedAt          DateTime?
+  editWindowExpiresAt DateTime?
+  editAppliedAt       DateTime?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([employeeId, status])
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
 }

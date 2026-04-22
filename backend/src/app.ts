@@ -65,6 +65,7 @@ import { brandingRouter } from './modules/branding/branding.routes.js';
 import { backupRouter } from './modules/backup/backup.routes.js';
 import { employeeDeletionRouter } from './modules/employee-deletion/employee-deletion.routes.js';
 import { payrollDeletionRouter } from './modules/payroll-deletion/payroll-deletion.routes.js';
+import { profileEditRequestRouter } from './modules/profile-edit-request/profile-edit-request.routes.js';
 import { systemLogsRouter } from './modules/system-logs/system-logs.routes.js';
 import { prisma } from './lib/prisma.js';
 import { redis } from './lib/redis.js';
@@ -288,6 +289,7 @@ app.use('/api/settings/backup', backupRouter);
 app.use('/api/settings/system-logs', systemLogsRouter);
 app.use('/api/employee-deletion-requests', employeeDeletionRouter);
 app.use('/api/payroll-deletion-requests', payrollDeletionRouter);
+app.use('/api/profile-edit-requests', profileEditRequestRouter);
 
 // ── Native app downloads — APK served directly ────────────────────────────────
 // Place aniston-hrms.apk in backend/downloads/ and it becomes available at
@@ -320,6 +322,15 @@ app.get('/api/app-updates/latest', (_req, res) => {
       data: { version: '1.0.0', url: null, mandatory: false, notes: 'No update available' },
     });
   }
+});
+
+// Serve PDF.js worker so the secure document viewer can load it.
+// nginx does not know the .mjs MIME type; serving via Express ensures correct Content-Type.
+app.get('/uploads/pdf.worker.min.mjs', (_req, res) => {
+  const workerPath = path.resolve(process.cwd(), 'node_modules/pdfjs-dist/build/pdf.worker.min.mjs');
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.sendFile(workerPath);
 });
 
 // Static file serving for uploads — managed through StorageService.

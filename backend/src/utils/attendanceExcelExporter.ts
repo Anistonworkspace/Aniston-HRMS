@@ -31,11 +31,18 @@ function styleHeaderRow(row: ExcelJS.Row, color: string = BRAND) {
 
 function fmtTime(date: Date | string | null): string {
   if (!date) return '-';
-  return new Date(date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  return new Date(date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
 }
 
 function fmtDate(date: Date | string): string {
-  return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+}
+
+// Returns today's date string in IST (YYYY-MM-DD) for accurate future-date detection.
+function getISTTodayStr(): string {
+  const n = new Date();
+  const ist = new Date(n.getTime() + n.getTimezoneOffset() * 60000 + 5.5 * 3600000);
+  return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(ist.getUTCDate()).padStart(2, '0')}`;
 }
 
 /**
@@ -83,6 +90,15 @@ export async function generateMonthlyAttendanceExcel(
   });
   const holidayDates = new Set(holidays.map(h => new Date(h.date).toISOString().split('T')[0]));
 
+  // Fetch org attendance policy for week-off days (0=Sun, 1=Mon … 6=Sat)
+  // Falls back to [0] (Sunday only) when no policy configured.
+  const attendancePolicy = await prisma.attendancePolicy.findUnique({ where: { organizationId } });
+  const weekOffDaySet = new Set<number>(
+    (attendancePolicy?.weekOffDays as number[] | null)?.length
+      ? (attendancePolicy!.weekOffDays as number[])
+      : [0]
+  );
+
   // Build record map: employeeId → { dateStr → record }
   const recordMap = new Map<string, Map<string, any>>();
   for (const r of records) {
@@ -126,6 +142,8 @@ export async function generateMonthlyAttendanceExcel(
     summarySheet.getColumn(5 + daysInMonth + i).width = 10;
   }
 
+  const todayISTStr = getISTTodayStr();
+
   // Data rows
   employees.forEach((emp, idx) => {
     const empRecords = recordMap.get(emp.id) || new Map();
@@ -138,7 +156,7 @@ export async function generateMonthlyAttendanceExcel(
       const dayOfWeek = new Date(year, month - 1, d).getDay();
       const record = empRecords.get(dateStr);
       const isHoliday = holidayDates.has(dateStr);
-      const isFuture = new Date(dateStr) > new Date();
+      const isFuture = dateStr > todayISTStr; // IST-aware: never mark today or past as future
 
       let cellValue = '';
       if (record) {
@@ -152,7 +170,7 @@ export async function generateMonthlyAttendanceExcel(
         }
       } else if (isHoliday) {
         cellValue = 'H'; holiday++;
-      } else if (dayOfWeek === 0) {
+      } else if (weekOffDaySet.has(dayOfWeek)) {
         cellValue = 'W';
       } else if (!isFuture) {
         cellValue = 'A'; absent++;
@@ -257,7 +275,7 @@ export async function generateMonthlyAttendanceExcel(
         dept: emp.department?.name || '-',
         date: fmtDate(dt),
         day: dayName,
-        status: record?.status || (holidayDates.has(dateStr) ? 'HOLIDAY' : (dt.getDay() === 0) ? 'WEEKEND' : 'ABSENT'),
+        status: record?.status || (holidayDates.has(dateStr) ? 'HOLIDAY' : weekOffDaySet.has(dt.getDay()) ? 'WEEKEND' : 'ABSENT'),
         checkIn: record?.checkIn ? fmtTime(record.checkIn) : '-',
         checkOut: record?.checkOut ? fmtTime(record.checkOut) : '-',
         hours: record?.totalHours ? Number(record.totalHours).toFixed(1) : '-',
@@ -290,7 +308,11 @@ export async function generateEmployeeAttendanceExcel(
 ): Promise<Buffer> {
   const employee = await prisma.employee.findUnique({
     where: { id: employeeId },
-    select: { firstName: true, lastName: true, employeeCode: true, department: { select: { name: true } } },
+    select: {
+      firstName: true, lastName: true, employeeCode: true,
+      organizationId: true,
+      department: { select: { name: true } },
+    },
   });
   if (!employee) throw new Error('Employee not found');
 
@@ -298,11 +320,24 @@ export async function generateEmployeeAttendanceExcel(
   const endDate = new Date(year, month, 0);
   const monthName = startDate.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
 
-  const records = await prisma.attendanceRecord.findMany({
-    where: { employeeId, date: { gte: startDate, lte: endDate } },
-    include: { breaks: true, logs: { orderBy: { timestamp: 'asc' } } },
-    orderBy: { date: 'asc' },
-  });
+  const [records, empHolidays, empPolicy] = await Promise.all([
+    prisma.attendanceRecord.findMany({
+      where: { employeeId, date: { gte: startDate, lte: endDate } },
+      include: { breaks: true, logs: { orderBy: { timestamp: 'asc' } } },
+      orderBy: { date: 'asc' },
+    }),
+    prisma.holiday.findMany({
+      where: { organizationId: employee.organizationId, date: { gte: startDate, lte: endDate } },
+    }),
+    prisma.attendancePolicy.findUnique({ where: { organizationId: employee.organizationId } }),
+  ]);
+
+  const empHolidayDates = new Set(empHolidays.map(h => new Date(h.date).toISOString().split('T')[0]));
+  const empWeekOffDaySet = new Set<number>(
+    (empPolicy?.weekOffDays as number[] | null)?.length
+      ? (empPolicy!.weekOffDays as number[])
+      : [0]
+  );
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Aniston HRMS';
@@ -337,9 +372,13 @@ export async function generateEmployeeAttendanceExcel(
     const dayName = dt.toLocaleString('en-IN', { weekday: 'short' });
 
     const breakMins = record?.breaks?.reduce((sum: number, b: any) => sum + (b.durationMinutes || 0), 0) || 0;
-    const status = record?.status || ((dt.getDay() === 0) ? 'WEEKEND' : 'ABSENT');
+    const status = record?.status || (
+      empHolidayDates.has(dateStr) ? 'HOLIDAY' :
+      empWeekOffDaySet.has(dt.getDay()) ? 'WEEKEND' :
+      'ABSENT'
+    );
 
-    if (status === 'PRESENT') { totalPresent++; totalHours += Number(record?.totalHours || 0); }
+    if (status === 'PRESENT' || status === 'WORK_FROM_HOME') { totalPresent++; totalHours += Number(record?.totalHours || 0); }
     if (status === 'ABSENT') totalAbsent++;
 
     const row = sheet.addRow([

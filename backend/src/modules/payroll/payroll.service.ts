@@ -3,6 +3,7 @@ import { Decimal } from '@prisma/client/runtime/library.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { aiService } from '../../services/ai.service.js';
+import { logger } from '../../lib/logger.js';
 import type { SalaryComponent, StatutoryConfig, SalaryStructureInput } from './payroll.validation.js';
 
 // ────────────────────────────────────────────────────────────────────
@@ -175,7 +176,12 @@ function calculateStatutory(
     // Use config slabs if available, else fall back to ptStateOverride or Maharashtra default
     let slabs = cfg.pt.slabs;
     if (!slabs?.length && ptStateOverride) {
-      slabs = PT_SLABS_BY_STATE[ptStateOverride.toUpperCase()] ?? PT_SLABS_BY_STATE.MAHARASHTRA;
+      const stateKey = ptStateOverride.toUpperCase();
+      const stateSlab = PT_SLABS_BY_STATE[stateKey];
+      if (!stateSlab) {
+        logger.warn(`[Payroll] PT state "${ptStateOverride}" not recognized — falling back to Maharashtra slabs. Configure PT_SLABS_BY_STATE for this state.`);
+      }
+      slabs = stateSlab ?? PT_SLABS_BY_STATE.MAHARASHTRA;
     }
     if (slabs?.length) {
       for (const slab of slabs) {
@@ -439,7 +445,11 @@ export class PayrollService {
       totalEarnings,
       Number(structure.ctc),
       structure.incomeTaxRegime,
-      { epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 }, esi: { enabled: false }, pt: { enabled: false } },
+      (structure.statutoryConfig as StatutoryConfig | null) ?? {
+        epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 },
+        esi: { enabled: totalEarnings <= 21000, employeePercent: 0.75, employerPercent: 3.25, grossCap: 21000 },
+        pt:  { enabled: true, slabs: PT_SLABS_BY_STATE.MAHARASHTRA },
+      },
     );
 
     const totalDeductions = componentDeductions + statutory.epfEmployee + statutory.tds;
@@ -725,8 +735,14 @@ export class PayrollService {
       const ltaComp   = findComponent(autoComponents, 'LTA');
       const totalEar  = sumComponentsByType(autoComponents, 'earning');
       const basicVal  = basicComp?.value ?? 0;
+      // ESI: enabled if monthly gross <= 21000; PT: enabled by default (uses org PT state at payroll time)
+      const autoEsiEnabled = totalEar <= 21000;
       const stat      = calculateStatutory(basicVal, totalEar, ctcVal, 'NEW_REGIME',
-        { epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 }, esi: { enabled: false }, pt: { enabled: false } });
+        {
+          epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 },
+          esi: { enabled: autoEsiEnabled, employeePercent: 0.75, employerPercent: 3.25, grossCap: 21000 },
+          pt:  { enabled: true, slabs: PT_SLABS_BY_STATE[orgDefaultPTState.toUpperCase()] ?? PT_SLABS_BY_STATE.MAHARASHTRA },
+        });
 
       try {
         const created = await prisma.salaryStructure.create({
@@ -842,6 +858,41 @@ export class PayrollService {
     // componentMasterAll was already fetched above for F5 auto-create; reuse it here
     const componentMaster = componentMasterAll;
 
+    // ── C4: Pre-fetch OT data for the pay period ─────────────────────────────
+    const allOvertimeRecords = await prisma.overtimeRequest.findMany({
+      where: {
+        employeeId: { in: empIds },
+        status: 'APPROVED',
+        date: { gte: startDate, lte: endDate },
+      },
+      select: { employeeId: true, actualHours: true, plannedHours: true },
+    }).catch(() => [] as { employeeId: string; actualHours: any; plannedHours: any }[]);
+
+    const otRecordsByEmp = new Map<string, typeof allOvertimeRecords>();
+    for (const ot of allOvertimeRecords) {
+      if (!otRecordsByEmp.has(ot.employeeId)) otRecordsByEmp.set(ot.employeeId, []);
+      otRecordsByEmp.get(ot.employeeId)!.push(ot);
+    }
+
+    // Pre-fetch shift assignments (for OT rate multiplier)
+    const allShiftAssignments = await prisma.shiftAssignment.findMany({
+      where: {
+        employeeId: { in: empIds },
+        startDate: { lte: endDate },
+        OR: [{ endDate: null }, { endDate: { gte: startDate } }],
+      },
+      include: { shift: { select: { otEnabled: true, otRateMultiplier: true } } },
+      orderBy: { startDate: 'desc' },
+    }).catch(() => [] as any[]);
+
+    const shiftAssignmentByEmp = new Map<string, typeof allShiftAssignments[0]>();
+    for (const sa of allShiftAssignments) {
+      // Keep only the most recent (first due to desc order)
+      if (!shiftAssignmentByEmp.has(sa.employeeId)) {
+        shiftAssignmentByEmp.set(sa.employeeId, sa);
+      }
+    }
+
     try {
       const result = await prisma.$transaction(async (tx) => {
         await tx.payrollRun.update({ where: { id: runId }, data: { status: 'PROCESSING' } });
@@ -956,6 +1007,56 @@ export class PayrollService {
             presentRecords.filter(r => { const d = new Date(r.date); return d >= startDate && d <= effectiveEnd; }).length
             + halfDayRecords.filter(r => { const d = new Date(r.date); return d >= startDate && d <= effectiveEnd; }).length * 0.5;
 
+          // ── H9: CTC drift — resync salary structure when employee.ctc differs ──
+          // For non-custom structures, if the employee's current CTC on the Employee
+          // record has changed since the structure was last saved, recompute and persist
+          // the structure so subsequent payroll runs and the salary structure UI reflect
+          // the correct CTC. This runs outside the transaction to avoid blocking it.
+          const empCtcVal = Number((emp as any).ctc || 0);
+          if (((sal as any).isCustom ?? false) === false && empCtcVal > 0 && empCtcVal !== Number(sal.ctc)) {
+            const refreshedComponents = buildComponentsFromMaster(componentMaster, empCtcVal);
+            if (refreshedComponents.length > 0) {
+              const rfBasic = findComponent(refreshedComponents, 'Basic');
+              const rfHra   = findComponent(refreshedComponents, 'HRA');
+              const rfDa    = findComponent(refreshedComponents, 'DA');
+              const rfTa    = findComponent(refreshedComponents, 'TA');
+              const rfMed   = findComponent(refreshedComponents, 'Medical Allowance');
+              const rfSpec  = findComponent(refreshedComponents, 'Special Allowance');
+              const rfLta   = findComponent(refreshedComponents, 'LTA');
+              const rfEar   = sumComponentsByType(refreshedComponents, 'earning');
+              const rfEsiEnabled = rfEar <= 21000;
+              const rfStat  = calculateStatutory(rfBasic?.value ?? 0, rfEar, empCtcVal, 'NEW_REGIME', {
+                epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 },
+                esi: { enabled: rfEsiEnabled, employeePercent: 0.75, employerPercent: 3.25, grossCap: 21000 },
+                pt:  { enabled: true, slabs: PT_SLABS_BY_STATE[orgDefaultPTState.toUpperCase()] ?? PT_SLABS_BY_STATE.MAHARASHTRA },
+              });
+              prisma.salaryStructure.update({
+                where: { id: sal.id },
+                data: {
+                  ctc:             empCtcVal,
+                  components:      refreshedComponents as any,
+                  basic:           rfBasic?.value ?? null,
+                  hra:             rfHra?.value   ?? null,
+                  da:              rfDa?.value    ?? null,
+                  ta:              rfTa?.value    ?? null,
+                  medicalAllowance: rfMed?.value  ?? null,
+                  specialAllowance: rfSpec?.value ?? null,
+                  lta:             rfLta?.value   ?? null,
+                  pfEmployee:      rfStat.epfEmployee,
+                  pfEmployer:      rfStat.epfEmployer,
+                  esiEmployee:     rfStat.esiEmployee,
+                  esiEmployer:     rfStat.esiEmployer,
+                  professionalTax: rfStat.professionalTax,
+                  tds:             rfStat.tds,
+                  version:         (sal.version ?? 0) + 1,
+                },
+              }).catch(() => {}); // non-blocking best-effort
+              // Update in-memory so this payroll run uses the new CTC
+              (sal as any).ctc = empCtcVal;
+              (sal as any).components = refreshedComponents;
+            }
+          }
+
           // ── Salary components ─────────────────────────────────────────────────
           let components: SalaryComponent[];
           if (((sal as any).isCustom ?? false) === false && componentMaster.length > 0) {
@@ -1002,12 +1103,20 @@ export class PayrollService {
           const tdsBaseDate = joiningDate && joiningDate > startDate ? joiningDate : startDate;
           const tdsMonths = remainingFinancialYearMonths(tdsBaseDate);
 
-          // Statutory config: EPF always on; ESI and PT always off (component-master-driven payroll)
-          const statutoryConfig: StatutoryConfig = {
+          // Statutory config: EPF always on; ESI enabled when gross <= 21000 and not exempt;
+          // PT enabled unless ptExempt (slab determined by orgDefaultPTState).
+          // Use stored config from salary structure if available, else compute dynamically.
+          const storedStatutoryConfig = (sal as any).statutoryConfig as StatutoryConfig | null;
+          const esiEnabledForEmp = !exemptions.esiExempt && earningsTotal <= 21000;
+          const ptEnabledForEmp  = !exemptions.ptExempt;
+          const statutoryConfig: StatutoryConfig = storedStatutoryConfig ?? {
             epf: { enabled: true, employeePercent: 12, employerPercent: 12, basicCap: 15000 },
-            esi: { enabled: false },
-            pt:  { enabled: false },
+            esi: { enabled: esiEnabledForEmp, employeePercent: 0.75, employerPercent: 3.25, grossCap: 21000 },
+            pt:  { enabled: ptEnabledForEmp, slabs: PT_SLABS_BY_STATE[orgDefaultPTState.toUpperCase()] ?? PT_SLABS_BY_STATE.MAHARASHTRA },
           };
+          // Always enforce per-employee ESI/PT eligibility even if stored config says enabled
+          if (statutoryConfig.esi) statutoryConfig.esi.enabled = esiEnabledForEmp;
+          if (statutoryConfig.pt)  statutoryConfig.pt.enabled  = ptEnabledForEmp;
 
           let recEpfEmployee: number, recEpfEmployer: number;
           let recEsiEmployee: number, recEsiEmployer: number;
@@ -1063,7 +1172,27 @@ export class PayrollService {
             adjustmentSnapshot.push({ type: adj.type, componentName: adj.componentName, amount, isDeduction: adj.isDeduction, reason: adj.reason });
           }
 
-          const adjustedGross = earningsTotal + paidOffBonus + adjustmentAdditions;
+          // ── C4: Overtime Pay ──────────────────────────────────────────────────
+          // Use approved OT records for this pay period + shift OT rate multiplier.
+          const empOtRecords   = otRecordsByEmp.get(emp.id) || [];
+          const empShiftAssign = shiftAssignmentByEmp.get(emp.id);
+          const empShift       = empShiftAssign?.shift;
+          let overtimePay = 0;
+          let totalOTHours = 0;
+          if (empShift?.otEnabled && empOtRecords.length > 0) {
+            totalOTHours = empOtRecords.reduce(
+              (sum: number, r: any) => sum + Number(r.actualHours ?? r.plannedHours ?? 0), 0
+            );
+            if (totalOTHours > 0) {
+              // Hourly rate: monthly CTC / 26 working days / 8 hours (standard Indian formula)
+              const monthlyCtc = Number((emp as any).ctc || sal.ctc || 0) / 12;
+              const hourlyRate = monthlyCtc > 0 ? monthlyCtc / 26 / 8 : 0;
+              const otMultiplier = Number(empShift.otRateMultiplier ?? 1.5);
+              overtimePay = Math.round(totalOTHours * hourlyRate * otMultiplier);
+            }
+          }
+
+          const adjustedGross = earningsTotal + paidOffBonus + adjustmentAdditions + overtimePay;
           const deductions    = componentDeductions + statutoryDeductions + adjustmentDeductions;
           // Cap LOP so it never exceeds what's left after statutory deductions.
           // Without this, payroll records show lopDeduction > netSalary, which is
@@ -1085,6 +1214,7 @@ export class PayrollService {
             else deductionsBreakdown[comp.name] = comp.value;
           }
           if (paidOffBonus > 0) earningsBreakdown['Sunday Bonus'] = paidOffBonus;
+          if (overtimePay > 0) earningsBreakdown['Overtime Pay'] = overtimePay;
           for (const adj of empAdjustments) {
             if (!adj.isDeduction) earningsBreakdown[`Adj: ${adj.componentName}`] = Number(adj.amount);
             else deductionsBreakdown[`Adj: ${adj.componentName}`] = Number(adj.amount);
@@ -1128,6 +1258,8 @@ export class PayrollService {
                 : undefined,
               lopDays,          // now stored as Decimal — no rounding loss
               lopDeduction,
+              overtimeHours:   totalOTHours > 0 ? totalOTHours : undefined,
+              overtimeAmount:  overtimePay   > 0 ? overtimePay  : undefined,
               workingDays:     empWorkingDays,   // employee's actual working days (not full month if mid-joiner/exit)
               presentDays,      // Decimal — half-days preserved
               adjustments:     adjustmentSnapshot.length > 0 ? (adjustmentSnapshot as unknown as Parameters<typeof tx.payrollRecord.create>[0]['data']['adjustments']) : undefined,

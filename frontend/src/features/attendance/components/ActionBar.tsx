@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Download, PenSquare, Upload, RefreshCw, Radio, ClipboardList, MoreHorizontal,
+  Download, PenSquare, RefreshCw, Radio, ClipboardList, MoreHorizontal,
 } from 'lucide-react';
 
 interface ActionBarProps {
@@ -9,17 +9,15 @@ interface ActionBarProps {
   onDetectAnomalies: () => void;
   onTabChange: (tab: string) => void;
   isDetecting?: boolean;
-  onBulkUpload?: () => void;
   onMarkManual?: () => void;
 }
 
-export default function ActionBar({ onExport, onDetectAnomalies, onTabChange, isDetecting, onBulkUpload, onMarkManual }: ActionBarProps) {
+export default function ActionBar({ onExport, onDetectAnomalies, onTabChange, isDetecting, onMarkManual }: ActionBarProps) {
   const [showMore, setShowMore] = useState(false);
 
   const primaryActions = [
     { key: 'export',      label: 'Export',           icon: Download,   onClick: onExport,              loading: false },
     { key: 'manual',      label: 'Mark Manual',      icon: PenSquare,  onClick: () => onMarkManual?.(), loading: false },
-    { key: 'bulk',        label: 'Bulk Upload',       icon: Upload,     onClick: () => onBulkUpload?.(), loading: false },
     { key: 'anomalies',   label: isDetecting ? 'Detecting…' : 'Detect Anomalies', icon: RefreshCw, onClick: onDetectAnomalies, loading: !!isDetecting },
   ];
 

@@ -42,7 +42,7 @@ function getISTYesterday(): Date {
 
 export class AttendanceService {
   // ===================== EDGE CASE CONSTANTS =====================
-  private readonly MAX_RECLOCKIN_PER_DAY = 3; // Allow up to 3 re-clock-ins per day
+  private readonly MAX_RECLOCKIN_PER_DAY = 0; // One check-in per day — re-clock-in not allowed
   private readonly EARLY_CLOCKIN_WARNING_MINUTES = 120; // warn if >2h before shift
   private readonly LATE_CLOCKOUT_FLAG_MINUTES = 120;    // flag if >2h after shift
   private readonly MAX_BREAK_PERCENT = 50;              // breaks can't exceed 50% of shift
@@ -74,16 +74,14 @@ export class AttendanceService {
     }
 
     // ===== GPS TIMESTAMP STALENESS CHECK =====
-    // Enterprise rule: GPS coordinates must be freshly acquired at the time of marking.
-    // If the client sends gpsTimestamp, we enforce it must be < 5 minutes old.
-    // This prevents employees from replaying an old location or using cached phone GPS.
+    // GPS coordinates must be acquired within the last 60 seconds — truly live location only.
     if (data.gpsTimestamp && data.latitude && data.longitude) {
       const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
-      const GPS_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
+      const GPS_MAX_AGE_MS = 60 * 1000; // 60 seconds
       if (gpsAgeMs > GPS_MAX_AGE_MS) {
         throw new BadRequestError(
-          `Your GPS location is ${Math.round(gpsAgeMs / 60000)} minutes old. ` +
-          `Please step outside, allow your GPS to refresh, and try again.`
+          `Your GPS location is ${Math.round(gpsAgeMs / 1000)} seconds old. ` +
+          `Please allow your GPS to refresh and try again.`
         );
       }
     }
@@ -126,7 +124,11 @@ export class AttendanceService {
       const defaultShift = await prisma.shift.findFirst({
         where: { organizationId, isDefault: true, isActive: true },
       });
-      if (defaultShift) shift = defaultShift;
+      if (defaultShift) {
+        shift = defaultShift;
+      } else if (!shiftAssignment) {
+        throw new BadRequestError('No shift assigned. Please contact HR to assign a shift before clocking in.');
+      }
     }
 
     // ===== PHASE 3: Weekend/Sunday clock-in check =====
@@ -166,6 +168,10 @@ export class AttendanceService {
       });
       if (rec?.checkIn && !rec.checkOut) {
         throw new BadRequestError('Already clocked in. Please clock out first.');
+      }
+      // Block office clock-in if today is already marked as Work From Home by HR
+      if (rec && !rec.checkIn && rec.workMode === 'WORK_FROM_HOME') {
+        throw new BadRequestError('You are marked as Work From Home today. Contact HR to change your attendance mode if you are working from office.');
       }
       return rec;
     });
@@ -220,33 +226,11 @@ export class AttendanceService {
           geofenceViolation = true;
           geofenceStatus = 'OUTSIDE';
 
-          if (geofence.strictMode) {
-            throw new BadRequestError(
-              `You are ${Math.round(distance)}m away from ${employee.officeLocation?.name || 'office'}. ` +
-              `Maximum allowed: ${geofence.radiusMeters}m. Please clock in from within the office geofence.`
-            );
-          }
-          data.notes = `${data.notes || ''} [Geofence warning: ${Math.round(distance)}m from office]`.trim();
-
-          // Send email alert to HR when employee marks outside geofence
-          const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { adminNotificationEmail: true, name: true } });
-          if (org?.adminNotificationEmail) {
-            enqueueEmail({
-              to: org.adminNotificationEmail,
-              subject: `Geofence Alert: ${employee.firstName} ${employee.lastName} (${employee.employeeCode}) marked attendance outside office`,
-              template: 'geofence-violation',
-              context: {
-                employeeName: `${employee.firstName} ${employee.lastName}`,
-                employeeCode: employee.employeeCode,
-                employeeId: employee.id,
-                distance: Math.round(distance),
-                allowedRadius: geofence.radiusMeters,
-                locationName: shiftAssignment?.location?.name || employee.officeLocation?.name || 'Office',
-                checkInTime: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
-                orgName: org.name,
-              },
-            }).catch((err) => logger.error(`[Geofence] Failed to enqueue violation alert email:`, err));
-          }
+          // Always reject outside geofence — employee must be within the allowed radius
+          throw new BadRequestError(
+            `You are ${Math.round(distance)}m away from ${employee.officeLocation?.name || 'office'}. ` +
+            `Maximum allowed: ${geofence.radiusMeters}m. Please move closer to the office and try again.`
+          );
         } else {
           geofenceStatus = 'INSIDE';
         }
@@ -426,25 +410,145 @@ export class AttendanceService {
    * Clock out — with previous-day and night shift support
    */
   async clockOut(employeeId: string, data: ClockOutInput) {
-    const empStatus = await prisma.employee.findUnique({ where: { id: employeeId }, select: { status: true } });
+    const empStatus = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { status: true, organizationId: true, officeLocation: { include: { geofence: true } } },
+    });
     if (empStatus?.status === 'INACTIVE' || empStatus?.status === 'TERMINATED') {
       throw new BadRequestError('Your account is inactive. Contact HR to reactivate.');
     }
 
     // ===== GPS TIMESTAMP STALENESS CHECK (clock-out) =====
+    // GPS coordinates must be acquired within the last 60 seconds — truly live location only.
     if (data.gpsTimestamp && data.latitude && data.longitude) {
       const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
-      const GPS_MAX_AGE_MS = 5 * 60 * 1000;
+      const GPS_MAX_AGE_MS = 60 * 1000; // 60 seconds
       if (gpsAgeMs > GPS_MAX_AGE_MS) {
         throw new BadRequestError(
-          `Your GPS location is ${Math.round(gpsAgeMs / 60000)} minutes old. ` +
-          `Please step outside, allow your GPS to refresh, and try again.`
+          `Your GPS location is ${Math.round(gpsAgeMs / 1000)} seconds old. ` +
+          `Please allow your GPS to refresh and try again.`
         );
       }
     }
 
+    // ===== GEOFENCE ENFORCEMENT (clock-out) — use shift's assigned location, fall back to employee's office location =====
     const today = getISTToday();
+    const clockOutShiftAssignment = await prisma.shiftAssignment.findFirst({
+      where: {
+        employeeId,
+        startDate: { lte: today },
+        OR: [{ endDate: null }, { endDate: { gte: today } }],
+      },
+      include: { shift: true, location: { include: { geofence: true } } },
+      orderBy: { startDate: 'desc' },
+    });
+    const geofenceForCheckout = clockOutShiftAssignment?.location?.geofence ?? empStatus?.officeLocation?.geofence ?? null;
+    if (geofenceForCheckout && geofenceForCheckout.radiusMeters && data.latitude && data.longitude) {
+      if (!(data.accuracy && data.accuracy > 150)) {
+        const gfCoords = geofenceForCheckout.coordinates as any;
+        if (gfCoords?.lat && gfCoords?.lng) {
+          const dist = this.haversineDistance(data.latitude, data.longitude, gfCoords.lat, gfCoords.lng);
+          if (dist > geofenceForCheckout.radiusMeters) {
+            throw new BadRequestError(
+              `You are ${Math.round(dist)}m away from ${empStatus?.officeLocation?.name || 'office'}. ` +
+              `Maximum allowed: ${geofenceForCheckout.radiusMeters}m. Please move closer to the office to clock out.`
+            );
+          }
+        }
+      }
+    }
     const now = new Date();
+
+    // ===== MINIMUM CHECKOUT TIME ENFORCEMENT =====
+    // Employee cannot check out before shift end time.
+    // Exception: if they have an approved half-day leave for today, the minimum
+    // becomes shift start + halfDayHours (e.g. 9:30 + 4h = 1:30 PM).
+    // This only applies to TODAY's checkout — overnight/previous-day checkouts are skipped.
+    const todayRecordForTimeCheck = await prisma.attendanceRecord.findUnique({
+      where: { employeeId_date: { employeeId, date: today } },
+      select: { checkIn: true, checkOut: true },
+    });
+
+    if (todayRecordForTimeCheck?.checkIn && !todayRecordForTimeCheck.checkOut) {
+      const orgId = empStatus!.organizationId;
+
+      // Resolve shift: personal assignment → org default → null
+      const coShiftAssign = await prisma.shiftAssignment.findFirst({
+        where: { employeeId, startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+        include: { shift: true },
+        orderBy: { startDate: 'desc' },
+      });
+      const coShift: any = coShiftAssign?.shift ?? await prisma.shift.findFirst({
+        where: { organizationId: orgId, isDefault: true, isActive: true },
+      });
+
+      // Check for approved half-day leave covering today
+      const halfDayLeave = await prisma.leaveRequest.findFirst({
+        where: {
+          employeeId,
+          isHalfDay: true,
+          status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] },
+          startDate: { lte: today },
+          endDate: { gte: today },
+        },
+      });
+
+      // Format minutes as "HH:MM AM/PM" for error messages
+      const fmt12h = (mins: number) => {
+        const h = Math.floor(mins / 60) % 24;
+        const m = mins % 60;
+        return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+      };
+
+      const istNow = getISTNow();
+      const currentISTMinutes = istNow.getHours() * 60 + istNow.getMinutes();
+
+      if (coShift) {
+        const [endH, endM] = (coShift.endTime as string).split(':').map(Number);
+        const shiftEndMinutes = endH * 60 + endM;
+
+        if (halfDayLeave) {
+          // Half-day approved: minimum = shift start + halfDayHours
+          const [startH, startM] = (coShift.startTime as string).split(':').map(Number);
+          const halfDayMinMinutes = startH * 60 + startM + Math.round(Number(coShift.halfDayHours ?? 4) * 60);
+          if (currentISTMinutes < halfDayMinMinutes) {
+            throw new BadRequestError(
+              `Half-day checkout not allowed before ${fmt12h(halfDayMinMinutes)} ` +
+              `(${coShift.name} starts at ${coShift.startTime} + ${coShift.halfDayHours ?? 4}h half-day).`
+            );
+          }
+        } else {
+          // Full day: must reach shift end time
+          if (currentISTMinutes < shiftEndMinutes) {
+            throw new BadRequestError(
+              `You cannot check out before ${fmt12h(shiftEndMinutes)}. ` +
+              `Your shift (${coShift.name}) ends at ${coShift.endTime}. ` +
+              `Apply for a half-day leave if you need to leave early.`
+            );
+          }
+        }
+      } else {
+        // No shift configured — fall back to org policy fullDayMinHours or 18:30
+        const coPolicy = await prisma.attendancePolicy.findUnique({ where: { organizationId: orgId } });
+        const defaultEndMinutes = 18 * 60 + 30; // 18:30 IST fallback
+        if (!halfDayLeave && currentISTMinutes < defaultEndMinutes) {
+          throw new BadRequestError(
+            `You cannot check out before ${fmt12h(defaultEndMinutes)}. ` +
+            `Apply for a half-day leave if you need to leave early.`
+          );
+        }
+        if (halfDayLeave) {
+          const fullDayHours = Number(coPolicy?.fullDayMinHours ?? 8);
+          const halfDayMinMinutes = 9 * 60 + Math.round((fullDayHours / 2) * 60); // 09:00 default start
+          if (currentISTMinutes < halfDayMinMinutes) {
+            throw new BadRequestError(
+              `Half-day checkout not allowed before ${fmt12h(halfDayMinMinutes)}. ` +
+              `Apply for a half-day leave if you need to leave early.`
+            );
+          }
+        }
+      }
+    }
 
     // ===== PHASE 1: Atomic record lookup — prevents race condition on concurrent clock-outs =====
     // Using $transaction so that the "check if already clocked out" and the subsequent
@@ -1247,6 +1351,11 @@ export class AttendanceService {
         select: { firstName: true, lastName: true, employeeCode: true, organizationId: true },
       });
       if (employee) {
+        emitToOrg(employee.organizationId, 'attendance:regularization-submitted', {
+          regId: reg.id,
+          employeeId,
+          employeeName: `${employee.firstName} ${employee.lastName}`,
+        });
         const hrUsers = await prisma.user.findMany({
           where: { organizationId: employee.organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' },
           select: { email: true },
@@ -1389,39 +1498,57 @@ export class AttendanceService {
         data: updateData,
       });
 
-      // If approved, update the attendance record
+      // If approved: apply requested check-in/check-out corrections and recalculate hours.
+      // Only reset checkOut if requestedCheckOut is explicitly provided — otherwise preserve original.
       if (action === 'APPROVED') {
-        const updateData: any = {};
+        const updateData: any = {
+          status: 'PRESENT',
+          notes: `Regularization approved by ${approverRole || 'HR'} (userId: ${approvedBy}) — requested: ${reg.requestedCheckIn ? `checkIn=${new Date(reg.requestedCheckIn).toTimeString().slice(0,5)}` : ''}${reg.requestedCheckOut ? ` checkOut=${new Date(reg.requestedCheckOut).toTimeString().slice(0,5)}` : ''}`,
+        };
         if (reg.requestedCheckIn) updateData.checkIn = reg.requestedCheckIn;
         if (reg.requestedCheckOut) {
+          // Checkout was explicitly regularized — update it and recalculate hours
           updateData.checkOut = reg.requestedCheckOut;
-          if (reg.requestedCheckIn || reg.attendance.checkIn) {
-            const start = new Date(reg.requestedCheckIn || reg.attendance.checkIn!);
-            const end = new Date(reg.requestedCheckOut);
-            updateData.totalHours = Math.round(
-              ((end.getTime() - start.getTime()) / (1000 * 60 * 60)) * 100
-            ) / 100;
+          const checkIn = reg.requestedCheckIn ?? reg.attendance?.checkIn;
+          if (checkIn && reg.requestedCheckOut) {
+            const diffMs = new Date(reg.requestedCheckOut).getTime() - new Date(checkIn).getTime();
+            updateData.totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
           }
-          // Use shift's halfDayHours for status determination instead of hardcoded 4
-          const regShift = await tx.shiftAssignment.findFirst({
-            where: { employeeId: reg.attendance.employeeId, endDate: null },
-            include: { shift: true },
-            orderBy: { startDate: 'desc' },
-          });
-          const halfDayThreshold = Number(regShift?.shift?.halfDayHours) || 4;
-          updateData.status = updateData.totalHours >= halfDayThreshold ? 'PRESENT' : 'HALF_DAY';
+        } else if (reg.requestedCheckIn && reg.attendance?.checkOut) {
+          // Only check-in was regularized — recalculate hours with new check-in but preserve original checkout
+          const diffMs = new Date(reg.attendance.checkOut).getTime() - new Date(reg.requestedCheckIn).getTime();
+          updateData.totalHours = diffMs > 0 ? Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100 : null;
+        } else if (reg.requestedCheckIn && !reg.attendance?.checkOut) {
+          // Check-in regularized, no checkout exists — reset to allow re-checkout
+          updateData.checkOut = null;
+          updateData.totalHours = null;
         }
 
-        if (Object.keys(updateData).length > 0) {
-          await tx.attendanceRecord.update({
-            where: { id: reg.attendanceId },
-            data: updateData,
-          });
-        }
+        await tx.attendanceRecord.update({
+          where: { id: reg.attendanceId },
+          data: updateData,
+        });
       }
 
       return updatedReg;
     });
+
+    // Real-time update: push attendance:checkin so employee's frontend re-fetches today status
+    if (finalStatus === 'APPROVED') {
+      try {
+        const emp = await prisma.employee.findUnique({
+          where: { id: reg.employeeId },
+          select: { organizationId: true, firstName: true, lastName: true },
+        });
+        if (emp) {
+          emitToOrg(emp.organizationId, 'attendance:checkin', {
+            employeeId: reg.employeeId,
+            employeeName: `${emp.firstName} ${emp.lastName}`,
+            regularizationApproved: true,
+          });
+        }
+      } catch { /* non-blocking */ }
+    }
 
     // Notify the employee if the final decision is APPROVED or REJECTED
     if (finalStatus === 'APPROVED' || finalStatus === 'REJECTED') {
@@ -1552,6 +1679,7 @@ export class AttendanceService {
     const date = new Date(data.date);
     date.setHours(0, 0, 0, 0);
 
+    const manualMarkNote = `Manual attendance mark by HR/Admin (userId: ${markedBy}) via HR_PANEL`;
     const record = await prisma.attendanceRecord.upsert({
       where: {
         employeeId_date: {
@@ -1563,7 +1691,7 @@ export class AttendanceService {
         status: data.status,
         workMode: (data.workMode || employee.workMode) as any,
         source: 'MANUAL_HR',
-        notes: `Marked by HR/Admin (userId: ${markedBy})`,
+        notes: manualMarkNote,
       },
       create: {
         employeeId: data.employeeId,
@@ -1571,7 +1699,7 @@ export class AttendanceService {
         status: data.status,
         workMode: (data.workMode || employee.workMode) as any,
         source: 'MANUAL_HR',
-        notes: `Marked by HR/Admin (userId: ${markedBy})`,
+        notes: manualMarkNote,
       },
     });
 
@@ -1833,6 +1961,7 @@ export class AttendanceService {
       anomalyCount,
       fieldActive,
       wfhActive,
+      onLeaveToday,
     ] = await Promise.all([
       // Total active (non-system) employees
       prisma.employee.count({
@@ -1880,6 +2009,15 @@ export class AttendanceService {
       prisma.attendanceRecord.count({
         where: { date: queryDate, workMode: { in: ['REMOTE', 'HYBRID'] }, status: { in: ['PRESENT', 'WORK_FROM_HOME'] }, employee: { organizationId, deletedAt: null } },
       }),
+      // Employees on approved leave for the queried date
+      prisma.leaveRequest.count({
+        where: {
+          employee: { organizationId },
+          status: { in: ['APPROVED', 'APPROVED_WITH_CONDITION'] },
+          startDate: { lte: queryDate },
+          endDate: { gte: queryDate },
+        },
+      }),
     ]);
 
     // Derived stats from records
@@ -1888,19 +2026,21 @@ export class AttendanceService {
     const halfDay = records.filter(r => r.status === 'HALF_DAY').length;
     const lateArrivals = records.filter(r => {
       if (!r.checkIn) return false;
-      const log = r.logs?.find((l: any) => l.action === 'CLOCK_IN');
-      return log?.notes?.includes('Late') || log?.notes?.includes('late');
+      // Notes always contain '[Late by X min...]' when employee clocked in late
+      return r.notes?.includes('[Late by') === true;
     }).length;
     const earlyExits = records.filter(r => {
       if (!r.checkOut || !r.checkIn) return false;
       const hours = Number(r.totalHours || 0);
-      return hours > 0 && hours < 4;
+      const shift = r.employee && (r as any).shiftAssignment?.shift;
+      const halfDayThreshold = shift ? Number(shift.halfDayHours) : 4;
+      return hours > 0 && hours < halfDayThreshold;
     }).length;
     const missingPunch = records.filter(r => r.checkIn && !r.checkOut && r.status === 'PRESENT').length;
     const notCheckedIn = Math.max(0, totalActive - records.length);
 
     return {
-      expectedToday: isWeekend ? 0 : totalActive,
+      expectedToday: isWeekend ? 0 : Math.max(0, totalActive - onLeaveToday),
       present,
       absent,
       onLeave: leaveCount,
@@ -2260,8 +2400,11 @@ export class AttendanceService {
       // Fix #4: Skip anomaly detection for employees on approved leave
       if (onLeaveSet.has(empId)) continue;
 
+      // Fix H4: Skip anomaly detection for employees without a shift assignment
+      if (!shift) continue;
+
       // Fix #6: Use policy grace as fallback when shift doesn't have it
-      const graceMinutes = shift?.graceMinutes ?? policy?.lateGraceMinutes ?? 15;
+      const graceMinutes = shift.graceMinutes ?? policy?.lateGraceMinutes ?? 15;
 
       // --- LATE ARRIVAL ---
       if (record.checkIn && shift) {
@@ -2508,6 +2651,74 @@ export class AttendanceService {
       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
       Math.sin(dLon / 2) * Math.sin(dLon / 2);
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /**
+   * Mark ON_LEAVE attendance records for each working day in the approved leave date range.
+   * Called after leave approval to auto-populate attendance so dashboards and reports
+   * correctly show the employee as on leave rather than absent/not-checked-in.
+   */
+  async markOnLeaveForApprovedDates(
+    employeeId: string,
+    startDate: Date,
+    endDate: Date,
+    organizationId: string,
+  ): Promise<{ count: number }> {
+    // Fetch org-level week-off days (default Sunday = 0)
+    const policy = await prisma.attendancePolicy.findUnique({
+      where: { organizationId },
+      select: { weekOffDays: true },
+    });
+    const weekOffDays = new Set<number>((policy?.weekOffDays as number[] | null) ?? [0]);
+
+    let count = 0;
+    const current = new Date(startDate);
+    current.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(0, 0, 0, 0);
+
+    while (current <= end) {
+      const dayOfWeek = current.getDay();
+
+      // Skip week-off days
+      if (!weekOffDays.has(dayOfWeek)) {
+        // Use IST-midnight date so the date column comparison is correct (same as clock-in logic)
+        const year = current.getFullYear();
+        const month = String(current.getMonth() + 1).padStart(2, '0');
+        const day = String(current.getDate()).padStart(2, '0');
+        const istDate = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+
+        try {
+          await prisma.attendanceRecord.upsert({
+            where: { employeeId_date: { employeeId, date: istDate } },
+            create: {
+              employeeId,
+              date: istDate,
+              status: 'ON_LEAVE',
+              workMode: 'OFFICE', // neutral default; no physical mode for a leave day
+              source: 'MANUAL_HR',
+              notes: 'Auto-marked ON_LEAVE on leave approval',
+            },
+            update: {
+              // Only overwrite if the record has no check-in (don't clobber an actual attendance)
+              status: 'ON_LEAVE',
+              source: 'MANUAL_HR',
+              notes: 'Auto-marked ON_LEAVE on leave approval',
+            },
+          });
+          count++;
+        } catch (e: any) {
+          // Unique constraint race — skip silently
+          if (!e.code?.includes('P2002')) {
+            logger.warn(`[Attendance] markOnLeaveForApprovedDates upsert error for ${employeeId} on ${istDate.toISOString()}: ${e.message}`);
+          }
+        }
+      }
+
+      current.setDate(current.getDate() + 1);
+    }
+
+    return { count };
   }
 
   /**

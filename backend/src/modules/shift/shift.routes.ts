@@ -18,7 +18,16 @@ router.delete('/shifts/:id', hrAuth, (req, res, next) => shiftController.deleteS
 router.get('/shifts/assignments', hrAuth, (req, res, next) => shiftController.getAllAssignments(req, res, next));
 router.post('/shifts/assign', hrAuth, (req, res, next) => shiftController.assignShift(req, res, next));
 router.post('/shifts/auto-assign', hrAuth, (req, res, next) => shiftController.autoAssignDefault(req, res, next));
-router.get('/shifts/employee/:employeeId', (req, res, next) => shiftController.getEmployeeShift(req, res, next));
+router.get('/shifts/employee/:employeeId', (req, res, next) => {
+  // Allow HR/Admin or employee viewing their own shift
+  const requester = (req as any).user;
+  const isHrOrAdmin = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(requester?.role);
+  const isSelf = requester?.employeeId === req.params.employeeId;
+  if (!isHrOrAdmin && !isSelf) {
+    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied.' } });
+  }
+  shiftController.getEmployeeShift(req, res, next);
+});
 
 // Office Locations + Geofence CRUD
 router.get('/locations', hrAuth, (req, res, next) => shiftController.getLocations(req, res, next));

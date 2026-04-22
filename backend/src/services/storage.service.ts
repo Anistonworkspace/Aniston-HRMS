@@ -34,7 +34,16 @@ export const StorageFolder = {
   POLICIES: 'policies',
   BRANDING: 'branding',
   RESUMES_BULK: 'resumes/bulk',
+  RESUMES_INDIVIDUAL: 'resumes/individual',
   EMPLOYEE_DOCUMENTS: 'employee-documents',
+  /** Employee profile photos */
+  PROFILES: 'profiles',
+  /** Project site check-in photos */
+  ATTENDANCE_PHOTOS: 'attendance/photos',
+  /** Salary slip PDFs */
+  PAYROLL: 'payroll',
+  /** Generated letter PDFs (subfolders per org) */
+  LETTERS: 'letters',
   WALKIN: 'walkin',
   /** Desktop installer binaries — served publicly (no auth) */
   AGENT: 'agent',
@@ -50,6 +59,8 @@ export type StorageFolder = typeof StorageFolder[keyof typeof StorageFolder];
 export const StoragePath = {
   employeeKyc: (employeeId: string) => `employees/${employeeId}/kyc`,
   walkinSession: (sessionId: string) => `walkin/${sessionId}`,
+  employeeLetters: (organizationId: string) => `letters/${organizationId}`,
+  payrollSlip: (year: number, month: number) => `payroll/${year}/${month}`,
 };
 
 // ---------------------------------------------------------------------------
@@ -71,6 +82,19 @@ class LocalStorageService {
       base = path.resolve(base, '..');
     }
     this.uploadsRoot = path.join(base, 'uploads');
+    this.ensureBaseStructure();
+  }
+
+  private ensureBaseStructure(): void {
+    const foldersToInit = [
+      'policies', 'branding', 'employee-documents', 'resumes/bulk',
+      'resumes/individual', 'profiles', 'attendance/photos', 'payroll',
+      'letters', 'walkin', 'agent-screenshots', 'backups',
+    ];
+    for (const folder of foldersToInit) {
+      const dir = path.join(this.uploadsRoot, folder);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    }
   }
 
   /** Absolute path to the uploads root directory. */

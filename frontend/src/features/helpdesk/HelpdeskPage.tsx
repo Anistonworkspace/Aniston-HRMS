@@ -1,16 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  HelpCircle, Plus, X, MessageCircle, Clock, CheckCircle, AlertTriangle,
-  Loader2, Search, Filter, ChevronLeft, ChevronRight, Send, User,
+  HelpCircle, Plus, X, MessageCircle, CheckCircle, AlertTriangle,
+  Loader2, Search, ChevronLeft, ChevronRight, Send, User, Users, ShieldCheck,
 } from 'lucide-react';
 import {
   useGetMyTicketsQuery, useGetAllTicketsQuery, useCreateTicketMutation,
   useGetTicketDetailQuery, useUpdateTicketMutation, useAddCommentMutation,
 } from './helpdeskApi';
-import { useGetEmployeesQuery } from '../employee/employeeApi';
 import { cn, formatDate, getInitials } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
@@ -27,6 +27,11 @@ const PRIORITY_COLORS: Record<string, string> = {
   LOW: 'text-gray-400', MEDIUM: 'text-blue-500', HIGH: 'text-amber-500', URGENT: 'text-red-500',
 };
 
+const DEPT_CONFIG: Record<string, { class: string; label: string; icon: any }> = {
+  HR: { class: 'bg-violet-50 text-violet-700 border border-violet-200', label: 'HR Team', icon: Users },
+  ADMIN: { class: 'bg-blue-50 text-blue-700 border border-blue-200', label: 'Admin Team', icon: ShieldCheck },
+};
+
 export default function HelpdeskPage() {
   const user = useAppSelector(s => s.auth.user);
   const isManagement = user?.role ? MANAGEMENT_ROLES.includes(user.role) : false;
@@ -35,18 +40,38 @@ export default function HelpdeskPage() {
 
 /* ===== MANAGEMENT VIEW ===== */
 function HelpdeskManagementView() {
+  const user = useAppSelector(s => s.auth.user);
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+
   const [statusFilter, setStatusFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState<'HR' | 'ADMIN' | 'ALL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
-  const { data: res, isLoading } = useGetAllTicketsQuery({
+  const { data: res, isLoading, refetch } = useGetAllTicketsQuery({
     page, limit: 20,
     status: statusFilter || undefined,
+    targetDept: isSuperAdmin && deptFilter !== 'ALL' ? deptFilter : undefined,
   });
   const tickets = res?.data?.data || res?.data || [];
   const meta = res?.data?.meta || res?.meta || {};
+
+  // Live updates via Socket.io
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  useEffect(() => {
+    const handler = () => refetchRef.current();
+    onSocketEvent('helpdesk:ticket-created', handler);
+    onSocketEvent('helpdesk:ticket-updated', handler);
+    onSocketEvent('helpdesk:comment-added', handler);
+    return () => {
+      offSocketEvent('helpdesk:ticket-created', handler);
+      offSocketEvent('helpdesk:ticket-updated', handler);
+      offSocketEvent('helpdesk:comment-added', handler);
+    };
+  }, []);
 
   const filteredTickets = searchQuery
     ? tickets.filter((t: any) => {
@@ -57,7 +82,6 @@ function HelpdeskManagementView() {
       })
     : tickets;
 
-  // Stats from all tickets
   const stats = {
     OPEN: tickets.filter((t: any) => t.status === 'OPEN').length,
     IN_PROGRESS: tickets.filter((t: any) => t.status === 'IN_PROGRESS').length,
@@ -70,7 +94,9 @@ function HelpdeskManagementView() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-display font-bold text-gray-900">Helpdesk Management</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Manage and resolve support tickets</p>
+          <p className="text-gray-500 text-sm mt-0.5">
+            {user?.role === 'HR' ? 'HR support tickets' : user?.role === 'ADMIN' ? 'Admin support tickets' : 'All support tickets'}
+          </p>
         </div>
         <button onClick={() => setShowCreate(true)} className="btn-primary flex items-center gap-2">
           <Plus size={18} /> Raise Ticket
@@ -90,7 +116,7 @@ function HelpdeskManagementView() {
 
       {/* Filters */}
       <div className="layer-card p-4 mb-6">
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
@@ -102,68 +128,86 @@ function HelpdeskManagementView() {
             <option value="">All Status</option>
             {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
+          {isSuperAdmin && (
+            <select value={deptFilter} onChange={e => { setDeptFilter(e.target.value as any); setPage(1); }}
+              className="input-glass text-sm">
+              <option value="ALL">All Depts</option>
+              <option value="HR">HR Team</option>
+              <option value="ADMIN">Admin Team</option>
+            </select>
+          )}
         </div>
       </div>
 
       {/* Tickets Table */}
       <div className="layer-card overflow-hidden">
         <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-100">
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Ticket</th>
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Employee</th>
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Category</th>
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Priority</th>
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Status</th>
-              <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <tr><td colSpan={6} className="text-center py-12">
-                <Loader2 size={24} className="animate-spin mx-auto text-brand-500" />
-              </td></tr>
-            ) : filteredTickets.length === 0 ? (
-              <tr><td colSpan={6} className="text-center py-12">
-                <HelpCircle size={40} className="mx-auto text-gray-200 mb-3" />
-                <p className="text-sm text-gray-400">No tickets found</p>
-              </td></tr>
-            ) : filteredTickets.map((ticket: any) => (
-              <tr key={ticket.id} onClick={() => setSelectedTicketId(ticket.id)}
-                className="border-b border-gray-50 hover:bg-surface-2 transition-colors cursor-pointer">
-                <td className="px-5 py-3.5">
-                  <p className="text-xs font-mono text-gray-400" data-mono>{ticket.ticketCode}</p>
-                  <p className="text-sm font-medium text-gray-800 line-clamp-1">{ticket.subject}</p>
-                </td>
-                <td className="px-5 py-3.5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-brand-50 flex items-center justify-center text-brand-700 font-semibold text-[10px]">
-                      {getInitials(ticket.employee?.firstName, ticket.employee?.lastName)}
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-700">{ticket.employee?.firstName} {ticket.employee?.lastName}</p>
-                      <p className="text-[10px] text-gray-400">{ticket.employee?.employeeCode}</p>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-5 py-3.5"><span className="text-xs text-gray-500">{ticket.category}</span></td>
-                <td className="px-5 py-3.5">
-                  <span className={cn('text-xs font-medium', PRIORITY_COLORS[ticket.priority])}>{ticket.priority}</span>
-                </td>
-                <td className="px-5 py-3.5">
-                  <span className={cn('badge text-xs', STATUS_CONFIG[ticket.status]?.class || 'badge-neutral')}>
-                    {STATUS_CONFIG[ticket.status]?.label || ticket.status}
-                  </span>
-                </td>
-                <td className="px-5 py-3.5">
-                  <p className="text-xs text-gray-400">{formatDate(ticket.createdAt)}</p>
-                  <p className="text-[10px] text-gray-300 flex items-center gap-1"><MessageCircle size={10} /> {ticket._count?.comments || 0}</p>
-                </td>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Ticket</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Employee</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Category</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Priority</th>
+                {isSuperAdmin && <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Dept</th>}
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Status</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase px-5 py-3">Date</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr><td colSpan={isSuperAdmin ? 7 : 6} className="text-center py-12">
+                  <Loader2 size={24} className="animate-spin mx-auto text-brand-500" />
+                </td></tr>
+              ) : filteredTickets.length === 0 ? (
+                <tr><td colSpan={isSuperAdmin ? 7 : 6} className="text-center py-12">
+                  <HelpCircle size={40} className="mx-auto text-gray-200 mb-3" />
+                  <p className="text-sm text-gray-400">No tickets found</p>
+                </td></tr>
+              ) : filteredTickets.map((ticket: any) => (
+                <tr key={ticket.id} onClick={() => setSelectedTicketId(ticket.id)}
+                  className="border-b border-gray-50 hover:bg-surface-2 transition-colors cursor-pointer">
+                  <td className="px-5 py-3.5">
+                    <p className="text-xs font-mono text-gray-400" data-mono>{ticket.ticketCode}</p>
+                    <p className="text-sm font-medium text-gray-800 line-clamp-1">{ticket.subject}</p>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-brand-50 flex items-center justify-center text-brand-700 font-semibold text-[10px]">
+                        {getInitials(ticket.employee?.firstName, ticket.employee?.lastName)}
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-700">{ticket.employee?.firstName} {ticket.employee?.lastName}</p>
+                        <p className="text-[10px] text-gray-400">{ticket.employee?.employeeCode}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3.5"><span className="text-xs text-gray-500">{ticket.category}</span></td>
+                  <td className="px-5 py-3.5">
+                    <span className={cn('text-xs font-medium', PRIORITY_COLORS[ticket.priority])}>{ticket.priority}</span>
+                  </td>
+                  {isSuperAdmin && (
+                    <td className="px-5 py-3.5">
+                      {ticket.targetDept && (
+                        <span className={cn('badge text-[10px] px-1.5 py-0.5', DEPT_CONFIG[ticket.targetDept]?.class)}>
+                          {DEPT_CONFIG[ticket.targetDept]?.label}
+                        </span>
+                      )}
+                    </td>
+                  )}
+                  <td className="px-5 py-3.5">
+                    <span className={cn('badge text-xs', STATUS_CONFIG[ticket.status]?.class || 'badge-neutral')}>
+                      {STATUS_CONFIG[ticket.status]?.label || ticket.status}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <p className="text-xs text-gray-400">{formatDate(ticket.createdAt)}</p>
+                    <p className="text-[10px] text-gray-300 flex items-center gap-1"><MessageCircle size={10} /> {ticket._count?.comments || 0}</p>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
         {meta.totalPages > 1 && (
@@ -179,7 +223,6 @@ function HelpdeskManagementView() {
         )}
       </div>
 
-      {/* Ticket Detail Modal */}
       <AnimatePresence>
         {selectedTicketId && (
           <TicketDetailModal ticketId={selectedTicketId} onClose={() => setSelectedTicketId(null)} />
@@ -195,7 +238,7 @@ function HelpdeskManagementView() {
 
 /* ===== TICKET DETAIL MODAL ===== */
 function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: () => void }) {
-  const { data: res, isLoading } = useGetTicketDetailQuery(ticketId);
+  const { data: res, isLoading, refetch } = useGetTicketDetailQuery(ticketId);
   const [updateTicket, { isLoading: updating }] = useUpdateTicketMutation();
   const [addComment, { isLoading: commenting }] = useAddCommentMutation();
   const ticket = res?.data;
@@ -206,7 +249,21 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
   const [resolution, setResolution] = useState('');
   const [commentText, setCommentText] = useState('');
 
-  // Initialize form when ticket loads
+  // Live updates for this specific ticket
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  useEffect(() => {
+    const handler = (data: any) => {
+      if (!data?.ticketId || data.ticketId === ticketId) refetchRef.current();
+    };
+    onSocketEvent('helpdesk:ticket-updated', handler);
+    onSocketEvent('helpdesk:comment-added', handler);
+    return () => {
+      offSocketEvent('helpdesk:ticket-updated', handler);
+      offSocketEvent('helpdesk:comment-added', handler);
+    };
+  }, [ticketId]);
+
   if (ticket && !status) {
     setStatus(ticket.status);
     setResolution(ticket.resolution || '');
@@ -239,13 +296,17 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
           <div className="p-12 text-center"><Loader2 size={24} className="animate-spin mx-auto text-brand-500" /></div>
         ) : (
           <>
-            {/* Header */}
             <div className="flex items-start justify-between p-6 border-b border-gray-100">
               <div>
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <span className="text-xs font-mono text-gray-400" data-mono>{ticket.ticketCode}</span>
                   <span className={cn('badge text-xs', STATUS_CONFIG[ticket.status]?.class)}>{STATUS_CONFIG[ticket.status]?.label}</span>
                   <span className={cn('text-xs font-medium', PRIORITY_COLORS[ticket.priority])}>{ticket.priority}</span>
+                  {ticket.targetDept && (
+                    <span className={cn('badge text-[10px] px-1.5 py-0.5', DEPT_CONFIG[ticket.targetDept]?.class)}>
+                      {DEPT_CONFIG[ticket.targetDept]?.label}
+                    </span>
+                  )}
                 </div>
                 <h2 className="text-lg font-display font-semibold text-gray-900">{ticket.subject}</h2>
                 {ticket.employee && (
@@ -257,15 +318,12 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
               <button onClick={onClose} aria-label="Close" className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={18} className="text-gray-400" /></button>
             </div>
 
-            {/* Body */}
             <div className="p-6 space-y-5">
-              {/* Description */}
               <div>
                 <p className="text-xs text-gray-400 mb-1">Description</p>
                 <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{ticket.description}</p>
               </div>
 
-              {/* HR Actions */}
               {isManagement && (
                 <div className="bg-surface-2 rounded-xl p-4 space-y-3">
                   <h4 className="text-xs font-semibold text-gray-600">Actions</h4>
@@ -295,7 +353,6 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
                 </div>
               )}
 
-              {/* Resolution */}
               {ticket.resolution && (
                 <div className="bg-emerald-50 rounded-xl p-4">
                   <p className="text-xs font-semibold text-emerald-700 mb-1">Resolution</p>
@@ -303,7 +360,6 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
                 </div>
               )}
 
-              {/* Comments */}
               <div>
                 <h4 className="text-xs font-semibold text-gray-600 mb-3">
                   Comments ({ticket.comments?.length || 0})
@@ -324,7 +380,6 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
                   ))}
                 </div>
 
-                {/* Add comment */}
                 <div className="flex gap-2 mt-3">
                   <input value={commentText} onChange={e => setCommentText(e.target.value)}
                     placeholder="Add a comment..." className="input-glass flex-1 text-sm"
@@ -348,8 +403,21 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
 function HelpdeskPersonalView() {
   const [showCreate, setShowCreate] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
-  const { data: res } = useGetMyTicketsQuery();
+  const { data: res, refetch } = useGetMyTicketsQuery();
   const tickets = res?.data || [];
+
+  // Live updates
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  useEffect(() => {
+    const handler = () => refetchRef.current();
+    onSocketEvent('helpdesk:ticket-updated', handler);
+    onSocketEvent('helpdesk:comment-added', handler);
+    return () => {
+      offSocketEvent('helpdesk:ticket-updated', handler);
+      offSocketEvent('helpdesk:comment-added', handler);
+    };
+  }, []);
 
   return (
     <div className="page-container">
@@ -392,12 +460,17 @@ function HelpdeskPersonalView() {
               className="layer-card p-5 cursor-pointer hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="text-xs font-mono text-gray-400" data-mono>{ticket.ticketCode}</span>
                     <span className={cn('badge text-xs', STATUS_CONFIG[ticket.status]?.class || 'badge-neutral')}>
                       {STATUS_CONFIG[ticket.status]?.label || ticket.status}
                     </span>
                     <span className={cn('text-xs font-medium', PRIORITY_COLORS[ticket.priority])}>{ticket.priority}</span>
+                    {ticket.targetDept && (
+                      <span className={cn('badge text-[10px] px-1.5 py-0.5', DEPT_CONFIG[ticket.targetDept]?.class)}>
+                        {DEPT_CONFIG[ticket.targetDept]?.label}
+                      </span>
+                    )}
                   </div>
                   <h3 className="text-sm font-semibold text-gray-800">{ticket.subject}</h3>
                   <p className="text-xs text-gray-500 mt-1 line-clamp-1">{ticket.description}</p>
@@ -428,9 +501,22 @@ function HelpdeskPersonalView() {
 }
 
 /* ===== CREATE TICKET MODAL ===== */
+
+// Default targetDept suggestion based on category
+const CATEGORY_DEPT_MAP: Record<string, 'HR' | 'ADMIN'> = {
+  IT: 'HR', HR: 'HR', LEAVE: 'HR', PAYROLL: 'HR',
+  FINANCE: 'ADMIN', ADMIN: 'ADMIN', OTHER: 'HR',
+};
+
 function CreateTicketModal({ onClose }: { onClose: () => void }) {
   const [createTicket, { isLoading }] = useCreateTicketMutation();
-  const [form, setForm] = useState({ category: 'IT', subject: '', description: '', priority: 'MEDIUM' });
+  const [form, setForm] = useState({
+    category: 'IT', subject: '', description: '', priority: 'MEDIUM', targetDept: 'HR',
+  });
+
+  const handleCategoryChange = (category: string) => {
+    setForm(f => ({ ...f, category, targetDept: CATEGORY_DEPT_MAP[category] || 'HR' }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -456,21 +542,56 @@ function CreateTicketModal({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-600 mb-1">Category</label>
-              <select value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="input-glass w-full">
-                <option value="IT">IT Support</option><option value="HR">HR</option>
-                <option value="FINANCE">Finance</option><option value="ADMIN">Admin</option>
-                <option value="PAYROLL">Payroll</option><option value="LEAVE">Leave</option>
+              <select value={form.category} onChange={e => handleCategoryChange(e.target.value)} className="input-glass w-full">
+                <option value="IT">IT Support</option>
+                <option value="HR">HR</option>
+                <option value="FINANCE">Finance</option>
+                <option value="ADMIN">Admin</option>
+                <option value="PAYROLL">Payroll</option>
+                <option value="LEAVE">Leave</option>
                 <option value="OTHER">Other</option>
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-600 mb-1">Priority</label>
               <select value={form.priority} onChange={e => setForm({...form, priority: e.target.value})} className="input-glass w-full">
-                <option value="LOW">Low</option><option value="MEDIUM">Medium</option>
-                <option value="HIGH">High</option><option value="URGENT">Urgent</option>
+                <option value="LOW">Low</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="HIGH">High</option>
+                <option value="URGENT">Urgent</option>
               </select>
             </div>
           </div>
+
+          {/* Who handles this */}
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-2">Who should handle this?</label>
+            <div className="grid grid-cols-2 gap-2">
+              {(['HR', 'ADMIN'] as const).map(dept => {
+                const cfg = DEPT_CONFIG[dept];
+                const Icon = cfg.icon;
+                return (
+                  <button type="button" key={dept}
+                    onClick={() => setForm(f => ({ ...f, targetDept: dept }))}
+                    className={cn(
+                      'flex items-center gap-2 p-2.5 rounded-xl border-2 text-sm font-medium transition-all',
+                      form.targetDept === dept
+                        ? dept === 'HR'
+                          ? 'border-violet-500 bg-violet-50 text-violet-700'
+                          : 'border-blue-500 bg-blue-50 text-blue-700'
+                        : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                    )}>
+                    <Icon size={15} />
+                    {cfg.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5">
+              {form.targetDept === 'HR' ? 'HR team handles: leave, payroll, attendance, people matters' : 'Admin team handles: IT, facilities, admin requests'}
+            </p>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-1">Subject</label>
             <input value={form.subject} onChange={e => setForm({...form, subject: e.target.value})}
@@ -481,6 +602,14 @@ function CreateTicketModal({ onClose }: { onClose: () => void }) {
             <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})}
               className="input-glass w-full h-24 resize-none" placeholder="Detailed explanation..." required minLength={10} />
           </div>
+
+          {/* Alert banner showing where ticket is going */}
+          <div className={cn('rounded-xl p-3 text-xs flex items-center gap-2',
+            form.targetDept === 'HR' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700')}>
+            <AlertTriangle size={14} />
+            This ticket will be sent to the <strong>{DEPT_CONFIG[form.targetDept]?.label}</strong> only.
+          </div>
+
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={isLoading} className="btn-primary flex-1 flex items-center justify-center gap-2">

@@ -22,10 +22,10 @@ export const createEmployeeSchema = z.object({
   // while some flows use nested { current: {...}, permanent: {...} }
   address: z.any().optional(),
   emergencyContact: z.object({
-    name: z.string(),
-    relationship: z.string(),
-    phone: z.string(),
-    email: z.string().email().optional().or(z.literal('')),
+    name: z.string().min(1, 'Name required'),
+    relationship: z.string().min(1, 'Relationship required'),
+    phone: z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number').or(z.literal('')),
+    email: z.string().email('Invalid email').optional().or(z.literal('')),
   }).optional(),
   bankAccountNumber: z.string().optional(),
   bankName: z.string().optional(),
@@ -40,6 +40,10 @@ export const updateEmployeeSchema = createEmployeeSchema.partial().extend({
     'ONBOARDING', 'PROBATION', 'ACTIVE', 'INTERN', 'NOTICE_PERIOD',
     'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED',
   ]).optional(),
+  // HR-only fields
+  onboardingDate: z.string().optional(),
+  shiftId: z.string().uuid().optional().nullable(),
+  role: z.enum(['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN', 'GUEST_INTERVIEWER']).optional(),
 });
 
 export const employeeQuerySchema = z.object({

@@ -4,6 +4,8 @@ import { aiService } from '../../services/ai.service.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { enqueueEmail } from '../../jobs/queues.js';
 import { logger } from '../../lib/logger.js';
+import { emitToOrg, emitToUser } from '../../sockets/index.js';
+import { Role } from '@prisma/client';
 import type { CreateTicketInput, TicketQuery } from './helpdesk.validation.js';
 
 export class HelpdeskService {
@@ -23,12 +25,22 @@ export class HelpdeskService {
     });
   }
 
-  async getAllTickets(organizationId: string, query: TicketQuery) {
-    const { page, limit, status } = query;
+  async getAllTickets(organizationId: string, query: TicketQuery, userRole: string) {
+    const { page, limit, status, targetDept } = query;
     const skip = (page - 1) * limit;
 
     const where: any = { organizationId };
     if (status) where.status = status;
+
+    // Role-based dept filtering: HR sees HR tickets, ADMIN sees ADMIN tickets, SUPER_ADMIN sees all.
+    // A manual targetDept filter from query overrides this (SUPER_ADMIN only).
+    if (userRole === 'HR') {
+      where.targetDept = 'HR';
+    } else if (userRole === 'ADMIN') {
+      where.targetDept = 'ADMIN';
+    } else if (userRole === 'SUPER_ADMIN' && targetDept && targetDept !== 'ALL') {
+      where.targetDept = targetDept;
+    }
 
     const [tickets, total] = await Promise.all([
       prisma.ticket.findMany({
@@ -50,20 +62,23 @@ export class HelpdeskService {
 
   async create(data: CreateTicketInput, employeeId: string, organizationId: string) {
     const ticketCode = await this.generateTicketCode(organizationId);
+    const targetDept = data.targetDept || 'HR';
+
     const ticket = await prisma.ticket.create({
       data: {
         ...data,
         ticketCode,
         employeeId,
         status: 'OPEN',
+        targetDept,
         organizationId,
       },
     });
-    await createAuditLog({ userId: employeeId, organizationId, entity: 'Ticket', entityId: ticket.id, action: 'CREATE', newValue: { subject: data.subject, category: data.category } });
+    await createAuditLog({ userId: employeeId, organizationId, entity: 'Ticket', entityId: ticket.id, action: 'CREATE', newValue: { subject: data.subject, category: data.category, targetDept } });
 
-    // Notify HR/Admin/SuperAdmin that a new ticket was raised
+    // Notify only the target department
     try {
-      const [employee, hrUsers] = await Promise.all([
+      const [employee, targetUsers] = await Promise.all([
         prisma.employee.findFirst({
           where: { id: employeeId },
           select: { firstName: true, lastName: true, employeeCode: true, department: { select: { name: true } } },
@@ -71,15 +86,17 @@ export class HelpdeskService {
         prisma.user.findMany({
           where: {
             organizationId,
-            role: { in: ['HR', 'ADMIN', 'SUPER_ADMIN'] },
+            role: targetDept === 'ADMIN'
+              ? { in: [Role.ADMIN, Role.SUPER_ADMIN] }
+              : { in: [Role.HR, Role.SUPER_ADMIN] },
           },
           select: { email: true },
         }),
       ]);
       const employeeName = employee ? `${employee.firstName} ${employee.lastName}` : 'An employee';
-      for (const hrUser of hrUsers) {
+      for (const u of targetUsers) {
         await enqueueEmail({
-          to: hrUser.email,
+          to: u.email,
           subject: `[${ticketCode}] New Support Ticket: ${data.subject}`,
           template: 'helpdesk-ticket-created',
           context: {
@@ -88,6 +105,7 @@ export class HelpdeskService {
             description: data.description || '',
             category: data.category || '',
             priority: data.priority || 'MEDIUM',
+            targetDept,
             employeeName,
             employeeCode: employee?.employeeCode || '',
             department: employee?.department?.name || '',
@@ -98,6 +116,14 @@ export class HelpdeskService {
     } catch (err) {
       logger.error('Failed to send helpdesk ticket creation email', err);
     }
+
+    // Real-time broadcast to org
+    emitToOrg(organizationId, 'helpdesk:ticket-created', {
+      ticketId: ticket.id,
+      ticketCode,
+      targetDept,
+      subject: data.subject,
+    });
 
     return ticket;
   }
@@ -115,10 +141,9 @@ export class HelpdeskService {
   }
 
   async update(id: string, data: { status?: string; assignedTo?: string; resolution?: string }, organizationId: string) {
-    // Verify ticket belongs to this org
     const ticket = await prisma.ticket.findFirst({
       where: { id, organizationId },
-      include: { employee: { select: { firstName: true, lastName: true, user: { select: { email: true } } } } },
+      include: { employee: { select: { firstName: true, lastName: true, user: { select: { email: true, id: true } } } } },
     });
     if (!ticket) throw new NotFoundError('Ticket');
 
@@ -131,7 +156,7 @@ export class HelpdeskService {
     const updated = await prisma.ticket.update({ where: { id }, data: updateData });
     await createAuditLog({ userId: id, organizationId, entity: 'Ticket', entityId: id, action: 'UPDATE', newValue: updateData });
 
-    // Notify employee when their ticket status changes
+    // Notify employee when status changes
     if (data.status && data.status !== ticket.status) {
       try {
         const employeeEmail = (ticket.employee as any)?.user?.email;
@@ -156,13 +181,24 @@ export class HelpdeskService {
       }
     }
 
+    // Real-time: broadcast to org + notify the ticket owner directly
+    emitToOrg(organizationId, 'helpdesk:ticket-updated', {
+      ticketId: id,
+      ticketCode: ticket.ticketCode,
+      status: data.status,
+    });
+    const employeeUserId = (ticket.employee as any)?.user?.id;
+    if (employeeUserId) {
+      emitToUser(employeeUserId, 'helpdesk:ticket-updated', { ticketId: id, status: data.status });
+    }
+
     return updated;
   }
 
   async addComment(ticketId: string, authorId: string, content: string, isInternal: boolean, organizationId: string, authorRole?: string) {
     const ticket = await prisma.ticket.findFirst({
       where: { id: ticketId, organizationId },
-      include: { employee: { select: { firstName: true, lastName: true, user: { select: { email: true } } } } },
+      include: { employee: { select: { firstName: true, lastName: true, user: { select: { email: true, id: true } } } } },
     });
     if (!ticket) throw new NotFoundError('Ticket');
 
@@ -175,7 +211,6 @@ export class HelpdeskService {
       try {
         const isHrSide = authorRole && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(authorRole);
         if (isHrSide) {
-          // HR commented → notify the employee
           const employeeEmail = (ticket.employee as any)?.user?.email;
           if (employeeEmail) {
             const employeeName = `${(ticket.employee as any).firstName} ${(ticket.employee as any).lastName}`;
@@ -194,17 +229,20 @@ export class HelpdeskService {
             });
           }
         } else {
-          // Employee commented → notify HR/Admin
-          const hrUsers = await prisma.user.findMany({
-            where: { organizationId, role: { in: ['HR', 'ADMIN', 'SUPER_ADMIN'] } },
+          // Employee commented → notify the target dept only
+          const targetRoles: Role[] = (ticket as any).targetDept === 'ADMIN'
+            ? [Role.ADMIN, Role.SUPER_ADMIN]
+            : [Role.HR, Role.SUPER_ADMIN];
+          const targetUsers = await prisma.user.findMany({
+            where: { organizationId, role: { in: targetRoles } },
             select: { email: true },
           });
           const employeeName = ticket.employee
             ? `${(ticket.employee as any).firstName} ${(ticket.employee as any).lastName}`
             : 'An employee';
-          for (const hrUser of hrUsers) {
+          for (const u of targetUsers) {
             await enqueueEmail({
-              to: hrUser.email,
+              to: u.email,
               subject: `[${ticket.ticketCode}] Employee replied: ${ticket.subject}`,
               template: 'helpdesk-comment-received',
               context: {
@@ -220,6 +258,17 @@ export class HelpdeskService {
       } catch (err) {
         logger.error('Failed to send helpdesk comment email', err);
       }
+    }
+
+    // Real-time broadcast
+    emitToOrg(organizationId, 'helpdesk:comment-added', {
+      ticketId,
+      ticketCode: ticket.ticketCode,
+      isInternal,
+    });
+    const employeeUserId = (ticket.employee as any)?.user?.id;
+    if (employeeUserId) {
+      emitToUser(employeeUserId, 'helpdesk:comment-added', { ticketId, ticketCode: ticket.ticketCode });
     }
 
     return comment;

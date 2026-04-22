@@ -18,7 +18,7 @@ export class HelpdeskController {
   async getAll(req: Request, res: Response, next: NextFunction) {
     try {
       const query = ticketQuerySchema.parse(req.query);
-      const result = await helpdeskService.getAllTickets(req.user!.organizationId, query);
+      const result = await helpdeskService.getAllTickets(req.user!.organizationId, query, req.user!.role);
       res.json({ success: true, data: result.data, meta: result.meta });
     } catch (err) { next(err); }
   }

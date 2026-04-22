@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { employeeService } from './employee.service.js';
 import { createEmployeeSchema, updateEmployeeSchema, employeeQuerySchema, submitResignationSchema, approveExitSchema, initiateTerminationSchema, exitQuerySchema } from './employee.validation.js';
+import { BadRequestError } from '../../middleware/errorHandler.js';
+import { storageService, StorageFolder } from '../../services/storage.service.js';
 
 export class EmployeeController {
   async list(req: Request, res: Response, next: NextFunction) {
@@ -432,6 +434,16 @@ export class EmployeeController {
       const data = initiateTerminationSchema.parse(req.body);
       const result = await employeeService.initiateTermination(req.params.id, data, req.user!.userId, req.user!.organizationId);
       res.json({ success: true, data: result, message: 'Termination initiated' });
+    } catch (err) { next(err); }
+  }
+
+  async uploadProfilePhoto(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      if (!req.file) throw new BadRequestError('No photo uploaded');
+      const photoUrl = storageService.buildUrl(StorageFolder.PROFILES, req.file.filename);
+      const employee = await employeeService.updateProfilePhoto(id, photoUrl, req.user!.organizationId);
+      res.json({ success: true, data: employee });
     } catch (err) { next(err); }
   }
 }

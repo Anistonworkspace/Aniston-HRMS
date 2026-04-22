@@ -140,6 +140,7 @@ export const api = createApi({
     'Backup',
     'DeletionRequests',
     'MFA',
+    'ProfileEditRequest',
   ],
   endpoints: () => ({}),
 });

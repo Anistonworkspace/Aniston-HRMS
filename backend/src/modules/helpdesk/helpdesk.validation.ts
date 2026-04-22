@@ -5,6 +5,7 @@ export const createTicketSchema = z.object({
   subject: z.string().min(3),
   description: z.string().min(10),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).default('MEDIUM'),
+  targetDept: z.enum(['HR', 'ADMIN']).default('HR'),
 });
 
 export const updateTicketSchema = z.object({
@@ -22,6 +23,7 @@ export const ticketQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(20),
   status: z.string().optional(),
+  targetDept: z.enum(['HR', 'ADMIN', 'ALL']).optional(),
 });
 
 export type CreateTicketInput = z.infer<typeof createTicketSchema>;

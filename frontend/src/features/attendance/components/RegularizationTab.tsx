@@ -1,17 +1,51 @@
-import { useState } from 'react';
-import { CheckCircle, XCircle, Clock, FileText, MessageSquare } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { CheckCircle, XCircle, Clock, FileText, MessageSquare, LogIn, LogOut, RefreshCw } from 'lucide-react';
 import { useGetPendingRegularizationsQuery, useHandleRegularizationMutation } from '../attendanceApi';
+import { onSocketEvent, offSocketEvent } from '../../../lib/socket';
 import { cn, formatDate, getInitials } from '../../../lib/utils';
 import toast from 'react-hot-toast';
 
+function getRegType(r: any): { label: string; class: string; icon: any } {
+  if (r.requestedCheckIn && r.requestedCheckOut) {
+    return { label: 'Full Correction', class: 'bg-purple-50 text-purple-700', icon: RefreshCw };
+  }
+  if (r.requestedCheckIn && !r.requestedCheckOut) {
+    return { label: 'Missed Check-In', class: 'bg-amber-50 text-amber-700', icon: LogIn };
+  }
+  if (!r.requestedCheckIn && r.requestedCheckOut) {
+    return { label: 'Missed Check-Out', class: 'bg-orange-50 text-orange-700', icon: LogOut };
+  }
+  return { label: 'Time Correction', class: 'bg-blue-50 text-blue-700', icon: Clock };
+}
+
+const STATUS_BADGE: Record<string, { class: string; label: string }> = {
+  PENDING:           { class: 'bg-amber-100 text-amber-700',  label: 'Pending' },
+  MANAGER_REVIEWED:  { class: 'bg-blue-100 text-blue-700',    label: 'Manager Reviewed' },
+  APPROVED:          { class: 'bg-emerald-100 text-emerald-700', label: 'Approved' },
+  REJECTED:          { class: 'bg-red-100 text-red-700',      label: 'Rejected' },
+};
+
 export default function RegularizationTab() {
-  const { data: res, isLoading } = useGetPendingRegularizationsQuery();
+  const { data: res, isLoading, refetch } = useGetPendingRegularizationsQuery();
   const [handleReg, { isLoading: processing }] = useHandleRegularizationMutation();
   const [remarkId, setRemarkId] = useState<string | null>(null);
   const [remarks, setRemarks] = useState('');
   const [processingId, setProcessingId] = useState<string | null>(null);
 
   const regularizations = res?.data || [];
+
+  // Live updates: refresh whenever attendance changes or a new regularization is submitted
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  useEffect(() => {
+    const handler = () => refetchRef.current();
+    onSocketEvent('attendance:checkin', handler);
+    onSocketEvent('attendance:regularization-submitted', handler);
+    return () => {
+      offSocketEvent('attendance:checkin', handler);
+      offSocketEvent('attendance:regularization-submitted', handler);
+    };
+  }, []);
 
   const handleAction = async (id: string, action: string) => {
     setProcessingId(id);
@@ -71,6 +105,10 @@ export default function RegularizationTab() {
       {regularizations.map((r: any) => {
         const att = r.attendance || {};
         const emp = att.employee || r.employee || { firstName: 'Unknown', lastName: '', employeeCode: '—' };
+        const regType = getRegType(r);
+        const TypeIcon = regType.icon;
+        const statusBadge = STATUS_BADGE[r.status] || STATUS_BADGE.PENDING;
+
         return (
           <div key={r.id} className="layer-card p-3 space-y-2">
             {/* Header row */}
@@ -79,10 +117,18 @@ export default function RegularizationTab() {
                 {getInitials(emp.firstName, emp.lastName)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <p className="text-xs font-medium text-gray-800">{emp.firstName} {emp.lastName}</p>
                   <span className="text-[10px] text-gray-400 font-mono" data-mono>{emp.employeeCode}</span>
-                  <span className="badge badge-warning text-[9px] ml-auto">PENDING</span>
+                  {/* Regularization type badge */}
+                  <span className={cn('flex items-center gap-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-full', regType.class)}>
+                    <TypeIcon size={9} />
+                    {regType.label}
+                  </span>
+                  {/* Status badge */}
+                  <span className={cn('text-[9px] font-semibold px-1.5 py-0.5 rounded-full ml-auto', statusBadge.class)}>
+                    {statusBadge.label}
+                  </span>
                 </div>
                 <p className="text-[10px] text-gray-400 mt-0.5">
                   Date: {formatDate(att.date)} | Original: {formatTime(att.checkIn)} → {formatTime(att.checkOut)}
@@ -92,16 +138,30 @@ export default function RegularizationTab() {
 
             {/* Correction details */}
             <div className="bg-gray-50 rounded-lg p-2.5 space-y-1">
-              <div className="flex items-center gap-4 text-[11px]">
-                <span className="text-gray-500">Requested Check-In:</span>
-                <span className="font-mono text-gray-700 font-medium" data-mono>{formatTime(r.requestedCheckIn)}</span>
-                <span className="text-gray-500">Requested Check-Out:</span>
-                <span className="font-mono text-gray-700 font-medium" data-mono>{formatTime(r.requestedCheckOut)}</span>
+              <div className="flex flex-wrap items-center gap-4 text-[11px]">
+                {r.requestedCheckIn && (
+                  <>
+                    <span className="text-gray-500">Requested Check-In:</span>
+                    <span className="font-mono text-gray-700 font-medium" data-mono>{formatTime(r.requestedCheckIn)}</span>
+                  </>
+                )}
+                {r.requestedCheckOut && (
+                  <>
+                    <span className="text-gray-500">Requested Check-Out:</span>
+                    <span className="font-mono text-gray-700 font-medium" data-mono>{formatTime(r.requestedCheckOut)}</span>
+                  </>
+                )}
               </div>
               <div className="flex items-start gap-1">
                 <FileText size={11} className="text-gray-400 mt-0.5 flex-shrink-0" />
                 <p className="text-[11px] text-gray-600">{r.reason}</p>
               </div>
+              {/* Manager remarks if MANAGER_REVIEWED */}
+              {r.status === 'MANAGER_REVIEWED' && r.managerRemarks && (
+                <div className="mt-1 pt-1 border-t border-gray-200">
+                  <p className="text-[10px] text-blue-600 font-medium">Manager: {r.managerRemarks}</p>
+                </div>
+              )}
             </div>
 
             {/* Remarks input */}
@@ -118,7 +178,7 @@ export default function RegularizationTab() {
             )}
 
             {/* Actions */}
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2 pt-1 flex-wrap">
               <button
                 onClick={() => handleAction(r.id, 'APPROVED')}
                 disabled={processingId === r.id}
@@ -133,6 +193,15 @@ export default function RegularizationTab() {
               >
                 <XCircle size={13} /> Reject
               </button>
+              {r.status === 'PENDING' && (
+                <button
+                  onClick={() => handleAction(r.id, 'MANAGER_REVIEWED')}
+                  disabled={processingId === r.id}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Clock size={13} /> Mark Reviewed
+                </button>
+              )}
               <button
                 onClick={() => setRemarkId(remarkId === r.id ? null : r.id)}
                 className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gray-500 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"

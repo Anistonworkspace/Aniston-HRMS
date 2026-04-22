@@ -2,6 +2,7 @@ import { Worker, Job } from 'bullmq';
 import { bullmqConnection } from '../queues.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
+import { attendanceService } from '../../modules/attendance/attendance.service.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
@@ -152,7 +153,7 @@ async function autoMarkAbsent() {
       const onLeave = await prisma.leaveRequest.findMany({
         where: {
           employeeId: { in: employeeIds },
-          status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
+          status: { in: ['APPROVED', 'APPROVED_WITH_CONDITION'] },
           startDate: { lte: yesterday },
           endDate: { gte: yesterday },
         },
@@ -160,23 +161,54 @@ async function autoMarkAbsent() {
       });
       const onLeaveSet = new Set(onLeave.map(l => l.employeeId));
 
-      // Check holidays
+      // Check holidays (include isHalfDay field)
       const holiday = await prisma.holiday.findFirst({
         where: { organizationId: org.id, date: yesterday },
+        select: { name: true, isHalfDay: true, halfDaySession: true },
       });
 
-      // Check if yesterday was a weekend
-      const isWeekend = yesterday.getDay() === 0; // Only Sunday is weekoff
+      // Check if yesterday was a week-off day using org policy (fallback)
+      const orgPolicy = await prisma.attendancePolicy.findUnique({ where: { organizationId: org.id } });
+      const weekOffDaySet = new Set<number>(
+        (orgPolicy?.weekOffDays as number[] | null)?.length
+          ? (orgPolicy!.weekOffDays as number[])
+          : [0]
+      );
+
+      // Fetch shift assignments for all employees to get per-shift weekOffDays and workMode
+      const shiftAssignments = await prisma.shiftAssignment.findMany({
+        where: {
+          employeeId: { in: employeeIds },
+          startDate: { lte: yesterday },
+          OR: [{ endDate: null }, { endDate: { gte: yesterday } }],
+        },
+        include: { shift: { select: { weekOffDays: true, shiftType: true } } },
+      });
+      const empShiftMap = new Map<string, number[]>();
+      const empWorkModeMap = new Map<string, string>();
+      for (const sa of shiftAssignments) {
+        const shiftWeekOff = sa.shift?.weekOffDays as number[] | null;
+        if (shiftWeekOff?.length) empShiftMap.set(sa.employeeId, shiftWeekOff);
+        const wm = sa.shift?.shiftType === 'FIELD' ? 'FIELD_SALES' : 'OFFICE';
+        empWorkModeMap.set(sa.employeeId, wm);
+      }
 
       // Create records for employees without attendance
       const toCreate: any[] = [];
       for (const empId of employeeIds) {
         if (hasRecordSet.has(empId)) continue; // already has record
 
+        // Use per-shift weekOffDays if available, otherwise fall back to org policy
+        const empWeekOffSet = empShiftMap.has(empId)
+          ? new Set(empShiftMap.get(empId)!)
+          : weekOffDaySet;
+        const isWeekend = empWeekOffSet.has(yesterday.getDay());
+
         let status: string;
         let notes: string;
 
-        if (holiday) {
+        if (holiday && !holiday.isHalfDay) {
+          // Full-day holiday — mark all employees as HOLIDAY
           status = 'HOLIDAY';
           notes = `[Auto-marked: ${holiday.name}]`;
         } else if (isWeekend) {
@@ -185,6 +217,10 @@ async function autoMarkAbsent() {
         } else if (onLeaveSet.has(empId)) {
           status = 'ON_LEAVE';
           notes = '[Auto-marked: on approved leave]';
+        } else if (holiday?.isHalfDay) {
+          // Present for a half-day holiday but no record — mark as HALF_DAY
+          status = 'HALF_DAY';
+          notes = `[Auto-marked: half-day holiday ${holiday.name}]`;
         } else {
           status = 'ABSENT';
           notes = '[Auto-marked absent by system]';
@@ -194,7 +230,7 @@ async function autoMarkAbsent() {
           employeeId: empId,
           date: yesterday,
           status,
-          workMode: 'OFFICE',
+          workMode: empWorkModeMap.get(empId) || 'OFFICE',
           source: 'MANUAL_HR',
           notes,
         });
@@ -216,6 +252,31 @@ async function autoMarkAbsent() {
   return { marked: totalMarked };
 }
 
+/**
+ * Auto-detect anomalies for all orgs for yesterday
+ * Runs at 00:15 IST after auto-close and auto-mark-absent have settled
+ */
+async function autoDetectAnomalies() {
+  const yesterday = getISTYesterday();
+  const dateStr = yesterday.toISOString().split('T')[0];
+  logger.info(`[Attendance Cron] Running auto-detect anomalies for ${dateStr}...`);
+
+  const organizations = await prisma.organization.findMany({ select: { id: true } });
+  let totalDetected = 0;
+
+  for (const org of organizations) {
+    try {
+      const result = await attendanceService.detectAnomalies(org.id, dateStr);
+      totalDetected += (result as any)?.created ?? 0;
+    } catch (err) {
+      logger.error(`[Attendance Cron] Anomaly detection failed for org ${org.id}:`, err);
+    }
+  }
+
+  logger.info(`[Attendance Cron] Auto-detected ${totalDetected} anomalies for ${dateStr}.`);
+  return { detected: totalDetected, date: dateStr };
+}
+
 export function startAttendanceCronWorker() {
   const worker = new Worker(
     'attendance-cron',
@@ -225,6 +286,8 @@ export function startAttendanceCronWorker() {
           return autoCloseStaleRecords();
         case 'auto-mark-absent':
           return autoMarkAbsent();
+        case 'auto-detect-anomalies':
+          return autoDetectAnomalies();
         default:
           logger.warn(`[Attendance Cron] Unknown job name: ${job.name}`);
       }

@@ -11,8 +11,7 @@ export class ShiftService {
    * Deactivates duplicates, keeping the default or most-assigned one.
    */
   private async ensureOnePerType(organizationId: string) {
-    // First, deactivate any HYBRID shifts — they are deprecated.
-    // Move their assignments to the active OFFICE shift if one exists.
+    // Only migrate deprecated HYBRID shifts to OFFICE — no longer enforce one-per-type for OFFICE/FIELD
     const hybridShifts = await prisma.shift.findMany({
       where: { organizationId, shiftType: 'HYBRID', isActive: true },
     });
@@ -34,40 +33,10 @@ export class ShiftService {
         });
       }
     }
-
-    // Then ensure only one active per real type (OFFICE, FIELD)
-    for (const shiftType of ['OFFICE', 'FIELD'] as const) {
-      const shifts = await prisma.shift.findMany({
-        where: { organizationId, shiftType, isActive: true },
-        include: { _count: { select: { assignments: true } } },
-        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
-      });
-      if (shifts.length <= 1) continue;
-
-      // Keep the first one (default or oldest), deactivate the rest
-      const keep = shifts[0];
-      const remove = shifts.slice(1);
-
-      for (const dup of remove) {
-        // Move any active assignments from duplicate to the kept shift
-        await prisma.shiftAssignment.updateMany({
-          where: { shiftId: dup.id, OR: [{ endDate: null }, { endDate: { gte: new Date() } }] },
-          data: { shiftId: keep.id },
-        });
-        // Deactivate duplicate
-        await prisma.shift.update({
-          where: { id: dup.id },
-          data: { isActive: false, code: `${dup.code}_DUP_${Date.now()}` },
-        });
-      }
-    }
   }
 
   async getShifts(organizationId: string) {
-    // Auto-cleanup duplicates on first load
-    await this.ensureOnePerType(organizationId);
-
-    // Auto-ensure both shift types exist (General + Live Tracking)
+    // Always ensure the two default shifts (General + Live Tracking) exist
     await this.ensureDefaultShifts(organizationId);
 
     return prisma.shift.findMany({
@@ -162,14 +131,6 @@ export class ShiftService {
   }
 
   async createShift(data: CreateShiftInput, organizationId: string, assignedBy?: string) {
-    // Only allow one shift per type (General=OFFICE, Live Tracking=FIELD)
-    const existingType = await prisma.shift.findFirst({
-      where: { organizationId, shiftType: data.shiftType, isActive: true },
-    });
-    if (existingType) {
-      throw new ConflictError(`A ${data.shiftType === 'OFFICE' ? 'General' : 'Live Tracking'} shift already exists`);
-    }
-
     // Check if an active shift with same code exists
     const existing = await prisma.shift.findFirst({
       where: { code: data.code, organizationId },
@@ -239,12 +200,25 @@ export class ShiftService {
     });
 
     if (activeAssignments > 0) {
+      // Find default shift to reassign employees
+      const defaultShift = await prisma.shift.findFirst({
+        where: { organizationId, shiftType: 'OFFICE', isDefault: true, isActive: true, id: { not: id } },
+      });
       // Soft delete — rename code to free up the unique constraint
       await prisma.shift.update({
         where: { id },
         data: { isActive: false, code: `${shift.code}_DEL_${Date.now()}` },
       });
-      return { message: 'Shift deactivated' };
+      // Reassign all affected employees to default shift
+      if (defaultShift) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        await prisma.shiftAssignment.updateMany({
+          where: { shiftId: id, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+          data: { shiftId: defaultShift.id },
+        });
+      }
+      return { message: 'Shift deactivated and employees reassigned to default shift' };
     }
 
     // Hard delete if no active assignments
@@ -275,6 +249,14 @@ export class ShiftService {
       where: { id: data.employeeId },
       data: { workMode: newWorkMode as any },
     });
+
+    // Sync employee's officeLocationId if the shift assignment includes a location
+    if (data.locationId) {
+      await prisma.employee.update({
+        where: { id: data.employeeId },
+        data: { officeLocationId: data.locationId },
+      });
+    }
 
     return prisma.shiftAssignment.create({
       data: {

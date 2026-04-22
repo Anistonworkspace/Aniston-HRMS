@@ -408,4 +408,29 @@ router.delete('/policies/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   } catch (err) { next(err); }
 });
 
+// Acknowledge a leave policy (employee must accept before applying leave)
+router.post('/policies/:id/acknowledge', async (req, res, next) => {
+  try {
+    const { prisma: db } = await import('../../lib/prisma.js');
+    const employeeId = req.user!.employeeId;
+    if (!employeeId) {
+      return res.status(400).json({ success: false, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked to your account.' } });
+    }
+    const policyId = req.params.id;
+    // Verify policy belongs to org
+    const policy = await db.policy.findFirst({
+      where: { id: policyId, organizationId: req.user!.organizationId, isActive: true },
+    });
+    if (!policy) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Policy not found.' } });
+    }
+    const acknowledgment = await db.policyAcknowledgment.upsert({
+      where: { policyId_employeeId: { policyId, employeeId } },
+      update: { acknowledgedAt: new Date() },
+      create: { policyId, employeeId, acknowledgedAt: new Date() },
+    });
+    res.json({ success: true, data: acknowledgment });
+  } catch (err) { next(err); }
+});
+
 export { router as leaveRouter };

@@ -227,187 +227,23 @@ router.post('/kyc/:employeeId/photo', authenticate,
   }
 );
 
-// Employee: Upload combined PDF (all documents in one file)
-router.post('/kyc/:employeeId/combined-pdf', authenticate,
-  async (req, res, next) => {
-    try {
-      const employeeId = req.params.employeeId as string;
+// Combined PDF upload has been removed — employees must upload each document separately.
+// The reclassify endpoint below remains for legacy combined PDFs already in the system.
+// router.post('/kyc/:employeeId/combined-pdf', authenticate,
+//   REMOVED — separate document upload only
+// );
 
-      // Validate employeeId exists
-      if (!employeeId || employeeId === 'undefined' || employeeId === 'null') {
-        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Employee ID is required' } });
-        return;
-      }
-      // Ownership check
-      const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(req.user!.role);
-      if (!isManagement && req.user!.employeeId !== employeeId) {
-        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorized to upload KYC for this employee' } });
-        return;
-      }
+// Tombstone: return 410 Gone if old clients try to hit this endpoint
+router.post('/kyc/:employeeId/combined-pdf', authenticate, (req, res) => {
+  res.status(410).json({
+    success: false,
+    error: {
+      code: 'GONE',
+      message: 'Combined PDF upload is no longer supported. Please upload each document separately.',
+    },
+  });
+});
 
-      // Verify the employee record exists before attempting upload
-      const { prisma } = await import('../../lib/prisma.js');
-      const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { id: true } });
-      if (!employee) {
-        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Employee not found. Please contact HR.' } });
-        return;
-      }
-
-      const { createEmployeeKycUpload } = await import('../../middleware/upload.middleware.js');
-      const kycUpload = createEmployeeKycUpload(employeeId);
-      kycUpload.document.single('file')(req, res, async (err: any) => {
-        if (err) {
-          console.error('[KYC Combined PDF] Multer error:', err);
-          return next(err);
-        }
-        if (!req.file) {
-          res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'No file provided' } });
-          return;
-        }
-        try {
-          const fileUrl = getEmployeeKycUrl(employeeId, req.file.filename);
-          // Create document record
-          const { documentService } = await import('../document/document.service.js');
-          const doc = await documentService.create(
-            { name: 'Combined KYC Documents', type: 'OTHER', employeeId },
-            fileUrl,
-            req.user!.userId
-          );
-          // Mark combined PDF uploaded and set kycStatus=PROCESSING
-          const { documentGateService } = await import('./document-gate.service.js');
-          await documentGateService.setCombinedPdfUploaded(employeeId);
-          await (await import('../../lib/prisma.js')).prisma.onboardingDocumentGate.update({
-            where: { employeeId },
-            data: { kycStatus: 'PROCESSING' },
-          });
-
-          // Classify combined PDF — try Python AI service first, then Node.js fallback
-          (async () => {
-            try {
-              const fs = await import('fs');
-              const filePath = req.file!.path;
-              const AI_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-              const fileBuffer = fs.readFileSync(filePath);
-
-              let pythonSuccess = false;
-              let analysisResult: any = null;
-
-              // ── Try Python AI service (primary) ──
-              try {
-                // Fetch gate to get employee-specific required docs for accurate missing-doc detection.
-                // Python will use this list instead of STANDARD_REQUIRED_DOCS.
-                const gateForDocs = await (await import('../../lib/prisma.js')).prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
-                const { computeRequiredDocs } = await import('./document-gate.service.js');
-                const fresher = gateForDocs?.fresherOrExperienced || 'FRESHER';
-                const qual = gateForDocs?.highestQualification || 'GRADUATION';
-                const { requiredDocs: computedRequired, needsIdentityProof, needsEmploymentProof } = computeRequiredDocs(fresher, qual);
-                // Build the effective list Python should check:
-                // - replace the generic RESIDENCE_PROOF with itself (aliases handled on Python side)
-                // - add IDENTITY_PROOF as a virtual key Python understands via REQUIRED_DOC_ALIASES
-                const pythonRequiredDocs = [
-                  ...(needsIdentityProof ? ['AADHAAR'] : []),  // Python REQUIRED_DOC_ALIASES maps AADHAAR to just AADHAAR; identity-proof matching is alias-driven
-                  ...computedRequired.filter((d: string) => d !== 'PHOTO'),  // PHOTO is KYC-gate side, not combined PDF
-                  ...(needsEmploymentProof ? ['EXPERIENCE_LETTER'] : []),
-                ].filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i);  // deduplicate
-
-                const blob = new Blob([fileBuffer], { type: 'application/pdf' });
-                const formData = new FormData();
-                formData.append('file', blob, req.file!.originalname || 'combined.pdf');
-                // Pass employee-specific required-doc list so Python uses real requirements
-                formData.append('required_docs', JSON.stringify(pythonRequiredDocs));
-                const classifyRes = await fetch(`${AI_URL}/ai/ocr/classify-combined-pdf`, {
-                  method: 'POST',
-                  body: formData,
-                  signal: AbortSignal.timeout(600_000),
-                });
-                if (classifyRes.ok) {
-                  const classifyJson = await classifyRes.json() as { success: boolean; data: any };
-                  // Only treat as success if Python actually processed pages — not an error/empty result.
-                  // pdf2image failures return { success:true, data:{ error:"...", total_pages:0, detected_docs:[] } }
-                  if (classifyJson.success && classifyJson.data && !classifyJson.data.error) {
-                    analysisResult = normalizeCombinedPdfAnalysis(classifyJson.data, 'python');
-                    pythonSuccess = true;
-                    logger.info(`[KYC Combined PDF] Python AI classification succeeded for employee ${employeeId} — pages=${classifyJson.data.total_pages ?? 0} detected=${JSON.stringify(classifyJson.data.detected_docs ?? [])}`);
-                  } else if (classifyJson.data?.error) {
-                    logger.warn(`[KYC Combined PDF] Python returned processing error (falling back to Node.js): ${classifyJson.data.error}`);
-                  }
-                }
-              } catch (pythonErr: any) {
-                const isTimeout = (pythonErr as any)?.name === 'TimeoutError' || (pythonErr as any)?.name === 'AbortError';
-                logger.warn(`[KYC Combined PDF] Python AI ${isTimeout ? 'timed out' : 'unavailable'} for employee ${employeeId}: ${pythonErr.message}`);
-              }
-
-              // ── Node.js fallback (if Python failed) ──
-              if (!pythonSuccess) {
-                try {
-                  const { processCombinedPdfFallback } = await import('../../services/combined-pdf-processor.service.js');
-                  const gate = await (await import('../../lib/prisma.js')).prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
-                  const requiredDocs = (gate?.requiredDocs as string[]) || ['PAN', 'AADHAAR', 'TENTH_CERTIFICATE'];
-                  const nodeResult = await processCombinedPdfFallback(fileBuffer, requiredDocs, {
-                    organizationId: req.user!.organizationId,
-                    employeeId,
-                  });
-                  analysisResult = normalizeCombinedPdfAnalysis(nodeResult, 'node_fallback');
-                  logger.info(`[KYC Combined PDF] Node.js fallback classification succeeded for employee ${employeeId}`);
-                } catch (nodeErr: any) {
-                  logger.warn(`[KYC Combined PDF] Node.js fallback also failed for employee ${employeeId}: ${nodeErr.message}`);
-                  // Both failed — mark for manual review
-                  await documentGateService.setCombinedPdfClassified(employeeId, {
-                    analysisResult: { error: 'Both Python and Node.js classification failed', _source: 'manual_review' },
-                    processingMode: 'MANUAL_REVIEW_ONLY',
-                    fallbackUsed: true,
-                    employeeVisibleReasons: ['Your document package is being reviewed by HR manually. No action needed from you.'],
-                  });
-                  return;
-                }
-              }
-
-              // ── Persist normalized result ──
-              await documentGateService.setCombinedPdfClassified(employeeId, {
-                analysisResult,
-                processingMode: pythonSuccess ? 'PYTHON_ADVANCED' : 'NODE_FALLBACK',
-                fallbackUsed: !pythonSuccess,
-                missingDocuments: analysisResult?.missingDocuments ?? [],
-                duplicateDocuments: analysisResult?.duplicateDocs ?? analysisResult?.duplicateDocuments ?? [],
-                employeeVisibleReasons: analysisResult?.employeeVisibleReasons ?? [],
-              });
-            } catch (classifyErr: any) {
-              logger.error(`[KYC Combined PDF] Classification pipeline failed for employee ${employeeId}: ${classifyErr.message}`);
-              // Ensure gate doesn't stay stuck in PROCESSING
-              try {
-                await documentGateService.setCombinedPdfClassified(employeeId, {
-                  analysisResult: { error: classifyErr.message, _source: 'error' },
-                  processingMode: 'MANUAL_REVIEW_ONLY',
-                  fallbackUsed: true,
-                  employeeVisibleReasons: ['Your document is under review. HR will contact you if anything is needed.'],
-                });
-              } catch { /* last resort */ }
-            }
-          })().catch(err => console.error('[KYC Combined PDF] Background classification error:', err));
-          // Trigger per-page OCR (non-blocking)
-          try {
-            const { enqueueDocumentOcr } = await import('../../jobs/queues.js');
-            await enqueueDocumentOcr(doc.id, req.user!.organizationId);
-          } catch { /* non-blocking */ }
-          // Queue HR digest (non-blocking)
-          try {
-            const { enqueueDocumentDigest } = await import('../../jobs/queues.js');
-            await enqueueDocumentDigest(employeeId, req.user!.organizationId, {
-              type: 'OTHER', name: 'Combined KYC Documents',
-            });
-          } catch { /* non-blocking */ }
-          res.status(201).json({ success: true, data: doc, message: 'Combined PDF uploaded' });
-        } catch (innerErr) {
-          console.error('[KYC Combined PDF] Post-upload error:', innerErr);
-          next(innerErr);
-        }
-      });
-    } catch (err) {
-      console.error('[KYC Combined PDF] Outer error:', err);
-      next(err);
-    }
-  }
-);
 
 // Employee: Upload photo file (alternative to camera capture)
 router.post('/kyc/:employeeId/photo-upload', authenticate,

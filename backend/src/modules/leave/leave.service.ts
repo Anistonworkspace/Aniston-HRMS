@@ -228,6 +228,11 @@ export class LeaveService {
       throw new BadRequestError('Selected dates have no working days. Non-working days cannot be taken as leave.');
     }
 
+    // Validate halfDaySession
+    if (data.isHalfDay && data.halfDaySession && !['FIRST_HALF', 'SECOND_HALF'].includes(data.halfDaySession)) {
+      throw new BadRequestError('Invalid halfDaySession. Must be FIRST_HALF or SECOND_HALF.');
+    }
+
     // ===== POLICY ENFORCEMENT =====
 
     // 1. Min days check
@@ -367,7 +372,7 @@ export class LeaveService {
       dayAfter.setDate(dayAfter.getDate() + 1);
       const beforeIsOff = !workingDays.has(dayBefore.getDay());
       const afterIsOff = !workingDays.has(dayAfter.getDay());
-      if (beforeIsOff || afterIsOff) {
+      if (beforeIsOff && afterIsOff) {
         throw new BadRequestError(`${leaveType.name} cannot be taken adjacent to a non-working day (sandwich rule applies).`);
       }
     }
@@ -865,6 +870,11 @@ export class LeaveService {
       throw new BadRequestError('Selected dates have no working days. Non-working days cannot be taken as leave.');
     }
 
+    // Validate halfDaySession
+    if (request.isHalfDay && request.halfDaySession && !['FIRST_HALF', 'SECOND_HALF'].includes(request.halfDaySession)) {
+      throw new BadRequestError('Invalid halfDaySession. Must be FIRST_HALF or SECOND_HALF.');
+    }
+
     // ===== FULL POLICY ENFORCEMENT =====
 
     // 5. Min days check
@@ -989,7 +999,7 @@ export class LeaveService {
       dayBefore.setDate(dayBefore.getDate() - 1);
       const dayAfter = new Date(endDate);
       dayAfter.setDate(dayAfter.getDate() + 1);
-      if (!workingDays.has(dayBefore.getDay()) || !workingDays.has(dayAfter.getDay())) {
+      if (!workingDays.has(dayBefore.getDay()) && !workingDays.has(dayAfter.getDay())) {
         throw new BadRequestError(`${leaveType.name} cannot be taken adjacent to a non-working day (sandwich rule applies).`);
       }
     }
@@ -1010,7 +1020,7 @@ export class LeaveService {
 
     // 17. Overlap check
     const overlapping = await prisma.leaveRequest.findFirst({
-      where: { employeeId, id: { not: requestId }, status: { in: ['PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] }, OR: [{ startDate: { lte: endDate }, endDate: { gte: startDate } }] },
+      where: { employeeId, id: { not: requestId }, status: { in: ['DRAFT', 'PENDING', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'] }, OR: [{ startDate: { lte: endDate }, endDate: { gte: startDate } }] },
     });
     if (overlapping) throw new BadRequestError('Overlapping leave request exists. Cancel the existing request first.');
 
@@ -1735,6 +1745,7 @@ export class LeaveService {
     end: Date,
     organizationId: string,
     workingDaySet?: Set<number>,
+    leaveOptions?: { isHalfDay?: boolean; halfDaySession?: string | null },
   ): Promise<number> {
     const workingDays = workingDaySet ?? await this.getWorkingDays(organizationId);
 
@@ -1744,15 +1755,19 @@ export class LeaveService {
         date: { gte: start, lte: end },
         type: { in: ['PUBLIC', 'CUSTOM'] },
       },
-      select: { date: true, isHalfDay: true },
+      select: { date: true, isHalfDay: true, halfDaySession: true },
     });
     const fullDayHolidays = new Set<string>();
-    const halfDayHolidays = new Set<string>();
+    // Map date string → holiday session (FIRST_HALF / SECOND_HALF / null)
+    const halfDayHolidayMap = new Map<string, string | null>();
     holidays.forEach(h => {
       const dateStr = new Date(h.date).toISOString().split('T')[0];
-      if (h.isHalfDay) halfDayHolidays.add(dateStr);
+      if (h.isHalfDay) halfDayHolidayMap.set(dateStr, (h as any).halfDaySession ?? null);
       else fullDayHolidays.add(dateStr);
     });
+
+    const leaveIsHalfDay = leaveOptions?.isHalfDay ?? false;
+    const leaveSession = leaveOptions?.halfDaySession ?? null;
 
     let days = 0;
     const current = new Date(start);
@@ -1761,9 +1776,20 @@ export class LeaveService {
       const dateStr = current.toISOString().split('T')[0];
       if (workingDays.has(dayOfWeek)) {
         if (fullDayHolidays.has(dateStr)) {
-          // full holiday — skip
-        } else if (halfDayHolidays.has(dateStr)) {
-          days += 0.5;
+          // full holiday — skip entirely
+        } else if (halfDayHolidayMap.has(dateStr)) {
+          // Half-day holiday: apply session-aware exclusion
+          const holidaySession = halfDayHolidayMap.get(dateStr) ?? null;
+          if (!leaveIsHalfDay) {
+            // Full-day leave on a half-day holiday: only 0.5 of the day is a working leave day
+            days += 0.5;
+          } else if (!holidaySession || holidaySession === leaveSession) {
+            // Same session (or holiday has no session specified): leave overlaps with holiday — exclude 0.5
+            days += 0;
+          } else {
+            // Different sessions: no overlap — the leave half-day is unaffected by the holiday
+            days += 0.5;
+          }
         } else {
           days++;
         }

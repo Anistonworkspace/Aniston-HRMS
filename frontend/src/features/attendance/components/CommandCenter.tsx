@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { X } from 'lucide-react';
 import { onSocketEvent, offSocketEvent } from '../../../lib/socket';
 import {
   useGetCommandCenterStatsQuery,
@@ -19,7 +20,6 @@ import MonthlyReportTab from './MonthlyReportTab';
 import OvertimeTab from './OvertimeTab';
 import ShiftRotationCalendar from './ShiftRotationCalendar';
 import AnomalyDetectionPanel from './AnomalyDetectionPanel';
-import BulkUploadModal from './BulkUploadModal';
 import MarkManualModal from './MarkManualModal';
 import toast from 'react-hot-toast';
 import { useAuthDownload } from '../../../hooks/useAuthDownload';
@@ -45,7 +45,6 @@ export default function CommandCenter() {
   const { download: authDownload, downloading: exportDownloading } = useAuthDownload();
 
   const [activeTab, setActiveTab] = useState<TabKey>('today');
-  const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [showMarkManual, setShowMarkManual] = useState(false);
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState('');
@@ -104,6 +103,18 @@ export default function CommandCenter() {
     setPage(1);
   }, []);
 
+  // KPI card click — apply status or anomalyType filter, null clears it
+  const handleKpiCardClick = useCallback((filter: { status?: string; anomalyType?: string } | null) => {
+    setFilters((prev) => ({
+      ...prev,
+      status: filter?.status ?? '',
+      anomalyType: filter?.anomalyType ?? '',
+    }));
+    setPage(1);
+    // Switch to today tab so the filtered table is visible
+    setActiveTab('today');
+  }, []);
+
   const handleSort = useCallback((field: string) => {
     if (sortBy === field) {
       setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
@@ -142,13 +153,31 @@ export default function CommandCenter() {
           onDetectAnomalies={handleDetectAnomalies}
           onTabChange={(tab) => setActiveTab(tab as TabKey)}
           isDetecting={isDetecting}
-          onBulkUpload={() => setShowBulkUpload(true)}
           onMarkManual={() => setShowMarkManual(true)}
         />
       </div>
 
       {/* KPI Strip */}
-      <KpiStrip stats={stats} isLoading={statsLoading} />
+      <KpiStrip
+        stats={stats}
+        isLoading={statsLoading}
+        activeFilter={(filters.status || filters.anomalyType) ? { status: filters.status || undefined, anomalyType: filters.anomalyType || undefined } : null}
+        onCardClick={handleKpiCardClick}
+      />
+
+      {/* Clear KPI filter badge */}
+      {(filters.status || filters.anomalyType) && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Filtered by:</span>
+          <button
+            onClick={() => handleKpiCardClick(null)}
+            className="flex items-center gap-1 text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200 px-2.5 py-1 rounded-full hover:bg-brand-100 transition-colors"
+          >
+            {filters.status || filters.anomalyType?.replace(/_/g, ' ')}
+            <X size={11} />
+          </button>
+        </div>
+      )}
 
       {/* Filter Toolbar */}
       <FilterToolbar filters={filters} onChange={handleFiltersChange} />
@@ -221,8 +250,6 @@ export default function CommandCenter() {
 
       {activeTab === 'anomalies' && <AnomalyDetectionPanel selectedDate={filters.date} />}
 
-      {/* Bulk Upload Modal */}
-      <BulkUploadModal isOpen={showBulkUpload} onClose={() => setShowBulkUpload(false)} />
       <MarkManualModal isOpen={showMarkManual} onClose={() => setShowMarkManual(false)} defaultDate={filters.date} />
     </div>
   );
