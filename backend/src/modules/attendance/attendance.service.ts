@@ -186,9 +186,13 @@ export class AttendanceService {
 
     const currentShiftType = shift?.shiftType || 'OFFICE';
 
+    // WFH employees skip all geofence enforcement
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const isWfh = (employee.workMode as any) === 'WORK_FROM_HOME';
+
     // ===== Location enforcement: OFFICE shift requires assigned location =====
     const assignedLocation = shiftAssignment?.location || employee.officeLocation;
-    if (currentShiftType === 'OFFICE' && !assignedLocation?.geofence) {
+    if (!isWfh && currentShiftType === 'OFFICE' && !assignedLocation?.geofence) {
       throw new BadRequestError(
         'No office location assigned. Please ask your HR/Admin to assign an office location to your profile before marking attendance.'
       );
@@ -211,7 +215,7 @@ export class AttendanceService {
     let geofenceDistance: number | null = null;
     let geofenceStatus = 'NO_GEOFENCE';
 
-    if (currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude && data.longitude) {
+    if (!isWfh && currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude && data.longitude) {
       // GPS accuracy check — reject unreliable readings (>150m) for geofence decisions
       if (data.accuracy && data.accuracy > 150) {
         data.notes = `${data.notes || ''} [GPS accuracy poor: ±${Math.round(data.accuracy)}m — geofence check skipped]`.trim();
@@ -367,6 +371,26 @@ export class AttendanceService {
       },
     });
 
+    // Log anomaly if no GPS provided at clock-in
+    if (!data.latitude || !data.longitude) {
+      try {
+        await prisma.attendanceAnomaly.create({
+          data: {
+            attendanceId: record.id,
+            employeeId,
+            organizationId: employee.organizationId,
+            date: today,
+            type: 'UNAPPROVED_REMOTE',
+            severity: 'LOW',
+            description: 'Clock-in recorded without GPS coordinates',
+            resolution: 'PENDING',
+          },
+        });
+      } catch (e) {
+        // non-blocking
+      }
+    }
+
     // For PROJECT_SITE mode, also create a site check-in
     if (employee.workMode === 'PROJECT_SITE' && data.siteName) {
       await prisma.projectSiteCheckIn.create({
@@ -412,7 +436,7 @@ export class AttendanceService {
   async clockOut(employeeId: string, data: ClockOutInput) {
     const empStatus = await prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { status: true, organizationId: true, officeLocation: { include: { geofence: true } } },
+      select: { status: true, organizationId: true, workMode: true, officeLocation: { include: { geofence: true } } },
     });
     if (empStatus?.status === 'INACTIVE' || empStatus?.status === 'TERMINATED') {
       throw new BadRequestError('Your account is inactive. Contact HR to reactivate.');
@@ -442,8 +466,10 @@ export class AttendanceService {
       include: { shift: true, location: { include: { geofence: true } } },
       orderBy: { startDate: 'desc' },
     });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const isWfhCheckout = (empStatus?.workMode as any) === 'WORK_FROM_HOME';
     const geofenceForCheckout = clockOutShiftAssignment?.location?.geofence ?? empStatus?.officeLocation?.geofence ?? null;
-    if (geofenceForCheckout && geofenceForCheckout.radiusMeters && data.latitude && data.longitude) {
+    if (!isWfhCheckout && geofenceForCheckout && geofenceForCheckout.radiusMeters && data.latitude && data.longitude) {
       if (!(data.accuracy && data.accuracy > 150)) {
         const gfCoords = geofenceForCheckout.coordinates as any;
         if (gfCoords?.lat && gfCoords?.lng) {
@@ -709,6 +735,26 @@ export class AttendanceService {
         shiftName: shift?.name || null,
       },
     });
+
+    // Log anomaly if no GPS provided at clock-out
+    if (!data.latitude || !data.longitude) {
+      try {
+        await prisma.attendanceAnomaly.create({
+          data: {
+            attendanceId: record.id,
+            employeeId,
+            organizationId: empStatus!.organizationId,
+            date: today,
+            type: 'UNAPPROVED_REMOTE',
+            severity: 'LOW',
+            description: 'Clock-out recorded without GPS coordinates',
+            resolution: 'PENDING',
+          },
+        });
+      } catch (e) {
+        // non-blocking
+      }
+    }
 
     // Emit real-time event
     const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { firstName: true, lastName: true, organizationId: true } });

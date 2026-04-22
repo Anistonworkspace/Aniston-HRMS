@@ -265,8 +265,20 @@ function EmployeeDashboard() {
             accuracy: pos.coords.accuracy ?? undefined,
             gpsTimestamp: new Date().toISOString(),
           };
-        } catch {
-          // GPS unavailable — proceed without coordinates (backend accepts optional GPS)
+        } catch (gpsErr: any) {
+          // code 1 = PERMISSION_DENIED, code 2 = POSITION_UNAVAILABLE, code 3 = TIMEOUT
+          if (gpsErr?.code === 1) {
+            toast('Location access denied. Clocking in without GPS — HR may review your attendance.', {
+              icon: '📍',
+              duration: 4000,
+            });
+          } else if (gpsErr?.code === 2) {
+            toast('GPS signal unavailable. Clocking in without location.', {
+              icon: '📍',
+              duration: 3000,
+            });
+          }
+          // code 3 (timeout) — silent, just proceed
         }
       }
       setGettingGps(false);
