@@ -124,7 +124,8 @@ export class AttendanceController {
         data.attendanceId,
         data.reason,
         data.requestedCheckIn,
-        data.requestedCheckOut
+        data.requestedCheckOut,
+        data.date
       );
       res.status(201).json({ success: true, data: result, message: 'Regularization submitted' });
     } catch (err) { next(err); }

@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
+import { decrypt } from '../../utils/encryption.js';
 import type { AttendanceSummaryQuery, LeaveSummaryQuery } from './report.validation.js';
 
 export class ReportService {
@@ -258,7 +259,13 @@ export class ReportService {
       orderBy: { employee: { firstName: 'asc' } },
     });
 
-    return { run, records };
+    const decryptedRecords = records.map((r: any) => {
+      if (r.employee?.panNumber) {
+        try { r.employee.panNumber = decrypt(r.employee.panNumber); } catch { /* legacy plaintext */ }
+      }
+      return r;
+    });
+    return { run, records: decryptedRecords };
   }
 
   async getEpfChallanData(payrollRunId: string, organizationId: string) {
@@ -317,7 +324,12 @@ export class ReportService {
       orderBy: { employee: { firstName: 'asc' } },
     });
 
-    return records;
+    return records.map((r: any) => {
+      if (r.employee?.panNumber) {
+        try { r.employee.panNumber = decrypt(r.employee.panNumber); } catch { /* legacy plaintext */ }
+      }
+      return r;
+    });
   }
 
   async getRecruitmentFunnel(organizationId: string) {

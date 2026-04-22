@@ -2,6 +2,7 @@ import { Worker, Job } from 'bullmq';
 import { bullmqConnection } from '../queues.js';
 import { logger } from '../../lib/logger.js';
 import { emitToUser } from '../../sockets/index.js';
+import { prisma } from '../../lib/prisma.js';
 
 interface NotificationJob {
   userId: string;
@@ -10,6 +11,7 @@ interface NotificationJob {
   message: string;
   type: string;
   link?: string;
+  data?: Record<string, unknown>;
 }
 
 export function startNotificationWorker() {
@@ -17,15 +19,35 @@ export function startNotificationWorker() {
     'notification',
     async (job: Job<NotificationJob>) => {
       try {
-        const { userId, title, message, type, link } = job.data;
+        const { userId, organizationId, title, message, type, link, data } = job.data;
+
+        // Persist notification to database first
+        let dbNotification: { id: string } | null = null;
+        try {
+          dbNotification = await prisma.notification.create({
+            data: {
+              userId,
+              organizationId,
+              type,
+              title,
+              message,
+              data: data ? { ...data, ...(link ? { link } : {}) } : (link ? { link } : undefined),
+            },
+            select: { id: true },
+          });
+        } catch (dbErr) {
+          // Non-fatal — still deliver via socket even if DB write fails
+          logger.error(`Notification DB persist failed for user ${userId}:`, dbErr);
+        }
 
         // Emit via Socket.io to the target user
         emitToUser(userId, 'notification:new', {
-          id: job.id,
+          id: dbNotification?.id ?? job.id,
           title,
           message,
           type,
           link,
+          data,
           timestamp: new Date().toISOString(),
         });
 

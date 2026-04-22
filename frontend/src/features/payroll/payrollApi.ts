@@ -9,12 +9,12 @@ export const payrollApi = api.injectEndpoints({
 
     createPayrollRun: builder.mutation<any, { month: number; year: number }>({
       query: (body) => ({ url: '/payroll/runs', method: 'POST', body }),
-      invalidatesTags: ['Payroll'],
+      invalidatesTags: ['Payroll', 'Dashboard'],
     }),
 
     processPayroll: builder.mutation<any, string>({
       query: (id) => ({ url: `/payroll/runs/${id}/process`, method: 'POST' }),
-      invalidatesTags: ['Payroll'],
+      invalidatesTags: ['Payroll', 'Dashboard'],
     }),
 
     getPayrollRecords: builder.query<any, string>({
@@ -87,7 +87,7 @@ export const payrollApi = api.injectEndpoints({
         method: 'PUT',
         body: data,
       }),
-      invalidatesTags: ['Payroll', 'Employee'],
+      invalidatesTags: ['Payroll', 'Employee', 'Dashboard'],
     }),
 
     sendPayrollEmail: builder.mutation<any, string>({

@@ -26,6 +26,9 @@ export const createShiftSchema = z.object({
   compOffExpiryDays: z.coerce.number().int().min(0).default(30),
   sundayWorkEnabled: z.boolean().default(false),
   sundayPayMultiplier: z.coerce.number().min(1).max(10).default(2.0),
+  // WFH policy
+  allowWfh: z.boolean().default(false),
+  wfhDays: z.array(z.number().int().min(0).max(6)).default([]),
 });
 
 export const updateShiftSchema = createShiftSchema.partial();

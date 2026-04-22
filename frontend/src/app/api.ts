@@ -141,6 +141,8 @@ export const api = createApi({
     'DeletionRequests',
     'MFA',
     'ProfileEditRequest',
+    'Notification',
+    'NotificationUnread',
   ],
   endpoints: () => ({}),
 });

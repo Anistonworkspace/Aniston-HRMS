@@ -173,9 +173,9 @@ router.get('/runs/:id/attendance-export',
         prisma.leaveRequest.findMany({
           where: {
             employeeId: { in: empIds },
-            // Match the same 3-status set used by processPayroll so the attendance
+            // Match the same 2-status set used by processPayroll so the attendance
             // Excel shows the same paid leave days that were deducted from LOP.
-            status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
+            status: { in: ['APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
             startDate: { lte: endOfMonth },
             endDate: { gte: startOfMonth },
             leaveType: { isPaid: true },
@@ -377,8 +377,8 @@ router.post('/runs/:id/send-email',
         prisma.leaveRequest.findMany({
           where: {
             employeeId: { in: empIds },
-            // Match the same 3-status set used by processPayroll
-            status: { in: ['APPROVED', 'MANAGER_APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
+            // Match the same 2-status set used by processPayroll
+            status: { in: ['APPROVED', 'APPROVED_WITH_CONDITION'] as any[] },
             startDate: { lte: endOfMonth }, endDate: { gte: startOfMonth },
             leaveType: { isPaid: true },
           },

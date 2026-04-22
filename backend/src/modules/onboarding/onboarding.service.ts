@@ -7,6 +7,7 @@ import { enqueueEmail } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { emitToOrg } from '../../sockets/index.js';
 import { logger } from '../../lib/logger.js';
+import { encrypt, decrypt } from '../../utils/encryption.js';
 
 const TOKEN_PREFIX = 'onboarding:';
 const TOKEN_TTL = 7 * 86400; // 7 days in seconds
@@ -159,7 +160,7 @@ export class OnboardingService {
       await prisma.employee.update({
         where: { id: data.employeeId },
         data: {
-          bankAccountNumber: stepData.bankAccountNumber || undefined,
+          bankAccountNumber: stepData.bankAccountNumber ? encrypt(stepData.bankAccountNumber) : undefined,
           bankName: stepData.bankName || undefined,
           ifscCode: stepData.ifscCode || undefined,
           accountHolderName: stepData.accountHolderName || undefined,
@@ -338,7 +339,11 @@ export class OnboardingService {
       currentAddress: employee.address || {},
       permanentAddress: (employee as any).permanentAddress || {},
       emergencyContact: employee.emergencyContact || {},
-      bankAccountNumber: employee.bankAccountNumber || '',
+      bankAccountNumber: (() => {
+        const raw = employee.bankAccountNumber || '';
+        if (!raw) return '';
+        try { return decrypt(raw); } catch { return raw; /* legacy plaintext */ }
+      })(),
       bankName: employee.bankName || '',
       ifscCode: employee.ifscCode || '',
       accountHolderName: employee.accountHolderName || '',
@@ -442,7 +447,7 @@ export class OnboardingService {
       await prisma.employee.update({
         where: { id: employeeId },
         data: {
-          bankAccountNumber: stepData.bankAccountNumber,
+          bankAccountNumber: encrypt(stepData.bankAccountNumber),
           bankName: stepData.bankName,
           ifscCode: stepData.ifscCode,
           accountHolderName: stepData.accountHolderName,

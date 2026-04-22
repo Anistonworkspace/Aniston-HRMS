@@ -9,6 +9,7 @@ const SHIFT_COLORS: Record<string, { bg: string; text: string; border: string }>
   OFFICE: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
   FIELD: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
   PROJECT_SITE: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
+  WFH: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
   OFF: { bg: 'bg-gray-50', text: 'text-gray-400', border: 'border-gray-100' },
 };
 
@@ -93,23 +94,32 @@ export default function ShiftRotationCalendar() {
     const shift = emp?.shift;
 
     // Check if it's a week off day
-    const workDays = shift?.workDays || ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
-    const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-    const isWorkDay = workDays.includes(dayNames[dayOfWeek]);
+    const weekOffDays: number[] = shift?.weekOffDays || [0];
+    const isWorkDay = !weekOffDays.includes(dayOfWeek);
 
     if (!isWorkDay) return { label: 'OFF', type: 'OFF' };
+
+    // Check if this day is a designated WFH day per shift config
+    const wfhDays: number[] = shift?.allowWfh ? (shift?.wfhDays || []) : [];
+    const isScheduledWfhDay = wfhDays.includes(dayOfWeek);
 
     // Check attendance record
     const record = allRecords.find((r: any) => r.employeeId === empId && r.date?.startsWith(dateStr));
     if (record) {
-      if (record.status === 'PRESENT') return { label: shift?.name?.slice(0, 3) || 'GEN', type: shift?.type || 'OFFICE', time: record.checkIn };
+      if (record.status === 'PRESENT') return { label: shift?.name?.slice(0, 3) || 'GEN', type: shift?.shiftType || 'OFFICE', time: record.checkIn };
       if (record.status === 'ON_LEAVE') return { label: 'Leave', type: 'OFF' };
       if (record.status === 'HALF_DAY') return { label: 'Half', type: 'OFFICE' };
-      if (record.status === 'WORK_FROM_HOME') return { label: 'WFH', type: 'OFFICE' };
+      if (record.status === 'WORK_FROM_HOME') return { label: 'WFH', type: 'WFH' };
     }
 
-    // Future date: show planned shift
-    if (date > new Date()) return { label: shift?.name?.slice(0, 3) || 'GEN', type: shift?.type || 'OFFICE', planned: true };
+    // Future date: show planned shift (highlight WFH days)
+    if (date > new Date()) {
+      if (isScheduledWfhDay) return { label: 'WFH', type: 'WFH', planned: true };
+      return { label: shift?.name?.slice(0, 3) || 'GEN', type: shift?.shiftType || 'OFFICE', planned: true };
+    }
+
+    // Past date with no record: show scheduled WFH day indicator if applicable
+    if (isScheduledWfhDay) return { label: 'WFH', type: 'WFH' };
 
     return { label: '—', type: 'OFF' };
   };
@@ -132,8 +142,8 @@ export default function ShiftRotationCalendar() {
       <div className="flex items-center gap-3 text-[10px]">
         {Object.entries(SHIFT_COLORS).map(([key, val]) => (
           <span key={key} className={`flex items-center gap-1 px-2 py-0.5 rounded ${val.bg} ${val.text} border ${val.border}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${key === 'OFFICE' ? 'bg-blue-500' : key === 'FIELD' ? 'bg-orange-500' : key === 'PROJECT_SITE' ? 'bg-emerald-500' : 'bg-gray-300'}`} />
-            {key === 'PROJECT_SITE' ? 'Site' : key === 'OFF' ? 'Off/Leave' : key.charAt(0) + key.slice(1).toLowerCase()}
+            <span className={`w-1.5 h-1.5 rounded-full ${key === 'OFFICE' ? 'bg-blue-500' : key === 'FIELD' ? 'bg-orange-500' : key === 'PROJECT_SITE' ? 'bg-emerald-500' : key === 'WFH' ? 'bg-indigo-500' : 'bg-gray-300'}`} />
+            {key === 'PROJECT_SITE' ? 'Site' : key === 'OFF' ? 'Off/Leave' : key === 'WFH' ? 'WFH' : key.charAt(0) + key.slice(1).toLowerCase()}
           </span>
         ))}
       </div>

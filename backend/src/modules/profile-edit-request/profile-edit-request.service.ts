@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, ConflictError, BadRequestError } from '../../middleware/errorHandler.js';
 import { enqueueEmail } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
+import { encrypt, decrypt } from '../../utils/encryption.js';
 
 type Category = 'PERSONAL_DETAILS' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'BANK_DETAILS';
 
@@ -206,7 +207,7 @@ export class ProfileEditRequestService {
         accountHolderName: sanitized.accountHolderName,
         accountType: sanitized.accountType,
         bankName: sanitized.bankName,
-        bankAccountNumber: sanitized.bankAccountNumber,
+        bankAccountNumber: sanitized.bankAccountNumber ? encrypt(sanitized.bankAccountNumber) : sanitized.bankAccountNumber,
         ifscCode: sanitized.ifscCode,
       };
     }

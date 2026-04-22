@@ -62,7 +62,7 @@ export const employeeApi = api.injectEndpoints({
         method: 'POST',
         body,
       }),
-      invalidatesTags: ['EmployeeList', 'Dashboard'],
+      invalidatesTags: ['EmployeeList', 'Dashboard', 'Payroll'],
     }),
 
     updateEmployee: builder.mutation<ApiResponse<EmployeeDetail>, { id: string; data: Partial<CreateEmployeeRequest> }>({
@@ -75,6 +75,7 @@ export const employeeApi = api.injectEndpoints({
         { type: 'Employee', id },
         'EmployeeList',
         'Payroll',
+        'Dashboard',
       ],
     }),
 

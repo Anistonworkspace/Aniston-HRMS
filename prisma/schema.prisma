@@ -67,6 +67,7 @@ model Organization {
   socialComments       SocialComment[]
   socialLikes          SocialLike[]
   ticketComments       TicketComment[]
+  notifications        Notification[]
 }
 
 model User {
@@ -91,6 +92,7 @@ model User {
   // Phase 2B
   deviceSessions DeviceSession[]
   mfa            UserMFA?
+  notifications  Notification[]
 }
 
 enum Role {
@@ -899,6 +901,7 @@ model Holiday {
   organizationId  String
   createdAt       DateTime @default(now())
   updatedAt       DateTime @default(now()) @updatedAt
+  deletedAt       DateTime?
 
   organization Organization @relation(fields: [organizationId], references: [id])
 
@@ -2129,6 +2132,9 @@ model Shift {
   compOffExpiryDays     Int      @default(30)
   sundayWorkEnabled     Boolean  @default(false)
   sundayPayMultiplier   Decimal  @db.Decimal(3, 2) @default(2.0)
+  // WFH policy
+  allowWfh              Boolean  @default(false)
+  wfhDays               Int[]    @default([])
   isDefault               Boolean   @default(false)
   isActive                Boolean   @default(true)
   organizationId          String
@@ -3170,6 +3176,29 @@ model DatabaseBackup {
   @@index([organizationId, createdAt])
   @@index([organizationId, status])
   @@index([organizationId, category])
+}
+
+// =====================
+// NOTIFICATIONS
+// =====================
+
+model Notification {
+  id             String    @id @default(uuid())
+  userId         String
+  organizationId String
+  type           String
+  title          String
+  message        String
+  data           Json?
+  isRead         Boolean   @default(false)
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([organizationId])
 }
 
 // =====================

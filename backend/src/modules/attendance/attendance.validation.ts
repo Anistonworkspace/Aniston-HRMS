@@ -41,10 +41,15 @@ export const gpsTrailBatchSchema = z.object({
 });
 
 export const regularizationSchema = z.object({
-  attendanceId: z.string().uuid(),
+  // Either attendanceId (UUID) OR date (YYYY-MM-DD) must be provided
+  attendanceId: z.string().uuid().optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD').optional(),
   reason: z.string().min(10, 'Reason must be at least 10 characters'),
   requestedCheckIn: z.string().datetime().optional(),
   requestedCheckOut: z.string().datetime().optional(),
+}).refine((d) => d.attendanceId || d.date, {
+  message: 'Either attendanceId or date must be provided',
+  path: ['attendanceId'],
 });
 
 export const attendanceQuerySchema = z.object({

@@ -1506,13 +1506,19 @@ export class LeaveService {
   }
 
   /**
-   * Cancel a leave request (employee) — also allow DRAFT cancellation
+   * Cancel a leave request — employee can cancel their own; HR/Admin/SuperAdmin can cancel on behalf of any employee
    */
-  async cancelLeave(requestId: string, employeeId: string) {
+  async cancelLeave(requestId: string, employeeId: string, role?: string) {
+    const isPrivileged = role && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(role);
+
+    // Privileged roles can cancel any employee's leave; employees can only cancel their own
     const request = await prisma.leaveRequest.findFirst({
-      where: { id: requestId, employeeId },
+      where: isPrivileged ? { id: requestId } : { id: requestId, employeeId },
     });
     if (!request) throw new NotFoundError('Leave request');
+
+    // For balance reversal, use the actual owner of the leave (not the HR user cancelling it)
+    const leaveOwnerId = request.employeeId;
 
     const cancellableStatuses = ['PENDING', 'DRAFT', 'MANAGER_APPROVED', 'APPROVED', 'APPROVED_WITH_CONDITION'];
     if (!cancellableStatuses.includes(request.status)) {
@@ -1536,7 +1542,7 @@ export class LeaveService {
 
       const year = new Date(request.startDate).getFullYear();
       const balance = await tx.leaveBalance.findUnique({
-        where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: request.leaveTypeId, year } },
+        where: { employeeId_leaveTypeId_year: { employeeId: leaveOwnerId, leaveTypeId: request.leaveTypeId, year } },
       });
 
       if (balance) {
@@ -1559,7 +1565,7 @@ export class LeaveService {
           const leaveEnd = new Date(request.endDate);
           await tx.attendanceRecord.deleteMany({
             where: {
-              employeeId,
+              employeeId: leaveOwnerId,
               date: { gte: new Date(request.startDate), lte: leaveEnd },
               status: 'ON_LEAVE',
               source: 'MANUAL_HR',

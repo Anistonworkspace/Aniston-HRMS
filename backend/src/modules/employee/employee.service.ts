@@ -8,6 +8,7 @@ import { enqueueEmail, enqueueNotification, payrollQueue } from '../../jobs/queu
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../lib/logger.js';
+import { encrypt, decrypt } from '../../utils/encryption.js';
 import type { CreateEmployeeInput, UpdateEmployeeInput, EmployeeQuery, SubmitResignationInput, ApproveExitInput, InitiateTerminationInput, ExitQuery } from './employee.validation.js';
 
 export class EmployeeService {
@@ -73,8 +74,21 @@ export class EmployeeService {
       const activeAssignment = emp.shiftAssignments?.[0];
       // Filter out soft-deleted manager from response
       const manager = (emp.manager && !emp.manager.deletedAt) ? emp.manager : null;
+
+      // Decrypt sensitive fields (AES-256-GCM; fall back to raw value for legacy plaintext)
+      let panNumber = emp.panNumber ?? null;
+      if (panNumber) {
+        try { panNumber = decrypt(panNumber); } catch { /* legacy plaintext — return as-is */ }
+      }
+      let bankAccountNumber = emp.bankAccountNumber ?? null;
+      if (bankAccountNumber) {
+        try { bankAccountNumber = decrypt(bankAccountNumber); } catch { /* legacy plaintext — return as-is */ }
+      }
+
       return {
         ...emp,
+        panNumber,
+        bankAccountNumber,
         manager,
         hasShift: !!activeAssignment,
         currentShift: activeAssignment?.shift || null,
@@ -166,8 +180,21 @@ export class EmployeeService {
     const activeAssignment = (employee as any).shiftAssignments?.[0];
     // Filter out soft-deleted manager from response
     const manager = (employee.manager && !(employee.manager as any).deletedAt) ? employee.manager : null;
+
+    // Decrypt sensitive fields (stored as AES-256-GCM ciphertext; fall back to raw value for legacy plaintext)
+    let panNumber = (employee as any).panNumber ?? null;
+    if (panNumber) {
+      try { panNumber = decrypt(panNumber); } catch { /* legacy plaintext — return as-is */ }
+    }
+    let bankAccountNumber = (employee as any).bankAccountNumber ?? null;
+    if (bankAccountNumber) {
+      try { bankAccountNumber = decrypt(bankAccountNumber); } catch { /* legacy plaintext — return as-is */ }
+    }
+
     return {
       ...employee,
+      panNumber,
+      bankAccountNumber,
       manager,
       hasShift: !!activeAssignment,
       currentShift: activeAssignment?.shift || null,
@@ -238,6 +265,12 @@ export class EmployeeService {
             ctc: data.ctc || null,
             address: data.address || null,
             emergencyContact: (data.emergencyContact || null) as any,
+            bankAccountNumber: (data as any).bankAccountNumber ? encrypt((data as any).bankAccountNumber) : null,
+            bankName: (data as any).bankName || null,
+            ifscCode: (data as any).ifscCode || null,
+            accountHolderName: (data as any).accountHolderName || null,
+            accountType: (data as any).accountType || null,
+            panNumber: (data as any).panNumber ? encrypt((data as any).panNumber) : null,
             status: 'ACTIVE',
             organizationId,
           },
@@ -265,6 +298,29 @@ export class EmployeeService {
       if (err instanceof ConflictError || err instanceof BadRequestError) throw err;
       logger.error(`[Employee] create() transaction failed: ${err.message}`);
       throw new AppError('Failed to create employee record. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
+
+    // Best-effort: seed LeaveBalance rows for each active leave type
+    try {
+      const leaveTypes = await prisma.leaveType.findMany({
+        where: { organizationId, isActive: true, deletedAt: null },
+        select: { id: true, defaultBalance: true },
+      });
+      if (leaveTypes.length > 0) {
+        const currentYear = new Date().getFullYear();
+        await prisma.leaveBalance.createMany({
+          data: leaveTypes.map((lt) => ({
+            employeeId: result.employee.id,
+            leaveTypeId: lt.id,
+            organizationId,
+            year: currentYear,
+            allocated: lt.defaultBalance,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    } catch (err: any) {
+      logger.warn(`[Employee] create() leave balance seeding failed (non-blocking): ${err.message}`);
     }
 
     // Best-effort: auto-assign default shift to new employee
@@ -483,6 +539,10 @@ export class EmployeeService {
 
     if (data.probationEndDate) updateData.probationEndDate = new Date(data.probationEndDate);
     else delete updateData.probationEndDate;
+
+    // Encrypt sensitive fields before writing to DB
+    if (updateData.panNumber) updateData.panNumber = encrypt(updateData.panNumber);
+    if (updateData.bankAccountNumber) updateData.bankAccountNumber = encrypt(updateData.bankAccountNumber);
 
     let employee: any;
     try {

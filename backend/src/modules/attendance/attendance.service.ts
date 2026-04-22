@@ -1298,18 +1298,62 @@ export class AttendanceService {
   }
 
   /**
-   * Submit attendance regularization request
+   * Submit attendance regularization request.
+   * Accepts either an explicit attendanceId (UUID) OR a date string (YYYY-MM-DD).
+   * If a date is provided and no attendance record exists for that day, a minimal
+   * ABSENT record is created so the regularization can be attached to it.
    */
   async submitRegularization(
     employeeId: string,
-    attendanceId: string,
+    attendanceId: string | undefined,
     reason: string,
     requestedCheckIn?: string,
-    requestedCheckOut?: string
+    requestedCheckOut?: string,
+    date?: string
   ) {
-    const record = await prisma.attendanceRecord.findFirst({
-      where: { id: attendanceId, employeeId },
-    });
+    let record: Awaited<ReturnType<typeof prisma.attendanceRecord.findFirst>>;
+
+    if (attendanceId) {
+      // Explicit attendanceId path — existing behaviour
+      record = await prisma.attendanceRecord.findFirst({
+        where: { id: attendanceId, employeeId },
+      });
+      if (!record) throw new NotFoundError('Attendance record');
+    } else if (date) {
+      // Date-based path — find or create a minimal ABSENT record for that day
+      const employee = await prisma.employee.findFirst({
+        where: { id: employeeId },
+        select: { organizationId: true },
+      });
+      if (!employee) throw new NotFoundError('Employee');
+
+      // Normalise to UTC-midnight (same convention as getISTToday)
+      const [year, month, day] = date.split('-').map(Number);
+      const normalised = new Date(`${String(year).padStart(4,'0')}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}T00:00:00.000Z`);
+
+      record = await prisma.attendanceRecord.findFirst({
+        where: { employeeId, date: normalised },
+      });
+
+      if (!record) {
+        // No clock-in happened — create a placeholder ABSENT record
+        record = await prisma.attendanceRecord.create({
+          data: {
+            employeeId,
+            date: normalised,
+            status: 'ABSENT',
+            checkIn: null,
+            checkOut: null,
+            workMode: 'OFFICE',
+            source: 'MANUAL_HR',
+            notes: 'Auto-created for regularization (no clock-in)',
+          },
+        });
+      }
+    } else {
+      throw new BadRequestError('Either attendanceId or date must be provided');
+    }
+
     if (!record) throw new NotFoundError('Attendance record');
 
     // ===== PHASE 3: Block future date regularization =====

@@ -13,6 +13,7 @@ export class HolidayService {
     const where: any = {
       organizationId,
       date: { gte: startOfYear, lte: endOfYear },
+      deletedAt: null,
     };
 
     if (query.type) {
@@ -108,11 +109,11 @@ export class HolidayService {
 
   async delete(id: string, organizationId: string) {
     const holiday = await prisma.holiday.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, deletedAt: null },
     });
     if (!holiday) throw new NotFoundError('Holiday');
 
-    await prisma.holiday.delete({ where: { id } });
+    await prisma.holiday.update({ where: { id }, data: { deletedAt: new Date() } });
     return { message: 'Holiday deleted' };
   }
 

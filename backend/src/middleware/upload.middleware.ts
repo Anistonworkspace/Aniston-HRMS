@@ -118,18 +118,18 @@ export const uploadImage = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-/** Generic document uploads (employee docs, KYC fallback). 100 MB. */
+/** Generic document uploads (employee docs, KYC fallback). 10 MB. */
 export const uploadDocument = multer({
   storage: diskStorageFor(StorageFolder.EMPLOYEE_DOCUMENTS),
   fileFilter: documentFilter,
-  limits: { fileSize: 100 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-/** Policy document uploads. 100 MB. Lands in policies/ subfolder. */
+/** Policy document uploads. 10 MB. Lands in policies/ subfolder. */
 export const uploadPolicy = multer({
   storage: diskStorageFor(StorageFolder.POLICIES),
   fileFilter: documentFilter,
-  limits: { fileSize: 100 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 /**
@@ -142,11 +142,11 @@ export const uploadBranding = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-/** Resume uploads (single). 50 MB. Lands in resumes/individual/ subfolder. */
+/** Resume uploads (single). 5 MB. Lands in resumes/individual/ subfolder. */
 export const uploadResume = multer({
   storage: diskStorageFor(StorageFolder.RESUMES_INDIVIDUAL),
   fileFilter: resumeFilter,
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
 /**

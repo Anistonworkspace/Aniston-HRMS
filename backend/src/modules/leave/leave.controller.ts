@@ -91,7 +91,7 @@ export class LeaveController {
 
   async cancelLeave(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await leaveService.cancelLeave(req.params.id, req.user!.employeeId!);
+      const result = await leaveService.cancelLeave(req.params.id, req.user!.employeeId!, req.user!.role);
       res.json({ success: true, data: result, message: 'Leave cancelled' });
     } catch (err) { next(err); }
   }

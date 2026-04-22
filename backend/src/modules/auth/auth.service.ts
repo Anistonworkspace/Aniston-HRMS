@@ -188,6 +188,7 @@ export class AuthService {
             firstName: true,
             lastName: true,
             avatar: true,
+            documentGate: { select: { kycStatus: true } },
             exitAccessConfig: { select: { isActive: true, accessExpiresAt: true } },
           },
         },
@@ -389,12 +390,16 @@ export class AuthService {
 
   /** Generate tokens for a user (used by login + invitation accept) */
   public generateAccessToken(user: any): string {
+    const isAdminRole = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(user.role);
+    const kycCompleted = isAdminRole ? true : (user.employee?.documentGate?.kycStatus === 'VERIFIED');
+
     const payload: JwtPayload = {
       userId: user.id,
       email: user.email,
       role: user.role as any,
       organizationId: user.organizationId,
       employeeId: user.employee?.id,
+      kycCompleted,
     };
 
     return jwt.sign(payload, env.JWT_SECRET, {

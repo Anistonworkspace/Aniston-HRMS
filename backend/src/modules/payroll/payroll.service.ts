@@ -4,6 +4,7 @@ import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { aiService } from '../../services/ai.service.js';
 import { logger } from '../../lib/logger.js';
+import { decrypt } from '../../utils/encryption.js';
 import type { SalaryComponent, StatutoryConfig, SalaryStructureInput } from './payroll.validation.js';
 
 // ────────────────────────────────────────────────────────────────────
@@ -938,7 +939,7 @@ export class PayrollService {
           // Pro-ration ratio: 1.0 for full-month employees; < 1.0 for partial-month
           const proRationRatio = totalWorkingDays > 0 ? empWorkingDays / totalWorkingDays : 1;
 
-          const presentRecords = empAttendance.filter(r => r.status === 'PRESENT');
+          const presentRecords = empAttendance.filter(r => r.status === 'PRESENT' || r.status === 'WORK_FROM_HOME');
           const absentRecords  = empAttendance.filter(r => r.status === 'ABSENT');
           const halfDayRecords = empAttendance.filter(r => r.status === 'HALF_DAY');
 
@@ -1425,7 +1426,7 @@ export class PayrollService {
       const run = await prisma.payrollRun.findFirst({ where: { id: runId, organizationId } });
       if (!run) throw new NotFoundError('Payroll run');
     }
-    return prisma.payrollRecord.findMany({
+    const records = await prisma.payrollRecord.findMany({
       where: { payrollRunId: runId },
       include: {
         employee: {
@@ -1440,6 +1441,12 @@ export class PayrollService {
         },
       },
       orderBy: { employee: { firstName: 'asc' } },
+    });
+    return records.map((r: any) => {
+      if (r.employee?.bankAccountNumber) {
+        try { r.employee.bankAccountNumber = decrypt(r.employee.bankAccountNumber); } catch { /* legacy plaintext */ }
+      }
+      return r;
     });
   }
 
@@ -1463,7 +1470,11 @@ export class PayrollService {
       },
     });
     if (!record) throw new NotFoundError('Payroll record');
-    return record;
+    const rec = record as any;
+    if (rec.employee?.bankAccountNumber) {
+      try { rec.employee.bankAccountNumber = decrypt(rec.employee.bankAccountNumber); } catch { /* legacy plaintext */ }
+    }
+    return rec;
   }
 
   /**
@@ -1538,7 +1549,7 @@ export class PayrollService {
     const endDate = new Date(year, month, 0);
 
     const records = await prisma.attendanceRecord.findMany({
-      where: { employeeId, date: { gte: startDate, lte: endDate }, status: 'PRESENT' },
+      where: { employeeId, date: { gte: startDate, lte: endDate }, status: { in: ['PRESENT', 'WORK_FROM_HOME'] as any[] } },
       select: { date: true },
     });
 

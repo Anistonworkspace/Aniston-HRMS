@@ -66,17 +66,17 @@ export const leaveApi = api.injectEndpoints({
 
     createLeaveType: builder.mutation<any, any>({
       query: (body) => ({ url: '/leaves/types', method: 'POST', body }),
-      invalidatesTags: ['Leave'],
+      invalidatesTags: ['Leave', 'LeaveBalance'],
     }),
 
     updateLeaveType: builder.mutation<any, { id: string; data: any }>({
       query: ({ id, data }) => ({ url: `/leaves/types/${id}`, method: 'PATCH', body: data }),
-      invalidatesTags: ['Leave'],
+      invalidatesTags: ['Leave', 'LeaveBalance'],
     }),
 
     deleteLeaveType: builder.mutation<any, string>({
       query: (id) => ({ url: `/leaves/types/${id}`, method: 'DELETE' }),
-      invalidatesTags: ['Leave'],
+      invalidatesTags: ['Leave', 'LeaveBalance'],
     }),
 
     // Holiday CRUD (via /api/holidays)

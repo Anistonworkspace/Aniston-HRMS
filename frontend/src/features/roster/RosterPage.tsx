@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun } from 'lucide-react';
+import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, Home } from 'lucide-react';
 import {
   useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation,
   useGetLocationsQuery, useCreateLocationMutation, useUpdateLocationMutation, useDeleteLocationMutation,
@@ -94,6 +94,7 @@ function ShiftsPanel() {
     lateGraceMinutes: 15, lateHalfDayAfterMins: 120, latePenaltyEnabled: false, latePenaltyPerCount: 3,
     weekOffDays: [0] as number[], otEnabled: false, otThresholdMinutes: 30, otRateMultiplier: 1.5, otMaxHoursPerDay: 4,
     compOffEnabled: false, compOffMinOTHours: 4, compOffExpiryDays: 30, sundayWorkEnabled: false, sundayPayMultiplier: 2.0,
+    allowWfh: false, wfhDays: [] as number[],
   };
   const [form, setForm] = useState(emptyForm);
 
@@ -121,11 +122,13 @@ function ShiftsPanel() {
     const { name, code, shiftType, startTime, endTime, graceMinutes, halfDayHours, fullDayHours, trackingIntervalMinutes, isDefault,
       lateGraceMinutes, lateHalfDayAfterMins, latePenaltyEnabled, latePenaltyPerCount, weekOffDays,
       otEnabled, otThresholdMinutes, otRateMultiplier, otMaxHoursPerDay,
-      compOffEnabled, compOffMinOTHours, compOffExpiryDays, sundayWorkEnabled, sundayPayMultiplier } = form;
+      compOffEnabled, compOffMinOTHours, compOffExpiryDays, sundayWorkEnabled, sundayPayMultiplier,
+      allowWfh, wfhDays } = form;
     const payload: any = { name, code, shiftType, startTime, endTime, graceMinutes, halfDayHours, fullDayHours, isDefault,
       lateGraceMinutes, lateHalfDayAfterMins, latePenaltyEnabled, latePenaltyPerCount, weekOffDays,
       otEnabled, otThresholdMinutes, otRateMultiplier, otMaxHoursPerDay,
-      compOffEnabled, compOffMinOTHours, compOffExpiryDays, sundayWorkEnabled, sundayPayMultiplier };
+      compOffEnabled, compOffMinOTHours, compOffExpiryDays, sundayWorkEnabled, sundayPayMultiplier,
+      allowWfh, wfhDays: allowWfh ? wfhDays : [] };
     if (shiftType === 'FIELD' && trackingIntervalMinutes) payload.trackingIntervalMinutes = trackingIntervalMinutes;
     return payload;
   };
@@ -160,6 +163,8 @@ function ShiftsPanel() {
       compOffExpiryDays: s.compOffExpiryDays ?? 30,
       sundayWorkEnabled: s.sundayWorkEnabled ?? false,
       sundayPayMultiplier: Number(s.sundayPayMultiplier ?? 2.0),
+      allowWfh: s.allowWfh ?? false,
+      wfhDays: s.wfhDays ?? [],
     });
   };
 
@@ -388,6 +393,38 @@ function ShiftsPanel() {
                           <input type="number" step="0.1" min={1} max={5} value={form.sundayPayMultiplier} onChange={e => setForm({...form, sundayPayMultiplier: Number(e.target.value)})} className="input-glass w-full text-sm" /></div>
                       )}
                     </div>
+
+                    {/* Work From Home */}
+                    <div className="bg-indigo-50 rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs font-semibold text-indigo-700 flex items-center gap-1.5"><Home size={13} /> Work From Home (WFH)</p>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input type="checkbox" checked={form.allowWfh} onChange={e => setForm({...form, allowWfh: e.target.checked, wfhDays: e.target.checked ? form.wfhDays : []})} className="sr-only peer" />
+                          <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600" />
+                        </label>
+                      </div>
+                      {form.allowWfh && (
+                        <div>
+                          <p className="text-[10px] text-indigo-600 mb-2">Select the days of the week that are designated WFH days for this shift.</p>
+                          <div className="flex gap-1.5 flex-wrap">
+                            {DAY_LABELS.map((day, i) => (
+                              <button key={i} type="button"
+                                onClick={() => {
+                                  const days = new Set(form.wfhDays);
+                                  days.has(i) ? days.delete(i) : days.add(i);
+                                  setForm({...form, wfhDays: Array.from(days)});
+                                }}
+                                className={`w-9 h-9 rounded-lg text-xs font-semibold transition-colors ${
+                                  form.wfhDays.includes(i) ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-100'
+                                }`}>{day}</button>
+                            ))}
+                          </div>
+                          {form.wfhDays.length === 0 && (
+                            <p className="text-[10px] text-indigo-400 mt-1.5">No fixed WFH days selected — employees can request WFH on any work day.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -458,7 +495,7 @@ function ShiftsPanel() {
                   {s.latePenaltyEnabled && <span className="bg-red-50 text-red-600 px-1.5 py-0.5 rounded">LOP: every {s.latePenaltyPerCount ?? 3} lates</span>}
                 </div>
 
-                {/* OT / Comp-off / Sunday */}
+                {/* OT / Comp-off / Sunday / WFH */}
                 <div className="flex gap-1.5 flex-wrap">
                   {s.otEnabled
                     ? <span className="text-[10px] bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded-full">OT ×{Number(s.otRateMultiplier||1.5)} after {s.otThresholdMinutes}min</span>
@@ -469,6 +506,14 @@ function ShiftsPanel() {
                   {s.sundayWorkEnabled
                     ? <span className="text-[10px] bg-yellow-50 text-yellow-700 px-1.5 py-0.5 rounded-full">Sun pay ×{Number(s.sundayPayMultiplier||2)}</span>
                     : <span className="text-[10px] bg-gray-50 text-gray-400 px-1.5 py-0.5 rounded-full">Sun working off</span>}
+                  {s.allowWfh
+                    ? <span className="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                        <Home size={9} />
+                        {(s.wfhDays as number[] || []).length > 0
+                          ? `WFH: ${(s.wfhDays as number[]).map((d: number) => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ')}`
+                          : 'WFH enabled'}
+                      </span>
+                    : <span className="text-[10px] bg-gray-50 text-gray-400 px-1.5 py-0.5 rounded-full">WFH off</span>}
                 </div>
               </div>
             </div>
