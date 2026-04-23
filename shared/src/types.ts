@@ -88,6 +88,8 @@ export interface AuthUser {
   organizationId: string;
   kycCompleted?: boolean;
   onboardingComplete?: boolean;
+  profileComplete?: boolean;
+  workMode?: string;
   exitAccess?: ExitAccessInfo | null;
 }
 

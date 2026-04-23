@@ -154,7 +154,7 @@ export class DocumentService {
     const doc = await prisma.document.findUnique({ where: { id } });
     if (!doc) throw new NotFoundError('Document');
 
-    return prisma.document.update({
+    const updated = await prisma.document.update({
       where: { id },
       data: {
         status: status as any,
@@ -163,6 +163,15 @@ export class DocumentService {
         rejectionReason: status === 'REJECTED' ? rejectionReason : null,
       },
     });
+
+    // Physically delete the file when HR rejects a document — employee must re-upload
+    if (status === 'REJECTED' && doc.fileUrl) {
+      storageService.deleteFile(doc.fileUrl).catch((err) =>
+        logger.warn(`[Document] Failed to delete rejected file "${doc.fileUrl}":`, err.message),
+      );
+    }
+
+    return updated;
   }
 
   async remove(id: string, userId?: string, organizationId?: string) {

@@ -80,6 +80,16 @@ export const employeeDepsApi = api.injectEndpoints({
       invalidatesTags: ['Designation'],
     }),
 
+    deleteDepartment: builder.mutation<{ success: boolean; message: string }, string>({
+      query: (id) => ({ url: `/departments/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Department', 'Designation'],
+    }),
+
+    deleteDesignation: builder.mutation<{ success: boolean; message: string }, string>({
+      query: (id) => ({ url: `/designations/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Designation'],
+    }),
+
     getOfficeLocations: builder.query<any, void>({
       query: () => '/workforce/locations',
       providesTags: ['OfficeLocation'],
@@ -97,8 +107,10 @@ export const employeeDepsApi = api.injectEndpoints({
 export const {
   useGetDepartmentsQuery,
   useCreateDepartmentMutation,
+  useDeleteDepartmentMutation,
   useGetDesignationsQuery,
   useCreateDesignationMutation,
+  useDeleteDesignationMutation,
   useGetOfficeLocationsQuery,
   useGetManagersQuery,
 } = employeeDepsApi;

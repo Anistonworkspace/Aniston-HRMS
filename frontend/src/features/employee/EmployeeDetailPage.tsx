@@ -22,7 +22,7 @@ import PermissionOverridePanel from '../permissions/PermissionOverridePanel';
 import OcrVerificationPanel from '../documents/OcrVerificationPanel';
 import { useGetEmployeeOcrSummaryQuery } from '../documents/documentOcrApi';
 import { useVerifyKycMutation } from '../kyc/kycApi';
-import { useGetDepartmentsQuery, useGetDesignationsQuery, useGetManagersQuery, useGetOfficeLocationsQuery, useCreateDepartmentMutation, useCreateDesignationMutation } from './employeeDepsApi';
+import { useGetDepartmentsQuery, useGetDesignationsQuery, useGetManagersQuery, useGetOfficeLocationsQuery, useCreateDepartmentMutation, useCreateDesignationMutation, useDeleteDepartmentMutation, useDeleteDesignationMutation } from './employeeDepsApi';
 import { useGetProfileEditRequestsForEmployeeQuery, useReviewProfileEditRequestMutation, useGetProfileCompletionQuery } from '../profile/profileEditRequestApi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { useAppSelector } from '../../app/store';
@@ -677,6 +677,8 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
   const [selectedRole, setSelectedRole] = useState<string>(employee.user?.role || 'EMPLOYEE');
   const [createDepartment, { isLoading: creatingDept }] = useCreateDepartmentMutation();
   const [createDesignation, { isLoading: creatingDesig }] = useCreateDesignationMutation();
+  const [deleteDepartment, { isLoading: deletingDept }] = useDeleteDepartmentMutation();
+  const [deleteDesignation, { isLoading: deletingDesig }] = useDeleteDesignationMutation();
   const [newDeptName, setNewDeptName] = useState('');
   const [newDesigName, setNewDesigName] = useState('');
   const [showNewDept, setShowNewDept] = useState(false);
@@ -827,9 +829,27 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
                   <button type="button" onClick={() => setShowNewDept(false)} className="px-1.5 py-1 text-gray-400 hover:text-gray-600 text-xs">✕</button>
                 </div>
               ) : (
-                <button type="button" onClick={() => setShowNewDept(true)} className="mt-1 text-[11px] text-brand-600 hover:underline flex items-center gap-0.5">
-                  <Plus size={11} /> Create new
-                </button>
+                <div className="flex items-center gap-3 mt-1">
+                  <button type="button" onClick={() => setShowNewDept(true)} className="text-[11px] text-brand-600 hover:underline flex items-center gap-0.5">
+                    <Plus size={11} /> Create new
+                  </button>
+                  {form.departmentId && (
+                    <button type="button" disabled={deletingDept}
+                      onClick={async () => {
+                        if (!confirm('Delete this department? This cannot be undone.')) return;
+                        try {
+                          await deleteDepartment(form.departmentId).unwrap();
+                          setForm(f => ({ ...f, departmentId: '', designationId: '' }));
+                          toast.success('Department deleted');
+                        } catch (e: any) {
+                          toast.error(e?.data?.error?.message || 'Cannot delete: department may have assigned employees');
+                        }
+                      }}
+                      className="text-[11px] text-red-500 hover:underline flex items-center gap-0.5 disabled:opacity-50">
+                      <Trash2 size={11} /> Delete selected
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             <div>
@@ -875,9 +895,27 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
                   <button type="button" onClick={() => setShowNewDesig(false)} className="px-1.5 py-1 text-gray-400 hover:text-gray-600 text-xs">✕</button>
                 </div>
               ) : (
-                <button type="button" onClick={() => setShowNewDesig(true)} className="mt-1 text-[11px] text-brand-600 hover:underline flex items-center gap-0.5">
-                  <Plus size={11} /> Create new
-                </button>
+                <div className="flex items-center gap-3 mt-1">
+                  <button type="button" onClick={() => setShowNewDesig(true)} className="text-[11px] text-brand-600 hover:underline flex items-center gap-0.5">
+                    <Plus size={11} /> Create new
+                  </button>
+                  {form.designationId && (
+                    <button type="button" disabled={deletingDesig}
+                      onClick={async () => {
+                        if (!confirm('Delete this designation? This cannot be undone.')) return;
+                        try {
+                          await deleteDesignation(form.designationId).unwrap();
+                          setForm(f => ({ ...f, designationId: '' }));
+                          toast.success('Designation deleted');
+                        } catch (e: any) {
+                          toast.error(e?.data?.error?.message || 'Cannot delete: designation may have assigned employees');
+                        }
+                      }}
+                      className="text-[11px] text-red-500 hover:underline flex items-center gap-0.5 disabled:opacity-50">
+                      <Trash2 size={11} /> Delete selected
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             <SearchableSelect

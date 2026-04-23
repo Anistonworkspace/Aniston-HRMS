@@ -79,6 +79,19 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
     return <Navigate to="/employee-onboarding" replace />;
   }
 
+  // Profile Completion Gate: redirect employees who haven't filled all required profile fields
+  // to the onboarding flow so they can complete missing sections (pre-filled with existing data)
+  if (
+    user &&
+    !GATE_EXEMPT_ROLES.includes(user.role) &&
+    user.onboardingComplete !== false && // Only check after the onboarding gate passes
+    user.profileComplete === false &&
+    !user.exitAccess &&
+    !isOnboardingExemptRoute
+  ) {
+    return <Navigate to="/employee-onboarding" replace />;
+  }
+
   // KYC Gate: redirect employees with incomplete KYC to the KYC page
   const isKycExemptRoute = location.pathname === '/kyc-pending' || location.pathname === '/profile' || location.pathname === '/employee-onboarding';
   if (

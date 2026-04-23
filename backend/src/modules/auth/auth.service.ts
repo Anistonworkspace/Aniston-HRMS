@@ -20,14 +20,11 @@ export class AuthService {
       include: {
         employee: {
           select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            avatar: true,
-            status: true,
-            exitStatus: true,
-            workMode: true,
-            onboardingComplete: true,
+            id: true, firstName: true, lastName: true, avatar: true,
+            status: true, exitStatus: true, workMode: true, onboardingComplete: true,
+            phone: true, dateOfBirth: true, gender: true,
+            address: true, emergencyContact: true,
+            bankAccountNumber: true, bankName: true, ifscCode: true, accountHolderName: true,
             documentGate: { select: { kycStatus: true } },
             exitAccessConfig: true,
           },
@@ -123,6 +120,7 @@ export class AuthService {
     const isAdminRole = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(user.role);
     const kycCompleted = isAdminRole ? true : (user.employee?.documentGate?.kycStatus === 'VERIFIED');
     const onboardingComplete = isAdminRole ? true : (user.employee?.onboardingComplete ?? true);
+    const profileComplete = isAdminRole ? true : this.calculateProfileComplete(user.employee, mfa?.isEnabled ?? false);
 
     // Get feature permissions for non-admin active employees
     let featurePermissions = null;
@@ -152,6 +150,7 @@ export class AuthService {
         workMode: user.employee?.workMode,
         kycCompleted,
         onboardingComplete,
+        profileComplete,
         featurePermissions,
         exitAccess: exitAccess?.isActive ? {
           canViewDashboard: exitAccess.canViewDashboard,
@@ -299,20 +298,23 @@ export class AuthService {
   }
 
   async getMe(userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        employee: {
-          include: {
-            department: true,
-            designation: true,
-            documents: { select: { id: true }, take: 1 },
-            documentGate: { select: { kycStatus: true } },
-            exitAccessConfig: true,
+    const [user, mfa] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          employee: {
+            include: {
+              department: true,
+              designation: true,
+              documents: { select: { id: true }, take: 1 },
+              documentGate: { select: { kycStatus: true } },
+              exitAccessConfig: true,
+            },
           },
         },
-      },
-    });
+      }),
+      prisma.userMFA.findUnique({ where: { userId }, select: { isEnabled: true } }),
+    ]);
 
     if (!user) {
       throw new NotFoundError('User');
@@ -323,6 +325,7 @@ export class AuthService {
     const isAdminRole = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(user.role);
     const kycCompleted = isAdminRole ? true : (user.employee?.documentGate?.kycStatus === 'VERIFIED');
     const onboardingComplete = isAdminRole ? true : (user.employee?.onboardingComplete ?? true);
+    const profileComplete = isAdminRole ? true : this.calculateProfileComplete(user.employee, mfa?.isEnabled ?? false);
 
     let featurePermissions = null;
     const adminRoles = ['SUPER_ADMIN', 'ADMIN', 'HR'];
@@ -351,6 +354,7 @@ export class AuthService {
       profileCompletion: this.calculateProfileCompletion(user.employee),
       kycCompleted,
       onboardingComplete,
+      profileComplete,
       featurePermissions,
       exitAccess: exitAccess?.isActive ? {
         canViewDashboard: exitAccess.canViewDashboard,
@@ -386,6 +390,23 @@ export class AuthService {
       employee.avatar,
     ];
     return Math.round((fields.filter(Boolean).length / fields.length) * 100);
+  }
+
+  /** True when all required profile fields are filled (used as gate before dashboard access) */
+  public calculateProfileComplete(employee: any, mfaEnabled: boolean): boolean {
+    if (!employee) return false;
+    const addr = employee.address as any;
+    const ec = employee.emergencyContact as any;
+    const personalOk = !!(
+      employee.firstName && employee.lastName &&
+      employee.dateOfBirth && employee.gender &&
+      employee.phone && employee.phone !== '0000000000'
+    );
+    const addressOk = !!(addr?.line1 && addr?.city && addr?.state && addr?.pincode);
+    const emergencyOk = !!(ec?.name && ec?.relationship && ec?.phone);
+    const bankOk = !!(employee.bankAccountNumber && employee.bankName && employee.ifscCode && employee.accountHolderName);
+    const mfaOk = employee.workMode !== 'OFFICE' || mfaEnabled;
+    return personalOk && addressOk && emergencyOk && bankOk && mfaOk;
   }
 
   /** Generate tokens for a user (used by login + invitation accept) */

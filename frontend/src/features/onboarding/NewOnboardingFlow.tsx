@@ -166,7 +166,7 @@ export default function NewOnboardingFlow() {
     try {
       await completeOnboarding().unwrap();
       if (currentUser) {
-        dispatch(setUser({ ...currentUser, onboardingComplete: true }));
+        dispatch(setUser({ ...currentUser, onboardingComplete: true, profileComplete: true }));
       }
       setCompleted(true);
     } catch (err: any) {
@@ -183,7 +183,8 @@ export default function NewOnboardingFlow() {
   }
 
   if (completed) {
-    return <CompletionScreen orgName={status?.organization?.name} onContinue={() => navigate('/kyc-pending', { replace: true })} />;
+    const nextRoute = currentUser?.kycCompleted === false ? '/kyc-pending' : '/dashboard';
+    return <CompletionScreen orgName={status?.organization?.name} onContinue={() => navigate(nextRoute, { replace: true })} />;
   }
 
   return (
