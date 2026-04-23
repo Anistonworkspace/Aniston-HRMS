@@ -310,7 +310,8 @@ export class OnboardingService {
         employee.dateOfBirth && employee.gender && employee.gender !== 'PREFER_NOT_TO_SAY' &&
         employee.phone && employee.phone !== '0000000000' &&
         addr?.line1 && addr?.city && addr?.state && addr?.pincode &&
-        permAddr?.line1 && permAddr?.city && permAddr?.state && permAddr?.pincode
+        permAddr?.line1 && permAddr?.city && permAddr?.state && permAddr?.pincode &&
+        (isSiteEmployee || !!qualification)
       ),
       emergencyContact: !!(ec?.name && ec?.relationship && ec?.phone),
       bankDetails: !!(employee.bankAccountNumber && employee.bankName && employee.ifscCode && employee.accountHolderName),
@@ -329,6 +330,7 @@ export class OnboardingService {
       employeeId: employee.id,
       workMode: employee.workMode,
       qualification: qualification || '',
+      joiningDate: employee.joiningDate ? employee.joiningDate.toISOString().split('T')[0] : '',
       firstName: employee.firstName,
       lastName: employee.lastName,
       email: employee.email,
@@ -419,6 +421,7 @@ export class OnboardingService {
           address: stepData.currentAddress,
           permanentAddress: stepData.permanentAddress,
           qualification: stepData.qualification || null,
+          joiningDate: stepData.joiningDate ? new Date(stepData.joiningDate) : undefined,
         },
       });
     }
@@ -490,6 +493,9 @@ export class OnboardingService {
     const qualification = (emp as any).qualification as string | null;
     if (!emp.firstName || !emp.lastName || !emp.dateOfBirth || !emp.gender || !emp.phone || emp.phone === '0000000000') {
       throw new BadRequestError('Personal details (name, DOB, gender, phone) are required before completing onboarding');
+    }
+    if (emp.workMode !== 'PROJECT_SITE' && !qualification) {
+      throw new BadRequestError('Highest qualification is required for office employees before completing onboarding');
     }
     if (!addr?.line1 || !addr?.city || !addr?.state || !addr?.pincode) {
       throw new BadRequestError('Current address is required before completing onboarding');

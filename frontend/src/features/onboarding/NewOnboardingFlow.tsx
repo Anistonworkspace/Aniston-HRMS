@@ -542,6 +542,7 @@ const PERSONAL_INIT = {
   firstName: '', lastName: '', dateOfBirth: '', gender: '',
   bloodGroup: '', maritalStatus: '', phone: '', personalEmail: '',
   qualification: '',
+  joiningDate: '',
   currentAddress: { ...ADDR_INIT },
   permanentAddress: { ...ADDR_INIT },
 };
@@ -565,6 +566,7 @@ function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave
         phone: initialData.phone || '',
         personalEmail: initialData.personalEmail || '',
         qualification: initialData.qualification || '',
+        joiningDate: initialData.joiningDate || '',
         currentAddress: { line1: curr.line1 || '', line2: curr.line2 || '', city: curr.city || '', state: curr.state || '', pincode: curr.pincode || '', country: curr.country || 'India' },
         permanentAddress: { line1: perm.line1 || '', line2: perm.line2 || '', city: perm.city || '', state: perm.state || '', pincode: perm.pincode || '', country: perm.country || 'India' },
       });
@@ -679,6 +681,21 @@ function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave
           <label className="block text-xs font-medium text-gray-700 mb-1">Personal Email <span className="text-gray-400 font-normal">(optional)</span></label>
           <input type="email" value={form.personalEmail} onChange={e => set('personalEmail', e.target.value)} className="input-glass w-full text-sm" placeholder="personal@email.com" />
         </div>
+      </div>
+
+      {/* Joining Date — optional, pre-filled from HR if already set */}
+      <div>
+        <label className="block text-xs font-medium text-gray-700 mb-1">
+          Date of Joining <span className="text-gray-400 font-normal">(confirm or update)</span>
+        </label>
+        <input
+          type="date"
+          value={form.joiningDate}
+          onChange={e => set('joiningDate', e.target.value)}
+          className="input-glass w-full text-sm"
+          max={new Date().toISOString().split('T')[0]}
+        />
+        <p className="text-[11px] text-gray-400 mt-1">The date you joined or are scheduled to join. Used for payroll and leave calculations.</p>
       </div>
 
       {/* Qualification — office employees only */}

@@ -577,6 +577,13 @@ export default function ProfilePage() {
             <ProfileRow label={t('profile.joiningDate')} value={employee?.joiningDate ? formatDate(employee.joiningDate, 'long') : undefined} />
             <ProfileRow label={t('common.status')} value={employee?.status} />
             <ProfileRow label={t('common.manager')} value={employee?.manager ? `${employee.manager.firstName} ${employee.manager.lastName}` : undefined} />
+            {!isEmployeeRole && (employee as any)?.ctc && (
+              <ProfileRow
+                label="Annual CTC"
+                value={`₹${Number((employee as any).ctc).toLocaleString('en-IN')}`}
+                mono
+              />
+            )}
           </dl>
         </motion.div>
 
