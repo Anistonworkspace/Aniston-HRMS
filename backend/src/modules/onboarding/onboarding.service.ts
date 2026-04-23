@@ -307,7 +307,7 @@ export class OnboardingService {
       mfa: isSiteEmployee ? true : !!(employee.user as any)?.mfaEnabled,
       personalDetails: !!(
         employee.firstName && employee.lastName &&
-        employee.dateOfBirth && employee.gender && employee.gender !== 'PREFER_NOT_TO_SAY' &&
+        employee.dateOfBirth && employee.gender &&
         employee.phone && employee.phone !== '0000000000' &&
         addr?.line1 && addr?.city && addr?.state && addr?.pincode &&
         permAddr?.line1 && permAddr?.city && permAddr?.state && permAddr?.pincode &&
@@ -492,7 +492,7 @@ export class OnboardingService {
     const ec = emp.emergencyContact as any;
     const qualification = (emp as any).qualification as string | null;
     if (!emp.firstName || !emp.lastName || !emp.dateOfBirth || !emp.gender || !emp.phone || emp.phone === '0000000000') {
-      throw new BadRequestError('Personal details (name, DOB, gender, phone) are required before completing onboarding');
+      throw new BadRequestError('Personal details (name, date of birth, gender, phone) are required before completing onboarding');
     }
     if (emp.workMode !== 'PROJECT_SITE' && !qualification) {
       throw new BadRequestError('Highest qualification is required for office employees before completing onboarding');

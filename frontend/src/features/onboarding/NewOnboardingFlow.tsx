@@ -315,11 +315,12 @@ export default function NewOnboardingFlow() {
             <ChevronLeft size={16} /> Back
           </button>
           <span className="text-xs text-gray-400">Step {currentStep} of {STEPS.length}</span>
-          {currentStep < 7 && currentStep !== 6 && (
+          {currentStep === 2 && workMode === 'PROJECT_SITE' && (
             <button onClick={() => setCurrentStep(s => s + 1)} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
               Skip <ChevronRight size={16} />
             </button>
           )}
+          {(currentStep < 2 || currentStep >= 7) && <span />}
         </div>
       </div>
     </div>
@@ -547,6 +548,21 @@ const PERSONAL_INIT = {
   permanentAddress: { ...ADDR_INIT },
 };
 
+function getMissingPersonalFields(data: any, isSiteEmployee?: boolean): string[] {
+  const missing: string[] = [];
+  if (!data?.firstName) missing.push('First Name');
+  if (!data?.lastName) missing.push('Last Name');
+  if (!data?.dateOfBirth) missing.push('Date of Birth');
+  if (!data?.gender) missing.push('Gender');
+  if (!data?.phone) missing.push('Phone');
+  if (!isSiteEmployee && !data?.qualification) missing.push('Qualification');
+  const curr = data?.currentAddress || data?.address || {};
+  if (!curr?.line1 || !curr?.city || !curr?.state || !curr?.pincode) missing.push('Current Address');
+  const perm = data?.permanentAddress || {};
+  if (!perm?.line1 || !perm?.city || !perm?.state || !perm?.pincode) missing.push('Permanent Address');
+  return missing;
+}
+
 function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave: (d: any) => void; saving: boolean; initialData: any; isSiteEmployee?: boolean }) {
   const [form, setForm] = useState(PERSONAL_INIT);
   const [sameAsCurrent, setSameAsCurrent] = useState(false);
@@ -620,8 +636,16 @@ function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave
     </div>
   );
 
+  const missingOnLoad = getMissingPersonalFields(initialData, isSiteEmployee);
+
   return (
     <div className="space-y-4">
+      {missingOnLoad.length > 0 && !showErrors && (
+        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          <p className="font-semibold flex items-center gap-1.5 mb-1"><AlertTriangle size={13} /> Please complete the following fields:</p>
+          <p className="text-amber-600">{missingOnLoad.join(' · ')}</p>
+        </div>
+      )}
       {showErrors && !isValid && (
         <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2">
           <AlertTriangle size={13} /> Please fill all required fields marked with *
@@ -693,7 +717,6 @@ function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave
           value={form.joiningDate}
           onChange={e => set('joiningDate', e.target.value)}
           className="input-glass w-full text-sm"
-          max={new Date().toISOString().split('T')[0]}
         />
         <p className="text-[11px] text-gray-400 mt-1">The date you joined or are scheduled to join. Used for payroll and leave calculations.</p>
       </div>
@@ -838,7 +861,7 @@ function Step5Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
   const [showErrors, setShowErrors] = useState(false);
 
   useEffect(() => {
-    if (initialData?.bankAccountNumber) {
+    if (initialData?.bankAccountNumber || initialData?.bankName || initialData?.ifscCode || initialData?.accountHolderName) {
       setForm({
         accountHolderName: initialData.accountHolderName || '',
         accountType: (initialData.accountType as 'SAVINGS' | 'CURRENT') || 'SAVINGS',
