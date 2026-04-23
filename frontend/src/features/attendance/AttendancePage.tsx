@@ -24,8 +24,11 @@ import FieldSalesView from './FieldSalesView';
 import ProjectSiteView from './ProjectSiteView';
 import CommandCenter from './components/CommandCenter';
 import SelfServiceReport from './components/SelfServiceReport';
+import { CompOffTab } from './components/CompOffTab';
 import { enqueueAction } from '../../lib/offlineQueue';
 import { useAuthDownload } from '../../hooks/useAuthDownload';
+import { useEmpPerms } from '../../hooks/useEmpPerms';
+import PermDenied from '../../components/PermDenied';
 
 const STATUS_COLORS: Record<string, string> = {
   PRESENT: 'bg-emerald-500',
@@ -453,6 +456,7 @@ function gpsReadinessFrom(accuracy: number | null): GpsReadiness {
 }
 
 function AttendancePersonalView() {
+  const { perms } = useEmpPerms();
   const { t, i18n } = useTranslation();
   const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -894,6 +898,9 @@ function AttendancePersonalView() {
   const workMode = today?.workMode || 'OFFICE';
 
   // Desktop users skip all location gates — they see status-only UI
+  // Employee-level permission gate (canViewAttendanceHistory)
+  if (!perms.canViewAttendanceHistory) return <PermDenied action="view attendance history" />;
+
   // BLOCKING: Location permission denied — cannot use attendance at all
   if (!isDesktop && locationStatus === 'denied') {
     return (
@@ -1192,7 +1199,10 @@ function AttendancePersonalView() {
                 })()}
 
                 {/* Main CTA button */}
-                {!today?.isCheckedIn && !today?.isCheckedOut && (
+                {!perms.canMarkAttendance && (
+                  <PermDenied action="mark attendance" inline />
+                )}
+                {perms.canMarkAttendance && !today?.isCheckedIn && !today?.isCheckedOut && (
                   <motion.button
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
@@ -1209,7 +1219,7 @@ function AttendancePersonalView() {
                   </motion.button>
                 )}
 
-                {today?.isCheckedIn && !today?.isCheckedOut && (
+                {perms.canMarkAttendance && today?.isCheckedIn && !today?.isCheckedOut && (
                   <div className="space-y-1.5">
                     {/* Earliest checkout info — shown when shift hasn't ended yet */}
                     {checkoutGate && !checkoutGate.canCheckOut && (
@@ -1245,7 +1255,7 @@ function AttendancePersonalView() {
                 )}
 
                 {/* Checked out — prompt for regularization */}
-                {today?.isCheckedOut && (
+                {perms.canMarkAttendance && today?.isCheckedOut && (
                   <button
                     onClick={() => setShowRegModal(true)}
                     className="mt-3 w-full p-3 bg-amber-50 hover:bg-amber-100 rounded-xl border border-amber-200 text-center transition-colors"
@@ -1258,7 +1268,7 @@ function AttendancePersonalView() {
                 )}
 
                 {/* Not checked in at all — allow regularization for missed attendance */}
-                {!today?.isCheckedIn && !today?.isCheckedOut && today?.record?.id && (
+                {perms.canMarkAttendance && !today?.isCheckedIn && !today?.isCheckedOut && today?.record?.id && (
                   <button
                     onClick={() => setShowRegModal(true)}
                     className="mt-3 w-full p-3 bg-orange-50 hover:bg-orange-100 rounded-xl border border-orange-200 text-center transition-colors"
@@ -1414,6 +1424,16 @@ function AttendancePersonalView() {
         className="md:layer-card md:p-4 mt-4"
       >
         <SelfServiceReport />
+      </motion.div>
+
+      {/* Comp-Off Credits */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25 }}
+        className="mt-4"
+      >
+        <CompOffTab />
       </motion.div>
 
       {/* Regularization Modal */}

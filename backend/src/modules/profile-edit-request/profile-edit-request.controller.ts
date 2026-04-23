@@ -15,7 +15,8 @@ export class ProfileEditRequestController {
   async listMine(req: Request, res: Response, next: NextFunction) {
     try {
       const employeeId = req.user!.employeeId!;
-      const data = await profileEditRequestService.listForEmployee(employeeId);
+      const { organizationId } = req.user!;
+      const data = await profileEditRequestService.listForEmployee(employeeId, organizationId);
       res.json({ success: true, data });
     } catch (err) { next(err); }
   }
@@ -33,7 +34,8 @@ export class ProfileEditRequestController {
 
   async listForEmployee(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await profileEditRequestService.listForEmployee(req.params.employeeId);
+      const { organizationId } = req.user!;
+      const data = await profileEditRequestService.listForEmployee(req.params.employeeId, organizationId);
       res.json({ success: true, data });
     } catch (err) { next(err); }
   }

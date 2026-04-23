@@ -12,6 +12,8 @@ import {
 import { cn, formatDate, getInitials } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
+import { useEmpPerms } from '../../hooks/useEmpPerms';
+import PermDenied from '../../components/PermDenied';
 
 const PRIORITY_COLORS: Record<string, string> = {
   LOW: 'bg-gray-100 text-gray-600',
@@ -46,7 +48,10 @@ function timeAgo(date: string | Date): string {
 }
 
 export default function AnnouncementsPage() {
+  const { perms } = useEmpPerms();
   const [tab, setTab] = useState<'announcements' | 'social'>('announcements');
+
+  if (!perms.canViewAnnouncements) return <PermDenied action="view announcements" />;
 
   return (
     <div className="page-container">

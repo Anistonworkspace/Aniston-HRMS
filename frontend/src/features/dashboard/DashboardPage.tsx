@@ -15,6 +15,8 @@ import { RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 import { SkeletonLoader, QuickActionGrid } from './components';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
+import { useEmpPerms } from '../../hooks/useEmpPerms';
+import { PermDenied } from '../../components/PermDenied';
 
 // Lazy-load role-specific dashboards
 const AdminDashboard = lazy(() => import('./AdminDashboard'));
@@ -182,13 +184,14 @@ const AttendanceRow = memo(function AttendanceRow({ record }: { record: Attendan
 // ─── EMPLOYEE DASHBOARD ────────────────────────────────────────
 function EmployeeDashboard() {
   const { t, i18n } = useTranslation();
+  const { perms } = useEmpPerms();
   const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
   const navigate = useNavigate();
   const user = useAppSelector((state) => state.auth.user);
   const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '');
   const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const canCheckIn = !isManagement && isMobile;
-  const { data: statsResponse, isLoading, isError } = useGetDashboardStatsQuery();
+  const { data: statsResponse, isLoading, isError } = useGetDashboardStatsQuery(undefined, { skip: !perms.canViewDashboardStats });
   const stats = statsResponse?.data;
   const { data: todayRes } = useGetTodayStatusQuery(undefined, {
     pollingInterval: 60000,
@@ -217,14 +220,16 @@ function EmployeeDashboard() {
   useEffect(() => {
     if (!todayStatus?.record?.checkIn || todayStatus?.isCheckedOut) return;
     const update = () => {
+      // Use IST-aware elapsed: both Date.now() and checkIn are UTC ms, so diff is timezone-safe
       const start = new Date(todayStatus.record.checkIn).getTime();
-      const diff = Date.now() - start;
+      const diff = Math.max(0, Date.now() - start);
       const h = Math.floor(diff / 3600000);
       const m = Math.floor((diff % 3600000) / 60000);
-      setLiveElapsed(`${h}h ${m}m`);
+      const s = Math.floor((diff % 60000) / 1000);
+      setLiveElapsed(`${h}h ${m}m ${s}s`);
     };
     update();
-    const id = setInterval(update, 60000);
+    const id = setInterval(update, 1000);
     return () => clearInterval(id);
   }, [todayStatus?.record?.checkIn, todayStatus?.isCheckedOut]);
 
@@ -333,6 +338,8 @@ function EmployeeDashboard() {
 
   const monthLabel = selectedMonth.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
   const isCurrentMonth = selectedMonth.getMonth() === new Date().getMonth() && selectedMonth.getFullYear() === new Date().getFullYear();
+
+  if (!perms.canViewDashboardStats) return <PermDenied action="view dashboard stats" />;
 
   if (isLoading && !stats) {
     return (

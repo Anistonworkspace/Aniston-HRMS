@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, ConflictError, BadRequestError } from '../../middleware/errorHandler.js';
-import { enqueueEmail } from '../../jobs/queues.js';
+import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { encrypt, decrypt } from '../../utils/encryption.js';
 
@@ -57,33 +57,58 @@ export class ProfileEditRequestService {
       },
     });
 
-    // Notify HR via email (non-blocking)
-    const org = await prisma.organization.findUnique({
-      where: { id: organizationId },
-      select: { adminNotificationEmail: true, name: true },
-    });
-    const hrEmail = org?.adminNotificationEmail;
-    if (hrEmail) {
-      enqueueEmail({
-        to: hrEmail,
-        subject: `Profile Edit Request — ${employee.firstName} ${employee.lastName} (${employee.employeeCode})`,
-        template: 'profile-edit-request-hr',
-        context: {
-          employeeName: `${employee.firstName} ${employee.lastName}`,
-          employeeCode: employee.employeeCode,
-          category: CATEGORY_LABELS[category],
-          orgName: org?.name || '',
-        },
+    // Notify HR via email + in-app (non-blocking)
+    const [org, hrUsers] = await Promise.all([
+      prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { adminNotificationEmail: true, name: true },
+      }),
+      prisma.user.findMany({
+        where: { organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' },
+        select: { id: true, email: true },
+      }),
+    ]);
+    const emailSubject = `Profile Edit Request — ${employee.firstName} ${employee.lastName} (${employee.employeeCode})`;
+    const emailContext = {
+      employeeName: `${employee.firstName} ${employee.lastName}`,
+      employeeCode: employee.employeeCode,
+      category: CATEGORY_LABELS[category],
+      orgName: org?.name || '',
+    };
+    const hrEmailsSent = new Set<string>();
+    for (const hr of hrUsers) {
+      if (hr.email) {
+        enqueueEmail({ to: hr.email, subject: emailSubject, template: 'profile-edit-request-hr', context: emailContext }).catch(() => {});
+        hrEmailsSent.add(hr.email);
+      }
+      enqueueNotification({
+        userId: hr.id,
+        organizationId,
+        type: 'PROFILE_EDIT_REQUEST',
+        title: `Profile Edit Request — ${employee.firstName} ${employee.lastName}`,
+        message: `${employee.firstName} ${employee.lastName} (${employee.employeeCode}) requested to update their ${CATEGORY_LABELS[category]}.`,
+        link: '/profile',
       }).catch(() => {});
+    }
+    // Also email org adminNotificationEmail if not already covered
+    if (org?.adminNotificationEmail && !hrEmailsSent.has(org.adminNotificationEmail)) {
+      enqueueEmail({ to: org.adminNotificationEmail, subject: emailSubject, template: 'profile-edit-request-hr', context: emailContext }).catch(() => {});
     }
 
     return request;
   }
 
-  async listForEmployee(employeeId: string) {
+  async listForEmployee(employeeId: string, organizationId?: string) {
+    const where: any = { employeeId };
+    if (organizationId) where.organizationId = organizationId;
     return prisma.profileEditRequest.findMany({
-      where: { employeeId },
+      where,
       orderBy: { createdAt: 'desc' },
+      include: {
+        employee: {
+          select: { id: true, firstName: true, lastName: true, employeeCode: true, email: true },
+        },
+      },
     });
   }
 
@@ -139,7 +164,7 @@ export class ProfileEditRequestService {
       },
     });
 
-    // Email employee
+    // Email + in-app notification to employee
     const emp = request.employee as any;
     const recipientEmail = emp.personalEmail || emp.email;
     if (recipientEmail) {
@@ -154,6 +179,23 @@ export class ProfileEditRequestService {
           hrNote: hrNote || '',
           editWindowHours: 48,
         },
+      }).catch(() => {});
+    }
+    // In-app notification to employee
+    const empUser = await prisma.user.findFirst({
+      where: { employee: { id: request.employeeId } },
+      select: { id: true },
+    });
+    if (empUser) {
+      enqueueNotification({
+        userId: empUser.id,
+        organizationId,
+        type: 'PROFILE_EDIT_REVIEWED',
+        title: `Profile Edit Request ${status === 'APPROVED' ? 'Approved' : 'Rejected'}`,
+        message: status === 'APPROVED'
+          ? `Your ${CATEGORY_LABELS[request.category as Category]} edit request was approved. You have 48 hours to apply the changes.`
+          : `Your ${CATEGORY_LABELS[request.category as Category]} edit request was rejected.${hrNote ? ' HR Note: ' + hrNote : ''}`,
+        link: '/profile',
       }).catch(() => {});
     }
 
@@ -181,9 +223,10 @@ export class ProfileEditRequestService {
 
     const category = request.category as Category;
     const allowed = ALLOWED_FIELDS_BY_CATEGORY[category];
+    const storedData = (request.requestedData as Record<string, any>) || {};
     const sanitized: Record<string, any> = {};
     for (const key of allowed) {
-      if (data[key] !== undefined) sanitized[key] = data[key];
+      if (storedData[key] !== undefined) sanitized[key] = storedData[key];
     }
 
     let updateData: any = {};

@@ -18,6 +18,8 @@ import { useGetEmployeesQuery } from '../employee/employeeApi';
 import { useAppSelector } from '../../app/store';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
+import { useEmpPerms } from '../../hooks/useEmpPerms';
+import PermDenied from '../../components/PermDenied';
 
 const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
@@ -91,11 +93,14 @@ function PriorityBadge({ priority }: { priority?: string }) {
 }
 
 export default function PerformancePage() {
+  const { perms } = useEmpPerms();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   const [showCreateGoal, setShowCreateGoal] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'leaves' | 'goals' | 'reviews'>('overview');
   const user = useAppSelector((s) => s.auth.user);
   const isAdmin = user && ADMIN_ROLES.includes(user.role);
+
+  if (!isAdmin && !perms.canViewPerformance) return <PermDenied action="view performance" />;
 
   const summaryParams = selectedEmployeeId ? { employeeId: selectedEmployeeId } : undefined;
   const { data: summaryRes, isLoading, isError, refetch } = useGetPerformanceSummaryQuery(summaryParams as any);

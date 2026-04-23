@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { announcementController } from './announcement.controller.js';
-import { authenticate, requirePermission } from '../../middleware/auth.middleware.js';
+import { authenticate, requirePermission, requireEmpPerm } from '../../middleware/auth.middleware.js';
 
 const router = Router();
 
 router.use(authenticate);
 
 // Announcements
-router.get('/', requirePermission('announcement', 'read'), (req, res, next) =>
+router.get('/', requireEmpPerm('canViewAnnouncements'), requirePermission('announcement', 'read'), (req, res, next) =>
   announcementController.list(req, res, next)
 );
 
@@ -24,7 +24,7 @@ router.delete('/:id', requirePermission('announcement', 'delete'), (req, res, ne
 );
 
 // Social Wall
-router.get('/social', requirePermission('social_wall', 'read'), (req, res, next) =>
+router.get('/social', requireEmpPerm('canViewAnnouncements'), requirePermission('social_wall', 'read'), (req, res, next) =>
   announcementController.listSocialPosts(req, res, next)
 );
 

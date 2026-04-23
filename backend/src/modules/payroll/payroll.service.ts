@@ -809,7 +809,7 @@ export class PayrollService {
 
     const allAttendance = await prisma.attendanceRecord.findMany({
       where: { employeeId: { in: empIds }, date: { gte: startDate, lte: endDate } },
-      select: { employeeId: true, date: true, status: true },
+      select: { employeeId: true, date: true, status: true, lateMinutes: true },
     });
 
     const attendanceByEmp = new Map<string, typeof allAttendance>();
@@ -882,7 +882,7 @@ export class PayrollService {
         startDate: { lte: endDate },
         OR: [{ endDate: null }, { endDate: { gte: startDate } }],
       },
-      include: { shift: { select: { otEnabled: true, otRateMultiplier: true } } },
+      include: { shift: { select: { otEnabled: true, otRateMultiplier: true, latePenaltyEnabled: true, latePenaltyPerCount: true } } },
       orderBy: { startDate: 'desc' },
     }).catch(() => [] as any[]);
 
@@ -934,10 +934,29 @@ export class PayrollService {
             effectiveEnd.setHours(0, 0, 0, 0);
           }
 
-          // Effective working days for this employee (used for pro-ration)
-          const empWorkingDays = countWorkingDaysInRange(effectiveStart, effectiveEnd, orgWorkingDayNums, holidayDates);
+          // Build per-employee weekOff set from their shift FIRST — used for pro-ration,
+          // LOP scanning, and Sunday bonus. Falls back to inverting org working days.
+          // This ensures employees on non-standard schedules (e.g. Tue-Sat shifts) get
+          // correct salary, LOP, and Sunday bonus — not penalised for org-level off-days.
+          const _empShiftForWeekOff = shiftAssignmentByEmp.get(emp.id)?.shift;
+          const empWeekOffSet: Set<number> = (
+            _empShiftForWeekOff?.weekOffDays &&
+            Array.isArray(_empShiftForWeekOff.weekOffDays) &&
+            (_empShiftForWeekOff.weekOffDays as number[]).length > 0
+          )
+            ? new Set<number>(_empShiftForWeekOff.weekOffDays as number[])
+            : new Set<number>([0, 1, 2, 3, 4, 5, 6].filter(d => !orgWorkingDayNums.has(d)));
+          // Invert weekOffSet → working day numbers for this employee
+          const empWorkingDayNums = new Set<number>([0, 1, 2, 3, 4, 5, 6].filter(d => !empWeekOffSet.has(d)));
+
+          // Effective working days for this employee (numerator for pro-ration)
+          const empWorkingDays = countWorkingDaysInRange(effectiveStart, effectiveEnd, empWorkingDayNums, holidayDates);
+          // Total working days in the month for THIS employee's shift (denominator for pro-ration).
+          // Must match the same weekOff rules — not org-level — so a full-month employee
+          // always gets ratio 1.0 regardless of whether their shift differs from org defaults.
+          const empTotalWorkingDays = countWorkingDaysInRange(startDate, endDate, empWorkingDayNums, holidayDatesEarly);
           // Pro-ration ratio: 1.0 for full-month employees; < 1.0 for partial-month
-          const proRationRatio = totalWorkingDays > 0 ? empWorkingDays / totalWorkingDays : 1;
+          const proRationRatio = empTotalWorkingDays > 0 ? empWorkingDays / empTotalWorkingDays : 1;
 
           const presentRecords = empAttendance.filter(r => r.status === 'PRESENT' || r.status === 'WORK_FROM_HOME');
           const absentRecords  = empAttendance.filter(r => r.status === 'ABSENT');
@@ -948,7 +967,7 @@ export class PayrollService {
             empAttendance.map(r => new Date(r.date).toISOString().split('T')[0])
           );
 
-          // ── LOP calculation (3-layer, within effective period) ──────────────
+          // ── LOP calculation (5-layer, within effective period) ──────────────
           // Layer 1: explicit ABSENT records not covered by paid leave / holiday
           let lopDays = 0;
           for (const rec of absentRecords) {
@@ -969,12 +988,12 @@ export class PayrollService {
             }
           }
 
-          // Layer 3: working days (per org schedule) with NO record, not on paid leave, not holiday
+          // Layer 3: working days (per employee shift) with NO record, not on paid leave, not holiday
           // — scan only within the employee's effective period
           const scanDay = new Date(effectiveStart);
           while (scanDay <= effectiveEnd) {
             const dow = scanDay.getDay();
-            if (orgWorkingDayNums.has(dow)) { // only working days per org schedule
+            if (!empWeekOffSet.has(dow)) { // only working days per this employee's shift
               const ds = scanDay.toISOString().split('T')[0];
               if (!holidayDates.has(ds) && !paidLeaveDates.has(ds) && !datesWithRecord.has(ds)) {
                 lopDays++; // implicit absent
@@ -995,10 +1014,27 @@ export class PayrollService {
             if (!paidLeaveDates.has(ds) && !holidayDates.has(ds)) lopDays++; // unpaid ON_LEAVE = LOP
           }
 
-          // Paid off-days worked (e.g. Sundays for Mon-Sat org) — earn a bonus
+          // Layer 5: Late penalty LOP (if shift has latePenaltyEnabled)
+          // Each penalty unit = 0.5 LOP day (half day, not full day)
+          // Note: empShiftAssign and empShift are declared later (line ~1202) for OT;
+          // we read the same map here but use distinct variables to avoid redeclaration.
+          let latePenaltyLop = 0;
+          let lateCount = 0;
+          const latePenaltyShift = shiftAssignmentByEmp.get(emp.id)?.shift;
+          if (latePenaltyShift?.latePenaltyEnabled && (latePenaltyShift?.latePenaltyPerCount || 0) > 0) {
+            lateCount = empAttendance.filter(r => {
+              const d = new Date(r.date);
+              return d >= effectiveStart && d <= effectiveEnd && (r as any).lateMinutes > 0;
+            }).length;
+            const penaltyUnits = Math.floor(lateCount / latePenaltyShift.latePenaltyPerCount!);
+            latePenaltyLop = penaltyUnits * 0.5; // 0.5 LOP per penalty unit (half day)
+            lopDays += latePenaltyLop;
+          }
+
+          // Paid off-days worked (e.g. Sundays for Mon-Sat org, or any weekly-off day per shift)
           const paidOffDaysWorked = presentRecords.filter(r => {
             const d = new Date(r.date);
-            return !orgWorkingDayNums.has(d.getDay()) && d >= effectiveStart && d <= effectiveEnd;
+            return empWeekOffSet.has(d.getDay()) && d >= effectiveStart && d <= effectiveEnd;
           }).length;
 
           // presentDays: count from month start (not effectiveStart) so HR-backdated
@@ -1071,11 +1107,18 @@ export class PayrollService {
               components = fullMonthComponents;
             }
           } else {
+            // Custom salary structure: use stored components but sync with master —
+            // remove components deactivated in master, keep all custom values for active ones.
+            const activeInMaster = new Set(componentMaster.filter(m => m.isActive).map(m => m.name.toLowerCase()));
             const rawComponents = (sal.components as SalaryComponent[] | null) || legacyToComponents(sal);
+            const syncedComponents = rawComponents.filter(c =>
+              // Keep if still active in master, OR if master has no entries (fully custom org)
+              componentMaster.length === 0 || activeInMaster.has(c.name.toLowerCase())
+            );
             if (proRationRatio < 1) {
-              components = rawComponents.map(c => ({ ...c, value: Math.round(c.value * proRationRatio) }));
+              components = syncedComponents.map(c => ({ ...c, value: Math.round(c.value * proRationRatio) }));
             } else {
-              components = rawComponents;
+              components = syncedComponents;
             }
           }
           const earningsTotal      = sumComponentsByType(components, 'earning');
@@ -1223,6 +1266,10 @@ export class PayrollService {
           if (proRationRatio < 1) {
             earningsBreakdown['_proRation'] = Math.round(proRationRatio * 100) / 100;
           }
+          if (latePenaltyLop > 0) {
+            const lopDailyRate = empWorkingDays > 0 ? earningsTotal / empWorkingDays : 0;
+            deductionsBreakdown['Late LOP'] = Math.round(lopDailyRate * latePenaltyLop);
+          }
 
           const otherEarnings: Record<string, number> = { sundayBonus: paidOffBonus, sundaysWorked: paidOffDaysWorked };
           for (const comp of components) {
@@ -1231,6 +1278,8 @@ export class PayrollService {
             }
           }
           if (adjustmentAdditions > 0) otherEarnings.adjustmentAdditions = adjustmentAdditions;
+          if (lateCount > 0) otherEarnings.lateDays = lateCount;
+          if (latePenaltyLop > 0) otherEarnings.lateLopDays = latePenaltyLop;
 
           const basicComp = findComponent(components, 'Basic') || findComponent(components, 'Basic Salary');
           const hraComp   = findComponent(components, 'HRA')   || findComponent(components, 'House Rent Allowance');

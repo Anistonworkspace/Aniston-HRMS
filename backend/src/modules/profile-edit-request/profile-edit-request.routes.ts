@@ -1,22 +1,22 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../../middleware/auth.middleware.js';
+import { authenticate, authorize, requireEmpPerm } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
 import { profileEditRequestController } from './profile-edit-request.controller.js';
 
 const router = Router();
 
 // Employee: create a request
-router.post('/', authenticate, (req, res, next) =>
+router.post('/', authenticate, requireEmpPerm('canViewEditProfile'), (req, res, next) =>
   profileEditRequestController.create(req, res, next)
 );
 
 // Employee: view own requests
-router.get('/my', authenticate, (req, res, next) =>
+router.get('/my', authenticate, requireEmpPerm('canViewEditProfile'), (req, res, next) =>
   profileEditRequestController.listMine(req, res, next)
 );
 
 // Employee: apply an approved edit (employee submits actual new data)
-router.post('/:id/apply', authenticate, (req, res, next) =>
+router.post('/:id/apply', authenticate, requireEmpPerm('canViewEditProfile'), (req, res, next) =>
   profileEditRequestController.apply(req, res, next)
 );
 

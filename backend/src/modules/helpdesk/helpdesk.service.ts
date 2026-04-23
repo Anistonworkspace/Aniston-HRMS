@@ -2,7 +2,7 @@ import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { aiService } from '../../services/ai.service.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
-import { enqueueEmail } from '../../jobs/queues.js';
+import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { logger } from '../../lib/logger.js';
 import { emitToOrg, emitToUser } from '../../sockets/index.js';
 import { Role } from '@prisma/client';
@@ -90,7 +90,7 @@ export class HelpdeskService {
               ? { in: [Role.ADMIN, Role.SUPER_ADMIN] }
               : { in: [Role.HR, Role.SUPER_ADMIN] },
           },
-          select: { email: true },
+          select: { id: true, email: true },
         }),
       ]);
       const employeeName = employee ? `${employee.firstName} ${employee.lastName}` : 'An employee';
@@ -112,6 +112,14 @@ export class HelpdeskService {
             link: 'https://hr.anistonav.com/helpdesk',
           },
         });
+        await enqueueNotification({
+          userId: u.id,
+          organizationId,
+          type: 'HELPDESK_TICKET_CREATED',
+          title: `[${ticketCode}] New Support Ticket`,
+          message: `${employeeName} raised a ticket: ${data.subject}`,
+          link: '/helpdesk',
+        }).catch(() => {});
       }
     } catch (err) {
       logger.error('Failed to send helpdesk ticket creation email', err);
@@ -159,11 +167,11 @@ export class HelpdeskService {
     // Notify employee when status changes
     if (data.status && data.status !== ticket.status) {
       try {
-        const employeeEmail = (ticket.employee as any)?.user?.email;
-        if (employeeEmail) {
+        const empUser = (ticket.employee as any)?.user;
+        if (empUser?.email) {
           const employeeName = `${(ticket.employee as any).firstName} ${(ticket.employee as any).lastName}`;
           await enqueueEmail({
-            to: employeeEmail,
+            to: empUser.email,
             subject: `[${ticket.ticketCode}] Your ticket has been ${data.status.toLowerCase()}`,
             template: 'helpdesk-ticket-updated',
             context: {
@@ -175,6 +183,16 @@ export class HelpdeskService {
               link: 'https://hr.anistonav.com/helpdesk',
             },
           });
+        }
+        if (empUser?.id) {
+          await enqueueNotification({
+            userId: empUser.id,
+            organizationId,
+            type: 'HELPDESK_TICKET_UPDATED',
+            title: `Ticket ${data.status === 'RESOLVED' ? 'Resolved' : 'Updated'}: [${ticket.ticketCode}]`,
+            message: `Your support ticket "${ticket.subject}" is now ${data.status.toLowerCase().replace(/_/g, ' ')}.`,
+            link: '/helpdesk',
+          }).catch(() => {});
         }
       } catch (err) {
         logger.error('Failed to send helpdesk status update email', err);
@@ -211,11 +229,11 @@ export class HelpdeskService {
       try {
         const isHrSide = authorRole && ['HR', 'ADMIN', 'SUPER_ADMIN'].includes(authorRole);
         if (isHrSide) {
-          const employeeEmail = (ticket.employee as any)?.user?.email;
-          if (employeeEmail) {
-            const employeeName = `${(ticket.employee as any).firstName} ${(ticket.employee as any).lastName}`;
+          const empUser = (ticket.employee as any)?.user;
+          const employeeName = `${(ticket.employee as any).firstName} ${(ticket.employee as any).lastName}`;
+          if (empUser?.email) {
             await enqueueEmail({
-              to: employeeEmail,
+              to: empUser.email,
               subject: `[${ticket.ticketCode}] New reply on your support ticket`,
               template: 'helpdesk-ticket-updated',
               context: {
@@ -228,6 +246,16 @@ export class HelpdeskService {
               },
             });
           }
+          if (empUser?.id) {
+            await enqueueNotification({
+              userId: empUser.id,
+              organizationId,
+              type: 'HELPDESK_COMMENT',
+              title: `New Reply on [${ticket.ticketCode}]`,
+              message: `HR replied to your ticket: "${ticket.subject}"`,
+              link: '/helpdesk',
+            }).catch(() => {});
+          }
         } else {
           // Employee commented → notify the target dept only
           const targetRoles: Role[] = (ticket as any).targetDept === 'ADMIN'
@@ -235,7 +263,7 @@ export class HelpdeskService {
             : [Role.HR, Role.SUPER_ADMIN];
           const targetUsers = await prisma.user.findMany({
             where: { organizationId, role: { in: targetRoles } },
-            select: { email: true },
+            select: { id: true, email: true },
           });
           const employeeName = ticket.employee
             ? `${(ticket.employee as any).firstName} ${(ticket.employee as any).lastName}`
@@ -253,6 +281,14 @@ export class HelpdeskService {
                 link: 'https://hr.anistonav.com/helpdesk',
               },
             });
+            await enqueueNotification({
+              userId: u.id,
+              organizationId,
+              type: 'HELPDESK_COMMENT',
+              title: `Employee Replied: [${ticket.ticketCode}]`,
+              message: `${employeeName} replied to ticket: "${ticket.subject}"`,
+              link: '/helpdesk',
+            }).catch(() => {});
           }
         }
       } catch (err) {

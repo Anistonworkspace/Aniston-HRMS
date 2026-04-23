@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard, MessageSquare, ShieldCheck, ShieldOff, HardHat, FileText } from 'lucide-react';
+import { User, Mail, Phone, Building2, MapPin, Shield, Edit2, Key, Loader2, Save, X, UserMinus, AlertTriangle, Clock, CheckCircle2, CreditCard, MessageSquare, ShieldCheck, ShieldOff, HardHat, FileText, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setAccessToken } from '../auth/authSlice';
@@ -13,6 +13,8 @@ import { useGetMyProfileEditRequestsQuery, useApplyApprovedEditMutation } from '
 import ProfileUpdateRequestModal from './ProfileUpdateRequestModal';
 import { getInitials, formatDate, getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
+import { useEmpPerms } from '../../hooks/useEmpPerms';
+import PermDenied from '../../components/PermDenied';
 
 export default function ProfilePage() {
   const { t, i18n } = useTranslation();
@@ -38,11 +40,13 @@ export default function ProfilePage() {
   const [activeEditCategory, setActiveEditCategory] = useState<string | null>(null);
   const { data: mfaStatus, refetch: refetchMfa } = useGetMfaStatusQuery();
 
+  const { perms } = useEmpPerms();
   const isEmployeeRole = ['EMPLOYEE', 'INTERN'].includes(user?.role || '');
   const { data: editRequestsRes } = useGetMyProfileEditRequestsQuery(undefined, { skip: !isEmployeeRole });
   const myEditRequests: any[] = (editRequestsRes?.data as any[]) || [];
   const pendingRequests = myEditRequests.filter((r: any) => r.status === 'PENDING');
   const approvedRequests = myEditRequests.filter((r: any) => r.status === 'APPROVED');
+  const rejectedRequests = myEditRequests.filter((r: any) => r.status === 'REJECTED');
 
   // Countdown timer helpers
   const getTimeLeft = (expiresAt: string) => {
@@ -84,6 +88,7 @@ export default function ProfilePage() {
   });
   const [showBankEdit, setShowBankEdit] = useState(false);
   const [savingBank, setSavingBank] = useState(false);
+  const [requestDefaultCategory, setRequestDefaultCategory] = useState<'PERSONAL_DETAILS' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'BANK_DETAILS' | undefined>(undefined);
 
   // Profile completion calculation — must be before any early return to keep hooks order stable
   const completionItems = useMemo(() => {
@@ -136,15 +141,18 @@ export default function ProfilePage() {
     if (!user?.employeeId) return;
     try {
       await updateEmployee({ id: user.employeeId, data: form as any }).unwrap();
-      // If editing via an approved request, apply it to mark it APPLIED
-      if (activeEditRequestId) {
-        try { await applyApprovedEdit(activeEditRequestId).unwrap(); } catch { /* non-blocking */ }
-        setActiveEditRequestId(null);
-        setActiveEditCategory(null);
-      }
       toast.success(t('profile.profileUpdated'));
       setShowEdit(false);
     } catch { toast.error(t('profile.failedToUpdate')); }
+  };
+
+  const handleApplyEdit = async (requestId: string) => {
+    try {
+      await applyApprovedEdit(requestId).unwrap();
+      toast.success('Changes applied successfully');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to apply changes');
+    }
   };
 
   const handleSaveBankDetails = async () => {
@@ -271,7 +279,7 @@ export default function ProfilePage() {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap justify-center sm:justify-start mt-3 sm:mt-0">
-            {isEmployeeRole && (
+            {isEmployeeRole && perms.canViewEditProfile && (
               <button
                 onClick={() => setShowRequestModal(true)}
                 className="btn-secondary flex items-center gap-1.5 text-xs md:text-sm px-3 md:px-4 py-2 md:py-2.5"
@@ -324,17 +332,20 @@ export default function ProfilePage() {
                   HR approved your request. Time remaining: <span className="font-medium">{getTimeLeft(req.editWindowExpiresAt)}</span>
                 </p>
                 {req.hrNote && <p className="text-xs text-emerald-600 mt-1">HR note: {req.hrNote}</p>}
+                {req.requestedData && Object.keys(req.requestedData).length > 0 && (
+                  <p className="text-xs text-emerald-600 mt-1">
+                    Changes: {Object.entries(req.requestedData).map(([k, v]) => `${k.replace(/([A-Z])/g, ' $1').trim()}: ${v}`).join(' · ')}
+                  </p>
+                )}
               </div>
             </div>
             <button
-              onClick={() => {
-                setActiveEditRequestId(req.id);
-                setActiveEditCategory(req.category);
-                setShowEdit(true);
-              }}
-              className="btn-primary text-xs px-3 py-1.5 whitespace-nowrap flex items-center gap-1.5"
+              onClick={() => handleApplyEdit(req.id)}
+              disabled={applyingEdit}
+              className="btn-primary text-xs px-3 py-1.5 whitespace-nowrap flex items-center gap-1.5 disabled:opacity-50"
             >
-              <Edit2 size={12} /> Edit Now
+              {applyingEdit ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+              Apply Changes
             </button>
           </div>
         </motion.div>
@@ -353,10 +364,32 @@ export default function ProfilePage() {
         </motion.div>
       ))}
 
+      {/* Rejected request banners */}
+      {rejectedRequests.map((req: any) => (
+        <motion.div key={req.id} initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+          className="layer-card p-4 mb-4 border border-red-200 bg-red-50/50">
+          <div className="flex items-start gap-3">
+            <XCircle size={16} className="text-red-500 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm text-red-700">
+                <span className="font-medium">{CATEGORY_LABELS[req.category]}</span> update request was rejected.
+              </p>
+              {req.hrNote && <p className="text-xs text-red-600 mt-0.5">HR note: {req.hrNote}</p>}
+              <button
+                onClick={() => { setRequestDefaultCategory(req.category); setShowRequestModal(true); }}
+                className="text-xs text-brand-600 hover:text-brand-700 font-medium mt-1"
+              >
+                Submit a new request →
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      ))}
+
       {/* Profile Update Request Modal */}
       <AnimatePresence>
         {showRequestModal && (
-          <ProfileUpdateRequestModal onClose={() => setShowRequestModal(false)} />
+          <ProfileUpdateRequestModal onClose={() => { setShowRequestModal(false); setRequestDefaultCategory(undefined); }} defaultCategory={requestDefaultCategory} />
         )}
       </AnimatePresence>
 
@@ -414,8 +447,8 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Edit Profile Modal */}
-      {showEdit && (
+      {/* Edit Profile Modal — HR/management only; employees go through request flow */}
+      {showEdit && !isEmployeeRole && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={() => setShowEdit(false)}>
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -590,9 +623,24 @@ export default function ProfilePage() {
         {/* Personal info */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
           className="layer-card p-4 md:p-6">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
-            <User size={16} className="text-brand-500" /> {t('profile.personalInfo')}
-          </h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+              <User size={16} className="text-brand-500" /> {t('profile.personalInfo')}
+            </h3>
+            {isEmployeeRole && perms.canViewEditProfile && (() => {
+              const req = myEditRequests.find(r => r.category === 'PERSONAL_DETAILS' && (r.status === 'PENDING' || r.status === 'APPROVED'));
+              return req ? (
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${req.status === 'PENDING' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                  {req.status === 'PENDING' ? 'Request pending' : 'Approved'}
+                </span>
+              ) : (
+                <button onClick={() => { setRequestDefaultCategory('PERSONAL_DETAILS'); setShowRequestModal(true); }}
+                  className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                  <Edit2 size={12} /> Request to Update
+                </button>
+              );
+            })()}
+          </div>
           <dl className="space-y-3">
             <ProfileRow label={t('common.email')} value={user?.email} />
             <ProfileRow label={t('common.phone')} value={employee?.phone} />
@@ -645,12 +693,18 @@ export default function ProfilePage() {
                 </div>
               </div>
               {mfaStatus?.data?.isEnabled ? (
-                <button
-                  onClick={() => setShowMfaDisable(true)}
-                  className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
-                >
-                  Disable
-                </button>
+                isEmployeeRole ? (
+                  <span className="text-[11px] text-gray-400 flex items-center gap-1">
+                    <Shield size={12} /> Contact HR to disable
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setShowMfaDisable(true)}
+                    className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                  >
+                    Disable
+                  </button>
+                )
               ) : (
                 <button
                   onClick={() => setShowMfaSetup(true)}
@@ -673,9 +727,41 @@ export default function ProfilePage() {
         {/* Address & Emergency */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
           className="layer-card p-4 md:p-6">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
-            <MapPin size={16} className="text-brand-500" /> {t('profile.addressEmergency')}
-          </h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+              <MapPin size={16} className="text-brand-500" /> {t('profile.addressEmergency')}
+            </h3>
+            {isEmployeeRole && perms.canViewEditProfile && (
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const addrReq = myEditRequests.find(r => r.category === 'ADDRESS' && (r.status === 'PENDING' || r.status === 'APPROVED'));
+                  return addrReq ? (
+                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${addrReq.status === 'PENDING' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                      Address {addrReq.status === 'PENDING' ? 'pending' : 'approved'}
+                    </span>
+                  ) : (
+                    <button onClick={() => { setRequestDefaultCategory('ADDRESS'); setShowRequestModal(true); }}
+                      className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                      <Edit2 size={12} /> Address
+                    </button>
+                  );
+                })()}
+                {(() => {
+                  const ecReq = myEditRequests.find(r => r.category === 'EMERGENCY_CONTACT' && (r.status === 'PENDING' || r.status === 'APPROVED'));
+                  return ecReq ? (
+                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${ecReq.status === 'PENDING' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                      Contact {ecReq.status === 'PENDING' ? 'pending' : 'approved'}
+                    </span>
+                  ) : (
+                    <button onClick={() => { setRequestDefaultCategory('EMERGENCY_CONTACT'); setShowRequestModal(true); }}
+                      className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                      <Edit2 size={12} /> Emergency Contact
+                    </button>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
           {employee?.address ? (
             <div className="mb-3 space-y-2">
               <div>
@@ -721,13 +807,29 @@ export default function ProfilePage() {
             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
               <CreditCard size={16} className="text-emerald-500" /> Bank Details
             </h3>
-            <button onClick={() => setShowBankEdit(!showBankEdit)}
-              className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
-              {showBankEdit ? <><X size={12} /> Cancel</> : <><Edit2 size={12} /> Edit</>}
-            </button>
+            {isEmployeeRole ? (() => {
+              const bankReq = myEditRequests.find(r => r.category === 'BANK_DETAILS' && (r.status === 'PENDING' || r.status === 'APPROVED'));
+              return bankReq ? (
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${bankReq.status === 'PENDING' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                  {bankReq.status === 'PENDING' ? 'Request pending' : 'Approved — apply now'}
+                </span>
+              ) : (
+                <button
+                  onClick={() => { setRequestDefaultCategory('BANK_DETAILS'); setShowRequestModal(true); }}
+                  className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                >
+                  <Edit2 size={12} /> Request to Update
+                </button>
+              );
+            })() : (
+              <button onClick={() => setShowBankEdit(!showBankEdit)}
+                className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                {showBankEdit ? <><X size={12} /> Cancel</> : <><Edit2 size={12} /> Edit</>}
+              </button>
+            )}
           </div>
 
-          {showBankEdit ? (
+          {(!isEmployeeRole && showBankEdit) ? (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -780,10 +882,22 @@ export default function ProfilePage() {
             <div className="text-center py-4">
               <CreditCard size={32} className="mx-auto text-gray-300 mb-2" />
               <p className="text-sm text-gray-400">No bank details added yet</p>
-              <button onClick={() => setShowBankEdit(true)}
-                className="mt-2 text-xs text-brand-600 hover:text-brand-700 font-medium">
-                + Add bank details
-              </button>
+              {isEmployeeRole ? (() => {
+                const bankReq = myEditRequests.find(r => r.category === 'BANK_DETAILS' && (r.status === 'PENDING' || r.status === 'APPROVED'));
+                return !bankReq ? (
+                  <button
+                    onClick={() => { setRequestDefaultCategory('BANK_DETAILS'); setShowRequestModal(true); }}
+                    className="mt-2 text-xs text-brand-600 hover:text-brand-700 font-medium"
+                  >
+                    + Request to add bank details
+                  </button>
+                ) : null;
+              })() : (
+                <button onClick={() => setShowBankEdit(true)}
+                  className="mt-2 text-xs text-brand-600 hover:text-brand-700 font-medium">
+                  + Add bank details
+                </button>
+              )}
             </div>
           )}
         </motion.div>

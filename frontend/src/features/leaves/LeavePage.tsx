@@ -39,6 +39,8 @@ import LeaveApplyWizard from './components/LeaveApplyWizard';
 import ManagerReviewPanel from './components/ManagerReviewPanel';
 import HRReviewPanel from './components/HRReviewPanel';
 import toast from 'react-hot-toast';
+import { useEmpPerms } from '../../hooks/useEmpPerms';
+import PermDenied from '../../components/PermDenied';
 
 const LEAVE_ICONS: Record<string, string> = {
   CL: '🏖️', EL: '✨', SL: '🤒', PL: '🌴', LWP: '📋',
@@ -2156,6 +2158,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
    ============================================================================= */
 
 function LeavePersonalView() {
+  const { perms } = useEmpPerms();
   const { t } = useTranslation();
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [leavePage, setLeavePage] = useState(1);
@@ -2221,6 +2224,9 @@ function LeavePersonalView() {
   const leaveTypes = typesRes?.data || [];
   const leaves = leavesRes?.data || [];
   const holidays = holidaysRes?.data || [];
+
+  // Employee-level permission gate
+  if (!perms.canViewLeaveBalance) return <PermDenied action="view leave balance" />;
 
   // Check if employee has accepted the leave policy
   const leavePolicy = (policiesRes?.data || []).find((p: any) => p.category === 'LEAVE' && p.isActive);
@@ -2309,17 +2315,21 @@ function LeavePersonalView() {
         </div>
         {/* Only employee accounts can apply leave; system accounts (HR/Admin/SA) cannot */}
         {!['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role || '') ? (
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setShowApplyModal(true)}
-            className="flex items-center gap-1.5 bg-brand-600 text-white text-xs md:text-sm font-medium px-3 py-2 md:px-4 md:py-2.5 rounded-lg md:rounded-xl hover:bg-brand-700 active:bg-brand-800 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-          >
-            <Plus size={14} className="md:hidden" />
-            <Plus size={16} className="hidden md:block" />
-            <span className="hidden xs:inline">{t('leaves.applyLeave')}</span>
-            <span className="xs:hidden">Apply</span>
-          </motion.button>
+          perms.canApplyLeaves ? (
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setShowApplyModal(true)}
+              className="flex items-center gap-1.5 bg-brand-600 text-white text-xs md:text-sm font-medium px-3 py-2 md:px-4 md:py-2.5 rounded-lg md:rounded-xl hover:bg-brand-700 active:bg-brand-800 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+            >
+              <Plus size={14} className="md:hidden" />
+              <Plus size={16} className="hidden md:block" />
+              <span className="hidden xs:inline">{t('leaves.applyLeave')}</span>
+              <span className="xs:hidden">Apply</span>
+            </motion.button>
+          ) : (
+            <PermDenied action="apply for leave" inline />
+          )
         ) : (
           <div className="text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2 max-w-xs text-right">
             System accounts cannot apply leave

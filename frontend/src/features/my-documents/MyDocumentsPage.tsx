@@ -9,6 +9,8 @@ import { useGetMyLettersQuery } from '../policies/letterApi';
 import { cn } from '../../lib/utils';
 import SecureDocumentViewer from '../policies/SecureDocumentViewer';
 import toast from 'react-hot-toast';
+import { useEmpPerms } from '../../hooks/useEmpPerms';
+import PermDenied from '../../components/PermDenied';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -97,7 +99,7 @@ function formatDate(dateStr: string): string {
 /*  Document Card                                                      */
 /* ------------------------------------------------------------------ */
 
-function DocumentCard({ doc, locked }: { doc: any; locked: boolean }) {
+function DocumentCard({ doc, locked, canDownload = true }: { doc: any; locked: boolean; canDownload?: boolean }) {
   const isCombinedPdf = doc.type === 'OTHER' &&
     (doc.name?.toLowerCase().includes('combined') || doc.name?.toLowerCase().includes('kyc'));
 
@@ -126,7 +128,7 @@ function DocumentCard({ doc, locked }: { doc: any; locked: boolean }) {
         <span className="text-gray-400 text-xs">
           Uploaded {formatDate(doc.createdAt)}
         </span>
-        {doc.fileUrl && (
+        {doc.fileUrl && canDownload && (
           <a
             href={doc.fileUrl}
             target="_blank"
@@ -137,6 +139,9 @@ function DocumentCard({ doc, locked }: { doc: any; locked: boolean }) {
             <Download size={14} />
             Download
           </a>
+        )}
+        {doc.fileUrl && !canDownload && (
+          <PermDenied action="download documents" inline />
         )}
       </div>
 
@@ -219,6 +224,7 @@ function CategorySection({ category, documents }: { category: Category; document
                   key={doc.id}
                   doc={doc}
                   locked={ONBOARDING_LOCKED_TYPES.has(doc.type)}
+                  canDownload={perms.canDownloadDocuments}
                 />
               ))}
             </div>
@@ -367,7 +373,8 @@ function UploadPanel({ existingTypes, onUploaded }: { existingTypes: string[]; o
 /* ------------------------------------------------------------------ */
 
 export default function MyDocumentsPage() {
-  const { data: res, isLoading, isError, refetch } = useGetMyDocumentsQuery();
+  const { perms } = useEmpPerms();
+  const { data: res, isLoading, isError, refetch } = useGetMyDocumentsQuery(undefined, { skip: !perms.canViewDocuments });
   const documents: any[] = res?.data || [];
 
   // All types already uploaded by this employee
@@ -384,6 +391,8 @@ export default function MyDocumentsPage() {
   function getDocsForCategory(types: string[]) {
     return documents.filter((d: any) => types.includes(d.type));
   }
+
+  if (!perms.canViewDocuments) return <PermDenied action="view documents" />;
 
   return (
     <div className="page-container">

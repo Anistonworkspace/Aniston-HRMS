@@ -119,6 +119,31 @@ export async function generatePayrollExcel(
   const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
   const xlsxPassword = `ANI-${monthNames[run.month - 1]}`;
 
+  // Pre-calculate dynamic columns BEFORE creating any rows (needed for title row merge)
+  let totalGross = 0, totalNet = 0, totalDeductions = 0;
+  const filteredRecords = (records as any[]).filter((r: any) => !r.employee?.isSystemAccount);
+
+  // Only show ESI / PT / bonus columns when at least one employee has them configured (> 0)
+  const hasEsiAny         = filteredRecords.some((r: any) => n(r.esiEmployee) > 0);
+  const hasPtAny          = filteredRecords.some((r: any) => n(r.professionalTax) > 0);
+  const hasSundayBonusAny = filteredRecords.some((r: any) => n((r.earningsBreakdown as any)?.['Sunday Bonus']) > 0);
+  const hasOvertimeAny    = filteredRecords.some((r: any) => n((r.earningsBreakdown as any)?.['Overtime Pay']) > 0);
+
+  // Build dynamic header list so column indices stay consistent
+  const summaryHeaders: string[] = [
+    '#', 'Emp Code', 'Employee Name', 'Department',
+    'Working Days', 'Present', 'LOP Days',
+    'Basic', 'Other Earnings',
+    ...(hasSundayBonusAny ? ['Sunday Bonus'] : []),
+    ...(hasOvertimeAny    ? ['Overtime Pay']  : []),
+    'Gross Salary',
+    'EPF (Emp)',
+    ...(hasEsiAny ? ['ESI (Emp)'] : []),
+    ...(hasPtAny  ? ['Prof Tax']  : []),
+    'TDS', 'LOP Ded.', 'Late LOP',
+    'Total Deductions', 'Net Salary',
+  ];
+
   // ===== SHEET 1: Payroll Summary =====
   const summarySheet = workbook.addWorksheet('Payroll Summary', {
     views: [{ state: 'frozen', ySplit: 3 }],
@@ -126,48 +151,60 @@ export async function generatePayrollExcel(
 
   summarySheet.addRow([`${orgName} — Payroll Report`]);
   summarySheet.getRow(1).font = { bold: true, size: 14, color: { argb: BRAND } };
-  summarySheet.mergeCells(1, 1, 1, 17);
+  summarySheet.mergeCells(1, 1, 1, summaryHeaders.length);
 
   summarySheet.addRow([
     `Period: ${periodLabel}`, '', `Status: ${run.status}`, '',
     `Processed: ${run.processedAt ? new Date(run.processedAt).toLocaleDateString('en-IN') : 'N/A'}`,
-    '', `Employees: ${records.filter((r: any) => !r.employee?.isSystemAccount).length}`,
+    '', `Employees: ${filteredRecords.length}`,
   ]);
   summarySheet.getRow(2).font = { size: 10, color: { argb: GRAY } };
 
-  const headers = [
-    '#', 'Emp Code', 'Employee Name', 'Department',
-    'Working Days', 'Present', 'LOP Days',
-    'Basic', 'Other Earnings', 'Gross Salary',
-    'EPF (Emp)', 'ESI (Emp)', 'Prof Tax', 'TDS', 'LOP Ded.',
-    'Total Deductions', 'Net Salary',
-  ];
+  // Column index helpers (1-based, matching summaryHeaders)
+  const COL_GROSS      = summaryHeaders.indexOf('Gross Salary') + 1;
+  const COL_LOP_COL   = summaryHeaders.indexOf('LOP Days') + 1;
+  const COL_LOP_DED   = summaryHeaders.indexOf('LOP Ded.') + 1;
+  const COL_LATE_LOP  = summaryHeaders.indexOf('Late LOP') + 1;
+  const COL_TOTAL_D   = summaryHeaders.indexOf('Total Deductions') + 1;
+  const COL_NET       = summaryHeaders.indexOf('Net Salary') + 1;
+  const COL_FIRST_MONEY = summaryHeaders.indexOf('Basic') + 1;
 
-  const headerRow = summarySheet.addRow(headers);
+  const headerRow = summarySheet.addRow(summaryHeaders);
   styleHeaderRow(headerRow);
 
-  [5, 12, 24, 16, 11, 8, 8, 13, 13, 14, 11, 11, 9, 11, 11, 15, 14].forEach((w, i) => {
-    summarySheet.getColumn(i + 1).width = w;
+  // Dynamic column widths matching header order
+  const colWidths: Record<string, number> = {
+    '#': 5, 'Emp Code': 12, 'Employee Name': 24, 'Department': 16,
+    'Working Days': 11, 'Present': 8, 'LOP Days': 8,
+    'Basic': 13, 'Other Earnings': 13, 'Sunday Bonus': 13, 'Overtime Pay': 13, 'Gross Salary': 14,
+    'EPF (Emp)': 11, 'ESI (Emp)': 11, 'Prof Tax': 9,
+    'TDS': 11, 'LOP Ded.': 11, 'Late LOP': 10, 'Total Deductions': 15, 'Net Salary': 14,
+  };
+  summaryHeaders.forEach((h, i) => {
+    summarySheet.getColumn(i + 1).width = colWidths[h] ?? 12;
   });
-
-  let totalGross = 0, totalNet = 0, totalDeductions = 0;
-  const filteredRecords = (records as any[]).filter((r: any) => !r.employee?.isSystemAccount);
 
   if (filteredRecords.length === 0) {
     const noDataRow = summarySheet.addRow([
       '—', 'N/A', 'No payroll records for this period — process payroll first',
-      ...Array(15).fill('N/A'),
+      ...Array(summaryHeaders.length - 3).fill('N/A'),
     ]);
     noDataRow.font = { italic: true, color: { argb: GRAY }, size: 10 };
     noDataRow.getCell(3).alignment = { horizontal: 'left' };
   }
 
   filteredRecords.forEach((rec: any, idx: number) => {
-    const otherTotal = resolveOtherEarningsTotal(rec);
+    const eb = (rec.earningsBreakdown as Record<string, number>) || {};
+    const sundayBonusAmt = hasSundayBonusAny ? n(eb['Sunday Bonus'] || 0) : 0;
+    const overtimePayAmt = hasOvertimeAny    ? n(eb['Overtime Pay']  || 0) : 0;
+    // "Other Earnings" excludes Sunday Bonus and OT Pay when they have dedicated columns
+    const otherTotal = resolveOtherEarningsTotal(rec) - sundayBonusAmt - overtimePayAmt;
 
     const totalDed =
-      n(rec.epfEmployee) + n(rec.esiEmployee) +
-      n(rec.professionalTax) + n(rec.tds) + n(rec.lopDeduction);
+      n(rec.epfEmployee) +
+      (hasEsiAny ? n(rec.esiEmployee) : 0) +
+      (hasPtAny  ? n(rec.professionalTax) : 0) +
+      n(rec.tds) + n(rec.lopDeduction);
 
     totalGross += n(rec.grossSalary);
     totalNet   += n(rec.netSalary);
@@ -177,12 +214,11 @@ export async function generatePayrollExcel(
 
     // For custom-component employees, Basic cell shows blank when the employee
     // genuinely has no Basic component (earningsBreakdown exists but doesn't include it).
-    const eb: Record<string, number> = rec.earningsBreakdown || {};
     const hasEb = Object.keys(eb).length > 0;
     const hasBasicComp = !hasEb || 'Basic' in eb || 'Basic Salary' in eb;
     const basicCell    = hasBasicComp ? n(rec.basic) : '';
 
-    const row = summarySheet.addRow([
+    const rowValues: any[] = [
       idx + 1,
       t(rec.employee?.employeeCode),
       t(empName) === 'N/A' ? 'N/A' : empName,
@@ -191,30 +227,39 @@ export async function generatePayrollExcel(
       rec.presentDays ?? 'N/A',
       rec.lopDays ?? 0,
       basicCell,
-      otherTotal,
+      otherTotal || '',
+      ...(hasSundayBonusAny ? [sundayBonusAmt || ''] : []),
+      ...(hasOvertimeAny    ? [overtimePayAmt  || ''] : []),
       n(rec.grossSalary),
       n(rec.epfEmployee),
-      n(rec.esiEmployee),
-      n(rec.professionalTax),
+      ...(hasEsiAny ? [n(rec.esiEmployee)] : []),
+      ...(hasPtAny  ? [n(rec.professionalTax)] : []),
       n(rec.tds),
       n(rec.lopDeduction),
+      n((rec.deductionsBreakdown as any)?.['Late LOP'] || 0),
       totalDed,
       n(rec.netSalary),
-    ]);
+    ];
 
+    const row = summarySheet.addRow(rowValues);
     row.font = { size: 9, name: 'Calibri' };
     row.alignment = { horizontal: 'center' };
 
-    // Currency format for money columns (8-17)
-    for (const col of [8, 9, 10, 11, 12, 13, 14, 15, 16, 17]) {
+    // Currency format for all money columns starting from 'Basic'
+    for (let col = COL_FIRST_MONEY; col <= summaryHeaders.length; col++) {
       row.getCell(col).numFmt = '₹#,##0';
     }
 
-    row.getCell(17).font = { bold: true, size: 10, color: { argb: GREEN } };
+    row.getCell(COL_NET).font = { bold: true, size: 10, color: { argb: GREEN } };
 
     if (n(rec.lopDays) > 0) {
-      row.getCell(7).font  = { bold: true, color: { argb: RED }, size: 9 };
-      row.getCell(15).font = { bold: true, color: { argb: RED }, size: 9 };
+      row.getCell(COL_LOP_COL).font = { bold: true, color: { argb: RED }, size: 9 };
+      row.getCell(COL_LOP_DED).font = { bold: true, color: { argb: RED }, size: 9 };
+    }
+    const lateLopAmt = n((rec.deductionsBreakdown as any)?.['Late LOP'] || 0);
+    if (lateLopAmt > 0) {
+      row.getCell(COL_LATE_LOP).font = { bold: true, color: { argb: 'D97706' }, size: 9 };
+      row.getCell(COL_LATE_LOP).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E2' } };
     }
 
     // Alternate row shading
@@ -225,54 +270,58 @@ export async function generatePayrollExcel(
     }
   });
 
-  // Totals row
-  const totalsRow = summarySheet.addRow([
-    '', '', 'TOTAL', '', '', '', '',
-    '', '', totalGross,
-    '', '', '', '', '',
-    totalDeductions, totalNet,
-  ]);
+  // Totals row — dynamic positional fill
+  const totalsValues: any[] = Array(summaryHeaders.length).fill('');
+  totalsValues[0] = ''; totalsValues[1] = ''; totalsValues[2] = 'TOTAL';
+  totalsValues[COL_GROSS - 1]   = totalGross;
+  totalsValues[COL_TOTAL_D - 1] = totalDeductions;
+  totalsValues[COL_NET - 1]     = totalNet;
+  const totalsRow = summarySheet.addRow(totalsValues);
   totalsRow.font = { bold: true, size: 11, name: 'Calibri' };
-  totalsRow.getCell(10).numFmt = '₹#,##0';
-  totalsRow.getCell(16).numFmt = '₹#,##0';
-  totalsRow.getCell(17).numFmt = '₹#,##0';
-  totalsRow.getCell(17).font = { bold: true, size: 12, color: { argb: GREEN } };
+  totalsRow.getCell(COL_GROSS).numFmt   = '₹#,##0';
+  totalsRow.getCell(COL_TOTAL_D).numFmt = '₹#,##0';
+  totalsRow.getCell(COL_NET).numFmt     = '₹#,##0';
+  totalsRow.getCell(COL_NET).font = { bold: true, size: 12, color: { argb: GREEN } };
   totalsRow.eachCell((cell) => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EEF2FF' } };
   });
 
   summarySheet.autoFilter = {
     from: { row: 3, column: 1 },
-    to: { row: 3 + filteredRecords.length, column: headers.length },
+    to: { row: 3 + filteredRecords.length, column: summaryHeaders.length },
   };
 
   // ── Legend: Column Guide ──────────────────────────────────────────────────
   summarySheet.addRow([]);
   const lgTitle = summarySheet.addRow(['📋  COLUMN GUIDE — What each column means']);
-  summarySheet.mergeCells(lgTitle.number, 1, lgTitle.number, 17);
+  summarySheet.mergeCells(lgTitle.number, 1, lgTitle.number, summaryHeaders.length);
   lgTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
   lgTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BRAND } };
   lgTitle.height = 22;
 
   const colGuide: [string, string][] = [
-    ['Working Days',      'Total Mon–Sat days in the month (Sundays not counted). Shorter if employee joined or left mid-month.'],
-    ['Present',           'Days clocked in. Half-day = 0.5. Sundays worked appear as "Sunday Bonus" in Other Earnings.'],
+    ['Working Days',      'Total working days in the month per the employee\'s shift schedule. Shorter if employee joined or left mid-month.'],
+    ['Present',           'Days clocked in. Half-day = 0.5. Off-days worked (e.g. Sundays) appear in the Sunday Bonus column.'],
     ['LOP Days',          'Loss of Pay days = Explicit ABSENT + Half-day×0.5 + Implicit no-show on working day + Unpaid leave.'],
     ['Basic',             'Pro-rated basic salary = (Annual CTC ÷ 12) × Basic% × (Emp Working Days ÷ Total Working Days).'],
-    ['Other Earnings',    'Sum of all other earning components — HRA, DA, Sunday Bonus, adjustments, etc.'],
-    ['Gross Salary',      'Basic + Other Earnings. This is before any deductions.'],
+    ['Other Earnings',    'Sum of all other earning components — HRA, DA, custom allowances, adjustments, etc. Excludes Sunday Bonus and Overtime Pay (shown in their own columns when applicable). See Earnings Breakdown sheet for full detail.'],
+    ...(hasSundayBonusAny ? [['Sunday Bonus', 'Bonus for working on a weekly off-day (e.g. Sunday for Mon–Sat shifts). Calculated as Daily Rate × off-days worked.']] as [string, string][] : []),
+    ...(hasOvertimeAny    ? [['Overtime Pay',  'Overtime earnings = (Monthly CTC ÷ 26 working days ÷ 8 hours) × OT Hours × Rate Multiplier (configured in Shift settings). Only shown when OT is approved and recorded.']] as [string, string][] : []),
+    ['Gross Salary',      'Basic + Other Earnings + Sunday Bonus (if any) + Overtime Pay (if any). This is before any deductions.'],
     ['EPF (Emp)',         'Employee EPF = 12% × Basic, capped at ₹1,800/month (Indian statutory ceiling: 12% × ₹15,000).'],
-    ['ESI (Emp)',         'Employee ESI = 0.75% × Gross (only if Gross ≤ ₹21,000). Currently component-master driven (shown if configured).'],
-    ['Prof Tax',          'Professional Tax per state slab. Currently component-master driven (shown if configured).'],
+    ...(hasEsiAny ? [['ESI (Emp)', 'Employee ESI = 0.75% × Gross (only if Gross ≤ ₹21,000). Shown only when configured in your org.']] as [string, string][] : []),
+    ...(hasPtAny  ? [['Prof Tax',  'Professional Tax per state slab. Shown only when configured in your org.']] as [string, string][] : []),
     ['TDS',               'Monthly TDS = Projected annual income tax ÷ remaining months in financial year.'],
     ['LOP Ded.',          'LOP Deduction = (Gross ÷ Working Days) × LOP Days. Capped so Net Salary never goes below ₹0.'],
-    ['Total Deductions',  'EPF + ESI + Prof Tax + TDS + Custom Deductions + LOP Deduction.'],
+    ['Late LOP',          'Late arrival penalty deduction. Charged when employee accumulates late arrivals per the Late Penalty setting in their shift (0.5 day per penalty unit).'],
+    ['Total Deductions',  'EPF + ESI (if configured) + Prof Tax (if configured) + TDS + Custom Deductions + LOP Deduction.'],
     ['Net Salary',        'Gross Salary − Total Deductions. This is the amount transferred to the employee\'s bank account.'],
   ];
 
+  const colGuideColCount = summaryHeaders.length;
   for (const [col, desc] of colGuide) {
     const r = summarySheet.addRow(['', col, desc]);
-    summarySheet.mergeCells(r.number, 3, r.number, 17);
+    summarySheet.mergeCells(r.number, 3, r.number, colGuideColCount);
     r.getCell(2).font = { bold: true, size: 9, name: 'Calibri', color: { argb: '1E3A8A' } };
     r.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EFF6FF' } };
     r.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
@@ -283,7 +332,7 @@ export async function generatePayrollExcel(
 
   summarySheet.addRow([]);
   const fTitle = summarySheet.addRow(['🧮  PAYROLL FORMULA SUMMARY — How salary is calculated']);
-  summarySheet.mergeCells(fTitle.number, 1, fTitle.number, 17);
+  summarySheet.mergeCells(fTitle.number, 1, fTitle.number, colGuideColCount);
   fTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
   fTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '065F46' } };
   fTitle.height = 22;
@@ -296,7 +345,7 @@ export async function generatePayrollExcel(
     'LOP Deduction  =  Daily Rate × LOP Days   [Capped so Net ≥ ₹0]',
     'EPF Employee  =  12% × Actual Basic   (capped at 12% × ₹15,000 = ₹1,800/month — Indian statutory)',
     'EPF Employer  =  12% × Actual Basic   (same cap — shown in Employer Cost sheet)',
-    'Net Salary  =  Gross − EPF(Employee) − ESI(Employee) − Prof Tax − TDS − Custom Deductions − LOP Deduction',
+    'Net Salary  =  Gross − EPF(Employee) − ESI(Employee if configured) − Prof Tax(if configured) − TDS − Custom Deductions − LOP Deduction',
     'Sunday Rule  =  Sundays are PAID weekly off. Only Mon–Sat absences count as LOP. Working on Sunday = extra bonus.',
     'Mid-month Joiner  =  Effective period starts from Onboarding Date. Working days and salary counted from that date only.',
     'Mid-month Exit  =  Effective period ends on Last Working Date. Salary prorated to that date.',
@@ -304,7 +353,7 @@ export async function generatePayrollExcel(
 
   for (const f of formulas) {
     const r = summarySheet.addRow(['→', '', f]);
-    summarySheet.mergeCells(r.number, 2, r.number, 17);
+    summarySheet.mergeCells(r.number, 2, r.number, colGuideColCount);
     r.getCell(1).font = { bold: true, color: { argb: GREEN }, size: 11 };
     r.getCell(1).alignment = { horizontal: 'center' };
     r.getCell(2).font = { size: 9, name: 'Calibri' };

@@ -1302,6 +1302,55 @@ export class LeaveService {
       throw new BadRequestError('Unauthorized: this leave request does not belong to your organization');
     }
 
+    // ── Re-check applicableTo at approval time (employee status may have changed since application) ──
+    if (action === 'APPROVED' || action === 'APPROVED_WITH_CONDITION' || action === 'MANAGER_APPROVED') {
+      const leaveType = await prisma.leaveType.findUnique({
+        where: { id: request.leaveTypeId },
+        select: { name: true, applicableTo: true, applicableToRole: true, applicableToEmployeeIds: true },
+      });
+      if (leaveType) {
+        const empProfile = await prisma.employee.findUnique({
+          where: { id: request.employeeId },
+          select: { status: true, userId: true },
+        });
+        const empUser = empProfile?.userId
+          ? await prisma.user.findUnique({ where: { id: empProfile.userId }, select: { role: true } })
+          : null;
+
+        const app = leaveType.applicableTo as string | null;
+        if (app && app !== 'ALL') {
+          const empStatus = (empProfile?.status as string | undefined) || '';
+          const STATUS_MAP: Record<string, string[]> = {
+            PROBATION: ['PROBATION'],
+            CONFIRMED: ['ACTIVE', 'CONFIRMED'],
+            INTERN: ['INTERN'],
+            NOTICE_PERIOD: ['NOTICE_PERIOD'],
+          };
+          const allowed = STATUS_MAP[app];
+          if (allowed && !allowed.includes(empStatus)) {
+            throw new BadRequestError(
+              `Cannot approve: ${leaveType.name} is only applicable to ${app.toLowerCase().replace(/_/g, ' ')} employees. This employee's current status is ${empStatus || 'unknown'}.`
+            );
+          }
+        }
+
+        // Re-check role restriction
+        if (leaveType.applicableToRole && empUser?.role !== leaveType.applicableToRole) {
+          throw new BadRequestError(
+            `Cannot approve: ${leaveType.name} is restricted to ${leaveType.applicableToRole} role only.`
+          );
+        }
+
+        // Re-check specific employee IDs restriction
+        const specificIds: string[] | null = (leaveType as any).applicableToEmployeeIds
+          ? (() => { try { return JSON.parse((leaveType as any).applicableToEmployeeIds); } catch { return null; } })()
+          : null;
+        if (specificIds && specificIds.length > 0 && !specificIds.includes(request.employeeId)) {
+          throw new BadRequestError(`Cannot approve: ${leaveType.name} is not applicable to this employee.`);
+        }
+      }
+    }
+
     // ── Role-based permission enforcement ──
     const approverUser = await prisma.user.findUnique({ where: { id: approvedBy }, select: { role: true } });
     const approverRole = approverUser?.role;

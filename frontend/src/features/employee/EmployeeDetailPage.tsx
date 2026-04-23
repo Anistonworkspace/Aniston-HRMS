@@ -548,7 +548,7 @@ function SidebarMeta({ icon: Icon, label, count, onClick }: { icon: any; label: 
    ============================================================================= */
 
 function ProfileRequestsTab({ employeeId }: { employeeId: string }) {
-  const { data: reqRes, isLoading, refetch } = useGetProfileEditRequestsForEmployeeQuery(employeeId);
+  const { data: reqRes, isLoading, isError, refetch } = useGetProfileEditRequestsForEmployeeQuery(employeeId, { refetchOnMountOrArgChange: true });
   const [reviewRequest, { isLoading: reviewing }] = useReviewProfileEditRequestMutation();
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [hrNote, setHrNote] = useState('');
@@ -573,10 +573,19 @@ function ProfileRequestsTab({ employeeId }: { employeeId: string }) {
   };
 
   if (isLoading) return <div className="flex items-center justify-center py-10"><Loader2 size={20} className="animate-spin text-brand-600" /></div>;
+  if (isError) return (
+    <div className="text-center py-10">
+      <p className="text-sm text-red-500 mb-2">Failed to load profile requests.</p>
+      <button onClick={() => refetch()} className="text-xs text-brand-600 hover:underline">Retry</button>
+    </div>
+  );
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-gray-800">Profile Update Requests ({requests.length})</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-800">Profile Update Requests ({requests.length})</h3>
+        <button onClick={() => refetch()} className="text-xs text-gray-400 hover:text-brand-600">Refresh</button>
+      </div>
       {requests.length === 0 && (
         <div className="text-center py-10 text-sm text-gray-400">No profile update requests from this employee.</div>
       )}
@@ -1951,7 +1960,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
     }
 
     // Build dynamic components array for the new endpoint
-    const components: { name: string; type: 'earning' | 'deduction'; value: number; isPercentage: boolean; percentage?: number }[] = [];
+    const components: { name: string; type: 'earning' | 'deduction'; value: number; isPercentage: boolean; percentage?: number; percentBase?: string }[] = [];
 
     for (const e of earnings) {
       components.push({
@@ -1959,7 +1968,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
         type: 'earning',
         value: Math.round(e.amount),
         isPercentage: e.mode === 'percent',
-        ...(e.mode === 'percent' ? { percentage: e.percentValue } : {}),
+        ...(e.mode === 'percent' ? { percentage: e.percentValue, percentBase: 'MONTHLY_CTC' } : {}),
       });
     }
 
@@ -1969,7 +1978,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
         type: 'deduction',
         value: Math.round(d.amount),
         isPercentage: d.mode === 'percent',
-        ...(d.mode === 'percent' ? { percentage: d.percentValue } : {}),
+        ...(d.mode === 'percent' ? { percentage: d.percentValue, percentBase: 'MONTHLY_CTC' } : {}),
       });
     }
 
@@ -2287,9 +2296,17 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
                     .map((mc: any) => (
                       <button key={mc.id} onClick={() => {
                         componentCounter++;
+                        const isPercent = mc.calculationRule === 'PERCENTAGE_CTC' || mc.calculationRule === 'PERCENTAGE_BASIC';
+                        const defaultPct = mc.defaultPercentage ? Number(mc.defaultPercentage) : 0;
+                        const resolvedAmount = isPercent
+                          ? Math.round((annualCtc / 12) * defaultPct / 100)
+                          : (mc.defaultValue ? Number(mc.defaultValue) : 0);
                         setCustomDeductions(prev => [...prev, {
                           id: `master_${mc.code}_${componentCounter}`, name: mc.name,
-                          amount: mc.defaultValue ? Number(mc.defaultValue) : 0, mode: 'fixed', percentValue: 0, type: 'deduction',
+                          amount: resolvedAmount,
+                          mode: isPercent ? 'percent' as const : 'fixed' as const,
+                          percentValue: defaultPct,
+                          type: 'deduction' as const,
                         }]);
                       }} className="text-[10px] px-2 py-0.5 rounded-full border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
                         + {mc.name}
@@ -2465,7 +2482,7 @@ function SalaryComponentRow({
           }
         }}
         className="text-[10px] font-mono px-2 py-1 rounded border border-gray-200 hover:border-brand-400 hover:bg-brand-50 transition-colors whitespace-nowrap"
-        title={component.mode === 'percent' ? 'Switch to fixed amount' : 'Switch to % of CTC'}
+        title={component.mode === 'percent' ? 'Switch to fixed amount' : 'Switch to % of monthly'}
       >
         {component.mode === 'percent' ? '%' : '₹'}
       </button>

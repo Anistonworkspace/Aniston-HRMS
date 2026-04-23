@@ -36,8 +36,10 @@ import { cn, formatCurrency, formatDate } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
 import { useAuthDownload } from '../../hooks/useAuthDownload';
 import toast from 'react-hot-toast';
+import { useEmpPerms } from '../../hooks/useEmpPerms';
+import PermDenied from '../../components/PermDenied';
 
-const SalaryTemplatesPage = lazy(() => import('./SalaryTemplatesPage'));
+const SalaryComponentsTab = lazy(() => import('../settings/SalaryComponentsTab'));
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const FULL_MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -69,7 +71,7 @@ export default function PayrollPage() {
   return <PayrollEmployeeView />;
 }
 
-type PayrollTab = 'runs' | 'templates';
+type PayrollTab = 'runs' | 'components';
 
 function PayrollAdminWrapper() {
   const [activeTab, setActiveTab] = useState<PayrollTab>('runs');
@@ -96,21 +98,21 @@ function PayrollAdminWrapper() {
           Payroll Runs
         </button>
         <button
-          onClick={() => setActiveTab('templates')}
+          onClick={() => setActiveTab('components')}
           className={cn(
             'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
-            activeTab === 'templates' ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+            activeTab === 'components' ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'
           )}
         >
-          Salary Templates
+          Salary Components
         </button>
       </div>
 
       {/* Tab content */}
       {activeTab === 'runs' && <PayrollAdminView />}
-      {activeTab === 'templates' && (
+      {activeTab === 'components' && (
         <Suspense fallback={<div className="text-center py-12"><Loader2 size={20} className="animate-spin text-gray-400 mx-auto" /></div>}>
-          <SalaryTemplatesPage />
+          <SalaryComponentsTab />
         </Suspense>
       )}
     </div>
@@ -1199,6 +1201,7 @@ function PayrollRecordsPanel({ runId, runStatus, onClose }: { runId: string; run
 // ════════════════════════════════════════════════════════════════════
 
 function PayrollEmployeeView() {
+  const { perms } = useEmpPerms();
   const { t } = useTranslation();
   const now = new Date();
   const { download: authDownload, openInline, downloading } = useAuthDownload();
@@ -1211,9 +1214,12 @@ function PayrollEmployeeView() {
     ...(filterYear > 0 && { year: filterYear }),
   };
   const { data: payslipsRes, isLoading, isFetching } = useGetMyPayslipsQuery(
-    Object.keys(queryParams).length > 0 ? queryParams : undefined
+    Object.keys(queryParams).length > 0 ? queryParams : undefined,
+    { skip: !perms.canViewPayslips }
   );
   const payslips = payslipsRes?.data || [];
+
+  if (!perms.canViewPayslips) return <PermDenied action="view payslips" />;
 
   const yearOptions = Array.from({ length: 4 }, (_, i) => now.getFullYear() - i);
 
@@ -1410,9 +1416,13 @@ function PayrollEmployeeView() {
                         </div>
 
                         <div className="mt-4 flex justify-end">
-                          <button onClick={() => authDownload(`/payroll/records/${slip.id}/pdf`, `salary-slip-${MONTH_NAMES[month - 1]}-${year}.pdf`)} className="btn-primary flex items-center gap-2 text-sm">
-                            <Download size={14} /> {t('payroll.downloadPayslip')}
-                          </button>
+                          {perms.canDownloadPayslips ? (
+                            <button onClick={() => authDownload(`/payroll/records/${slip.id}/pdf`, `salary-slip-${MONTH_NAMES[month - 1]}-${year}.pdf`)} className="btn-primary flex items-center gap-2 text-sm">
+                              <Download size={14} /> {t('payroll.downloadPayslip')}
+                            </button>
+                          ) : (
+                            <PermDenied action="download payslips" inline />
+                          )}
                         </div>
                       </div>
                     </motion.div>

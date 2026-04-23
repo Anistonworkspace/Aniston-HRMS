@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { authenticate, authorize, requirePermission } from '../../middleware/auth.middleware.js';
+import { authenticate, authorize, requirePermission, requireEmpPerm } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
 import { uploadDocument, createEmployeeKycUpload, getEmployeeKycUrl } from '../../middleware/upload.middleware.js';
 import { documentController } from './document.controller.js';
@@ -9,7 +9,7 @@ const router = Router();
 router.use(authenticate);
 
 // Employee: get own documents (must be BEFORE /:id to avoid conflict)
-router.get('/my', (req, res, next) =>
+router.get('/my', requireEmpPerm('canViewDocuments'), (req, res, next) =>
   documentController.myDocuments(req, res, next)
 );
 

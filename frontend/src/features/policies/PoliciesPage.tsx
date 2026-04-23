@@ -6,6 +6,8 @@ import { useGetMyLettersQuery } from './letterApi';
 import { useAppSelector } from '../../app/store';
 import { formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
+import { useEmpPerms } from '../../hooks/useEmpPerms';
+import PermDenied from '../../components/PermDenied';
 import SecureDocumentViewer from './SecureDocumentViewer';
 
 const LettersTab = lazy(() => import('./LettersTab'));
@@ -28,9 +30,12 @@ const LETTER_TYPE_LABELS: Record<string, { label: string; color: string }> = {
 type Tab = 'policies' | 'letters' | 'branding';
 
 export default function PoliciesPage() {
+  const { perms } = useEmpPerms();
   const user = useAppSelector((s) => s.auth.user);
   const isAdmin = user && ADMIN_ROLES.includes(user.role);
   const [activeTab, setActiveTab] = useState<Tab>('policies');
+
+  if (!isAdmin && !perms.canViewPolicies) return <PermDenied action="view policies" />;
 
   const tabs: { id: Tab; label: string; icon: any; adminOnly?: boolean }[] = [
     { id: 'policies', label: 'Policies', icon: BookOpen },

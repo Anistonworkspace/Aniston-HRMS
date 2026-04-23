@@ -124,8 +124,18 @@ export class SalaryTemplateService {
       entity: 'SalaryTemplate',
       entityId: id,
       action: 'UPDATE',
-      oldValue: { name: existing.name, ctc: Number(existing.ctc) },
-      newValue: { name: updated.name, ctc: Number(updated.ctc) },
+      oldValue: {
+        name: existing.name,
+        ctc: Number(existing.ctc),
+        components: existing.components ?? null,
+        isDefault: existing.isDefault,
+      },
+      newValue: {
+        name: updated.name,
+        ctc: Number(updated.ctc),
+        components: updated.components ?? null,
+        isDefault: updated.isDefault,
+      },
     });
 
     return updated;

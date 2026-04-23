@@ -412,13 +412,13 @@ function ShiftsPanel() {
                       </div>
                       {form.isWfhShift && (
                         <p className="mt-2 text-xs text-indigo-600 bg-indigo-100 rounded-lg px-3 py-2">
-                          Attendance will be marked as Work From Home. Geofence and GPS tracking are disabled for this shift.
+                          Attendance will be marked as Work From Home. Geofence and GPS tracking are disabled for this shift. Hybrid WFH days setting below is disabled (not applicable for a full WFH shift).
                         </p>
                       )}
                     </div>
 
-                    {/* Work From Home */}
-                    <div className="bg-indigo-50 rounded-xl p-4">
+                    {/* Work From Home (hybrid days) — only shown when not a full WFH shift */}
+                    <div className={`bg-indigo-50 rounded-xl p-4 transition-opacity ${form.isWfhShift ? 'opacity-40 pointer-events-none select-none' : ''}`}>
                       <div className="flex items-center justify-between mb-3">
                         <p className="text-xs font-semibold text-indigo-700 flex items-center gap-1.5"><Home size={13} /> Work From Home (WFH)</p>
                         <label className="relative inline-flex items-center cursor-pointer">

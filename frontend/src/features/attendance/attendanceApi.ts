@@ -348,6 +348,28 @@ export const attendanceApi = api.injectEndpoints({
       query: ({ id, ...body }) => ({ url: `/attendance/overtime/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['Attendance'],
     }),
+
+    // ===== COMP-OFF =====
+    getCompOffBalance: builder.query<{ success: boolean; data: { balance: number } }, void>({
+      query: () => '/attendance/comp-off/balance',
+      providesTags: ['Attendance'],
+    }),
+    getCompOffCredits: builder.query<{ success: boolean; data: any[] }, void>({
+      query: () => '/attendance/comp-off/credits',
+      providesTags: ['Attendance'],
+    }),
+    getOrgCompOffCredits: builder.query<{ success: boolean; data: any[] }, { status?: string }>({
+      query: (params) => ({ url: '/attendance/comp-off/org', params }),
+      providesTags: ['Attendance'],
+    }),
+    grantCompOff: builder.mutation<any, { employeeId: string; earnedDate: string; hoursWorked: number; notes?: string; expiryMonths?: number }>({
+      query: (body) => ({ url: '/attendance/comp-off/grant', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
+    }),
+    redeemCompOff: builder.mutation<any, { leaveRequestId: string }>({
+      query: (body) => ({ url: '/attendance/comp-off/redeem', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
+    }),
   }),
 });
 
@@ -404,4 +426,10 @@ export const {
   useHandleOvertimeRequestMutation,
   useGetAgentDownloadStatusQuery,
   useLazyDownloadActivityExcelQuery,
+  // Comp-Off
+  useGetCompOffBalanceQuery,
+  useGetCompOffCreditsQuery,
+  useGetOrgCompOffCreditsQuery,
+  useGrantCompOffMutation,
+  useRedeemCompOffMutation,
 } = attendanceApi;

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { leaveController } from './leave.controller.js';
-import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
+import { authenticate, requirePermission, authorize, requireEmpPerm } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
 
 // Reusable query schemas for inline route handlers
@@ -67,15 +67,15 @@ router.delete(
 router.get('/holidays', (req, res, next) => leaveController.getHolidays(req, res, next));
 
 // My leave
-router.get('/balances', (req, res, next) => leaveController.getBalances(req, res, next));
+router.get('/balances', requireEmpPerm('canViewLeaveBalance'), (req, res, next) => leaveController.getBalances(req, res, next));
 router.get('/balances/:employeeId', requirePermission('leave', 'read'), (req, res, next) => leaveController.getBalances(req, res, next));
-router.post('/apply', (req, res, next) => leaveController.applyLeave(req, res, next));
-router.post('/preview', (req, res, next) => leaveController.previewLeave(req, res, next));
-router.get('/my', (req, res, next) => leaveController.getMyLeaves(req, res, next));
+router.post('/apply', requireEmpPerm('canApplyLeaves'), (req, res, next) => leaveController.applyLeave(req, res, next));
+router.post('/preview', requireEmpPerm('canApplyLeaves'), (req, res, next) => leaveController.previewLeave(req, res, next));
+router.get('/my', requireEmpPerm('canViewLeaveBalance'), (req, res, next) => leaveController.getMyLeaves(req, res, next));
 
 // Draft flow
-router.post('/draft', (req, res, next) => leaveController.saveDraft(req, res, next));
-router.post('/:id/submit', (req, res, next) => leaveController.submitDraft(req, res, next));
+router.post('/draft', requireEmpPerm('canApplyLeaves'), (req, res, next) => leaveController.saveDraft(req, res, next));
+router.post('/:id/submit', requireEmpPerm('canApplyLeaves'), (req, res, next) => leaveController.submitDraft(req, res, next));
 
 // Detail & review (must be before generic /:id routes)
 router.get('/:id/detail', (req, res, next) => leaveController.getLeaveDetail(req, res, next));
@@ -476,6 +476,7 @@ router.patch(
       if (employee.user?.id) {
         await enqueueNotification({
           userId: employee.user.id,
+          organizationId: req.user!.organizationId,
           type: 'LEAVE_BALANCE_ADJUSTED',
           title: `Leave Balance Updated — ${leaveType.name}`,
           message: `Your ${leaveType.name} balance for ${year} has been updated to ${allocated} day${allocated !== 1 ? 's' : ''} by HR${reason ? ': ' + reason : '.'}`,

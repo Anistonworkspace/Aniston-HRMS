@@ -12,6 +12,8 @@ import { cn, formatDate, getInitials } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
 import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
+import { useEmpPerms } from '../../hooks/useEmpPerms';
+import PermDenied from '../../components/PermDenied';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
@@ -401,6 +403,7 @@ function TicketDetailModal({ ticketId, onClose }: { ticketId: string; onClose: (
 
 /* ===== PERSONAL VIEW (Employee) ===== */
 function HelpdeskPersonalView() {
+  const { perms } = useEmpPerms();
   const [showCreate, setShowCreate] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const { data: res, refetch } = useGetMyTicketsQuery();
@@ -426,9 +429,13 @@ function HelpdeskPersonalView() {
           <h1 className="text-xl md:text-2xl font-display font-bold text-gray-900">Helpdesk</h1>
           <p className="text-gray-500 text-xs md:text-sm mt-0.5">Raise and track support tickets</p>
         </div>
-        <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 bg-brand-600 text-white text-xs md:text-sm font-medium px-3 py-2 md:px-4 md:py-2.5 rounded-lg md:rounded-xl hover:bg-brand-700 transition-colors">
-          <Plus size={14} /> Raise Ticket
-        </button>
+        {perms.canRaiseHelpdeskTickets ? (
+          <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 bg-brand-600 text-white text-xs md:text-sm font-medium px-3 py-2 md:px-4 md:py-2.5 rounded-lg md:rounded-xl hover:bg-brand-700 transition-colors">
+            <Plus size={14} /> Raise Ticket
+          </button>
+        ) : (
+          <PermDenied action="raise helpdesk tickets" inline />
+        )}
       </div>
 
       {/* Stats */}

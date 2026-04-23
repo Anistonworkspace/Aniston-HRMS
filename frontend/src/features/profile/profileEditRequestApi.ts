@@ -70,7 +70,9 @@ export const profileEditRequestApi = api.injectEndpoints({
       query: (employeeId) => `/profile-edit-requests/employee/${employeeId}`,
       providesTags: (result, error, employeeId) => [
         { type: 'ProfileEditRequest', id: employeeId },
+        'ProfileEditRequest',
       ],
+      keepUnusedDataFor: 0,
     }),
 
     reviewProfileEditRequest: builder.mutation<

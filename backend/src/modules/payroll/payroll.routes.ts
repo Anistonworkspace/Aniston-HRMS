@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
+import { authenticate, requirePermission, authorize, requireEmpPerm } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
 import { payrollController } from './payroll.controller.js';
 import { payrollService } from './payroll.service.js';
@@ -128,6 +128,7 @@ router.get('/salary-history/:employeeId',
 
 // PDF salary slip download
 router.get('/records/:id/pdf',
+  requireEmpPerm('canDownloadPayslips'),
   (req, res, next) => payrollController.downloadSalarySlip(req, res, next)
 );
 
@@ -545,6 +546,7 @@ router.get('/runs/:id/bank-file',
 
 // Employee's own payslips
 router.get('/my-payslips',
+  requireEmpPerm('canViewPayslips'),
   (req, res, next) => payrollController.getMyPayslips(req, res, next)
 );
 

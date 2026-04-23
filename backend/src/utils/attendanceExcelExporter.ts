@@ -80,7 +80,7 @@ export async function generateMonthlyAttendanceExcel(
     },
     select: {
       employeeId: true, date: true, status: true, checkIn: true, checkOut: true,
-      totalHours: true, geofenceViolation: true, workMode: true,
+      totalHours: true, geofenceViolation: true, workMode: true, lateMinutes: true,
     },
   });
 
@@ -90,14 +90,34 @@ export async function generateMonthlyAttendanceExcel(
   });
   const holidayDates = new Set(holidays.map(h => new Date(h.date).toISOString().split('T')[0]));
 
-  // Fetch org attendance policy for week-off days (0=Sun, 1=Mon … 6=Sat)
-  // Falls back to [0] (Sunday only) when no policy configured.
+  // Fetch org attendance policy for week-off days — used as fallback per employee
   const attendancePolicy = await prisma.attendancePolicy.findUnique({ where: { organizationId } });
-  const weekOffDaySet = new Set<number>(
-    (attendancePolicy?.weekOffDays as number[] | null)?.length
-      ? (attendancePolicy!.weekOffDays as number[])
-      : [0]
-  );
+  const orgWeekOffDays: number[] = (attendancePolicy?.weekOffDays as number[] | null)?.length
+    ? (attendancePolicy!.weekOffDays as number[])
+    : [0];
+  // Org-level default set (used when employee has no shift assignment)
+  const weekOffDaySet = new Set<number>(orgWeekOffDays);
+
+  // Build per-employee weekOffDays from their active shift assignment
+  const shiftAssignments = await prisma.shiftAssignment.findMany({
+    where: {
+      employeeId: { in: employees.map(e => e.id) },
+      startDate: { lte: new Date(year, month, 0) },
+      OR: [{ endDate: null }, { endDate: { gte: new Date(year, month - 1, 1) } }],
+    },
+    include: { shift: { select: { weekOffDays: true } } },
+    orderBy: { startDate: 'desc' },
+  });
+  // Map employeeId → weekOffDaySet (most recent assignment wins)
+  const empWeekOffMap = new Map<string, Set<number>>();
+  for (const sa of shiftAssignments) {
+    if (!empWeekOffMap.has(sa.employeeId)) {
+      const wod = (sa.shift?.weekOffDays as number[] | null)?.length
+        ? (sa.shift.weekOffDays as number[])
+        : orgWeekOffDays;
+      empWeekOffMap.set(sa.employeeId, new Set<number>(wod));
+    }
+  }
 
   // Build record map: employeeId → { dateStr → record }
   const recordMap = new Map<string, Map<string, any>>();
@@ -115,7 +135,7 @@ export async function generateMonthlyAttendanceExcel(
   // Title row
   const titleRow = summarySheet.addRow([`Attendance Report — ${monthName}`]);
   titleRow.font = { bold: true, size: 14, color: { argb: BRAND }, name: 'Calibri' };
-  summarySheet.mergeCells(1, 1, 1, 8 + daysInMonth);
+  summarySheet.mergeCells(1, 1, 1, 9 + daysInMonth);
   titleRow.height = 35;
 
   // Header row
@@ -125,7 +145,7 @@ export async function generateMonthlyAttendanceExcel(
     const dayName = dt.toLocaleString('en-IN', { weekday: 'short' });
     headers.push(`${d}\n${dayName}`);
   }
-  headers.push('Present', 'Absent', 'Half Day', 'Leave', 'Holiday', 'WFH', 'Total Hours', 'Avg Hours');
+  headers.push('Present', 'Late Days', 'Absent', 'Half Day', 'Leave', 'Holiday', 'WFH', 'Total Hours', 'Avg Hours');
 
   const headerRow = summarySheet.addRow(headers);
   styleHeaderRow(headerRow);
@@ -138,7 +158,7 @@ export async function generateMonthlyAttendanceExcel(
   for (let d = 1; d <= daysInMonth; d++) {
     summarySheet.getColumn(4 + d).width = 6;
   }
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 9; i++) {
     summarySheet.getColumn(5 + daysInMonth + i).width = 10;
   }
 
@@ -148,6 +168,8 @@ export async function generateMonthlyAttendanceExcel(
   employees.forEach((emp, idx) => {
     const empRecords = recordMap.get(emp.id) || new Map();
     const rowData: any[] = [idx + 1, emp.employeeCode, `${emp.firstName} ${emp.lastName}`, emp.department?.name || '-'];
+    // Use employee's shift weekOffDays if available, else org default
+    const empWodSet = empWeekOffMap.get(emp.id) ?? weekOffDaySet;
 
     let present = 0, absent = 0, halfDay = 0, onLeave = 0, holiday = 0, wfh = 0, totalHours = 0;
 
@@ -170,7 +192,7 @@ export async function generateMonthlyAttendanceExcel(
         }
       } else if (isHoliday) {
         cellValue = 'H'; holiday++;
-      } else if (weekOffDaySet.has(dayOfWeek)) {
+      } else if (empWodSet.has(dayOfWeek)) {
         cellValue = 'W';
       } else if (!isFuture) {
         cellValue = 'A'; absent++;
@@ -181,7 +203,9 @@ export async function generateMonthlyAttendanceExcel(
     }
 
     const avgHours = present > 0 ? Math.round((totalHours / present) * 10) / 10 : 0;
-    rowData.push(present, absent, halfDay, onLeave, holiday, wfh, Math.round(totalHours * 10) / 10, avgHours);
+    const monthRecords = [...empRecords.values()];
+    const lateCount = monthRecords.filter(r => (r as any).lateMinutes > 0).length;
+    rowData.push(present, lateCount, absent, halfDay, onLeave, holiday, wfh, Math.round(totalHours * 10) / 10, avgHours);
 
     const row = summarySheet.addRow(rowData);
     row.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -209,7 +233,12 @@ export async function generateMonthlyAttendanceExcel(
     // Color summary columns
     const presentCell = row.getCell(5 + daysInMonth);
     presentCell.font = { bold: true, color: { argb: GREEN }, size: 10 };
-    const absentCell = row.getCell(6 + daysInMonth);
+    const lateCell = row.getCell(6 + daysInMonth);
+    lateCell.font = { bold: true, color: { argb: 'D97706' }, size: 10 };
+    if (lateCount > 0) {
+      lateCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E2' } };
+    }
+    const absentCell = row.getCell(7 + daysInMonth);
     absentCell.font = { bold: true, color: { argb: RED }, size: 10 };
 
     // Alternate row shading
@@ -275,7 +304,7 @@ export async function generateMonthlyAttendanceExcel(
         dept: emp.department?.name || '-',
         date: fmtDate(dt),
         day: dayName,
-        status: record?.status || (holidayDates.has(dateStr) ? 'HOLIDAY' : weekOffDaySet.has(dt.getDay()) ? 'WEEKEND' : 'ABSENT'),
+        status: record?.status || (holidayDates.has(dateStr) ? 'HOLIDAY' : (empWeekOffMap.get(emp.id) ?? weekOffDaySet).has(dt.getDay()) ? 'WEEKEND' : 'ABSENT'),
         checkIn: record?.checkIn ? fmtTime(record.checkIn) : '-',
         checkOut: record?.checkOut ? fmtTime(record.checkOut) : '-',
         hours: record?.totalHours ? Number(record.totalHours).toFixed(1) : '-',

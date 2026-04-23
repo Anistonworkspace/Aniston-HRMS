@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { attendanceController } from './attendance.controller.js';
-import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
+import { authenticate, requirePermission, authorize, requireEmpPerm } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
 import { uploadAttendancePhoto } from '../../middleware/upload.middleware.js';
 import { storageService, StorageFolder } from '../../services/storage.service.js';
 import { BadRequestError } from '../../middleware/errorHandler.js';
+import { compOffService } from './compoff.service.js';
+import { enqueueNotification } from '../../jobs/queues.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
@@ -18,24 +20,24 @@ const router = Router();
 router.use(authenticate);
 
 // Employee routes
-router.post('/clock-in', (req, res, next) => attendanceController.clockIn(req, res, next));
-router.post('/clock-out', (req, res, next) => attendanceController.clockOut(req, res, next));
-router.post('/break/start', (req, res, next) => attendanceController.startBreak(req, res, next));
-router.post('/break/end', (req, res, next) => attendanceController.endBreak(req, res, next));
-router.get('/today', (req, res, next) => attendanceController.getTodayStatus(req, res, next));
-router.get('/my', (req, res, next) => attendanceController.getMyAttendance(req, res, next));
+router.post('/clock-in', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.clockIn(req, res, next));
+router.post('/clock-out', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.clockOut(req, res, next));
+router.post('/break/start', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.startBreak(req, res, next));
+router.post('/break/end', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.endBreak(req, res, next));
+router.get('/today', requireEmpPerm('canViewAttendanceHistory'), (req, res, next) => attendanceController.getTodayStatus(req, res, next));
+router.get('/my', requireEmpPerm('canViewAttendanceHistory'), (req, res, next) => attendanceController.getMyAttendance(req, res, next));
 
 // Activity pulse (hybrid/WFH session tracking)
-router.post('/activity-pulse', (req, res, next) => attendanceController.recordActivityPulse(req, res, next));
+router.post('/activity-pulse', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.recordActivityPulse(req, res, next));
 
 // GPS trail (field sales)
-router.post('/gps-trail', (req, res, next) => attendanceController.storeGPSTrail(req, res, next));
+router.post('/gps-trail', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.storeGPSTrail(req, res, next));
 router.get('/gps-trail/:employeeId/:date', requirePermission('attendance', 'read'), (req, res, next) =>
   attendanceController.getGPSTrail(req, res, next)
 );
 
 // Regularization
-router.post('/regularization', (req, res, next) => attendanceController.submitRegularization(req, res, next));
+router.post('/regularization', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.submitRegularization(req, res, next));
 router.patch(
   '/regularization/:id',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
@@ -121,8 +123,8 @@ router.post(
 );
 
 // Project site check-ins (standalone, separate from clock-in)
-router.post('/project-site/check-in', (req, res, next) => attendanceController.projectSiteCheckIn(req, res, next));
-router.get('/project-site/my', (req, res, next) => attendanceController.getMyProjectSiteCheckIns(req, res, next));
+router.post('/project-site/check-in', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.projectSiteCheckIn(req, res, next));
+router.get('/project-site/my', requireEmpPerm('canViewAttendanceHistory'), (req, res, next) => attendanceController.getMyProjectSiteCheckIns(req, res, next));
 
 // Admin/HR view — all employees
 router.get(
@@ -371,7 +373,7 @@ router.get('/monthly-report/export', authorize(Role.SUPER_ADMIN, Role.ADMIN, Rol
 // =====================================================================
 // P2.7: EMPLOYEE SELF-SERVICE REPORT
 // =====================================================================
-router.get('/my/report', async (req, res, next) => {
+router.get('/my/report', requireEmpPerm('canViewAttendanceHistory'), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
     const employeeId = req.user!.employeeId;
@@ -457,7 +459,7 @@ router.get('/my/report', async (req, res, next) => {
 // =====================================================================
 // P2.7b: EMPLOYEE SELF-SERVICE EXCEL EXPORT
 // =====================================================================
-router.get('/my/report/export', async (req, res, next) => {
+router.get('/my/report/export', requireEmpPerm('canViewAttendanceHistory'), async (req, res, next) => {
   try {
     const employeeId = req.user!.employeeId;
     if (!employeeId) { res.status(400).json({ success: false, error: { message: 'No employee profile' } }); return; }
@@ -502,7 +504,7 @@ router.get('/check-in-map/:attendanceId', authorize(Role.SUPER_ADMIN, Role.ADMIN
 // =====================================================================
 // P2.10: OVERTIME REQUEST & APPROVAL
 // =====================================================================
-router.post('/overtime', async (req, res, next) => {
+router.post('/overtime', requireEmpPerm('canMarkAttendance'), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
     const employeeId = req.user!.employeeId;
@@ -510,15 +512,36 @@ router.post('/overtime', async (req, res, next) => {
     const { date, plannedHours, reason } = req.body;
     if (!date || !plannedHours || !reason) { res.status(400).json({ success: false, error: { message: 'date, plannedHours, and reason are required' } }); return; }
 
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { organizationId: true } });
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { organizationId: true, firstName: true, lastName: true, employeeCode: true },
+    });
     const otReq = await prisma.overtimeRequest.create({
       data: { employeeId, date: new Date(date), plannedHours, reason, organizationId: employee!.organizationId },
     });
+    // Notify HR/Manager about the overtime request
+    try {
+      const hrUsers = await prisma.user.findMany({
+        where: { organizationId: employee!.organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] }, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      const dateStr = new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+      for (const hr of hrUsers) {
+        await enqueueNotification({
+          userId: hr.id,
+          organizationId: employee!.organizationId,
+          type: 'OVERTIME_SUBMITTED',
+          title: `Overtime Request — ${employee!.firstName} ${employee!.lastName}`,
+          message: `${employee!.firstName} ${employee!.lastName} (${employee!.employeeCode}) submitted an overtime request for ${dateStr} (${plannedHours}h).`,
+          link: '/attendance',
+        }).catch(() => {});
+      }
+    } catch { /* non-blocking */ }
     res.status(201).json({ success: true, data: otReq, message: 'Overtime request submitted' });
   } catch (err) { next(err); }
 });
 
-router.get('/overtime/my', async (req, res, next) => {
+router.get('/overtime/my', requireEmpPerm('canViewAttendanceHistory'), async (req, res, next) => {
   try {
     const { prisma } = await import('../../lib/prisma.js');
     const employeeId = req.user!.employeeId;
@@ -553,8 +576,90 @@ router.patch('/overtime/:id', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, R
     const updated = await prisma.overtimeRequest.update({
       where: { id: req.params.id },
       data: { status, approvedBy: req.user!.userId, approverRemarks: remarks || null, approvedAt: new Date() },
+      include: { employee: { select: { organizationId: true, user: { select: { id: true } } } } },
     });
+    // Notify employee of the decision
+    try {
+      const empUserId = (updated as any).employee?.user?.id;
+      const orgId = (updated as any).employee?.organizationId;
+      if (empUserId && orgId) {
+        await enqueueNotification({
+          userId: empUserId,
+          organizationId: orgId,
+          type: 'OVERTIME_REVIEWED',
+          title: `Overtime Request ${status === 'APPROVED' ? 'Approved' : 'Rejected'}`,
+          message: `Your overtime request was ${status.toLowerCase()}${remarks ? ': ' + remarks : '.'}`,
+          link: '/attendance',
+        }).catch(() => {});
+      }
+    } catch { /* non-blocking */ }
     res.json({ success: true, data: updated, message: `Overtime request ${status.toLowerCase()}` });
+  } catch (err) { next(err); }
+});
+
+// =====================================================================
+// COMP-OFF CREDITS
+// =====================================================================
+router.get('/comp-off/balance', authenticate, async (req, res, next) => {
+  try {
+    const employeeId = req.user!.employeeId;
+    if (!employeeId) { res.status(400).json({ success: false, error: { code: 'NO_EMPLOYEE', message: 'No employee profile' } }); return; }
+    const balance = await compOffService.getBalance(employeeId, req.user!.organizationId);
+    res.json({ success: true, data: { balance } });
+  } catch (err) { next(err); }
+});
+
+router.get('/comp-off/credits', authenticate, async (req, res, next) => {
+  try {
+    const employeeId = req.user!.employeeId;
+    if (!employeeId) { res.status(400).json({ success: false, error: { code: 'NO_EMPLOYEE', message: 'No employee profile' } }); return; }
+    const credits = await compOffService.getCredits(employeeId, req.user!.organizationId);
+    res.json({ success: true, data: credits });
+  } catch (err) { next(err); }
+});
+
+router.get('/comp-off/org', authenticate, requirePermission('attendance', 'read'), async (req, res, next) => {
+  try {
+    const { status } = req.query as { status?: string };
+    const credits = await compOffService.listOrgCredits(req.user!.organizationId, status);
+    res.json({ success: true, data: credits });
+  } catch (err) { next(err); }
+});
+
+// HR grants a comp-off credit to an employee
+router.post('/comp-off/grant', authenticate, requirePermission('attendance', 'update'), async (req, res, next) => {
+  try {
+    const { employeeId, earnedDate, hoursWorked, notes, expiryMonths } = req.body as {
+      employeeId: string; earnedDate: string; hoursWorked: number; notes?: string; expiryMonths?: number;
+    };
+    if (!employeeId || !earnedDate || hoursWorked == null) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'employeeId, earnedDate and hoursWorked are required' } });
+      return;
+    }
+    const credit = await compOffService.grantCredit({
+      employeeId,
+      organizationId: req.user!.organizationId,
+      earnedDate: new Date(earnedDate),
+      hoursWorked: Number(hoursWorked),
+      notes,
+      expiryMonths,
+    });
+    res.status(201).json({ success: true, data: credit });
+  } catch (err) { next(err); }
+});
+
+// Employee redeems a comp-off credit (links to a leave request)
+router.post('/comp-off/redeem', authenticate, async (req, res, next) => {
+  try {
+    const employeeId = req.user!.employeeId;
+    if (!employeeId) { res.status(400).json({ success: false, error: { code: 'NO_EMPLOYEE', message: 'No employee profile' } }); return; }
+    const { leaveRequestId } = req.body as { leaveRequestId: string };
+    if (!leaveRequestId) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'leaveRequestId is required' } });
+      return;
+    }
+    const credit = await compOffService.redeemCredit(employeeId, req.user!.organizationId, leaveRequestId);
+    res.json({ success: true, data: credit });
   } catch (err) { next(err); }
 });
 

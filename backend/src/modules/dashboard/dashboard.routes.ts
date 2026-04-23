@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../../middleware/auth.middleware.js';
+import { authenticate, authorize, requireEmpPerm } from '../../middleware/auth.middleware.js';
 import { dashboardController } from './dashboard.controller.js';
 import { Role } from '@aniston/shared';
 
@@ -7,12 +7,12 @@ const router = Router();
 router.use(authenticate);
 
 // Unified summary — auto-detects role and returns appropriate data
-router.get('/summary', (req, res, next) =>
+router.get('/summary', requireEmpPerm('canViewDashboardStats'), (req, res, next) =>
   dashboardController.getSummary(req, res, next)
 );
 
 // General stats (employee dashboard + backward compat)
-router.get('/stats', (req, res, next) =>
+router.get('/stats', requireEmpPerm('canViewDashboardStats'), (req, res, next) =>
   dashboardController.getStats(req, res, next)
 );
 

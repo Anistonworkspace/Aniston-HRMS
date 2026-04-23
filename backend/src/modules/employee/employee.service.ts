@@ -452,6 +452,18 @@ export class EmployeeService {
       }
     }
 
+    // EMPLOYEE/INTERN cannot directly update personal/bank fields — must use profile-edit-request flow
+    const APPROVAL_REQUIRED_FIELDS = [
+      'firstName', 'lastName', 'dateOfBirth', 'gender', 'bloodGroup', 'maritalStatus',
+      'phone', 'personalEmail', 'address', 'permanentAddress', 'emergencyContact',
+      'bankAccountNumber', 'bankName', 'ifscCode', 'accountHolderName', 'accountType',
+    ];
+    if (callerRole && ['EMPLOYEE', 'INTERN'].includes(callerRole)) {
+      for (const field of APPROVAL_REQUIRED_FIELDS) {
+        delete (data as any)[field];
+      }
+    }
+
     // --- Manager validation (org chart integrity) ---
     if (data.managerId !== undefined) {
       if (data.managerId !== null) {

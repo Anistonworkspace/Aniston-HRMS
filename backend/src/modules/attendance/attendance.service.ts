@@ -170,7 +170,7 @@ export class AttendanceService {
         throw new BadRequestError('Already clocked in. Please clock out first.');
       }
       // Block office clock-in if today is already marked as Work From Home by HR
-      if (rec && !rec.checkIn && rec.workMode === 'WORK_FROM_HOME') {
+      if (rec && !rec.checkIn && (rec.status as string) === 'WORK_FROM_HOME') {
         throw new BadRequestError('You are marked as Work From Home today. Contact HR to change your attendance mode if you are working from office.');
       }
       return rec;
@@ -190,9 +190,19 @@ export class AttendanceService {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const isWfhShift = (shiftAssignment?.shift as any)?.isWfhShift === true;
 
+    // Hybrid WFH: check if today is a designated WFH day on a hybrid shift
+    const todayDow = new Date().getDay(); // 0=Sun, 6=Sat
+    const isHybridWfhDay = !isWfhShift &&
+      (shift as any)?.allowWfh === true &&
+      Array.isArray((shift as any)?.wfhDays) &&
+      ((shift as any).wfhDays as number[]).includes(todayDow);
+
+    // Effective WFH: either full WFH shift or today is a WFH day in hybrid shift
+    const effectiveWfh = isWfhShift || isHybridWfhDay;
+
     // ===== Location enforcement: OFFICE shift requires assigned location =====
     const assignedLocation = shiftAssignment?.location || employee.officeLocation;
-    if (!isWfhShift && currentShiftType === 'OFFICE' && !assignedLocation?.geofence) {
+    if (!effectiveWfh && currentShiftType === 'OFFICE' && !assignedLocation?.geofence) {
       throw new BadRequestError(
         'No office location assigned. Please ask your HR/Admin to assign an office location to your profile before marking attendance.'
       );
@@ -215,7 +225,7 @@ export class AttendanceService {
     let geofenceDistance: number | null = null;
     let geofenceStatus = 'NO_GEOFENCE';
 
-    if (!isWfhShift && currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude && data.longitude) {
+    if (!effectiveWfh && currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude && data.longitude) {
       // GPS accuracy check — reject unreliable readings (>150m) for geofence decisions
       if (data.accuracy && data.accuracy > 150) {
         data.notes = `${data.notes || ''} [GPS accuracy poor: ±${Math.round(data.accuracy)}m — geofence check skipped]`.trim();
@@ -279,7 +289,7 @@ export class AttendanceService {
 
       // Auto-mark HALF_DAY note: prefer shift-level lateHalfDayAfterMins
       if (!isReClockIn) {
-        const halfDayThreshold = (shift.lateHalfDayAfterMins || policy?.lateHalfDayAfterMins) ?? graceMinutes;
+        const halfDayThreshold = (shift.lateHalfDayAfterMins || policy?.lateHalfDayAfterMins) ?? 60;
         const minutesLate = Math.round((istNow.getTime() - shiftStart.getTime()) / (1000 * 60));
         if (minutesLate > halfDayThreshold) {
           data.notes = `${data.notes || ''} [Auto-marked HALF_DAY: ${minutesLate} min late, threshold ${halfDayThreshold} min]`.trim();
@@ -337,7 +347,7 @@ export class AttendanceService {
         const [sh, sm] = shift.startTime.split(':').map(Number);
         const ss = new Date(istNow); ss.setHours(sh, sm, 0, 0);
         const graceMin = shift.lateGraceMinutes || shift.graceMinutes || policy?.lateGraceMinutes || 15;
-        const threshold = shift.lateHalfDayAfterMins || policy?.lateHalfDayAfterMins || graceMin;
+        const threshold = shift.lateHalfDayAfterMins || policy?.lateHalfDayAfterMins || 60;
         return Math.round((istNow.getTime() - ss.getTime()) / 60000) > threshold;
       })();
 
@@ -346,13 +356,14 @@ export class AttendanceService {
           employeeId,
           date: today,
           checkIn: now,
-          status: autoHalfDay ? 'HALF_DAY' : (isWfhShift ? 'WORK_FROM_HOME' : 'PRESENT'),
+          status: autoHalfDay ? 'HALF_DAY' : (effectiveWfh ? 'WORK_FROM_HOME' : 'PRESENT'),
           workMode: employee.workMode,
           source: data.source || 'MANUAL_APP',
           checkInLocation: locationData as any,
           notes: data.notes,
           geofenceViolation,
           clockInCount: 1,
+          lateMinutes: isLate ? lateMinutes : 0,
         },
       });
     }
@@ -851,6 +862,20 @@ export class AttendanceService {
                 notes: noteText,
               },
             });
+
+            // Also create a CompOffCredit record for persistent balance tracking
+            await prisma.compOffCredit.create({
+              data: {
+                employeeId,
+                earnedDate: new Date(record.date),
+                expiryDate: compOffExpiry,
+                hoursWorked: totalHours,
+                status: 'AVAILABLE',
+                organizationId,
+                notes: `Earned from ${totalHours.toFixed(1)}h OT on ${workReason}`,
+              },
+            });
+
             logger.info(`[CompOff] Granted to employee ${employeeId} for working on ${workReason} (${record.date})`);
           }
         } catch (e) { logger.error(`Comp-off grant error:`, e); }
@@ -1426,6 +1451,8 @@ export class AttendanceService {
       throw new BadRequestError('Cannot submit regularization for future dates.');
     }
 
+    if (!attendanceId) throw new BadRequestError('Attendance record ID is required for regularization.');
+
     const existing = await prisma.attendanceRegularization.findUnique({
       where: { attendanceId },
     });
@@ -1466,29 +1493,38 @@ export class AttendanceService {
         });
         const hrUsers = await prisma.user.findMany({
           where: { organizationId: employee.organizationId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' },
-          select: { email: true },
+          select: { id: true, email: true },
         });
         const dateStr = new Date(record.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
         for (const hr of hrUsers) {
-          if (!hr.email) continue;
-          await enqueueEmail({
-            to: hr.email,
-            subject: `Regularization Request — ${employee.firstName} ${employee.lastName} (${employee.employeeCode})`,
-            template: 'regularization-submitted',
-            context: {
-              employeeName: `${employee.firstName} ${employee.lastName}`,
-              employeeCode: employee.employeeCode,
-              date: dateStr,
-              reason,
-              requestedCheckIn: requestedCheckIn
-                ? new Date(requestedCheckIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-                : null,
-              requestedCheckOut: requestedCheckOut
-                ? new Date(requestedCheckOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-                : null,
-              reviewUrl: 'https://hr.anistonav.com/attendance',
-            },
-          });
+          if (hr.email) {
+            await enqueueEmail({
+              to: hr.email,
+              subject: `Regularization Request — ${employee.firstName} ${employee.lastName} (${employee.employeeCode})`,
+              template: 'regularization-submitted',
+              context: {
+                employeeName: `${employee.firstName} ${employee.lastName}`,
+                employeeCode: employee.employeeCode,
+                date: dateStr,
+                reason,
+                requestedCheckIn: requestedCheckIn
+                  ? new Date(requestedCheckIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                  : null,
+                requestedCheckOut: requestedCheckOut
+                  ? new Date(requestedCheckOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                  : null,
+                reviewUrl: 'https://hr.anistonav.com/attendance',
+              },
+            });
+          }
+          await enqueueNotification({
+            userId: hr.id,
+            organizationId: employee.organizationId,
+            type: 'REGULARIZATION_SUBMITTED',
+            title: `Regularization Request — ${employee.firstName} ${employee.lastName}`,
+            message: `${employee.firstName} ${employee.lastName} (${employee.employeeCode}) has submitted a regularization request for ${dateStr}.`,
+            link: '/leaves',
+          }).catch(() => {});
         }
       }
     } catch { /* non-blocking */ }
@@ -1663,7 +1699,7 @@ export class AttendanceService {
       try {
         const empRecord = await prisma.employee.findUnique({
           where: { id: reg.employeeId },
-          select: { firstName: true, lastName: true, user: { select: { email: true } } },
+          select: { firstName: true, lastName: true, organizationId: true, user: { select: { email: true } } },
         });
         const empEmail = empRecord?.user?.email;
         if (empEmail) {
@@ -1688,6 +1724,7 @@ export class AttendanceService {
           if (empUser) {
             await enqueueNotification({
               userId: empUser.id,
+              organizationId: empRecord.organizationId,
               type: 'REGULARIZATION_REVIEWED',
               title: `Regularization ${finalStatus === 'APPROVED' ? 'Approved' : 'Rejected'}`,
               message: `Your attendance regularization for ${new Date(reg.attendance.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} was ${finalStatus.toLowerCase()}${remarks ? ': ' + remarks : '.'}`,

@@ -73,8 +73,10 @@ const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
         (result.error as any)?.data?.message ||
         (result.error as any)?.error ||
         `Error ${status}: Something went wrong. Please try again.`;
-      // Only toast errors from mutations, not background queries (prevents spam)
-      if ((args as any)?.method && (args as any).method !== 'GET') {
+      // Always toast 403 permission denials (employee perm layer blocks), only toast other errors on mutations
+      if (status === 403) {
+        toast.error(message, { id: `api-err-403`, duration: 5000 });
+      } else if ((args as any)?.method && (args as any).method !== 'GET') {
         toast.error(message, { id: `api-err-${status}`, duration: 4000 });
       }
     }

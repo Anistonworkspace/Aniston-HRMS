@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { performanceController } from './performance.controller.js';
-import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
+import { authenticate, requirePermission, authorize, requireEmpPerm } from '../../middleware/auth.middleware.js';
 import { performanceService } from './performance.service.js';
 import { getLeavePerformanceSummary } from '../../utils/leavePerformance.js';
 import { rateLimiter } from '../../middleware/rateLimiter.js';
@@ -67,7 +67,7 @@ router.patch('/reviews/:id', requirePermission('performance', 'update'), (req, r
 );
 
 // Performance Summary — self (any authenticated employee)
-router.get('/summary', authenticate, async (req, res, next) => {
+router.get('/summary', requireEmpPerm('canViewPerformance'), async (req, res, next) => {
   try {
     const { prisma: db } = await import('../../lib/prisma.js');
     const employee = await db.employee.findFirst({

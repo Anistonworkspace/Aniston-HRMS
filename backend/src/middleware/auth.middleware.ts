@@ -198,6 +198,59 @@ export async function checkExitAccess(req: Request, _res: Response, next: NextFu
   }
 }
 
+const PERM_ACTION_LABELS: Record<string, string> = {
+  canMarkAttendance: 'mark attendance',
+  canViewAttendanceHistory: 'view attendance history',
+  canApplyLeaves: 'apply for leave',
+  canViewLeaveBalance: 'view leave balance',
+  canViewPayslips: 'view payslips',
+  canDownloadPayslips: 'download payslips',
+  canViewDocuments: 'view documents',
+  canDownloadDocuments: 'download documents',
+  canViewDashboardStats: 'view dashboard',
+  canViewAnnouncements: 'view announcements',
+  canViewPolicies: 'view policies',
+  canRaiseHelpdeskTickets: 'raise helpdesk tickets',
+  canViewOrgChart: 'view org chart',
+  canViewPerformance: 'view performance',
+  canViewEditProfile: 'edit profile',
+};
+
+/**
+ * Per-route employee permission guard factory.
+ * Skips SUPER_ADMIN, ADMIN, HR, MANAGER — only enforces for EMPLOYEE and INTERN.
+ * Fails CLOSED on cache/DB error. Layered on top of existing RBAC.
+ */
+export function requireEmpPerm(permKey: string) {
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    try {
+      if (!req.user?.employeeId) return next();
+
+      const skipRoles: Role[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER];
+      if (skipRoles.includes(req.user.role)) return next();
+
+      let perms: EffectivePermissions;
+      try {
+        const { employeePermissionService } = await import('../modules/employee-permissions/employee-permissions.service.js');
+        perms = await employeePermissionService.getEffectivePermissions(
+          req.user.employeeId, req.user.role, req.user.organizationId
+        ) as EffectivePermissions;
+      } catch {
+        return next(new ForbiddenError('Permission verification failed. Please contact HR.'));
+      }
+
+      if (!perms[permKey]) {
+        const action = PERM_ACTION_LABELS[permKey] || permKey;
+        return next(new ForbiddenError(`You don't have permission to ${action}. Please contact HR.`));
+      }
+
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
 /**
  * BUG-004 FIX: Converted to async/await and now fails CLOSED (403) on any
  * error instead of failing open (allowing unrestricted access on outage).
