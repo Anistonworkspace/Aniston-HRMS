@@ -3252,16 +3252,10 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
           <div className="bg-white rounded-2xl shadow-2xl w-[90vw] h-[85vh] max-w-5xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-gray-100">
               <h3 className="text-sm font-semibold text-gray-800">{previewName}</h3>
-              <div className="flex items-center gap-2">
-                <a href={previewUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-xs px-3 py-1.5 bg-brand-50 text-brand-600 rounded-lg hover:bg-brand-100 font-medium">
-                  Open in New Tab
-                </a>
-                <button onClick={() => setPreviewUrl(null)}
-                  className="text-gray-400 hover:text-gray-600 p-1">
-                  <XCircle size={20} />
-                </button>
-              </div>
+              <button onClick={() => setPreviewUrl(null)}
+                className="text-gray-400 hover:text-gray-600 p-1">
+                <XCircle size={20} />
+              </button>
             </div>
             <div className="flex-1 overflow-hidden">
               {previewUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i) ? (

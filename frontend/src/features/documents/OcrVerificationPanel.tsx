@@ -365,6 +365,7 @@ function CombinedPdfReviewPanel({
   verifyingKyc: boolean;
   revokingKyc: boolean;
 }) {
+  const [showInlinePreview, setShowInlinePreview] = useState(false);
   const { data: hrReviewRes } = useGetKycHrReviewQuery(employeeId!, { skip: !employeeId });
   const gate = hrReviewRes?.data?.gate;
   const combinedPdfUploaded: boolean = gate?.combinedPdfUploaded || false;
@@ -512,10 +513,31 @@ function CombinedPdfReviewPanel({
       {fileUrl && (
         <div className="layer-card p-4">
           <p className="text-xs font-medium text-gray-500 mb-2">Document Preview</p>
-          <a href={getUploadUrl(fileUrl)} target="_blank" rel="noopener noreferrer"
+          <button onClick={() => setShowInlinePreview(true)}
             className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1.5 font-medium">
             <Eye size={14} /> Open Combined PDF — Verify All Documents Inside
-          </a>
+          </button>
+        </div>
+      )}
+
+      {/* Inline secure document preview */}
+      {showInlinePreview && fileUrl && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowInlinePreview(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-[92vw] h-[88vh] max-w-5xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+              <p className="text-sm font-semibold text-gray-800">Combined KYC Document</p>
+              <button onClick={() => setShowInlinePreview(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 text-lg font-bold">&times;</button>
+            </div>
+            <div className="flex-1 overflow-hidden select-none" onContextMenu={e => e.preventDefault()}>
+              <iframe
+                src={`${getUploadUrl(fileUrl)}#toolbar=0&navpanes=0&scrollbar=0`}
+                title="Combined KYC Document"
+                className="w-full h-full border-0"
+                sandbox="allow-same-origin allow-scripts"
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -651,6 +673,7 @@ export default function OcrVerificationPanel({
   const [ocrStatus, setOcrStatus] = useState('PENDING');
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectingDoc, setRejectingDoc] = useState(false);
+  const [showInlinePreview, setShowInlinePreview] = useState(false);
 
   const { data: hrReviewRes, refetch: refetchHrReview } = useGetKycHrReviewQuery(employeeId!, { skip: !employeeId });
   const kycStatus: string = hrReviewRes?.data?.gate?.kycStatus || '';
@@ -808,10 +831,40 @@ export default function OcrVerificationPanel({
           {fileUrl && (
             <div className="layer-card p-4">
               <p className="text-xs font-medium text-gray-500 mb-2">Document Preview</p>
-              <a href={getUploadUrl(fileUrl)} target="_blank" rel="noopener noreferrer"
-                className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1.5">
+              <button onClick={() => setShowInlinePreview(true)}
+                className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1.5 font-medium">
                 <Eye size={14} /> View Original Document
-              </a>
+              </button>
+            </div>
+          )}
+
+          {/* Inline secure document preview */}
+          {showInlinePreview && fileUrl && (
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowInlinePreview(false)}>
+              <div className="bg-white rounded-2xl shadow-2xl w-[92vw] h-[88vh] max-w-5xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+                  <p className="text-sm font-semibold text-gray-800">{documentName}</p>
+                  <button onClick={() => setShowInlinePreview(false)}
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 text-lg font-bold">&times;</button>
+                </div>
+                <div className="flex-1 overflow-hidden select-none" onContextMenu={e => e.preventDefault()}>
+                  {getUploadUrl(fileUrl).match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i) ? (
+                    <img
+                      src={getUploadUrl(fileUrl)}
+                      alt={documentName}
+                      className="w-full h-full object-contain p-4 pointer-events-none"
+                      draggable={false}
+                    />
+                  ) : (
+                    <iframe
+                      src={`${getUploadUrl(fileUrl)}#toolbar=0&navpanes=0&scrollbar=0`}
+                      title={documentName}
+                      className="w-full h-full border-0"
+                      sandbox="allow-same-origin allow-scripts"
+                    />
+                  )}
+                </div>
+              </div>
             </div>
           )}
 

@@ -48,6 +48,48 @@ def _normalize_kw_text(text: str) -> str:
     return re.sub(r'\s+', ' ', text).lower()
 
 
+# Doc types that actually contain a real Date of Birth (not issue/expiry dates)
+_DOB_SOURCE_DOC_TYPES = frozenset({
+    "AADHAAR",
+    "PAN",
+    "PASSPORT",
+    "VOTER_ID",
+    "DRIVING_LICENSE",
+    "TENTH_CERTIFICATE",
+    "TWELFTH_CERTIFICATE",
+})
+
+# Relation/heading noise that OCR picks up from the next line on degree certs / Aadhaar
+_NAME_TRAILING_NOISE = re.compile(
+    r"\s+(?:father|mother|s[/\\]o|d[/\\]o|w[/\\]o|son|daughter|wife|husband|guardian|"
+    r"father'?s?\s*name|mother'?s?\s*name|date\s*of\s*birth|dob|gender|address|"
+    r"नाम|पिता|माता|पति|पत्नी|संरक्षक).*$",
+    re.IGNORECASE,
+)
+
+
+def _clean_extracted_name(name: str | None) -> str | None:
+    """
+    Strip trailing OCR noise from an extracted name.
+
+    Degree certificates and Aadhaar cards often print the holder's name on one
+    line and the next heading (Father's Name / DOB / Gender) immediately below.
+    When the page is low-quality or slightly skewed, Tesseract merges both into
+    a single line: "SUNNY KUMAR MEHTA Father" or "SUNNY KUMAR MEHTA Father's Name".
+
+    This function removes everything from the first relation keyword onward.
+    """
+    if not name:
+        return name
+    cleaned = _NAME_TRAILING_NOISE.sub("", name.strip())
+    # Collapse any internal whitespace runs left after stripping
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    # Discard if nothing meaningful remains (< 3 chars or < 2 letters)
+    if len(cleaned) < 3 or sum(c.isalpha() for c in cleaned) < 2:
+        return name  # return original rather than empty/garbage
+    return cleaned if cleaned != name.strip() else name.strip()
+
+
 # ===== IMAGE PREPROCESSING =====
 
 def _preprocess_aggressive_upscale(image: Image.Image) -> Image.Image:
@@ -803,7 +845,7 @@ def extract_aadhaar_fields(text: str) -> dict:
                 # Require at least 2 words OR a single long word >= 5 chars (some people have single names)
                 words = [w for w in stripped.split() if len(w) >= 2]
                 if (len(words) >= 2 or (len(words) == 1 and len(stripped) >= 5)) and len(stripped) >= 4:
-                    data.name = stripped
+                    data.name = _clean_extracted_name(stripped)
                     break
 
     # Address — lines after "Address" keyword
@@ -847,12 +889,19 @@ def extract_pan_fields(text: str) -> dict:
     """
     data = PANData()
 
-    # PAN number — most reliable field (strict format ABCDE1234F)
-    pan_match = re.search(r"\b([A-Z]{5}\d{4}[A-Z])\b", text)
+    # PAN number — most reliable field (strict format ABCDE1234F, e.g. ABCDE1234F)
+    # Apply common OCR substitutions before matching
+    pan_text = text.upper()
+    pan_text_fixed = re.sub(r"[OoI](?=\d)", lambda m: "0" if m.group() in "Oo" else "1", pan_text)
+    # Also fix digits that appear in letter positions (positions 0-4 and 9 must be letters)
+    pan_match = re.search(r"\b([A-Z]{5}[0-9]{4}[A-Z])\b", pan_text)
     if not pan_match:
-        # Tolerant OCR: O→0 substitution already baked in source, try anyway
-        cleaned = text.replace("O", "0")
-        pan_match = re.search(r"\b([A-Z]{5}\d{4}[A-Z])\b", cleaned)
+        pan_match = re.search(r"\b([A-Z]{5}[0-9]{4}[A-Z])\b", pan_text_fixed)
+    if not pan_match:
+        # Broader fallback: allow slight spacing/OCR noise — look for 10-char alphanumeric blocks
+        pan_broad = re.search(r"[A-Z]{5}\s*[0-9]{4}\s*[A-Z]", pan_text)
+        if pan_broad:
+            data.pan_number = re.sub(r"\s", "", pan_broad.group(0))
     if pan_match:
         data.pan_number = pan_match.group(1)
 
@@ -890,9 +939,9 @@ def extract_pan_fields(text: str) -> dict:
         name_candidates.append(stripped)
 
     if len(name_candidates) >= 1:
-        data.name = name_candidates[0]
+        data.name = _clean_extracted_name(name_candidates[0])
     if len(name_candidates) >= 2:
-        data.father_name = name_candidates[1]
+        data.father_name = _clean_extracted_name(name_candidates[1])
 
     return data.model_dump(exclude_none=True)
 
@@ -1211,7 +1260,7 @@ def extract_education_certificate_fields(text: str) -> dict:
             idx = candidate.lower().find(f" {stopper} ")
             if idx > 0:
                 candidate = candidate[:idx]
-        data.student_name = candidate.strip()
+        data.student_name = _clean_extracted_name(candidate.strip())
 
     # Roll number / Enrollment number
     roll_match = re.search(
@@ -2343,17 +2392,22 @@ def _normalize_date(date_str: str) -> "str | None":
 
 def cross_verify_document_dobs(page_results: list) -> dict:
     """
-    Cross-verify the date of birth across all detected documents that contain DOB.
-    Similar to name cross-verification but for DOB fields.
+    Cross-verify the date of birth across documents that actually contain a real DOB.
 
-    Returns a dict with match status and per-document DOB values.
+    IMPORTANT: Only identity/education documents are considered — _DOB_SOURCE_DOC_TYPES.
+    Residence proof (electricity bills, water bills), bank statements, salary slips, and
+    cancelled cheques contain issue/statement dates, NOT date of birth. Including those
+    would produce false DOB mismatches (e.g. bill issue date 24/12/2010 ≠ Aadhaar DOB).
     """
     dobs_by_type: dict = {}
     for pr in page_results:
         doc_type = pr.get("detected_type", "OTHER")
+        # Skip doc types that do not have a real Date of Birth field
+        if doc_type not in _DOB_SOURCE_DOC_TYPES:
+            continue
         raw_text = pr.get("text_snippet", "") + " " + pr.get("full_text_for_dob", "")
         dob = _extract_dob_for_doc(raw_text, doc_type)
-        if dob and len(dob.strip()) >= 6 and doc_type != "OTHER":
+        if dob and len(dob.strip()) >= 6:
             normalized = _normalize_date(dob)
             if normalized and doc_type not in dobs_by_type:
                 dobs_by_type[doc_type] = normalized
