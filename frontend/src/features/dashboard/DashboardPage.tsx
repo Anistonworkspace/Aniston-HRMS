@@ -16,7 +16,7 @@ import { SkeletonLoader, QuickActionGrid } from './components';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { useEmpPerms } from '../../hooks/useEmpPerms';
-import { PermDenied } from '../../components/PermDenied';
+import PermDenied from '../../components/PermDenied';
 
 // Lazy-load role-specific dashboards
 const AdminDashboard = lazy(() => import('./AdminDashboard'));
