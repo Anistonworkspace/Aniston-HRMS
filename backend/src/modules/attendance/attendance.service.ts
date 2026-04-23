@@ -1523,7 +1523,7 @@ export class AttendanceService {
             type: 'REGULARIZATION_SUBMITTED',
             title: `Regularization Request — ${employee.firstName} ${employee.lastName}`,
             message: `${employee.firstName} ${employee.lastName} (${employee.employeeCode}) has submitted a regularization request for ${dateStr}.`,
-            link: '/leaves',
+            link: '/attendance',
           }).catch(() => {});
         }
       }

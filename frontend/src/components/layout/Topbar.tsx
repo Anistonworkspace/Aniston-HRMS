@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Search, LogOut, User, Settings, ChevronDown, Globe } from 'lucide-react';
 import NotificationBell from '../../features/notifications/NotificationBell';
+import CommandPalette from './CommandPalette';
 import { motion } from 'framer-motion';
 import { useState, useRef, useEffect } from 'react';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -18,6 +19,7 @@ export default function Topbar() {
   const [logoutApi] = useLogoutMutation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const langRef = useRef<HTMLDivElement>(null);
 
@@ -32,6 +34,17 @@ export default function Topbar() {
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
   }, []);
 
   const handleLogout = async () => {
@@ -56,19 +69,28 @@ export default function Topbar() {
     <header className="h-16 bg-white border-b border-gray-100 flex items-center justify-between px-4 md:px-6 sticky top-0 z-30">
       {/* Left: Search */}
       <div className="flex items-center gap-4 flex-1">
+        {/* Desktop search bar */}
         <div className="relative max-w-md w-full hidden sm:block">
-          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <label htmlFor="topbar-search" className="sr-only">{t('common.searchPlaceholder')}</label>
-          <input
-            id="topbar-search"
-            type="text"
-            placeholder={t('common.searchPlaceholder')}
-            className="w-full pl-10 pr-4 py-2 bg-surface-2 border-0 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 transition-all placeholder:text-gray-400"
-          />
-          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 bg-white px-1.5 py-0.5 rounded border border-gray-200 hidden md:inline">
-            ⌘K
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="w-full pl-10 pr-16 py-2 bg-surface-2 border-0 rounded-lg text-sm text-gray-400 text-left focus:outline-none focus:ring-2 focus:ring-brand-500/20 transition-all hover:bg-gray-100 cursor-pointer"
+            aria-label="Open search"
+          >
+            {t('common.searchPlaceholder')}
+          </button>
+          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 bg-white px-1.5 py-0.5 rounded border border-gray-200 hidden md:flex items-center gap-1">
+            <span>⌘</span><span>K</span>
           </kbd>
         </div>
+        {/* Mobile search icon button */}
+        <button
+          onClick={() => setSearchOpen(true)}
+          className="sm:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+          aria-label="Search"
+        >
+          <Search size={20} />
+        </button>
       </div>
 
       {/* Right: Language + Notifications + Avatar */}
@@ -201,6 +223,7 @@ export default function Topbar() {
           )}
         </div>
       </div>
+      <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
     </header>
   );
 }

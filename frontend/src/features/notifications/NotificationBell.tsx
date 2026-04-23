@@ -268,14 +268,24 @@ export default function NotificationBell() {
       {/* Panel */}
       <AnimatePresence>
         {isOpen && (
+          <>
+            {/* Mobile backdrop */}
+            <motion.div
+              key="notif-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="sm:hidden fixed inset-0 bg-black/30 z-[49]"
+              onClick={() => setIsOpen(false)}
+            />
           <motion.div
             key="notif-panel"
             initial={{ opacity: 0, y: -8, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.96 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="absolute right-0 top-12 w-96 bg-white rounded-2xl border border-gray-200 shadow-2xl z-50 overflow-hidden flex flex-col"
-            style={{ maxHeight: '520px' }}
+            className="fixed inset-x-3 top-16 sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:w-96 bg-white rounded-2xl border border-gray-200 shadow-2xl z-50 overflow-hidden flex flex-col max-h-[calc(100dvh-4.5rem)] sm:max-h-[520px]"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
@@ -335,6 +345,7 @@ export default function NotificationBell() {
               </div>
             )}
           </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>

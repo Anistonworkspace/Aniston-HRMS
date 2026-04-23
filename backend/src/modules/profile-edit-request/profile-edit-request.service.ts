@@ -97,7 +97,7 @@ export class ProfileEditRequestService {
         type: 'PROFILE_EDIT_REQUEST',
         title: `Profile Edit Request — ${employee.firstName} ${employee.lastName}`,
         message: `${employee.firstName} ${employee.lastName} (${employee.employeeCode}) requested to update their ${CATEGORY_LABELS[category]}.`,
-        link: '/profile',
+        link: `/employees/${employeeId}`,
       }).catch(() => {});
     }
     // Also email org adminNotificationEmail if not already covered
