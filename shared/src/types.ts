@@ -87,6 +87,7 @@ export interface AuthUser {
   avatar?: string;
   organizationId: string;
   kycCompleted?: boolean;
+  kycStatus?: string;
   onboardingComplete?: boolean;
   profileComplete?: boolean;
   workMode?: string;

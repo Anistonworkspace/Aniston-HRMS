@@ -288,6 +288,7 @@ export default function NewOnboardingFlow() {
             {currentStep === 6 && (
               <Step6Documents
                 uploadedDocTypes={status?.uploadedDocTypes || []}
+                rejectedDocs={(status as any)?.rejectedDocs || []}
                 onContinue={() => setCurrentStep(7)}
                 onRefetch={refetch}
                 workMode={workMode}
@@ -929,8 +930,9 @@ function Step5Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
 // ==================
 type UploadState = { status: 'idle' | 'uploading' | 'done' | 'error'; fileName?: string; error?: string };
 
-function Step6Documents({ uploadedDocTypes, onContinue, onRefetch, workMode, qualification }: {
+function Step6Documents({ uploadedDocTypes, rejectedDocs = [], onContinue, onRefetch, workMode, qualification }: {
   uploadedDocTypes: string[];
+  rejectedDocs?: { type: string; name: string; rejectionReason: string | null }[];
   onContinue: () => void;
   onRefetch: () => void;
   workMode?: WorkMode | null;
@@ -943,6 +945,7 @@ function Step6Documents({ uploadedDocTypes, onContinue, onRefetch, workMode, qua
   const identityFileRef = useRef<HTMLInputElement | null>(null);
   const requiredNonIdentityDocs = getRequiredNonIdentityDocs(workMode ?? null, qualification);
   const activeSections = workMode === 'PROJECT_SITE' ? getSiteDocSections() : getOfficeSections(qualification);
+  const rejectedTypeMap = Object.fromEntries(rejectedDocs.map(d => [d.type, d]));
 
   // Sync initial state + identity type from already-uploaded docs
   useEffect(() => {
@@ -950,10 +953,18 @@ function Step6Documents({ uploadedDocTypes, onContinue, onRefetch, workMode, qua
     for (const type of uploadedDocTypes) {
       initial[type] = { status: 'done', fileName: 'Previously uploaded' };
     }
+    // Mark rejected docs as errors so employee knows to re-upload
+    for (const rd of rejectedDocs) {
+      initial[rd.type] = {
+        status: 'error',
+        fileName: rd.name,
+        error: rd.rejectionReason ? `Rejected by HR: ${rd.rejectionReason}` : 'Rejected by HR — please re-upload',
+      };
+    }
     setUploads(prev => ({ ...initial, ...prev }));
     const uploadedIdentity = IDENTITY_DOC_TYPES.find(t => uploadedDocTypes.includes(t));
     if (uploadedIdentity) setIdentityType(uploadedIdentity);
-  }, [uploadedDocTypes]);
+  }, [uploadedDocTypes, rejectedDocs]);
 
   const handleUpload = useCallback(async (file: File, docType: string, docName: string) => {
     if (file.size > 100 * 1024 * 1024) { toast.error('File must be under 100MB'); return; }
@@ -983,6 +994,22 @@ function Step6Documents({ uploadedDocTypes, onContinue, onRefetch, workMode, qua
 
   return (
     <div className="space-y-5">
+      {/* Rejected docs banner */}
+      {rejectedDocs.length > 0 && (
+        <div className="bg-red-50 border border-red-300 rounded-lg p-3">
+          <p className="text-sm font-semibold text-red-700 flex items-center gap-1.5">
+            <AlertTriangle size={15} /> {rejectedDocs.length} document{rejectedDocs.length > 1 ? 's' : ''} rejected by HR — please re-upload
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {rejectedDocs.map(rd => (
+              <li key={rd.type} className="text-xs text-red-600">
+                <span className="font-medium">{REQUIRED_NON_IDENTITY_LABELS[rd.type] || rd.name}:</span>{' '}
+                {rd.rejectionReason || 'Rejected — re-upload a clear, original scan'}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
         <p className="text-sm font-medium text-amber-800">Upload each document separately</p>
         <p className="text-xs text-amber-700 mt-1">Documents marked <span className="text-red-500 font-bold">*</span> are required. OCR will automatically extract data from identity documents.</p>

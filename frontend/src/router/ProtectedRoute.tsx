@@ -92,17 +92,26 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
     return <Navigate to="/employee-onboarding" replace />;
   }
 
-  // KYC Gate: redirect employees with incomplete KYC to the KYC page
+  // KYC Gate: route based on kycStatus
+  //   PENDING / REUPLOAD_REQUIRED / REJECTED → back to onboarding Step 6 (upload docs in same wizard)
+  //   SUBMITTED / PROCESSING / PENDING_HR_REVIEW → /kyc-pending (waiting for HR review)
   const isKycExemptRoute = location.pathname === '/kyc-pending' || location.pathname === '/profile' || location.pathname === '/employee-onboarding';
   if (
     user &&
     !GATE_EXEMPT_ROLES.includes(user.role) &&
-    user.onboardingComplete !== false && // Only after onboarding is done
+    user.onboardingComplete !== false &&
+    user.profileComplete !== false &&
     user.kycCompleted === false &&
-    !user.exitAccess &&
-    !isKycExemptRoute
+    !user.exitAccess
   ) {
-    return <Navigate to="/kyc-pending" replace />;
+    const docStatus = user.kycStatus ?? 'PENDING';
+    const needsUpload = ['PENDING', 'REUPLOAD_REQUIRED', 'REJECTED'].includes(docStatus);
+    if (needsUpload) {
+      if (!isOnboardingExemptRoute) return <Navigate to="/employee-onboarding" replace />;
+    } else {
+      // SUBMITTED / PROCESSING / PENDING_HR_REVIEW — waiting for review
+      if (!isKycExemptRoute) return <Navigate to="/kyc-pending" replace />;
+    }
   }
 
   return <>{children}</>;

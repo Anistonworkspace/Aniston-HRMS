@@ -119,6 +119,7 @@ export class AuthService {
     // Admin roles always bypass onboarding/KYC gates
     const isAdminRole = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(user.role);
     const kycCompleted = isAdminRole ? true : (user.employee?.documentGate?.kycStatus === 'VERIFIED');
+    const kycStatus = isAdminRole ? 'VERIFIED' : (user.employee?.documentGate?.kycStatus ?? 'PENDING');
     const onboardingComplete = isAdminRole ? true : (user.employee?.onboardingComplete ?? true);
     const profileComplete = isAdminRole ? true : this.calculateProfileComplete(user.employee, mfa?.isEnabled ?? false);
 
@@ -149,6 +150,7 @@ export class AuthService {
         organizationId: user.organizationId,
         workMode: user.employee?.workMode,
         kycCompleted,
+        kycStatus,
         onboardingComplete,
         profileComplete,
         featurePermissions,
@@ -324,6 +326,7 @@ export class AuthService {
     // Admin roles always bypass onboarding/KYC gates
     const isAdminRole = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(user.role);
     const kycCompleted = isAdminRole ? true : (user.employee?.documentGate?.kycStatus === 'VERIFIED');
+    const kycStatus = isAdminRole ? 'VERIFIED' : (user.employee?.documentGate?.kycStatus ?? 'PENDING');
     const onboardingComplete = isAdminRole ? true : (user.employee?.onboardingComplete ?? true);
     const profileComplete = isAdminRole ? true : this.calculateProfileComplete(user.employee, mfa?.isEnabled ?? false);
 
@@ -353,6 +356,7 @@ export class AuthService {
       workMode: user.employee?.workMode,
       profileCompletion: this.calculateProfileCompletion(user.employee),
       kycCompleted,
+      kycStatus,
       onboardingComplete,
       profileComplete,
       featurePermissions,

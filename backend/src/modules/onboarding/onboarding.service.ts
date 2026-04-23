@@ -262,8 +262,9 @@ export class OnboardingService {
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
       include: {
-        documents: { where: { deletedAt: null }, select: { type: true, status: true, id: true, name: true } },
+        documents: { where: { deletedAt: null }, select: { type: true, status: true, id: true, name: true, rejectionReason: true } },
         user: { select: { mfaEnabled: true } },
+        documentGate: { select: { kycStatus: true } },
       },
     });
     if (!employee) throw new NotFoundError('Employee');
@@ -289,10 +290,21 @@ export class OnboardingService {
     const REQUIRED_NON_IDENTITY_DOCS = employee.workMode === 'PROJECT_SITE'
       ? ['PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE']
       : [...requiredEduDocs, 'PAN', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
-    const uploadedDocTypes = (employee.documents as any[]).map((d: any) => d.type);
-    const hasIdentityProof = uploadedDocTypes.some((t: string) => IDENTITY_DOC_TYPES.includes(t));
+    // Rejected docs: show as "need re-upload" — exclude from uploadedDocTypes so they count as missing
+    const rejectedDocs = (employee.documents as any[])
+      .filter((d: any) => d.status === 'REJECTED')
+      .map((d: any) => ({ type: d.type, name: d.name, rejectionReason: d.rejectionReason || null }));
+    const rejectedTypes = new Set(rejectedDocs.map((d: any) => d.type));
+
+    // Only count non-rejected docs as "uploaded"
+    const uploadedDocTypes = (employee.documents as any[])
+      .filter((d: any) => d.status !== 'REJECTED')
+      .map((d: any) => d.type);
+
+    const hasIdentityProof = uploadedDocTypes.some((t: string) => IDENTITY_DOC_TYPES.includes(t)) &&
+      !Array.from(rejectedTypes).some(t => IDENTITY_DOC_TYPES.includes(t as string));
     const missingRequiredDocs = [
-      ...REQUIRED_NON_IDENTITY_DOCS.filter(t => !uploadedDocTypes.includes(t)),
+      ...REQUIRED_NON_IDENTITY_DOCS.filter(t => !uploadedDocTypes.includes(t) || rejectedTypes.has(t)),
       ...(!hasIdentityProof ? ['IDENTITY_PROOF'] : []),
     ];
 
@@ -353,11 +365,13 @@ export class OnboardingService {
       accountHolderName: employee.accountHolderName || '',
       accountType: employee.accountType || 'SAVINGS',
       onboardingComplete: employee.onboardingComplete,
+      kycStatus: (employee.documentGate as any)?.kycStatus ?? 'PENDING',
       organization: org,
       sections,
       resumeStep,
       missingRequiredDocs,
       uploadedDocTypes,
+      rejectedDocs,
     };
   }
 

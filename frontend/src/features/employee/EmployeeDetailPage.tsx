@@ -2864,6 +2864,9 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [showRejectAll, setShowRejectAll] = useState(false);
+  const [rejectAllReason, setRejectAllReason] = useState('');
+  const [rejectingAll, setRejectingAll] = useState(false);
   const { data: ocrSummaryRes, refetch: refetchOcr } = useGetEmployeeOcrSummaryQuery(employeeId, { skip: !isManagement });
   const [showKycModal, setShowKycModal] = useState(false);
   const [ocrDocId, setOcrDocId] = useState<string | null>(null);
@@ -2918,6 +2921,56 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
         />
       )}
 
+      {/* Reject All Documents modal */}
+      {showRejectAll && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-glass-lg w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-base font-display font-semibold text-gray-900 flex items-center gap-2">
+              <AlertTriangle size={18} className="text-red-500" /> Reject All Documents
+            </h3>
+            <p className="text-sm text-gray-500">
+              This will reject <strong>{documents.filter((d: any) => !['REJECTED'].includes(d.status)).length}</strong> document(s) and delete the files. The employee will be notified to re-upload.
+            </p>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Reason for rejection *</label>
+              <textarea
+                rows={3}
+                className="input-glass w-full text-sm resize-none"
+                placeholder="e.g. Documents unclear, wrong documents uploaded, etc."
+                value={rejectAllReason}
+                onChange={e => setRejectAllReason(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => { setShowRejectAll(false); setRejectAllReason(''); }} className="btn-secondary flex-1 text-sm">Cancel</button>
+              <button
+                disabled={!rejectAllReason.trim() || rejectingAll}
+                onClick={async () => {
+                  setRejectingAll(true);
+                  try {
+                    const toReject = documents.filter((d: any) => d.status !== 'REJECTED');
+                    for (const doc of toReject) {
+                      await verifyDoc({ id: doc.id, status: 'REJECTED', rejectionReason: rejectAllReason.trim() } as any).unwrap();
+                    }
+                    toast.success(`All ${toReject.length} document(s) rejected. Employee will be notified.`);
+                    setShowRejectAll(false);
+                    setRejectAllReason('');
+                  } catch (err: any) {
+                    toast.error(err?.data?.error?.message || 'Failed to reject documents');
+                  } finally {
+                    setRejectingAll(false);
+                  }
+                }}
+                className="btn-primary flex-1 text-sm bg-red-600 hover:bg-red-700 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {rejectingAll ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+                Reject All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-800">Documents ({documents.length})</h3>
         <div className="flex gap-2">
@@ -2962,6 +3015,14 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                 </div>
               )}
             </div>
+          )}
+          {isManagement && documents.some((d: any) => d.status !== 'REJECTED') && (
+            <button
+              onClick={() => setShowRejectAll(true)}
+              className="text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-colors"
+            >
+              <X size={14} /> Reject All Documents
+            </button>
           )}
           {isManagement && (
             <button onClick={() => setShowKycModal(true)} className="btn-primary text-xs flex items-center gap-1.5">
