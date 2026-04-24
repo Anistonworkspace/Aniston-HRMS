@@ -85,9 +85,9 @@ export class DocumentService {
       },
     });
 
-    // Auto-set Employee.avatar when a PHOTO document is uploaded
+    // Auto-set Employee.avatar when a PHOTO document is uploaded — awaited so profile shows immediately
     if (data.type === 'PHOTO' && data.employeeId) {
-      prisma.employee.update({ where: { id: data.employeeId }, data: { avatar: fileUrl } })
+      await prisma.employee.update({ where: { id: data.employeeId }, data: { avatar: fileUrl } })
         .catch((err) => logger.warn(`[Document] Failed to update avatar for employee ${data.employeeId}: ${err.message}`));
     }
 
@@ -95,7 +95,7 @@ export class DocumentService {
     const OCR_ELIGIBLE_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'VOTER_ID', 'DRIVING_LICENSE',
       'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE',
       'CANCELLED_CHEQUE', 'BANK_STATEMENT', 'OFFER_LETTER_DOC', 'SALARY_SLIP_DOC',
-      'EXPERIENCE_LETTER', 'RESIDENCE_PROOF', 'RELIEVING_LETTER'];
+      'EXPERIENCE_LETTER', 'RESIDENCE_PROOF', 'PERMANENT_RESIDENCE_PROOF', 'RELIEVING_LETTER'];
     if (data.employeeId && OCR_ELIGIBLE_TYPES.includes(data.type as string)) {
       import('../../jobs/queues.js').then(({ enqueueDocumentOcr }) => {
         const orgId = doc.employeeId ? '' : ''; // fetched below
@@ -165,10 +165,15 @@ export class DocumentService {
     });
 
     // Physically delete the file when HR rejects a document — employee must re-upload
+    // Also nullify the fileUrl in the DB so stale references don't accumulate
     if (status === 'REJECTED' && doc.fileUrl) {
-      storageService.deleteFile(doc.fileUrl).catch((err) =>
+      await storageService.deleteFile(doc.fileUrl).catch((err) =>
         logger.warn(`[Document] Failed to delete rejected file "${doc.fileUrl}":`, err.message),
       );
+      await prisma.document.update({
+        where: { id },
+        data: { fileUrl: '' },
+      }).catch((err) => logger.warn(`[Document] Failed to nullify fileUrl for rejected doc ${id}:`, err.message));
     }
 
     return updated;

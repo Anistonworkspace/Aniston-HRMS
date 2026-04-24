@@ -191,6 +191,20 @@ export const settingsApi = api.injectEndpoints({
       invalidatesTags: ['Backup'],
     }),
 
+    // Document Templates
+    getDocumentTemplates: builder.query<{ success: boolean; data: Array<{ id: string; key: string; label: string; required: boolean; isDefault: boolean }> }, void>({
+      query: () => '/settings/document-templates',
+      providesTags: ['DocumentTemplates'],
+    }),
+    upsertDocumentTemplate: builder.mutation<any, { key: string; label: string; required?: boolean; isDefault?: boolean }>({
+      query: (body) => ({ url: '/settings/document-templates', method: 'POST', body }),
+      invalidatesTags: ['DocumentTemplates'],
+    }),
+    deleteDocumentTemplate: builder.mutation<any, string>({
+      query: (id) => ({ url: `/settings/document-templates/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['DocumentTemplates'],
+    }),
+
     // ── System Logs (SUPER_ADMIN only) ────────────────────────────────────────
     getSystemLogSummary: builder.query<any, void>({
       query: () => '/settings/system-logs/summary',
@@ -252,4 +266,7 @@ export const {
   useGetSystemLogsQuery,
   useGetAiServiceLogsQuery,
   useGetAiServiceHealthQuery,
+  useGetDocumentTemplatesQuery,
+  useUpsertDocumentTemplateMutation,
+  useDeleteDocumentTemplateMutation,
 } = settingsApi;

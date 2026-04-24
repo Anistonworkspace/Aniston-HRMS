@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Check, ChevronRight, ChevronLeft, Loader2, PartyPopper,
-  Eye, EyeOff, Upload, FileText, CheckCircle2, AlertTriangle,
-  RefreshCw, Shield, X, Building2, HardHat, Briefcase, MapPin,
+  Upload, FileText, CheckCircle2, AlertTriangle,
+  RefreshCw, Shield, Building2, Lock, Camera,
 } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setUser } from '../auth/authSlice';
@@ -12,20 +12,20 @@ import { useGetMyOnboardingStatusQuery, useSaveMyStepMutation, useCompleteMyOnbo
 import { useGetMfaStatusQuery } from '../auth/authApi';
 import { MFASetupModal } from '../auth/MFASetupModal';
 import { useUploadDocumentMutation } from '../documents/documentApi';
+import PassportPhotoUploader from '../../components/ui/PassportPhotoUploader';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
+// New 6-step flow — password handled in InviteAcceptPage before this wizard
 const STEPS = [
-  { num: 1, title: 'Set Password', desc: 'Secure your account' },
-  { num: 2, title: 'MFA Setup', desc: 'Two-factor authentication' },
-  { num: 3, title: 'Personal Details', desc: 'Your information' },
-  { num: 4, title: 'Emergency Contact', desc: 'In case of emergency' },
-  { num: 5, title: 'Bank Details', desc: 'Salary account' },
-  { num: 6, title: 'Documents', desc: 'Upload required documents' },
-  { num: 7, title: 'Review & Submit', desc: 'Complete onboarding' },
+  { num: 1, title: 'MFA Setup', desc: 'Two-factor authentication' },
+  { num: 2, title: 'Personal Details', desc: 'Your information' },
+  { num: 3, title: 'Emergency Contact', desc: 'In case of emergency' },
+  { num: 4, title: 'Bank Details', desc: 'Salary account' },
+  { num: 5, title: 'Documents', desc: 'Upload required documents' },
+  { num: 6, title: 'Review & Submit', desc: 'Complete onboarding' },
 ];
 
-// Identity proof — employee uploads ONE; stored under its actual type
 const IDENTITY_DOC_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'] as const;
 type IdentityDocType = typeof IDENTITY_DOC_TYPES[number];
 const IDENTITY_DOC_LABELS: Record<IdentityDocType, string> = {
@@ -34,96 +34,115 @@ const IDENTITY_DOC_LABELS: Record<IdentityDocType, string> = {
   DRIVING_LICENSE: 'Driving License',
   VOTER_ID: 'Voter ID Card',
 };
+
 const REQUIRED_NON_IDENTITY_LABELS: Record<string, string> = {
   PAN: 'PAN Card',
   TENTH_CERTIFICATE: '10th Certificate',
   TWELFTH_CERTIFICATE: '12th Certificate',
   DEGREE_CERTIFICATE: 'Degree Certificate',
   POST_GRADUATION_CERTIFICATE: 'Post-Graduation Certificate',
-  RESIDENCE_PROOF: 'Residence Proof',
+  RESIDENCE_PROOF: 'Residence Proof (Current Address)',
+  PERMANENT_RESIDENCE_PROOF: 'Residence Proof (Permanent Address)',
   PHOTO: 'Passport Photo',
-  BANK_STATEMENT: 'Bank Statement',
-  CANCELLED_CHEQUE: 'Cancelled Cheque',
+  // Experience docs — custom labels come from experienceDocFields, but keep fallbacks
+  EXPERIENCE_LETTER: 'Experience Letter',
+  OFFER_LETTER_DOC: 'Offer / Appointment Letter',
+  SALARY_SLIP_DOC: 'Last 3 Salary Slips',
 };
 
-const QUALIFICATIONS = ['10th Pass', '12th Pass', 'Diploma', 'Graduation', 'Post Graduation', 'PhD'] as const;
+// New enum values — must match backend
+const QUALIFICATIONS = [
+  { value: 'TENTH', label: '10th Pass' },
+  { value: 'TWELFTH', label: '12th Pass' },
+  { value: 'DIPLOMA', label: 'Diploma' },
+  { value: 'GRADUATION', label: 'Graduation' },
+  { value: 'POST_GRADUATION', label: 'Post Graduation' },
+  { value: 'PHD', label: 'PhD' },
+] as const;
 
-type WorkMode = 'OFFICE' | 'PROJECT_SITE';
+type WorkMode = 'OFFICE' | 'PROJECT_SITE' | 'FIELD_SALES' | 'HYBRID' | 'REMOTE';
 
-// Cascading: each level requires ALL certificates below it too
 function getRequiredEducationDocs(qualification: string | null | undefined): string[] {
   switch (qualification) {
-    case '12th Pass':    return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
-    case 'Diploma':      return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
-    case 'Graduation':   return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
-    case 'Post Graduation': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
-    case 'PhD':          return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
-    default:             return ['TENTH_CERTIFICATE'];
+    case 'TWELFTH':       return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
+    case 'DIPLOMA':       return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+    case 'GRADUATION':    return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+    case 'POST_GRADUATION': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+    case 'PHD':           return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+    default:              return ['TENTH_CERTIFICATE'];
   }
 }
 
-function getRequiredNonIdentityDocs(workMode: WorkMode | null, qualification?: string | null): string[] {
-  if (workMode === 'PROJECT_SITE') return ['PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
+function getRequiredNonIdentityDocs(
+  workMode: WorkMode | null,
+  qualification?: string | null,
+  addressSameAsPermanent?: boolean | null,
+  experienceLevel?: string | null,
+  experienceDocFields?: { key: string; label: string; required?: boolean }[],
+): string[] {
+  if (workMode === 'PROJECT_SITE') return ['PHOTO'];
   const eduDocs = getRequiredEducationDocs(qualification);
-  return [...eduDocs, 'PAN', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
+  const residenceDocs = addressSameAsPermanent === false
+    ? ['RESIDENCE_PROOF', 'PERMANENT_RESIDENCE_PROOF']
+    : ['RESIDENCE_PROOF'];
+  const expDocs = experienceLevel === 'EXPERIENCED'
+    ? (experienceDocFields || []).filter(f => f.required !== false).map(f => f.key)
+    : [];
+  return [...eduDocs, 'PAN', ...residenceDocs, 'PHOTO', ...expDocs];
 }
 
-function getSiteDocSections() {
-  return [
-    {
-      title: 'Passport Photo',
-      docs: [{ name: 'Passport Size Photograph', type: 'PHOTO', required: true }],
-    },
-    {
-      title: 'Financial Documents',
-      docs: [
-        { name: 'Bank Statement (last 3 months)', type: 'BANK_STATEMENT', required: true },
-        { name: 'Cancelled Cheque', type: 'CANCELLED_CHEQUE', required: true },
-      ],
-    },
-  ];
-}
-
-function getOfficeSections(qualification: string | null | undefined) {
+function getDocSections(
+  workMode: WorkMode | null,
+  qualification: string | null | undefined,
+  addressSameAsPermanent: boolean | null,
+  experienceLevel: string | null,
+  experienceDocFields: { key: string; label: string; required?: boolean }[],
+) {
+  if (workMode === 'PROJECT_SITE') {
+    return [
+      { title: 'Passport Photo', docs: [{ name: 'Passport Size Photograph', type: 'PHOTO', required: true }] },
+    ];
+  }
   const eduDocs: { name: string; type: string; required: boolean }[] = [
     { name: '10th Marksheet / Certificate', type: 'TENTH_CERTIFICATE', required: true },
   ];
-  // 12th required for ALL levels above 10th Pass
-  if (['12th Pass', 'Diploma', 'Graduation', 'Post Graduation', 'PhD'].includes(qualification || '')) {
+  if (['TWELFTH', 'DIPLOMA', 'GRADUATION', 'POST_GRADUATION', 'PHD'].includes(qualification || '')) {
     eduDocs.push({ name: '12th Marksheet / Certificate', type: 'TWELFTH_CERTIFICATE', required: true });
   }
-  if (['Diploma', 'Graduation', 'Post Graduation', 'PhD'].includes(qualification || '')) {
+  if (['DIPLOMA', 'GRADUATION', 'POST_GRADUATION', 'PHD'].includes(qualification || '')) {
     eduDocs.push({ name: 'Diploma / Degree Certificate', type: 'DEGREE_CERTIFICATE', required: true });
   }
-  if (['Post Graduation', 'PhD'].includes(qualification || '')) {
+  if (['POST_GRADUATION', 'PHD'].includes(qualification || '')) {
     eduDocs.push({ name: 'Post-Graduation Certificate', type: 'POST_GRADUATION_CERTIFICATE', required: true });
   }
-  return [
+
+  const residenceDocs = addressSameAsPermanent === false
+    ? [
+        { name: 'Residence Proof — Current Address (Utility Bill / Rent Agreement)', type: 'RESIDENCE_PROOF', required: true },
+        { name: 'Residence Proof — Permanent Address (Utility Bill / Rent Agreement)', type: 'PERMANENT_RESIDENCE_PROOF', required: true },
+      ]
+    : [{ name: 'Residence Proof (Utility Bill / Rent Agreement)', type: 'RESIDENCE_PROOF', required: true }];
+
+  const sections: { title: string; docs: { name: string; type: string; required: boolean }[] }[] = [
     { title: 'Education Certificates', docs: eduDocs },
     {
-      title: 'Address & Financial Proof',
+      title: addressSameAsPermanent === false ? 'Address Proof (Current & Permanent)' : 'Address & Tax',
       docs: [
         { name: 'PAN Card', type: 'PAN', required: true },
-        { name: 'Residence Proof (Utility Bill / Rent Agreement)', type: 'RESIDENCE_PROOF', required: true },
+        ...residenceDocs,
       ],
     },
     { title: 'Passport Photo', docs: [{ name: 'Passport Size Photograph', type: 'PHOTO', required: true }] },
-    {
-      title: 'Previous Employment (if applicable)',
-      docs: [
-        { name: 'Offer / Appointment Letter', type: 'OFFER_LETTER_DOC', required: false },
-        { name: 'Last 3 Salary Slips / Bank Statements', type: 'SALARY_SLIP_DOC', required: false },
-        { name: 'Relieving / Experience Letter', type: 'EXPERIENCE_LETTER', required: false },
-      ],
-    },
-    {
-      title: 'Financial Documents',
-      docs: [
-        { name: 'Bank Statement (last 3 months)', type: 'BANK_STATEMENT', required: true },
-        { name: 'Cancelled Cheque', type: 'CANCELLED_CHEQUE', required: true },
-      ],
-    },
   ];
+
+  if (experienceLevel === 'EXPERIENCED' && experienceDocFields.length > 0) {
+    sections.push({
+      title: 'Previous Employment Documents',
+      docs: experienceDocFields.map(f => ({ name: f.label, type: f.key, required: f.required !== false })),
+    });
+  }
+
+  return sections;
 }
 
 export default function NewOnboardingFlow() {
@@ -138,17 +157,12 @@ export default function NewOnboardingFlow() {
   const status = statusRes?.data;
   const [currentStep, setCurrentStep] = useState(1);
   const [completed, setCompleted] = useState(false);
-  const [workMode, setWorkMode] = useState<WorkMode | null>(null);
 
   // Resume from last incomplete step
   useEffect(() => {
     if (status?.resumeStep) {
-      setCurrentStep(Math.min(status.resumeStep, 7));
+      setCurrentStep(Math.min(status.resumeStep, 6));
     }
-  }, [status]);
-
-  useEffect(() => {
-    if (status?.workMode) setWorkMode(status.workMode as WorkMode);
   }, [status]);
 
   const handleSaveStep = async (stepNum: number, data: any) => {
@@ -156,7 +170,7 @@ export default function NewOnboardingFlow() {
       await saveStep({ step: stepNum, data }).unwrap();
       toast.success('Saved!');
       await refetch();
-      setCurrentStep(s => Math.min(s + 1, 7));
+      setCurrentStep(s => Math.min(s + 1, 6));
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to save');
     }
@@ -187,6 +201,9 @@ export default function NewOnboardingFlow() {
     return <CompletionScreen orgName={status?.organization?.name} onContinue={() => navigate(nextRoute, { replace: true })} />;
   }
 
+  const workMode = status?.workMode as WorkMode | null;
+  const isReupload = status?.kycStatus === 'REUPLOAD_REQUIRED';
+
   return (
     <div className="h-[100dvh] overflow-y-auto bg-gradient-to-br from-indigo-50 via-white to-purple-50">
       <header className="bg-white border-b border-gray-100 px-4 py-4 sticky top-0 z-10">
@@ -202,6 +219,32 @@ export default function NewOnboardingFlow() {
       </header>
 
       <div className="max-w-3xl mx-auto px-4 py-6 pb-[max(4rem,calc(env(safe-area-inset-bottom,0px)+2rem))]">
+        {/* Re-upload banner — shown when HR rejected/deleted documents */}
+        {isReupload && (
+          <div className="mb-5 bg-orange-50 border border-orange-300 rounded-xl p-4">
+            <p className="text-sm font-semibold text-orange-800 flex items-center gap-2">
+              <AlertTriangle size={16} /> Document Re-upload Required
+            </p>
+            <p className="text-xs text-orange-700 mt-1">
+              HR has flagged some of your documents. Please re-upload them to continue. All your previously filled information is pre-loaded below.
+            </p>
+            {(status?.reuploadDocTypes?.length ?? 0) > 0 && (
+              <ul className="mt-2 space-y-1">
+                {(status?.reuploadDocTypes as string[]).map((docType: string) => {
+                  const reason = (status?.documentRejectReasons as Record<string, string>)?.[docType];
+                  const label = REQUIRED_NON_IDENTITY_LABELS[docType] || docType.replace(/_/g, ' ');
+                  return (
+                    <li key={docType} className="text-xs text-orange-700">
+                      <span className="font-semibold">{label}:</span>{' '}
+                      {reason || 'Please re-upload a clear, valid copy'}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+
         {/* Step indicator */}
         <div className="flex items-center justify-between mb-6 overflow-x-auto pb-2 gap-1">
           {STEPS.map((step, i) => (
@@ -223,8 +266,8 @@ export default function NewOnboardingFlow() {
                 currentStep > step.num ? 'text-emerald-600' : 'text-gray-400'
               )}>
                 {step.title}
-                {step.num === 2 && workMode === 'PROJECT_SITE' && <span className="text-gray-400 ml-0.5">(opt)</span>}
-                {step.num === 2 && workMode !== 'PROJECT_SITE' && workMode !== null && <span className="text-red-400 ml-0.5">*</span>}
+                {step.num === 1 && workMode === 'OFFICE' && <span className="text-red-400 ml-0.5">*</span>}
+                {step.num === 1 && workMode !== 'OFFICE' && <span className="text-gray-400 ml-0.5">(opt)</span>}
               </span>
               {i < STEPS.length - 1 && (
                 <div className={cn('w-4 sm:w-8 h-0.5 mx-1', currentStep > step.num ? 'bg-emerald-400' : 'bg-gray-200')} />
@@ -246,62 +289,60 @@ export default function NewOnboardingFlow() {
             <p className="text-sm text-gray-500 mb-6">{STEPS[currentStep - 1].desc}</p>
 
             {currentStep === 1 && (
-              <Step1Password
-                onSave={(d) => handleSaveStep(1, d)}
-                onContinue={() => setCurrentStep(2)}
-                saving={saving}
-                isAlreadySet={status?.sections?.password}
-                workMode={workMode}
-                onWorkModeChange={setWorkMode}
-              />
-            )}
-            {currentStep === 2 && (
-              <Step2MFA
-                onSkip={() => { setCurrentStep(3); }}
-                onEnabled={() => { refetch(); setCurrentStep(3); }}
+              <Step1MFA
+                onSkip={() => setCurrentStep(2)}
+                onEnabled={() => { refetch(); setCurrentStep(2); }}
                 isMfaEnabled={status?.sections?.mfa}
                 workMode={workMode}
               />
             )}
-            {currentStep === 3 && (
-              <Step3Personal
-                onSave={(d) => handleSaveStep(3, d)}
+            {currentStep === 2 && (
+              <Step2Personal
+                onSave={(d) => handleSaveStep(2, d)}
                 saving={saving}
                 initialData={status}
                 isSiteEmployee={workMode === 'PROJECT_SITE'}
               />
             )}
-            {currentStep === 4 && (
-              <Step4Emergency
-                onSave={(d) => handleSaveStep(4, d)}
+            {currentStep === 3 && (
+              <Step3Emergency
+                onSave={(d) => handleSaveStep(3, d)}
                 saving={saving}
                 initialData={status?.emergencyContact}
               />
             )}
-            {currentStep === 5 && (
-              <Step5Bank
-                onSave={(d) => handleSaveStep(5, d)}
+            {currentStep === 4 && (
+              <Step4Bank
+                onSave={(d) => handleSaveStep(4, d)}
                 saving={saving}
                 initialData={status}
               />
             )}
-            {currentStep === 6 && (
-              <Step6Documents
+            {currentStep === 5 && (
+              <Step5Documents
                 uploadedDocTypes={status?.uploadedDocTypes || []}
                 rejectedDocs={(status as any)?.rejectedDocs || []}
-                onContinue={() => setCurrentStep(7)}
+                reuploadDocTypes={status?.reuploadDocTypes || []}
+                documentRejectReasons={status?.documentRejectReasons || {}}
+                onContinue={() => setCurrentStep(6)}
                 onRefetch={refetch}
                 workMode={workMode}
                 qualification={status?.qualification}
+                addressSameAsPermanent={status?.addressSameAsPermanent ?? null}
+                experienceLevel={status?.experienceLevel || null}
+                experienceDocFields={status?.experienceDocFields || []}
               />
             )}
-            {currentStep === 7 && (
-              <Step7Review
+            {currentStep === 6 && (
+              <Step6Review
                 status={status}
                 onComplete={handleComplete}
                 completing={completing}
                 workMode={workMode}
                 qualification={status?.qualification}
+                addressSameAsPermanent={status?.addressSameAsPermanent ?? null}
+                experienceLevel={status?.experienceLevel || null}
+                experienceDocFields={status?.experienceDocFields || []}
               />
             )}
           </motion.div>
@@ -317,12 +358,12 @@ export default function NewOnboardingFlow() {
             <ChevronLeft size={16} /> Back
           </button>
           <span className="text-xs text-gray-400">Step {currentStep} of {STEPS.length}</span>
-          {currentStep === 2 && workMode === 'PROJECT_SITE' && (
-            <button onClick={() => setCurrentStep(s => s + 1)} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+          {currentStep === 1 && workMode !== 'OFFICE' && (
+            <button onClick={() => setCurrentStep(2)} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
               Skip <ChevronRight size={16} />
             </button>
           )}
-          {(currentStep < 2 || currentStep >= 7) && <span />}
+          {currentStep !== 1 && <span />}
         </div>
       </div>
     </div>
@@ -330,134 +371,9 @@ export default function NewOnboardingFlow() {
 }
 
 // ==================
-// STEP 1: SET PASSWORD
+// STEP 1: MFA SETUP
 // ==================
-function Step1Password({ onSave, onContinue, saving, isAlreadySet, workMode, onWorkModeChange }: {
-  onSave: (d: any) => void;
-  onContinue?: () => void;
-  saving: boolean;
-  isAlreadySet?: boolean;
-  workMode: WorkMode | null;
-  onWorkModeChange: (m: WorkMode) => void;
-}) {
-  const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [show, setShow] = useState(false);
-
-  const workTypeSection = (
-    <div className="space-y-2">
-      <p className="text-sm font-semibold text-gray-700">Work Type <span className="text-red-500">*</span></p>
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={() => onWorkModeChange('OFFICE')}
-          className={cn(
-            'flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-left',
-            workMode === 'OFFICE'
-              ? 'border-brand-500 bg-brand-50'
-              : 'border-gray-200 hover:border-brand-300'
-          )}
-        >
-          <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center', workMode === 'OFFICE' ? 'bg-brand-600' : 'bg-gray-100')}>
-            <Briefcase size={18} className={workMode === 'OFFICE' ? 'text-white' : 'text-gray-500'} />
-          </div>
-          <div>
-            <p className={cn('text-sm font-semibold', workMode === 'OFFICE' ? 'text-brand-700' : 'text-gray-700')}>Office Employee</p>
-            <p className="text-[11px] text-gray-400 mt-0.5">Works at office/remote. Full onboarding.</p>
-          </div>
-          {workMode === 'OFFICE' && <div className="w-5 h-5 rounded-full bg-brand-500 flex items-center justify-center self-end ml-auto"><Check size={12} className="text-white" /></div>}
-        </button>
-        <button
-          type="button"
-          onClick={() => onWorkModeChange('PROJECT_SITE')}
-          className={cn(
-            'flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-left',
-            workMode === 'PROJECT_SITE'
-              ? 'border-amber-500 bg-amber-50'
-              : 'border-gray-200 hover:border-amber-300'
-          )}
-        >
-          <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center', workMode === 'PROJECT_SITE' ? 'bg-amber-500' : 'bg-gray-100')}>
-            <HardHat size={18} className={workMode === 'PROJECT_SITE' ? 'text-white' : 'text-gray-500'} />
-          </div>
-          <div>
-            <p className={cn('text-sm font-semibold', workMode === 'PROJECT_SITE' ? 'text-amber-700' : 'text-gray-700')}>Site Employee</p>
-            <p className="text-[11px] text-gray-400 mt-0.5">Works at field/construction sites. Basic onboarding.</p>
-          </div>
-          {workMode === 'PROJECT_SITE' && <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center self-end ml-auto"><Check size={12} className="text-white" /></div>}
-        </button>
-      </div>
-      {!workMode && <p className="text-[11px] text-amber-600">Please select your work type to continue.</p>}
-    </div>
-  );
-
-  if (isAlreadySet) {
-    return (
-      <div className="space-y-5">
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex items-center gap-3">
-          <CheckCircle2 size={20} className="text-emerald-500 flex-shrink-0" />
-          <p className="text-sm text-emerald-700">Password already set. You can update it below or continue to the next step.</p>
-        </div>
-        {workTypeSection}
-        <form onSubmit={(e) => { e.preventDefault(); if (!workMode) { toast.error('Please select your work type'); return; } if (password && password === confirm) onSave({ password, workMode }); else if (password !== confirm) toast.error('Passwords do not match'); }} className="space-y-3">
-          <div className="border-t border-gray-100 pt-3">
-            <p className="text-xs text-gray-500 mb-2">Update password (optional)</p>
-            <div className="relative">
-              <input type={show ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
-                placeholder="New Password (optional)" className="input-glass w-full pr-10" minLength={8} />
-              <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-                {show ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-            {password && (
-              <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
-                placeholder="Confirm Password" className="input-glass w-full mt-2" minLength={8} />
-            )}
-          </div>
-          <div className="flex gap-3">
-            {password
-              ? <button type="submit" disabled={saving || !workMode} className="btn-primary flex-1 disabled:opacity-50">{saving ? <Loader2 size={16} className="animate-spin mx-auto" /> : 'Update Password & Continue'}</button>
-              : <button type="button" disabled={!workMode} onClick={() => { if (workMode) onSave({ workMode }); }} className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50">Continue to Next Step <ChevronRight size={16} /></button>
-            }
-          </div>
-        </form>
-      </div>
-    );
-  }
-
-  return (
-    <form onSubmit={(e) => {
-      e.preventDefault();
-      if (!workMode) { toast.error('Please select your work type'); return; }
-      if (!password) { toast.error('Password is required'); return; }
-      if (password !== confirm) { toast.error('Passwords do not match'); return; }
-      onSave({ password, workMode });
-    }} className="space-y-5">
-      {workTypeSection}
-      <div className="border-t border-gray-100 pt-3 space-y-3">
-        <div className="relative">
-          <input type={show ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
-            placeholder="New Password *" className="input-glass w-full pr-10" required minLength={8} />
-          <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-            {show ? <EyeOff size={16} /> : <Eye size={16} />}
-          </button>
-        </div>
-        <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
-          placeholder="Confirm Password *" className="input-glass w-full" required minLength={8} />
-        <p className="text-xs text-gray-400">Minimum 8 characters — include uppercase, lowercase, number and special character.</p>
-      </div>
-      <button type="submit" disabled={saving} className="btn-primary w-full flex items-center justify-center gap-2">
-        {saving && <Loader2 size={16} className="animate-spin" />}
-        Set Password & Continue
-      </button>
-    </form>
-  );
-}
-
-// ==================
-// STEP 2: MFA SETUP
-// ==================
-function Step2MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
+function Step1MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
   onSkip: () => void;
   onEnabled: () => void;
   isMfaEnabled?: boolean;
@@ -466,7 +382,7 @@ function Step2MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
   const [showSetup, setShowSetup] = useState(false);
   const { data: mfaStatus, refetch } = useGetMfaStatusQuery();
   const isEnabled = isMfaEnabled || mfaStatus?.data?.isEnabled;
-  const isSite = workMode === 'PROJECT_SITE';
+  const isOffice = workMode === 'OFFICE';
 
   if (isEnabled) {
     return (
@@ -485,18 +401,7 @@ function Step2MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
 
   return (
     <div className="space-y-5">
-      {/* Required vs Optional banner */}
-      {isSite ? (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <Shield size={20} className="text-blue-500 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-blue-800">Two-Factor Authentication <span className="font-normal text-blue-600">(Optional for Site Employees)</span></p>
-              <p className="text-xs text-blue-600 mt-1">MFA is recommended but not required for site employees. You can enable it now or later from your profile.</p>
-            </div>
-          </div>
-        </div>
-      ) : (
+      {isOffice ? (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <div className="flex items-start gap-3">
             <AlertTriangle size={20} className="text-red-500 mt-0.5 flex-shrink-0" />
@@ -506,21 +411,31 @@ function Step2MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
             </div>
           </div>
         </div>
+      ) : (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <Shield size={20} className="text-blue-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-blue-800">Two-Factor Authentication <span className="font-normal text-blue-600">(Optional)</span></p>
+              <p className="text-xs text-blue-600 mt-1">MFA is recommended but not required for your work mode. You can enable it now or later from your profile.</p>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm text-gray-600">
-        <p className="font-medium text-gray-700 text-xs uppercase tracking-wide">How it works:</p>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">1</span> Download an authenticator app on your phone</div>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">2</span> Scan the QR code shown after clicking "Enable MFA"</div>
+        <p className="font-medium text-gray-700 text-xs uppercase tracking-wide">How to set up:</p>
+        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">1</span> Download Google Authenticator or Authy on your phone</div>
+        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">2</span> Click "Enable MFA" — scan QR code, or copy the secret key</div>
         <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">3</span> Enter the 6-digit code from the app to verify</div>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">4</span> Use the code at every login for extra security</div>
+        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">4</span> You'll use this code at every login for extra security</div>
       </div>
 
       <div className="flex flex-col gap-3">
         <button onClick={() => setShowSetup(true)} className="btn-primary w-full flex items-center justify-center gap-2">
           <Shield size={16} /> Enable Two-Factor Authentication
         </button>
-        {isSite && (
+        {!isOffice && (
           <button onClick={onSkip} className="text-sm text-gray-500 hover:text-gray-700 text-center py-1">
             Skip for now — I'll set it up later in Profile settings
           </button>
@@ -538,36 +453,26 @@ function Step2MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
 }
 
 // ==================
-// STEP 3: PERSONAL DETAILS
+// STEP 2: PERSONAL DETAILS
 // ==================
 const ADDR_INIT = { line1: '', line2: '', city: '', state: '', pincode: '', country: 'India' };
 const PERSONAL_INIT = {
   firstName: '', lastName: '', dateOfBirth: '', gender: '',
   bloodGroup: '', maritalStatus: '', phone: '', personalEmail: '',
   qualification: '',
-  joiningDate: '',
   currentAddress: { ...ADDR_INIT },
   permanentAddress: { ...ADDR_INIT },
 };
 
-function getMissingPersonalFields(data: any, isSiteEmployee?: boolean): string[] {
-  const missing: string[] = [];
-  if (!data?.firstName) missing.push('First Name');
-  if (!data?.lastName) missing.push('Last Name');
-  if (!data?.dateOfBirth) missing.push('Date of Birth');
-  if (!data?.gender) missing.push('Gender');
-  if (!data?.phone) missing.push('Phone');
-  if (!isSiteEmployee && !data?.qualification) missing.push('Qualification');
-  const curr = data?.currentAddress || data?.address || {};
-  if (!curr?.line1 || !curr?.city || !curr?.state || !curr?.pincode) missing.push('Current Address');
-  const perm = data?.permanentAddress || {};
-  if (!perm?.line1 || !perm?.city || !perm?.state || !perm?.pincode) missing.push('Permanent Address');
-  return missing;
-}
-
-function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave: (d: any) => void; saving: boolean; initialData: any; isSiteEmployee?: boolean }) {
+function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
+  onSave: (d: any) => void;
+  saving: boolean;
+  initialData: any;
+  isSiteEmployee?: boolean;
+}) {
   const [form, setForm] = useState(PERSONAL_INIT);
-  const [sameAsCurrent, setSameAsCurrent] = useState(false);
+  // null = not set yet, true = same, false = different
+  const [sameAsCurrent, setSameAsCurrent] = useState<boolean | null>(null);
   const [showErrors, setShowErrors] = useState(false);
 
   useEffect(() => {
@@ -584,19 +489,28 @@ function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave
         phone: initialData.phone || '',
         personalEmail: initialData.personalEmail || '',
         qualification: initialData.qualification || '',
-        joiningDate: initialData.joiningDate || '',
         currentAddress: { line1: curr.line1 || '', line2: curr.line2 || '', city: curr.city || '', state: curr.state || '', pincode: curr.pincode || '', country: curr.country || 'India' },
         permanentAddress: { line1: perm.line1 || '', line2: perm.line2 || '', city: perm.city || '', state: perm.state || '', pincode: perm.pincode || '', country: perm.country || 'India' },
       });
+      // Pre-fill address same toggle from DB
+      if (initialData.addressSameAsPermanent !== null && initialData.addressSameAsPermanent !== undefined) {
+        setSameAsCurrent(initialData.addressSameAsPermanent);
+      }
     }
   }, [initialData]);
 
   const addrValid = (a: typeof ADDR_INIT) => !!(a.line1.trim() && a.city.trim() && a.state.trim() && a.pincode.trim());
-  const permAddr = sameAsCurrent ? form.currentAddress : form.permanentAddress;
-  const isValid = !!(form.firstName.trim() && form.lastName.trim() && form.dateOfBirth &&
+  const sameResolved = sameAsCurrent === true;
+  const permAddr = sameResolved ? form.currentAddress : form.permanentAddress;
+  const permValid = sameResolved || addrValid(form.permanentAddress);
+
+  const isValid = !!(
+    form.firstName.trim() && form.lastName.trim() && form.dateOfBirth &&
     form.gender && form.phone.trim() &&
     (isSiteEmployee || !!form.qualification) &&
-    addrValid(form.currentAddress) && addrValid(permAddr));
+    addrValid(form.currentAddress) && permValid &&
+    sameAsCurrent !== null // must explicitly choose
+  );
 
   const set = (field: string, val: string) => setForm(p => ({ ...p, [field]: val }));
   const setCurr = (field: string, val: string) => setForm(p => ({ ...p, currentAddress: { ...p.currentAddress, [field]: val } }));
@@ -605,7 +519,7 @@ function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave
 
   const addressBlock = (label: string, addr: typeof ADDR_INIT, onChange: (f: string, v: string) => void, disabled = false) => (
     <div className="border-t border-gray-100 pt-4">
-      <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">{label}</p>
+      {label && <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">{label}</p>}
       <div className="space-y-3">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Street Address <span className="text-red-500">*</span></label>
@@ -638,21 +552,24 @@ function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave
     </div>
   );
 
-  const missingOnLoad = getMissingPersonalFields(initialData, isSiteEmployee);
-
   return (
     <div className="space-y-4">
-      {missingOnLoad.length > 0 && !showErrors && (
-        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          <p className="font-semibold flex items-center gap-1.5 mb-1"><AlertTriangle size={13} /> Please complete the following fields:</p>
-          <p className="text-amber-600">{missingOnLoad.join(' · ')}</p>
-        </div>
-      )}
       {showErrors && !isValid && (
         <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2">
           <AlertTriangle size={13} /> Please fill all required fields marked with *
         </div>
       )}
+
+      {/* Joining Date — read-only, set by HR */}
+      {initialData?.joiningDate && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2">
+          <Lock size={13} className="text-blue-500 flex-shrink-0" />
+          <span className="text-xs text-blue-700">
+            Joining Date: <span className="font-semibold">{initialData.joiningDate}</span> — set by HR
+          </span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">First Name <span className="text-red-500">*</span></label>
@@ -709,20 +626,6 @@ function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave
         </div>
       </div>
 
-      {/* Joining Date — optional, pre-filled from HR if already set */}
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
-          Date of Joining <span className="text-gray-400 font-normal">(confirm or update)</span>
-        </label>
-        <input
-          type="date"
-          value={form.joiningDate}
-          onChange={e => set('joiningDate', e.target.value)}
-          className="input-glass w-full text-sm"
-        />
-        <p className="text-[11px] text-gray-400 mt-1">The date you joined or are scheduled to join. Used for payroll and leave calculations.</p>
-      </div>
-
       {/* Qualification — office employees only */}
       {!isSiteEmployee && (
         <div className="border-t border-gray-100 pt-4">
@@ -731,55 +634,79 @@ function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave
             <label className="block text-xs font-medium text-gray-700 mb-1">Highest Qualification <span className="text-red-500">*</span></label>
             <select value={form.qualification} onChange={e => set('qualification', e.target.value)} className={cn('input-glass w-full text-sm', err(!!form.qualification))}>
               <option value="">Select qualification</option>
-              {QUALIFICATIONS.map(q => <option key={q} value={q}>{q}</option>)}
+              {QUALIFICATIONS.map(q => <option key={q.value} value={q.value}>{q.label}</option>)}
             </select>
             {form.qualification && (
               <p className="text-[11px] text-brand-600 mt-1">
-                {form.qualification === '10th Pass' && 'You will upload: 10th Certificate'}
-                {form.qualification === '12th Pass' && 'You will upload: 10th + 12th Certificates'}
-                {form.qualification === 'Diploma' && 'You will upload: 10th Certificate + Diploma Certificate'}
-                {form.qualification === 'Graduation' && 'You will upload: 10th Certificate + Degree Certificate'}
-                {form.qualification === 'Post Graduation' && 'You will upload: 10th + Degree + Post-Graduation Certificates'}
-                {form.qualification === 'PhD' && 'You will upload: 10th + Degree + Post-Graduation Certificates'}
+                Required certificates: {getRequiredEducationDocs(form.qualification)
+                  .map(t => REQUIRED_NON_IDENTITY_LABELS[t] || t).join(' + ')}
               </p>
             )}
           </div>
         </div>
       )}
 
-      {/* Current Address — required for all */}
+      {/* Current Address */}
       {addressBlock('Current Address', form.currentAddress, setCurr)}
 
-      {/* Permanent Address — required for all */}
+      {/* Permanent Address — with same/different toggle */}
       <div className="border-t border-gray-100 pt-4">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Permanent Address</p>
-          <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-            <input
-              type="checkbox" checked={sameAsCurrent}
-              onChange={e => setSameAsCurrent(e.target.checked)}
-              className="rounded border-gray-300"
-            />
-            Same as current address
-          </label>
-        </div>
-        {sameAsCurrent ? (
+        <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">Permanent Address</p>
+
+        {/* Must explicitly choose — required for doc logic */}
+        {sameAsCurrent === null && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
+            <p className="text-xs text-amber-700 font-medium mb-2">Is your permanent address the same as your current address?</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setSameAsCurrent(true)}
+                className="flex-1 py-2 px-3 rounded-lg border-2 border-gray-200 text-xs font-medium hover:border-brand-400 transition-colors">
+                Yes, same address
+              </button>
+              <button type="button" onClick={() => setSameAsCurrent(false)}
+                className="flex-1 py-2 px-3 rounded-lg border-2 border-gray-200 text-xs font-medium hover:border-brand-400 transition-colors">
+                No, different address
+              </button>
+            </div>
+          </div>
+        )}
+
+        {sameAsCurrent !== null && (
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs text-gray-500">
+              {sameAsCurrent ? '✓ Same as current address' : 'Different from current address'}
+            </span>
+            <button type="button" onClick={() => setSameAsCurrent(null)} className="text-xs text-brand-600 hover:underline">Change</button>
+          </div>
+        )}
+
+        {sameAsCurrent === true && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
             <p className="text-xs text-emerald-700 flex items-center gap-2">
-              <CheckCircle2 size={13} /> Permanent address same as current address.
+              <CheckCircle2 size={13} /> Permanent address same as current address. One residence proof required.
             </p>
           </div>
-        ) : (
-          addressBlock('', form.permanentAddress, setPerm)
+        )}
+        {sameAsCurrent === false && (
+          <>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+              <p className="text-xs text-blue-700">You will need to upload residence proof for <strong>both</strong> addresses.</p>
+            </div>
+            {addressBlock('', form.permanentAddress, setPerm)}
+          </>
         )}
       </div>
 
       <button
         onClick={() => {
           setShowErrors(true);
+          if (sameAsCurrent === null) { toast.error('Please indicate whether your permanent address is the same as your current address'); return; }
           if (!form.qualification && !isSiteEmployee) { toast.error('Please select your qualification'); return; }
           if (isValid) {
-            onSave({ ...form, permanentAddress: sameAsCurrent ? form.currentAddress : form.permanentAddress });
+            onSave({
+              ...form,
+              addressSameAsPermanent: sameAsCurrent,
+              permanentAddress: sameAsCurrent ? form.currentAddress : form.permanentAddress,
+            });
           } else {
             toast.error('Please fill all required fields');
           }
@@ -795,9 +722,9 @@ function Step3Personal({ onSave, saving, initialData, isSiteEmployee }: { onSave
 }
 
 // ==================
-// STEP 4: EMERGENCY CONTACT
+// STEP 3: EMERGENCY CONTACT
 // ==================
-function Step4Emergency({ onSave, saving, initialData }: { onSave: (d: any) => void; saving: boolean; initialData: any }) {
+function Step3Emergency({ onSave, saving, initialData }: { onSave: (d: any) => void; saving: boolean; initialData: any }) {
   const ec = initialData as any;
   const [form, setForm] = useState({ name: '', relationship: '', phone: '', email: '' });
   const [showErrors, setShowErrors] = useState(false);
@@ -856,9 +783,9 @@ function Step4Emergency({ onSave, saving, initialData }: { onSave: (d: any) => v
 }
 
 // ==================
-// STEP 5: BANK DETAILS
+// STEP 4: BANK DETAILS
 // ==================
-function Step5Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; saving: boolean; initialData: any }) {
+function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; saving: boolean; initialData: any }) {
   const [form, setForm] = useState({ accountHolderName: '', accountType: 'SAVINGS' as 'SAVINGS' | 'CURRENT', bankName: '', bankAccountNumber: '', ifscCode: '' });
   const [showErrors, setShowErrors] = useState(false);
 
@@ -926,34 +853,42 @@ function Step5Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
 }
 
 // ==================
-// STEP 6: DOCUMENTS (separate upload only)
+// STEP 5: DOCUMENTS
 // ==================
 type UploadState = { status: 'idle' | 'uploading' | 'done' | 'error'; fileName?: string; error?: string };
 
-function Step6Documents({ uploadedDocTypes, rejectedDocs = [], onContinue, onRefetch, workMode, qualification }: {
+function Step5Documents({
+  uploadedDocTypes, rejectedDocs = [], reuploadDocTypes = [], documentRejectReasons = {},
+  onContinue, onRefetch, workMode, qualification, addressSameAsPermanent, experienceLevel, experienceDocFields,
+}: {
   uploadedDocTypes: string[];
   rejectedDocs?: { type: string; name: string; rejectionReason: string | null }[];
+  reuploadDocTypes?: string[];
+  documentRejectReasons?: Record<string, string>;
   onContinue: () => void;
   onRefetch: () => void;
   workMode?: WorkMode | null;
   qualification?: string | null;
+  addressSameAsPermanent: boolean | null;
+  experienceLevel: string | null;
+  experienceDocFields: { key: string; label: string; required?: boolean }[];
 }) {
   const [uploads, setUploads] = useState<Record<string, UploadState>>({});
   const [identityType, setIdentityType] = useState<IdentityDocType>('AADHAAR');
   const [uploadDocument] = useUploadDocumentMutation();
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const identityFileRef = useRef<HTMLInputElement | null>(null);
-  const requiredNonIdentityDocs = getRequiredNonIdentityDocs(workMode ?? null, qualification);
-  const activeSections = workMode === 'PROJECT_SITE' ? getSiteDocSections() : getOfficeSections(qualification);
+
+  const requiredNonIdentityDocs = getRequiredNonIdentityDocs(workMode ?? null, qualification, addressSameAsPermanent, experienceLevel, experienceDocFields);
+  const activeSections = getDocSections(workMode ?? null, qualification, addressSameAsPermanent, experienceLevel, experienceDocFields);
   const rejectedTypeMap = Object.fromEntries(rejectedDocs.map(d => [d.type, d]));
 
-  // Sync initial state + identity type from already-uploaded docs
+  // Sync upload state from already-uploaded / rejected docs
   useEffect(() => {
     const initial: Record<string, UploadState> = {};
     for (const type of uploadedDocTypes) {
       initial[type] = { status: 'done', fileName: 'Previously uploaded' };
     }
-    // Mark rejected docs as errors so employee knows to re-upload
     for (const rd of rejectedDocs) {
       initial[rd.type] = {
         status: 'error',
@@ -961,10 +896,16 @@ function Step6Documents({ uploadedDocTypes, rejectedDocs = [], onContinue, onRef
         error: rd.rejectionReason ? `Rejected by HR: ${rd.rejectionReason}` : 'Rejected by HR — please re-upload',
       };
     }
+    // Also show HR-deleted docs (in reuploadDocTypes but not in rejectedDocs) as needing upload
+    for (const t of reuploadDocTypes) {
+      if (!initial[t]) {
+        initial[t] = { status: 'error', error: documentRejectReasons[t] || 'Document removed by HR — please re-upload' };
+      }
+    }
     setUploads(prev => ({ ...initial, ...prev }));
     const uploadedIdentity = IDENTITY_DOC_TYPES.find(t => uploadedDocTypes.includes(t));
     if (uploadedIdentity) setIdentityType(uploadedIdentity);
-  }, [uploadedDocTypes, rejectedDocs]);
+  }, [uploadedDocTypes, rejectedDocs, reuploadDocTypes, documentRejectReasons]);
 
   const handleUpload = useCallback(async (file: File, docType: string, docName: string) => {
     if (file.size > 100 * 1024 * 1024) { toast.error('File must be under 100MB'); return; }
@@ -994,22 +935,6 @@ function Step6Documents({ uploadedDocTypes, rejectedDocs = [], onContinue, onRef
 
   return (
     <div className="space-y-5">
-      {/* Rejected docs banner */}
-      {rejectedDocs.length > 0 && (
-        <div className="bg-red-50 border border-red-300 rounded-lg p-3">
-          <p className="text-sm font-semibold text-red-700 flex items-center gap-1.5">
-            <AlertTriangle size={15} /> {rejectedDocs.length} document{rejectedDocs.length > 1 ? 's' : ''} rejected by HR — please re-upload
-          </p>
-          <ul className="mt-1.5 space-y-1">
-            {rejectedDocs.map(rd => (
-              <li key={rd.type} className="text-xs text-red-600">
-                <span className="font-medium">{REQUIRED_NON_IDENTITY_LABELS[rd.type] || rd.name}:</span>{' '}
-                {rd.rejectionReason || 'Rejected — re-upload a clear, original scan'}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
         <p className="text-sm font-medium text-amber-800">Upload each document separately</p>
         <p className="text-xs text-amber-700 mt-1">Documents marked <span className="text-red-500 font-bold">*</span> are required. OCR will automatically extract data from identity documents.</p>
@@ -1029,7 +954,7 @@ function Step6Documents({ uploadedDocTypes, rejectedDocs = [], onContinue, onRef
         </div>
       </div>
 
-      {/* Identity Proof — fixed to Aadhaar for site employees, selector for office */}
+      {/* Identity Proof */}
       <div>
         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-brand-500" />Identity Proof
@@ -1040,23 +965,16 @@ function Step6Documents({ uploadedDocTypes, rejectedDocs = [], onContinue, onRef
           identityState.status === 'error' ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-100'
         )}>
           <div className="flex items-center gap-2 px-3 pt-3 pb-2">
-            {workMode === 'PROJECT_SITE' ? (
-              <div className="input-glass text-sm flex-1 flex items-center gap-2 bg-amber-50 border-amber-200 text-amber-800 cursor-not-allowed">
-                <Shield size={13} className="text-amber-600 shrink-0" />
-                Aadhaar Card <span className="text-[11px] text-amber-600 ml-1">(required for site employees)</span>
-              </div>
-            ) : (
-              <select
-                value={identityType}
-                onChange={e => setIdentityType(e.target.value as IdentityDocType)}
-                className="input-glass text-sm flex-1"
-                disabled={identityUploaded}
-              >
-                {IDENTITY_DOC_TYPES.map(t => (
-                  <option key={t} value={t}>{IDENTITY_DOC_LABELS[t]}</option>
-                ))}
-              </select>
-            )}
+            <select
+              value={identityType}
+              onChange={e => setIdentityType(e.target.value as IdentityDocType)}
+              className="input-glass text-sm flex-1"
+              disabled={identityUploaded}
+            >
+              {IDENTITY_DOC_TYPES.map(t => (
+                <option key={t} value={t}>{IDENTITY_DOC_LABELS[t]}</option>
+              ))}
+            </select>
             <span className="text-red-500 text-sm font-bold shrink-0">*</span>
           </div>
           <div className="flex items-center justify-between py-2 px-3">
@@ -1095,13 +1013,6 @@ function Step6Documents({ uploadedDocTypes, rejectedDocs = [], onContinue, onRef
             </div>
           </div>
         </div>
-        {identityUploaded && (() => {
-          const uploadedIdType = IDENTITY_DOC_TYPES.find(t => uploads[t]?.status === 'done')!;
-          if (uploadedIdType !== identityType) {
-            return <p className="text-[11px] text-amber-600 mt-1">Note: You uploaded {IDENTITY_DOC_LABELS[uploadedIdType]}. Change type selector above to replace it.</p>;
-          }
-          return null;
-        })()}
       </div>
 
       {/* All other doc sections */}
@@ -1113,16 +1024,46 @@ function Step6Documents({ uploadedDocTypes, rejectedDocs = [], onContinue, onRef
           <div className="space-y-2">
             {section.docs.map(doc => {
               const state = uploads[doc.type] || { status: 'idle' };
+              const isReuploadNeeded = reuploadDocTypes.includes(doc.type);
+
+              // Passport photo — use special camera+upload component
+              if (doc.type === 'PHOTO') {
+                return (
+                  <div key={doc.type} className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Camera size={13} className="text-brand-500" />
+                      <p className="text-sm font-medium text-gray-700">
+                        Passport Size Photograph <span className="text-red-500">*</span>
+                      </p>
+                      {state.status === 'done' && <CheckCircle2 size={13} className="text-emerald-500" />}
+                      {isReuploadNeeded && state.status !== 'done' && (
+                        <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-semibold">RE-UPLOAD</span>
+                      )}
+                    </div>
+                    {isReuploadNeeded && documentRejectReasons[doc.type] && state.status !== 'done' && (
+                      <p className="text-[11px] text-red-500">HR note: {documentRejectReasons[doc.type]}</p>
+                    )}
+                    <PassportPhotoUploader
+                      isUploading={state.status === 'uploading'}
+                      isUploaded={state.status === 'done'}
+                      uploadedFileName={state.fileName}
+                      onPhotoReady={(file) => handleUpload(file, doc.type, doc.name)}
+                    />
+                  </div>
+                );
+              }
+
               return (
                 <div key={doc.type} className={cn(
                   'flex items-center justify-between py-3 px-3 rounded-lg transition-colors',
                   state.status === 'done' ? 'bg-emerald-50 border border-emerald-200' :
-                  state.status === 'error' ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-100'
+                  state.status === 'error' || isReuploadNeeded ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-100'
                 )}>
                   <div className="min-w-0 flex-1 mr-3">
                     <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5 flex-wrap">
                       {doc.name} {doc.required && <span className="text-red-500">*</span>}
                       {state.status === 'done' && <CheckCircle2 size={13} className="text-emerald-500" />}
+                      {isReuploadNeeded && state.status !== 'done' && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-semibold">RE-UPLOAD</span>}
                     </p>
                     {state.fileName && (
                       <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1">
@@ -1131,10 +1072,13 @@ function Step6Documents({ uploadedDocTypes, rejectedDocs = [], onContinue, onRef
                       </p>
                     )}
                     {state.error && <p className="text-[11px] text-red-500 mt-0.5">{state.error}</p>}
+                    {isReuploadNeeded && !state.error && documentRejectReasons[doc.type] && (
+                      <p className="text-[11px] text-red-500 mt-0.5">HR note: {documentRejectReasons[doc.type]}</p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {state.status === 'uploading' && <Loader2 size={15} className="animate-spin text-brand-500" />}
-                    {state.status === 'error' && (
+                    {(state.status === 'error' || isReuploadNeeded) && state.status !== 'uploading' && (
                       <button onClick={() => fileInputRefs.current[doc.type]?.click()} className="p-1 text-red-500 hover:bg-red-100 rounded">
                         <RefreshCw size={13} />
                       </button>
@@ -1151,7 +1095,7 @@ function Step6Documents({ uploadedDocTypes, rejectedDocs = [], onContinue, onRef
                         onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f, doc.type, doc.name); e.target.value = ''; }}
                         disabled={state.status === 'uploading'}
                       />
-                      {state.status === 'done' ? 'Replace' : state.status === 'uploading' ? 'Uploading…' : 'Upload'}
+                      {state.status === 'done' ? 'Replace' : state.status === 'uploading' ? 'Uploading…' : isReuploadNeeded ? 'Re-upload' : 'Upload'}
                     </label>
                   </div>
                 </div>
@@ -1175,16 +1119,27 @@ function Step6Documents({ uploadedDocTypes, rejectedDocs = [], onContinue, onRef
 }
 
 // ==================
-// STEP 7: REVIEW & SUBMIT
+// STEP 6: REVIEW & SUBMIT
 // ==================
-function Step7Review({ status, onComplete, completing, workMode, qualification }: { status: any; onComplete: () => void; completing: boolean; workMode?: WorkMode | null; qualification?: string | null }) {
+function Step6Review({ status, onComplete, completing, workMode, qualification, addressSameAsPermanent, experienceLevel, experienceDocFields }: {
+  status: any;
+  onComplete: () => void;
+  completing: boolean;
+  workMode?: WorkMode | null;
+  qualification?: string | null;
+  addressSameAsPermanent: boolean | null;
+  experienceLevel: string | null;
+  experienceDocFields: { key: string; label: string; required?: boolean }[];
+}) {
   const [agreed, setAgreed] = useState(false);
 
   const addr = status?.currentAddress as any;
   const permAddr = status?.permanentAddress as any;
   const ec = status?.emergencyContact as any;
-  const allSectionsDone = status?.sections?.personalDetails && status?.sections?.emergencyContact &&
-    status?.sections?.bankDetails && status?.sections?.documents;
+  const allSectionsDone = status?.sections?.mfa && status?.sections?.personalDetails &&
+    status?.sections?.emergencyContact && status?.sections?.bankDetails && status?.sections?.documents;
+
+  const requiredDocs = getRequiredNonIdentityDocs(workMode ?? null, qualification, addressSameAsPermanent, experienceLevel, experienceDocFields);
 
   return (
     <div className="space-y-5">
@@ -1192,6 +1147,7 @@ function Step7Review({ status, onComplete, completing, workMode, qualification }
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
           <p className="text-sm font-semibold text-amber-800 flex items-center gap-2"><AlertTriangle size={16} /> Incomplete Sections</p>
           <ul className="mt-2 space-y-1 text-xs text-amber-700">
+            {!status?.sections?.mfa && <li>• MFA Setup — {workMode === 'OFFICE' ? 'required for office employees' : 'recommended'}</li>}
             {!status?.sections?.personalDetails && <li>• Personal Details — incomplete</li>}
             {!status?.sections?.emergencyContact && <li>• Emergency Contact — incomplete</li>}
             {!status?.sections?.bankDetails && <li>• Bank Details — incomplete</li>}
@@ -1207,9 +1163,13 @@ function Step7Review({ status, onComplete, completing, workMode, qualification }
           <ReviewRow label="DOB" value={status?.dateOfBirth} />
           <ReviewRow label="Gender" value={status?.gender} />
           <ReviewRow label="Phone" value={status?.phone} />
-          {qualification && <ReviewRow label="Qualification" value={qualification} />}
+          <ReviewRow label="Joining Date" value={status?.joiningDate} />
+          {qualification && <ReviewRow label="Qualification" value={QUALIFICATIONS.find(q => q.value === qualification)?.label || qualification} />}
           {addr?.city && <ReviewRow label="Current City" value={`${addr.city}, ${addr.state} ${addr.pincode}`} />}
-          {permAddr?.city && <ReviewRow label="Permanent City" value={`${permAddr.city}, ${permAddr.state} ${permAddr.pincode}`} />}
+          {addressSameAsPermanent === false && permAddr?.city && (
+            <ReviewRow label="Permanent City" value={`${permAddr.city}, ${permAddr.state} ${permAddr.pincode}`} />
+          )}
+          {addressSameAsPermanent === true && <ReviewRow label="Permanent Address" value="Same as current" />}
         </ReviewSection>
 
         <ReviewSection title="Emergency Contact">
@@ -1243,8 +1203,10 @@ function Step7Review({ status, onComplete, completing, workMode, qualification }
               />
             );
           })()}
-          {getRequiredNonIdentityDocs(workMode ?? null, qualification).map(t => (
-            <ReviewRow key={t} label={REQUIRED_NON_IDENTITY_LABELS[t] || t.replace(/_/g, ' ')} value={status?.uploadedDocTypes?.includes(t) ? '✓ Uploaded' : '✗ Missing'} valueClass={status?.uploadedDocTypes?.includes(t) ? 'text-emerald-600' : 'text-red-500'} />
+          {requiredDocs.map(t => (
+            <ReviewRow key={t} label={REQUIRED_NON_IDENTITY_LABELS[t] || t.replace(/_/g, ' ')}
+              value={status?.uploadedDocTypes?.includes(t) ? '✓ Uploaded' : '✗ Missing'}
+              valueClass={status?.uploadedDocTypes?.includes(t) ? 'text-emerald-600' : 'text-red-500'} />
           ))}
         </ReviewSection>
       </div>

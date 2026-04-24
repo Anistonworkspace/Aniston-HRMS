@@ -164,8 +164,23 @@ router.get('/kyc/me', authenticate,
       let gate = await documentGateService.getGate(employeeId);
       if (!gate) {
         await documentGateService.createGate(employeeId);
-        // Re-fetch with relations
         gate = await documentGateService.getGate(employeeId);
+      }
+
+      // Fetch employee profile to get experienceLevel + qualification for skip-able PROFILE_INFO step
+      const employee = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { experienceLevel: true, qualification: true },
+      });
+
+      // Auto-populate gate config if not already set and employee has profile data
+      if (gate && !gate.fresherOrExperienced && employee?.experienceLevel) {
+        const fresherOrExperienced = employee.experienceLevel === 'EXPERIENCED' ? 'EXPERIENCED' : 'FRESHER';
+        const highestQualification = employee.qualification || 'GRADUATION';
+        try {
+          await documentGateService.saveKycConfig(employeeId, 'SEPARATE', fresherOrExperienced, highestQualification);
+          gate = await documentGateService.getGate(employeeId);
+        } catch { /* non-blocking — proceed with existing gate */ }
       }
 
       // Include per-document-type status so frontend can show flags/rejections
@@ -174,7 +189,6 @@ router.get('/kyc/me', authenticate,
         select: { type: true, status: true, rejectionReason: true, tamperDetected: true },
         orderBy: { createdAt: 'desc' },
       });
-      // Build a map: { AADHAAR: 'VERIFIED', PAN: 'FLAGGED', ... } (latest per type)
       const documentStatuses: Record<string, string> = {};
       const documentReasons: Record<string, string> = {};
       for (const doc of docs) {
@@ -184,7 +198,17 @@ router.get('/kyc/me', authenticate,
         }
       }
 
-      res.json({ success: true, data: { ...gate, documentStatuses, documentReasons } });
+      res.json({
+        success: true,
+        data: {
+          ...gate,
+          documentStatuses,
+          documentReasons,
+          // Employee profile data for the KYC page to use
+          employeeExperienceLevel: employee?.experienceLevel || null,
+          employeeQualification: employee?.qualification || null,
+        },
+      });
     } catch (err) { next(err); }
   }
 );

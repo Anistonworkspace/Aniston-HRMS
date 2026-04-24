@@ -306,6 +306,15 @@ export default defineConfig({
     preserveSymlinks: true,
   },
 
+  // @imgly/background-removal uses WebAssembly workers and loads ML models from CDN at runtime.
+  // Excluding from pre-bundling lets the library manage its own WASM/ONNX loading mechanism.
+  optimizeDeps: {
+    exclude: ['@imgly/background-removal'],
+  },
+
+  // Ensure .wasm files are treated as assets, not processed as JS
+  assetsInclude: ['**/*.wasm'],
+
   server: {
     port: 5173,
     proxy: {

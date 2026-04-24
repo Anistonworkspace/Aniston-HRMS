@@ -264,7 +264,7 @@ export class OnboardingService {
       include: {
         documents: { where: { deletedAt: null }, select: { type: true, status: true, id: true, name: true, rejectionReason: true } },
         user: { select: { mfaEnabled: true } },
-        documentGate: { select: { kycStatus: true } },
+        documentGate: { select: { kycStatus: true, reuploadDocTypes: true, documentRejectReasons: true } },
       },
     });
     if (!employee) throw new NotFoundError('Employee');
@@ -274,22 +274,45 @@ export class OnboardingService {
       select: { name: true, logo: true },
     });
 
+    // Fetch the invitation that created this employee to get experienceLevel + experienceDocFields
+    const invitation = await prisma.employeeInvitation.findFirst({
+      where: { employeeId: employee.id },
+      select: { experienceLevel: true, experienceDocFields: true },
+    });
+    const experienceLevel = (employee as any).experienceLevel || invitation?.experienceLevel || 'FRESHER';
+    const experienceDocFields = (invitation?.experienceDocFields as any[]) || [];
+
     const IDENTITY_DOC_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
     const qualification = (employee as any).qualification as string | null;
+    const addressSameAsPermanent = (employee as any).addressSameAsPermanent as boolean | null;
+
+    // Education docs — keyed on new enum values (TENTH→TWELFTH→GRADUATION etc.)
     const requiredEduDocs = (() => {
       if (employee.workMode === 'PROJECT_SITE') return [];
       switch (qualification) {
-        case '12th Pass': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
-        case 'Diploma': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
-        case 'Graduation': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
-        case 'Post Graduation': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
-        case 'PhD': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
-        default: return ['TENTH_CERTIFICATE'];
+        case 'TWELFTH': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
+        case 'DIPLOMA': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+        case 'GRADUATION': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+        case 'POST_GRADUATION': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+        case 'PHD': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+        default: return ['TENTH_CERTIFICATE']; // TENTH or unknown
       }
     })();
+
+    // Residence proof: one doc if addresses same, two if different
+    const residenceDocs = addressSameAsPermanent === false
+      ? ['RESIDENCE_PROOF', 'PERMANENT_RESIDENCE_PROOF']
+      : ['RESIDENCE_PROOF'];
+
+    // Experience docs for EXPERIENCED employees (custom HR-configured fields)
+    const experienceDocs = experienceLevel === 'EXPERIENCED'
+      ? experienceDocFields.filter((f: any) => f.required !== false).map((f: any) => f.key)
+      : [];
+
     const REQUIRED_NON_IDENTITY_DOCS = employee.workMode === 'PROJECT_SITE'
-      ? ['PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE']
-      : [...requiredEduDocs, 'PAN', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
+      ? ['PHOTO']
+      : [...requiredEduDocs, 'PAN', ...residenceDocs, 'PHOTO', ...experienceDocs];
+
     // Rejected docs: show as "need re-upload" — exclude from uploadedDocTypes so they count as missing
     const rejectedDocs = (employee.documents as any[])
       .filter((d: any) => d.status === 'REJECTED')
@@ -313,6 +336,13 @@ export class OnboardingService {
     const ec = employee.emergencyContact as any;
 
     const isSiteEmployee = employee.workMode === 'PROJECT_SITE';
+
+    // Permanent address only required when addresses differ
+    const permAddrRequired = addressSameAsPermanent === false;
+    const permAddrValid = permAddrRequired
+      ? !!(permAddr?.line1 && permAddr?.city && permAddr?.state && permAddr?.pincode)
+      : true;
+
     const sections = {
       password: true,
       // Site employees skip MFA (auto-pass); office employees must enable it
@@ -322,7 +352,7 @@ export class OnboardingService {
         employee.dateOfBirth && employee.gender &&
         employee.phone && employee.phone !== '0000000000' &&
         addr?.line1 && addr?.city && addr?.state && addr?.pincode &&
-        permAddr?.line1 && permAddr?.city && permAddr?.state && permAddr?.pincode &&
+        permAddrValid &&
         (isSiteEmployee || !!qualification)
       ),
       emergencyContact: !!(ec?.name && ec?.relationship && ec?.phone),
@@ -330,17 +360,22 @@ export class OnboardingService {
       documents: missingRequiredDocs.length === 0,
     };
 
+    // Step numbering: 1=MFA, 2=Personal, 3=Emergency, 4=Bank, 5=Documents, 6=Review
     let resumeStep = 1;
-    if (sections.password) resumeStep = 2;
-    if (sections.mfa) resumeStep = 3;
-    if (sections.personalDetails) resumeStep = 4;
-    if (sections.emergencyContact) resumeStep = 5;
-    if (sections.bankDetails) resumeStep = 6;
-    if (sections.documents) resumeStep = 7;
+    if (sections.mfa) resumeStep = 2;
+    if (sections.personalDetails) resumeStep = 3;
+    if (sections.emergencyContact) resumeStep = 4;
+    if (sections.bankDetails) resumeStep = 5;
+    if (sections.documents) resumeStep = 6;
+
+    const gate = employee.documentGate as any;
 
     return {
       employeeId: employee.id,
       workMode: employee.workMode,
+      experienceLevel,
+      experienceDocFields,
+      addressSameAsPermanent: addressSameAsPermanent ?? null,
       qualification: qualification || '',
       joiningDate: employee.joiningDate ? employee.joiningDate.toISOString().split('T')[0] : '',
       firstName: employee.firstName,
@@ -358,14 +393,17 @@ export class OnboardingService {
       bankAccountNumber: (() => {
         const raw = employee.bankAccountNumber || '';
         if (!raw) return '';
-        try { return decrypt(raw); } catch { return raw; /* legacy plaintext */ }
+        try { return decrypt(raw); } catch { return raw; }
       })(),
       bankName: employee.bankName || '',
       ifscCode: employee.ifscCode || '',
       accountHolderName: employee.accountHolderName || '',
       accountType: employee.accountType || 'SAVINGS',
       onboardingComplete: employee.onboardingComplete,
-      kycStatus: (employee.documentGate as any)?.kycStatus ?? 'PENDING',
+      kycStatus: gate?.kycStatus ?? 'PENDING',
+      // Re-upload context — populated when kycStatus=REUPLOAD_REQUIRED
+      reuploadDocTypes: gate?.reuploadDocTypes ?? [],
+      documentRejectReasons: gate?.documentRejectReasons ?? {},
       organization: org,
       sections,
       resumeStep,
@@ -388,38 +426,19 @@ export class OnboardingService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    // Step 1: Set Password
-    if (step === 1 && stepData.password) {
-      const bcrypt = await import('bcryptjs');
-      const passwordHash = await bcrypt.default.hash(stepData.password, 12);
-      if (employee.userId) {
-        await prisma.user.update({
-          where: { id: employee.userId },
-          data: { passwordHash, status: 'ACTIVE' },
-        });
-      }
-    }
+    // Step 1: MFA — enable/skip handled by /auth/mfa endpoints; nothing to persist here
 
-    // Step 1: also save workMode if provided
-    if (step === 1 && stepData.workMode && ['OFFICE', 'PROJECT_SITE'].includes(stepData.workMode)) {
-      await prisma.employee.update({
-        where: { id: employeeId },
-        data: { workMode: stepData.workMode },
-      });
-    }
-
-    // Step 2: MFA — skip does nothing; enable is handled by existing /auth/mfa endpoints
-    // Nothing to save here
-
-    // Step 3: Personal Details — both addresses required for all employee types
-    if (step === 3) {
+    // Step 2: Personal Details
+    if (step === 2) {
       const curr = stepData.currentAddress;
-      const perm = stepData.permanentAddress;
+      const sameAddress = stepData.addressSameAsPermanent === true;
       const baseValid = stepData.firstName && stepData.lastName && stepData.dateOfBirth && stepData.gender && stepData.phone;
       const currValid = curr?.line1 && curr?.city && curr?.state && curr?.pincode;
-      const permValid = perm?.line1 && perm?.city && perm?.state && perm?.pincode;
+      // Permanent address only required when employee says addresses differ
+      const perm = stepData.permanentAddress;
+      const permValid = sameAddress || (perm?.line1 && perm?.city && perm?.state && perm?.pincode);
       if (!baseValid || !currValid || !permValid) {
-        throw new BadRequestError('Name, DOB, gender, phone, current address, and permanent address are all required');
+        throw new BadRequestError('Name, DOB, gender, phone, current address are required; permanent address is required when different from current');
       }
       await prisma.employee.update({
         where: { id: employeeId },
@@ -433,15 +452,16 @@ export class OnboardingService {
           phone: stepData.phone,
           personalEmail: stepData.personalEmail || null,
           address: stepData.currentAddress,
-          permanentAddress: stepData.permanentAddress,
+          permanentAddress: sameAddress ? stepData.currentAddress : (stepData.permanentAddress || null),
+          addressSameAsPermanent: sameAddress,
           qualification: stepData.qualification || null,
-          joiningDate: stepData.joiningDate ? new Date(stepData.joiningDate) : undefined,
+          // joiningDate is HR-set via invitation — employees cannot change it during onboarding
         },
       });
     }
 
-    // Step 4: Emergency Contact
-    if (step === 4) {
+    // Step 3: Emergency Contact
+    if (step === 3) {
       if (!stepData.name || !stepData.relationship || !stepData.phone) {
         throw new BadRequestError('Contact name, relationship, and phone are required');
       }
@@ -458,8 +478,8 @@ export class OnboardingService {
       });
     }
 
-    // Step 5: Bank Details
-    if (step === 5) {
+    // Step 4: Bank Details
+    if (step === 4) {
       if (!stepData.bankAccountNumber || !stepData.bankName || !stepData.ifscCode || !stepData.accountHolderName) {
         throw new BadRequestError('All bank detail fields are required');
       }
@@ -475,7 +495,7 @@ export class OnboardingService {
       });
     }
 
-    // Step 6: Documents — uploads handled via /api/documents; no server-side step save needed
+    // Step 5: Documents — uploads handled via /api/documents; no server-side step save needed
 
     return { saved: true, step };
   }
@@ -493,10 +513,10 @@ export class OnboardingService {
     });
     if (!emp) throw new NotFoundError('Employee');
 
-    // Office employees must have MFA enabled before completing onboarding
-    if (emp.workMode !== 'PROJECT_SITE') {
+    // MFA mandatory for OFFICE employees only
+    if (emp.workMode === 'OFFICE') {
       if (!(emp.user as any)?.mfaEnabled) {
-        throw new BadRequestError('Two-Factor Authentication (MFA) is required for office employees. Please enable MFA in Step 2 before completing onboarding.');
+        throw new BadRequestError('Two-Factor Authentication (MFA) is required for office employees. Please enable MFA in Step 1 before completing onboarding.');
       }
     }
 
@@ -514,8 +534,9 @@ export class OnboardingService {
     if (!addr?.line1 || !addr?.city || !addr?.state || !addr?.pincode) {
       throw new BadRequestError('Current address is required before completing onboarding');
     }
-    if (!permAddr?.line1 || !permAddr?.city || !permAddr?.state || !permAddr?.pincode) {
-      throw new BadRequestError('Permanent address is required before completing onboarding');
+    const addressSame = (emp as any).addressSameAsPermanent as boolean | null;
+    if (addressSame === false && (!permAddr?.line1 || !permAddr?.city || !permAddr?.state || !permAddr?.pincode)) {
+      throw new BadRequestError('Permanent address is required when it differs from current address');
     }
     if (!ec?.name || !ec?.relationship || !ec?.phone) {
       throw new BadRequestError('Emergency contact is required before completing onboarding');
@@ -527,17 +548,31 @@ export class OnboardingService {
     const requiredEduDocs = (() => {
       if (emp.workMode === 'PROJECT_SITE') return [];
       switch (qualification) {
-        case '12th Pass': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
-        case 'Diploma': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
-        case 'Graduation': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
-        case 'Post Graduation': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
-        case 'PhD': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+        case 'TWELFTH': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE'];
+        case 'DIPLOMA': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+        case 'GRADUATION': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE'];
+        case 'POST_GRADUATION': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+        case 'PHD': return ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
         default: return ['TENTH_CERTIFICATE'];
       }
     })();
+    const addressSameAsPermanent = (emp as any).addressSameAsPermanent as boolean | null;
+    const residenceDocs = addressSameAsPermanent === false
+      ? ['RESIDENCE_PROOF', 'PERMANENT_RESIDENCE_PROOF']
+      : ['RESIDENCE_PROOF'];
+    // Fetch experience doc fields from invitation
+    const inv = await prisma.employeeInvitation.findFirst({
+      where: { employeeId },
+      select: { experienceDocFields: true },
+    });
+    const experienceDocFields = (inv?.experienceDocFields as any[]) || [];
+    const empExpLevel = (emp as any).experienceLevel as string | null;
+    const experienceDocs = empExpLevel === 'EXPERIENCED'
+      ? experienceDocFields.filter((f: any) => f.required !== false).map((f: any) => f.key)
+      : [];
     const REQUIRED_NON_IDENTITY_DOCS = emp.workMode === 'PROJECT_SITE'
-      ? ['PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE']
-      : [...requiredEduDocs, 'PAN', 'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE'];
+      ? ['PHOTO']
+      : [...requiredEduDocs, 'PAN', ...residenceDocs, 'PHOTO', ...experienceDocs];
     const uploaded = (emp.documents as any[]).map((d: any) => d.type);
     const missing = REQUIRED_NON_IDENTITY_DOCS.filter(t => !uploaded.includes(t));
     const hasIdentityProof = uploaded.some((t: string) => IDENTITY_DOC_TYPES.includes(t));

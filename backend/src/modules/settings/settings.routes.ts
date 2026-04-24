@@ -77,4 +77,17 @@ router.get('/system', (req, res, next) =>
   settingsController.getSystemInfo(req, res, next)
 );
 
+// Document Templates (experience doc fields for EXPERIENCED employees)
+router.get('/document-templates', (req, res, next) =>
+  settingsController.listDocumentTemplates(req, res, next)
+);
+
+router.post('/document-templates', requirePermission('settings', 'update'), (req, res, next) =>
+  settingsController.upsertDocumentTemplate(req, res, next)
+);
+
+router.delete('/document-templates/:id', requirePermission('settings', 'update'), (req, res, next) =>
+  settingsController.deleteDocumentTemplate(req, res, next)
+);
+
 export { router as settingsRouter };

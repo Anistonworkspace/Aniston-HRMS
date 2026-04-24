@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Building2, Shield, Server, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus, Terminal } from 'lucide-react';
-import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation, useGetAiServiceHealthQuery } from './settingsApi';
+import { Settings, Building2, Shield, Server, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus, Terminal, FileText } from 'lucide-react';
+import { useGetOrgSettingsQuery, useUpdateOrgMutation, useGetAuditLogsQuery, useGetSystemInfoQuery, useGetEmailConfigQuery, useSaveEmailConfigMutation, useTestEmailConnectionMutation, useGetTeamsConfigQuery, useSaveTeamsConfigMutation, useTestTeamsConnectionMutation, useSyncTeamsEmployeesMutation, useGetSalaryVisibilityRulesQuery, useUpdateSalaryVisibilityRuleMutation, useGetAiConfigQuery, useSaveAiConfigMutation, useTestAiConnectionMutation, useTestAdminNotificationEmailMutation, useGetAgentSetupListQuery, useGenerateAgentCodeMutation, useRegenerateAgentCodeMutation, useBulkGenerateAgentCodesMutation, useGetAiServiceHealthQuery, useGetDocumentTemplatesQuery, useUpsertDocumentTemplateMutation, useDeleteDocumentTemplateMutation } from './settingsApi';
 import { useGetAgentDownloadStatusQuery } from '../attendance/attendanceApi';
 import { useGetEmployeesQuery, useChangeEmployeeRoleMutation } from '../employee/employeeApi';
 import { useInitializeWhatsAppMutation, useGetWhatsAppStatusQuery, useGetWhatsAppQrQuery, useRefreshWhatsAppQrMutation, useLogoutWhatsAppMutation, useSendWhatsAppMessageMutation, useGetWhatsAppContactsQuery, useGetWhatsAppMessagesQuery } from '../whatsapp/whatsappApi';
@@ -18,9 +18,10 @@ import SalaryComponentsTab from './SalaryComponentsTab';
 import DatabaseBackupTab from './DatabaseBackupTab';
 import DeletionRequestsTab from './DeletionRequestsTab';
 import SystemLogsTab from './SystemLogsTab';
+import PasswordResetTab from './PasswordResetTab';
 // LeaveSettingsTab removed — leave type management is now in Leave Management page
 
-type Tab = 'organization' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs';
+type Tab = 'organization' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs' | 'password-reset' | 'document-templates';
 
 export default function SettingsPage() {
   const { t } = useTranslation();
@@ -29,7 +30,7 @@ export default function SettingsPage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   // Tabs visible to HR (non-admin) users
-  const HR_VISIBLE_TABS: Tab[] = ['organization', 'salary-components', 'email', 'whatsapp'];
+  const HR_VISIBLE_TABS: Tab[] = ['organization', 'salary-components', 'email', 'whatsapp', 'password-reset'];
   // Tabs visible only to Super Admin
   const SUPER_ADMIN_ONLY_TABS: Tab[] = ['deletion-requests', 'system-logs'];
 
@@ -61,9 +62,11 @@ export default function SettingsPage() {
     { key: 'salary-components', label: t('settings.salaryComponents'), icon: DollarSign },
     { key: 'email', label: t('settings.emailConfig'), icon: Mail },
     { key: 'whatsapp', label: t('settings.whatsapp'), icon: MessageCircle },
+    { key: 'password-reset', label: 'Password Reset', icon: Lock },
     { key: 'roles', label: t('settings.userRoles'), icon: Users },
     { key: 'salary-privacy', label: t('settings.salaryPrivacy'), icon: Lock },
     { key: 'api-integration', label: t('settings.apiIntegration'), icon: ExternalLink },
+    { key: 'document-templates', label: 'Document Templates', icon: FileText },
     { key: 'ai-config', label: t('settings.aiApiConfig'), icon: Cpu },
     { key: 'agent-setup', label: t('settings.agentSetup'), icon: Monitor },
     { key: 'audit', label: t('settings.auditLogs'), icon: Shield },
@@ -130,9 +133,11 @@ export default function SettingsPage() {
             {activeTab === 'salary-components' && <SalaryComponentsTab />}
             {activeTab === 'email' && <EmailConfig />}
             {activeTab === 'whatsapp' && <WhatsAppConfig />}
+            {activeTab === 'password-reset' && <PasswordResetTab />}
             {activeTab === 'roles' && <UserRolesTab />}
             {activeTab === 'salary-privacy' && <SalaryPrivacyTab />}
             {activeTab === 'api-integration' && <ExternalApiIntegrationTab />}
+            {activeTab === 'document-templates' && <DocumentTemplatesTab />}
             {activeTab === 'ai-config' && <ApiIntegrationsTab />}
             {activeTab === 'agent-setup' && <AgentSetupTab />}
             {activeTab === 'audit' && <AuditLogs />}
@@ -2299,6 +2304,151 @@ function AgentSetupTab() {
           <li>Download and install the agent (.exe) on the employee's computer.</li>
           <li>Open the agent and paste the pairing code when prompted.</li>
           <li>Once connected, the status will turn green and activity tracking begins automatically.</li>
+        </ol>
+      </div>
+    </div>
+  );
+}
+
+function DocumentTemplatesTab() {
+  const { data: res, isLoading } = useGetDocumentTemplatesQuery();
+  const [upsert, { isLoading: isSaving }] = useUpsertDocumentTemplateMutation();
+  const [deleteTemplate, { isLoading: isDeleting }] = useDeleteDocumentTemplateMutation();
+
+  const templates = res?.data || [];
+
+  const [newLabel, setNewLabel] = useState('');
+  const [newRequired, setNewRequired] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleAdd = async () => {
+    const label = newLabel.trim();
+    if (!label) return;
+    const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    try {
+      await upsert({ key, label, required: newRequired, isDefault: true }).unwrap();
+      toast.success('Template added');
+      setNewLabel('');
+      setNewRequired(true);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to add template');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Remove this document template? Existing invitations already sent will not be affected.')) return;
+    setDeletingId(id);
+    try {
+      await deleteTemplate(id).unwrap();
+      toast.success('Template removed');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to remove');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="layer-card p-6">
+        <div className="flex items-start gap-3 mb-6">
+          <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+            <FileText size={18} className="text-amber-600" />
+          </div>
+          <div>
+            <h2 className="text-lg font-display font-semibold text-gray-800">Document Templates</h2>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Define the default document fields required from <strong>Experienced</strong> employees during KYC.
+              These auto-populate when HR sends an invitation with Experience Level = Experienced, but can be customised per invitation.
+            </p>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center h-24">
+            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+          </div>
+        ) : (
+          <>
+            {templates.length === 0 ? (
+              <div className="text-center py-8 text-gray-400">
+                <FileText size={32} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No templates yet. Add your first required document below.</p>
+              </div>
+            ) : (
+              <div className="space-y-2 mb-6">
+                {templates.map((t: any) => (
+                  <div key={t.id} className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition-colors">
+                    <FileText size={14} className="text-gray-400 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-700">{t.label}</p>
+                      <p className="text-xs text-gray-400 font-mono" data-mono>{t.key}</p>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.required ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-500'}`}>
+                      {t.required ? 'Required' : 'Optional'}
+                    </span>
+                    <button
+                      onClick={() => handleDelete(t.id)}
+                      disabled={isDeleting && deletingId === t.id}
+                      className="p-1.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+                    >
+                      {isDeleting && deletingId === t.id ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Trash2 size={14} />
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add new template */}
+            <div className="border-t border-gray-100 pt-5">
+              <h3 className="text-sm font-medium text-gray-700 mb-3">Add Document Field</h3>
+              <div className="flex gap-3 items-center">
+                <input
+                  type="text"
+                  value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAdd())}
+                  className="input-glass flex-1 text-sm"
+                  placeholder="e.g. Relieving Letter, Payslips (last 3 months)"
+                />
+                <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer flex-shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={newRequired}
+                    onChange={(e) => setNewRequired(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-indigo-600"
+                  />
+                  Required
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAdd}
+                  disabled={isSaving || !newLabel.trim()}
+                  className="btn-primary flex items-center gap-1.5 flex-shrink-0"
+                >
+                  {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                  Add
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                The <span className="font-mono" data-mono>key</span> is auto-generated from the label (e.g. "Relieving Letter" → <span className="font-mono" data-mono>relieving_letter</span>).
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="layer-card p-4 bg-blue-50/50 border border-blue-100">
+        <p className="text-sm text-blue-800 font-medium mb-1">How document templates work:</p>
+        <ol className="text-xs text-blue-700 space-y-0.5 list-decimal list-inside">
+          <li>Add document fields here (e.g. "Experience Letter", "Relieving Letter").</li>
+          <li>When HR invites an employee with Experience Level = Experienced, these fields auto-populate.</li>
+          <li>HR can customise the list per invitation — adding or removing fields as needed.</li>
+          <li>During KYC, the employee sees and uploads exactly the documents configured for their invitation.</li>
         </ol>
       </div>
     </div>

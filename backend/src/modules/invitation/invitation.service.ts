@@ -29,7 +29,7 @@ export class InvitationService {
    * Create a new employee invitation and send the invite email.
    */
   async createInvitation(input: CreateInvitationInput, organizationId: string, invitedBy: string) {
-    const { email, mobileNumber, role, departmentId, designationId, managerId, officeLocationId, workMode, employmentType, proposedJoiningDate, notes, sendWelcomeEmail } = input;
+    const { email, mobileNumber, role, departmentId, designationId, managerId, officeLocationId, workMode, employmentType, proposedJoiningDate, experienceLevel, experienceDocFields, notes, sendWelcomeEmail } = input;
 
     // Check for existing pending invitation
     if (email) {
@@ -78,6 +78,8 @@ export class InvitationService {
         workMode: workMode || null,
         employmentType: employmentType || null,
         proposedJoiningDate: proposedJoiningDate ? new Date(proposedJoiningDate) : null,
+        experienceLevel: experienceLevel || null,
+        experienceDocFields: experienceDocFields ? JSON.parse(JSON.stringify(experienceDocFields)) : undefined,
         notes: notes || null,
         sendWelcomeEmail: sendWelcomeEmail ?? true,
         invitedBy,
@@ -243,6 +245,11 @@ export class InvitationService {
       email: invitation.email,
       mobileNumber: invitation.mobileNumber,
       role: invitation.role,
+      employmentType: invitation.employmentType,
+      workMode: invitation.workMode,
+      experienceLevel: invitation.experienceLevel,
+      experienceDocFields: invitation.experienceDocFields,
+      proposedJoiningDate: invitation.proposedJoiningDate,
       organization: org,
     };
   }
@@ -326,6 +333,7 @@ export class InvitationService {
             // Transfer all pre-assigned fields from invitation — these were set by HR
             workMode: (invitation.workMode as any) || 'OFFICE',
             employmentType: (invitation.employmentType as any) || 'FULL_TIME',
+            experienceLevel: (invitation.experienceLevel as any) || undefined,
             joiningDate: invitation.proposedJoiningDate || new Date(),
             onboardingDate: new Date(),
             // INTERN role or INTERN employmentType → set status to INTERN for leave/policy routing
@@ -376,6 +384,7 @@ export class InvitationService {
             // Transfer all pre-assigned fields from invitation — these were set by HR
             workMode: (invitation.workMode as any) || 'OFFICE',
             employmentType: (invitation.employmentType as any) || 'FULL_TIME',
+            experienceLevel: (invitation.experienceLevel as any) || undefined,
             joiningDate: invitation.proposedJoiningDate || new Date(),
             onboardingDate: new Date(),
             // INTERN role or INTERN employmentType → set status to INTERN for leave/policy routing

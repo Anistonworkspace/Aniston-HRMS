@@ -29,8 +29,7 @@ type Experience = 'FRESHER' | 'EXPERIENCED' | null;
 type Qualification = 'TENTH' | 'TWELFTH' | 'GRADUATION' | 'POST_GRADUATION' | 'PHD' | null;
 
 type FlowStep =
-  | 'PROFILE_INFO'    // Step 1: Fresher/experienced + qualification
-  | 'SEPARATE_UPLOAD' // Step 2: Separate docs
+  | 'SEPARATE_UPLOAD' // Step 1: Separate docs
   | 'STATUS';         // Final: submission status
 
 // ─── Document requirement engine (mirrors backend logic) ──────────────────────
@@ -74,13 +73,13 @@ function computeRequiredDocs(experience: Experience, qualification: Qualificatio
   // Residence proof
   docs.push({ type: 'RESIDENCE_PROOF', label: 'Residence Proof', hint: 'Utility bill, rent agreement, or address proof', required: true });
 
-  // Employment proof
+  // Employment proof — REQUIRED for EXPERIENCED employees
   if (experience === 'EXPERIENCED') {
     docs.push({
       type: 'EMPLOYMENT_PROOF',
       label: 'Previous Employment Proof (any one)',
       hint: 'Experience Letter, Relieving Letter, Appointment Letter, or Salary Slips',
-      required: false, // strongly expected but not hard-blocked
+      required: true, // mandatory for experienced employees
       acceptsAnyOf: EMPLOYMENT_TYPES,
     });
   }
@@ -190,8 +189,8 @@ export default function KycGatePage() {
     return () => clearInterval(timer);
   }, [kycStatus, refetch]);
 
-  // Local flow state
-  const [flowStep, setFlowStep] = useState<FlowStep>('PROFILE_INFO');
+  // Local flow state — skip PROFILE_INFO, start directly at upload
+  const [flowStep, setFlowStep] = useState<FlowStep>('SEPARATE_UPLOAD');
   const [uploadMode, setUploadMode] = useState<UploadMode>('SEPARATE');
   const [experience, setExperience] = useState<Experience>(null);
   const [qualification, setQualification] = useState<Qualification>(null);
@@ -207,16 +206,18 @@ export default function KycGatePage() {
   const reuploadDocTypes: string[] = (kyc?.reuploadDocTypes || []) as string[];
   const documentRejectReasons: Record<string, string> = (kyc?.documentRejectReasons || {}) as Record<string, string>;
 
-  // Restore saved config from gate (for page reload)
+  // Restore saved config from gate OR employee profile (for page reload)
   useEffect(() => {
-    if (kyc?.fresherOrExperienced) {
-      setExperience(kyc.fresherOrExperienced as Experience);
-      setQualification((kyc.highestQualification || 'GRADUATION') as Qualification);
-    }
+    // Prefer gate config; fall back to employee profile data returned by backend auto-population
+    const exp = (kyc?.fresherOrExperienced || (kyc as any)?.employeeExperienceLevel === 'EXPERIENCED' ? 'EXPERIENCED' : kyc?.fresherOrExperienced) as Experience;
+    const qual = (kyc?.highestQualification || (kyc as any)?.employeeQualification || 'GRADUATION') as Qualification;
+    if (exp) setExperience(exp);
+    if (qual) setQualification(qual);
+
     if (['SUBMITTED', 'PENDING_HR_REVIEW', 'VERIFIED', 'REJECTED'].includes(kycStatus)) {
       setFlowStep('STATUS');
-    } else if (kyc?.uploadMode && ['PENDING', 'PROCESSING', 'REUPLOAD_REQUIRED'].includes(kycStatus)) {
-      setFlowStep(kyc.fresherOrExperienced ? 'SEPARATE_UPLOAD' : 'PROFILE_INFO');
+    } else {
+      setFlowStep('SEPARATE_UPLOAD');
     }
   }, [kyc, kycStatus]);
 
@@ -340,21 +341,7 @@ export default function KycGatePage() {
         <StepIndicator flowStep={flowStep} />
 
         <AnimatePresence mode="wait">
-          {/* ── STEP 1: PROFILE INFO ─────────────────────────────────────────────── */}
-          {flowStep === 'PROFILE_INFO' && (
-            <motion.div key="profile-info" {...fadeSlide}>
-              <ProfileInfoScreen
-                experience={experience}
-                qualification={qualification}
-                onExperienceChange={setExperience}
-                onQualificationChange={setQualification}
-                onNext={handleSaveConfig}
-                saving={savingConfig}
-              />
-            </motion.div>
-          )}
-
-          {/* ── STEP 2: SEPARATE DOCUMENT UPLOAD ────────────────────────────────── */}
+          {/* ── STEP 1: SEPARATE DOCUMENT UPLOAD ────────────────────────────────── */}
           {flowStep === 'SEPARATE_UPLOAD' && (
             <motion.div key="separate-upload" {...fadeSlide}>
               <SeparateUploadScreen
@@ -375,7 +362,7 @@ export default function KycGatePage() {
                 onFileChange={(docType: string, file: File, label: string) => handleFileUpload(docType, file, label)}
                 onPhotoFileChange={(file: File) => handlePhotoFileUpload(file)}
                 onPhotoCapture={handlePhotoCapture}
-                onBack={() => setFlowStep('PROFILE_INFO')}
+                onBack={() => {}} // no back step — upload is first step
                 onSubmit={handleSubmitKyc}
                 submitting={submitting}
               />
@@ -396,8 +383,8 @@ export default function KycGatePage() {
                 photoUrl={photoUrl}
                 onStartReupload={() => {
                   setUploadMode('SEPARATE');
-                  setExperience((kyc?.fresherOrExperienced as Experience) || 'FRESHER');
-                  setQualification((kyc?.highestQualification as Qualification) || 'GRADUATION');
+                  if (kyc?.fresherOrExperienced) setExperience(kyc.fresherOrExperienced as Experience);
+                  if (kyc?.highestQualification) setQualification(kyc.highestQualification as Qualification);
                   setFlowStep('SEPARATE_UPLOAD');
                 }}
               />
@@ -422,7 +409,6 @@ const fadeSlide = {
 
 function StepIndicator({ flowStep }: { flowStep: FlowStep }) {
   const steps = [
-    { id: 'PROFILE_INFO', label: 'Your Profile' },
     { id: 'SEPARATE_UPLOAD', label: 'Upload Docs' },
     { id: 'STATUS', label: 'Review' },
   ];

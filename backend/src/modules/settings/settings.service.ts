@@ -524,6 +524,41 @@ export class SettingsService {
       platform: process.platform,
     };
   }
+
+  async listDocumentTemplates(organizationId: string) {
+    return prisma.orgDocumentTemplate.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async upsertDocumentTemplate(
+    organizationId: string,
+    data: { id?: string; label: string; key: string; isDefault?: boolean; required?: boolean }
+  ) {
+    if (data.id) {
+      return prisma.orgDocumentTemplate.update({
+        where: { id: data.id },
+        data: { label: data.label, key: data.key, isDefault: data.isDefault ?? false, required: data.required ?? true },
+      });
+    }
+    return prisma.orgDocumentTemplate.create({
+      data: {
+        organizationId,
+        label: data.label,
+        key: data.key,
+        isDefault: data.isDefault ?? false,
+        required: data.required ?? true,
+      },
+    });
+  }
+
+  async deleteDocumentTemplate(id: string, organizationId: string) {
+    const tpl = await prisma.orgDocumentTemplate.findFirst({ where: { id, organizationId } });
+    if (!tpl) throw new Error('Template not found');
+    await prisma.orgDocumentTemplate.delete({ where: { id } });
+    return { success: true };
+  }
 }
 
 export const settingsService = new SettingsService();

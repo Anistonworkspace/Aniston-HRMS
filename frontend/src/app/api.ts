@@ -145,6 +145,7 @@ export const api = createApi({
     'ProfileEditRequest',
     'Notification',
     'NotificationUnread',
+    'DocumentTemplates',
   ],
   endpoints: () => ({}),
 });

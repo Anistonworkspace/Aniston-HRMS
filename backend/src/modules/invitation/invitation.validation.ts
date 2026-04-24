@@ -40,6 +40,20 @@ export const createInvitationSchema = z.object({
   // payroll uses this for first-month pro-ration; leave accrual starts from this date
   proposedJoiningDate: z.string().min(1, 'Proposed joining date is required'),
 
+  // experienceLevel: determines required KYC documents during onboarding
+  //   EXPERIENCED → requires previous employment docs (experience letter, last payslip, etc.)
+  //   FRESHER → standard docs only
+  //   INTERN → enrollment proof required
+  experienceLevel: z.enum(['INTERN', 'FRESHER', 'EXPERIENCED']).optional(),
+
+  // experienceDocFields: HR-configured custom doc requirements for EXPERIENCED employees
+  //   Array of { key: string, label: string, required: boolean }
+  experienceDocFields: z.array(z.object({
+    key: z.string().min(1),
+    label: z.string().min(1),
+    required: z.boolean().default(true),
+  })).optional(),
+
   notes: z.string().max(1000).optional(),
   sendWelcomeEmail: z.boolean().default(true),
 }).refine(

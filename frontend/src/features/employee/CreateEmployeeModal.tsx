@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Loader2, Send, CheckCircle2, Info, Building2, MapPin,
-  Calendar, Briefcase, Users, Phone, Mail, Plus,
+  Calendar, Briefcase, Users, Phone, Mail, Plus, FileText, Trash2, ChevronDown, ChevronUp,
 } from 'lucide-react';
-import { useCreateInvitationMutation } from '../invitation/invitationApi';
+import { useCreateInvitationMutation, type ExperienceDocField } from '../invitation/invitationApi';
+import { useGetDocumentTemplatesQuery } from '../settings/settingsApi';
 import {
   useGetDepartmentsQuery,
   useGetDesignationsQuery,
@@ -69,6 +70,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
   const { data: desigRes, refetch: refetchDesigs } = useGetDesignationsQuery();
   const { data: locRes } = useGetOfficeLocationsQuery();
   const { data: mgrRes } = useGetManagersQuery();
+  const { data: docTemplatesRes } = useGetDocumentTemplatesQuery();
   const [createDept] = useCreateDepartmentMutation();
   const [createDesig] = useCreateDesignationMutation();
   const [deleteDept] = useDeleteDepartmentMutation();
@@ -98,6 +100,12 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Experience doc fields (for EXPERIENCED employees)
+  const [experienceDocFields, setExperienceDocFields] = useState<ExperienceDocField[]>([]);
+  const [docFieldsOpen, setDocFieldsOpen] = useState(false);
+  const [newDocLabel, setNewDocLabel] = useState('');
+  const [newDocRequired, setNewDocRequired] = useState(true);
+
   // Quick-create mini-dialog
   const [quickCreate, setQuickCreate] = useState<'dept' | 'desig' | null>(null);
   const [quickName, setQuickName] = useState('');
@@ -115,6 +123,23 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
       if (experienceLevel === 'INTERN') setExperienceLevel('');
     }
   }, [employmentType]);
+
+  // When experienceLevel becomes EXPERIENCED, seed doc fields from org templates
+  useEffect(() => {
+    if (experienceLevel === 'EXPERIENCED') {
+      const templates = docTemplatesRes?.data || [];
+      if (templates.length > 0 && experienceDocFields.length === 0) {
+        setExperienceDocFields(templates.map((t: any) => ({ key: t.key, label: t.label, required: t.required })));
+      } else if (experienceDocFields.length === 0) {
+        // Default fields if no org templates configured
+        setExperienceDocFields([{ key: 'experience_letter', label: 'Experience Letter', required: true }]);
+      }
+      setDocFieldsOpen(true);
+    } else {
+      setExperienceDocFields([]);
+      setDocFieldsOpen(false);
+    }
+  }, [experienceLevel]);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -146,6 +171,8 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
         proposedJoiningDate: joiningDate,
         notes: notes.trim() || undefined,
         sendWelcomeEmail: true,
+        experienceLevel: experienceLevel || undefined,
+        experienceDocFields: experienceLevel === 'EXPERIENCED' && experienceDocFields.length > 0 ? experienceDocFields : undefined,
       }).unwrap();
       setSuccess({
         email: email.trim() || undefined,
@@ -209,7 +236,25 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
     setExperienceLevel(''); setDepartmentId(''); setDesignationId(''); setManagerId('');
     setOfficeLocationId(''); setWorkMode('OFFICE'); setJoiningDate(''); setNotes('');
     setErrors({}); setSuccess(null); setQuickCreate(null); setQuickName('');
+    setExperienceDocFields([]); setDocFieldsOpen(false); setNewDocLabel(''); setNewDocRequired(true);
     onClose();
+  };
+
+  const handleAddDocField = () => {
+    const label = newDocLabel.trim();
+    if (!label) return;
+    const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    if (experienceDocFields.some(f => f.key === key)) {
+      toast.error('A field with that name already exists');
+      return;
+    }
+    setExperienceDocFields(prev => [...prev, { key, label, required: newDocRequired }]);
+    setNewDocLabel('');
+    setNewDocRequired(true);
+  };
+
+  const handleRemoveDocField = (key: string) => {
+    setExperienceDocFields(prev => prev.filter(f => f.key !== key));
   };
 
   if (!open) return null;
@@ -516,6 +561,98 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
                     maxLength={1000}
                   />
                 </section>
+
+                {/* ── Required Documents (EXPERIENCED only) ── */}
+                {experienceLevel === 'EXPERIENCED' && (
+                  <section className="border border-amber-200 rounded-xl bg-amber-50/50 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setDocFieldsOpen(prev => !prev)}
+                      className="w-full flex items-center justify-between px-4 py-3 text-left"
+                    >
+                      <div className="flex items-center gap-2">
+                        <FileText size={14} className="text-amber-600" />
+                        <span className="text-sm font-medium text-amber-800">
+                          Required Documents for This Employee
+                        </span>
+                        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                          {experienceDocFields.length} field{experienceDocFields.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      {docFieldsOpen ? (
+                        <ChevronUp size={14} className="text-amber-600" />
+                      ) : (
+                        <ChevronDown size={14} className="text-amber-600" />
+                      )}
+                    </button>
+
+                    {docFieldsOpen && (
+                      <div className="px-4 pb-4 space-y-3">
+                        <p className="text-xs text-amber-700">
+                          These document fields will be required during the employee's KYC process. Defaults come from your org templates.
+                        </p>
+
+                        {/* Existing fields */}
+                        <div className="space-y-2">
+                          {experienceDocFields.map((field) => (
+                            <div key={field.key} className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-amber-100">
+                              <FileText size={12} className="text-gray-400 flex-shrink-0" />
+                              <span className="text-sm text-gray-700 flex-1">{field.label}</span>
+                              <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={field.required}
+                                  onChange={(e) => setExperienceDocFields(prev =>
+                                    prev.map(f => f.key === field.key ? { ...f, required: e.target.checked } : f)
+                                  )}
+                                  className="w-3 h-3 accent-indigo-600"
+                                />
+                                Required
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveDocField(field.key)}
+                                className="p-1 hover:bg-red-50 rounded text-red-400 hover:text-red-600 transition-colors"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Add new field */}
+                        <div className="flex gap-2 items-center">
+                          <input
+                            type="text"
+                            value={newDocLabel}
+                            onChange={(e) => setNewDocLabel(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddDocField())}
+                            className="input-glass flex-1 text-sm py-1.5"
+                            placeholder="e.g. Relieving Letter"
+                          />
+                          <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer flex-shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={newDocRequired}
+                              onChange={(e) => setNewDocRequired(e.target.checked)}
+                              className="w-3 h-3 accent-indigo-600"
+                            />
+                            Required
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleAddDocField}
+                            disabled={!newDocLabel.trim()}
+                            className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1 flex-shrink-0"
+                          >
+                            <Plus size={12} />
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                )}
               </form>
 
               {/* Footer */}

@@ -160,6 +160,34 @@ export class SettingsController {
       next(err);
     }
   }
+
+  async listDocumentTemplates(req: Request, res: Response, next: NextFunction) {
+    try {
+      const templates = await settingsService.listDocumentTemplates(req.user!.organizationId);
+      res.json({ success: true, data: templates });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async upsertDocumentTemplate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id, label, key, isDefault, required } = req.body;
+      const template = await settingsService.upsertDocumentTemplate(req.user!.organizationId, { id, label, key, isDefault, required });
+      res.json({ success: true, data: template });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteDocumentTemplate(req: Request, res: Response, next: NextFunction) {
+    try {
+      await settingsService.deleteDocumentTemplate(req.params.id, req.user!.organizationId);
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const settingsController = new SettingsController();

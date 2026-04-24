@@ -13,7 +13,9 @@ export const documentApi = api.injectEndpoints({
         method: 'POST',
         body,
       }),
-      invalidatesTags: ['Document', 'Employee'],
+      // Invalidate Employee so profile photo updates immediately after PHOTO upload
+      // Invalidate Onboarding so step progress + uploadedDocTypes refresh
+      invalidatesTags: ['Document', 'Employee', 'Onboarding'],
     }),
 
     verifyDocument: builder.mutation<any, { id: string; status: string; remarks?: string }>({

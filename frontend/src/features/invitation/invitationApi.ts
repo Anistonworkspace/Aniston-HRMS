@@ -1,5 +1,11 @@
 import { api } from '../../app/api';
 
+export interface ExperienceDocField {
+  key: string;
+  label: string;
+  required: boolean;
+}
+
 export interface CreateInvitationInput {
   email?: string;
   mobileNumber?: string;
@@ -13,6 +19,8 @@ export interface CreateInvitationInput {
   proposedJoiningDate?: string;
   notes?: string;
   sendWelcomeEmail?: boolean;
+  experienceLevel?: string;
+  experienceDocFields?: ExperienceDocField[];
 }
 
 export const invitationApi = api.injectEndpoints({

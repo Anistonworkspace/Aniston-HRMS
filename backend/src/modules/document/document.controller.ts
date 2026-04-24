@@ -48,7 +48,7 @@ export class DocumentController {
         'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE',
         'POST_GRADUATION_CERTIFICATE', 'EXPERIENCE_LETTER', 'OFFER_LETTER_DOC',
         'RELIEVING_LETTER', 'BANK_STATEMENT', 'CANCELLED_CHEQUE', 'SALARY_SLIP_DOC',
-        'RESIDENCE_PROOF', 'PROFESSIONAL_CERTIFICATION', 'PHOTO'];
+        'RESIDENCE_PROOF', 'PERMANENT_RESIDENCE_PROOF', 'PROFESSIONAL_CERTIFICATION', 'PHOTO'];
       if (data.employeeId && kycTypes.includes(data.type)) {
         try {
           const { documentGateService } = await import('../onboarding/document-gate.service.js');
