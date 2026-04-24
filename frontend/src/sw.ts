@@ -31,14 +31,10 @@ interface PeriodicSyncEvent extends ExtendableEvent {
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// Do NOT call self.skipWaiting() here.
-// The new SW waits until AppUpdateGuard shows the mandatory "Update Now" modal
-// and the user clicks the button. Only then is SKIP_WAITING sent.
-//
-// However, the browser will auto-activate a waiting SW when ALL tabs are closed
-// (standard browser behavior — can't be prevented). On that path, we still
-// clear runtime caches so the user never sees stale API data or stale assets.
-// Workbox precache is preserved — it contains the new hashed JS/CSS files.
+// The browser will auto-activate a waiting SW when ALL tabs are closed.
+// On that path we still clear runtime caches so users never see stale data.
+// AppUpdateGuard sends SKIP_WAITING after the 3-second countdown on web,
+// and after download on native — both paths also call clearAllCaches first.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {

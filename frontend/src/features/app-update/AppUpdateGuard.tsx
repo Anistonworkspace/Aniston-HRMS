@@ -1,39 +1,21 @@
 /**
- * AppUpdateGuard — Mandatory update gate for ALL platforms.
+ * AppUpdateGuard — Automatic update handler for all platforms.
  *
  * ── Web (Desktop browser + PWA installed) ────────────────────────────────────
- * Listens for a waiting Service Worker via vite-plugin-pwa's useRegisterSW.
- * When a new SW is available (= new build deployed):
- *   1. Shows a full-screen mandatory "Update Ready" modal.
- *   2. User must click "Update Now" — no "Later" button on web.
- *   3. On confirm:
- *        a. Sends CLEAR_CACHES to SW  → all runtime caches (api-cache,
- *           static-assets, google-fonts, images) are deleted so stale
- *           API responses and old JS/CSS are gone.
- *        b. Clears sessionStorage (ephemeral page state).
- *        c. Calls updateServiceWorker(true) → sends SKIP_WAITING to the
- *           waiting SW → new SW activates → page reloads with fresh assets.
- *   Auth tokens in localStorage are deliberately preserved (kept in auth keys).
- *   Backend Redis: PM2 restart on every deploy + short TTLs handle staleness
- *   server-side; no client-initiated Redis flush needed.
+ * When a new SW is detected (= new build deployed):
+ *   1. Shows a small non-blocking toast at the top: "Updating in 3…"
+ *   2. Auto-reloads after 3 seconds — no user click required.
+ *   3. User can click "Reload Now" to apply immediately.
+ *   On apply: clears all runtime caches → sends SKIP_WAITING → page reloads.
  *
  * ── Android / iOS (Capacitor native app) ─────────────────────────────────────
  * Checks /api/app-updates/latest on every app launch via @capgo/capacitor-updater.
- * When a newer OTA bundle exists:
- *   1. Shows the same full-screen modal (mandatory by default).
- *   2. User must click "Update Now".
- *   3. On confirm:
- *        a. Downloads the bundle ZIP with progress bar.
- *        b. Clears browser caches (same CLEAR_CACHES logic).
- *        c. Applies bundle → Capacitor reloads the webview.
- *
- * Deploy a new build → push to main → CI creates bundle-X.Y.Z.zip,
- * updates manifest.json with mandatory:true → all platforms prompt on next open.
+ * When a newer OTA bundle exists: shows full-screen modal with download progress.
  */
 import { useEffect, useRef, useState, ReactNode } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, RefreshCw, Smartphone, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Download, RefreshCw, Smartphone, CheckCircle2, AlertCircle, RefreshCcw } from 'lucide-react';
 
 interface UpdateManifest {
   version: string;
@@ -46,7 +28,6 @@ type Phase = 'idle' | 'update-available' | 'downloading' | 'installing' | 'error
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** true only when running inside a real Capacitor Android/iOS shell */
 function isNative(): boolean {
   try {
     return !!(window as any).Capacitor?.isNativePlatform?.();
@@ -56,43 +37,63 @@ function isNative(): boolean {
 }
 
 async function getUpdater() {
-  // Indirect dynamic import so Vite never analyses the specifier at build time.
-  // Package only present in native builds; guarded by isNative() before call.
   // eslint-disable-next-line no-new-func
   const { CapacitorUpdater } = await (new Function('m', 'return import(m)'))('@capgo/capacitor-updater');
   return CapacitorUpdater;
 }
 
-/**
- * Clears ALL browser-side caches so users see fresh data after an update:
- *   • All SW runtime caches (api-cache, static-assets, google-fonts, images)
- *   • sessionStorage (ephemeral tab state)
- *
- * Deliberately preserved (NOT cleared):
- *   • localStorage — contains auth tokens, user prefs, dismissed-state flags
- *   • Backend Redis — PM2 restart + short TTLs handle server-side staleness
- */
 async function clearAllCaches(): Promise<void> {
-  // 1. Tell the active SW to delete all its runtime caches
   if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
     try {
       navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_CACHES' });
-    } catch { /* ignore — new SW will have empty caches anyway */ }
+    } catch { /* ignore */ }
   }
-
-  // 2. Also clear from the window side (covers cases where SW isn't controlling yet)
   if ('caches' in window) {
     try {
       const keys = await caches.keys();
       await Promise.all(keys.map((k) => caches.delete(k)));
     } catch { /* ignore */ }
   }
-
-  // 3. Clear ephemeral tab state
   try { sessionStorage.clear(); } catch { /* ignore */ }
 }
 
-// ─── Update screen UI ─────────────────────────────────────────────────────────
+// ─── Web Update Toast ─────────────────────────────────────────────────────────
+// Small non-blocking banner at the top — auto-reloads after countdown
+
+interface WebUpdateToastProps {
+  countdown: number;
+  onNow: () => void;
+}
+
+function WebUpdateToast({ countdown, onNow }: WebUpdateToastProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -60 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -60 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+      className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 bg-indigo-600 text-white px-5 py-3 rounded-2xl shadow-2xl shadow-indigo-200 text-sm font-medium"
+    >
+      <motion.div
+        animate={{ rotate: 360 }}
+        transition={{ repeat: Infinity, duration: 1.2, ease: 'linear' }}
+      >
+        <RefreshCcw size={16} />
+      </motion.div>
+      <span>
+        New version available — reloading in <strong>{countdown}s</strong>
+      </span>
+      <button
+        onClick={onNow}
+        className="ml-1 bg-white/20 hover:bg-white/30 transition-colors text-white text-xs font-semibold px-3 py-1.5 rounded-xl"
+      >
+        Reload Now
+      </button>
+    </motion.div>
+  );
+}
+
+// ─── Native update screen ─────────────────────────────────────────────────────
 
 interface UpdateScreenProps {
   manifest: UpdateManifest;
@@ -113,7 +114,6 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
         animate={{ opacity: 1, scale: 1 }}
         className="w-full max-w-sm"
       >
-        {/* Logo */}
         <div className="flex justify-center mb-8">
           <div className="w-24 h-24 bg-brand-600 rounded-3xl flex items-center justify-center shadow-xl shadow-brand-200">
             <span className="text-white text-4xl font-bold font-display">A</span>
@@ -151,7 +151,6 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
             </>
           ) : (
             <>
-              {/* Version badge */}
               <div className="inline-flex items-center gap-1.5 bg-brand-50 text-brand-600 text-xs font-semibold px-3 py-1 rounded-full mb-5">
                 <Smartphone size={12} />
                 Update Available
@@ -175,7 +174,6 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
                 <p className="text-xs text-gray-400 mb-6">You can update now or continue using the current version.</p>
               )}
 
-              {/* Download progress bar (native only — web skips straight to installing) */}
               {phase === 'downloading' && (
                 <div className="mb-5">
                   <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-1">
@@ -231,10 +229,7 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
 }
 
 // ─── Web SW update detector ───────────────────────────────────────────────────
-/**
- * Separate inner component so useRegisterSW (a React hook) is always called
- * unconditionally. Only rendered when NOT running inside a Capacitor native shell.
- */
+
 interface WebUpdateDetectorProps {
   onUpdateAvailable: (triggerUpdate: () => void) => void;
 }
@@ -244,39 +239,32 @@ function WebUpdateDetector({ onUpdateAvailable }: WebUpdateDetectorProps) {
     onRegisteredSW(_swUrl, registration) {
       if (!registration) return;
 
-      // ① If a new SW is already waiting when this fires (e.g. user refreshed
-      //    after a deploy), show the modal immediately — we missed onNeedRefresh.
       if (registration.waiting) {
         onUpdateAvailable(() => updateServiceWorker(true));
         return;
       }
 
-      // ② Poll every 30 s while the app is open
+      // Poll every 30s while the app is open
       setInterval(() => registration.update(), 30_000);
 
-      // ③ Also check when user switches back to this tab (e.g. after hours away)
+      // Check when user switches back to this tab
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
           registration.update();
         }
       });
 
-      // ④ Check if a SW enters waiting state after we registered (covers the
-      //    case where the new SW finishes installing while the page is open)
       registration.addEventListener('updatefound', () => {
         const newSW = registration.installing;
         if (!newSW) return;
         newSW.addEventListener('statechange', () => {
           if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-            // New SW installed and waiting — trigger modal
             onUpdateAvailable(() => updateServiceWorker(true));
           }
         });
       });
     },
     onNeedRefresh() {
-      // A new SW has been downloaded and is waiting to activate.
-      // Notify AppUpdateGuard to show the mandatory blocking modal.
       onUpdateAvailable(() => updateServiceWorker(true));
     },
     onOfflineReady() {
@@ -294,38 +282,29 @@ export default function AppUpdateGuard({ children }: { children: ReactNode }) {
   const [dismissed, setDismissed] = useState(false);
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
+  // Web-specific: countdown before auto-reload
+  const [webCountdown, setWebCountdown] = useState(3);
 
-  // Stable reference — set once on mount, never changes
   const [isNativeApp] = useState(() => isNative());
-
-  // Stores the callback that activates the waiting SW (web platform only)
   const webTriggerRef = useRef<(() => void) | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── Native (Capacitor) OTA update check ───────────────────────────────────
+  // ── Native OTA update check ───────────────────────────────────────────────
   useEffect(() => {
     if (!isNativeApp) return;
 
     (async () => {
       try {
         const updater = await getUpdater();
-
-        // Tell Capacitor the current bundle is healthy (prevents auto-rollback)
         await updater.notifyAppReady();
 
-        // 'builtin' = fresh APK install — web assets already match the build.
-        // Skip check to avoid a false update prompt right after first install.
         const { bundle } = await updater.current();
         const currentVersion: string = bundle?.version ?? 'builtin';
         if (currentVersion === 'builtin') return;
 
-        // Fetch the latest OTA manifest
-        const res = await fetch('https://hr.anistonav.com/api/app-updates/latest', {
-          cache: 'no-store',
-        });
+        const res = await fetch('https://hr.anistonav.com/api/app-updates/latest', { cache: 'no-store' });
         if (!res.ok) return;
         const json = await res.json();
-
-        // url: null means no bundle deployed yet — skip silently
         if (!json.success || !json.data?.version || !json.data?.url) return;
 
         const latest: UpdateManifest = json.data;
@@ -334,95 +313,65 @@ export default function AppUpdateGuard({ children }: { children: ReactNode }) {
           setPhase('update-available');
         }
       } catch (err) {
-        // Non-fatal — if the check fails, let the app run normally
         console.warn('[AppUpdateGuard] native update check error:', err);
       }
     })();
   }, [isNativeApp]);
 
-  // ── Web: called by WebUpdateDetector when a new SW is waiting ─────────────
-  const handleWebUpdateAvailable = async (triggerFn: () => void) => {
-    webTriggerRef.current = triggerFn;
-
-    // Fetch version + notes from the server manifest for display in the modal
-    let version = 'New';
-    let notes = 'A new version of Aniston HRMS is ready with the latest features and improvements.';
-    try {
-      const res = await fetch('/api/app-updates/latest', { cache: 'no-store' });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data?.version && json.data.version !== 'builtin') {
-          version = json.data.version;
+  // ── Web: auto-apply update with countdown toast ───────────────────────────
+  const applyWebUpdate = async () => {
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    setPhase('installing');
+    await clearAllCaches();
+    if (webTriggerRef.current) {
+      webTriggerRef.current();
+    } else {
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg?.waiting) {
+          reg.waiting.postMessage({ type: 'SKIP_WAITING' });
         }
-        if (json.data?.notes) notes = json.data.notes;
       }
-    } catch { /* use fallback text */ }
-
-    setManifest({ version, url: '', mandatory: true, notes });
-    setPhase('update-available');
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        window.location.reload();
+      }, { once: true });
+    }
   };
 
-  // ── Update action (shared by web and native) ──────────────────────────────
-  const handleUpdate = async () => {
-    if (!manifest) return;
+  const handleWebUpdateAvailable = (triggerFn: () => void) => {
+    webTriggerRef.current = triggerFn;
+    setWebCountdown(3);
+    setPhase('update-available');
 
-    if (!isNativeApp) {
-      // ── Web update ────────────────────────────────────────────────────────
-      // Step 1: show "Installing" immediately so user sees feedback
-      setPhase('installing');
-
-      // Step 2: clear all browser-side caches (SW caches + sessionStorage)
-      //         so the user sees fresh API data and new JS/CSS after reload
-      await clearAllCaches();
-
-      // Step 3: activate the waiting SW → it takes control → page reloads
-      if (webTriggerRef.current) {
-        webTriggerRef.current(); // updateServiceWorker(true) → SKIP_WAITING + reload
-      } else {
-        // Fallback: tell SW directly then reload
-        if ('serviceWorker' in navigator) {
-          const reg = await navigator.serviceWorker.getRegistration();
-          if (reg?.waiting) {
-            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-          }
-        }
-        // Listen for SW controller change then reload
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          window.location.reload();
-        }, { once: true });
+    // Start 3-second countdown then auto-apply
+    let count = 3;
+    countdownRef.current = setInterval(() => {
+      count -= 1;
+      setWebCountdown(count);
+      if (count <= 0) {
+        clearInterval(countdownRef.current!);
+        applyWebUpdate();
       }
-      return;
-    }
+    }, 1000);
+  };
 
-    // ── Native (Capacitor) update ─────────────────────────────────────────
+  // ── Native update action ──────────────────────────────────────────────────
+  const handleNativeUpdate = async () => {
+    if (!manifest) return;
     setPhase('downloading');
     setProgress(0);
     setErrorMsg('');
 
     try {
       const updater = await getUpdater();
-
-      // Stream download progress
       const listener = await updater.addListener('download', (info: { percent: number }) => {
         setProgress(Math.round(info.percent));
       });
-
-      // Download the OTA bundle ZIP
-      const bundle = await updater.download({
-        url: manifest.url,
-        version: manifest.version,
-      });
-
+      const bundle = await updater.download({ url: manifest.url, version: manifest.version });
       listener.remove();
       setPhase('installing');
-
-      // Clear all browser-side caches before applying new bundle
       await clearAllCaches();
-
-      // Apply bundle — Capacitor reloads the webview
       await updater.set(bundle);
-
-      // Explicit reload as fallback for some Capacitor versions
       await new Promise((r) => setTimeout(r, 400));
       window.location.reload();
     } catch (err: any) {
@@ -433,15 +382,11 @@ export default function AppUpdateGuard({ children }: { children: ReactNode }) {
 
   const handleLater = () => setDismissed(true);
 
-  // Show the update screen if an update is available and not dismissed.
-  // Web updates are always mandatory (manifest.mandatory = true) so onLater
-  // is never passed → "Later" button never renders for web users.
-  // Native: respects the mandatory flag from the server manifest.
-  const showUpdate = phase !== 'idle' && !dismissed;
+  const showWebToast = !isNativeApp && phase === 'update-available' && !dismissed;
+  const showNativeModal = isNativeApp && phase !== 'idle' && !dismissed;
 
   return (
     <>
-      {/* Web SW update detector — not rendered inside Capacitor native shell */}
       {!isNativeApp && (
         <WebUpdateDetector onUpdateAvailable={handleWebUpdateAvailable} />
       )}
@@ -449,14 +394,24 @@ export default function AppUpdateGuard({ children }: { children: ReactNode }) {
       {children}
 
       <AnimatePresence>
-        {showUpdate && manifest && (
+        {/* Web: small non-blocking countdown toast — auto-reloads, no user action needed */}
+        {showWebToast && (
+          <WebUpdateToast
+            key="web-update-toast"
+            countdown={webCountdown}
+            onNow={applyWebUpdate}
+          />
+        )}
+
+        {/* Native: full-screen modal with download progress */}
+        {showNativeModal && manifest && (
           <UpdateScreen
-            key="update-screen"
+            key="native-update-screen"
             manifest={manifest}
             phase={phase}
             progress={progress}
-            onUpdate={handleUpdate}
-            onLater={(!manifest.mandatory && isNativeApp) ? handleLater : undefined}
+            onUpdate={handleNativeUpdate}
+            onLater={!manifest.mandatory ? handleLater : undefined}
             errorMsg={errorMsg}
           />
         )}

@@ -231,11 +231,15 @@ export class ComponentMasterService {
 
   /**
    * Seed default salary components for an organization.
-   * Idempotent — uses skipDuplicates so safe to call on existing orgs;
-   * only components whose codes don't already exist will be inserted.
+   * Idempotent — inserts missing defaults AND corrects percentages on existing
+   * default components (e.g. Basic drifted to 100% → restored to 50%).
+   * Only updates components whose codes match DEFAULT_COMPONENTS; HR-created
+   * custom components with the same code are also corrected — this is intentional
+   * since "Restore Defaults" should fully restore the canonical values.
    */
   async seedDefaults(organizationId: string, userId: string) {
-    const result = await prisma.salaryComponentMaster.createMany({
+    // Step 1: Insert any missing default components
+    const insertResult = await prisma.salaryComponentMaster.createMany({
       data: DEFAULT_COMPONENTS.map(comp => ({
         name: comp.name,
         code: comp.code,
@@ -255,16 +259,33 @@ export class ComponentMasterService {
       skipDuplicates: true,
     });
 
-    if (result.count > 0) {
+    // Step 2: Correct percentages on existing default components in case they drifted
+    // (e.g. old seed created Basic at 100% — this restores it to the canonical 50%)
+    await prisma.$transaction(
+      DEFAULT_COMPONENTS.map(comp =>
+        prisma.salaryComponentMaster.updateMany({
+          where: { code: comp.code, organizationId, deletedAt: null },
+          data: {
+            defaultPercentage: (comp as any).defaultPercentage ?? null,
+            defaultValue: (comp as any).defaultValue ?? null,
+            calculationRule: comp.calculationRule as any,
+            percentageOf: (comp as any).percentageOf ?? null,
+            sortOrder: comp.sortOrder,
+          },
+        })
+      )
+    );
+
+    if (insertResult.count > 0) {
       await createAuditLog({
         userId, organizationId,
         entity: 'SalaryComponentMaster', entityId: 'bulk-seed',
         action: 'CREATE',
-        newValue: { seededCount: result.count, reason: 'Default salary components seeded' },
+        newValue: { seededCount: insertResult.count, reason: 'Default salary components seeded' },
       });
     }
 
-    return { seeded: result.count };
+    return { seeded: insertResult.count };
   }
 }
 
