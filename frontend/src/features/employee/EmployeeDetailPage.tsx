@@ -2128,8 +2128,8 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
   const [epfEnabled, setEpfEnabled] = useState(!(structure as any)?.epfExempt);
   const [epfUanEdit, setEpfUanEdit] = useState<string>((structure as any)?.epfUan || (structure as any)?.epfMemberId || '');
 
-  const activeEpfEmployee = epfEnabled ? Math.round(epfEmployee) : 0;
-  const activeEpfEmployer = epfEnabled ? Math.round(epfEmployer) : 0;
+  const activeEpfEmployee = (epfEnabled && epfUanEdit.trim()) ? Math.round(epfEmployee) : 0;
+  const activeEpfEmployer = (epfEnabled && epfUanEdit.trim()) ? Math.round(epfEmployer) : 0;
 
   const customDeductionTotal2 = customDeductions.reduce((sum, d) => sum + (d.amount || 0), 0);
   const totalDeductionsCalc = activeEpfEmployee + customDeductionTotal2;
@@ -2356,10 +2356,13 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
                     <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${epfEnabled ? 'left-3.5' : 'left-0.5'}`} />
                   </button>
                 )}
-                <span className={`text-xs ${epfEnabled ? 'text-gray-600' : 'text-gray-400 line-through'}`}>EPF 12%</span>
-                <span className="text-[10px] text-gray-400">ER: {formatCurrency(activeEpfEmployer)}</span>
+                <span className={`text-xs ${(epfEnabled && epfUanEdit.trim()) ? 'text-gray-600' : 'text-gray-400 line-through'}`}>EPF 12%</span>
+                {epfEnabled && !epfUanEdit.trim()
+                  ? <span className="text-[10px] text-amber-500">Set UAN to activate</span>
+                  : <span className="text-[10px] text-gray-400">ER: {formatCurrency(activeEpfEmployer)}</span>
+                }
               </div>
-              <span className={`text-xs font-mono ${epfEnabled ? 'text-red-600' : 'text-gray-300'}`} data-mono>-{formatCurrency(activeEpfEmployee)}</span>
+              <span className={`text-xs font-mono ${(epfEnabled && epfUanEdit.trim()) ? 'text-red-600' : 'text-gray-300'}`} data-mono>-{formatCurrency(activeEpfEmployee)}</span>
             </div>
             {/* EPF UAN field */}
             <div className="flex items-center gap-2 py-1">

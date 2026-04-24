@@ -417,7 +417,7 @@ function PayrollAdminView() {
                     <td className="px-4 py-3.5 hidden md:table-cell">
                       <div className="flex items-center gap-1.5">
                         <Users size={12} className="text-gray-400" />
-                        <span className="text-sm font-mono text-gray-600" data-mono>{run._count?.records || 0}</span>
+                        <span className="text-sm font-mono text-gray-600" data-mono>{run.totalEmployees || run._count?.records || 0}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3.5 text-right hidden sm:table-cell">

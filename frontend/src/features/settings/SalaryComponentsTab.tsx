@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Pencil, Trash2, Loader2, Search, ToggleLeft, ToggleRight,
-  DollarSign, TrendingDown, ChevronDown, ChevronUp, Save, X, AlertTriangle,
+  ChevronDown, ChevronUp, Save, X, AlertTriangle,
   Settings2,
 } from 'lucide-react';
 import {
@@ -12,6 +12,7 @@ import {
   useDeleteComponentMutation,
   useToggleComponentMutation,
   useCleanupLegacyComponentsMutation,
+  useSeedComponentsMutation,
 } from '../payroll/componentMasterApi';
 import { formatCurrency } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -64,6 +65,7 @@ export default function SalaryComponentsTab() {
   const [deleteComp] = useDeleteComponentMutation();
   const [toggleComp] = useToggleComponentMutation();
   const [cleanupLegacy, { isLoading: cleaningUp }] = useCleanupLegacyComponentsMutation();
+  const [seedDefaults, { isLoading: seeding }] = useSeedComponentsMutation();
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -83,10 +85,6 @@ export default function SalaryComponentsTab() {
     }
     return list;
   }, [components, filterType, searchTerm]);
-
-  const earningCount = components.filter((c: any) => c.type === 'EARNING').length;
-  const deductionCount = components.filter((c: any) => c.type === 'DEDUCTION').length;
-  const activeCount = components.filter((c: any) => c.isActive).length;
 
   const handleSave = async () => {
     if (!form.name || !form.code) { toast.error('Name and code are required'); return; }
@@ -144,6 +142,16 @@ export default function SalaryComponentsTab() {
 
   const resetForm = () => { setForm(emptyForm); setEditingId(null); setShowForm(false); };
 
+  const handleSeedDefaults = async () => {
+    try {
+      const result = await seedDefaults().unwrap();
+      const added = result.data?.seeded ?? 0;
+      toast.success(added > 0 ? `${added} default component(s) restored` : 'All defaults already present');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Seed failed');
+    }
+  };
+
   const handleCleanupLegacy = async () => {
     if (!confirm('This will remove all old default components (HRA, DA, TA, Medical, Special, LTA, ESI, PT, TDS, etc.) and keep only Basic Salary + EPF (Employee/Employer). Continue?')) return;
     try {
@@ -167,6 +175,12 @@ export default function SalaryComponentsTab() {
           <p className="text-xs text-gray-500 mt-0.5">Manage your organization's salary component library</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button onClick={handleSeedDefaults} disabled={seeding}
+            className="btn-secondary text-xs flex items-center gap-1.5"
+            title="Add missing default components (Basic, HRA, Conveyance, Medical, Special Allowance)">
+            {seeding ? <Loader2 size={12} className="animate-spin" /> : <Settings2 size={12} />}
+            Restore Defaults
+          </button>
           {hasLegacyComponents && (
             <button onClick={handleCleanupLegacy} disabled={cleaningUp}
               className="btn-secondary text-xs flex items-center gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50"
@@ -181,24 +195,6 @@ export default function SalaryComponentsTab() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 sm:grid-cols-3 gap-4">
-        <div className="layer-card p-4 text-center">
-          <DollarSign size={16} className="mx-auto text-emerald-500 mb-1" />
-          <p className="text-xl font-bold font-mono" data-mono>{earningCount}</p>
-          <p className="text-xs text-gray-500">Earnings</p>
-        </div>
-        <div className="layer-card p-4 text-center">
-          <TrendingDown size={16} className="mx-auto text-red-500 mb-1" />
-          <p className="text-xl font-bold font-mono" data-mono>{deductionCount}</p>
-          <p className="text-xs text-gray-500">Deductions</p>
-        </div>
-        <div className="layer-card p-4 text-center">
-          <Settings2 size={16} className="mx-auto text-brand-500 mb-1" />
-          <p className="text-xl font-bold font-mono" data-mono>{activeCount}</p>
-          <p className="text-xs text-gray-500">Active</p>
-        </div>
-      </div>
 
       {/* Create/Edit Modal Popup */}
       <AnimatePresence>
