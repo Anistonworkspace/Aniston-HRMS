@@ -72,6 +72,14 @@ export class EmployeeController {
     } catch (err) { next(err); }
   }
 
+  async updateJoiningDate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { joiningDate } = z.object({ joiningDate: z.string().min(1) }).parse(req.body);
+      const result = await employeeService.updateJoiningDate(req.params.id, joiningDate, req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result, message: 'Joining date updated' });
+    } catch (err) { next(err); }
+  }
+
   async invite(req: Request, res: Response, next: NextFunction) {
     try {
       const { email, firstName, lastName } = z.object({

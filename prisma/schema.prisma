@@ -133,6 +133,7 @@ model Employee {
   avatar           String?
   address          Json?
   permanentAddress Json?
+  addressSameAsPermanent Boolean?    // true = current address == permanent address; drives dual residence proof upload requirement
   qualification    String?
   emergencyContact Json?
   fatherName       String?
@@ -162,8 +163,8 @@ model Employee {
   officeLocationId String?
   // joiningDate: contractual employment start (used for payroll pro-ration, leave accrual start).
   joiningDate      DateTime
-  // onboardingDate: date first registered in HRMS. May differ from joiningDate for legacy employees.
-  //   Used by payroll for first-month pro-ration calculation.
+  // onboardingDate: date first registered in HRMS — informational only.
+  //   NOT used for payroll/leave/attendance. joiningDate is the canonical start date for all calculations.
   onboardingDate   DateTime?
   probationEndDate DateTime?
   ctc              Decimal?         @db.Decimal(12, 2)
@@ -1138,6 +1139,7 @@ model PayrollRun {
   status      PayrollRunStatus @default(DRAFT)
   processedBy String?
   processedAt DateTime?
+  totalEmployees Int          @default(0)
   totalGross  Decimal?        @db.Decimal(14, 2)
   totalNet    Decimal?        @db.Decimal(14, 2)
   totalDeductions Decimal?    @db.Decimal(14, 2)
@@ -2401,6 +2403,24 @@ model AiApiConfig {
 }
 
 // =====================
+// ORG DOCUMENT TEMPLATES
+// =====================
+
+model OrgDocumentTemplate {
+  id             String   @id @default(uuid())
+  organizationId String
+  label          String   // Display label, e.g. "Experience Letter"
+  key            String   // Machine key, e.g. "EXPERIENCE_LETTER"
+  isDefault      Boolean  @default(false) // HR-defined defaults shown on every EXPERIENCED invite
+  required       Boolean  @default(true)  // Whether employee MUST upload this doc
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId])
+  @@unique([organizationId, key])
+}
+
+// =====================
 // EMPLOYEE INVITATIONS
 // =====================
 
@@ -2422,8 +2442,10 @@ model EmployeeInvitation {
   officeLocationId  String?          // Pre-assign office/location
   workMode          String?          // Pre-assign work mode
   employmentType    String?          // FULL_TIME, PART_TIME, CONTRACT, INTERN
+  experienceLevel   String?          // INTERN, FRESHER, EXPERIENCED — drives required KYC documents
   proposedJoiningDate DateTime?      // Proposed joining date
   notes             String?          // Internal notes
+  experienceDocFields Json?          // Custom doc field labels HR configures for EXPERIENCED employees [{key, label, required}]
   sendWelcomeEmail  Boolean          @default(true)
   inviteToken       String           @unique @default(uuid())
   status            InvitationStatus @default(PENDING)

@@ -123,6 +123,10 @@ router.patch('/:id/role', requirePermission('employee', 'manage'), (req, res, ne
   employeeController.changeRole(req, res, next)
 );
 
+router.patch('/:id/joining-date', requirePermission('employee', 'manage'), (req, res, next) =>
+  employeeController.updateJoiningDate(req, res, next)
+);
+
 router.delete('/:id', requirePermission('employee', 'delete'), (req, res, next) =>
   employeeController.delete(req, res, next)
 );

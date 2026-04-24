@@ -29,7 +29,6 @@ import {
   useUpdateOrgLeaveSettingsMutation,
   useAdjustLeaveBalanceMutation,
 } from './leaveApi';
-import { useGetPendingRegularizationsQuery, useHandleRegularizationMutation } from '../attendance/attendanceApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { api } from '../../app/api';
@@ -86,7 +85,7 @@ export default function LeavePage() {
 
 function LeaveManagementView() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'regularizations' | 'employee-balances' | 'employee-leaves'>('approvals');
+  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'employee-balances' | 'employee-leaves'>('approvals');
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -337,18 +336,6 @@ function LeaveManagementView() {
               {holidays.length}
             </span>
           )}
-        </button>
-        <button
-          role="tab" aria-selected={activeTab === 'regularizations'}
-          onClick={() => setActiveTab('regularizations')}
-          className={cn(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-            activeTab === 'regularizations'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
-          )}
-        >
-          {t('attendance.regularizations')}
         </button>
         <button
           role="tab" aria-selected={activeTab === 'employee-balances'}
@@ -742,9 +729,6 @@ function LeaveManagementView() {
 
       {/* Holidays & Events Tab */}
       {activeTab === 'holidays' && <HolidayManagementTab />}
-
-      {/* Regularizations Tab */}
-      {activeTab === 'regularizations' && <RegularizationApprovalTab />}
 
       {/* Employee Balances Tab */}
       {activeTab === 'employee-balances' && <EmployeeBalancesTab />}
@@ -1215,89 +1199,6 @@ function HolidayManagementTab() {
           </table>
         )}
       </div>
-    </motion.div>
-  );
-}
-
-/* =============================================================================
-   REGULARIZATION APPROVAL TAB (HR)
-   ============================================================================= */
-
-function RegularizationApprovalTab() {
-  const { data: regsRes, isLoading } = useGetPendingRegularizationsQuery();
-  const [handleReg, { isLoading: processing }] = useHandleRegularizationMutation();
-  const [remarks, setRemarks] = useState<Record<string, string>>({});
-
-  const regs = regsRes?.data || [];
-
-  const handleAction = async (id: string, action: string) => {
-    try {
-      await handleReg({ id, action, remarks: remarks[id] || '' }).unwrap();
-      toast.success(`Regularization ${action.toLowerCase()}`);
-    } catch (err: any) {
-      toast.error(err?.data?.error?.message || `Failed to ${action.toLowerCase()}`);
-    }
-  };
-
-  return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-      <div className="layer-card overflow-hidden">
-        {isLoading ? (
-          <div className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-brand-600 mx-auto" /></div>
-        ) : regs.length === 0 ? (
-          <div className="text-center py-12">
-            <CheckCircle size={32} className="mx-auto text-emerald-200 mb-2" />
-            <p className="text-sm text-gray-500">No pending regularization requests</p>
-            <p className="text-xs text-gray-400 mt-1">All caught up!</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-100">
-            {regs.map((reg: any) => {
-              const emp = reg.attendance?.employee;
-              const att = reg.attendance;
-              return (
-                <div key={reg.id} className="p-4 hover:bg-gray-50/50 transition-colors">
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                      <Clock size={18} className="text-amber-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="text-sm font-semibold text-gray-800">{emp?.firstName} {emp?.lastName}</p>
-                        <span className="text-[10px] font-mono text-gray-400" data-mono>{emp?.employeeCode}</span>
-                      </div>
-                      <p className="text-xs text-gray-500 mb-2">
-                        Date: <strong>{att?.date ? new Date(att.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</strong>
-                        {' · '}Current: <strong className="text-amber-600">{att?.status?.replace('_', ' ')}</strong>
-                        {att?.totalHours && <> · Hours: <strong>{Number(att.totalHours).toFixed(1)}h</strong></>}
-                      </p>
-                      {att?.notes && <p className="text-[10px] text-amber-600 mb-1">{att.notes}</p>}
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
-                        <p className="text-xs text-amber-800"><strong>Reason:</strong> {reg.reason}</p>
-                        {reg.requestedCheckIn && <p className="text-[10px] text-amber-700">Requested Check-in: {new Date(reg.requestedCheckIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}</p>}
-                        {reg.requestedCheckOut && <p className="text-[10px] text-amber-700">Requested Check-out: {new Date(reg.requestedCheckOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}</p>}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input value={remarks[reg.id] || ''} onChange={e => setRemarks(r => ({ ...r, [reg.id]: e.target.value }))}
-                          placeholder="Remarks (optional)..." className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-300" />
-                        <button onClick={() => handleAction(reg.id, 'APPROVED')} disabled={processing}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 disabled:opacity-50">
-                          <ThumbsUp size={12} /> Approve (Full Day)
-                        </button>
-                        <button onClick={() => handleAction(reg.id, 'REJECTED')} disabled={processing}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 disabled:opacity-50">
-                          <ThumbsDown size={12} /> Reject
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
     </motion.div>
   );
 }
@@ -2221,7 +2122,10 @@ function LeavePersonalView() {
   }, [dispatch]);
 
   const balances = balancesRes?.data || [];
-  const leaveTypes = typesRes?.data || [];
+  const allLeaveTypes = typesRes?.data || [];
+  // Only show leave types the employee has a balance for (backend filters by employee status)
+  const balanceLeaveTypeIds = new Set(balances.map((b: any) => b.leaveTypeId));
+  const leaveTypes = allLeaveTypes.filter((lt: any) => balanceLeaveTypeIds.has(lt.id));
   const leaves = leavesRes?.data || [];
   const holidays = holidaysRes?.data || [];
 

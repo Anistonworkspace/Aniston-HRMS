@@ -122,7 +122,7 @@ export class LeaveService {
 
       // Applicability check (status-based) — driven entirely by HR settings
       const app = lt.applicableTo;
-      if (app === 'ALL') return true;
+      if (app === 'ALL') return employee.status !== 'ONBOARDING';
       if (app === 'PROBATION') return employee.status === 'PROBATION';
       if (app === 'ACTIVE' || app === 'CONFIRMED') return employee.status === 'ACTIVE'; // CONFIRMED kept for backward compat
       if (app === 'NOTICE_PERIOD') return employee.status === 'NOTICE_PERIOD';
@@ -309,6 +309,9 @@ export class LeaveService {
       }
     } else {
       // 9b. Applicability check (status-based) — driven entirely by leave type settings
+      if (employee.status === 'ONBOARDING') {
+        throw new BadRequestError('Employees in onboarding cannot apply for leave. Complete your onboarding first.');
+      }
       if (leaveType.applicableTo !== 'ALL') {
         const app = leaveType.applicableTo;
         const status = employee.status;
@@ -317,7 +320,7 @@ export class LeaveService {
           if (app === 'PROBATION') return status === 'PROBATION';
           if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE';
           if (app === 'NOTICE_PERIOD') return status === 'NOTICE_PERIOD';
-          if (app === 'ONBOARDING') return status === 'ONBOARDING';
+          if (app === 'ONBOARDING') return false; // ONBOARDING employees blocked above; no other status matches
           if (app === 'INTERN') return status === 'INTERN' || empUserRole === 'INTERN';
           if (app === 'SUSPENDED') return status === 'SUSPENDED';
           if (app === 'INACTIVE') return status === 'INACTIVE';
@@ -941,6 +944,9 @@ export class LeaveService {
       }
     } else {
       // 13b. Applicability (status-based) check
+      if (employee.status === 'ONBOARDING') {
+        throw new BadRequestError('Employees in onboarding cannot apply for leave. Complete your onboarding first.');
+      }
       if (leaveType.applicableTo !== 'ALL') {
         const app = leaveType.applicableTo;
         const status = employee.status;
@@ -948,7 +954,7 @@ export class LeaveService {
           if (app === 'PROBATION') return status === 'PROBATION';
           if (app === 'ACTIVE' || app === 'CONFIRMED') return status === 'ACTIVE';
           if (app === 'NOTICE_PERIOD') return status === 'NOTICE_PERIOD';
-          if (app === 'ONBOARDING') return status === 'ONBOARDING';
+          if (app === 'ONBOARDING') return false; // ONBOARDING employees blocked above; no other status matches
           if (app === 'INTERN') return status === 'INTERN' || empUserRole === 'INTERN';
           if (app === 'SUSPENDED') return status === 'SUSPENDED';
           if (app === 'INACTIVE') return status === 'INACTIVE';
@@ -1318,13 +1324,22 @@ export class LeaveService {
           : null;
 
         const app = leaveType.applicableTo as string | null;
+        const empStatus = (empProfile?.status as string | undefined) || '';
+        if (app === 'ALL' && empStatus === 'ONBOARDING') {
+          throw new BadRequestError(`Cannot approve: ${leaveType.name} is not available for employees in onboarding status.`);
+        }
         if (app && app !== 'ALL') {
-          const empStatus = (empProfile?.status as string | undefined) || '';
           const STATUS_MAP: Record<string, string[]> = {
             PROBATION: ['PROBATION'],
+            ACTIVE: ['ACTIVE'],
             CONFIRMED: ['ACTIVE', 'CONFIRMED'],
             INTERN: ['INTERN'],
             NOTICE_PERIOD: ['NOTICE_PERIOD'],
+            ONBOARDING: ['ONBOARDING'],
+            SUSPENDED: ['SUSPENDED'],
+            INACTIVE: ['INACTIVE'],
+            TERMINATED: ['TERMINATED'],
+            ABSCONDED: ['ABSCONDED'],
           };
           const allowed = STATUS_MAP[app];
           if (allowed && !allowed.includes(empStatus)) {

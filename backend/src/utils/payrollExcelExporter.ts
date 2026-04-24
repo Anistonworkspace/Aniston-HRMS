@@ -102,8 +102,11 @@ function resolveEarning(rec: any, ...names: string[]): number {
 // ─── Export 1: Full Payroll Excel ───────────────────────────────────────────
 
 /**
- * Generate colorful payroll Excel for a completed payroll run.
- * Uses earningsBreakdown as primary source for all component values.
+ * Generate payroll Excel with 19 fixed columns.
+ * Columns: Employee Name | Department | Working Days | Present | Week-off | Paid Leave
+ *   | Absent(LOP) | Half Day(LOP) | EPF(Employee) | Basic Salary | HRA
+ *   | Conveyance Allowance | Medical Allowance | Special Allowance
+ *   | Total Deductions | Net Salary | Bank Account Name | Account Number | IFSC Code
  */
 export async function generatePayrollExcel(
   run: any,
@@ -117,550 +120,182 @@ export async function generatePayrollExcel(
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'];
   const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
-  const xlsxPassword = `ANI-${monthNames[run.month - 1]}`;
 
-  // Pre-calculate dynamic columns BEFORE creating any rows (needed for title row merge)
-  let totalGross = 0, totalNet = 0, totalDeductions = 0;
   const filteredRecords = (records as any[]).filter((r: any) => !r.employee?.isSystemAccount);
 
-  // Only show ESI / PT / bonus columns when at least one employee has them configured (> 0)
-  const hasEsiAny         = filteredRecords.some((r: any) => n(r.esiEmployee) > 0);
-  const hasPtAny          = filteredRecords.some((r: any) => n(r.professionalTax) > 0);
-  const hasSundayBonusAny = filteredRecords.some((r: any) => n((r.earningsBreakdown as any)?.['Sunday Bonus']) > 0);
-  const hasOvertimeAny    = filteredRecords.some((r: any) => n((r.earningsBreakdown as any)?.['Overtime Pay']) > 0);
+  const NUM_COLS = 19;
+  const sheet = workbook.addWorksheet('Payroll', { views: [{ state: 'frozen', ySplit: 3 }] });
 
-  // Build dynamic header list so column indices stay consistent
-  const summaryHeaders: string[] = [
-    '#', 'Emp Code', 'Employee Name', 'Department',
-    'Working Days', 'Present', 'LOP Days',
-    'Basic', 'Other Earnings',
-    ...(hasSundayBonusAny ? ['Sunday Bonus'] : []),
-    ...(hasOvertimeAny    ? ['Overtime Pay']  : []),
-    'Gross Salary',
-    'EPF (Emp)',
-    ...(hasEsiAny ? ['ESI (Emp)'] : []),
-    ...(hasPtAny  ? ['Prof Tax']  : []),
-    'TDS', 'LOP Ded.', 'Late LOP',
-    'Total Deductions', 'Net Salary',
-  ];
+  // Row 1: title
+  sheet.addRow([`${orgName} — Payroll Report — ${periodLabel}`]);
+  sheet.getRow(1).font = { bold: true, size: 14, color: { argb: BRAND } };
+  sheet.mergeCells(1, 1, 1, NUM_COLS);
+  sheet.getRow(1).height = 28;
 
-  // ===== SHEET 1: Payroll Summary =====
-  const summarySheet = workbook.addWorksheet('Payroll Summary', {
-    views: [{ state: 'frozen', ySplit: 3 }],
-  });
-
-  summarySheet.addRow([`${orgName} — Payroll Report`]);
-  summarySheet.getRow(1).font = { bold: true, size: 14, color: { argb: BRAND } };
-  summarySheet.mergeCells(1, 1, 1, summaryHeaders.length);
-
-  summarySheet.addRow([
-    `Period: ${periodLabel}`, '', `Status: ${run.status}`, '',
-    `Processed: ${run.processedAt ? new Date(run.processedAt).toLocaleDateString('en-IN') : 'N/A'}`,
+  // Row 2: meta
+  sheet.addRow([
+    `Period: ${periodLabel}`,
+    '', `Status: ${run.status}`,
+    '', `Processed: ${run.processedAt ? new Date(run.processedAt).toLocaleDateString('en-IN') : 'N/A'}`,
     '', `Employees: ${filteredRecords.length}`,
   ]);
-  summarySheet.getRow(2).font = { size: 10, color: { argb: GRAY } };
+  sheet.getRow(2).font = { size: 10, color: { argb: GRAY } };
 
-  // Column index helpers (1-based, matching summaryHeaders)
-  const COL_GROSS      = summaryHeaders.indexOf('Gross Salary') + 1;
-  const COL_LOP_COL   = summaryHeaders.indexOf('LOP Days') + 1;
-  const COL_LOP_DED   = summaryHeaders.indexOf('LOP Ded.') + 1;
-  const COL_LATE_LOP  = summaryHeaders.indexOf('Late LOP') + 1;
-  const COL_TOTAL_D   = summaryHeaders.indexOf('Total Deductions') + 1;
-  const COL_NET       = summaryHeaders.indexOf('Net Salary') + 1;
-  const COL_FIRST_MONEY = summaryHeaders.indexOf('Basic') + 1;
-
-  const headerRow = summarySheet.addRow(summaryHeaders);
+  // Row 3: headers
+  const headers = [
+    'Employee Name', 'Department',
+    'Working Days', 'Present', 'Week-off', 'Paid Leave', 'Absent\n(LOP)', 'Half Day\n(LOP)',
+    'EPF\n(Employee)',
+    'Basic Salary', 'HRA', 'Conveyance\nAllowance', 'Medical\nAllowance', 'Special\nAllowance',
+    'Total\nDeductions', 'Net Salary',
+    'Bank Account Name', 'Account Number', 'IFSC Code',
+  ];
+  const headerRow = sheet.addRow(headers);
   styleHeaderRow(headerRow);
 
-  // Dynamic column widths matching header order
-  const colWidths: Record<string, number> = {
-    '#': 5, 'Emp Code': 12, 'Employee Name': 24, 'Department': 16,
-    'Working Days': 11, 'Present': 8, 'LOP Days': 8,
-    'Basic': 13, 'Other Earnings': 13, 'Sunday Bonus': 13, 'Overtime Pay': 13, 'Gross Salary': 14,
-    'EPF (Emp)': 11, 'ESI (Emp)': 11, 'Prof Tax': 9,
-    'TDS': 11, 'LOP Ded.': 11, 'Late LOP': 10, 'Total Deductions': 15, 'Net Salary': 14,
-  };
-  summaryHeaders.forEach((h, i) => {
-    summarySheet.getColumn(i + 1).width = colWidths[h] ?? 12;
-  });
+  const colWidths = [26, 16, 13, 10, 10, 11, 11, 11, 12, 14, 13, 16, 14, 14, 14, 14, 24, 20, 14];
+  colWidths.forEach((w, i) => { sheet.getColumn(i + 1).width = w; });
 
   if (filteredRecords.length === 0) {
-    const noDataRow = summarySheet.addRow([
-      '—', 'N/A', 'No payroll records for this period — process payroll first',
-      ...Array(summaryHeaders.length - 3).fill('N/A'),
-    ]);
-    noDataRow.font = { italic: true, color: { argb: GRAY }, size: 10 };
-    noDataRow.getCell(3).alignment = { horizontal: 'left' };
+    const nd = sheet.addRow(['No payroll records — process payroll first', ...Array(NUM_COLS - 1).fill('')]);
+    nd.font = { italic: true, color: { argb: GRAY }, size: 10 };
   }
 
+  let totBasic = 0, totHra = 0, totConv = 0, totMed = 0, totSpec = 0;
+  let totEpf = 0, totDed = 0, totNet = 0;
+
   filteredRecords.forEach((rec: any, idx: number) => {
-    const eb = (rec.earningsBreakdown as Record<string, number>) || {};
-    const sundayBonusAmt = hasSundayBonusAny ? n(eb['Sunday Bonus'] || 0) : 0;
-    const overtimePayAmt = hasOvertimeAny    ? n(eb['Overtime Pay']  || 0) : 0;
-    // "Other Earnings" excludes Sunday Bonus and OT Pay when they have dedicated columns
-    const otherTotal = resolveOtherEarningsTotal(rec) - sundayBonusAmt - overtimePayAmt;
+    const eb: Record<string, number> = rec.earningsBreakdown || {};
+    const emp = rec.employee;
 
-    const totalDed =
-      n(rec.epfEmployee) +
-      (hasEsiAny ? n(rec.esiEmployee) : 0) +
-      (hasPtAny  ? n(rec.professionalTax) : 0) +
-      n(rec.tds) + n(rec.lopDeduction);
+    // Component values from earningsBreakdown — blank string if component not assigned
+    const basicVal = resolveEarning(rec, 'Basic Salary', 'Basic', 'basic', 'BASIC');
+    const hraVal   = resolveEarning(rec, 'HRA', 'House Rent Allowance', 'hra');
+    const convVal  = resolveEarning(rec, 'Conveyance Allowance', 'Conveyance', 'conveyance_allow', 'CONVEYANCE_ALLOW');
+    const medVal   = resolveEarning(rec, 'Medical Allowance', 'Medical', 'medical_allow', 'MEDICAL_ALLOW');
+    const specVal  = resolveEarning(rec, 'Special Allowance', 'Special', 'special_allow', 'SPECIAL_ALLOW');
 
-    totalGross += n(rec.grossSalary);
-    totalNet   += n(rec.netSalary);
-    totalDeductions += totalDed;
+    const epfVal = n(rec.epfEmployee);
+    const totalDed = n(rec.lopDeduction) + epfVal +
+      Object.entries(rec.deductionsBreakdown || {}).reduce((s: number, [, v]: [string, any]) => s + n(v), 0);
 
-    const empName = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim();
+    totBasic += basicVal; totHra += hraVal; totConv += convVal;
+    totMed += medVal; totSpec += specVal;
+    totEpf += epfVal; totDed += totalDed; totNet += n(rec.netSalary);
 
-    // For custom-component employees, Basic cell shows blank when the employee
-    // genuinely has no Basic component (earningsBreakdown exists but doesn't include it).
-    const hasEb = Object.keys(eb).length > 0;
-    const hasBasicComp = !hasEb || 'Basic' in eb || 'Basic Salary' in eb;
-    const basicCell    = hasBasicComp ? n(rec.basic) : '';
+    const beneficiaryName =
+      emp?.accountHolderName?.trim() ||
+      `${emp?.firstName || ''} ${emp?.lastName || ''}`.trim() || '';
 
-    const rowValues: any[] = [
-      idx + 1,
-      t(rec.employee?.employeeCode),
-      t(empName) === 'N/A' ? 'N/A' : empName,
-      t(rec.employee?.department?.name),
-      rec.workingDays ?? 'N/A',
-      rec.presentDays ?? 'N/A',
-      rec.lopDays ?? 0,
-      basicCell,
-      otherTotal || '',
-      ...(hasSundayBonusAny ? [sundayBonusAmt || ''] : []),
-      ...(hasOvertimeAny    ? [overtimePayAmt  || ''] : []),
-      n(rec.grossSalary),
-      n(rec.epfEmployee),
-      ...(hasEsiAny ? [n(rec.esiEmployee)] : []),
-      ...(hasPtAny  ? [n(rec.professionalTax)] : []),
-      n(rec.tds),
-      n(rec.lopDeduction),
-      n((rec.deductionsBreakdown as any)?.['Late LOP'] || 0),
+    const row = sheet.addRow([
+      `${emp?.firstName || ''} ${emp?.lastName || ''}`.trim() || 'N/A',
+      t(emp?.department?.name),
+      n(rec.workingDays),
+      n(rec.presentDays),
+      n(rec.weekOffDays),
+      n(rec.paidLeaveDays),
+      n(rec.absentLop),
+      n(rec.halfDayLop),
+      epfVal > 0 ? epfVal : '',
+      basicVal > 0 ? basicVal : 0,
+      hraVal   > 0 ? hraVal   : 0,
+      convVal  > 0 ? convVal  : 0,
+      medVal   > 0 ? medVal   : 0,
+      specVal  > 0 ? specVal  : 0,
       totalDed,
       n(rec.netSalary),
-    ];
+      t(beneficiaryName),
+      t(emp?.bankAccountNumber),
+      t(emp?.ifscCode),
+    ]);
 
-    const row = summarySheet.addRow(rowValues);
-    row.font = { size: 9, name: 'Calibri' };
-    row.alignment = { horizontal: 'center' };
+    row.font = { size: 10, name: 'Calibri' };
+    row.alignment = { horizontal: 'center', vertical: 'middle' };
+    row.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+    row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+    row.getCell(17).alignment = { horizontal: 'left', vertical: 'middle' };
+    row.getCell(18).alignment = { horizontal: 'left', vertical: 'middle' };
 
-    // Currency format for all money columns starting from 'Basic'
-    for (let col = COL_FIRST_MONEY; col <= summaryHeaders.length; col++) {
-      row.getCell(col).numFmt = '₹#,##0';
-    }
+    // Currency format for money columns 9–16
+    for (let c = 9; c <= 16; c++) row.getCell(c).numFmt = '₹#,##0';
 
-    row.getCell(COL_NET).font = { bold: true, size: 10, color: { argb: GREEN } };
+    row.getCell(16).font = { bold: true, color: { argb: GREEN }, size: 10 };
+    if (n(rec.absentLop) > 0) row.getCell(7).font  = { bold: true, color: { argb: RED }, size: 10 };
+    if (n(rec.halfDayLop) > 0) row.getCell(8).font = { bold: true, color: { argb: 'D97706' }, size: 10 };
+    if (epfVal > 0) row.getCell(9).font = { color: { argb: GRAY }, size: 10 };
 
-    if (n(rec.lopDays) > 0) {
-      row.getCell(COL_LOP_COL).font = { bold: true, color: { argb: RED }, size: 9 };
-      row.getCell(COL_LOP_DED).font = { bold: true, color: { argb: RED }, size: 9 };
-    }
-    const lateLopAmt = n((rec.deductionsBreakdown as any)?.['Late LOP'] || 0);
-    if (lateLopAmt > 0) {
-      row.getCell(COL_LATE_LOP).font = { bold: true, color: { argb: 'D97706' }, size: 9 };
-      row.getCell(COL_LATE_LOP).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E2' } };
-    }
-
-    // Alternate row shading
     if (idx % 2 === 1) {
-      for (let c = 1; c <= 4; c++) {
+      for (let c = 1; c <= NUM_COLS; c++) {
         row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F9FAFB' } };
       }
     }
   });
 
-  // Totals row — dynamic positional fill
-  const totalsValues: any[] = Array(summaryHeaders.length).fill('');
-  totalsValues[0] = ''; totalsValues[1] = ''; totalsValues[2] = 'TOTAL';
-  totalsValues[COL_GROSS - 1]   = totalGross;
-  totalsValues[COL_TOTAL_D - 1] = totalDeductions;
-  totalsValues[COL_NET - 1]     = totalNet;
-  const totalsRow = summarySheet.addRow(totalsValues);
-  totalsRow.font = { bold: true, size: 11, name: 'Calibri' };
-  totalsRow.getCell(COL_GROSS).numFmt   = '₹#,##0';
-  totalsRow.getCell(COL_TOTAL_D).numFmt = '₹#,##0';
-  totalsRow.getCell(COL_NET).numFmt     = '₹#,##0';
-  totalsRow.getCell(COL_NET).font = { bold: true, size: 12, color: { argb: GREEN } };
-  totalsRow.eachCell((cell) => {
+  // Totals row
+  const totVals = Array(NUM_COLS).fill('');
+  totVals[0] = `Total: ${filteredRecords.length} employees`;
+  totVals[8]  = totEpf;
+  totVals[9]  = totBasic;
+  totVals[10] = totHra;
+  totVals[11] = totConv;
+  totVals[12] = totMed;
+  totVals[13] = totSpec;
+  totVals[14] = totDed;
+  totVals[15] = totNet;
+  const totRow = sheet.addRow(totVals);
+  totRow.font = { bold: true, size: 11, name: 'Calibri' };
+  totRow.getCell(1).alignment = { horizontal: 'left' };
+  for (let c = 9; c <= 16; c++) {
+    totRow.getCell(c).numFmt = '₹#,##0';
+  }
+  totRow.getCell(16).font = { bold: true, color: { argb: GREEN }, size: 12 };
+  totRow.eachCell((cell) => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EEF2FF' } };
   });
 
-  summarySheet.autoFilter = {
-    from: { row: 3, column: 1 },
-    to: { row: 3 + filteredRecords.length, column: summaryHeaders.length },
-  };
+  sheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3 + filteredRecords.length, column: NUM_COLS } };
 
-  // ── Legend: Column Guide ──────────────────────────────────────────────────
-  summarySheet.addRow([]);
-  const lgTitle = summarySheet.addRow(['📋  COLUMN GUIDE — What each column means']);
-  summarySheet.mergeCells(lgTitle.number, 1, lgTitle.number, summaryHeaders.length);
-  lgTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
-  lgTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BRAND } };
-  lgTitle.height = 22;
+  // ── Instructions section ─────────────────────────────────────────────────
+  sheet.addRow([]);
+  const instrTitle = sheet.addRow(['PAYROLL CALCULATION INSTRUCTIONS']);
+  sheet.mergeCells(instrTitle.number, 1, instrTitle.number, NUM_COLS);
+  instrTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
+  instrTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BRAND } };
+  instrTitle.height = 22;
 
-  const colGuide: [string, string][] = [
-    ['Working Days',      'Total working days in the month per the employee\'s shift schedule. Shorter if employee joined or left mid-month.'],
-    ['Present',           'Days clocked in. Half-day = 0.5. Off-days worked (e.g. Sundays) appear in the Sunday Bonus column.'],
-    ['LOP Days',          'Loss of Pay days = Explicit ABSENT + Half-day×0.5 + Implicit no-show on working day + Unpaid leave.'],
-    ['Basic',             'Pro-rated basic salary = (Annual CTC ÷ 12) × Basic% × (Emp Working Days ÷ Total Working Days).'],
-    ['Other Earnings',    'Sum of all other earning components — HRA, DA, custom allowances, adjustments, etc. Excludes Sunday Bonus and Overtime Pay (shown in their own columns when applicable). See Earnings Breakdown sheet for full detail.'],
-    ...(hasSundayBonusAny ? [['Sunday Bonus', 'Bonus for working on a weekly off-day (e.g. Sunday for Mon–Sat shifts). Calculated as Daily Rate × off-days worked.']] as [string, string][] : []),
-    ...(hasOvertimeAny    ? [['Overtime Pay',  'Overtime earnings = (Monthly CTC ÷ 26 working days ÷ 8 hours) × OT Hours × Rate Multiplier (configured in Shift settings). Only shown when OT is approved and recorded.']] as [string, string][] : []),
-    ['Gross Salary',      'Basic + Other Earnings + Sunday Bonus (if any) + Overtime Pay (if any). This is before any deductions.'],
-    ['EPF (Emp)',         'Employee EPF = 12% × Basic, capped at ₹1,800/month (Indian statutory ceiling: 12% × ₹15,000).'],
-    ...(hasEsiAny ? [['ESI (Emp)', 'Employee ESI = 0.75% × Gross (only if Gross ≤ ₹21,000). Shown only when configured in your org.']] as [string, string][] : []),
-    ...(hasPtAny  ? [['Prof Tax',  'Professional Tax per state slab. Shown only when configured in your org.']] as [string, string][] : []),
-    ['TDS',               'Monthly TDS = Projected annual income tax ÷ remaining months in financial year.'],
-    ['LOP Ded.',          'LOP Deduction = (Gross ÷ Working Days) × LOP Days. Capped so Net Salary never goes below ₹0.'],
-    ['Late LOP',          'Late arrival penalty deduction. Charged when employee accumulates late arrivals per the Late Penalty setting in their shift (0.5 day per penalty unit).'],
-    ['Total Deductions',  'EPF + ESI (if configured) + Prof Tax (if configured) + TDS + Custom Deductions + LOP Deduction.'],
-    ['Net Salary',        'Gross Salary − Total Deductions. This is the amount transferred to the employee\'s bank account.'],
+  const instructions: [string, string][] = [
+    ['Working Days',       'Total working days in the period per employee\'s shift. Starts from employee\'s joining date. Mid-month joiners have fewer working days.'],
+    ['Present',           'Days clocked in. Half-day = 0.5. Sundays and holidays are not counted here (they are paid separately).'],
+    ['Week-off',          'Paid weekly off-days (e.g. Sundays) in the employee\'s effective period. These days are always paid — no attendance needed.'],
+    ['Paid Leave',        'Approved paid leave days consumed from leave balance. These are paid — no LOP deduction.'],
+    ['Absent (LOP)',      'Days counted as Loss of Pay = Explicit absences + working days with no attendance record + unpaid leave.'],
+    ['Half Day (LOP)',    'Half-day LOP records (each = 0.5 day deduction from salary).'],
+    ['EPF (Employee)',    '12% of Basic Salary — deducted only if the employee has an EPF component in their salary structure. Blank = no EPF for this employee.'],
+    ['Salary Components', 'Basic, HRA, Conveyance, Medical, Special are pro-rated percentages of CTC. Values are 0 if the component is not assigned to the employee\'s salary structure.'],
+    ['Total Deductions',  'EPF (if applicable) + LOP Deduction + any other deduction components in the salary structure.'],
+    ['Net Salary',        'Net = Gross Salary − Total Deductions. This is the amount transferred to the bank.'],
+    ['Gross Salary',      'Sum of all earning components (Basic + HRA + Conveyance + Medical + Special + any custom earnings). Adjusted for pro-ration.'],
+    ['LOP Deduction',     'LOP Deduction = (Gross ÷ Working Days) × (Absent LOP + Half Day LOP × 0.5). Capped so Net ≥ ₹0.'],
+    ['Pro-ration',        'For mid-month joiners: salary is proportional to the number of working days from joining date to month end.'],
+    ['Bank Details',      'Bank Account Name, Account Number, IFSC Code are fetched from the employee\'s profile. Update them in Employee → Edit Profile before processing bank transfer.'],
   ];
 
-  const colGuideColCount = summaryHeaders.length;
-  for (const [col, desc] of colGuide) {
-    const r = summarySheet.addRow(['', col, desc]);
-    summarySheet.mergeCells(r.number, 3, r.number, colGuideColCount);
-    r.getCell(2).font = { bold: true, size: 9, name: 'Calibri', color: { argb: '1E3A8A' } };
-    r.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EFF6FF' } };
-    r.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
-    r.getCell(3).font = { size: 9, name: 'Calibri' };
-    r.getCell(3).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
-    r.height = 20;
-  }
+  const instrLgRow = sheet.addRow(['Column / Field', 'Explanation']);
+  sheet.mergeCells(instrLgRow.number, 2, instrLgRow.number, NUM_COLS);
+  instrLgRow.getCell(1).font = { bold: true, size: 9, color: { argb: 'FFFFFF' } };
+  instrLgRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '374151' } };
+  instrLgRow.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '374151' } };
 
-  summarySheet.addRow([]);
-  const fTitle = summarySheet.addRow(['🧮  PAYROLL FORMULA SUMMARY — How salary is calculated']);
-  summarySheet.mergeCells(fTitle.number, 1, fTitle.number, colGuideColCount);
-  fTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
-  fTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '065F46' } };
-  fTitle.height = 22;
-
-  const formulas: string[] = [
-    'Pro-ration Ratio  =  Employee Working Days ÷ Total Working Days in Month  (1.0 for full-month employees)',
-    'Gross Salary  =  Each component value × Pro-ration Ratio  (e.g. Basic = Annual CTC × 50% ÷ 12 × Ratio)',
-    'LOP Days  =  Explicit ABSENT + Half-day×0.5 + Working day with no attendance record + Unpaid ON_LEAVE record',
-    'Daily Rate  =  Gross Salary ÷ Employee Working Days  (not Total Working Days)',
-    'LOP Deduction  =  Daily Rate × LOP Days   [Capped so Net ≥ ₹0]',
-    'EPF Employee  =  12% × Actual Basic   (capped at 12% × ₹15,000 = ₹1,800/month — Indian statutory)',
-    'EPF Employer  =  12% × Actual Basic   (same cap — shown in Employer Cost sheet)',
-    'Net Salary  =  Gross − EPF(Employee) − ESI(Employee if configured) − Prof Tax(if configured) − TDS − Custom Deductions − LOP Deduction',
-    'Sunday Rule  =  Sundays are PAID weekly off. Only Mon–Sat absences count as LOP. Working on Sunday = extra bonus.',
-    'Mid-month Joiner  =  Effective period starts from Onboarding Date. Working days and salary counted from that date only.',
-    'Mid-month Exit  =  Effective period ends on Last Working Date. Salary prorated to that date.',
-  ];
-
-  for (const f of formulas) {
-    const r = summarySheet.addRow(['→', '', f]);
-    summarySheet.mergeCells(r.number, 2, r.number, colGuideColCount);
-    r.getCell(1).font = { bold: true, color: { argb: GREEN }, size: 11 };
-    r.getCell(1).alignment = { horizontal: 'center' };
-    r.getCell(2).font = { size: 9, name: 'Calibri' };
-    r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
-    r.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F0FDF4' } };
-    r.height = 18;
-  }
-
-  await summarySheet.protect(xlsxPassword, {
-    selectLockedCells: true, selectUnlockedCells: true,
-    autoFilter: true, sort: true,
-  });
-
-  // ===== SHEET 2: Earnings Breakdown =====
-  const ebSheet = workbook.addWorksheet('Earnings Breakdown', {
-    views: [{ state: 'frozen', ySplit: 1 }],
-  });
-
-  // Collect all unique earning component names across all records (fully dynamic)
-  const allCompNames = new Set<string>();
-  filteredRecords.forEach((rec: any) => {
-    const eb: Record<string, number> = rec.earningsBreakdown || {};
-    Object.keys(eb).forEach(k => allCompNames.add(k));
-  });
-  // Only exclude internal metadata key — all real components (Basic, HRA, custom) are dynamic columns
-  const compNames = [...allCompNames]
-    .filter(k => k !== '_proRation')
-    .sort((a, b) => {
-      // Basic-named components always appear first
-      const aIsBasic = a.toLowerCase().includes('basic');
-      const bIsBasic = b.toLowerCase().includes('basic');
-      if (aIsBasic && !bIsBasic) return -1;
-      if (!aIsBasic && bIsBasic) return 1;
-      return a.localeCompare(b);
-    });
-
-  ebSheet.columns = [
-    { header: 'Emp Code', key: 'code', width: 12 },
-    { header: 'Employee Name', key: 'name', width: 24 },
-    ...compNames.map(c => ({ header: c, key: `eb_${c}`, width: 16 })),
-    { header: 'Total Gross', key: 'gross', width: 14 },
-    { header: 'Net Salary', key: 'net', width: 14 },
-  ];
-  styleHeaderRow(ebSheet.getRow(1));
-
-  filteredRecords.forEach((rec: any) => {
-    const eb: Record<string, number> = rec.earningsBreakdown || {};
-    const rowData: any = {
-      code: t(rec.employee?.employeeCode),
-      name: `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim() || 'N/A',
-      gross: n(rec.grossSalary),
-      net: n(rec.netSalary),
-    };
-    // Each component column: blank when this employee has no such component
-    compNames.forEach(c => { rowData[`eb_${c}`] = c in eb ? n(eb[c]) : ''; });
-    const row = ebSheet.addRow(rowData);
-    row.font = { size: 9 };
-    // Currency format for all numeric columns (starting from col 3)
-    for (let col = 3; col <= ebSheet.columnCount; col++) {
-      row.getCell(col).numFmt = '₹#,##0';
-    }
-    row.getCell(ebSheet.columnCount).font = { bold: true, color: { argb: GREEN }, size: 10 };
-  });
-
-  await ebSheet.protect(xlsxPassword, {
-    selectLockedCells: true, selectUnlockedCells: true,
-    autoFilter: true, sort: true,
-  });
-
-  // ===== SHEET 3: Deductions Breakdown =====
-  const dedSheet = workbook.addWorksheet('Deductions Breakdown', {
-    views: [{ state: 'frozen', ySplit: 1 }],
-  });
-
-  // Collect all unique custom-deduction component names from deductionsBreakdown
-  const allDedNames = new Set<string>();
-  filteredRecords.forEach((rec: any) => {
-    const db: Record<string, number> = rec.deductionsBreakdown || {};
-    Object.keys(db).forEach(k => allDedNames.add(k));
-  });
-  const dedNames = [...allDedNames].sort();
-
-  dedSheet.columns = [
-    { header: 'Emp Code', key: 'code', width: 12 },
-    { header: 'Employee Name', key: 'name', width: 24 },
-    // Dynamic custom deduction columns
-    ...dedNames.map(d => ({ header: d, key: `ded_${d}`, width: 16 })),
-    // Statutory deductions (fixed columns)
-    { header: 'EPF (Emp)', key: 'epfEe', width: 12 },
-    { header: 'ESI (Emp)', key: 'esiEe', width: 12 },
-    { header: 'Prof Tax', key: 'pt', width: 11 },
-    { header: 'TDS', key: 'tds', width: 11 },
-    { header: 'LOP Ded.', key: 'lop', width: 12 },
-    { header: 'Total Deductions', key: 'totalDed', width: 16 },
-    { header: 'Net Salary', key: 'net', width: 14 },
-  ];
-  styleHeaderRow(dedSheet.getRow(1), RED);
-
-  filteredRecords.forEach((rec: any) => {
-    const db: Record<string, number> = rec.deductionsBreakdown || {};
-    const totalDed =
-      n(rec.epfEmployee) + n(rec.esiEmployee) +
-      n(rec.professionalTax) + n(rec.tds) + n(rec.lopDeduction) +
-      dedNames.reduce((s, k) => s + n(db[k]), 0);
-
-    const rowData: any = {
-      code: t(rec.employee?.employeeCode),
-      name: `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim() || 'N/A',
-      epfEe: n(rec.epfEmployee),
-      esiEe: n(rec.esiEmployee),
-      pt: n(rec.professionalTax),
-      tds: n(rec.tds),
-      lop: n(rec.lopDeduction),
-      totalDed,
-      net: n(rec.netSalary),
-    };
-    // Custom deduction columns — blank when this employee has no such component
-    dedNames.forEach(k => { rowData[`ded_${k}`] = k in db ? n(db[k]) : ''; });
-
-    const row = dedSheet.addRow(rowData);
-    row.font = { size: 9 };
-    // Currency format for all numeric columns starting at col 3
-    for (let col = 3; col <= dedSheet.columnCount; col++) {
-      row.getCell(col).numFmt = '₹#,##0';
-    }
-    // Highlight total-deductions cell in red, net in green
-    row.getCell(dedSheet.columnCount - 1).font = { bold: true, color: { argb: RED }, size: 10 };
-    row.getCell(dedSheet.columnCount).font = { bold: true, color: { argb: GREEN }, size: 10 };
-  });
-
-  // ── Legend: Deductions explained ─────────────────────────────────────────
-  dedSheet.addRow([]);
-  const dedLgTitle = dedSheet.addRow(['📋  DEDUCTIONS GUIDE']);
-  dedLgTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
-  dedLgTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: RED } };
-  const dedLgColCount = dedSheet.columnCount;
-  if (dedLgColCount > 1) dedSheet.mergeCells(dedLgTitle.number, 1, dedLgTitle.number, dedLgColCount);
-  dedLgTitle.height = 22;
-
-  const dedGuide: [string, string][] = [
-    ['EPF (Employee)',   '12% of Basic Salary, capped at ₹1,800/month (wage ceiling ₹15,000). Deducted from employee salary.'],
-    ['EPF (Employer)',   '12% of Basic Salary (same cap). Paid BY the company — shown in Employer Cost sheet, not deducted from employee.'],
-    ['ESI (Employee)',   '0.75% of Gross Salary. Applicable only if Gross ≤ ₹21,000/month. Currently component-master driven.'],
-    ['Prof Tax',        'Professional Tax — state-specific slab. E.g. Maharashtra: ₹200/month for salary > ₹10,000. Currently component-master driven.'],
-    ['TDS',             'Tax Deducted at Source. Computed monthly = Projected Annual Tax ÷ Remaining Months in Financial Year (Apr–Mar).'],
-    ['LOP Ded.',        'Loss of Pay Deduction = (Gross ÷ Working Days) × LOP Days. Capped so employee never owes money to company.'],
-    ['Custom Deductions','Any non-statutory components configured as DEDUCTION type in Settings → Salary Components.'],
-  ];
-
-  for (const [col, desc] of dedGuide) {
-    const r = dedSheet.addRow([col, desc]);
-    if (dedLgColCount > 1) dedSheet.mergeCells(r.number, 2, r.number, dedLgColCount);
-    r.getCell(1).font = { bold: true, size: 9, name: 'Calibri', color: { argb: RED } };
-    r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF2F2' } };
+  for (const [col, desc] of instructions) {
+    const r = sheet.addRow([col, desc]);
+    sheet.mergeCells(r.number, 2, r.number, NUM_COLS);
+    r.getCell(1).font = { bold: true, size: 9, name: 'Calibri', color: { argb: '1E3A8A' } };
+    r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EFF6FF' } };
     r.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
     r.getCell(2).font = { size: 9, name: 'Calibri' };
     r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
     r.height = 20;
   }
-
-  await dedSheet.protect(xlsxPassword, {
-    selectLockedCells: true, selectUnlockedCells: true,
-    autoFilter: true, sort: true,
-  });
-
-  // ===== SHEET 4: Employer Cost =====
-  const costSheet = workbook.addWorksheet('Employer Cost', {
-    views: [{ state: 'frozen', ySplit: 1 }],
-  });
-
-  costSheet.columns = [
-    { header: 'Emp Code', key: 'code', width: 12 },
-    { header: 'Employee Name', key: 'name', width: 24 },
-    { header: 'Gross Salary', key: 'gross', width: 14 },
-    { header: 'EPF (Employer)', key: 'epfEr', width: 14 },
-    { header: 'ESI (Employer)', key: 'esiEr', width: 14 },
-    { header: 'Total Employer Cost', key: 'ctc', width: 18 },
-  ];
-  styleHeaderRow(costSheet.getRow(1));
-
-  filteredRecords.forEach((rec: any) => {
-    const empCost = n(rec.grossSalary) + n(rec.epfEmployer) + n(rec.esiEmployer);
-    const row = costSheet.addRow({
-      code: t(rec.employee?.employeeCode),
-      name: `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim() || 'N/A',
-      gross: n(rec.grossSalary),
-      epfEr: n(rec.epfEmployer),
-      esiEr: n(rec.esiEmployer),
-      ctc: empCost,
-    });
-    row.font = { size: 9 };
-    for (const col of [3, 4, 5, 6]) row.getCell(col).numFmt = '₹#,##0';
-    row.getCell(6).font = { bold: true, color: { argb: BRAND }, size: 10 };
-  });
-
-  await costSheet.protect(xlsxPassword, {
-    selectLockedCells: true, selectUnlockedCells: true,
-    autoFilter: true, sort: true,
-  });
-
-  // ===== SHEET 5: Formula Guide =====
-  const guideSheet = workbook.addWorksheet('Formula Guide', {
-    views: [{}],
-  });
-
-  guideSheet.getColumn(1).width = 30;
-  guideSheet.getColumn(2).width = 80;
-
-  const addGuideSection = (title: string, color: string, rows: [string, string][]) => {
-    const titleRow = guideSheet.addRow([title]);
-    guideSheet.mergeCells(titleRow.number, 1, titleRow.number, 2);
-    titleRow.font = { bold: true, size: 12, color: { argb: 'FFFFFF' } };
-    titleRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } };
-    titleRow.height = 24;
-    for (const [label, value] of rows) {
-      const r = guideSheet.addRow([label, value]);
-      r.getCell(1).font = { bold: true, size: 9, name: 'Calibri' };
-      r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F3F4F6' } };
-      r.getCell(1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
-      r.getCell(2).font = { size: 9, name: 'Calibri' };
-      r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
-      r.height = 20;
-    }
-    guideSheet.addRow([]);
-  };
-
-  const headingRow = guideSheet.addRow([`${orgName} — Payroll Formula Guide — ${periodLabel}`]);
-  guideSheet.mergeCells(1, 1, 1, 2);
-  headingRow.font = { bold: true, size: 14, color: { argb: BRAND } };
-  headingRow.height = 28;
-  guideSheet.addRow(['This sheet explains every formula and rule used to compute payroll. Share with HR for reference.']);
-  guideSheet.mergeCells(2, 1, 2, 2);
-  guideSheet.getRow(2).font = { italic: true, size: 10, color: { argb: GRAY } };
-  guideSheet.addRow([]);
-
-  addGuideSection('STEP 1 — PRO-RATION (Partial Month Salary)', BRAND, [
-    ['Who gets pro-rated?', 'Employees who join or exit mid-month. Full-month employees get Pro-ration = 1.0.'],
-    ['Pro-ration Ratio', 'Employee Working Days ÷ Total Working Days in Month'],
-    ['Employee Working Days', 'Mon–Sat days from Onboarding Date (or Joining Date) to Last Working Date (or month end).'],
-    ['Total Working Days', `Total Mon–Sat working days in the month, excluding org holidays. For ${periodLabel}: count of Mon–Sat days.`],
-    ['Example', 'Employee joins Apr 16 → Effective days = Apr 16–30 (Mon–Sat only). If that = 13 days and April has 26 working days → Ratio = 13/26 = 0.50'],
-    ['Gross after pro-ration', 'Each salary component value is multiplied by the Pro-ration Ratio before any deductions.'],
-  ]);
-
-  addGuideSection('STEP 2 — EARNINGS (Salary Components)', '065F46', [
-    ['Basic Salary', 'Configured as % of CTC in Settings → Salary Components. E.g. 50% of ₹2,00,000/yr = ₹8,333/month (after ÷12).'],
-    ['HRA', 'House Rent Allowance — % of Basic or fixed amount. Configured in component master.'],
-    ['Custom Components', 'Any EARNING components HR added in Settings → Salary Components (DA, TA, Medical Allow., etc.).'],
-    ['Gross Salary', 'Sum of ALL earning components after pro-ration.'],
-    ['Daily Rate', 'Gross Salary ÷ Employee Working Days. Used for LOP calculation only.'],
-    ['Sunday Bonus', 'If employee works on Sunday (paid day off), they earn 1 extra day\'s pay (Daily Rate × sundays worked).'],
-    ['Adjustment (Earning)', 'One-off additions — bonus, incentive, arrear. Added to gross before deductions.'],
-  ]);
-
-  addGuideSection('STEP 3 — LOP (Loss of Pay Calculation)', RED, [
-    ['What is LOP?', 'Salary deducted for days employee did not work and has no approved paid leave or holiday.'],
-    ['Layer 1 — Explicit ABSENT', 'Attendance records marked ABSENT (not covered by paid leave or holiday) = 1 LOP day each.'],
-    ['Layer 2 — Half Day', 'Attendance records marked HALF_DAY (not covered by paid leave) = 0.5 LOP day each.'],
-    ['Layer 3 — Implicit no-show', 'Working days (Mon–Sat) within the effective period with NO attendance record at all = 1 LOP day each.'],
-    ['Layer 4 — Unpaid ON_LEAVE', 'ON_LEAVE attendance not matched to an approved paid leave balance = 1 LOP day each.'],
-    ['What is NOT LOP?', 'Sundays, Public holidays, Approved paid leave days — these never reduce salary.'],
-    ['LOP Deduction Formula', 'LOP Deduction = Daily Rate × Total LOP Days'],
-    ['LOP Cap', 'LOP is capped so Net Salary ≥ ₹0. Employee can never owe money to the company.'],
-    ['Example', 'Gross ₹16,667 | Working Days 26 | LOP 10 → Daily Rate = ₹641 | LOP Ded = ₹6,411 | Net = ₹16,667 − ₹1,800(EPF) − ₹6,411 = ₹8,456'],
-  ]);
-
-  addGuideSection('STEP 4 — STATUTORY DEDUCTIONS (EPF, ESI, PT, TDS)', '78350F', [
-    ['EPF Employee', '12% × Basic Salary. Statutory wage ceiling = ₹15,000 → Max EPF = 12% × ₹15,000 = ₹1,800/month.'],
-    ['EPF Employer', '12% × Basic Salary (same cap). This is a company cost — does NOT reduce employee take-home. See Employer Cost sheet.'],
-    ['When EPF < ₹1,800', 'If Basic < ₹15,000 (e.g. mid-month joiner with pro-rated basic), EPF = 12% × actual basic (no cap needed).'],
-    ['ESI Employee', '0.75% × Gross Salary. Only applies if Gross ≤ ₹21,000/month. Currently component-master driven.'],
-    ['ESI Employer', '3.25% × Gross Salary. Company cost. Currently component-master driven.'],
-    ['Professional Tax', 'Fixed slab per state (e.g. Maharashtra ₹200/month for salary > ₹10,000). Currently component-master driven.'],
-    ['TDS', 'Projected Annual Tax (based on CTC and regime) ÷ Remaining Financial Year Months. Re-projected each month.'],
-    ['Tax Regime', 'Employee can choose OLD or NEW regime. Regime affects TDS computation only.'],
-    ['Exemption Flags', 'HR can mark individual employees as EPF Exempt / ESI Exempt / PT Exempt on their profile.'],
-  ]);
-
-  addGuideSection('STEP 5 — FINAL CALCULATION', '4338CA', [
-    ['Net Salary Formula', 'Net = Gross − EPF(Emp) − ESI(Emp) − Prof Tax − TDS − Custom Deductions − LOP Deduction'],
-    ['Adjustment (Deduction)', 'One-off deductions (loan recovery, advance recovery) subtracted before LOP cap.'],
-    ['Order of operations', '1. Compute Gross | 2. Compute all deductions except LOP | 3. Compute LOP (daily rate × LOP days) | 4. Cap LOP | 5. Net = Gross − all deductions'],
-    ['Bank Transfer', 'Net Salary amount is what goes in the Bank Transfer sheet for NEFT/RTGS payment.'],
-  ]);
-
-  addGuideSection('ATTENDANCE RULES (Sunday & Holiday Policy)', '0369A1', [
-    ['Working Days (Mon–Sat)', 'Your org is configured Mon–Sat. Only these days count for LOP or Present calculations.'],
-    ['Sunday', 'PAID weekly off. Employee always gets paid for Sundays — no attendance needed. Sunday absence = no penalty.'],
-    ['Sunday worked', 'If employee clocks in on Sunday, a Sunday Bonus (1 day pay) is added to earnings.'],
-    ['Public Holiday', 'Org holidays (added in Settings → Holidays) are PAID off-days — not LOP, not deducted.'],
-    ['Half Day', 'HALF_DAY attendance = 0.5 present day + 0.5 LOP. Covered if paired with half-day paid leave.'],
-    ['Paid Leave', 'Approved leave requests against paid leave balance = no LOP deduction for those days.'],
-    ['Unpaid Leave', 'Leave requests not backed by leave balance = ON_LEAVE attendance = LOP.'],
-  ]);
-
-  addGuideSection('EXCEL SHEET GUIDE', '374151', [
-    ['Sheet 1 — Payroll Summary', 'Master view: all employees, all columns, totals. Use this for monthly review and sign-off.'],
-    ['Sheet 2 — Earnings Breakdown', 'Per-employee breakdown of every earning component (Basic, HRA, custom components, bonuses).'],
-    ['Sheet 3 — Deductions Breakdown', 'Per-employee breakdown of every deduction (EPF, ESI, PT, TDS, LOP, custom deductions).'],
-    ['Sheet 4 — Employer Cost', 'Total company cost = Gross + Employer EPF + Employer ESI. Use for budget planning.'],
-    ['Sheet 5 — Formula Guide', 'This sheet. Payroll methodology reference for HR and Finance.'],
-    ['Password', `All sheets are password-protected. Password: ${xlsxPassword}`],
-  ]);
-
-  await guideSheet.protect(xlsxPassword, {
-    selectLockedCells: true, selectUnlockedCells: true,
-  });
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
@@ -669,22 +304,14 @@ export async function generatePayrollExcel(
 // ─── Export 2: Attendance Salary Excel ──────────────────────────────────────
 
 /**
- * Generate attendance-salary summary Excel.
- *
- * Column layout (13 cols):
- *   Employee Name | Emp Code | Working Days (Mon–Sat) | Sundays (Paid) | Paid Holidays
- *   | Present Days | Half Days | Paid Leave | Absent / LOP Days | Total Paid Days
- *   | LOP Deduction Days | Formula Check | Comments
- *
- * Total Paid Days = Present + (Half × 0.5) + Paid Leave + Sundays + Paid Holidays
- * (additive formula — avoids rounding error caused by integer-stored lopDays)
+ * Generate attendance summary Excel (9 columns) for the payroll run.
+ * All data is sourced from stored PayrollRecord fields — no extra parameters needed.
+ * Columns: Employee Name | Emp Code | Working Days | Sundays/Week-offs | Paid Holidays
+ *   | Present | Half Day(LOP) | Absent(LOP) | Total Present Paid Days
  */
 export async function generateAttendanceSalaryExcel(
   run: any,
   records: any[],
-  leaveData: Array<{ employeeId: string; providedL: number; leavesBalance: number; paidLeaveDays: number }>,
-  attendanceDetails: Array<{ employeeId: string; presentCount: number; absentCount: number; halfDayCount: number }>,
-  orgHolidays: Array<{ date: Date | string }>,   // full month holiday list — filtered per employee below
   orgName: string
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -695,143 +322,76 @@ export async function generateAttendanceSalaryExcel(
     'July', 'August', 'September', 'October', 'November', 'December'];
   const periodLabel = `${monthNames[run.month - 1]} ${run.year}`;
 
-  const NUM_COLS = 13;
+  const NUM_COLS = 9;
+  const attRecords = (records as any[]).filter((r: any) => !r.employee?.isSystemAccount);
 
-  // Derive full-month paid-holiday count (for header display) and working-day numbers
-  // from the orgHolidays array passed in.
-  const WORKING_DAYS = new Set([1, 2, 3, 4, 5, 6]); // Mon–Sat; adjust if org differs
-  const paidHolidaysFullMonth = orgHolidays.filter(h => {
-    const dow = new Date(h.date).getDay();
-    return dow !== 0; // exclude Sundays — those are paid week-offs, counted separately
-  }).length;
-
-  const sheet = workbook.addWorksheet('Attendance Salary', {
-    views: [{ state: 'frozen', ySplit: 3 }],
-  });
+  const sheet = workbook.addWorksheet('Attendance', { views: [{ state: 'frozen', ySplit: 3 }] });
 
   // Title
-  sheet.addRow([`${orgName} — Attendance Salary Report — ${periodLabel}`]);
+  sheet.addRow([`${orgName} — Attendance Report — ${periodLabel}`]);
   sheet.getRow(1).font = { bold: true, size: 13, color: { argb: BRAND } };
   sheet.mergeCells(1, 1, 1, NUM_COLS);
   sheet.getRow(1).height = 24;
 
   sheet.addRow([
-    `Total Paid Days = Present + Half×0.5 + Paid Leave + Sundays + Holidays  |  `
-    + `LOP = working days with no attendance (not on leave / holiday)  |  `
-    + `Period: ${periodLabel}  |  Paid Holidays this month: ${paidHolidaysFullMonth}`,
+    `Total Present Paid Days = Present + Sundays/Week-offs + Paid Holidays + Paid Leave  |  `
+    + `Period: ${periodLabel}`,
   ]);
   sheet.getRow(2).font = { italic: true, size: 9, color: { argb: GRAY } };
   sheet.mergeCells(2, 1, 2, NUM_COLS);
 
-  const DARK_BLUE = '1E3A8A';
-  const headers = [
+  const attHeaders = [
     'Employee Name', 'Emp Code',
-    'Working Days\n(Mon–Sat)', 'Sundays\n(Paid Week-off)', 'Paid\nHolidays',
-    'Present\nDays', 'Half\nDays', 'Paid Leave\nDays',
-    'Absent /\nLOP Days', 'Total Paid\nDays',
-    'LOP Deduction\nDays (payroll)', 'Formula\nCheck', 'Comments',
+    'Working Days', 'Sundays/\nWeek-offs', 'Paid\nHolidays',
+    'Present', 'Half Day\n(LOP)', 'Absent\n(LOP)',
+    'Total Present\nPaid Days',
   ];
-  const headerRow = sheet.addRow(headers);
-  styleHeaderRow(headerRow, DARK_BLUE);
+  const attHeaderRow = sheet.addRow(attHeaders);
+  styleHeaderRow(attHeaderRow, '1E3A8A');
 
-  [26, 13, 15, 16, 12, 12, 10, 13, 14, 13, 18, 14, 28].forEach((w, i) => {
-    sheet.getColumn(i + 1).width = w;
-  });
+  [26, 13, 13, 14, 12, 10, 12, 11, 16].forEach((w, i) => { sheet.getColumn(i + 1).width = w; });
 
-  const leaveMap = new Map(leaveData.map((d) => [d.employeeId, d]));
-  const attMap   = new Map(attendanceDetails.map((d) => [d.employeeId, d]));
-
-  let totWorkDays = 0, totSundays = 0, totHolidays = 0;
-  let totPresent = 0, totHalf = 0, totPaidLeave = 0, totAbsent = 0;
-  let totPaidDays = 0, totLopDedDays = 0;
-
-  const attFilteredRecords = (records as any[]).filter((r: any) => !r.employee?.isSystemAccount);
-
-  if (attFilteredRecords.length === 0) {
-    const noDataRow = sheet.addRow(Array(NUM_COLS).fill('N/A'));
-    (noDataRow.getCell(1) as any).value = 'No attendance/payroll records — process payroll first';
-    noDataRow.font = { italic: true, color: { argb: GRAY }, size: 10 };
-    noDataRow.getCell(1).alignment = { horizontal: 'left' };
+  if (attRecords.length === 0) {
+    const nd = sheet.addRow(['No records — process payroll first', ...Array(NUM_COLS - 1).fill('')]);
+    nd.font = { italic: true, color: { argb: GRAY }, size: 10 };
   }
 
-  attFilteredRecords.forEach((rec: any, rowIdx: number) => {
-    const ld  = leaveMap.get(rec.employeeId) || { providedL: 0, leavesBalance: 0, paidLeaveDays: 0 };
-    const att = attMap.get(rec.employeeId)   || { presentCount: 0, absentCount: 0, halfDayCount: 0 };
+  let tWorkDays = 0, tWeekOff = 0, tHolidays = 0, tPresent = 0;
+  let tHalfLop = 0, tAbsentLop = 0, tPaidLeave = 0, tTotalPaid = 0;
 
-    const workingDays = n(rec.workingDays); // Mon-Sat days in employee's effective period
+  attRecords.forEach((rec: any, idx: number) => {
+    const emp = rec.employee;
+    const workingDays = n(rec.workingDays);
+    const weekOffDays = n(rec.weekOffDays);
+    const paidHolidays = n(rec.paidHolidays);
+    const presentDays = n(rec.presentDays);
+    const halfDayLop = n(rec.halfDayLop);
+    const absentLop = n(rec.absentLop);
+    const paidLeaveDays = n(rec.paidLeaveDays);
+    // Total Present Paid Days = present + weekoffs + holidays + paid leave
+    // Note: presentDays already includes 0.5 per half-day
+    const totalPaidDays = presentDays + weekOffDays + paidHolidays + paidLeaveDays;
 
-    // Compute effective period for this employee (mirrors payroll service logic)
-    const startOfMonth = new Date(run.year, run.month - 1, 1);
-    const endOfMonth   = new Date(run.year, run.month, 0);
-    let effStart = new Date(startOfMonth);
-    let effEnd   = new Date(endOfMonth);
-    const joiningDate     = rec.employee?.joiningDate     ? new Date(rec.employee.joiningDate)     : null;
-    const onboardingDate  = rec.employee?.onboardingDate  ? new Date(rec.employee.onboardingDate)  : null;
-    const lastWorkingDate = rec.employee?.lastWorkingDate ? new Date(rec.employee.lastWorkingDate) : null;
-    // Mirror payroll logic: use onboardingDate (HRMS date) for pro-ration, fall back to joiningDate
-    const payrollStartDate = onboardingDate ?? joiningDate;
-    if (payrollStartDate && payrollStartDate > startOfMonth && payrollStartDate <= endOfMonth) effStart = new Date(payrollStartDate);
-    if (lastWorkingDate && lastWorkingDate >= startOfMonth && lastWorkingDate < endOfMonth) effEnd = new Date(lastWorkingDate);
-    // Paid holidays scoped to this employee's effective period only.
-    // A mid-month joiner (e.g. Apr 16) must NOT get credit for Apr 10 holiday.
-    // Must be computed BEFORE sundaysCount so we can subtract holidays from the remainder.
-    const paidHolidays = orgHolidays.filter(h => {
-      const d = new Date(h.date);
-      return d.getDay() !== 0 && d >= effStart && d <= effEnd;
-    }).length;
+    tWorkDays  += workingDays;
+    tWeekOff   += weekOffDays;
+    tHolidays  += paidHolidays;
+    tPresent   += presentDays;
+    tHalfLop   += halfDayLop;
+    tAbsentLop += absentLop;
+    tPaidLeave += paidLeaveDays;
+    tTotalPaid += totalPaidDays;
 
-    // Sundays = effectiveCalDays − workingDays(Mon-Sat excl. holidays) − paidHolidays.
-    // Without subtracting paidHolidays, each holiday would be counted TWICE:
-    // once inside sundaysCount (as a "non-working day") and once in paidHolidays.
-    const effectiveCalDays = Math.round((effEnd.getTime() - effStart.getTime()) / 86400000) + 1;
-    const sundaysCount = Math.max(0, effectiveCalDays - workingDays - paidHolidays);
-
-    const presentDays  = n(rec.presentDays);  // from payroll record — includes 0.5 per half-day
-    const halfDays     = att.halfDayCount;    // raw HALF_DAY record count (display only)
-    const paidLeave    = n(ld.paidLeaveDays); // approved paid leave days
-    const absentDays   = att.absentCount;     // explicit + implicit no-show LOP days
-    const lopDedDays   = n(rec.lopDays);      // total LOP stored for payroll deduction
-
-    // Total paid days: additive formula.
-    // presentDays already includes 0.5 per half-day (stored by payroll service as a Decimal).
-    // Do NOT add halfDays * 0.5 separately — that would double-count every half-day.
-    const totalPaidDays = Math.max(0,
-      presentDays + paidLeave + sundaysCount + paidHolidays
-    );
-
-    // Cross-check: present + paidLeave + LOP must equal working days.
-    // presentDays already includes the half-day contribution (0.5 per half-day),
-    // so again do NOT add halfDays * 0.5 here — it is already inside presentDays.
-    const formulaCheck = presentDays + paidLeave + lopDedDays;
-    const formulaOk    = Math.abs(formulaCheck - workingDays) <= 1
-      ? '✓' : `Check: ${formulaCheck} vs ${workingDays}`;
-
-    totWorkDays   += workingDays;
-    totSundays    += sundaysCount;
-    totHolidays   += paidHolidays;
-    totPresent    += presentDays;
-    totHalf       += halfDays;
-    totPaidLeave  += paidLeave;
-    totAbsent     += absentDays;
-    totPaidDays   += totalPaidDays;
-    totLopDedDays += lopDedDays;
-
-    const empName = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim();
-
+    const empName = `${emp?.firstName || ''} ${emp?.lastName || ''}`.trim();
     const row = sheet.addRow([
       t(empName),
-      t(rec.employee?.employeeCode),
+      t(emp?.employeeCode),
       workingDays,
-      sundaysCount,
+      weekOffDays,
       paidHolidays,
       presentDays,
-      halfDays,
-      paidLeave,
-      absentDays,
+      halfDayLop,
+      absentLop,
       totalPaidDays,
-      lopDedDays,
-      formulaOk,
-      '', // Comments — blank for HR to fill
     ]);
 
     row.font = { size: 10, name: 'Calibri' };
@@ -839,116 +399,74 @@ export async function generateAttendanceSalaryExcel(
     row.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
     row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
 
-    // Col positions: WorkDays=3, Sundays=4, Holidays=5, Present=6, Half=7,
-    //               PaidLeave=8, Absent=9, TotalPaid=10, LopDed=11, Check=12
-    if (absentDays > 0) { row.getCell(9).font  = { bold: true, color: { argb: RED }, size: 10 }; }
-    if (halfDays > 0)   { row.getCell(7).font  = { bold: true, color: { argb: 'D97706' }, size: 10 }; }
-    if (paidLeave > 0)  { row.getCell(8).font  = { bold: true, color: { argb: GREEN }, size: 10 }; }
-    if (paidHolidays > 0) { row.getCell(5).font = { bold: true, color: { argb: BRAND }, size: 10 }; }
-    row.getCell(10).font = { bold: true, color: { argb: GREEN }, size: 10 };
-    if (lopDedDays > 0) { row.getCell(11).font = { bold: true, color: { argb: RED }, size: 10 }; }
-    row.getCell(4).font  = { color: { argb: BRAND }, size: 10 };
+    row.getCell(9).font = { bold: true, color: { argb: GREEN }, size: 10 };
+    if (absentLop > 0)  row.getCell(8).font = { bold: true, color: { argb: RED }, size: 10 };
+    if (halfDayLop > 0) row.getCell(7).font = { bold: true, color: { argb: 'D97706' }, size: 10 };
+    if (paidHolidays > 0) row.getCell(5).font = { bold: true, color: { argb: BRAND }, size: 10 };
+    row.getCell(4).font = { color: { argb: BRAND }, size: 10 };
 
-    // Alternate shading
-    if (rowIdx % 2 === 1) {
+    if (idx % 2 === 1) {
       for (let c = 1; c <= NUM_COLS; c++) {
-        if (!row.getCell(c).fill || (row.getCell(c).fill as any).type === 'none') {
-          row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F9FAFB' } };
-        }
+        row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F9FAFB' } };
       }
     }
   });
 
   // Totals row
-  const totalsRow = sheet.addRow([
-    `Total: ${attFilteredRecords.length} employees`, '',
-    totWorkDays, totSundays, totHolidays,
-    totPresent, totHalf, totPaidLeave, totAbsent,
-    totPaidDays, totLopDedDays, '', '',
+  const totRow = sheet.addRow([
+    `Total: ${attRecords.length} employees`, '',
+    tWorkDays, tWeekOff, tHolidays,
+    tPresent, tHalfLop, tAbsentLop, tTotalPaid,
   ]);
-  totalsRow.font = { bold: true, size: 11 };
-  totalsRow.eachCell((cell) => {
+  totRow.font = { bold: true, size: 11 };
+  totRow.eachCell((cell) => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EEF2FF' } };
   });
-  totalsRow.getCell(9).font  = { bold: true, color: { argb: RED },   size: 11 };
-  totalsRow.getCell(10).font = { bold: true, color: { argb: GREEN }, size: 11 };
-  totalsRow.getCell(11).font = { bold: true, color: { argb: RED },   size: 11 };
+  totRow.getCell(9).font  = { bold: true, color: { argb: GREEN }, size: 11 };
+  totRow.getCell(8).font  = { bold: true, color: { argb: RED },   size: 11 };
 
-  sheet.autoFilter = {
-    from: { row: 3, column: 1 },
-    to: { row: 3 + attFilteredRecords.length, column: NUM_COLS },
-  };
+  sheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3 + attRecords.length, column: NUM_COLS } };
 
-  // ── Legend: Attendance column guide ─────────────────────────────────────
+  // ── Instructions ─────────────────────────────────────────────────────────
   sheet.addRow([]);
-  const attLgTitle = sheet.addRow(['📋  ATTENDANCE COLUMN GUIDE — What each column means']);
-  sheet.mergeCells(attLgTitle.number, 1, attLgTitle.number, NUM_COLS);
-  attLgTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
-  attLgTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
-  attLgTitle.height = 22;
+  const instrTitle = sheet.addRow(['ATTENDANCE COLUMN GUIDE']);
+  sheet.mergeCells(instrTitle.number, 1, instrTitle.number, NUM_COLS);
+  instrTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
+  instrTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
+  instrTitle.height = 22;
 
-  const attColGuide: [string, string][] = [
-    ['Working Days (Mon–Sat)', 'Total Mon–Sat days in the employee\'s effective period. Shorter for mid-month joiners/exits. Sundays and holidays NOT included.'],
-    ['Sundays (Paid Week-off)', 'Number of Sundays in the employee\'s effective period. Sundays are PAID — no attendance needed. Working on Sunday earns a bonus.'],
-    ['Paid Holidays', 'Public holidays declared in Settings → Holidays, within the employee\'s effective period. Always paid — no LOP.'],
-    ['Present Days', 'Days marked PRESENT in attendance. Half-day = 0.5. Does NOT include Sundays or holidays (those are auto-paid).'],
-    ['Half Days', 'Raw count of HALF_DAY attendance records (for display). Each half-day = 0.5 in Present Days column.'],
-    ['Paid Leave Days', 'Approved paid leave requests consumed from leave balance. These days are paid — not LOP.'],
-    ['Absent / LOP Days', 'Days counted as Loss of Pay = Explicit ABSENT + Implicit no-show + Unpaid leave. Does not include Sundays or holidays.'],
-    ['Total Paid Days', 'Present + Paid Leave + Sundays + Paid Holidays. This many days the employee earns salary for.'],
-    ['LOP Deduction Days', 'Exact LOP days stored for payroll. Formula: LOP Ded = Daily Rate × this number.'],
-    ['Formula Check', 'Verifies: Present + Paid Leave + LOP Days = Working Days. ✓ = balanced. Any other value = discrepancy.'],
-    ['Comments', 'Blank column — HR can write notes for specific employees.'],
+  const attGuide: [string, string][] = [
+    ['Working Days',        'Total Mon–Sat days in the employee\'s effective period. Starts from joining date. Shorter for mid-month joiners.'],
+    ['Sundays/Week-offs',  'Paid weekly off-days (e.g. Sundays). Always paid — no attendance needed. Counted in Total Paid Days.'],
+    ['Paid Holidays',       'Public holidays declared in Settings → Holidays within the employee\'s effective period. Always paid.'],
+    ['Present',             'Days actually clocked in. Half-day = 0.5. Does NOT include Sundays, holidays, or paid leave.'],
+    ['Half Day (LOP)',      'Count of half-day LOP records. Each = 0.5 day deduction. Shown separately for clarity.'],
+    ['Absent (LOP)',        'Full-day LOP records = Explicit absences + working days with no attendance + unpaid leave.'],
+    ['Total Present Paid Days', 'Present + Sundays/Week-offs + Paid Holidays + Paid Leave. This is the total days for which salary is paid.'],
+    ['Formula Check',       'Working Days = Present + Absent(LOP) + Half Day(LOP)×0.5 + Paid Leave + any carry-over days.'],
   ];
 
-  const attLgCols = ['Column', 'Explanation'];
-  const attLgHeaderRow = sheet.addRow(attLgCols);
-  sheet.mergeCells(attLgHeaderRow.number, 2, attLgHeaderRow.number, NUM_COLS);
-  attLgHeaderRow.font = { bold: true, size: 9, color: { argb: 'FFFFFF' } };
-  attLgHeaderRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '374151' } };
-  attLgHeaderRow.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '374151' } };
-  attLgHeaderRow.height = 18;
+  const instrHdr = sheet.addRow(['Column', 'Explanation']);
+  sheet.mergeCells(instrHdr.number, 2, instrHdr.number, NUM_COLS);
+  instrHdr.getCell(1).font = { bold: true, size: 9, color: { argb: 'FFFFFF' } };
+  instrHdr.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '374151' } };
+  instrHdr.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '374151' } };
 
-  for (const [col, desc] of attColGuide) {
+  for (const [col, desc] of attGuide) {
     const r = sheet.addRow([col, desc]);
     sheet.mergeCells(r.number, 2, r.number, NUM_COLS);
     r.getCell(1).font = { bold: true, size: 9, name: 'Calibri', color: { argb: '1E3A8A' } };
     r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'EFF6FF' } };
-    r.getCell(1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+    r.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
     r.getCell(2).font = { size: 9, name: 'Calibri' };
     r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
     r.height = 20;
   }
 
-  sheet.addRow([]);
-  const attFormulaTitle = sheet.addRow(['🧮  KEY FORMULAS']);
-  sheet.mergeCells(attFormulaTitle.number, 1, attFormulaTitle.number, NUM_COLS);
-  attFormulaTitle.font = { bold: true, size: 11, color: { argb: 'FFFFFF' } };
-  attFormulaTitle.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREEN } };
-  attFormulaTitle.height = 22;
-
-  const attFormulas: string[] = [
-    'Total Paid Days  =  Present Days + Paid Leave Days + Sundays + Paid Holidays',
-    'LOP Days  =  Working Days − Present Days − Paid Leave Days   (must equal LOP Deduction Days)',
-    'LOP Deduction  =  (Gross Salary ÷ Working Days) × LOP Days',
-    'Formula Check  =  Present + Paid Leave + LOP = Working Days  →  ✓ means payroll is balanced',
-    'Pro-ration  =  Working Days ÷ Total Month Working Days  (only for mid-month joiners/exits)',
-  ];
-
-  for (const f of attFormulas) {
-    const r = sheet.addRow(['→', f]);
-    sheet.mergeCells(r.number, 2, r.number, NUM_COLS);
-    r.getCell(1).font = { bold: true, color: { argb: GREEN }, size: 11 };
-    r.getCell(1).alignment = { horizontal: 'center' };
-    r.getCell(2).font = { size: 9, name: 'Calibri' };
-    r.getCell(2).alignment = { wrapText: true, horizontal: 'left', vertical: 'middle' };
-    r.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F0FDF4' } };
-    r.height = 18;
-  }
-
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
+
 
 // ─── Export 3: Bank Transfer Excel ──────────────────────────────────────────
 

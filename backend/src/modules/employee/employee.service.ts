@@ -260,7 +260,6 @@ export class EmployeeService {
             officeLocationId: data.officeLocationId || null,
             managerId: data.managerId || null,
             joiningDate: new Date(data.joiningDate),
-            onboardingDate: (data as any).onboardingDate ? new Date((data as any).onboardingDate) : new Date(),
             probationEndDate: data.probationEndDate ? new Date(data.probationEndDate) : null,
             ctc: data.ctc || null,
             address: data.address || null,
@@ -546,9 +545,6 @@ export class EmployeeService {
 
     if (data.joiningDate) updateData.joiningDate = new Date(data.joiningDate);
 
-    if ((data as any).onboardingDate) updateData.onboardingDate = new Date((data as any).onboardingDate);
-    else delete updateData.onboardingDate;
-
     if (data.probationEndDate) updateData.probationEndDate = new Date(data.probationEndDate);
     else delete updateData.probationEndDate;
 
@@ -784,6 +780,32 @@ export class EmployeeService {
     }
 
     return { employeeId, userId: employee.userId, oldRole, newRole: role };
+  }
+
+  async updateJoiningDate(employeeId: string, joiningDate: string, organizationId: string, updatedBy: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const parsedDate = new Date(joiningDate);
+    if (isNaN(parsedDate.getTime())) throw new BadRequestError('Invalid date format for joiningDate');
+
+    const oldDate = employee.joiningDate;
+    const updated = await prisma.employee.update({
+      where: { id: employeeId },
+      data: { joiningDate: parsedDate },
+    });
+
+    await createAuditLog({
+      userId: updatedBy, organizationId,
+      entity: 'Employee', entityId: employeeId,
+      action: 'UPDATE',
+      oldValue: { joiningDate: oldDate },
+      newValue: { joiningDate: parsedDate },
+    });
+
+    return { employeeId, joiningDate: updated.joiningDate, onboardingDate: updated.onboardingDate };
   }
 
   async softDelete(id: string, organizationId: string, deletedBy: string) {

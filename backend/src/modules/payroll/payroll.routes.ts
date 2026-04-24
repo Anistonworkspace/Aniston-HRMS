@@ -228,7 +228,7 @@ router.get('/runs/:id/attendance-export',
         where: { id: req.user!.organizationId }, select: { name: true },
       });
       const { generateAttendanceSalaryExcel } = await import('../../utils/payrollExcelExporter.js');
-      const buffer = await generateAttendanceSalaryExcel(run, records, leaveData, attendanceDetails, monthHolidays, org?.name || 'Aniston Technologies LLP');
+      const buffer = await generateAttendanceSalaryExcel(run, records, org?.name || 'Aniston Technologies LLP');
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="attendance-salary-${monthNames[run.month - 1]}-${run.year}.xlsx"`);
@@ -422,7 +422,7 @@ router.post('/runs/:id/send-email',
 
       const [payrollBuffer, attendanceBuffer, bankBuffer] = await Promise.all([
         generatePayrollExcel(run, records, org.name || 'Aniston Technologies LLP'),
-        generateAttendanceSalaryExcel(run, records, leaveData, attendanceDetails, monthHolidays2, org.name || 'Aniston Technologies LLP'),
+        generateAttendanceSalaryExcel(run, records, org.name || 'Aniston Technologies LLP'),
         generateBankFileExcel(run, records, org.name || 'Aniston Technologies LLP'),
       ]);
 

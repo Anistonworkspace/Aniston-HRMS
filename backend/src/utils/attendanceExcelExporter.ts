@@ -284,6 +284,7 @@ export async function generateMonthlyAttendanceExcel(
     { header: 'Check In', key: 'checkIn', width: 12 },
     { header: 'Check Out', key: 'checkOut', width: 12 },
     { header: 'Total Hours', key: 'hours', width: 12 },
+    { header: 'Late (min)', key: 'lateMinutes', width: 12 },
     { header: 'Work Mode', key: 'workMode', width: 14 },
     { header: 'Geofence', key: 'geofence', width: 12 },
   ];
@@ -308,6 +309,7 @@ export async function generateMonthlyAttendanceExcel(
         checkIn: record?.checkIn ? fmtTime(record.checkIn) : '-',
         checkOut: record?.checkOut ? fmtTime(record.checkOut) : '-',
         hours: record?.totalHours ? Number(record.totalHours).toFixed(1) : '-',
+        lateMinutes: record?.lateMinutes ? record.lateMinutes : '-',
         workMode: record?.workMode || '-',
         geofence: record?.geofenceViolation ? 'OUTSIDE' : record ? 'OK' : '-',
       });
@@ -321,7 +323,7 @@ export async function generateMonthlyAttendanceExcel(
     }
   }
 
-  detailSheet.autoFilter = { from: 'A1', to: `K${1 + employees.length * daysInMonth}` };
+  detailSheet.autoFilter = { from: 'A1', to: `L${1 + employees.length * daysInMonth}` };
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
