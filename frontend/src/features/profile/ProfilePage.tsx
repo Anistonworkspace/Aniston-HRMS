@@ -625,6 +625,8 @@ export default function ProfilePage() {
             <ProfileRow label={t('profile.employeeCode')} value={employee?.employeeCode} mono />
             <ProfileRow label={t('common.department')} value={employee?.department?.name} />
             <ProfileRow label={t('common.designation')} value={employee?.designation?.name} />
+            <ProfileRow label="Employment Type" value={(employee as any)?.employmentType?.replace(/_/g, ' ')} />
+            <ProfileRow label="Experience Level" value={(employee as any)?.experienceLevel || undefined} />
             <ProfileRow label={t('profile.workMode')} value={employee?.workMode?.replace(/_/g, ' ')} />
             <ProfileRow label={t('profile.joiningDate')} value={employee?.joiningDate ? formatDate(employee.joiningDate, 'long') : undefined} />
             <ProfileRow label={t('common.status')} value={employee?.status} />

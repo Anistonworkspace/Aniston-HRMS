@@ -356,6 +356,8 @@ export default function EmployeeDetailPage() {
                   <dl className="space-y-2.5">
                     <InfoRow label="Department" value={employee.department?.name || '—'} />
                     <InfoRow label="Designation" value={employee.designation?.name || '—'} />
+                    <InfoRow label="Employment Type" value={(employee.employmentType as string)?.replace(/_/g, ' ') || '—'} />
+                    <InfoRow label="Experience Level" value={(employee.experienceLevel as string) || '—'} />
                     <InfoRow label="Work Mode" value={employee.workMode?.replace(/_/g, ' ')} />
                     <InfoRow label="Reports To" value={employee.manager ? `${employee.manager.firstName} ${employee.manager.lastName}` : '—'} />
                     <InfoRow label="Office" value={employee.officeLocation?.name || '—'} />
@@ -814,10 +816,6 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
         </div>
         <form onSubmit={async (e) => {
           e.preventDefault();
-          // Change role separately if it changed and user has permission
-          if (canEditStatus && selectedRole !== employee.user?.role) {
-            await changeRole({ employeeId: employee.id, role: selectedRole }).unwrap();
-          }
           onSave({
             ...form,
             departmentId: form.departmentId || null,
@@ -825,8 +823,6 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
             managerId: form.managerId || null,
             ctc: form.ctc !== '' && form.ctc !== undefined ? Number(form.ctc) : undefined,
             shiftId: form.shiftId || null,
-            employmentType: form.employmentType || undefined,
-            experienceLevel: form.experienceLevel || undefined,
             permanentAddress: (form.permanentAddress.line1 || form.permanentAddress.city) ? form.permanentAddress : undefined,
           });
         }} className="space-y-4 px-6 py-5">
@@ -879,33 +875,6 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
               value={form.managerId}
               onChange={(v) => setForm({ ...form, managerId: v })}
             />
-          </div>
-          {/* Employment Type / Experience Level */}
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">
-                Employment Type
-                <span className="ml-1 text-gray-400 font-normal">(EPF/ESI/PT + leaves)</span>
-              </label>
-              <select value={form.employmentType} onChange={e => setForm({ ...form, employmentType: e.target.value })} className="input-glass w-full text-sm">
-                <option value="FULL_TIME">Full-Time</option>
-                <option value="PART_TIME">Part-Time</option>
-                <option value="CONTRACT">Contract</option>
-                <option value="INTERN">Intern</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">
-                Experience Level
-                <span className="ml-1 text-gray-400 font-normal">(KYC docs)</span>
-              </label>
-              <select value={form.experienceLevel} onChange={e => setForm({ ...form, experienceLevel: e.target.value })} className="input-glass w-full text-sm">
-                <option value="">— Not set —</option>
-                <option value="INTERN">Intern / Student</option>
-                <option value="FRESHER">Fresher</option>
-                <option value="EXPERIENCED">Experienced</option>
-              </select>
-            </div>
           </div>
           {/* Shift assignment */}
           <div className="grid grid-cols-3 gap-3">
@@ -982,26 +951,6 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
               <input value={form.personalEmail} onChange={(e) => setForm({ ...form, personalEmail: e.target.value })} className="input-glass w-full text-sm" /></div>
             <div><label className="block text-xs text-gray-500 mb-1">CTC (Annual, INR)</label>
               <input type="number" value={form.ctc} onChange={(e) => setForm({ ...form, ctc: e.target.value ? Number(e.target.value) : '' })} className="input-glass w-full text-sm" /></div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">
-                Role
-                {canEditStatus && <span className="ml-1 text-indigo-500 font-medium">(HR only)</span>}
-              </label>
-              {canEditStatus ? (
-                <select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)} className="input-glass w-full text-sm">
-                  <option value="EMPLOYEE">Employee</option>
-                  <option value="INTERN">Intern</option>
-                  <option value="MANAGER">Manager</option>
-                  <option value="HR">HR</option>
-                  <option value="ADMIN">Admin</option>
-                  <option value="SUPER_ADMIN">Super Admin</option>
-                </select>
-              ) : (
-                <div className="input-glass w-full text-sm flex items-center text-gray-600 bg-gray-50 cursor-not-allowed">
-                  {selectedRole.replace(/_/g, ' ')}
-                </div>
-              )}
-            </div>
           </div>
           {/* Current Address */}
           <div>

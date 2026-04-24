@@ -145,6 +145,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
     const e: Record<string, string> = {};
     if (!email.trim() && !mobile.trim()) e.contact = 'Provide at least an email or mobile number';
     if (!employmentType) e.employmentType = 'Employment type is required';
+    if (!experienceLevel) e.experienceLevel = 'Experience level is required';
     if (!departmentId) e.departmentId = 'Department is required';
     if (!designationId) e.designationId = 'Designation is required';
     if (!officeLocationId) e.officeLocationId = 'Office location is required';
@@ -354,7 +355,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
                   <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
                     <Briefcase size={12} /> Employment
                   </h3>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                     {/* Employment Type */}
                     <div>
                       <label className="block text-sm font-medium text-gray-600 mb-1">
@@ -378,46 +379,23 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
                       {errors.employmentType && <p className="text-xs text-red-500 mt-1">{errors.employmentType}</p>}
                     </div>
 
-                    {/* Role */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-600 mb-1">
-                        Portal Role
-                        <FieldHint text="Determines what the employee can see and do in the HR portal" />
-                      </label>
-                      <select
-                        value={role}
-                        onChange={(e) => setRole(e.target.value)}
-                        className="input-glass w-full text-sm"
-                      >
-                        {ROLES.map((r) => (
-                          <option key={r.value} value={r.value} title={r.hint}>{r.label}</option>
-                        ))}
-                      </select>
-                      {ROLES.find(r => r.value === role) && (
-                        <p className="text-[10px] text-indigo-500 mt-0.5">
-                          {ROLES.find(r => r.value === role)!.hint}
-                        </p>
-                      )}
-                      {employmentType === 'INTERN' && (
-                        <p className="text-[10px] text-amber-500 mt-0.5">Auto-set to Intern</p>
-                      )}
-                    </div>
-
                     {/* Experience Level */}
                     <div>
                       <label className="block text-sm font-medium text-gray-600 mb-1">
-                        Experience Level <span className="text-[10px] text-indigo-400 font-normal">(KYC docs)</span>
+                        Experience Level <span className="text-[10px] text-indigo-400 font-normal">(KYC docs)</span> <span className="text-red-500">*</span>
                       </label>
                       <select
                         value={experienceLevel}
                         onChange={(e) => setExperienceLevel(e.target.value)}
-                        className="input-glass w-full text-sm"
+                        className={`input-glass w-full text-sm ${errors.experienceLevel ? 'border-red-300' : ''}`}
+                        required
                       >
                         <option value="">— Select —</option>
                         {EXPERIENCE_LEVELS.map((l) => (
                           <option key={l.value} value={l.value} title={l.hint}>{l.label}</option>
                         ))}
                       </select>
+                      {errors.experienceLevel && <p className="text-xs text-red-500 mt-1">{errors.experienceLevel}</p>}
                     </div>
                   </div>
                 </section>

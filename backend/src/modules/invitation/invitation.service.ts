@@ -65,12 +65,15 @@ export class InvitationService {
 
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72 hours
 
+    // Auto-derive role from employmentType — INTERN employment always gets INTERN portal role
+    const derivedRole = employmentType === 'INTERN' ? 'INTERN' : (role || 'EMPLOYEE');
+
     const invitation = await prisma.employeeInvitation.create({
       data: {
         organizationId,
         email: email?.toLowerCase() || null,
         mobileNumber: mobileNumber || null,
-        role: role || 'EMPLOYEE',
+        role: derivedRole,
         departmentId: departmentId || null,
         designationId: designationId || null,
         managerId: managerId || null,
