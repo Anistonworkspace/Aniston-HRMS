@@ -46,7 +46,7 @@ export const authApi = api.injectEndpoints({
       query: () => '/auth/mfa/status',
       providesTags: ['MFA'],
     }),
-    setupMfa: builder.mutation<ApiResponse<{ qrCode: string; backupCodes: string[] }>, void>({
+    setupMfa: builder.mutation<ApiResponse<{ qrCode: string; secret: string; otpauthUrl: string; backupCodes: string[] }>, void>({
       query: () => ({ url: '/auth/mfa/setup', method: 'POST' }),
     }),
     verifyMfaSetup: builder.mutation<ApiResponse<{ message: string }>, { code: string }>({
@@ -59,6 +59,9 @@ export const authApi = api.injectEndpoints({
     disableMfa: builder.mutation<ApiResponse<{ message: string }>, { code: string }>({
       query: (body) => ({ url: '/auth/mfa/disable', method: 'POST', body }),
       invalidatesTags: ['MFA'],
+    }),
+    adminResetPassword: builder.mutation<ApiResponse<null>, { targetUserId: string }>({
+      query: (body) => ({ url: '/auth/admin-reset-password', method: 'POST', body }),
     }),
   }),
 });
@@ -75,4 +78,5 @@ export const {
   useVerifyMfaSetupMutation,
   useVerifyMfaMutation,
   useDisableMfaMutation,
+  useAdminResetPasswordMutation,
 } = authApi;

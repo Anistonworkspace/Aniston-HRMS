@@ -323,13 +323,19 @@ export class InvitationService {
             email: normalizedEmail,
             phone: data.phone || '0000000000',
             gender: 'PREFER_NOT_TO_SAY',
-            workMode: 'OFFICE',
-            joiningDate: new Date(),
-            status: 'ONBOARDING',
+            // Transfer all pre-assigned fields from invitation — these were set by HR
+            workMode: (invitation.workMode as any) || 'OFFICE',
+            employmentType: (invitation.employmentType as any) || 'FULL_TIME',
+            joiningDate: invitation.proposedJoiningDate || new Date(),
+            onboardingDate: new Date(),
+            // INTERN role or INTERN employmentType → set status to INTERN for leave/policy routing
+            status: (assignedRole === 'INTERN' || invitation.employmentType === 'INTERN') ? 'INTERN' : 'ONBOARDING',
             onboardingComplete: false,
             organizationId: invitation.organizationId,
             departmentId: invitation.departmentId || undefined,
             designationId: invitation.designationId || undefined,
+            managerId: invitation.managerId || undefined,
+            officeLocationId: invitation.officeLocationId || undefined,
           },
         });
 
@@ -367,13 +373,19 @@ export class InvitationService {
             email: normalizedEmail,
             phone: data.phone || '0000000000',
             gender: 'PREFER_NOT_TO_SAY',
-            workMode: 'OFFICE',
-            joiningDate: new Date(),
-            status: 'ONBOARDING',
+            // Transfer all pre-assigned fields from invitation — these were set by HR
+            workMode: (invitation.workMode as any) || 'OFFICE',
+            employmentType: (invitation.employmentType as any) || 'FULL_TIME',
+            joiningDate: invitation.proposedJoiningDate || new Date(),
+            onboardingDate: new Date(),
+            // INTERN role or INTERN employmentType → set status to INTERN for leave/policy routing
+            status: (assignedRole === 'INTERN' || invitation.employmentType === 'INTERN') ? 'INTERN' : 'ONBOARDING',
             onboardingComplete: false,
             organizationId: invitation.organizationId,
             departmentId: invitation.departmentId || undefined,
             designationId: invitation.designationId || undefined,
+            managerId: invitation.managerId || undefined,
+            officeLocationId: invitation.officeLocationId || undefined,
           },
         });
 

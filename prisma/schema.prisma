@@ -152,13 +152,22 @@ model Employee {
   departmentId     String?
   designationId    String?
   managerId        String?
-  workMode         WorkMode       @default(OFFICE)
+  workMode         WorkMode         @default(OFFICE)
+  // employmentType: contract classification → drives payroll EPF/ESI/PT eligibility,
+  //   leave balance seeding (INTERN gets reduced balances), and salary template assignment.
+  employmentType   EmploymentType   @default(FULL_TIME)
+  // experienceLevel: set at onboarding → determines required KYC documents
+  //   (EXPERIENCED requires experience letter + salary slips; INTERN requires enrollment proof).
+  experienceLevel  ExperienceLevel?
   officeLocationId String?
+  // joiningDate: contractual employment start (used for payroll pro-ration, leave accrual start).
   joiningDate      DateTime
-  onboardingDate   DateTime?  // Date employee was first registered in this HRMS (auto-set on creation). Used for payroll pro-ration. Differs from joiningDate (contractual employment date).
+  // onboardingDate: date first registered in HRMS. May differ from joiningDate for legacy employees.
+  //   Used by payroll for first-month pro-ration calculation.
+  onboardingDate   DateTime?
   probationEndDate DateTime?
-  ctc              Decimal?       @db.Decimal(12, 2)
-  status           EmployeeStatus @default(ONBOARDING)
+  ctc              Decimal?         @db.Decimal(12, 2)
+  status           EmployeeStatus   @default(ONBOARDING)
   organizationId   String
 
   // Police Verification
@@ -276,6 +285,23 @@ enum WorkMode {
   FIELD_SALES
   PROJECT_SITE
   REMOTE
+}
+
+// Contract / payroll classification
+// FULL_TIME → standard EPF/ESI/PT; INTERN → stipend only; CONTRACT → typically exempt
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+}
+
+// Experience at time of joining — drives KYC document requirements
+// EXPERIENCED → experience letter + salary slips required in KYC gate
+enum ExperienceLevel {
+  INTERN
+  FRESHER
+  EXPERIENCED
 }
 
 model EmployeeEvent {
@@ -1182,6 +1208,11 @@ model PayrollRecord {
   lopDeduction   Decimal? @db.Decimal(12, 2)
   workingDays    Int
   presentDays    Decimal  @default(0) @db.Decimal(6, 2) // stored as decimal (half-days = 0.5)
+  weekOffDays    Int      @default(0)                    // week-off days in the pay period
+  paidHolidays   Int      @default(0)                    // paid public holidays in the pay period
+  paidLeaveDays  Decimal  @default(0) @db.Decimal(6, 2) // approved paid leave days
+  absentLop      Decimal  @default(0) @db.Decimal(6, 2) // absent/LOP count (excl. half days)
+  halfDayLop     Decimal  @default(0) @db.Decimal(6, 2) // half-day count
   amendedBy      String?
   amendedAt      DateTime?
   amendmentReason String?

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from './auth.service.js';
-import { loginSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema, mfaCodeSchema, mfaVerifySchema } from './auth.validation.js';
+import { loginSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema, mfaCodeSchema, mfaVerifySchema, adminResetPasswordSchema } from './auth.validation.js';
 import { employeeService } from '../employee/employee.service.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 
@@ -115,6 +115,29 @@ export class AuthController {
     }
   }
 
+  async adminResetPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = adminResetPasswordSchema.parse(req.body);
+      const caller = req.user!;
+      const result = await authService.adminResetPassword(data.targetUserId, {
+        id: caller.userId,
+        role: caller.role,
+        organizationId: caller.organizationId,
+      });
+      await createAuditLog({
+        userId: caller.userId,
+        organizationId: caller.organizationId,
+        action: 'ADMIN_PASSWORD_RESET',
+        entity: 'User',
+        entityId: data.targetUserId,
+        newValue: { initiatedBy: caller.role },
+      });
+      res.json({ success: true, data: null, message: result.message });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async changePassword(req: Request, res: Response, next: NextFunction) {
     try {
       const data = changePasswordSchema.parse(req.body);
@@ -205,7 +228,7 @@ export class AuthController {
       });
 
       // Return plain codes to user — only time they are ever visible
-      res.json({ success: true, data: { qrCode, backupCodes: plainCodes } });
+      res.json({ success: true, data: { qrCode, secret, otpauthUrl, backupCodes: plainCodes } });
     } catch (err) { next(err); }
   }
 

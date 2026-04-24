@@ -496,3 +496,46 @@ export enum LeaveApplicableTo {
   NOTICE_PERIOD = 'NOTICE_PERIOD',
   SPECIFIC = 'SPECIFIC',
 }
+
+/**
+ * Contract / employment type.
+ * Controls payroll category (EPF/ESI/PT eligibility), leave balance seeding,
+ * and salary template assignment.
+ * - FULL_TIME  → standard statutory deductions apply
+ * - PART_TIME  → pro-rata; EPF/ESI may be exempt
+ * - CONTRACT   → typically EPF/ESI exempt; fixed-term
+ * - INTERN     → stipend only; no statutory deductions; limited leave
+ */
+export enum EmploymentType {
+  FULL_TIME = 'FULL_TIME',
+  PART_TIME = 'PART_TIME',
+  CONTRACT = 'CONTRACT',
+  INTERN = 'INTERN',
+}
+
+/**
+ * Experience level at the time of joining.
+ * Drives onboarding document requirements and KYC gate rules:
+ * - INTERN      → college ID / enrollment proof; no experience letter needed
+ * - FRESHER     → education certificates only; no experience letter
+ * - EXPERIENCED → previous employer experience letter + salary slips required
+ */
+export enum ExperienceLevel {
+  INTERN = 'INTERN',
+  FRESHER = 'FRESHER',
+  EXPERIENCED = 'EXPERIENCED',
+}
+
+/**
+ * Highest education qualification.
+ * Used to cascade required education documents during onboarding KYC:
+ * TENTH → TWELFTH → DIPLOMA/GRADUATION → POST_GRADUATION → PHD
+ */
+export enum Qualification {
+  TENTH = 'TENTH',
+  TWELFTH = 'TWELFTH',
+  DIPLOMA = 'DIPLOMA',
+  GRADUATION = 'GRADUATION',
+  POST_GRADUATION = 'POST_GRADUATION',
+  PHD = 'PHD',
+}

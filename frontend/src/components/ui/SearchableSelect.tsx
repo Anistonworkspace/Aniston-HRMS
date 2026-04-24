@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Search, ChevronDown, Plus, Check } from 'lucide-react';
+import { Search, ChevronDown, Plus, Check, Trash2 } from 'lucide-react';
 
 interface Option {
   value: string;
@@ -18,6 +18,8 @@ interface SearchableSelectProps {
   canCreate?: boolean;
   createLabel?: string;
   onCreateClick?: () => void;
+  canDelete?: boolean;
+  onDeleteClick?: (value: string) => void;
   error?: string;
 }
 
@@ -32,6 +34,8 @@ export default function SearchableSelect({
   canCreate,
   createLabel = '+ Add new',
   onCreateClick,
+  canDelete,
+  onDeleteClick,
   error,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
@@ -127,26 +131,45 @@ export default function SearchableSelect({
             )}
 
             {filtered.map((option) => (
-              <button
-                type="button"
+              <div
                 key={option.value}
-                onClick={() => {
-                  onChange(option.value);
-                  setOpen(false);
-                  setSearch('');
-                }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 transition-colors flex items-center justify-between ${
-                  option.value === value ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'
+                className={`flex items-center justify-between text-sm transition-colors ${
+                  option.value === value ? 'bg-indigo-50' : 'hover:bg-indigo-50'
                 }`}
               >
-                <div>
-                  <span>{option.label}</span>
-                  {option.sublabel && (
-                    <span className="text-xs text-gray-400 ml-2">{option.sublabel}</span>
-                  )}
-                </div>
-                {option.value === value && <Check size={14} className="text-indigo-600 flex-shrink-0" />}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                    setSearch('');
+                  }}
+                  className={`flex-1 text-left px-3 py-2 flex items-center gap-2 ${
+                    option.value === value ? 'text-indigo-700' : 'text-gray-700'
+                  }`}
+                >
+                  <div className="flex-1">
+                    <span>{option.label}</span>
+                    {option.sublabel && (
+                      <span className="text-xs text-gray-400 ml-2">{option.sublabel}</span>
+                    )}
+                  </div>
+                  {option.value === value && <Check size={14} className="text-indigo-600 flex-shrink-0" />}
+                </button>
+                {canDelete && onDeleteClick && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteClick(option.value);
+                    }}
+                    className="px-2 py-2 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
+                    title={`Delete ${option.label}`}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
 

@@ -154,7 +154,7 @@ describe('InvitationService', () => {
 
       const beforeCall = Date.now();
       const result = await service.createInvitation(
-        { email: 'newjoin@example.com', role: 'EMPLOYEE' as const, sendWelcomeEmail: false },
+        { email: 'newjoin@example.com', role: 'EMPLOYEE' as const, sendWelcomeEmail: false, employmentType: 'FULL_TIME' as const, departmentId: 'dept-1', designationId: 'desig-1', officeLocationId: 'loc-1', workMode: 'OFFICE' as const, proposedJoiningDate: '2026-05-01' },
         ORG_ID,
         ADMIN_USER_ID
       );
@@ -187,7 +187,7 @@ describe('InvitationService', () => {
       } as any);
 
       await service.createInvitation(
-        { email: 'newjoin@example.com', role: 'EMPLOYEE' as const, sendWelcomeEmail: false },
+        { email: 'newjoin@example.com', role: 'EMPLOYEE' as const, sendWelcomeEmail: false, employmentType: 'FULL_TIME' as const, departmentId: 'dept-1', designationId: 'desig-1', officeLocationId: 'loc-1', workMode: 'OFFICE' as const, proposedJoiningDate: '2026-05-01' },
         ORG_ID,
         ADMIN_USER_ID
       );
@@ -204,7 +204,7 @@ describe('InvitationService', () => {
       );
 
       await expect(
-        service.createInvitation({ email: 'newjoin@example.com', role: 'EMPLOYEE' as const, sendWelcomeEmail: false }, ORG_ID, ADMIN_USER_ID)
+        service.createInvitation({ email: 'newjoin@example.com', role: 'EMPLOYEE' as const, sendWelcomeEmail: false, employmentType: 'FULL_TIME' as const, departmentId: 'dept-1', designationId: 'desig-1', officeLocationId: 'loc-1', workMode: 'OFFICE' as const, proposedJoiningDate: '2026-05-01' }, ORG_ID, ADMIN_USER_ID)
       ).rejects.toThrow('A pending invitation already exists for this email');
 
       expect(prisma.employeeInvitation.create).not.toHaveBeenCalled();
@@ -218,7 +218,7 @@ describe('InvitationService', () => {
       } as any);
 
       await expect(
-        service.createInvitation({ email: 'newjoin@example.com', role: 'EMPLOYEE' as const, sendWelcomeEmail: false }, ORG_ID, ADMIN_USER_ID)
+        service.createInvitation({ email: 'newjoin@example.com', role: 'EMPLOYEE' as const, sendWelcomeEmail: false, employmentType: 'FULL_TIME' as const, departmentId: 'dept-1', designationId: 'desig-1', officeLocationId: 'loc-1', workMode: 'OFFICE' as const, proposedJoiningDate: '2026-05-01' }, ORG_ID, ADMIN_USER_ID)
       ).rejects.toThrow('An employee with this email already exists');
     });
 
@@ -233,7 +233,7 @@ describe('InvitationService', () => {
         name: 'Aniston Technologies',
       } as any);
 
-      await service.createInvitation({ email: 'UPPER@EXAMPLE.COM', role: 'EMPLOYEE' as const, sendWelcomeEmail: false }, ORG_ID, ADMIN_USER_ID);
+      await service.createInvitation({ email: 'UPPER@EXAMPLE.COM', role: 'EMPLOYEE' as const, sendWelcomeEmail: false, employmentType: 'FULL_TIME' as const, departmentId: 'dept-1', designationId: 'desig-1', officeLocationId: 'loc-1', workMode: 'OFFICE' as const, proposedJoiningDate: '2026-05-01' }, ORG_ID, ADMIN_USER_ID);
 
       const createArg = vi.mocked(prisma.employeeInvitation.create).mock.calls[0][0] as any;
       expect(createArg.data.email).toBe('upper@example.com');

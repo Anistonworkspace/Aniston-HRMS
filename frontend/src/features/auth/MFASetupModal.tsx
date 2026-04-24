@@ -1,17 +1,24 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ShieldCheck, Copy, Check, Loader2, AlertCircle } from 'lucide-react';
+import { X, ShieldCheck, Copy, Check, Loader2, AlertCircle, QrCode, Key, Link2 } from 'lucide-react';
 import { useSetupMfaMutation, useVerifyMfaSetupMutation, useDisableMfaMutation } from './authApi';
 import toast from 'react-hot-toast';
 
-// ── MFA Setup Wizard (3 steps: QR → Verify → Backup codes) ──────────────────
+type SetupMethod = 'qr' | 'key' | 'url';
+
+// ── MFA Setup Wizard (3 steps: Setup → Verify → Backup codes) ────────────────
 export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onEnabled: () => void }) {
-  const [step, setStep] = useState<'qr' | 'verify' | 'backup'>('qr');
+  const [step, setStep] = useState<'setup' | 'verify' | 'backup'>('setup');
+  const [method, setMethod] = useState<SetupMethod>('qr');
   const [qrCode, setQrCode] = useState('');
+  const [secret, setSecret] = useState('');
+  const [otpauthUrl, setOtpauthUrl] = useState('');
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [verifyCode, setVerifyCode] = useState('');
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [copiedSecret, setCopiedSecret] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   const [setupMfa, { isLoading: setupLoading }] = useSetupMfaMutation();
   const [verifyMfaSetup, { isLoading: verifyLoading }] = useVerifyMfaSetupMutation();
@@ -21,8 +28,9 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
       const result = await setupMfa().unwrap();
       if (result.success && result.data) {
         setQrCode(result.data.qrCode);
+        setSecret(result.data.secret ?? '');
+        setOtpauthUrl(result.data.otpauthUrl ?? '');
         setBackupCodes(result.data.backupCodes);
-        setStep('qr');
       }
     } catch (err: unknown) {
       const apiErr = err as { data?: { error?: { message?: string } } };
@@ -46,11 +54,12 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
     }
   };
 
-  const copyBackupCodes = async () => {
+  const copyText = async (text: string, which: 'backup' | 'secret' | 'url') => {
     try {
-      await navigator.clipboard.writeText(backupCodes.join('\n'));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(text);
+      if (which === 'backup') { setCopied(true); setTimeout(() => setCopied(false), 2000); }
+      if (which === 'secret') { setCopiedSecret(true); setTimeout(() => setCopiedSecret(false), 2000); }
+      if (which === 'url') { setCopiedUrl(true); setTimeout(() => setCopiedUrl(false), 2000); }
     } catch {
       toast.error('Could not copy to clipboard.');
     }
@@ -62,11 +71,15 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
     toast.success('Two-factor authentication is now active!');
   };
 
-  // Auto-start setup on mount — setupMfa is stable (RTK Query mutation ref)
+  // Auto-start on mount
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { handleStart(); }, []);
 
   const handleBackdropClose = () => { if (step === 'backup') onEnabled(); onClose(); };
+  const stepIndex = (s: typeof step) => ['setup', 'verify', 'backup'].indexOf(s);
+
+  // Format secret in groups of 4 for readability
+  const formattedSecret = secret ? secret.replace(/(.{4})/g, '$1 ').trim() : '';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={handleBackdropClose}>
@@ -75,10 +88,10 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-2">
             <ShieldCheck size={20} className="text-brand-600" />
             <h3 className="text-base font-semibold text-gray-800">Set Up Two-Factor Authentication</h3>
@@ -91,56 +104,135 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
           </button>
         </div>
 
-        <div className="px-6 py-5">
+        <div className="px-6 py-5 overflow-y-auto flex-1">
           {/* Step indicator */}
           <div className="flex items-center gap-2 mb-6">
-            {(['qr', 'verify', 'backup'] as const).map((s, i) => (
+            {(['setup', 'verify', 'backup'] as const).map((s, i) => (
               <div key={s} className="flex items-center gap-2">
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
                   step === s ? 'bg-brand-600 text-white' :
-                  ['qr', 'verify', 'backup'].indexOf(step) > i ? 'bg-emerald-500 text-white' :
+                  stepIndex(step) > i ? 'bg-emerald-500 text-white' :
                   'bg-gray-100 text-gray-400'
                 }`}>
-                  {['qr', 'verify', 'backup'].indexOf(step) > i ? <Check size={12} /> : i + 1}
+                  {stepIndex(step) > i ? <Check size={12} /> : i + 1}
                 </div>
-                {i < 2 && <div className={`flex-1 h-0.5 w-8 transition-colors ${['qr', 'verify', 'backup'].indexOf(step) > i ? 'bg-emerald-500' : 'bg-gray-100'}`} />}
+                {i < 2 && <div className={`flex-1 h-0.5 w-8 transition-colors ${stepIndex(step) > i ? 'bg-emerald-500' : 'bg-gray-100'}`} />}
               </div>
             ))}
             <span className="ml-2 text-xs text-gray-400">
-              {step === 'qr' ? 'Scan QR Code' : step === 'verify' ? 'Verify Code' : 'Save Backup Codes'}
+              {step === 'setup' ? 'Add to Authenticator' : step === 'verify' ? 'Verify Code' : 'Save Backup Codes'}
             </span>
           </div>
 
           <AnimatePresence mode="wait">
-            {/* Step 1: QR Code */}
-            {step === 'qr' && (
-              <motion.div key="qr" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                <p className="text-sm text-gray-600 mb-4">
-                  Open <strong>Google Authenticator</strong>, <strong>Authy</strong>, or any TOTP app, then scan this QR code.
+            {/* Step 1: Setup — choose method */}
+            {step === 'setup' && (
+              <motion.div key="setup" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  Open your authenticator app and add your account using one of the methods below.
+                  On <strong>mobile</strong>, use the <strong>Secret Key</strong> or <strong>URL</strong> method.
                 </p>
 
-                {setupLoading ? (
-                  <div className="flex items-center justify-center h-48">
-                    <Loader2 size={32} className="animate-spin text-brand-500" />
-                  </div>
-                ) : qrCode ? (
-                  <div className="flex justify-center mb-4">
-                    <div className="border-4 border-white shadow-md rounded-xl overflow-hidden">
-                      <img src={qrCode} alt="MFA QR Code" className="w-48 h-48 object-contain" />
-                    </div>
-                  </div>
-                ) : null}
+                {/* Method tabs */}
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { id: 'qr' as SetupMethod, icon: <QrCode size={16} />, label: 'QR Code', sub: 'Scan with camera' },
+                    { id: 'key' as SetupMethod, icon: <Key size={16} />, label: 'Secret Key', sub: 'Google / any TOTP' },
+                    { id: 'url' as SetupMethod, icon: <Link2 size={16} />, label: 'Setup URL', sub: 'Microsoft Auth' },
+                  ]).map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => setMethod(m.id)}
+                      className={`flex flex-col items-center gap-1 p-3 rounded-xl border-2 text-center transition-all ${
+                        method === m.id
+                          ? 'border-brand-500 bg-brand-50 text-brand-700'
+                          : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                      }`}
+                    >
+                      {m.icon}
+                      <span className="text-xs font-semibold">{m.label}</span>
+                      <span className="text-[10px] text-gray-400 leading-tight">{m.sub}</span>
+                    </button>
+                  ))}
+                </div>
 
-                <p className="text-xs text-gray-400 text-center mb-5">
-                  Can't scan? You can enter the key manually in your authenticator app.
-                </p>
+                {setupLoading && (
+                  <div className="flex items-center justify-center h-32">
+                    <Loader2 size={28} className="animate-spin text-brand-500" />
+                  </div>
+                )}
+
+                {!setupLoading && (
+                  <AnimatePresence mode="wait">
+                    {/* QR Code method */}
+                    {method === 'qr' && qrCode && (
+                      <motion.div key="qr-view" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
+                        <div className="flex justify-center">
+                          <div className="border-4 border-white shadow-md rounded-xl overflow-hidden">
+                            <img src={qrCode} alt="MFA QR Code" className="w-52 h-52 object-contain" />
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-400 text-center">
+                          In your authenticator app, tap <strong>"+"</strong> or <strong>"Add account"</strong>, then choose <strong>"Scan QR code"</strong>.
+                        </p>
+                      </motion.div>
+                    )}
+
+                    {/* Secret Key method */}
+                    {method === 'key' && secret && (
+                      <motion.div key="key-view" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
+                        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                          <p className="text-[11px] font-medium text-gray-500 mb-1">Account Name</p>
+                          <p className="text-sm font-mono text-gray-700 mb-3">Aniston HRMS</p>
+                          <p className="text-[11px] font-medium text-gray-500 mb-1">Secret Key</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-mono text-gray-900 tracking-widest break-all flex-1">{formattedSecret}</p>
+                            <button
+                              onClick={() => copyText(secret, 'secret')}
+                              className="shrink-0 p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-brand-600 transition-colors"
+                            >
+                              {copiedSecret ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          In <strong>Google Authenticator</strong>: tap <strong>"+"</strong> → <strong>"Enter a setup key"</strong> → paste the key above and set type to <strong>Time-based</strong>.
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          In <strong>Microsoft Authenticator</strong>: tap <strong>"+"</strong> → <strong>"Other account"</strong> → <strong>"Or enter code manually"</strong>.
+                        </p>
+                      </motion.div>
+                    )}
+
+                    {/* URL method */}
+                    {method === 'url' && otpauthUrl && (
+                      <motion.div key="url-view" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
+                        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                          <p className="text-[11px] font-medium text-gray-500 mb-1">Setup URL (otpauth://)</p>
+                          <div className="flex items-start gap-2">
+                            <p className="text-xs font-mono text-gray-700 break-all flex-1 leading-relaxed">{otpauthUrl}</p>
+                            <button
+                              onClick={() => copyText(otpauthUrl, 'url')}
+                              className="shrink-0 p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-brand-600 transition-colors mt-0.5"
+                            >
+                              {copiedUrl ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          In <strong>Microsoft Authenticator</strong>: tap <strong>"+"</strong> → <strong>"Other account"</strong> → tap the <strong>link icon</strong> → paste this URL. Works with Authy and most TOTP apps too.
+                        </p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                )}
 
                 <button
                   onClick={() => setStep('verify')}
-                  disabled={!qrCode}
+                  disabled={!secret}
                   className="w-full bg-brand-600 hover:bg-brand-700 text-white py-2.5 rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
                 >
-                  I've Scanned the Code →
+                  I've Added the Account →
                 </button>
               </motion.div>
             )}
@@ -182,8 +274,8 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
                     {verifyLoading ? 'Verifying…' : 'Confirm & Enable MFA'}
                   </button>
 
-                  <button type="button" onClick={() => setStep('qr')} className="w-full text-sm text-gray-400 hover:text-gray-600 py-1 transition-colors">
-                    ← Back to QR Code
+                  <button type="button" onClick={() => setStep('setup')} className="w-full text-sm text-gray-400 hover:text-gray-600 py-1 transition-colors">
+                    ← Back
                   </button>
                 </form>
               </motion.div>
@@ -215,7 +307,7 @@ export function MFASetupModal({ onClose, onEnabled }: { onClose: () => void; onE
 
                 <div className="flex gap-3">
                   <button
-                    onClick={copyBackupCodes}
+                    onClick={() => copyText(backupCodes.join('\n'), 'backup')}
                     className="flex-1 flex items-center justify-center gap-2 border border-gray-300 rounded-lg py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                   >
                     {copied ? <><Check size={15} className="text-emerald-500" /> Copied!</> : <><Copy size={15} /> Copy All</>}

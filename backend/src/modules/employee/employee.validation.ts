@@ -10,17 +10,25 @@ export const createEmployeeSchema = z.object({
   gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY']),
   bloodGroup: z.string().optional(),
   maritalStatus: z.string().optional(),
+  // qualification: standardized value — drives KYC document cascade during onboarding
+  qualification: z.enum(['TENTH', 'TWELFTH', 'DIPLOMA', 'GRADUATION', 'POST_GRADUATION', 'PHD']).optional(),
   departmentId: z.string().uuid().optional().nullable(),
   designationId: z.string().uuid().optional().nullable(),
   workMode: z.enum(['OFFICE', 'HYBRID', 'FIELD_SALES', 'PROJECT_SITE', 'REMOTE']).default('OFFICE'),
+  // employmentType: affects EPF/ESI/PT eligibility, leave balance seeding, salary template
+  employmentType: z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN']).default('FULL_TIME'),
+  // experienceLevel: determines required KYC documents (EXPERIENCED needs experience letter)
+  experienceLevel: z.enum(['INTERN', 'FRESHER', 'EXPERIENCED']).optional(),
   officeLocationId: z.string().uuid().optional().nullable(),
   managerId: z.string().uuid().optional().nullable(),
+  // joiningDate: contractual employment start — used for payroll pro-ration, leave accrual
   joiningDate: z.string().min(1, 'Joining date is required'),
   probationEndDate: z.string().optional(),
   ctc: z.number().positive().optional(),
-  // Accept any JSON shape — onboarding saves flat { line1, city, state, pincode }
-  // while some flows use nested { current: {...}, permanent: {...} }
+  // address: current residential address (flat JSON: { line1, city, state, pincode })
   address: z.any().optional(),
+  // permanentAddress: home address — stored separately, shown on profile
+  permanentAddress: z.any().optional(),
   emergencyContact: z.object({
     name: z.string().min(1, 'Name required'),
     relationship: z.string().min(1, 'Relationship required'),
@@ -35,7 +43,8 @@ export const createEmployeeSchema = z.object({
 });
 
 export const updateEmployeeSchema = createEmployeeSchema.partial().extend({
-  // status is HR-only; stripped by service for non-management roles
+  // status: HR-only; determines leave type eligibility, attendance policy, payroll processing
+  // INTERN → intern leave balances; PROBATION → probation leave rules; NOTICE_PERIOD → exit flow
   status: z.enum([
     'ONBOARDING', 'PROBATION', 'ACTIVE', 'INTERN', 'NOTICE_PERIOD',
     'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED',
@@ -55,6 +64,7 @@ export const employeeQuerySchema = z.object({
   role: z.string().optional(),
   status: z.string().optional(),
   workMode: z.string().optional(),
+  employmentType: z.string().optional(),
   onboardingStatus: z.enum(['complete', 'pending']).optional(),
   managerId: z.string().uuid().optional(),
   officeLocationId: z.string().uuid().optional(),

@@ -675,15 +675,15 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
   const canEditStatus = MANAGEMENT_CAN_EDIT_STATUS.includes(userRole || '');
   const [changeRole] = useChangeEmployeeRoleMutation();
   const [selectedRole, setSelectedRole] = useState<string>(employee.user?.role || 'EMPLOYEE');
-  const [createDepartment, { isLoading: creatingDept }] = useCreateDepartmentMutation();
-  const [createDesignation, { isLoading: creatingDesig }] = useCreateDesignationMutation();
-  const [deleteDepartment, { isLoading: deletingDept }] = useDeleteDepartmentMutation();
-  const [deleteDesignation, { isLoading: deletingDesig }] = useDeleteDesignationMutation();
-  const [newDeptName, setNewDeptName] = useState('');
-  const [newDesigName, setNewDesigName] = useState('');
-  const [showNewDept, setShowNewDept] = useState(false);
-  const [showNewDesig, setShowNewDesig] = useState(false);
+  const [createDepartment] = useCreateDepartmentMutation();
+  const [createDesignation] = useCreateDesignationMutation();
+  const [deleteDepartment] = useDeleteDepartmentMutation();
+  const [deleteDesignation] = useDeleteDesignationMutation();
   const { data: employeeShiftData } = useGetEmployeeShiftQuery(employee.id);
+  const [quickCreate, setQuickCreate] = useState<'dept' | 'desig' | null>(null);
+  const [quickName, setQuickName] = useState('');
+  const [quickLoading, setQuickLoading] = useState(false);
+
   const [form, setForm] = useState({
     firstName: employee.firstName || '',
     lastName: employee.lastName || '',
@@ -695,6 +695,8 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
     bloodGroup: employee.bloodGroup || '',
     maritalStatus: employee.maritalStatus || '',
     workMode: employee.workMode || 'OFFICE',
+    employmentType: (employee.employmentType as string) || 'FULL_TIME',
+    experienceLevel: (employee.experienceLevel as string) || '',
     joiningDate: employee.joiningDate ? employee.joiningDate.split('T')[0] : '',
     onboardingDate: employee.onboardingDate ? employee.onboardingDate.split('T')[0] : '',
     status: employee.status || 'ONBOARDING',
@@ -707,6 +709,12 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
       city: (employee.address as any)?.city || '',
       state: (employee.address as any)?.state || '',
       pincode: (employee.address as any)?.pincode || '',
+    },
+    permanentAddress: {
+      line1: (employee.permanentAddress as any)?.line1 || '',
+      city: (employee.permanentAddress as any)?.city || '',
+      state: (employee.permanentAddress as any)?.state || '',
+      pincode: (employee.permanentAddress as any)?.pincode || '',
     },
     emergencyContact: {
       name: (employee.emergencyContact as any)?.name || '',
@@ -746,6 +754,52 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
     .filter((m: any) => m.id !== employee.id)
     .map((m: any) => ({ value: m.id, label: `${m.firstName} ${m.lastName}`, sublabel: m.employeeCode }));
 
+  const handleQuickCreate = async () => {
+    if (!quickName.trim()) return;
+    setQuickLoading(true);
+    try {
+      if (quickCreate === 'dept') {
+        const res = await createDepartment({ name: quickName.trim() }).unwrap();
+        setForm(f => ({ ...f, departmentId: res.data.id, designationId: '' }));
+        await refetchDepts();
+        toast.success(`Department "${quickName}" created`);
+      } else if (quickCreate === 'desig') {
+        const res = await createDesignation({ name: quickName.trim(), departmentId: form.departmentId || undefined }).unwrap();
+        setForm(f => ({ ...f, designationId: res.data.id }));
+        await refetchDesigs();
+        toast.success(`Designation "${quickName}" created`);
+      }
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to create');
+    } finally {
+      setQuickLoading(false);
+      setQuickCreate(null);
+      setQuickName('');
+    }
+  };
+
+  const handleDeleteDept = async (id: string) => {
+    if (!confirm('Delete this department? This cannot be undone.')) return;
+    try {
+      await deleteDepartment(id).unwrap();
+      if (form.departmentId === id) setForm(f => ({ ...f, departmentId: '', designationId: '' }));
+      toast.success('Department deleted');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Cannot delete — department may have employees');
+    }
+  };
+
+  const handleDeleteDesig = async (id: string) => {
+    if (!confirm('Delete this designation? This cannot be undone.')) return;
+    try {
+      await deleteDesignation(id).unwrap();
+      if (form.designationId === id) setForm(f => ({ ...f, designationId: '' }));
+      toast.success('Designation deleted');
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Cannot delete — designation may have employees');
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
@@ -770,6 +824,9 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
             managerId: form.managerId || null,
             ctc: form.ctc !== '' && form.ctc !== undefined ? Number(form.ctc) : undefined,
             shiftId: form.shiftId || null,
+            employmentType: form.employmentType || undefined,
+            experienceLevel: form.experienceLevel || undefined,
+            permanentAddress: (form.permanentAddress.line1 || form.permanentAddress.city) ? form.permanentAddress : undefined,
           });
         }} className="space-y-4 px-6 py-5">
           <div className="grid grid-cols-2 gap-3">
@@ -784,7 +841,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
             <div><label className="block text-xs text-gray-500 mb-1">Phone</label>
               <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="input-glass w-full text-sm" /></div>
           </div>
-          {/* Department with inline create */}
+          {/* Department / Designation / Manager */}
           <div className="grid grid-cols-3 gap-3">
             <div>
               <SearchableSelect
@@ -793,64 +850,12 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
                 options={deptOptions}
                 value={form.departmentId}
                 onChange={(v) => setForm({ ...form, departmentId: v, designationId: '' })}
+                canCreate
+                createLabel="+ Add new department"
+                onCreateClick={() => { setQuickCreate('dept'); setQuickName(''); }}
+                canDelete
+                onDeleteClick={handleDeleteDept}
               />
-              {showNewDept ? (
-                <div className="flex gap-1 mt-1">
-                  <input
-                    value={newDeptName}
-                    onChange={e => setNewDeptName(e.target.value)}
-                    placeholder="New department name"
-                    className="input-glass flex-1 text-xs py-1.5"
-                    onKeyDown={async e => {
-                      if (e.key === 'Enter' && newDeptName.trim()) {
-                        e.preventDefault();
-                        try {
-                          const res = await createDepartment({ name: newDeptName.trim() }).unwrap();
-                          setForm(f => ({ ...f, departmentId: res.data.id, designationId: '' }));
-                          setNewDeptName('');
-                          setShowNewDept(false);
-                        } catch {}
-                      }
-                    }}
-                  />
-                  <button type="button" disabled={!newDeptName.trim() || creatingDept}
-                    onClick={async () => {
-                      if (!newDeptName.trim()) return;
-                      try {
-                        const res = await createDepartment({ name: newDeptName.trim() }).unwrap();
-                        setForm(f => ({ ...f, departmentId: res.data.id, designationId: '' }));
-                        setNewDeptName('');
-                        setShowNewDept(false);
-                      } catch {}
-                    }}
-                    className="px-2 py-1 bg-brand-600 text-white rounded text-xs disabled:opacity-50">
-                    {creatingDept ? '…' : 'Add'}
-                  </button>
-                  <button type="button" onClick={() => setShowNewDept(false)} className="px-1.5 py-1 text-gray-400 hover:text-gray-600 text-xs">✕</button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 mt-1">
-                  <button type="button" onClick={() => setShowNewDept(true)} className="text-[11px] text-brand-600 hover:underline flex items-center gap-0.5">
-                    <Plus size={11} /> Create new
-                  </button>
-                  {form.departmentId && (
-                    <button type="button" disabled={deletingDept}
-                      onClick={async () => {
-                        if (!confirm('Delete this department? This cannot be undone.')) return;
-                        try {
-                          await deleteDepartment(form.departmentId).unwrap();
-                          setForm(f => ({ ...f, departmentId: '', designationId: '' }));
-                          toast.success('Department deleted');
-                        } catch (e: any) {
-                          toast.error(e?.data?.error?.message || 'Cannot delete: department may have assigned employees');
-                        }
-                      }}
-                      className="text-[11px] text-red-500 hover:underline flex items-center gap-0.5 disabled:opacity-50">
-                      <Trash2 size={11} /> Delete selected
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
             <div>
               <SearchableSelect
@@ -859,64 +864,12 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
                 options={desigOptions}
                 value={form.designationId}
                 onChange={(v) => setForm({ ...form, designationId: v })}
+                canCreate
+                createLabel="+ Add new designation"
+                onCreateClick={() => { setQuickCreate('desig'); setQuickName(''); }}
+                canDelete
+                onDeleteClick={handleDeleteDesig}
               />
-              {showNewDesig ? (
-                <div className="flex gap-1 mt-1">
-                  <input
-                    value={newDesigName}
-                    onChange={e => setNewDesigName(e.target.value)}
-                    placeholder="New designation name"
-                    className="input-glass flex-1 text-xs py-1.5"
-                    onKeyDown={async e => {
-                      if (e.key === 'Enter' && newDesigName.trim()) {
-                        e.preventDefault();
-                        try {
-                          const res = await createDesignation({ name: newDesigName.trim(), departmentId: form.departmentId || null }).unwrap();
-                          setForm(f => ({ ...f, designationId: res.data.id }));
-                          setNewDesigName('');
-                          setShowNewDesig(false);
-                        } catch {}
-                      }
-                    }}
-                  />
-                  <button type="button" disabled={!newDesigName.trim() || creatingDesig}
-                    onClick={async () => {
-                      if (!newDesigName.trim()) return;
-                      try {
-                        const res = await createDesignation({ name: newDesigName.trim(), departmentId: form.departmentId || null }).unwrap();
-                        setForm(f => ({ ...f, designationId: res.data.id }));
-                        setNewDesigName('');
-                        setShowNewDesig(false);
-                      } catch {}
-                    }}
-                    className="px-2 py-1 bg-brand-600 text-white rounded text-xs disabled:opacity-50">
-                    {creatingDesig ? '…' : 'Add'}
-                  </button>
-                  <button type="button" onClick={() => setShowNewDesig(false)} className="px-1.5 py-1 text-gray-400 hover:text-gray-600 text-xs">✕</button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 mt-1">
-                  <button type="button" onClick={() => setShowNewDesig(true)} className="text-[11px] text-brand-600 hover:underline flex items-center gap-0.5">
-                    <Plus size={11} /> Create new
-                  </button>
-                  {form.designationId && (
-                    <button type="button" disabled={deletingDesig}
-                      onClick={async () => {
-                        if (!confirm('Delete this designation? This cannot be undone.')) return;
-                        try {
-                          await deleteDesignation(form.designationId).unwrap();
-                          setForm(f => ({ ...f, designationId: '' }));
-                          toast.success('Designation deleted');
-                        } catch (e: any) {
-                          toast.error(e?.data?.error?.message || 'Cannot delete: designation may have assigned employees');
-                        }
-                      }}
-                      className="text-[11px] text-red-500 hover:underline flex items-center gap-0.5 disabled:opacity-50">
-                      <Trash2 size={11} /> Delete selected
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
             <SearchableSelect
               label="Reporting Manager"
@@ -925,6 +878,33 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
               value={form.managerId}
               onChange={(v) => setForm({ ...form, managerId: v })}
             />
+          </div>
+          {/* Employment Type / Experience Level */}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Employment Type
+                <span className="ml-1 text-gray-400 font-normal">(EPF/ESI/PT + leaves)</span>
+              </label>
+              <select value={form.employmentType} onChange={e => setForm({ ...form, employmentType: e.target.value })} className="input-glass w-full text-sm">
+                <option value="FULL_TIME">Full-Time</option>
+                <option value="PART_TIME">Part-Time</option>
+                <option value="CONTRACT">Contract</option>
+                <option value="INTERN">Intern</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Experience Level
+                <span className="ml-1 text-gray-400 font-normal">(KYC docs)</span>
+              </label>
+              <select value={form.experienceLevel} onChange={e => setForm({ ...form, experienceLevel: e.target.value })} className="input-glass w-full text-sm">
+                <option value="">— Not set —</option>
+                <option value="INTERN">Intern / Student</option>
+                <option value="FRESHER">Fresher</option>
+                <option value="EXPERIENCED">Experienced</option>
+              </select>
+            </div>
           </div>
           {/* Shift assignment */}
           <div className="grid grid-cols-3 gap-3">
@@ -1024,9 +1004,9 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
               )}
             </div>
           </div>
-          {/* Address */}
+          {/* Current Address */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Address</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Current Address</p>
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label className="block text-xs text-gray-500 mb-1">Street Address</label>
@@ -1046,6 +1026,32 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Pincode</label>
                 <input value={form.address.pincode} onChange={e => setForm({ ...form, address: { ...form.address, pincode: e.target.value } })}
+                  className="input-glass w-full text-sm" placeholder="Pincode" />
+              </div>
+            </div>
+          </div>
+          {/* Permanent Address */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Permanent Address <span className="text-gray-400 font-normal">(Home)</span></p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="block text-xs text-gray-500 mb-1">Street Address</label>
+                <input value={form.permanentAddress.line1} onChange={e => setForm({ ...form, permanentAddress: { ...form.permanentAddress, line1: e.target.value } })}
+                  className="input-glass w-full text-sm" placeholder="House / Street" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">City</label>
+                <input value={form.permanentAddress.city} onChange={e => setForm({ ...form, permanentAddress: { ...form.permanentAddress, city: e.target.value } })}
+                  className="input-glass w-full text-sm" placeholder="City" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">State</label>
+                <input value={form.permanentAddress.state} onChange={e => setForm({ ...form, permanentAddress: { ...form.permanentAddress, state: e.target.value } })}
+                  className="input-glass w-full text-sm" placeholder="State" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Pincode</label>
+                <input value={form.permanentAddress.pincode} onChange={e => setForm({ ...form, permanentAddress: { ...form.permanentAddress, pincode: e.target.value } })}
                   className="input-glass w-full text-sm" placeholder="Pincode" />
               </div>
             </div>
@@ -1125,6 +1131,50 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
             </button>
           </div>
         </form>
+
+        {/* Quick-create department/designation mini-dialog */}
+        <AnimatePresence>
+          {quickCreate && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/20 flex items-center justify-center rounded-2xl"
+              onClick={(e) => e.target === e.currentTarget && setQuickCreate(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white rounded-xl shadow-xl p-5 w-72"
+              >
+                <h4 className="text-sm font-semibold text-gray-800 mb-3">
+                  {quickCreate === 'dept' ? '+ New Department' : '+ New Designation'}
+                </h4>
+                <input
+                  autoFocus
+                  value={quickName}
+                  onChange={(e) => setQuickName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleQuickCreate()}
+                  className="input-glass w-full text-sm mb-3"
+                  placeholder={quickCreate === 'dept' ? 'e.g. Engineering' : 'e.g. Software Engineer'}
+                />
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setQuickCreate(null)} className="btn-secondary flex-1 text-sm py-1.5">Cancel</button>
+                  <button
+                    type="button"
+                    onClick={handleQuickCreate}
+                    disabled={quickLoading || !quickName.trim()}
+                    className="btn-primary flex-1 text-sm py-1.5 flex items-center justify-center gap-1"
+                  >
+                    {quickLoading ? <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : null}
+                    Create
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </motion.div>
   );
