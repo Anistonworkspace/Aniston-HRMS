@@ -14,14 +14,13 @@ import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
 import { useGetKnowledgeBaseQuery, useAddKnowledgeDocMutation, useDeleteKnowledgeDocMutation } from '../ai-assistant/aiAssistantApi';
 import { useGetTaskConfigQuery, useUpsertTaskConfigMutation, useTestTaskConnectionMutation } from '../task-integration/taskIntegrationApi';
 
-import SalaryComponentsTab from './SalaryComponentsTab';
 import DatabaseBackupTab from './DatabaseBackupTab';
 import DeletionRequestsTab from './DeletionRequestsTab';
 import SystemLogsTab from './SystemLogsTab';
 import PasswordResetTab from './PasswordResetTab';
 // LeaveSettingsTab removed — leave type management is now in Leave Management page
 
-type Tab = 'organization' | 'salary-components' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs' | 'password-reset' | 'document-templates';
+type Tab = 'organization' | 'email' | 'whatsapp' | 'roles' | 'salary-privacy' | 'api-integration' | 'ai-config' | 'agent-setup' | 'audit' | 'system' | 'database-backup' | 'deletion-requests' | 'system-logs' | 'password-reset' | 'document-templates';
 
 export default function SettingsPage() {
   const { t } = useTranslation();
@@ -33,7 +32,7 @@ export default function SettingsPage() {
   // Tabs visible to ADMIN system account only
   const ADMIN_VISIBLE_TABS: Tab[] = ['organization', 'email', 'roles', 'api-integration', 'ai-config', 'agent-setup', 'audit', 'system', 'database-backup', 'system-logs'];
   // Tabs visible to HR users only
-  const HR_VISIBLE_TABS: Tab[] = ['organization', 'salary-components', 'email', 'whatsapp', 'password-reset'];
+  const HR_VISIBLE_TABS: Tab[] = ['organization', 'email', 'whatsapp', 'password-reset'];
 
   const getDefaultTab = (): Tab => {
     const saved = sessionStorage.getItem('settings_active_tab') as Tab | null;
@@ -59,7 +58,6 @@ export default function SettingsPage() {
 
   const allTabs: { key: Tab; label: string; icon: React.ElementType }[] = [
     { key: 'organization', label: t('settings.organization'), icon: Building2 },
-    { key: 'salary-components', label: t('settings.salaryComponents'), icon: DollarSign },
     { key: 'email', label: t('settings.emailConfig'), icon: Mail },
     { key: 'whatsapp', label: t('settings.whatsapp'), icon: MessageCircle },
     { key: 'password-reset', label: 'Password Reset', icon: Lock },
@@ -129,7 +127,6 @@ export default function SettingsPage() {
           {/* Content */}
           <div className="flex-1 min-w-0">
             {activeTab === 'organization' && <OrgSettings />}
-            {activeTab === 'salary-components' && <SalaryComponentsTab />}
             {activeTab === 'email' && <EmailConfig />}
             {activeTab === 'whatsapp' && <WhatsAppConfig />}
             {activeTab === 'password-reset' && <PasswordResetTab />}

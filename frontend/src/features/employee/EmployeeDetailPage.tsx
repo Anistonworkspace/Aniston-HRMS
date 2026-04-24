@@ -440,6 +440,9 @@ export default function EmployeeDetailPage() {
                         <InfoRow label="Account No." value={`••••${employee.bankAccountNumber.slice(-4)}`} mono />
                         <InfoRow label="IFSC" value={employee.ifscCode || '—'} mono />
                         <InfoRow label="Account Type" value={employee.accountType || '—'} />
+                        {((employee as any).epfUan || (employee as any).epfMemberId) && (
+                          <InfoRow label="EPF / UAN" value={(employee as any).epfUan || (employee as any).epfMemberId} mono />
+                        )}
                       </dl>
                     ) : (
                       <p className="text-xs text-gray-400">No bank details on file</p>

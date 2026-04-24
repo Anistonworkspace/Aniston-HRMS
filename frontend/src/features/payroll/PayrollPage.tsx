@@ -689,7 +689,7 @@ function PayrollAdminView() {
                     {!preflightRes.data.componentMasterConfigured && (
                       <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-700 flex gap-2">
                         <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-                        No salary components configured in Settings → Salary Components. Auto-create will not work until components are added.
+                        No salary components configured. Go to Payroll → Salary Components tab to add them. Auto-create will not work until components are added.
                       </div>
                     )}
                     {/* Ready */}

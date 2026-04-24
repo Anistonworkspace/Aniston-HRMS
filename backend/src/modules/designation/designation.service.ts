@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, ConflictError } from '../../middleware/errorHandler.js';
+import { NotFoundError, ConflictError, BadRequestError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import type { CreateDesignationInput, UpdateDesignationInput, SearchDesignationQuery } from './designation.validation.js';
 
@@ -210,6 +210,13 @@ export class DesignationService {
       where: { id, organizationId },
     });
     if (!desig) throw new NotFoundError('Designation');
+
+    const assigned = await prisma.employee.count({
+      where: { designationId: id, deletedAt: null },
+    });
+    if (assigned > 0) {
+      throw new BadRequestError(`Cannot delete — ${assigned} employee${assigned > 1 ? 's are' : ' is'} assigned to this designation. Reassign them first.`);
+    }
 
     await prisma.designation.update({
       where: { id },

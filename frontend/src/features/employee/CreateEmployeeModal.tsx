@@ -358,8 +358,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
                     {/* Employment Type */}
                     <div>
                       <label className="block text-sm font-medium text-gray-600 mb-1">
-                        Employment Type <span className="text-red-500">*</span>
-                        <FieldHint text="Drives EPF/ESI/PT eligibility, leave balance seeding, and salary template selection" />
+                        Employment Type <span className="text-[10px] text-indigo-400 font-normal">(EPF/ESI/PT + leaves)</span> <span className="text-red-500">*</span>
                       </label>
                       <select
                         value={employmentType}
@@ -407,8 +406,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
                     {/* Experience Level */}
                     <div>
                       <label className="block text-sm font-medium text-gray-600 mb-1">
-                        Experience Level
-                        <FieldHint text="EXPERIENCED requires an experience letter during KYC; FRESHER/INTERN do not" />
+                        Experience Level <span className="text-[10px] text-indigo-400 font-normal">(KYC docs)</span>
                       </label>
                       <select
                         value={experienceLevel}

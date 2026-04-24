@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError, ConflictError } from '../../middleware/errorHandler.js';
+import { NotFoundError, ConflictError, BadRequestError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import type { CreateDepartmentInput, UpdateDepartmentInput, SearchDepartmentQuery } from './department.validation.js';
 
@@ -209,6 +209,13 @@ export class DepartmentService {
       where: { id, organizationId },
     });
     if (!dept) throw new NotFoundError('Department');
+
+    const assigned = await prisma.employee.count({
+      where: { departmentId: id, deletedAt: null },
+    });
+    if (assigned > 0) {
+      throw new BadRequestError(`Cannot delete — ${assigned} employee${assigned > 1 ? 's are' : ' is'} assigned to this department. Reassign them first.`);
+    }
 
     await prisma.department.update({
       where: { id },
