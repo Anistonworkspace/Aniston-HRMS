@@ -13,11 +13,8 @@ import KpiStrip from './KpiStrip';
 import ActionBar from './ActionBar';
 import FilterToolbar, { type AttendanceFilters } from './FilterToolbar';
 import AttendanceTable from './AttendanceTable';
-import ExceptionsTab from './ExceptionsTab';
 import RegularizationTab from './RegularizationTab';
-import LiveBoardTab from './LiveBoardTab';
 import MonthlyReportTab from './MonthlyReportTab';
-import OvertimeTab from './OvertimeTab';
 import ShiftRotationCalendar from './ShiftRotationCalendar';
 import AnomalyDetectionPanel from './AnomalyDetectionPanel';
 import MarkManualModal from './MarkManualModal';
@@ -26,12 +23,8 @@ import { useAuthDownload } from '../../../hooks/useAuthDownload';
 
 const TABS = [
   { key: 'today', label: 'Today' },
-  { key: 'daily', label: 'Daily View' },
-  { key: 'exceptions', label: 'Exceptions' },
   { key: 'regularization', label: 'Regularization' },
-  { key: 'live', label: 'Live Board' },
   { key: 'monthly', label: 'Monthly Report' },
-  { key: 'overtime', label: 'Overtime' },
   { key: 'roster', label: 'Shift Roster' },
   { key: 'anomalies', label: 'AI Anomalies' },
 ] as const;
@@ -202,11 +195,6 @@ export default function CommandCenter() {
               />
             )}
             {/* Badge counts */}
-            {tab.key === 'exceptions' && stats?.attendanceExceptions > 0 && (
-              <span className="ml-1 bg-red-500 text-white text-[8px] font-bold w-4 h-4 rounded-full inline-flex items-center justify-center">
-                {stats.attendanceExceptions}
-              </span>
-            )}
             {tab.key === 'regularization' && stats?.pendingRegularizations > 0 && (
               <span className="ml-1 bg-amber-500 text-white text-[8px] font-bold w-4 h-4 rounded-full inline-flex items-center justify-center">
                 {stats.pendingRegularizations}
@@ -217,7 +205,7 @@ export default function CommandCenter() {
       </div>
 
       {/* Tab Content */}
-      {(activeTab === 'today' || activeTab === 'daily') && (
+      {activeTab === 'today' && (
         <AttendanceTable
           records={records}
           isLoading={recordsLoading}
@@ -230,21 +218,9 @@ export default function CommandCenter() {
         />
       )}
 
-      {activeTab === 'exceptions' && (
-        <ExceptionsTab selectedDate={filters.date} />
-      )}
-
-      {activeTab === 'regularization' && (
-        <RegularizationTab />
-      )}
-
-      {activeTab === 'live' && (
-        <LiveBoardTab />
-      )}
+      {activeTab === 'regularization' && <RegularizationTab />}
 
       {activeTab === 'monthly' && <MonthlyReportTab />}
-
-      {activeTab === 'overtime' && <OvertimeTab />}
 
       {activeTab === 'roster' && <ShiftRotationCalendar />}
 
