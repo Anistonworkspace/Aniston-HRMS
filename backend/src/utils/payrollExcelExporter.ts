@@ -681,7 +681,7 @@ export async function generateEpfChallanExcel(
     totalEpsContr += epsContr;
 
     // UAN: use stored UAN if present, else fall back to PAN (EPFO allows PAN-based filing)
-    const uan = t((rec.employee as any)?.epfUan || rec.employee?.panNumber || 'N/A');
+    const uan = t(rec.employee?.epfUan || rec.employee?.panNumber || 'N/A');
     const memberName = `${rec.employee?.firstName || ''} ${rec.employee?.lastName || ''}`.trim() || 'N/A';
 
     const row = sheet.addRow([

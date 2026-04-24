@@ -27,7 +27,6 @@ import {
   useGetEmployeeLeaveOverviewQuery,
   useGetOrgLeaveSettingsQuery,
   useUpdateOrgLeaveSettingsMutation,
-  useAdjustLeaveBalanceMutation,
 } from './leaveApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector, useAppDispatch } from '../../app/store';
@@ -37,6 +36,7 @@ import { useGetPoliciesQuery, useAcknowledgePolicyMutation } from '../policies/p
 import LeaveApplyWizard from './components/LeaveApplyWizard';
 import ManagerReviewPanel from './components/ManagerReviewPanel';
 import HRReviewPanel from './components/HRReviewPanel';
+import RegularizationTab from '../attendance/components/RegularizationTab';
 import toast from 'react-hot-toast';
 import { useEmpPerms } from '../../hooks/useEmpPerms';
 import PermDenied from '../../components/PermDenied';
@@ -85,7 +85,7 @@ export default function LeavePage() {
 
 function LeaveManagementView() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'employee-balances' | 'employee-leaves'>('approvals');
+  const [activeTab, setActiveTab] = useState<'approvals' | 'types' | 'holidays' | 'regularizations' | 'employee-leaves'>('approvals');
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -338,16 +338,16 @@ function LeaveManagementView() {
           )}
         </button>
         <button
-          role="tab" aria-selected={activeTab === 'employee-balances'}
-          onClick={() => setActiveTab('employee-balances')}
+          role="tab" aria-selected={activeTab === 'regularizations'}
+          onClick={() => setActiveTab('regularizations')}
           className={cn(
             'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-            activeTab === 'employee-balances'
+            activeTab === 'regularizations'
               ? 'bg-white text-gray-900 shadow-sm'
               : 'text-gray-500 hover:text-gray-700'
           )}
         >
-          Employee Balances
+          Regularizations
         </button>
         <button
           role="tab" aria-selected={activeTab === 'employee-leaves'}
@@ -730,8 +730,8 @@ function LeaveManagementView() {
       {/* Holidays & Events Tab */}
       {activeTab === 'holidays' && <HolidayManagementTab />}
 
-      {/* Employee Balances Tab */}
-      {activeTab === 'employee-balances' && <EmployeeBalancesTab />}
+      {/* Regularizations Tab */}
+      {activeTab === 'regularizations' && <RegularizationTab />}
 
       {/* Employee Leaves Tab */}
       {activeTab === 'employee-leaves' && <EmployeeOverviewTab />}
@@ -753,196 +753,6 @@ function LeaveManagementView() {
           : <HRReviewPanel leaveId={reviewLeaveId} onClose={() => setReviewLeaveId(null)} />
       )}
     </div>
-  );
-}
-
-/* =============================================================================
-   EMPLOYEE BALANCES TAB
-   ============================================================================= */
-
-function EmployeeBalancesTab() {
-  const [search, setSearch] = useState('');
-  const [year, setYear] = useState(new Date().getFullYear());
-  const { data, isLoading } = useGetAllEmployeeLeaveBalancesQuery({ year, search });
-  const [adjustLeaveBalance] = useAdjustLeaveBalanceMutation();
-  const employees: any[] = data?.data || [];
-
-  // Inline balance adjustment state
-  const [adjusting, setAdjusting] = useState<{ empId: string; empName: string; balance: any } | null>(null);
-  const [adjustVal, setAdjustVal] = useState('');
-  const [adjustReason, setAdjustReason] = useState('');
-  const [adjustLoading, setAdjustLoading] = useState(false);
-
-  const handleAdjust = async () => {
-    if (!adjusting) return;
-    const allocated = Number(adjustVal);
-    if (isNaN(allocated) || allocated < 0) { toast.error('Enter a valid number of days'); return; }
-    setAdjustLoading(true);
-    try {
-      await adjustLeaveBalance({
-        employeeId: adjusting.empId,
-        leaveTypeId: adjusting.balance.leaveTypeId,
-        allocated,
-        year,
-        reason: adjustReason || undefined,
-      }).unwrap();
-      toast.success(`${adjusting.balance.leaveTypeName || adjusting.balance.leaveTypeCode} balance updated to ${allocated} days for ${adjusting.empName}`);
-      setAdjusting(null);
-      setAdjustVal('');
-      setAdjustReason('');
-    } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to update balance');
-    } finally {
-      setAdjustLoading(false);
-    }
-  };
-
-  return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-      {/* Controls */}
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search employee..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="input-glass pl-8 pr-3 py-1.5 text-xs w-48"
-          />
-        </div>
-        <select
-          value={year}
-          onChange={(e) => setYear(Number(e.target.value))}
-          className="input-glass text-xs py-1.5 px-3"
-        >
-          {[year - 1, year, year + 1].map((y) => (
-            <option key={y} value={y}>{y}</option>
-          ))}
-        </select>
-        <span className="text-xs text-gray-400 ml-auto">{employees.length} employees</span>
-      </div>
-
-      {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="layer-card p-4 animate-pulse h-14" />
-          ))}
-        </div>
-      ) : employees.length === 0 ? (
-        <div className="layer-card p-12 text-center">
-          <p className="text-sm text-gray-400">No employees found</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-100">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-gray-50 text-gray-500 text-left">
-                <th className="px-4 py-3 font-medium">Employee</th>
-                <th className="px-4 py-3 font-medium">Department</th>
-                <th className="px-4 py-3 font-medium text-center">Allocated</th>
-                <th className="px-4 py-3 font-medium text-center">Used</th>
-                <th className="px-4 py-3 font-medium text-center">Pending</th>
-                <th className="px-4 py-3 font-medium text-center">Remaining</th>
-                <th className="px-4 py-3 font-medium">Leave Breakdown</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {employees.map((emp: any) => (
-                <tr key={emp.id} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-gray-800">{emp.firstName} {emp.lastName}</p>
-                    <p className="text-gray-400 font-mono text-[11px]" data-mono>{emp.employeeCode}</p>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">{emp.department}</td>
-                  <td className="px-4 py-3 text-center font-mono font-medium text-gray-700" data-mono>{emp.totalAllocated}</td>
-                  <td className="px-4 py-3 text-center font-mono font-medium text-amber-600" data-mono>{emp.totalUsed}</td>
-                  <td className="px-4 py-3 text-center font-mono font-medium text-blue-600" data-mono>{emp.totalPending}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`font-mono font-bold text-sm ${emp.totalRemaining < 2 ? 'text-red-600' : emp.totalRemaining < 5 ? 'text-amber-600' : 'text-emerald-600'}`} data-mono>
-                      {emp.totalRemaining}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {emp.balances?.map((b: any) => (
-                        <button
-                          key={b.leaveTypeId}
-                          onClick={() => { setAdjusting({ empId: emp.id, empName: `${emp.firstName} ${emp.lastName}`, balance: b }); setAdjustVal(String(b.allocated ?? b.remaining ?? 0)); setAdjustReason(''); }}
-                          title="Click to adjust allocation"
-                          className="inline-flex items-center gap-1 bg-gray-100 hover:bg-brand-50 hover:text-brand-700 text-gray-600 rounded px-1.5 py-0.5 text-[10px] cursor-pointer transition-colors"
-                        >
-                          <span className="font-medium">{b.leaveTypeCode}</span>
-                          <span className="text-gray-400">:</span>
-                          <span className={b.remaining < 1 ? 'text-red-500 font-bold' : 'text-gray-700'}>{b.remaining}</span>
-                          <span className="text-gray-300">/{b.allocated}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Adjust Balance Modal */}
-      {adjusting && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setAdjusting(null)}>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6"
-          >
-            <h3 className="text-base font-bold text-gray-900 mb-1">Adjust Leave Balance</h3>
-            <p className="text-xs text-gray-500 mb-4">
-              {adjusting.empName} — <strong>{adjusting.balance.leaveTypeCode || adjusting.balance.leaveTypeName}</strong> ({year})
-            </p>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">New Allocated Days</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={adjustVal}
-                  onChange={(e) => setAdjustVal(e.target.value)}
-                  className="input-glass w-full text-sm"
-                  placeholder="e.g. 12"
-                  autoFocus
-                />
-                <p className="text-[11px] text-gray-400 mt-1">
-                  Current: {adjusting.balance.allocated ?? 0} allocated, {adjusting.balance.used ?? 0} used, {adjusting.balance.remaining ?? 0} remaining
-                </p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">Reason (optional)</label>
-                <input
-                  type="text"
-                  value={adjustReason}
-                  onChange={(e) => setAdjustReason(e.target.value)}
-                  className="input-glass w-full text-sm"
-                  placeholder="e.g. Annual allocation, Performance bonus"
-                />
-              </div>
-            </div>
-            <div className="flex gap-2 mt-5">
-              <button onClick={() => setAdjusting(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
-              <button
-                onClick={handleAdjust}
-                disabled={adjustLoading}
-                className="flex-1 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {adjustLoading && <Loader2 size={14} className="animate-spin" />}
-                Update & Notify
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-    </motion.div>
   );
 }
 

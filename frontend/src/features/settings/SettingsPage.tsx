@@ -26,36 +26,36 @@ type Tab = 'organization' | 'salary-components' | 'email' | 'whatsapp' | 'roles'
 export default function SettingsPage() {
   const { t } = useTranslation();
   const user = useAppSelector(s => s.auth.user);
-  const isAdminOrSuper = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const isAdmin = user?.role === 'ADMIN';
+  const isHR = user?.role === 'HR';
 
-  // Tabs visible to HR (non-admin) users
+  // Tabs visible to ADMIN system account only
+  const ADMIN_VISIBLE_TABS: Tab[] = ['organization', 'email', 'roles', 'api-integration', 'ai-config', 'agent-setup', 'audit', 'system', 'database-backup', 'system-logs'];
+  // Tabs visible to HR users only
   const HR_VISIBLE_TABS: Tab[] = ['organization', 'salary-components', 'email', 'whatsapp', 'password-reset'];
-  // Tabs visible only to Super Admin
-  const SUPER_ADMIN_ONLY_TABS: Tab[] = ['deletion-requests', 'system-logs'];
 
-  const [activeTab, setActiveTab] = useState<Tab>(() => {
+  const getDefaultTab = (): Tab => {
     const saved = sessionStorage.getItem('settings_active_tab') as Tab | null;
-    if (saved && (isAdminOrSuper || HR_VISIBLE_TABS.includes(saved))) {
-      if (SUPER_ADMIN_ONLY_TABS.includes(saved) && !isSuperAdmin) return 'organization';
-      return saved;
+    if (saved) {
+      if (isSuperAdmin) return saved;
+      if (isAdmin && ADMIN_VISIBLE_TABS.includes(saved)) return saved;
+      if (isHR && HR_VISIBLE_TABS.includes(saved)) return saved;
     }
     return 'organization';
-  });
+  };
+
+  const [activeTab, setActiveTab] = useState<Tab>(getDefaultTab);
 
   useEffect(() => {
     sessionStorage.setItem('settings_active_tab', activeTab);
   }, [activeTab]);
 
-  // Reset to organization tab if current tab is not accessible
+  // Guard: reset tab if current tab not accessible for role
   useEffect(() => {
-    if (!isAdminOrSuper && !HR_VISIBLE_TABS.includes(activeTab)) {
-      setActiveTab('organization');
-    }
-    if (SUPER_ADMIN_ONLY_TABS.includes(activeTab) && !isSuperAdmin) {
-      setActiveTab('organization');
-    }
-  }, [isAdminOrSuper, isSuperAdmin, activeTab]);
+    if (isAdmin && !ADMIN_VISIBLE_TABS.includes(activeTab)) setActiveTab('organization');
+    if (isHR && !HR_VISIBLE_TABS.includes(activeTab)) setActiveTab('organization');
+  }, [isAdmin, isHR, activeTab]);
 
   const allTabs: { key: Tab; label: string; icon: React.ElementType }[] = [
     { key: 'organization', label: t('settings.organization'), icon: Building2 },
@@ -72,16 +72,15 @@ export default function SettingsPage() {
     { key: 'audit', label: t('settings.auditLogs'), icon: Shield },
     { key: 'system', label: t('settings.system'), icon: Server },
     { key: 'database-backup', label: 'Database Backup', icon: Database },
-    // Super Admin only
-    ...(isSuperAdmin ? [
-      { key: 'deletion-requests' as Tab, label: 'Deletion Requests', icon: UserMinus },
-      { key: 'system-logs'       as Tab, label: 'System Logs',        icon: Terminal  },
-    ] : []),
+    { key: 'deletion-requests', label: 'Deletion Requests', icon: UserMinus },
+    { key: 'system-logs', label: 'System Logs', icon: Terminal },
   ];
 
-  const tabs = isAdminOrSuper
+  const tabs = isSuperAdmin
     ? allTabs
-    : allTabs.filter(tab => HR_VISIBLE_TABS.includes(tab.key));
+    : isAdmin
+      ? allTabs.filter(tab => ADMIN_VISIBLE_TABS.includes(tab.key))
+      : allTabs.filter(tab => HR_VISIBLE_TABS.includes(tab.key));
 
   return (
     <>

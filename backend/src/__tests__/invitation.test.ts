@@ -39,6 +39,12 @@ vi.mock('../lib/prisma.js', () => ({
     organization: {
       findUnique: vi.fn(),
     },
+    department: {
+      findFirst: vi.fn(),
+    },
+    designation: {
+      findFirst: vi.fn(),
+    },
     auditLog: {
       create: vi.fn().mockResolvedValue({ id: 'audit-id' }),
     },
@@ -136,6 +142,9 @@ describe('InvitationService', () => {
     const authModule = await import('../modules/auth/auth.service.js');
     vi.mocked(authModule.authService.generateAccessToken).mockReturnValue('mock-access-token' as any);
     vi.mocked(authModule.authService.generateRefreshToken).mockResolvedValue('mock-refresh-token');
+    // Default dept/desig lookups — service validates these when provided
+    vi.mocked(prisma.department.findFirst).mockResolvedValue({ id: 'dept-1', organizationId: ORG_ID } as any);
+    vi.mocked(prisma.designation.findFirst).mockResolvedValue({ id: 'desig-1', organizationId: ORG_ID } as any);
   });
 
   // ── createInvitation ───────────────────────────────────────────────────
@@ -526,6 +535,8 @@ describe('/api/invitations (integration)', () => {
     vi.mocked(redisModule.redis.expire).mockResolvedValue(1);
     const queuesModule = await import('../jobs/queues.js');
     vi.mocked(queuesModule.enqueueEmail).mockResolvedValue(undefined as any);
+    vi.mocked(prisma.department.findFirst).mockResolvedValue({ id: 'dept-1', organizationId: ORG_ID } as any);
+    vi.mocked(prisma.designation.findFirst).mockResolvedValue({ id: 'desig-1', organizationId: ORG_ID } as any);
     const supertest = await import('supertest');
     jwtLib = await import('jsonwebtoken');
     const appModule = await import('../app.js');
@@ -578,7 +589,16 @@ describe('/api/invitations (integration)', () => {
       const res = await request
         .post('/api/invitations')
         .set('Authorization', `Bearer ${token}`)
-        .send({ email: 'recruit@aniston.com' });
+        .send({
+          email: 'recruit@aniston.com',
+          role: 'EMPLOYEE',
+          employmentType: 'FULL_TIME',
+          departmentId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+          designationId: 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+          officeLocationId: 'c3d4e5f6-a7b8-9012-cdef-123456789012',
+          workMode: 'OFFICE',
+          proposedJoiningDate: '2026-05-01',
+        });
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
@@ -595,7 +615,16 @@ describe('/api/invitations (integration)', () => {
       const res = await request
         .post('/api/invitations')
         .set('Authorization', `Bearer ${token}`)
-        .send({ email: 'newjoin@example.com', role: 'EMPLOYEE' as const });
+        .send({
+          email: 'newjoin@example.com',
+          role: 'EMPLOYEE',
+          employmentType: 'FULL_TIME',
+          departmentId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+          designationId: 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+          officeLocationId: 'c3d4e5f6-a7b8-9012-cdef-123456789012',
+          workMode: 'OFFICE',
+          proposedJoiningDate: '2026-05-01',
+        });
 
       expect(res.status).toBe(400);
       expect(res.body.error.message).toMatch(/pending invitation already exists/i);

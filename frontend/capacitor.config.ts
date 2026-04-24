@@ -14,26 +14,26 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
-    // ── Self-hosted OTA updates via @capgo/capacitor-updater ────────────────
-    // autoUpdate: false → we control when/what to show the update UI.
-    // updateUrl points to our own Express endpoint that returns the manifest.
-    // After a new web build is ready, zip frontend/dist/ and place it in
-    // backend/app-updates/bundle-<version>.zip, then bump manifest.json.
     CapacitorUpdater: {
       autoUpdate: false,
       updateUrl: 'https://hr.anistonav.com/api/app-updates/latest',
-      statsUrl: '',         // disable capgo cloud analytics (self-hosted)
-      channelUrl: '',       // disable capgo cloud channel (self-hosted)
+      statsUrl: '',
+      channelUrl: '',
     },
 
     SplashScreen: {
       launchShowDuration: 1800,
-      backgroundColor: '#ffffff',
+      backgroundColor: '#0f172a',   // dark navy — matches app sidebar
       showSpinner: false,
       androidSplashResourceName: 'splash',
       iosSplashResourceName: 'LaunchScreen',
       splashFullScreen: true,
       splashImmersive: true,
+    },
+
+    Geolocation: {
+      // Android: request ACCESS_BACKGROUND_LOCATION so GPS works with screen off
+      // User sees the "Allow all the time" dialog on first tracking start
     },
   },
 };

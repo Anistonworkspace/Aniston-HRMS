@@ -18,7 +18,7 @@ export class DashboardController {
 
   async getHRStats(req: Request, res: Response, next: NextFunction) {
     try {
-      const stats = await dashboardService.getHRStats(req.user!.organizationId);
+      const stats = await dashboardService.getHRStats(req.user!.organizationId, req.user!.userId, req.user!.role);
       res.json({ success: true, data: stats });
     } catch (err) { next(err); }
   }

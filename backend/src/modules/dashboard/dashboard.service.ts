@@ -377,11 +377,11 @@ export class DashboardService {
   /**
    * HR DASHBOARD — daily operations
    */
-  async getHRStats(organizationId: string) {
-    return this.cached(`dashboard:hr:${organizationId}`, CACHE_TTL, () => this._getHRStats(organizationId));
+  async getHRStats(organizationId: string, userId?: string, role?: string) {
+    return this.cached(`dashboard:hr:${organizationId}:${userId || 'all'}`, CACHE_TTL, () => this._getHRStats(organizationId, userId, role));
   }
 
-  private async _getHRStats(organizationId: string) {
+  private async _getHRStats(organizationId: string, userId?: string, role?: string) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const now = new Date();
@@ -495,7 +495,7 @@ export class DashboardService {
       prisma.attendanceRegularization.count({
         where: { status: 'PENDING', attendance: { employee: { organizationId } } },
       }),
-      prisma.ticket.count({ where: { organizationId, status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
+      prisma.ticket.count({ where: { organizationId, status: { in: ['OPEN', 'IN_PROGRESS'] }, ...(role === 'HR' && userId ? { assignedTo: userId } : {}) } }),
       prisma.document.count({ where: { status: 'PENDING', employee: { organizationId } } }),
       prisma.employee.count({
         where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, onboardingComplete: false, status: 'ACTIVE' },
@@ -596,34 +596,64 @@ export class DashboardService {
       .map((e) => ({ id: e.id, firstName: e.firstName, lastName: e.lastName, dateOfBirth: e.dateOfBirth, avatar: e.avatar }))
       .slice(0, 5);
 
-    // Today's leaves details
-    const todayLeaves = await prisma.leaveRequest.findMany({
-      where: {
-        status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
-        startDate: { lte: today },
-        endDate: { gte: today },
-        employee: { organizationId },
-      },
-      select: {
-        id: true,
-        days: true,
-        employee: { select: { firstName: true, lastName: true } },
-        leaveType: { select: { name: true } },
-      },
-      take: 10,
-    });
+    // Today's leaves details + recent pending leave requests + HR KPIs (parallel)
+    const [todayLeaves, recentLeaveRequests, totalEmployees, pendingOnboardingCount] = await Promise.all([
+      prisma.leaveRequest.findMany({
+        where: {
+          status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
+          startDate: { lte: today },
+          endDate: { gte: today },
+          employee: { organizationId },
+        },
+        select: {
+          id: true,
+          days: true,
+          employee: { select: { firstName: true, lastName: true } },
+          leaveType: { select: { name: true } },
+        },
+        take: 10,
+      }),
+      prisma.leaveRequest.findMany({
+        where: { status: 'PENDING', employee: { organizationId } },
+        select: {
+          id: true,
+          days: true,
+          startDate: true,
+          endDate: true,
+          reason: true,
+          employee: { select: { id: true, firstName: true, lastName: true, avatar: true } },
+          leaveType: { select: { name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+      prisma.employee.count({ where: { organizationId, status: 'ACTIVE', deletedAt: null, isSystemAccount: { not: true } } }),
+      prisma.employee.count({ where: { organizationId, deletedAt: null, isSystemAccount: { not: true }, onboardingComplete: false, status: 'ACTIVE' } }),
+    ]);
 
     return {
       todayAttendance,
       pendingActions,
       attentionItems,
       upcomingBirthdays,
+      hrKpis: { totalEmployees, pendingOnboarding: pendingOnboardingCount },
       recentHires: recentHires.map((h) => ({ ...h, department: h.department?.name })),
       todayLeaves: todayLeaves.map((l) => ({
         id: l.id,
         employeeName: `${l.employee.firstName} ${l.employee.lastName}`,
         leaveType: l.leaveType.name,
         days: Number(l.days),
+      })),
+      recentLeaveRequests: recentLeaveRequests.map((l) => ({
+        id: l.id,
+        employeeId: l.employee.id,
+        employeeName: `${l.employee.firstName} ${l.employee.lastName}`,
+        avatar: l.employee.avatar,
+        leaveType: l.leaveType.name,
+        days: Number(l.days),
+        startDate: l.startDate,
+        endDate: l.endDate,
+        reason: l.reason,
       })),
     };
   }

@@ -1833,6 +1833,7 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
   const componentMaster = compMasterRes?.data || [];
   const templates = templatesRes?.data || [];
   const [saveSalaryDynamic, { isLoading: saving }] = useSaveSalaryStructureDynamicMutation();
+  const [updateEmployee] = useUpdateEmployeeMutation();
   const structure = salRes?.data;
   // salaryMode: 'default' = payroll uses component master at runtime; 'custom' = per-employee saved components
   const [salaryMode, setSalaryMode] = useState<'default' | 'custom'>((structure as any)?.isCustom ? 'custom' : 'default');
@@ -2067,18 +2068,21 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
     }
 
     try {
-      await saveSalaryDynamic({
-        employeeId,
-        data: {
-          ctcAnnual: annualCtc,
-          components,
-          incomeTaxRegime: taxRegime,
-          isCustom: salaryMode === 'custom',
-          confirmOverwrite: true,
-          changeType: structure ? 'REVISION' : 'INITIAL',
-          reason: 'Updated from employee detail page',
-        },
-      }).unwrap();
+      await Promise.all([
+        saveSalaryDynamic({
+          employeeId,
+          data: {
+            ctcAnnual: annualCtc,
+            components,
+            incomeTaxRegime: taxRegime,
+            isCustom: salaryMode === 'custom',
+            confirmOverwrite: true,
+            changeType: structure ? 'REVISION' : 'INITIAL',
+            reason: 'Updated from employee detail page',
+          },
+        }).unwrap(),
+        updateEmployee({ id: employeeId, data: { epfUan: epfUanEdit.trim() || null, epfExempt: !epfEnabled } }).unwrap(),
+      ]);
       toast.success('Salary structure saved successfully');
       setEditing(false);
     } catch (err: any) {
@@ -2118,7 +2122,8 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
   };
 
   // Statutory toggles — EPF only
-  const [epfEnabled, setEpfEnabled] = useState(true);
+  const [epfEnabled, setEpfEnabled] = useState(!(structure as any)?.epfExempt);
+  const [epfUanEdit, setEpfUanEdit] = useState<string>((structure as any)?.epfUan || (structure as any)?.epfMemberId || '');
 
   const activeEpfEmployee = epfEnabled ? Math.round(epfEmployee) : 0;
   const activeEpfEmployer = epfEnabled ? Math.round(epfEmployer) : 0;
@@ -2353,6 +2358,20 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
               </div>
               <span className={`text-xs font-mono ${epfEnabled ? 'text-red-600' : 'text-gray-300'}`} data-mono>-{formatCurrency(activeEpfEmployee)}</span>
             </div>
+            {/* EPF UAN field */}
+            <div className="flex items-center gap-2 py-1">
+              <span className="text-[10px] text-gray-400 w-16 flex-shrink-0">UAN</span>
+              {editing ? (
+                <input
+                  value={epfUanEdit}
+                  onChange={e => setEpfUanEdit(e.target.value.toUpperCase())}
+                  placeholder="Enter UAN (optional)"
+                  className="input-glass text-xs font-mono flex-1 py-0.5 px-2 h-7"
+                />
+              ) : (
+                <span className="text-xs font-mono text-gray-700 data-mono">{epfUanEdit || <span className="text-gray-300">Not set</span>}</span>
+              )}
+            </div>
 
           </div>
 
@@ -2472,7 +2491,19 @@ function SalaryTab({ employeeId, ctc, workMode, isManagement, kycStatus }: { emp
             <div>
               <p className="text-gray-500 text-xs">EPF Status</p>
               <p className="text-gray-800 font-medium">
-                {(earnings.find(e => e.name === 'Basic Salary')?.amount ?? 0) > 0 ? '✓ Enrolled' : '— Not applicable'}
+                {epfEnabled ? '✓ Active' : '— Exempt'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500 text-xs">EPF / UAN</p>
+              <p className="text-gray-800 font-medium font-mono text-xs" data-mono>
+                {epfUanEdit || <span className="text-gray-400 font-sans font-normal">Not set</span>}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500 text-xs">Previous EPF Member ID</p>
+              <p className="text-gray-800 font-medium font-mono text-xs" data-mono>
+                {(structure as any)?.epfMemberId || <span className="text-gray-400 font-sans font-normal">Not provided</span>}
               </p>
             </div>
             <div>

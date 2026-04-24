@@ -26,6 +26,7 @@ vi.mock('../lib/prisma.js', () => ({
       findFirst: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
+      count: vi.fn(),
     },
     salaryStructure: {
       findFirst: vi.fn(),
@@ -436,6 +437,7 @@ describe('PayrollService', () => {
 
     it('creates a new run when none exists for that month/year/org', async () => {
       vi.mocked(prisma.payrollRun.findUnique).mockResolvedValueOnce(null);
+      vi.mocked(prisma.employee.count).mockResolvedValueOnce(3);
       vi.mocked(prisma.payrollRun.create).mockResolvedValueOnce({
         id: 'run-new',
         month: 5,

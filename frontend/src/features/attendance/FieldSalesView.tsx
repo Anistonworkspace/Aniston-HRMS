@@ -3,9 +3,18 @@ import { motion } from 'framer-motion';
 import { MapPin, Play, Square, Clock, Navigation, Wifi, WifiOff, Upload, Smartphone } from 'lucide-react';
 import { useClockInMutation, useClockOutMutation, useStoreGPSTrailMutation } from './attendanceApi';
 import { useWakeLock } from '../../hooks/useWakeLock';
+import {
+  isNative,
+  isNativeAndroid,
+  isNativeIOS,
+  requestNativePermissions,
+  getCurrentPosition,
+  watchPosition,
+  clearWatch,
+} from '../../lib/capacitorGPS';
 import toast from 'react-hot-toast';
 
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+const isIOS = isNativeIOS || (/iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream);
 const isPWA = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
 
 const IOS_BANNER_KEY = 'aniston_ios_banner_dismissed';
@@ -63,7 +72,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [bannerVisible, setBannerVisible] = useState(!isBannerDismissed());
   const [gpsLostAt, setGpsLostAt] = useState<number | null>(null);
   const [gpsPauseNote, setGpsPauseNote] = useState('');
-  const watchIdRef = useRef<number | null>(null);
+  const watchIdRef = useRef<string | number | null>(null);
   const bufferRef = useRef<GPSPoint[]>(loadPersistedBuffer());
   const syncRetryRef = useRef(0);
   const wakeLock = useWakeLock();
@@ -122,29 +131,36 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   }, [isOnline, syncPoints]);
 
   const startTracking = async () => {
-    if (!navigator.geolocation) {
-      toast.error('Geolocation not supported');
+    // On native Android/iOS: request permissions via Capacitor (includes background)
+    // On web/TWA: browser handles its own permission prompt via getCurrentPosition
+    if (isNative) {
+      const granted = await requestNativePermissions();
+      if (!granted) {
+        toast.error('Location permission is required for field tracking.');
+        return;
+      }
+      if (isNativeAndroid) {
+        toast('Background location granted — GPS tracks even when screen is off.', { icon: '📍', duration: 4000 });
+      }
+    } else if (!navigator.geolocation) {
+      toast.error('Geolocation not supported on this device.');
       return;
     }
 
     try {
-      // Activate wake lock to keep GPS alive in background (iOS fix)
-      await wakeLock.request();
+      // Keep screen on (web / iOS PWA) — not needed on native Android which tracks in background
+      if (!isNativeAndroid) {
+        await wakeLock.request();
+      }
 
-      // Clock in with a guaranteed-fresh position (maximumAge: 0 = no cache allowed)
-      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          maximumAge: 0,       // NEVER accept stale GPS for attendance marking
-          timeout: 30000,
-        })
-      );
+      // Get fresh initial position for clock-in
+      const pos = await getCurrentPosition();
 
       if (!isCheckedIn) {
         await clockIn({
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
+          latitude: pos.lat,
+          longitude: pos.lng,
+          accuracy: pos.accuracy,
           gpsTimestamp: new Date(pos.timestamp).toISOString(),
           source: 'MANUAL_APP',
         }).unwrap();
@@ -154,57 +170,48 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       setIsTracking(true);
       setGpsPaused(false);
 
-      // Start watching position
-      watchIdRef.current = navigator.geolocation.watchPosition(
+      // Start continuous watch — native Android continues in background
+      watchIdRef.current = await watchPosition(
         (position) => {
-          setGpsPaused(false); // position resumed after any pause
+          setGpsPaused(false);
 
-          // GPS restored — check if there was a gap
           setGpsLostAt(prev => {
             if (prev !== null) {
               const gapMinutes = Math.round((Date.now() - prev) / 60000);
               if (gapMinutes >= 5) {
                 toast(`GPS restored after ${gapMinutes} min gap.`, { icon: '📍' });
-                // Optionally call API to log the gap
               }
             }
             return null;
           });
 
           const point: GPSPoint = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-            speed: position.coords.speed || undefined,
-            timestamp: Date.now(),
+            lat: position.lat,
+            lng: position.lng,
+            accuracy: position.accuracy,
+            speed: position.speed ?? undefined,
+            timestamp: position.timestamp,
           };
           setCurrentPos(point);
           setPoints(prev => [...prev, point]);
           bufferRef.current.push(point);
-          // Pass syncPoints as quota-full callback so storage never silently drops data
           persistBuffer(bufferRef.current, () => {
             toast('GPS storage full — syncing to server now', { icon: '⚠️' });
             syncPoints();
           });
 
-          // Auto-sync when buffer reaches batch size
           if (bufferRef.current.length >= SYNC_BATCH_SIZE && isOnline) {
             syncPoints();
           }
         },
         (err) => {
           if (err.code === 1) {
-            // Permission revoked mid-session
-            toast.error('Location permission was revoked. Please re-enable GPS to continue tracking.', { duration: 6000 });
+            toast.error('Location permission was revoked. Please re-enable GPS.', { duration: 6000 });
           } else if (err.code === 2) {
-            // Signal lost
-            toast.error('GPS signal lost. Tracking paused — resume will be detected automatically.', { duration: 4000 });
+            toast.error('GPS signal lost. Will resume automatically.', { duration: 4000 });
           }
-          // code 3 = timeout — retry is automatic, no need for toast
-          // In all cases, record the gap start time for later anomaly detection
           setGpsLostAt(prev => prev ?? Date.now());
-        },
-        { enableHighAccuracy: true, maximumAge: GPS_INTERVAL, timeout: 30000 }
+        }
       );
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to start tracking');
@@ -213,11 +220,10 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
 
   const stopTracking = async () => {
     if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
+      await clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
 
-    // Release wake lock
     wakeLock.release();
 
     // Sync remaining points
@@ -241,7 +247,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   useEffect(() => {
     return () => {
       if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
+        clearWatch(watchIdRef.current);
       }
     };
   }, []);
@@ -270,24 +276,20 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           );
         }
         // Grab a fresh position to fill the gap
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            setGpsPaused(false);
-            const point: GPSPoint = {
-              lat: position.coords.latitude,
-              lng: position.coords.longitude,
-              accuracy: position.coords.accuracy,
-              speed: position.coords.speed || undefined,
-              timestamp: Date.now(),
-            };
-            setCurrentPos(point);
-            setPoints(prev => [...prev, point]);
-            bufferRef.current.push(point);
-            persistBuffer(bufferRef.current, () => syncPoints());
-          },
-          () => {},
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-        );
+        getCurrentPosition().then((position) => {
+          setGpsPaused(false);
+          const point: GPSPoint = {
+            lat: position.lat,
+            lng: position.lng,
+            accuracy: position.accuracy,
+            speed: position.speed ?? undefined,
+            timestamp: position.timestamp,
+          };
+          setCurrentPos(point);
+          setPoints(prev => [...prev, point]);
+          bufferRef.current.push(point);
+          persistBuffer(bufferRef.current, () => syncPoints());
+        }).catch(() => {});
         if (isOnline && bufferRef.current.length > 0) syncPoints();
       }
     };
@@ -310,8 +312,8 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
 
   return (
     <div className="space-y-4">
-      {/* iOS PWA install prompt — shown once per 7 days, dismissable */}
-      {isIOS && !isPWA && bannerVisible && (
+      {/* iOS PWA install prompt — shown once per 7 days, dismissable; hidden in native app */}
+      {isIOS && !isPWA && !isNative && bannerVisible && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-start gap-3">
           <Smartphone className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
           <div className="flex-1">
@@ -342,7 +344,13 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
 
       <div className="layer-card p-5">
         <h3 className="text-lg font-display font-bold text-gray-900 mb-1">Field Sales Tracking</h3>
-        <p className="text-sm text-gray-400 mb-4">GPS trail is recorded every 60 seconds while active.</p>
+        <p className="text-sm text-gray-400 mb-2">GPS trail is recorded every 60 seconds while active.</p>
+        {isNativeAndroid && isTracking && (
+          <div className="mb-3 flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            <Navigation className="w-3.5 h-3.5 flex-shrink-0" />
+            Background GPS active — tracking continues when screen is off
+          </div>
+        )}
 
         {/* Status Indicators */}
         <div className="flex items-center gap-4 mb-4">

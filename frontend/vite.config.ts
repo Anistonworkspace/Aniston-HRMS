@@ -55,7 +55,7 @@ export default defineConfig({
           'minimal-ui',
         ],
         background_color: '#ffffff',
-        theme_color: '#4F46E5',
+        theme_color: '#0f172a',
         orientation: 'portrait-primary',
         lang: 'en',
         dir: 'ltr',

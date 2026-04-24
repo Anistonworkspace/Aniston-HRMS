@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [develop]   # main is handled by deploy.yml (avoids double-run)
   pull_request:
     branches: [main]
   workflow_dispatch:

@@ -52,31 +52,34 @@ interface NavItem {
   permissionKey?: string;
 }
 
+// Paths visible to ADMIN role (system account) — everything else is hidden
+const ADMIN_ALLOWED_PATHS = new Set(['/dashboard', '/activity-tracking', '/exit-management', '/assets', '/announcements', '/settings', '/profile']);
+
 const navItems: NavItem[] = [
   { nameKey: 'nav.dashboard', path: '/dashboard', icon: Home, exitAccessKey: 'canViewDashboard', permissionKey: 'canViewDashboardStats' },
-  { nameKey: 'nav.employees', managementNameKey: 'nav.manageEmployees', path: '/employees', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { nameKey: 'nav.attendance', managementNameKey: 'nav.attendanceManagement', path: '/attendance', icon: Clock, exitAccessKey: 'canViewAttendance', permissionKey: 'canViewAttendanceHistory' },
-  { nameKey: 'nav.activityTracking', path: '/activity-tracking', icon: Activity, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { nameKey: 'nav.leave', managementNameKey: 'nav.leaveManagement', path: '/leaves', icon: CalendarDays, exitAccessKey: 'canViewLeaveBalance', permissionKey: 'canViewLeaveBalance' },
-  { nameKey: 'nav.payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'], exitAccessKey: 'canViewPayslips' },
+  { nameKey: 'nav.employees', managementNameKey: 'nav.manageEmployees', path: '/employees', icon: Users, roles: ['SUPER_ADMIN', 'HR', 'MANAGER'] },
+  { nameKey: 'nav.attendance', managementNameKey: 'nav.attendanceManagement', path: '/attendance', icon: Clock, roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'], exitAccessKey: 'canViewAttendance', permissionKey: 'canViewAttendanceHistory' },
+  { nameKey: 'nav.activityTracking', path: '/activity-tracking', icon: Activity, roles: ['SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+  { nameKey: 'nav.leave', managementNameKey: 'nav.leaveManagement', path: '/leaves', icon: CalendarDays, roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'], exitAccessKey: 'canViewLeaveBalance', permissionKey: 'canViewLeaveBalance' },
+  { nameKey: 'nav.payroll', path: '/payroll', icon: DollarSign, roles: ['SUPER_ADMIN', 'HR'], exitAccessKey: 'canViewPayslips' },
   { nameKey: 'nav.payslips', path: '/payroll', icon: DollarSign, roles: ['EMPLOYEE', 'INTERN', 'MANAGER'], permissionKey: 'canViewPayslips' },
-  { nameKey: 'nav.roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { nameKey: 'nav.recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { nameKey: 'nav.kycReview', path: '/kyc-review', icon: ShieldCheck, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
+  { nameKey: 'nav.roster', path: '/roster', icon: CalendarDays, roles: ['SUPER_ADMIN', 'HR'] },
+  { nameKey: 'nav.recruitment', path: '/recruitment', icon: Briefcase, roles: ['SUPER_ADMIN', 'HR', 'MANAGER'] },
+  { nameKey: 'nav.kycReview', path: '/kyc-review', icon: ShieldCheck, roles: ['SUPER_ADMIN', 'HR'] },
   { nameKey: 'nav.employeeExit', path: '/exit-management', icon: UserMinus, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { nameKey: 'nav.interviewTasks', path: '/interview-assignments', icon: ClipboardCheck, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'GUEST_INTERVIEWER'] },
+  { nameKey: 'nav.interviewTasks', path: '/interview-assignments', icon: ClipboardCheck, roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'GUEST_INTERVIEWER'] },
   { nameKey: 'nav.assets', managementNameKey: 'nav.assetManagement', path: '/assets', icon: Monitor, roles: ['SUPER_ADMIN', 'ADMIN'] },
   { nameKey: 'nav.myAssets', path: '/my-assets', icon: Laptop, roles: ['HR', 'MANAGER', 'EMPLOYEE', 'INTERN'] },
   { nameKey: 'nav.myDocuments', path: '/my-documents', icon: FileCheck, roles: ['EMPLOYEE', 'INTERN', 'MANAGER', 'HR'], exitAccessKey: 'canViewDocuments', permissionKey: 'canViewDocuments' },
   { nameKey: 'nav.performance', path: '/performance', icon: BarChart3, roles: ['EMPLOYEE', 'INTERN', 'MANAGER'], permissionKey: 'canViewPerformance' },
-  { nameKey: 'nav.policies', path: '/policies', icon: FileText, permissionKey: 'canViewPolicies' },
+  { nameKey: 'nav.policies', path: '/policies', icon: FileText, roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'], permissionKey: 'canViewPolicies' },
   { nameKey: 'nav.announcements', path: '/announcements', icon: Megaphone, exitAccessKey: 'canViewAnnouncements', permissionKey: 'canViewAnnouncements' },
-  { nameKey: 'nav.helpdesk', path: '/helpdesk', icon: HelpCircle, exitAccessKey: 'canViewHelpdesk', permissionKey: 'canRaiseHelpdeskTickets' },
-  { nameKey: 'nav.sendBulkEmail', path: '/send-bulk-email', icon: Send, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { nameKey: 'nav.bulkEmail', path: '/bulk-email', icon: Mail, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { nameKey: 'nav.whatsapp', path: '/whatsapp', icon: MessageCircle, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
-  { nameKey: 'nav.orgChart', path: '/org-chart', icon: Network, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
-  { nameKey: 'nav.reports', path: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'] },
+  { nameKey: 'nav.helpdesk', path: '/helpdesk', icon: HelpCircle, roles: ['SUPER_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'INTERN'], exitAccessKey: 'canViewHelpdesk', permissionKey: 'canRaiseHelpdeskTickets' },
+  { nameKey: 'nav.sendBulkEmail', path: '/send-bulk-email', icon: Send, roles: ['SUPER_ADMIN', 'HR'] },
+  { nameKey: 'nav.bulkEmail', path: '/bulk-email', icon: Mail, roles: ['SUPER_ADMIN', 'HR'] },
+  { nameKey: 'nav.whatsapp', path: '/whatsapp', icon: MessageCircle, roles: ['SUPER_ADMIN', 'HR'] },
+  { nameKey: 'nav.orgChart', path: '/org-chart', icon: Network, roles: ['SUPER_ADMIN', 'HR', 'MANAGER'] },
+  { nameKey: 'nav.reports', path: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'HR', 'MANAGER'] },
   { nameKey: 'nav.settings', path: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'ADMIN', 'HR'] },
   { nameKey: 'nav.profile', path: '/profile', icon: Users, exitAccessKey: 'canViewProfile', permissionKey: 'canViewEditProfile' },
 ];
@@ -119,6 +122,8 @@ export default function Sidebar() {
   const featurePermissions = (user as any)?.featurePermissions;
 
   const filteredItems = navItems.filter((item) => {
+    // ADMIN system account: only show explicitly allowed paths
+    if (user?.role === 'ADMIN') return ADMIN_ALLOWED_PATHS.has(item.path);
     // If user has exit access restrictions, only show allowed items
     if (exitAccess) {
       if (!item.exitAccessKey) return false;

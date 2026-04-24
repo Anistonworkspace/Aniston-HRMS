@@ -786,7 +786,7 @@ function Step3Emergency({ onSave, saving, initialData }: { onSave: (d: any) => v
 // STEP 4: BANK DETAILS
 // ==================
 function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; saving: boolean; initialData: any }) {
-  const [form, setForm] = useState({ accountHolderName: '', accountType: 'SAVINGS' as 'SAVINGS' | 'CURRENT', bankName: '', bankAccountNumber: '', ifscCode: '' });
+  const [form, setForm] = useState({ accountHolderName: '', accountType: 'SAVINGS' as 'SAVINGS' | 'CURRENT', bankName: '', bankAccountNumber: '', ifscCode: '', epfMemberId: '' });
   const [showErrors, setShowErrors] = useState(false);
 
   useEffect(() => {
@@ -797,6 +797,7 @@ function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
         bankName: initialData.bankName || '',
         bankAccountNumber: initialData.bankAccountNumber || '',
         ifscCode: initialData.ifscCode || '',
+        epfMemberId: initialData.epfMemberId || '',
       });
     }
   }, [initialData]);
@@ -838,6 +839,18 @@ function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
           <option value="SAVINGS">Savings</option>
           <option value="CURRENT">Current</option>
         </select>
+      </div>
+      <div className="border-t border-gray-100 pt-3">
+        <label className="block text-xs font-medium text-gray-700 mb-1">
+          Previous EPF / UAN Number <span className="text-gray-400 font-normal">(optional — for experienced hires)</span>
+        </label>
+        <input
+          value={form.epfMemberId}
+          onChange={e => set('epfMemberId', e.target.value.toUpperCase())}
+          placeholder="e.g. 100123456789 (12-digit UAN)"
+          className="input-glass w-full text-sm font-mono"
+        />
+        <p className="text-[11px] text-gray-400 mt-1">If you have a UAN from a previous employer, enter it here. This helps HR link your EPF account.</p>
       </div>
       <p className="text-xs text-gray-400">Bank details are encrypted and used only for payroll processing.</p>
       <button
@@ -1188,6 +1201,7 @@ function Step6Review({ status, onComplete, completing, workMode, qualification, 
               <ReviewRow label="Bank" value={status.bankName} />
               <ReviewRow label="Account No." value={`****${status.bankAccountNumber?.slice(-4)}`} />
               <ReviewRow label="IFSC" value={status.ifscCode} />
+              {status.epfMemberId && <ReviewRow label="EPF / UAN" value={status.epfMemberId} />}
             </>
           ) : <p className="text-xs text-red-500">Not provided</p>}
         </ReviewSection>

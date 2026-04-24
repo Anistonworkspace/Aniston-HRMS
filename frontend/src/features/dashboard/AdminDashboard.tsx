@@ -4,7 +4,7 @@ import {
   Users, TrendingDown, IndianRupee, Briefcase, UserPlus,
   AlertTriangle, Building2, Cake, UserCheck, UserX,
   Clock, CalendarOff, Home, ShieldAlert, FileCheck,
-  Ticket, ChevronRight, CalendarDays,
+  Ticket, ChevronRight, CalendarDays, ListChecks,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -167,6 +167,26 @@ function AdminDashboard() {
         </motion.div>
       )}
 
+      {/* ═══ HR KPI CARDS (HR only) ══════════════════════════════ */}
+      {isHR && hrStats?.hrKpis && (
+        <motion.div variants={container} initial="hidden" animate="show" className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          {[
+            { label: 'Total Employees', value: hrStats.hrKpis.totalEmployees, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50', onClick: () => navigate('/employees') },
+            { label: 'Pending Leave Requests', value: hrStats.pendingActions.leaveRequests, icon: CalendarOff, color: 'text-amber-600', bg: 'bg-amber-50', onClick: () => navigate('/pending-approvals') },
+            { label: 'Pending Onboarding', value: hrStats.hrKpis.pendingOnboarding, icon: UserPlus, color: 'text-indigo-600', bg: 'bg-indigo-50', onClick: () => navigate('/employees') },
+            { label: 'Helpdesk (Assigned)', value: hrStats.pendingActions.helpdeskTickets, icon: Ticket, color: 'text-purple-600', bg: 'bg-purple-50', onClick: () => navigate('/helpdesk') },
+          ].map((kpi) => (
+            <motion.div key={kpi.label} variants={{ hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 } }}>
+              <button onClick={kpi.onClick} className={`w-full ${kpi.bg} rounded-xl p-4 text-left hover:opacity-90 transition-opacity`}>
+                <kpi.icon size={18} className={`${kpi.color} mb-2`} />
+                <p className={`text-2xl font-display font-bold ${kpi.color}`} data-mono>{kpi.value}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{kpi.label}</p>
+              </button>
+            </motion.div>
+          ))}
+        </motion.div>
+      )}
+
       {/* ═══ ALERTS (Admin / Super Admin only) ══════════════════ */}
       {!isHR && saStats && <AlertBanner alerts={saStats.alerts} />}
 
@@ -309,6 +329,41 @@ function AdminDashboard() {
         </motion.div>
       )}
 
+      {/* ═══ RECENT LEAVE REQUESTS (HR only) ════════════════════ */}
+      {isHR && hrStats?.recentLeaveRequests && hrStats.recentLeaveRequests.length > 0 && (
+        <motion.div variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }} initial="hidden" animate="show" className="mb-6">
+          <DashboardSection
+            title="Recent Leave Requests"
+            icon={ListChecks}
+            iconColor="text-amber-500"
+            badge={hrStats.pendingActions.leaveRequests > 0 ? hrStats.pendingActions.leaveRequests : undefined}
+            badgeVariant="warning"
+          >
+            <div className="space-y-2">
+              {hrStats.recentLeaveRequests.map((l: { id: string; employeeName: string; leaveType: string; days: number; startDate: string; endDate: string; reason?: string }) => (
+                <div
+                  key={l.id}
+                  onClick={() => navigate('/pending-approvals')}
+                  className="flex items-center justify-between py-2.5 px-3 bg-surface-2 rounded-lg cursor-pointer hover:bg-surface-3 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800">{l.employeeName}</p>
+                    <p className="text-xs text-gray-400">{l.leaveType} · {new Date(l.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – {new Date(l.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+                  </div>
+                  <div className="flex items-center gap-2 ml-3 shrink-0">
+                    <span className="text-xs font-mono text-gray-500" data-mono>{l.days}d</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">Pending</span>
+                  </div>
+                </div>
+              ))}
+              <button onClick={() => navigate('/pending-approvals')} className="w-full text-xs text-brand-600 hover:text-brand-700 flex items-center justify-center gap-1 pt-1">
+                View all pending approvals <ChevronRight size={12} />
+              </button>
+            </div>
+          </DashboardSection>
+        </motion.div>
+      )}
+
       {/* ═══ LIVE ATTENDANCE + DEPARTMENT HEADCOUNT (Admin / Super Admin only) ═ */}
       {!isHR && (
         <div className="grid md:grid-cols-2 gap-4 mb-6">
@@ -381,18 +436,16 @@ function AdminDashboard() {
         </DashboardSection>
       </motion.div>
 
-      {/* ═══ QUICK ACTIONS (Admin / Super Admin only) ════════════ */}
-      {!isHR && (
-        <motion.div
-          variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
-          initial="hidden"
-          animate="show"
-          className="layer-card p-5"
-        >
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
-          <QuickActionGrid actions={QUICK_ACTIONS} columns="grid-cols-4 md:grid-cols-4" />
-        </motion.div>
-      )}
+      {/* ═══ QUICK ACTIONS (All admin roles) ════════════════════ */}
+      <motion.div
+        variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
+        initial="hidden"
+        animate="show"
+        className="layer-card p-5"
+      >
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
+        <QuickActionGrid actions={QUICK_ACTIONS} columns="grid-cols-4 md:grid-cols-4" />
+      </motion.div>
     </div>
   );
 }
