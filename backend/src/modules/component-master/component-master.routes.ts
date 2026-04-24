@@ -19,15 +19,15 @@ router.post('/reorder',
   (req, res, next) => componentMasterController.reorder(req, res, next)
 );
 
-// Seed default components
+// Seed default components — HR can restore defaults too
 router.post('/seed',
-  authorize(Role.SUPER_ADMIN, Role.ADMIN),
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   (req, res, next) => componentMasterController.seedDefaults(req, res, next)
 );
 
 // One-time cleanup: remove legacy default components (old 20-component seed → Basic+HRA only)
 router.post('/cleanup-defaults',
-  authorize(Role.SUPER_ADMIN, Role.ADMIN),
+  authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   (req, res, next) => componentMasterController.cleanupLegacyDefaults(req, res, next)
 );
 
