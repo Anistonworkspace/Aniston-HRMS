@@ -597,6 +597,49 @@ export class OnboardingService {
       );
     });
 
+    // Send onboarding-completed email to admin (non-blocking)
+    setImmediate(async () => {
+      try {
+        const [fullEmp, org] = await Promise.all([
+          prisma.employee.findUnique({
+            where: { id: employeeId },
+            select: {
+              firstName: true, lastName: true, employeeCode: true, phone: true,
+              joiningDate: true, workMode: true, avatar: true,
+              designation: { select: { name: true } },
+              department: { select: { name: true } },
+            },
+          }),
+          prisma.organization.findUnique({
+            where: { id: employee.organizationId },
+            select: { name: true, adminNotificationEmail: true },
+          }),
+        ]);
+
+        if (!org?.adminNotificationEmail || !fullEmp) return;
+
+        await enqueueEmail({
+          to: org.adminNotificationEmail,
+          subject: `New Employee Onboarding Complete — ${fullEmp.firstName} ${fullEmp.lastName} (${fullEmp.employeeCode || ''})`,
+          template: 'onboarding-completed',
+          context: {
+            employeeName: `${fullEmp.firstName} ${fullEmp.lastName}`,
+            employeeCode: fullEmp.employeeCode || '',
+            designation: (fullEmp as any).designation?.name || '',
+            department: (fullEmp as any).department?.name || '',
+            phone: fullEmp.phone || '',
+            joiningDate: fullEmp.joiningDate,
+            workMode: fullEmp.workMode || 'OFFICE',
+            photoUrl: fullEmp.avatar || '',
+            orgName: org.name,
+            hrmsUrl: `https://hr.anistonav.com/employees/${employeeId}`,
+          },
+        });
+      } catch (err) {
+        logger.warn('[Onboarding] Failed to send admin notification email:', err);
+      }
+    });
+
     return { completed: true, message: 'Onboarding complete! Your HR team will assign your employment status shortly.' };
   }
 

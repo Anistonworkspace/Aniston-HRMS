@@ -157,12 +157,11 @@ function OrgSettings() {
   const { t } = useTranslation();
   const { data: res } = useGetOrgSettingsQuery();
   const [updateOrg, { isLoading }] = useUpdateOrgMutation();
-  const [testAdminEmail, { isLoading: isTestingAdminEmail }] = useTestAdminNotificationEmailMutation();
   const org = res?.data;
-  const [form, setForm] = useState({ name: '', timezone: '', currency: '', fiscalYear: '', adminNotificationEmail: '' });
+  const [form, setForm] = useState({ name: '', timezone: '', currency: '', fiscalYear: '' });
 
   useEffect(() => {
-    if (org) setForm({ name: org.name, timezone: org.timezone, currency: org.currency, fiscalYear: org.fiscalYear, adminNotificationEmail: org.adminNotificationEmail || '' });
+    if (org) setForm({ name: org.name, timezone: org.timezone, currency: org.currency, fiscalYear: org.fiscalYear });
   }, [org]);
 
   const handleSave = async () => {
@@ -211,43 +210,6 @@ function OrgSettings() {
             <option value="JANUARY_DECEMBER">{t('settings.januaryDecember')}</option>
           </select>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1">
-            {t('settings.adminEmail')}
-          </label>
-          <div className="flex gap-2">
-            <input value={form.adminNotificationEmail} onChange={(e) => setForm({ ...form, adminNotificationEmail: e.target.value })}
-              type="email" placeholder="admin@company.com" className="input-glass flex-1" />
-            <button
-              onClick={async () => {
-                // Warn if the email has been changed but not saved yet
-                if (form.adminNotificationEmail !== (org?.adminNotificationEmail || '')) {
-                  toast('Save your settings first, then test the email.', { icon: '⚠️' });
-                  return;
-                }
-                try {
-                  const result = await testAdminEmail().unwrap();
-                  if (result?.data?.success) {
-                    toast.success(result.data.message || 'Test email sent!');
-                  } else {
-                    toast.error(result?.data?.message || 'Failed to send test email');
-                  }
-                } catch {
-                  toast.error('Failed to send test email — check SMTP configuration');
-                }
-              }}
-              disabled={isTestingAdminEmail || !form.adminNotificationEmail}
-              className="btn-secondary flex items-center gap-1.5 text-sm px-3 py-2 whitespace-nowrap"
-            >
-              {isTestingAdminEmail ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-              Test
-            </button>
-          </div>
-          <p className="text-xs text-gray-400 mt-1">
-            Used for: system alerts, backup notifications, payroll errors, Sunday attendance approvals, candidate selection notices, and HR activity reports.
-          </p>
-        </div>
-
         {org && (
           <div className="pt-4 border-t border-gray-100">
             <p className="text-xs text-gray-400">
@@ -270,12 +232,17 @@ function OrgSettings() {
 
 function EmailConfig() {
   const { data: res, refetch } = useGetEmailConfigQuery();
+  const { data: orgRes } = useGetOrgSettingsQuery();
   const [saveConfig, { isLoading: saving }] = useSaveEmailConfigMutation();
   const [testConnection, { isLoading: testing }] = useTestEmailConnectionMutation();
+  const [updateOrg, { isLoading: savingAdminEmail }] = useUpdateOrgMutation();
+  const [testAdminEmail, { isLoading: isTestingAdminEmail }] = useTestAdminNotificationEmailMutation();
   const config = res?.data;
+  const org = orgRes?.data;
   const [form, setForm] = useState({
     host: '', port: 587, user: '', pass: '', fromAddress: '', fromName: '', emailDomain: '', payrollEmail: '',
   });
+  const [adminNotificationEmail, setAdminNotificationEmail] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -293,6 +260,10 @@ function EmailConfig() {
       });
     }
   }, [config]);
+
+  useEffect(() => {
+    if (org) setAdminNotificationEmail(org.adminNotificationEmail || '');
+  }, [org]);
 
   const handleSave = async () => {
     if (!form.host || !form.user) { toast.error('SMTP host and username are required'); return; }
@@ -405,6 +376,60 @@ function EmailConfig() {
             <input value={form.payrollEmail || ''} onChange={e => setForm({...form, payrollEmail: e.target.value})}
               className="input-glass w-full text-sm" placeholder="accounts@anistonav.com" />
             <p className="text-xs text-gray-400 mt-1">Payroll Excel reports will be sent to this email when HR clicks "Send to Accounts" after processing.</p>
+          </div>
+        </div>
+
+        {/* Onboarding & Admin Notifications */}
+        <div className="border-t border-gray-200 pt-4 mt-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-1.5">
+            <Mail size={14} className="text-brand-500" /> Onboarding &amp; Admin Notifications
+          </h3>
+          <p className="text-xs text-gray-400 mb-3">When an employee completes onboarding, a notification email with their details will be sent here so admin can prepare their laptop and access.</p>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Admin Notification Email</label>
+            <div className="flex gap-2">
+              <input
+                value={adminNotificationEmail}
+                onChange={e => setAdminNotificationEmail(e.target.value)}
+                type="email"
+                placeholder="admin@company.com"
+                className="input-glass flex-1 text-sm"
+              />
+              <button
+                onClick={async () => {
+                  if (adminNotificationEmail !== (org?.adminNotificationEmail || '')) {
+                    toast('Save admin email first, then test.', { icon: '⚠️' });
+                    return;
+                  }
+                  try {
+                    const result = await testAdminEmail().unwrap();
+                    if (result?.data?.success) toast.success(result.data.message || 'Test email sent!');
+                    else toast.error(result?.data?.message || 'Failed to send test email');
+                  } catch { toast.error('Failed to send test email — check SMTP configuration'); }
+                }}
+                disabled={isTestingAdminEmail || !adminNotificationEmail}
+                className="btn-secondary flex items-center gap-1.5 text-sm px-3 py-2 whitespace-nowrap"
+              >
+                {isTestingAdminEmail ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                Test
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await updateOrg({ adminNotificationEmail } as any).unwrap();
+                    toast.success('Admin notification email saved');
+                  } catch { toast.error('Failed to save admin email'); }
+                }}
+                disabled={savingAdminEmail}
+                className="btn-primary flex items-center gap-1.5 text-sm px-3 py-2 whitespace-nowrap"
+              >
+                {savingAdminEmail ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Save
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              Used for: onboarding completion alerts, system notifications, backup alerts, payroll errors, and HR activity reports.
+            </p>
           </div>
         </div>
 

@@ -1280,6 +1280,87 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     standardFooter(ctx.orgName || 'Aniston Technologies', ctx.reuploadUrl)
   ),
 
+  // ── Onboarding Completed — sent to admin when an employee finishes onboarding ──
+  'onboarding-completed': (ctx) => emailLayout(
+    'linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%)', '&#127881;',
+    'New Employee Onboarding Complete',
+    `${esc(ctx.employeeName)} has completed their onboarding`,
+    `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      A new employee has successfully completed their onboarding process. Please prepare their workspace, laptop, and access credentials.
+    </p>
+
+    <!-- Photo + Name banner -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EEF2FF;border:1px solid #C7D2FE;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            ${ctx.photoUrl ? `<td style="width:64px;vertical-align:top;padding-right:16px;">
+              <img src="${ctx.photoUrl}" width="56" height="56" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid #C7D2FE;" alt="${esc(ctx.employeeName)}" />
+            </td>` : ''}
+            <td style="vertical-align:middle;">
+              <p style="color:#3730A3;font-weight:700;font-size:18px;margin:0 0 2px;">${esc(ctx.employeeName)}</p>
+              <p style="color:#4338CA;font-size:13px;margin:0;">${esc(ctx.designation || '')}${ctx.department ? ` &bull; ${esc(ctx.department)}` : ''}</p>
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+
+    <!-- Employee details table -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#374151;font-weight:700;font-size:14px;margin:0 0 12px;">&#128203; Employee Details</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:140px;border-bottom:1px solid #F3F4F6;">Employee Code</td>
+            <td style="padding:6px 0;color:#4F46E5;font-size:13px;font-weight:700;border-bottom:1px solid #F3F4F6;">${esc(ctx.employeeCode || 'N/A')}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Designation</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #F3F4F6;">${esc(ctx.designation || 'N/A')}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Department</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;border-bottom:1px solid #F3F4F6;">${esc(ctx.department || 'N/A')}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Mobile Number</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;border-bottom:1px solid #F3F4F6;">${esc(ctx.phone || 'N/A')}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Work Mode</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;border-bottom:1px solid #F3F4F6;">${esc((ctx.workMode || 'OFFICE').replace(/_/g, ' '))}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #F3F4F6;">Joining Date</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;border-bottom:1px solid #F3F4F6;">${ctx.joiningDate ? new Date(ctx.joiningDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : 'N/A'}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;">Onboarding Completed</td>
+            <td style="padding:6px 0;color:#059669;font-size:13px;font-weight:600;">${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+
+    <!-- Action required box -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FFFBEB;border:1px solid #FDE68A;margin:0 0 20px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="color:#92400E;font-weight:700;font-size:14px;margin:0 0 8px;">&#128085; Action Required — Prepare for this Employee</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:3px 0;color:#78350F;font-size:12px;">&#8226; Arrange laptop / desktop setup with required software</td></tr>
+          <tr><td style="padding:3px 0;color:#78350F;font-size:12px;">&#8226; Create company email account (if not done via Teams sync)</td></tr>
+          <tr><td style="padding:3px 0;color:#78350F;font-size:12px;">&#8226; Assign seating and issue access card / ID card</td></tr>
+          <tr><td style="padding:3px 0;color:#78350F;font-size:12px;">&#8226; Grant access to internal tools and shared drives</td></tr>
+          <tr><td style="padding:3px 0;color:#78350F;font-size:12px;">&#8226; Inform the respective team / manager of the joining date</td></tr>
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton(ctx.hrmsUrl || 'https://hr.anistonav.com/employees', 'View Employee Profile in HRMS')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies', ctx.hrmsUrl)
+  ),
+
 };
 
 /**
