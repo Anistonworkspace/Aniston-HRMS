@@ -1,12 +1,8 @@
-[
-  {
-    "relation": ["delegate_permission/common.handle_all_urls"],
-    "target": {
-      "namespace": "android_app",
-      "package_name": "com.anistonav.hrms",
-      "sha256_cert_fingerprints": [
-        "REPLACE_WITH_YOUR_SIGNING_KEY_SHA256_FINGERPRINT"
-      ]
-    }
-  }
-]
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.anistonav.hr.twa",
+        "sha256_cert_fingerprints": ["A7:F6:34:B4:3F:6B:F2:3F:05:A9:CE:88:D2:D9:08:F0:17:FB:05:CA:01:1A:77:42:25:19:F6:9A:51:97:D6:AA"]
+      }
+    }]
