@@ -40,6 +40,10 @@ export const createEmployeeSchema = z.object({
   ifscCode: z.string().optional(),
   accountHolderName: z.string().optional(),
   accountType: z.enum(['SAVINGS', 'CURRENT']).optional(),
+  epfMemberId: z.string().optional().nullable(),
+  epfUan: z.string().optional().nullable(),
+  epfEnabled: z.boolean().optional(),
+  epfExempt: z.boolean().optional(),
 });
 
 export const updateEmployeeSchema = createEmployeeSchema.partial().extend({

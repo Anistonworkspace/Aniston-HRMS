@@ -1100,7 +1100,10 @@ export class PayrollService {
             c.type === 'deduction' &&
             (c.name.toLowerCase().includes('epf') || c.name.toLowerCase().includes('provident'))
           );
-          const recEpfEmployee = epfComp ? epfComp.value : 0;
+          // EPF is only deducted when employee has opted in (epfEnabled=true) AND is not exempt.
+          // Default is epfEnabled=false — employees who skip EPF during onboarding pay no EPF.
+          const epfOptedIn = (emp as any).epfEnabled === true && !(emp as any).epfExempt;
+          const recEpfEmployee = epfOptedIn ? (epfComp ? epfComp.value : 0) : 0;
 
           // ── Adjustments (one-off payroll adjustments approved for this run) ──
           let adjustmentAdditions = 0, adjustmentDeductions = 0;
@@ -1346,6 +1349,7 @@ export class PayrollService {
             department: { select: { name: true } },
             bankAccountNumber: true, bankName: true, ifscCode: true,
             accountHolderName: true, accountType: true,
+            epfUan: true, epfMemberId: true, panNumber: true,
           },
         },
       },

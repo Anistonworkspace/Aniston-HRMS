@@ -4,13 +4,14 @@ import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { encrypt, decrypt } from '../../utils/encryption.js';
 
-type Category = 'PERSONAL_DETAILS' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'BANK_DETAILS';
+type Category = 'PERSONAL_DETAILS' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'BANK_DETAILS' | 'EPF_DETAILS';
 
 const CATEGORY_LABELS: Record<Category, string> = {
   PERSONAL_DETAILS: 'Personal Details',
   ADDRESS: 'Address',
   EMERGENCY_CONTACT: 'Emergency Contact',
   BANK_DETAILS: 'Bank Details',
+  EPF_DETAILS: 'EPF Details',
 };
 
 const ALLOWED_FIELDS_BY_CATEGORY: Record<Category, string[]> = {
@@ -18,6 +19,7 @@ const ALLOWED_FIELDS_BY_CATEGORY: Record<Category, string[]> = {
   ADDRESS: ['line1', 'line2', 'city', 'state', 'pincode', 'country'],
   EMERGENCY_CONTACT: ['name', 'relationship', 'phone', 'email'],
   BANK_DETAILS: ['accountHolderName', 'accountType', 'bankName', 'bankAccountNumber', 'ifscCode'],
+  EPF_DETAILS: ['epfMemberId', 'epfUan'],
 };
 
 export class ProfileEditRequestService {
@@ -275,6 +277,12 @@ export class ProfileEditRequestService {
         bankName: sanitized.bankName,
         bankAccountNumber: sanitized.bankAccountNumber ? encrypt(sanitized.bankAccountNumber) : sanitized.bankAccountNumber,
         ifscCode: sanitized.ifscCode,
+      };
+    } else if (category === 'EPF_DETAILS') {
+      updateData = {
+        epfMemberId: sanitized.epfMemberId || null,
+        epfUan: sanitized.epfUan || null,
+        epfEnabled: !!(sanitized.epfMemberId || sanitized.epfUan),
       };
     }
 

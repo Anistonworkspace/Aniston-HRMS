@@ -1,16 +1,17 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { User, MapPin, Phone, CreditCard, X, Loader2, Send } from 'lucide-react';
+import { User, MapPin, Phone, CreditCard, Shield, X, Loader2, Send } from 'lucide-react';
 import { useCreateProfileEditRequestMutation } from './profileEditRequestApi';
 import toast from 'react-hot-toast';
 
-type Category = 'PERSONAL_DETAILS' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'BANK_DETAILS';
+type Category = 'PERSONAL_DETAILS' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'BANK_DETAILS' | 'EPF_DETAILS';
 
 const CATEGORIES: { id: Category; icon: any; title: string; description: string }[] = [
   { id: 'PERSONAL_DETAILS', icon: User, title: 'Personal Details', description: 'Name, DOB, gender, phone, personal email, blood group, marital status' },
   { id: 'ADDRESS', icon: MapPin, title: 'Address', description: 'Current residential address — street, city, state, pincode' },
   { id: 'EMERGENCY_CONTACT', icon: Phone, title: 'Emergency Contact', description: 'Name, phone, relationship and email of your emergency contact' },
   { id: 'BANK_DETAILS', icon: CreditCard, title: 'Bank Details', description: 'Bank account number, IFSC code, bank name, account holder name, account type' },
+  { id: 'EPF_DETAILS', icon: Shield, title: 'EPF Details', description: 'EPF Member ID (UAN from previous employer) to opt into EPF deduction' },
 ];
 
 type FieldDef = { key: string; label: string; type: 'text' | 'tel' | 'email' | 'date' | 'select'; options?: { v: string; l: string }[] };
@@ -56,11 +57,14 @@ const FORM_FIELDS: Record<Category, FieldDef[]> = {
       { v: 'SAVINGS', l: 'Savings' }, { v: 'CURRENT', l: 'Current' },
     ]},
   ],
+  EPF_DETAILS: [
+    { key: 'epfMemberId', label: 'EPF Member ID (Previous UAN)', type: 'text' },
+  ],
 };
 
 interface Props {
   onClose: () => void;
-  defaultCategory?: Category;
+  defaultCategory?: Category | undefined;
 }
 
 export default function ProfileUpdateRequestModal({ onClose, defaultCategory }: Props) {

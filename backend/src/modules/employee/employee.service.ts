@@ -270,6 +270,8 @@ export class EmployeeService {
             accountHolderName: (data as any).accountHolderName || null,
             accountType: (data as any).accountType || null,
             panNumber: (data as any).panNumber ? encrypt((data as any).panNumber) : null,
+            epfUan: (data as any).epfUan || null,
+            epfMemberId: (data as any).epfMemberId || null,
             status: 'ACTIVE',
             organizationId,
           },
@@ -451,11 +453,12 @@ export class EmployeeService {
       }
     }
 
-    // EMPLOYEE/INTERN cannot directly update personal/bank fields — must use profile-edit-request flow
+    // EMPLOYEE/INTERN cannot directly update personal/bank/EPF fields — must use profile-edit-request flow
     const APPROVAL_REQUIRED_FIELDS = [
       'firstName', 'lastName', 'dateOfBirth', 'gender', 'bloodGroup', 'maritalStatus',
       'phone', 'personalEmail', 'address', 'permanentAddress', 'emergencyContact',
       'bankAccountNumber', 'bankName', 'ifscCode', 'accountHolderName', 'accountType',
+      'epfMemberId', 'epfUan', 'epfEnabled',
     ];
     if (callerRole && ['EMPLOYEE', 'INTERN'].includes(callerRole)) {
       for (const field of APPROVAL_REQUIRED_FIELDS) {

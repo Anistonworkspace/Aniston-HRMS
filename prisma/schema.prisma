@@ -149,6 +149,10 @@ model Employee {
   panNumber        String?          // From verified PAN document OCR
   aadhaarEncrypted String?          // AES-256-GCM encrypted, from verified Aadhaar OCR
 
+  // EPF / Statutory numbers
+  epfUan           String?          // Universal Account Number (UAN) — HR-assigned or self-reported
+  epfMemberId      String?          // Previous employer EPF member ID (self-reported at onboarding)
+
   // Employment
   departmentId     String?
   designationId    String?
@@ -235,6 +239,8 @@ model Employee {
   // Sunday / special-day work override
   allowSundayWork        Boolean               @default(false)  // Employee-level override for Sunday attendance
 
+  // Payroll statutory — EPF opt-in (off by default; employee opts in during onboarding or HR enables)
+  epfEnabled             Boolean               @default(false) // EPF deduction active — false = not deducted in payroll
   // Payroll statutory exemptions (per-employee overrides)
   epfExempt              Boolean               @default(false) // Skip EPF deduction (e.g. interns, contract workers)
   esiExempt              Boolean               @default(false) // Skip ESI deduction (permanent exemption)

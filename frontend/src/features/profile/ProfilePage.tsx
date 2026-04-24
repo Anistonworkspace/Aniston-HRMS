@@ -61,6 +61,7 @@ export default function ProfilePage() {
     ADDRESS: 'Address',
     EMERGENCY_CONTACT: 'Emergency Contact',
     BANK_DETAILS: 'Bank Details',
+    EPF_DETAILS: 'EPF Details',
   };
 
   const [showResignModal, setShowResignModal] = useState(false);
@@ -88,7 +89,10 @@ export default function ProfilePage() {
   });
   const [showBankEdit, setShowBankEdit] = useState(false);
   const [savingBank, setSavingBank] = useState(false);
-  const [requestDefaultCategory, setRequestDefaultCategory] = useState<'PERSONAL_DETAILS' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'BANK_DETAILS' | undefined>(undefined);
+  const [showEpfEdit, setShowEpfEdit] = useState(false);
+  const [epfForm, setEpfForm] = useState({ epfMemberId: '', epfUan: '', epfEnabled: false });
+  const [savingEpf, setSavingEpf] = useState(false);
+  const [requestDefaultCategory, setRequestDefaultCategory] = useState<'PERSONAL_DETAILS' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'BANK_DETAILS' | 'EPF_DETAILS' | undefined>(undefined);
 
   // Profile completion calculation — must be before any early return to keep hooks order stable
   const completionItems = useMemo(() => {
@@ -134,6 +138,11 @@ export default function ProfilePage() {
         accountHolderName: employee.accountHolderName || '',
         accountType: employee.accountType || '',
       });
+      setEpfForm({
+        epfMemberId: (employee as any).epfMemberId || '',
+        epfUan: (employee as any).epfUan || '',
+        epfEnabled: (employee as any).epfEnabled ?? false,
+      });
     }
   }, [employee]);
 
@@ -169,6 +178,16 @@ export default function ProfilePage() {
     finally { setSavingBank(false); }
   };
 
+  const handleSaveEpfDetails = async () => {
+    if (!user?.employeeId) return;
+    setSavingEpf(true);
+    try {
+      await updateEmployee({ id: user.employeeId, data: { epfMemberId: epfForm.epfMemberId || null, epfUan: epfForm.epfUan || null, epfEnabled: epfForm.epfEnabled } as any }).unwrap();
+      toast.success('EPF details saved');
+      setShowEpfEdit(false);
+    } catch { toast.error('Failed to save EPF details'); }
+    finally { setSavingEpf(false); }
+  };
 
   if (isLoading) {
     return (
@@ -899,6 +918,91 @@ export default function ProfilePage() {
                 </button>
               )}
             </div>
+          )}
+        </motion.div>
+
+        {/* EPF Details */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}
+          className="layer-card p-4 md:p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+              <Shield size={16} className="text-violet-500" /> EPF Details
+              {(() => {
+                const enabled = (employee as any)?.epfEnabled;
+                return enabled
+                  ? <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Active</span>
+                  : <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Not enrolled</span>;
+              })()}
+            </h3>
+            {isEmployeeRole ? (() => {
+              const epfReq = myEditRequests.find(r => r.category === 'EPF_DETAILS' && (r.status === 'PENDING' || r.status === 'APPROVED'));
+              return epfReq ? (
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${epfReq.status === 'PENDING' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                  {epfReq.status === 'PENDING' ? 'Request pending' : 'Approved — apply now'}
+                </span>
+              ) : (
+                <button
+                  onClick={() => { setRequestDefaultCategory('EPF_DETAILS'); setShowRequestModal(true); }}
+                  className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
+                >
+                  <Edit2 size={12} /> Request EPF Update
+                </button>
+              );
+            })() : (
+              <button onClick={() => setShowEpfEdit(!showEpfEdit)}
+                className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+                {showEpfEdit ? <><X size={12} /> Cancel</> : <><Edit2 size={12} /> Edit</>}
+              </button>
+            )}
+          </div>
+
+          {(!isEmployeeRole && showEpfEdit) ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-surface-2 rounded-xl">
+                <label className="text-sm text-gray-700 font-medium flex-1">EPF Enabled</label>
+                <button
+                  onClick={() => setEpfForm(f => ({ ...f, epfEnabled: !f.epfEnabled }))}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${epfForm.epfEnabled ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${epfForm.epfEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">EPF Member ID (Previous UAN)</label>
+                <input value={epfForm.epfMemberId} onChange={e => setEpfForm(f => ({ ...f, epfMemberId: e.target.value }))}
+                  className="input-glass w-full text-sm font-mono" placeholder="e.g. 100123456789" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">EPF UAN (HR Assigned)</label>
+                <input value={epfForm.epfUan} onChange={e => setEpfForm(f => ({ ...f, epfUan: e.target.value }))}
+                  className="input-glass w-full text-sm font-mono" placeholder="UAN number" />
+              </div>
+              <button onClick={handleSaveEpfDetails} disabled={savingEpf}
+                className="btn-primary flex items-center gap-2 text-sm">
+                {savingEpf ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Save EPF Details
+              </button>
+            </div>
+          ) : (
+            <dl className="space-y-3">
+              <div className="flex justify-between items-center">
+                <dt className="text-xs text-gray-400">EPF Status</dt>
+                <dd className="text-sm text-gray-700">
+                  {(employee as any)?.epfEnabled
+                    ? <span className="flex items-center gap-1 text-emerald-600"><ShieldCheck size={13} /> Enrolled — EPF deducted from salary</span>
+                    : <span className="flex items-center gap-1 text-gray-400"><ShieldOff size={13} /> Not enrolled — EPF not deducted</span>}
+                </dd>
+              </div>
+              {(employee as any)?.epfMemberId && <ProfileRow label="EPF Member ID" value={(employee as any).epfMemberId} mono />}
+              {(employee as any)?.epfUan && <ProfileRow label="EPF UAN" value={(employee as any).epfUan} mono />}
+              {!(employee as any)?.epfMemberId && !(employee as any)?.epfUan && (
+                <p className="text-xs text-gray-400">
+                  {isEmployeeRole
+                    ? 'No EPF details added. Submit a request to enroll in EPF.'
+                    : 'No EPF details. Use Edit to enable EPF and assign UAN.'}
+                </p>
+              )}
+            </dl>
           )}
         </motion.div>
 

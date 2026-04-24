@@ -1,285 +1,29 @@
 name: Build & Deploy to EC2
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Triggers on every push to main.
+# Triggers on every push to main and manual dispatch.
 #
-# Jobs (all run in parallel where possible):
-#   build-android    — builds Android APK on ubuntu-latest
-#   build-ios        — builds iOS IPA  on macos-latest
-#   build-agent      — builds Windows .exe on windows-latest
-#   build-and-deploy — builds web, runs tests, deploys to EC2,
-#                      pushes APK to /downloads/, creates OTA bundle,
-#                      bumps manifest.json → native-app users see update prompt
+# Jobs:
+#   build-agent      — always builds Windows Desktop Agent .exe
+#   build-and-deploy — typecheck, test, build frontend+backend, deploy to EC2
 #
-# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+# Android APK and iOS IPA are NOT built here on every push.
+# Build them manually via workflow_dispatch on the mobile-builds.yml workflow
+# (or trigger from GitHub Actions tab) only when you need a new release.
 #
-#   EC2_HOST / EC2_USER / EC2_SSH_KEY   — existing deploy secrets
-#
-#   ── Android signing (optional — debug APK built if missing) ──────────────
-#   ANDROID_KEYSTORE_BASE64    base64 of your .jks keystore file
-#   ANDROID_KEYSTORE_PASSWORD  keystore password
-#   ANDROID_KEY_ALIAS          key alias (e.g. "aniston")
-#   ANDROID_KEY_PASSWORD       key password
-#
-#   ── iOS signing (optional — job skips if missing) ──────────────────────
-#   APPLE_CERTIFICATE          base64 of .p12 distribution certificate
-#   APPLE_CERTIFICATE_PASSWORD .p12 export password
-#   APPLE_PROVISIONING_PROFILE base64 of .mobileprovision Ad Hoc profile
-#   APPLE_TEAM_ID              10-char Apple Developer Team ID
+# Required GitHub Secrets:
+#   EC2_HOST / EC2_USER / EC2_SSH_KEY
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
   push:
     branches: [main]
-  # Bug #1: Allow manual build trigger — useful for re-deploying the agent
-  # exe without a code change (e.g. after updating EC2 secrets or API URL)
   workflow_dispatch:
 
 jobs:
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  # JOB 1 — Android APK
-  # Builds a signed release APK when keystore secrets are present,
-  # or an unsigned debug APK as fallback (still installable on Android).
-  # Output: artifact "aniston-hrms-apk" → aniston-hrms.apk
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  build-android:
-    name: Build Android APK
-    runs-on: ubuntu-latest
-    continue-on-error: true   # failure never blocks EC2 deployment
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: temurin
-          # cache: gradle omitted — android/ folder is generated at runtime (npx cap add android)
-          # Gradle cache requires gradle files in the repo; re-enable after committing android/ folder
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build frontend (Vite)
-        run: cd frontend && VITE_API_URL=/api npx vite build
-
-      - name: Install Capacitor Android platform locally
-        working-directory: frontend
-        run: npm install @capacitor/android @capacitor/cli
-
-      - name: Initialise Android platform if not present
-        working-directory: frontend
-        run: |
-          if [ ! -d "android" ]; then
-            npx cap add android
-            echo "ℹ️  android/ initialised — commit this folder to speed up future builds"
-          else
-            echo "✅ android/ already exists"
-          fi
-
-      - name: Sync Capacitor (copy web assets → android/app/src/main/assets)
-        working-directory: frontend
-        run: npx cap sync android
-
-      - name: Patch Android compileSdk 35 + AGP 8.7.3 + Gradle 8.9
-        working-directory: frontend/android
-        run: |
-          # Capacitor stores SDK versions in variables.gradle (not app/build.gradle)
-          sed -i 's/compileSdkVersion = 34/compileSdkVersion = 35/g' variables.gradle || true
-          # play-services-tasks:18.4.1 (via capgo) requires minSdk >= 23; bump from 22
-          sed -i 's/minSdkVersion = 22/minSdkVersion = 23/g' variables.gradle || true
-          # Also patch app/build.gradle in case the project uses inline values
-          sed -i 's/compileSdkVersion 34/compileSdkVersion 35/g' app/build.gradle || true
-          sed -i 's/compileSdk = 34/compileSdk = 35/g' app/build.gradle || true
-          sed -i 's/compileSdk 34/compileSdk 35/g' app/build.gradle || true
-          # Bump AGP to 8.7.3 — AGP 8.3.x max compileSdk is 34, 8.7.x supports 35
-          sed -i 's/com.android.tools.build:gradle:[0-9.]*/com.android.tools.build:gradle:8.7.3/g' build.gradle || true
-          # Bump Gradle wrapper to 8.9 — required by AGP 8.7.x (minimum Gradle is 8.9)
-          sed -i 's/gradle-[0-9.]*-all/gradle-8.9-all/g' gradle/wrapper/gradle-wrapper.properties || true
-          sed -i 's/gradle-[0-9.]*-bin/gradle-8.9-bin/g' gradle/wrapper/gradle-wrapper.properties || true
-          echo "✅ Patched — verifying:"
-          grep -E "compileSdkVersion|minSdkVersion" variables.gradle 2>/dev/null || true
-          grep -E "compileSdk" app/build.gradle 2>/dev/null || true
-          grep "com.android.tools.build" build.gradle 2>/dev/null || true
-          grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties 2>/dev/null || true
-
-      # ── Signed release (runs only when keystore secrets are set) ──────────
-      - name: Decode keystore
-        id: keystore
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: |
-          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > frontend/android/app/aniston.jks
-            echo "signed=true" >> $GITHUB_OUTPUT
-            echo "✅ Keystore decoded — building signed release APK"
-          else
-            echo "signed=false" >> $GITHUB_OUTPUT
-            echo "ℹ️  No ANDROID_KEYSTORE_BASE64 secret — building debug APK"
-          fi
-
-      - name: Build SIGNED release APK
-        if: steps.keystore.outputs.signed == 'true'
-        working-directory: frontend/android
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file=$(pwd)/app/aniston.jks \
-            -Pandroid.injected.signing.store.password="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
-            -Pandroid.injected.signing.key.alias="${{ secrets.ANDROID_KEY_ALIAS }}" \
-            -Pandroid.injected.signing.key.password="${{ secrets.ANDROID_KEY_PASSWORD }}"
-          cp app/build/outputs/apk/release/app-release.apk aniston-hrms.apk
-          echo "✅ Signed release APK built: $(du -sh aniston-hrms.apk)"
-
-      - name: Build DEBUG APK (fallback — no keystore)
-        if: steps.keystore.outputs.signed != 'true'
-        working-directory: frontend/android
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk aniston-hrms.apk
-          echo "✅ Debug APK built: $(du -sh aniston-hrms.apk)"
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: aniston-hrms-apk
-          path: frontend/android/aniston-hrms.apk
-          retention-days: 90
-          if-no-files-found: warn
-
-
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  # JOB 2 — iOS IPA  (macOS runner required by Apple toolchain)
-  # Builds an Ad Hoc IPA for TestFlight / internal distribution.
-  # Requires APPLE_* secrets — job silently fails if they are not configured.
-  # Output: artifact "aniston-hrms-ipa" → AnistonHRMS.ipa
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  build-ios:
-    name: Build iOS IPA
-    runs-on: macos-latest
-    continue-on-error: true   # failure never blocks EC2 deployment
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build frontend (Vite)
-        run: cd frontend && VITE_API_URL=/api npx vite build
-
-      - name: Install Capacitor iOS platform locally
-        working-directory: frontend
-        run: npm install @capacitor/ios @capacitor/cli
-
-      - name: Initialise iOS platform if not present
-        working-directory: frontend
-        run: |
-          if [ ! -d "ios" ]; then
-            npx cap add ios
-            echo "ℹ️  ios/ initialised — commit this folder to speed up future builds"
-          else
-            echo "✅ ios/ already exists"
-          fi
-
-      - name: Sync Capacitor (copy web assets → iOS)
-        working-directory: frontend
-        run: npx cap sync ios
-
-      # ── Abort early if Apple secrets are not configured ───────────────────
-      - name: Check Apple secrets are present
-        id: apple_check
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_TEAM_ID" ]; then
-            echo "⚠️  APPLE_CERTIFICATE or APPLE_TEAM_ID secret not set — skipping iOS signing"
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Install Apple distribution certificate
-        if: steps.apple_check.outputs.skip != 'true'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          KEYCHAIN=$RUNNER_TEMP/aniston.keychain-db
-          security create-keychain -p "ci-temp" $KEYCHAIN
-          security set-keychain-settings -lut 21600 $KEYCHAIN
-          security unlock-keychain -p "ci-temp" $KEYCHAIN
-          echo "$APPLE_CERTIFICATE" | base64 -d > $RUNNER_TEMP/dist.p12
-          security import $RUNNER_TEMP/dist.p12 \
-            -P "$APPLE_CERTIFICATE_PASSWORD" \
-            -A -t cert -f pkcs12 -k $KEYCHAIN
-          security list-keychain -d user -s $KEYCHAIN
-
-      - name: Install provisioning profile
-        if: steps.apple_check.outputs.skip != 'true'
-        env:
-          APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
-        run: |
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "$APPLE_PROVISIONING_PROFILE" | base64 -d \
-            > ~/Library/MobileDevice/Provisioning\ Profiles/aniston.mobileprovision
-
-      - name: Build & archive Xcode project
-        if: steps.apple_check.outputs.skip != 'true'
-        working-directory: frontend/ios/App
-        run: |
-          xcodebuild archive \
-            -scheme App \
-            -configuration Release \
-            -archivePath $RUNNER_TEMP/AnistonHRMS.xcarchive \
-            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
-            CODE_SIGN_STYLE=Manual \
-            -allowProvisioningUpdates \
-            -quiet
-
-      - name: Export IPA (Ad Hoc)
-        if: steps.apple_check.outputs.skip != 'true'
-        run: |
-          cat > $RUNNER_TEMP/ExportOptions.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>method</key><string>ad-hoc</string>
-            <key>teamID</key><string>${{ secrets.APPLE_TEAM_ID }}</string>
-            <key>stripSwiftSymbols</key><true/>
-            <key>compileBitcode</key><false/>
-          </dict></plist>
-          EOF
-          xcodebuild -exportArchive \
-            -archivePath $RUNNER_TEMP/AnistonHRMS.xcarchive \
-            -exportPath $RUNNER_TEMP/ipa \
-            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist
-
-      - name: Upload IPA artifact
-        if: steps.apple_check.outputs.skip != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: aniston-hrms-ipa
-          path: ${{ runner.temp }}/ipa/*.ipa
-          retention-days: 90
-          if-no-files-found: warn
-
-
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  # JOB 3 — Windows Desktop Agent (.exe)  [unchanged]
+  # JOB 1 — Windows Desktop Agent (.exe) — always builds on every push
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   build-agent:
     name: Build Desktop Agent (.exe)
@@ -322,20 +66,16 @@ jobs:
 
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  # JOB 4 — Build web, run tests, deploy to EC2
-  #
-  # What's new vs the old deploy:
-  #   • Downloads Android APK artifact → SCPs it to EC2 /downloads/
-  #   • Downloads iOS IPA artifact     → SCPs it to EC2 /uploads/ios-builds/
-  #   • SSH step creates a versioned OTA bundle zip from frontend/dist/
-  #     and updates app-updates/manifest.json
-  #   → Existing native-app users see the "Update Now" screen on next launch
+  # JOB 2 — Build web, run tests, deploy to EC2
+  #   • Typecheck + backend tests before deploy
+  #   • Creates OTA bundle zip + bumps manifest.json for native-app updates
+  #   • Uploads Desktop Agent .exe to EC2 if build-agent succeeded
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   build-and-deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
-    needs: [build-android, build-ios, build-agent]
-    if: always()   # deploy even when native build jobs fail/skip
+    needs: [build-agent]
+    if: always()   # deploy even if build-agent fails
 
     services:
       postgres:
@@ -406,22 +146,6 @@ jobs:
           name: aniston-agent-setup
           path: ./agent-build
 
-      - name: Download Android APK artifact
-        if: needs.build-android.result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          name: aniston-hrms-apk
-          path: ./apk-build
-        continue-on-error: true
-
-      - name: Download iOS IPA artifact
-        if: needs.build-ios.result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          name: aniston-hrms-ipa
-          path: ./ipa-build
-        continue-on-error: true
-
       # ── SCP: push binaries to EC2 ────────────────────────────────────────
 
       # Create agent download directory BEFORE SCP so the target path exists
@@ -445,30 +169,6 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           source: ./agent-build/aniston-agent-setup.exe
           target: /home/ubuntu/Aniston-HRMS/downloads/agent/
-          strip_components: 1
-        continue-on-error: true
-
-      - name: Upload Android APK to EC2 /downloads/
-        if: needs.build-android.result == 'success'
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: ./apk-build/aniston-hrms.apk
-          target: /home/ubuntu/Aniston-HRMS/downloads/
-          strip_components: 2
-        continue-on-error: true
-
-      - name: Upload iOS IPA to EC2 /uploads/ios-builds/
-        if: needs.build-ios.result == 'success'
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: ./ipa-build/*.ipa
-          target: /home/ubuntu/Aniston-HRMS/uploads/ios-builds/
           strip_components: 1
         continue-on-error: true
 
@@ -567,6 +267,10 @@ jobs:
             echo "=== [5.95/17] Pre-migration: add attendance policy columns to Shift table ==="
             echo "QUxURVIgVEFCTEUgIlNoaWZ0IiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgImxhdGVHcmFjZU1pbnV0ZXMiIElOVEVHRVIgTk9UIE5VTEwgREVGQVVMVCAxNTsKQUxURVIgVEFCTEUgIlNoaWZ0IiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgImxhdGVIYWxmRGF5QWZ0ZXJNaW5zIiBJTlRFR0VSIE5PVCBOVUxMIERFRkFVTFQgMTIwOwpBTFRFUiBUQUJMRSAiU2hpZnQiIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAibGF0ZVBlbmFsdHlFbmFibGVkIiBCT09MRUFOIE5PVCBOVUxMIERFRkFVTFQgZmFsc2U7CkFMVEVSIFRBQkxFICJTaGlmdCIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJsYXRlUGVuYWx0eVBlckNvdW50IiBJTlRFR0VSIE5PVCBOVUxMIERFRkFVTFQgMzsKQUxURVIgVEFCTEUgIlNoaWZ0IiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgIndlZWtPZmZEYXlzIiBJTlRFR0VSW10gTk9UIE5VTEwgREVGQVVMVCBBUlJBWVswXTo6SU5URUdFUltdOwpBTFRFUiBUQUJMRSAiU2hpZnQiIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAib3RFbmFibGVkIiBCT09MRUFOIE5PVCBOVUxMIERFRkFVTFQgZmFsc2U7CkFMVEVSIFRBQkxFICJTaGlmdCIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJvdFRocmVzaG9sZE1pbnV0ZXMiIElOVEVHRVIgTk9UIE5VTEwgREVGQVVMVCAzMDsKQUxURVIgVEFCTEUgIlNoaWZ0IiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgIm90UmF0ZU11bHRpcGxpZXIiIERFQ0lNQUwoMywyKSBOT1QgTlVMTCBERUZBVUxUIDEuNTsKQUxURVIgVEFCTEUgIlNoaWZ0IiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgIm90TWF4SG91cnNQZXJEYXkiIERFQ0lNQUwoNCwyKSBOT1QgTlVMTCBERUZBVUxUIDQuMDsKQUxURVIgVEFCTEUgIlNoaWZ0IiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgImNvbXBPZmZFbmFibGVkIiBCT09MRUFOIE5PVCBOVUxMIERFRkFVTFQgZmFsc2U7CkFMVEVSIFRBQkxFICJTaGlmdCIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJjb21wT2ZmTWluT1RIb3VycyIgREVDSU1BTCg0LDIpIE5PVCBOVUxMIERFRkFVTFQgNC4wOwpBTFRFUiBUQUJMRSAiU2hpZnQiIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAiY29tcE9mZkV4cGlyeURheXMiIElOVEVHRVIgTk9UIE5VTEwgREVGQVVMVCAzMDsKQUxURVIgVEFCTEUgIlNoaWZ0IiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgInN1bmRheVdvcmtFbmFibGVkIiBCT09MRUFOIE5PVCBOVUxMIERFRkFVTFQgZmFsc2U7CkFMVEVSIFRBQkxFICJTaGlmdCIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJzdW5kYXlQYXlNdWx0aXBsaWVyIiBERUNJTUFMKDMsMikgTk9UIE5VTEwgREVGQVVMVCAyLjA7Cg==" | base64 -d > /tmp/fix_shift_policy_cols.sql
             npx --no-install prisma db execute --schema prisma/schema.prisma --file /tmp/fix_shift_policy_cols.sql && echo "✅ Shift policy columns ensured" || echo "Note: Shift table may not exist yet (safe to ignore)"
+
+            echo "=== [5.97/17] Pre-migration: add epfEnabled to Employee table ==="
+            echo 'ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS "epfEnabled" BOOLEAN NOT NULL DEFAULT false;' > /tmp/fix_epf_enabled.sql
+            npx --no-install prisma db execute --schema prisma/schema.prisma --file /tmp/fix_epf_enabled.sql && echo "✅ epfEnabled column ensured on Employee" || echo "Note: Employee table may not exist yet (safe to ignore)"
 
             echo "=== [6/17] Syncing database schema ==="
             npx --no-install prisma db push --accept-data-loss || {

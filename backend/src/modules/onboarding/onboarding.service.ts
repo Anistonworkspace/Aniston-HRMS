@@ -399,6 +399,8 @@ export class OnboardingService {
       ifscCode: employee.ifscCode || '',
       accountHolderName: employee.accountHolderName || '',
       accountType: employee.accountType || 'SAVINGS',
+      epfMemberId: employee.epfMemberId || '',
+      epfEnabled: (employee as any).epfEnabled ?? false,
       onboardingComplete: employee.onboardingComplete,
       kycStatus: gate?.kycStatus ?? 'PENDING',
       // Re-upload context — populated when kycStatus=REUPLOAD_REQUIRED
@@ -491,6 +493,10 @@ export class OnboardingService {
           ifscCode: stepData.ifscCode,
           accountHolderName: stepData.accountHolderName,
           accountType: stepData.accountType || 'SAVINGS',
+          // EPF — employee opts in by providing their UAN/member ID from a previous employer
+          // If not provided, epfEnabled stays false → no EPF deducted in payroll
+          epfMemberId: stepData.epfMemberId || null,
+          epfEnabled: !!stepData.epfMemberId,
         },
       });
     }
