@@ -205,8 +205,10 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Profile Completion */}
-      <ProfileCompletionBar collapsed={collapsed} />
+      {/* Profile Completion — hidden for system admin roles */}
+      {user?.role && !['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user.role) && (
+        <ProfileCompletionBar collapsed={collapsed} />
+      )}
 
       {/* Logout + Collapse */}
       <div className="px-2 py-3 border-t border-gray-100 space-y-1">

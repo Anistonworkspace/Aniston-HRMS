@@ -63,6 +63,18 @@ export class AttendanceService {
       throw new BadRequestError('Your account is inactive. Contact HR to reactivate.');
     }
 
+    // Block attendance before joining date
+    if (employee.joiningDate) {
+      const joiningMidnight = new Date(employee.joiningDate);
+      joiningMidnight.setHours(0, 0, 0, 0);
+      const todayMidnight = getISTToday();
+      if (todayMidnight < joiningMidnight) {
+        throw new BadRequestError(
+          `Attendance cannot be marked before your joining date (${joiningMidnight.toLocaleDateString('en-IN')}). Contact HR if your joining date is incorrect.`
+        );
+      }
+    }
+
     // Mobile-only attendance enforcement (HR manual mark and PWA bypass this)
     // PWA installed on phone reports deviceType='mobile' but also accept isPwa=true
     // as the installed PWA app is a valid attendance source on mobile devices
@@ -120,12 +132,14 @@ export class AttendanceService {
       orderBy: { startDate: 'desc' },
     });
     let shift = shiftAssignment?.shift;
+    let usingDefaultShift = false;
     if (!shift) {
       const defaultShift = await prisma.shift.findFirst({
         where: { organizationId, isDefault: true, isActive: true },
       });
       if (defaultShift) {
         shift = defaultShift;
+        usingDefaultShift = true;
       } else if (!shiftAssignment) {
         throw new BadRequestError('No shift assigned. Please contact HR to assign a shift before clocking in.');
       }
@@ -438,7 +452,7 @@ export class AttendanceService {
       });
     } catch { /* non-blocking */ }
 
-    return { ...record, isLate, lateMinutes, shift: shiftInfo, isReClockIn, geofenceViolation };
+    return { ...record, isLate, lateMinutes, shift: shiftInfo, isReClockIn, geofenceViolation, usingDefaultShift };
   }
 
   /**
@@ -565,9 +579,15 @@ export class AttendanceService {
           }
         }
       } else {
-        // No shift configured — fall back to org policy fullDayMinHours or 18:30
+        // No shift assigned — use org default shift, then fall back to org policy
         const coPolicy = await prisma.attendancePolicy.findUnique({ where: { organizationId: orgId } });
-        const defaultEndMinutes = 18 * 60 + 30; // 18:30 IST fallback
+        const orgDefaultShift = await prisma.shift.findFirst({ where: { organizationId: orgId, isDefault: true, isActive: true } });
+        const fallbackEndTime = orgDefaultShift?.endTime ?? '18:30';
+        const fallbackStartTime = orgDefaultShift?.startTime ?? '09:00';
+        const fallbackHalfDayHours = Number(orgDefaultShift?.halfDayHours ?? coPolicy?.halfDayMinHours ?? 4);
+        const [fallbackEndH, fallbackEndM] = fallbackEndTime.split(':').map(Number);
+        const [fallbackStartH, fallbackStartM] = fallbackStartTime.split(':').map(Number);
+        const defaultEndMinutes = fallbackEndH * 60 + fallbackEndM;
         if (!halfDayLeave && currentISTMinutes < defaultEndMinutes) {
           throw new BadRequestError(
             `You cannot check out before ${fmt12h(defaultEndMinutes)}. ` +
@@ -575,8 +595,7 @@ export class AttendanceService {
           );
         }
         if (halfDayLeave) {
-          const fullDayHours = Number(coPolicy?.fullDayMinHours ?? 8);
-          const halfDayMinMinutes = 9 * 60 + Math.round((fullDayHours / 2) * 60); // 09:00 default start
+          const halfDayMinMinutes = fallbackStartH * 60 + fallbackStartM + Math.round(fallbackHalfDayHours * 60);
           if (currentISTMinutes < halfDayMinMinutes) {
             throw new BadRequestError(
               `Half-day checkout not allowed before ${fmt12h(halfDayMinMinutes)}. ` +
@@ -1837,6 +1856,17 @@ export class AttendanceService {
 
     const date = new Date(data.date);
     date.setHours(0, 0, 0, 0);
+
+    // Block HR from marking attendance before the employee's joining date
+    if (employee.joiningDate) {
+      const joiningMidnight = new Date(employee.joiningDate);
+      joiningMidnight.setHours(0, 0, 0, 0);
+      if (date < joiningMidnight) {
+        throw new BadRequestError(
+          `Cannot mark attendance before joining date (${joiningMidnight.toLocaleDateString('en-IN')}). Update the employee's joining date first if needed.`
+        );
+      }
+    }
 
     const manualMarkNote = `Manual attendance mark by HR/Admin (userId: ${markedBy}) via HR_PANEL`;
     const record = await prisma.attendanceRecord.upsert({

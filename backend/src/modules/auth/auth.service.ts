@@ -271,6 +271,67 @@ export class AuthService {
     return { message: 'Password reset successfully' };
   }
 
+  async adminResetPassword(
+    targetUserId: string,
+    caller: { id: string; role: string; organizationId: string }
+  ) {
+    const [target, callerUser] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: targetUserId },
+        include: { employee: { select: { firstName: true, lastName: true } } },
+      }),
+      prisma.user.findUnique({
+        where: { id: caller.id },
+        include: { employee: { select: { firstName: true } } },
+      }),
+    ]);
+
+    if (!target) throw new NotFoundError('User');
+
+    // Multi-tenant guard: HR/Admin can only reset users in their own org
+    if (caller.role !== 'SUPER_ADMIN' && target.organizationId !== caller.organizationId) {
+      throw new NotFoundError('User');
+    }
+
+    // Role hierarchy: HR can only reset EMPLOYEE / INTERN / GUEST_INTERVIEWER / MANAGER
+    // Admin can reset anyone except SUPER_ADMIN
+    const PROTECTED_BY_HR = ['SUPER_ADMIN', 'ADMIN', 'HR'];
+    const PROTECTED_BY_ADMIN = ['SUPER_ADMIN'];
+    if (caller.role === 'HR' && PROTECTED_BY_HR.includes(target.role)) {
+      throw new BadRequestError('HR cannot reset passwords for Admin or Super Admin accounts');
+    }
+    if (caller.role === 'ADMIN' && PROTECTED_BY_ADMIN.includes(target.role)) {
+      throw new BadRequestError('Admin cannot reset Super Admin passwords');
+    }
+    // Prevent self-reset via this endpoint (use changePassword instead)
+    if (target.id === caller.id) {
+      throw new BadRequestError('Use the change password option to update your own password');
+    }
+
+    const resetToken = randomBytes(32).toString('hex');
+    // 24-hour window — longer than self-service since employee may not check email immediately
+    await redis.setex(`${RESET_TOKEN_PREFIX}${resetToken}`, 86400, target.id);
+
+    const resetUrl = `${env.FRONTEND_URL}/reset-password/${resetToken}`;
+    const employeeName = target.employee
+      ? `${target.employee.firstName} ${target.employee.lastName}`.trim()
+      : target.email.split('@')[0];
+    const initiatorName = callerUser?.employee?.firstName || caller.role;
+
+    await enqueueEmail({
+      to: target.email,
+      subject: 'Your Aniston HRMS Password Has Been Reset',
+      template: 'admin-password-reset',
+      context: {
+        name: employeeName,
+        initiatorName,
+        link: resetUrl,
+      },
+    }).catch((err) => logger.error(`[Auth] Failed to enqueue admin password reset email for ${target.email}:`, err));
+
+    return { message: `Password reset link sent to ${target.email}` };
+  }
+
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {

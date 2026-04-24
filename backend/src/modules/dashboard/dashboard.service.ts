@@ -426,36 +426,39 @@ export class DashboardService {
     const notCheckedIn = Math.max(activeCount - totalCheckedIn - onLeaveCount, 0);
 
     // Late arrivals — employees who checked in after shift grace period
-    const lateRecords = await prisma.attendanceRecord.findMany({
-      where: {
-        date: today,
-        status: { in: ['PRESENT', 'WORK_FROM_HOME'] },
-        checkIn: { not: null },
-        employee: { organizationId },
-      },
-      include: {
-        employee: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            shiftAssignments: {
-              where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
-              select: { shift: { select: { startTime: true, graceMinutes: true } } },
-              take: 1,
+    const [lateRecords, defaultOrgShift] = await Promise.all([
+      prisma.attendanceRecord.findMany({
+        where: {
+          date: today,
+          status: { in: ['PRESENT', 'WORK_FROM_HOME'] },
+          checkIn: { not: null },
+          employee: { organizationId },
+        },
+        include: {
+          employee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              shiftAssignments: {
+                where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+                select: { shift: { select: { startTime: true, graceMinutes: true, lateGraceMinutes: true } } },
+                take: 1,
+              },
             },
           },
         },
-      },
-    });
+      }),
+      prisma.shift.findFirst({ where: { organizationId, isDefault: true, isActive: true }, select: { startTime: true, graceMinutes: true, lateGraceMinutes: true } }),
+    ]);
 
     let lateCount = 0;
     const lateEmployees: { employeeId: string; employeeName: string }[] = [];
     for (const rec of lateRecords) {
       if (!rec.checkIn) continue;
       const shift = rec.employee.shiftAssignments[0]?.shift;
-      const startTime = shift?.startTime || '09:00';
-      const grace = shift?.graceMinutes || 15;
+      const startTime = shift?.startTime || defaultOrgShift?.startTime || '09:00';
+      const grace = shift?.lateGraceMinutes || shift?.graceMinutes || defaultOrgShift?.lateGraceMinutes || defaultOrgShift?.graceMinutes || 15;
       const [sh, sm] = startTime.split(':').map(Number);
       const deadline = new Date(today);
       deadline.setHours(sh, sm + grace, 0, 0);

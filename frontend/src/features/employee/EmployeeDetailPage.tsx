@@ -361,7 +361,6 @@ export default function EmployeeDetailPage() {
                     <InfoRow label="Office" value={employee.officeLocation?.name || '—'} />
                     <InfoRow label="Current Shift" value={employee.currentShift ? `${employee.currentShift.name} (${employee.currentShift.startTime}–${employee.currentShift.endTime})` : 'No shift assigned'} />
                     <InfoRow label="Joining Date" value={formatDate(employee.joiningDate, 'long')} />
-                    <InfoRow label="Onboarding Date" value={(employee as any).onboardingDate ? formatDate((employee as any).onboardingDate, 'long') : '—'} />
                     <InfoRow label="Status" value={employee.status?.replace(/_/g, ' ')} />
                     {isManagement && employee.ctc && <InfoRow label="CTC" value={formatCurrency(Number(employee.ctc))} mono />}
                   </dl>
@@ -698,7 +697,6 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
     employmentType: (employee.employmentType as string) || 'FULL_TIME',
     experienceLevel: (employee.experienceLevel as string) || '',
     joiningDate: employee.joiningDate ? employee.joiningDate.split('T')[0] : '',
-    onboardingDate: employee.onboardingDate ? employee.onboardingDate.split('T')[0] : '',
     status: employee.status || 'ONBOARDING',
     ctc: employee.ctc ? Number(employee.ctc) : '',
     departmentId: employee.department?.id || '',
@@ -949,8 +947,6 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
               </select></div>
             <div><label className="block text-xs text-gray-500 mb-1">Joining Date <span className="text-gray-400 font-normal">(Contractual)</span></label>
               <input type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} className="input-glass w-full text-sm" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Onboarding Date <span className="text-gray-400 font-normal">(HRMS — used for payroll)</span></label>
-              <input type="date" value={form.onboardingDate} onChange={(e) => setForm({ ...form, onboardingDate: e.target.value })} className="input-glass w-full text-sm" /></div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Status</label>

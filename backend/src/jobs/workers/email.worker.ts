@@ -243,6 +243,20 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     standardFooter('Aniston Technologies', ctx.link)
   ),
 
+  'admin-password-reset': (ctx) => emailLayout(
+    '#DC2626', 'K', 'Password Reset Required', 'Action required for your Aniston HRMS account',
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hi <strong>${esc(ctx.name)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 8px;">Your password has been reset by <strong>${esc(ctx.initiatorName)}</strong> from the HR/Admin team.</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">Please click the button below to set a new password and regain access to your account:</p>
+    ${ctaButton(ctx.link, 'Set New Password', '#DC2626')}
+    <div style="background:#FEF2F2;border:1px solid #FECACA;padding:14px 16px;margin:20px 0 0;">
+      <p style="color:#991B1B;font-size:13px;margin:0;line-height:1.5;">
+        <strong>Security notice:</strong> This link expires in 24 hours. If you did not expect this reset or believe it was done in error, please contact your HR team immediately.
+      </p>
+    </div>`,
+    standardFooter('Aniston Technologies', ctx.link)
+  ),
+
   'resignation-submitted': (ctx) => emailLayout(
     '#DC2626', '!', 'Resignation Notice', 'Employee resignation submitted',
     `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;"><strong>${esc(ctx.name)}</strong> (${esc(ctx.employeeCode)}) has submitted their resignation.</p>

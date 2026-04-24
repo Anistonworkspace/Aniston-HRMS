@@ -4,12 +4,13 @@ import {
   Users, TrendingDown, IndianRupee, Briefcase, UserPlus,
   AlertTriangle, Building2, Cake, UserCheck, UserX,
   Clock, CalendarOff, Home, ShieldAlert, FileCheck,
-  Ticket, ChevronRight, Settings,
+  Ticket, ChevronRight, CalendarDays,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAppSelector } from '../../app/store';
 import { useGetSuperAdminStatsQuery, useGetHRStatsQuery } from './dashboardApi';
+import { useGetHolidaysQuery } from '../leaves/leaveApi';
 import { formatCurrency } from '../../lib/utils';
 import {
   KPICard, AlertBanner, DashboardSection, StatusCard,
@@ -38,15 +39,19 @@ function AdminDashboard() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const user = useAppSelector((s) => s.auth.user);
+  const role = user?.role || '';
+  const isHR = role === 'HR';
   const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
 
   // Fetch BOTH data sources in parallel
   const { data: saResponse, isLoading: saLoading, isError: saError } = useGetSuperAdminStatsQuery(undefined, {
     pollingInterval: 300000,
+    skip: isHR,
   });
   const { data: hrResponse, isLoading: hrLoading, isError: hrError } = useGetHRStatsQuery(undefined, {
     pollingInterval: 60000,
   });
+  const { data: holidaysRes } = useGetHolidaysQuery({});
 
   const saStats = saResponse?.data;
   const hrStats = hrResponse?.data;
@@ -100,6 +105,14 @@ function AdminDashboard() {
     return pa.leaveRequests + pa.regularizations + pa.helpdeskTickets + pa.documentsToVerify + pa.pendingOnboarding;
   }, [hrStats]);
 
+  const upcomingHolidays = useMemo(() =>
+    (holidaysRes?.data || [])
+      .filter((h: { date: string }) => new Date(h.date) >= new Date())
+      .sort((a: { date: string }, b: { date: string }) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .slice(0, 5),
+    [holidaysRes]
+  );
+
   // ─── Quick Actions ────────────────────────────────────────────
   const QUICK_ACTIONS = [
     { label: t('leaves.approvals'), path: '/pending-approvals', icon: '✅' },
@@ -113,10 +126,10 @@ function AdminDashboard() {
   ];
 
   // ─── LOADING ──────────────────────────────────────────────────
-  if (saLoading && hrLoading) return <SkeletonLoader variant="full-page" />;
+  if ((isHR ? false : saLoading) && hrLoading) return <SkeletonLoader variant="full-page" />;
 
   // ─── ERROR (both failed) ──────────────────────────────────────
-  if ((saError || !saStats) && (hrError || !hrStats)) {
+  if ((isHR ? false : (saError || !saStats)) && (hrError || !hrStats)) {
     return (
       <div className="page-container">
         <div className="layer-card p-12 text-center">
@@ -145,8 +158,8 @@ function AdminDashboard() {
         </p>
       </motion.div>
 
-      {/* ═══ KPI GRID (SuperAdmin) ═══════════════════════════════ */}
-      {saStats && (
+      {/* ═══ KPI GRID (Admin / Super Admin only) ════════════════ */}
+      {!isHR && saStats && (
         <motion.div variants={container} initial="hidden" animate="show" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
           {kpis.map((kpi) => (
             <KPICard key={kpi.label} {...kpi} />
@@ -154,8 +167,8 @@ function AdminDashboard() {
         </motion.div>
       )}
 
-      {/* ═══ ALERTS (SuperAdmin) ═════════════════════════════════ */}
-      {saStats && <AlertBanner alerts={saStats.alerts} />}
+      {/* ═══ ALERTS (Admin / Super Admin only) ══════════════════ */}
+      {!isHR && saStats && <AlertBanner alerts={saStats.alerts} />}
 
       {/* ═══ TODAY'S ATTENDANCE STATUS (HR) ══════════════════════ */}
       {hrStats && att && (
@@ -188,8 +201,8 @@ function AdminDashboard() {
         </motion.div>
       )}
 
-      {/* ═══ TREND CHARTS (SuperAdmin) ═══════════════════════════ */}
-      {saStats && (
+      {/* ═══ TREND CHARTS (Admin / Super Admin only) ════════════ */}
+      {!isHR && saStats && (
         <Suspense fallback={
           <div className="grid lg:grid-cols-3 gap-4 mb-6">
             {[1,2,3].map(i => (
@@ -208,9 +221,9 @@ function AdminDashboard() {
         </Suspense>
       )}
 
-      {/* ═══ ACTION CENTER + ATTENTION REQUIRED (HR) ════════════ */}
+      {/* ═══ ACTION CENTER + ATTENTION REQUIRED + UPCOMING HOLIDAYS (All roles) ═ */}
       {hrStats && (
-        <motion.div variants={container} initial="hidden" animate="show" className="grid md:grid-cols-2 gap-4 mb-6">
+        <motion.div variants={container} initial="hidden" animate="show" className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           {/* ACTION CENTER */}
           <DashboardSection
             title="Action Center"
@@ -261,23 +274,54 @@ function AdminDashboard() {
               </div>
             )}
           </DashboardSection>
+
+          {/* UPCOMING HOLIDAYS */}
+          <DashboardSection title="Upcoming Holidays" icon={CalendarDays} iconColor="text-indigo-500">
+            {upcomingHolidays.length > 0 ? (
+              <div className="space-y-2">
+                {upcomingHolidays.map((h: { id: string; name: string; date: string }) => {
+                  const d = new Date(h.date);
+                  const daysLeft = Math.ceil((d.getTime() - new Date().setHours(0,0,0,0)) / 86400000);
+                  return (
+                    <div key={h.id} className="flex items-center justify-between py-2 px-3 bg-surface-2 rounded-lg">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{h.name}</p>
+                        <p className="text-xs text-gray-400 font-mono" data-mono>
+                          {d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' })}
+                        </p>
+                      </div>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ml-2 shrink-0 ${
+                        daysLeft <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-indigo-50 text-indigo-600'
+                      }`}>
+                        {daysLeft === 0 ? 'Today' : daysLeft === 1 ? 'Tomorrow' : `${daysLeft}d`}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <CalendarDays size={28} className="text-gray-200 mx-auto mb-2" />
+                <p className="text-sm text-gray-400">No upcoming holidays</p>
+              </div>
+            )}
+          </DashboardSection>
         </motion.div>
       )}
 
-      {/* ═══ LIVE ATTENDANCE + DEPARTMENT HEADCOUNT ══════════════ */}
-      <div className="grid md:grid-cols-2 gap-4 mb-6">
-        {/* Live Attendance Widget */}
-        <Suspense fallback={<div className="layer-card p-6 h-48 animate-pulse"><div className="h-5 bg-gray-200 rounded w-32 mb-4" /></div>}>
-          <LiveAttendanceWidget />
-        </Suspense>
-
-        {/* Department Breakdown */}
-        {saStats && (
-          <DashboardSection title="Department Headcount" icon={Building2} iconColor="text-indigo-500">
-            <DepartmentBreakdown departments={saStats.departmentBreakdown} total={saStats.totalEmployees} />
-          </DashboardSection>
-        )}
-      </div>
+      {/* ═══ LIVE ATTENDANCE + DEPARTMENT HEADCOUNT (Admin / Super Admin only) ═ */}
+      {!isHR && (
+        <div className="grid md:grid-cols-2 gap-4 mb-6">
+          <Suspense fallback={<div className="layer-card p-6 h-48 animate-pulse"><div className="h-5 bg-gray-200 rounded w-32 mb-4" /></div>}>
+            <LiveAttendanceWidget />
+          </Suspense>
+          {saStats && (
+            <DashboardSection title="Department Headcount" icon={Building2} iconColor="text-indigo-500">
+              <DepartmentBreakdown departments={saStats.departmentBreakdown} total={saStats.totalEmployees} />
+            </DashboardSection>
+          )}
+        </div>
+      )}
 
       {/* ═══ ON LEAVE + RECENT HIRES/EXITS + BIRTHDAYS ══════════ */}
       <motion.div variants={container} initial="hidden" animate="show" className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
@@ -337,16 +381,18 @@ function AdminDashboard() {
         </DashboardSection>
       </motion.div>
 
-      {/* ═══ QUICK ACTIONS ═══════════════════════════════════════ */}
-      <motion.div
-        variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
-        initial="hidden"
-        animate="show"
-        className="layer-card p-5"
-      >
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
-        <QuickActionGrid actions={QUICK_ACTIONS} columns="grid-cols-4 md:grid-cols-4" />
-      </motion.div>
+      {/* ═══ QUICK ACTIONS (Admin / Super Admin only) ════════════ */}
+      {!isHR && (
+        <motion.div
+          variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
+          initial="hidden"
+          animate="show"
+          className="layer-card p-5"
+        >
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
+          <QuickActionGrid actions={QUICK_ACTIONS} columns="grid-cols-4 md:grid-cols-4" />
+        </motion.div>
+      )}
     </div>
   );
 }

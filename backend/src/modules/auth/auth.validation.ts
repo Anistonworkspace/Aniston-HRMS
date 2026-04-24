@@ -50,5 +50,10 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export const adminResetPasswordSchema = z.object({
+  targetUserId: z.string().uuid('Invalid user ID'),
+});
+
 export type MfaCodeInput = z.infer<typeof mfaCodeSchema>;
 export type MfaVerifyInput = z.infer<typeof mfaVerifySchema>;
+export type AdminResetPasswordInput = z.infer<typeof adminResetPasswordSchema>;

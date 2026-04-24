@@ -2,17 +2,50 @@ import { prisma } from '../../lib/prisma.js';
 import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 
-// Default components seeded for new orgs — Basic Salary + EPF only.
-// HR can add any additional components (HRA, DA, TA, etc.) from Settings → Salary Components.
+// Default components seeded for new orgs — standard Indian payroll structure.
+// HR can add more or edit these from Settings → Salary Components.
 const DEFAULT_COMPONENTS = [
-  { name: 'Basic Salary', code: 'BASIC', type: 'EARNING', category: 'STANDARD', calculationRule: 'PERCENTAGE_CTC', percentageOf: 'CTC', defaultPercentage: 50, isTaxable: true, isStatutory: false, sortOrder: 1 },
-  { name: 'EPF (Employee)', code: 'EPF_EE', type: 'DEDUCTION', category: 'STATUTORY', calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 12, isTaxable: false, isStatutory: true, sortOrder: 100 },
+  {
+    name: 'Basic Salary', code: 'BASIC', type: 'EARNING', category: 'STANDARD',
+    calculationRule: 'PERCENTAGE_CTC', percentageOf: 'CTC', defaultPercentage: 50,
+    isTaxable: true, isStatutory: false, sortOrder: 1,
+    description: 'Basic salary — 50% of CTC. Base for HRA, EPF, and other percentage components.',
+  },
+  {
+    name: 'HRA', code: 'HRA', type: 'EARNING', category: 'ALLOWANCE',
+    calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 40,
+    isTaxable: false, isStatutory: false, sortOrder: 2,
+    description: 'House Rent Allowance — 40% of Basic. Partially/fully exempt under Sec 10(13A).',
+  },
+  {
+    name: 'Conveyance Allowance', code: 'CONVEYANCE_ALLOW', type: 'EARNING', category: 'ALLOWANCE',
+    calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 6,
+    isTaxable: false, isStatutory: false, sortOrder: 3,
+    description: 'Conveyance allowance — 6% of Basic. Exempt up to ₹1,600/month per tax rules.',
+  },
+  {
+    name: 'Medical Allowance', code: 'MEDICAL_ALLOW', type: 'EARNING', category: 'ALLOWANCE',
+    calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 5,
+    isTaxable: false, isStatutory: false, sortOrder: 4,
+    description: 'Medical allowance — 5% of Basic. Exempt up to ₹15,000/year on submission of bills.',
+  },
+  {
+    name: 'Special Allowance', code: 'SPECIAL_ALLOW', type: 'EARNING', category: 'ALLOWANCE',
+    calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 20,
+    isTaxable: true, isStatutory: false, sortOrder: 5,
+    description: 'Balancing/special allowance — 20% of Basic. HR can adjust this percentage.',
+  },
+  {
+    name: 'EPF (Employee)', code: 'EPF_EE', type: 'DEDUCTION', category: 'STATUTORY',
+    calculationRule: 'PERCENTAGE_BASIC', percentageOf: 'BASIC', defaultPercentage: 12,
+    isTaxable: false, isStatutory: true, sortOrder: 100,
+  },
 ];
 
-// All codes that were in the old default seed but are no longer defaults.
-// cleanupLegacyDefaults() hard-deletes these from any org that has them.
+// Legacy codes from the old 20-component seed that are no longer defaults.
+// cleanupLegacyDefaults() hard-deletes these from any org that still has them.
+// NOTE: HRA is intentionally removed from this list — it is a standard default again.
 const LEGACY_DEFAULT_CODES = [
-  'HRA',
   'DA', 'TA', 'MEDICAL', 'SPECIAL', 'LTA', 'PERF_BONUS', 'SHIFT_ALLOW',
   'NIGHT_PREMIUM', 'CCA', 'INTERNET', 'PHONE',
   'EPF_ER',
@@ -197,31 +230,41 @@ export class ComponentMasterService {
   }
 
   /**
-   * Seed default salary components for an organization
+   * Seed default salary components for an organization.
+   * Idempotent — uses skipDuplicates so safe to call on existing orgs;
+   * only components whose codes don't already exist will be inserted.
    */
   async seedDefaults(organizationId: string, userId: string) {
-    // Count ALL (including deleted) — never re-seed if the org has had components before
-    const existing = await prisma.salaryComponentMaster.count({
-      where: { organizationId },
+    const result = await prisma.salaryComponentMaster.createMany({
+      data: DEFAULT_COMPONENTS.map(comp => ({
+        name: comp.name,
+        code: comp.code,
+        type: comp.type as any,
+        category: (comp.category as any) ?? 'STANDARD',
+        calculationRule: (comp.calculationRule as any) ?? 'FIXED',
+        percentageOf: (comp as any).percentageOf ?? null,
+        defaultValue: (comp as any).defaultValue ?? null,
+        defaultPercentage: (comp as any).defaultPercentage ?? null,
+        isTaxable: comp.isTaxable,
+        isStatutory: comp.isStatutory,
+        sortOrder: comp.sortOrder,
+        description: (comp as any).description ?? null,
+        organizationId,
+        createdBy: userId,
+      })),
+      skipDuplicates: true,
     });
-    if (existing > 0) return { seeded: 0 };
 
-    const created = await prisma.$transaction(
-      DEFAULT_COMPONENTS.map(comp =>
-        prisma.salaryComponentMaster.create({
-          data: {
-            ...comp,
-            type: comp.type as any,
-            category: comp.category as any,
-            calculationRule: comp.calculationRule as any,
-            organizationId,
-            createdBy: userId,
-          },
-        })
-      )
-    );
+    if (result.count > 0) {
+      await createAuditLog({
+        userId, organizationId,
+        entity: 'SalaryComponentMaster', entityId: 'bulk-seed',
+        action: 'CREATE',
+        newValue: { seededCount: result.count, reason: 'Default salary components seeded' },
+      });
+    }
 
-    return { seeded: created.length };
+    return { seeded: result.count };
   }
 }
 
