@@ -156,6 +156,17 @@ function AdminDashboard() {
         </p>
       </motion.div>
 
+      {/* ═══ QUICK ACTIONS (All admin roles) ════════════════════ */}
+      <motion.div
+        variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
+        initial="hidden"
+        animate="show"
+        className="layer-card p-5 mb-6"
+      >
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
+        <QuickActionGrid actions={QUICK_ACTIONS} columns={isSystemAdmin ? 'grid-cols-2' : 'grid-cols-4 md:grid-cols-4'} />
+      </motion.div>
+
       {/* ═══ HR KPI CARDS (HR only) ══════════════════════════════ */}
       {isHR && hrStats?.hrKpis && (
         <motion.div variants={container} initial="hidden" animate="show" className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -418,17 +429,6 @@ function AdminDashboard() {
             emptyText="No upcoming birthdays"
           />
         </DashboardSection>
-      </motion.div>
-
-      {/* ═══ QUICK ACTIONS (All admin roles) ════════════════════ */}
-      <motion.div
-        variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
-        initial="hidden"
-        animate="show"
-        className="layer-card p-5 mb-6"
-      >
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
-        <QuickActionGrid actions={QUICK_ACTIONS} columns={isSystemAdmin ? 'grid-cols-2' : 'grid-cols-4 md:grid-cols-4'} />
       </motion.div>
 
       {/* ═══ TREND CHARTS (Admin / Super Admin only) ════════════ */}
