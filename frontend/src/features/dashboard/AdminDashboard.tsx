@@ -1,7 +1,7 @@
 import { memo, useMemo, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Users, TrendingDown, IndianRupee, Briefcase, UserPlus,
+  Users, UserPlus,
   AlertTriangle, Building2, Cake, UserCheck, UserX,
   Clock, CalendarOff, Home, ShieldAlert, FileCheck,
   Ticket, ChevronRight, CalendarDays, ListChecks,
@@ -11,9 +11,8 @@ import { useTranslation } from 'react-i18next';
 import { useAppSelector } from '../../app/store';
 import { useGetSuperAdminStatsQuery, useGetHRStatsQuery } from './dashboardApi';
 import { useGetHolidaysQuery } from '../leaves/leaveApi';
-import { formatCurrency } from '../../lib/utils';
 import {
-  KPICard, AlertBanner, DashboardSection, StatusCard,
+  AlertBanner, DashboardSection, StatusCard,
   ActionCard, QuickActionGrid, EmployeeListWidget, SkeletonLoader,
 } from './components';
 import type { SuperAdminDashboardStats, AttentionItem } from '@aniston/shared';
@@ -41,6 +40,7 @@ function AdminDashboard() {
   const user = useAppSelector((s) => s.auth.user);
   const role = user?.role || '';
   const isHR = role === 'HR';
+  const isSystemAdmin = role === 'ADMIN'; // system/IT admin — not HR, not Super Admin
   const locale = i18n.language?.startsWith('hi') ? 'hi-IN' : 'en-IN';
 
   // Fetch BOTH data sources in parallel
@@ -58,19 +58,6 @@ function AdminDashboard() {
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? t('dashboard.goodMorning') : hour < 17 ? t('dashboard.goodAfternoon') : t('dashboard.goodEvening');
-
-  // ─── KPI Cards (from SuperAdmin stats) ────────────────────────
-  const kpis = useMemo(() => {
-    if (!saStats) return [];
-    return [
-      { label: 'Total Employees', value: saStats.totalEmployees, icon: Users, color: 'bg-blue-500', iconBg: 'bg-blue-100', iconText: 'text-blue-600', sub: `${saStats.activeEmployees} active`, onClick: () => navigate('/employees') },
-      { label: 'New Hires', value: saStats.newHiresThisMonth, icon: UserPlus, color: 'bg-emerald-500', iconBg: 'bg-emerald-100', iconText: 'text-emerald-600', sub: 'this month', onClick: () => navigate('/employees?status=ACTIVE&sortBy=joiningDate') },
-      { label: 'Attrition Rate', value: `${saStats.attritionRate}%`, icon: TrendingDown, color: saStats.attritionRate > 15 ? 'bg-red-500' : 'bg-amber-500', iconBg: saStats.attritionRate > 15 ? 'bg-red-100' : 'bg-amber-100', iconText: saStats.attritionRate > 15 ? 'text-red-600' : 'text-amber-600', sub: 'last 12 months', onClick: () => navigate('/exit-management') },
-      { label: 'Payroll Cost', value: formatCurrency(saStats.monthlyPayrollCost), icon: IndianRupee, color: 'bg-purple-500', iconBg: 'bg-purple-100', iconText: 'text-purple-600', sub: 'last month net', onClick: () => navigate('/payroll') },
-      { label: 'Open Positions', value: saStats.openPositions, icon: Briefcase, color: 'bg-indigo-500', iconBg: 'bg-indigo-100', iconText: 'text-indigo-600', sub: 'hiring', onClick: () => navigate('/recruitment') },
-      { label: 'Active Employees', value: saStats.activeEmployees, icon: UserCheck, color: 'bg-teal-500', iconBg: 'bg-teal-100', iconText: 'text-teal-600', sub: 'currently working', onClick: () => navigate('/employees?status=ACTIVE') },
-    ];
-  }, [saStats, navigate]);
 
   // ─── Today's Attendance Cards (from HR stats) ─────────────────
   const attendanceCards = useMemo(() => {
@@ -90,6 +77,12 @@ function AdminDashboard() {
   const actionItems = useMemo(() => {
     if (!hrStats) return [];
     const pa = hrStats.pendingActions;
+    // System Admin only sees helpdesk tickets (IT-related); HR/SuperAdmin see all
+    if (isSystemAdmin) {
+      return [
+        { label: 'Helpdesk Tickets', count: pa.helpdeskTickets, icon: Ticket, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200', path: '/helpdesk' },
+      ].filter((a) => a.count > 0);
+    }
     return [
       { label: 'Leave Requests', count: pa.leaveRequests, icon: CalendarOff, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200', path: '/pending-approvals' },
       { label: 'Regularizations', count: pa.regularizations, icon: Clock, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', path: '/attendance' },
@@ -97,13 +90,14 @@ function AdminDashboard() {
       { label: 'Documents to Verify', count: pa.documentsToVerify, icon: FileCheck, color: 'text-teal-600', bg: 'bg-teal-50', border: 'border-teal-200', path: '/employees' },
       { label: 'Pending Onboarding', count: pa.pendingOnboarding, icon: UserPlus, color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200', path: '/employees' },
     ].filter((a) => a.count > 0);
-  }, [hrStats]);
+  }, [hrStats, isSystemAdmin]);
 
   const totalPending = useMemo(() => {
     if (!hrStats) return 0;
     const pa = hrStats.pendingActions;
+    if (isSystemAdmin) return pa.helpdeskTickets;
     return pa.leaveRequests + pa.regularizations + pa.helpdeskTickets + pa.documentsToVerify + pa.pendingOnboarding;
-  }, [hrStats]);
+  }, [hrStats, isSystemAdmin]);
 
   const upcomingHolidays = useMemo(() =>
     (holidaysRes?.data || [])
@@ -114,7 +108,11 @@ function AdminDashboard() {
   );
 
   // ─── Quick Actions ────────────────────────────────────────────
-  const QUICK_ACTIONS = [
+  // System Admin: only IT/admin-related actions (no HR functions)
+  const QUICK_ACTIONS = isSystemAdmin ? [
+    { label: t('nav.activityTracking'), path: '/activity-tracking', icon: '📊' },
+    { label: t('nav.settings'), path: '/settings', icon: '⚙️' },
+  ] : [
     { label: t('leaves.approvals'), path: '/pending-approvals', icon: '✅' },
     { label: t('nav.attendance'), path: '/attendance', icon: '📊' },
     { label: t('employees.addEmployee'), path: '/employees', icon: '➕' },
@@ -157,15 +155,6 @@ function AdminDashboard() {
           Company overview — {new Date().toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })}
         </p>
       </motion.div>
-
-      {/* ═══ KPI GRID (Admin / Super Admin only) ════════════════ */}
-      {!isHR && saStats && (
-        <motion.div variants={container} initial="hidden" animate="show" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-          {kpis.map((kpi) => (
-            <KPICard key={kpi.label} {...kpi} />
-          ))}
-        </motion.div>
-      )}
 
       {/* ═══ HR KPI CARDS (HR only) ══════════════════════════════ */}
       {isHR && hrStats?.hrKpis && (
@@ -221,26 +210,6 @@ function AdminDashboard() {
         </motion.div>
       )}
 
-      {/* ═══ TREND CHARTS (Admin / Super Admin only) ════════════ */}
-      {!isHR && saStats && (
-        <Suspense fallback={
-          <div className="grid lg:grid-cols-3 gap-4 mb-6">
-            {[1,2,3].map(i => (
-              <div key={i} className="layer-card p-6 h-64 animate-pulse">
-                <div className="h-5 bg-gray-200 rounded w-32 mb-4" />
-                <div className="h-40 bg-gray-100 rounded" />
-              </div>
-            ))}
-          </div>
-        }>
-          <TrendCharts
-            hiringTrend={saStats.hiringTrend}
-            attendanceTrend={saStats.attendanceTrend}
-            leaveTrend={saStats.leaveTrend}
-          />
-        </Suspense>
-      )}
-
       {/* ═══ ACTION CENTER + ATTENTION REQUIRED + UPCOMING HOLIDAYS (All roles) ═ */}
       {hrStats && (
         <motion.div variants={container} initial="hidden" animate="show" className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
@@ -268,9 +237,14 @@ function AdminDashboard() {
 
           {/* ATTENTION REQUIRED */}
           <DashboardSection title="Attention Required" icon={ShieldAlert} iconColor="text-red-500">
-            {hrStats.attentionItems.length > 0 ? (
+            {(() => {
+              // System Admin only sees exit/offboarding-related attention items
+              const visibleItems = isSystemAdmin
+                ? hrStats.attentionItems.filter((a: AttentionItem) => ['probation_ending', 'document_expiry'].includes(a.type))
+                : hrStats.attentionItems;
+              return visibleItems.length > 0 ? (
               <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-                {hrStats.attentionItems.map((attn: AttentionItem, i: number) => {
+                {visibleItems.map((attn: AttentionItem, i: number) => {
                   const AttnIcon = attentionIconMap[attn.type] || AlertTriangle;
                   return (
                     <div
@@ -292,7 +266,8 @@ function AdminDashboard() {
                 <UserCheck size={28} className="text-emerald-300 mx-auto mb-2" />
                 <p className="text-sm text-gray-400">No issues need attention right now</p>
               </div>
-            )}
+            );
+            })()}
           </DashboardSection>
 
           {/* UPCOMING HOLIDAYS */}
@@ -364,8 +339,17 @@ function AdminDashboard() {
         </motion.div>
       )}
 
-      {/* ═══ LIVE ATTENDANCE + DEPARTMENT HEADCOUNT (Admin / Super Admin only) ═ */}
-      {!isHR && (
+      {/* ═══ LIVE ATTENDANCE + DEPARTMENT HEADCOUNT ═════════════ */}
+      {/* System Admin: no Live Attendance widget, just Dept Headcount full-width */}
+      {!isHR && isSystemAdmin && saStats && (
+        <div className="mb-6">
+          <DashboardSection title="Department Headcount" icon={Building2} iconColor="text-indigo-500">
+            <DepartmentBreakdown departments={saStats.departmentBreakdown} total={saStats.totalEmployees} />
+          </DashboardSection>
+        </div>
+      )}
+      {/* Super Admin: Live Attendance + Dept Headcount side by side */}
+      {!isHR && !isSystemAdmin && (
         <div className="grid md:grid-cols-2 gap-4 mb-6">
           <Suspense fallback={<div className="layer-card p-6 h-48 animate-pulse"><div className="h-5 bg-gray-200 rounded w-32 mb-4" /></div>}>
             <LiveAttendanceWidget />
@@ -441,11 +425,31 @@ function AdminDashboard() {
         variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
         initial="hidden"
         animate="show"
-        className="layer-card p-5"
+        className="layer-card p-5 mb-6"
       >
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
-        <QuickActionGrid actions={QUICK_ACTIONS} columns="grid-cols-4 md:grid-cols-4" />
+        <QuickActionGrid actions={QUICK_ACTIONS} columns={isSystemAdmin ? 'grid-cols-2' : 'grid-cols-4 md:grid-cols-4'} />
       </motion.div>
+
+      {/* ═══ TREND CHARTS (Admin / Super Admin only) ════════════ */}
+      {!isHR && saStats && (
+        <Suspense fallback={
+          <div className="grid lg:grid-cols-3 gap-4 mb-6">
+            {[1,2,3].map(i => (
+              <div key={i} className="layer-card p-6 h-64 animate-pulse">
+                <div className="h-5 bg-gray-200 rounded w-32 mb-4" />
+                <div className="h-40 bg-gray-100 rounded" />
+              </div>
+            ))}
+          </div>
+        }>
+          <TrendCharts
+            hiringTrend={saStats.hiringTrend}
+            attendanceTrend={saStats.attendanceTrend}
+            leaveTrend={saStats.leaveTrend}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
