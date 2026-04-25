@@ -5,10 +5,6 @@ export const createInvitationSchema = z.object({
   email: z.string().email('Invalid email address').optional(),
   mobileNumber: z.string().min(10, 'Enter a valid mobile number').optional(),
 
-  // role: portal access level — INTERN gets limited access (no payroll, no org chart)
-  // MANAGER gets team leave/attendance approvals; HR gets full employee management
-  role: z.enum(['EMPLOYEE', 'INTERN', 'MANAGER', 'HR', 'ADMIN']).default('EMPLOYEE'),
-
   // employmentType: REQUIRED — drives EPF/ESI/PT eligibility, leave balance seeding,
   // and salary template selection. INTERN → stipend only; CONTRACT → typically exempt.
   employmentType: z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'], {
@@ -44,7 +40,7 @@ export const createInvitationSchema = z.object({
   //   EXPERIENCED → requires previous employment docs (experience letter, last payslip, etc.)
   //   FRESHER → standard docs only
   //   INTERN → enrollment proof required
-  experienceLevel: z.enum(['INTERN', 'FRESHER', 'EXPERIENCED']).optional(),
+  experienceLevel: z.enum(['INTERN', 'FRESHER', 'EXPERIENCED']).default('FRESHER'),
 
   // experienceDocFields: HR-configured custom doc requirements for EXPERIENCED employees
   //   Array of { key: string, label: string, required: boolean }

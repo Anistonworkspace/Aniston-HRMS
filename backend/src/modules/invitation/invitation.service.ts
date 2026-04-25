@@ -29,7 +29,7 @@ export class InvitationService {
    * Create a new employee invitation and send the invite email.
    */
   async createInvitation(input: CreateInvitationInput, organizationId: string, invitedBy: string) {
-    const { email, mobileNumber, role, departmentId, designationId, managerId, officeLocationId, workMode, employmentType, proposedJoiningDate, experienceLevel, experienceDocFields, notes, sendWelcomeEmail } = input;
+    const { email, mobileNumber, departmentId, designationId, managerId, officeLocationId, workMode, employmentType, proposedJoiningDate, experienceLevel, experienceDocFields, notes, sendWelcomeEmail } = input;
 
     // Check for existing pending invitation
     if (email) {
@@ -65,8 +65,9 @@ export class InvitationService {
 
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72 hours
 
-    // Auto-derive role from employmentType — INTERN employment always gets INTERN portal role
-    const derivedRole = employmentType === 'INTERN' ? 'INTERN' : (role || 'EMPLOYEE');
+    // Role is fully derived from employmentType — INTERN employment → INTERN portal role, all others → EMPLOYEE
+    // HR can promote to MANAGER/HR/etc. after the employee accepts the invite via Change Role
+    const derivedRole = employmentType === 'INTERN' ? 'INTERN' : 'EMPLOYEE';
 
     const invitation = await prisma.employeeInvitation.create({
       data: {
@@ -126,7 +127,7 @@ export class InvitationService {
             iosDownloadUrl,
             expiresAt: expiresAt.toISOString(),
             inviterName,
-            role: role || 'EMPLOYEE',
+            role: derivedRole,
           },
         });
         emailStatus = 'SENT';
@@ -140,7 +141,7 @@ export class InvitationService {
     if (invitation.mobileNumber) {
       try {
         const orgName = org?.name || 'Aniston HRMS';
-        const roleName = (role || 'EMPLOYEE').replace(/_/g, ' ');
+        const roleName = derivedRole.replace(/_/g, ' ');
         const whatsAppMessage = [
           `*${orgName} — Employee Invitation*`,
           ``,
@@ -194,7 +195,7 @@ export class InvitationService {
       entity: 'EmployeeInvitation',
       entityId: invitation.id,
       action: 'CREATE',
-      newValue: { email, mobileNumber, role, departmentId, designationId, emailStatus, whatsappStatus },
+      newValue: { email, mobileNumber, role: derivedRole, departmentId, designationId, emailStatus, whatsappStatus },
     });
 
     return {

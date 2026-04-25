@@ -263,7 +263,7 @@ export class OnboardingService {
       where: { id: employeeId },
       include: {
         documents: { where: { deletedAt: null }, select: { type: true, status: true, id: true, name: true, rejectionReason: true } },
-        user: { select: { mfaEnabled: true } },
+        user: { select: { mfa: { select: { isEnabled: true } } } },
         documentGate: { select: { kycStatus: true, reuploadDocTypes: true, documentRejectReasons: true } },
       },
     });
@@ -346,7 +346,7 @@ export class OnboardingService {
     const sections = {
       password: true,
       // Site employees skip MFA (auto-pass); office employees must enable it
-      mfa: isSiteEmployee ? true : !!(employee.user as any)?.mfaEnabled,
+      mfa: isSiteEmployee ? true : !!(employee.user as any)?.mfa?.isEnabled,
       personalDetails: !!(
         employee.firstName && employee.lastName &&
         employee.dateOfBirth && employee.gender &&
@@ -514,14 +514,14 @@ export class OnboardingService {
       where: { id: employeeId },
       include: {
         documents: { where: { deletedAt: null }, select: { type: true } },
-        user: { select: { id: true, mfaEnabled: true } },
+        user: { select: { id: true, mfa: { select: { isEnabled: true } } } },
       },
     });
     if (!emp) throw new NotFoundError('Employee');
 
     // MFA mandatory for OFFICE employees only
     if (emp.workMode === 'OFFICE') {
-      if (!(emp.user as any)?.mfaEnabled) {
+      if (!(emp.user as any)?.mfa?.isEnabled) {
         throw new BadRequestError('Two-Factor Authentication (MFA) is required for office employees. Please enable MFA in Step 1 before completing onboarding.');
       }
     }
