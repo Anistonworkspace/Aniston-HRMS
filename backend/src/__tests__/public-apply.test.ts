@@ -115,22 +115,6 @@ function makeJob(overrides: Record<string, any> = {}) {
   };
 }
 
-function makeQuestion(id: string, category: string, correctOption: string) {
-  return {
-    id,
-    jobOpeningId: JOB_ID,
-    questionText: `Question ${id}`,
-    optionA: 'Option A',
-    optionB: 'Option B',
-    optionC: 'Option C',
-    optionD: 'Option D',
-    correctOption,
-    category,
-    aiGenerated: true,
-    createdAt: new Date(),
-  };
-}
-
 // ─────────────────────────────────────────────────────────────────────────
 // Unit tests — PublicApplyService
 // ─────────────────────────────────────────────────────────────────────────
@@ -146,52 +130,17 @@ describe('PublicApplyService', () => {
   // ── getJobForm ─────────────────────────────────────────────────────────
 
   describe('getJobForm', () => {
-    it('returns job details with questions for a valid public form token', async () => {
-      // Prisma select in the service excludes correctOption — mimic what Prisma returns
-      const questionsFromPrisma = [{
-        id: 'q-1',
-        questionText: 'Question q-1',
-        optionA: 'Option A',
-        optionB: 'Option B',
-        optionC: 'Option C',
-        optionD: 'Option D',
-        category: 'INTELLIGENCE',
-        // correctOption is intentionally absent — Prisma select does not include it
-      }];
+    it('returns job details (no questions) for a valid public form token', async () => {
       vi.mocked(prisma.jobOpening.findUnique).mockResolvedValueOnce(
-        makeJob({ questions: questionsFromPrisma }) as any
+        makeJob() as any
       );
 
       const result = await service.getJobForm(JOB_TOKEN);
 
       expect(result.title).toBe('Software Engineer');
-      expect(result.questions).toHaveLength(1);
-      expect(result.questions[0]).not.toHaveProperty('correctOption');
-    });
-
-    it('excludes correctOption from questions because the Prisma select omits it', async () => {
-      // The service uses a Prisma select that does not include correctOption.
-      // We mirror that by providing question objects without the field.
-      const questionsFromPrisma = [
-        {
-          id: 'q-1',
-          questionText: 'Question q-1',
-          optionA: 'Option A',
-          optionB: 'Option B',
-          optionC: 'Option C',
-          optionD: 'Option D',
-          category: 'INTEGRITY',
-        },
-      ];
-      vi.mocked(prisma.jobOpening.findUnique).mockResolvedValueOnce(
-        makeJob({ questions: questionsFromPrisma }) as any
-      );
-
-      const result = await service.getJobForm(JOB_TOKEN);
-
-      for (const q of result.questions) {
-        expect(q).not.toHaveProperty('correctOption');
-      }
+      expect(result.department).toBe('Engineering');
+      // MCQ questions are NOT returned to the public form (in-person only)
+      expect(result).not.toHaveProperty('questions');
     });
 
     it('throws NotFoundError for unknown token', async () => {
@@ -212,18 +161,9 @@ describe('PublicApplyService', () => {
   // ── submitApplication ──────────────────────────────────────────────────
 
   describe('submitApplication', () => {
-    it('scores MCQ answers correctly and persists to DB', async () => {
-      const questions = [
-        makeQuestion('q-1', 'INTELLIGENCE', 'A'), // correct = A
-        makeQuestion('q-2', 'INTELLIGENCE', 'B'), // correct = B
-        makeQuestion('q-3', 'INTEGRITY', 'C'),    // correct = C
-        makeQuestion('q-4', 'INTEGRITY', 'D'),    // correct = D
-        makeQuestion('q-5', 'ENERGY', 'A'),        // correct = A
-        makeQuestion('q-6', 'ENERGY', 'B'),        // correct = B
-      ];
-
+    it('submits application with null MCQ scores (resume-only scoring)', async () => {
       vi.mocked(prisma.jobOpening.findUnique).mockResolvedValueOnce(
-        makeJob({ questions }) as any
+        makeJob() as any
       );
 
       let capturedCreate: any = null;
@@ -232,81 +172,17 @@ describe('PublicApplyService', () => {
         return { id: 'app-1', candidateUid: 'ANST-XXXX', uid: 'ANST-XXXX', ...args.data };
       });
 
-      // Answers: q-1=A(correct), q-2=A(wrong), q-3=C(correct), q-4=A(wrong), q-5=A(correct), q-6=A(wrong)
-      // totalCorrect = 3 out of 6  →  mcqScore = 50
-      // INTELLIGENCE: 1/2 = 50, INTEGRITY: 1/2 = 50, ENERGY: 1/2 = 50
-      const mcqAnswers = [
-        { questionId: 'q-1', selectedOption: 'A' }, // correct
-        { questionId: 'q-2', selectedOption: 'A' }, // wrong (correct=B)
-        { questionId: 'q-3', selectedOption: 'C' }, // correct
-        { questionId: 'q-4', selectedOption: 'A' }, // wrong (correct=D)
-        { questionId: 'q-5', selectedOption: 'A' }, // correct
-        { questionId: 'q-6', selectedOption: 'A' }, // wrong (correct=B)
-      ];
-
       await service.submitApplication(JOB_TOKEN, {
         candidateName: 'Rahul Gupta',
         email: 'rahul@example.com',
-        mcqAnswers,
       });
 
       expect(capturedCreate).not.toBeNull();
-      expect(capturedCreate.mcqScore).toBeCloseTo(50, 1);
-      expect(capturedCreate.intelligenceScore).toBeCloseTo(50, 1);
-      expect(capturedCreate.integrityScore).toBeCloseTo(50, 1);
-      expect(capturedCreate.energyScore).toBeCloseTo(50, 1);
-    });
-
-    it('gives 100% MCQ score when all answers are correct', async () => {
-      const questions = [
-        makeQuestion('q-a', 'INTELLIGENCE', 'A'),
-        makeQuestion('q-b', 'INTEGRITY', 'B'),
-      ];
-      vi.mocked(prisma.jobOpening.findUnique).mockResolvedValueOnce(
-        makeJob({ questions }) as any
-      );
-
-      let capturedScore: number | null = null;
-      (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => {
-        capturedScore = args.data.mcqScore;
-        return { id: 'app-2', candidateUid: 'ANST-1234', uid: 'ANST-1234', ...args.data };
-      });
-
-      await service.submitApplication(JOB_TOKEN, {
-        candidateName: 'Ananya Patel',
-        mcqAnswers: [
-          { questionId: 'q-a', selectedOption: 'A' },
-          { questionId: 'q-b', selectedOption: 'B' },
-        ],
-      });
-
-      expect(capturedScore).toBeCloseTo(100, 1);
-    });
-
-    it('gives 0% MCQ score when all answers are wrong', async () => {
-      const questions = [
-        makeQuestion('q-x', 'ENERGY', 'C'),
-        makeQuestion('q-y', 'ENERGY', 'D'),
-      ];
-      vi.mocked(prisma.jobOpening.findUnique).mockResolvedValueOnce(
-        makeJob({ questions }) as any
-      );
-
-      let capturedScore: number | null = null;
-      (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => {
-        capturedScore = args.data.mcqScore;
-        return { id: 'app-3', candidateUid: 'ANST-ZZZZ', uid: 'ANST-ZZZZ', ...args.data };
-      });
-
-      await service.submitApplication(JOB_TOKEN, {
-        candidateName: 'Wrong Answers',
-        mcqAnswers: [
-          { questionId: 'q-x', selectedOption: 'A' }, // wrong
-          { questionId: 'q-y', selectedOption: 'A' }, // wrong
-        ],
-      });
-
-      expect(capturedScore).toBeCloseTo(0, 1);
+      // MCQ scores are always null — psychometric is done in-person at walk-in kiosk
+      expect(capturedCreate.mcqScore).toBeNull();
+      expect(capturedCreate.intelligenceScore).toBeNull();
+      expect(capturedCreate.integrityScore).toBeNull();
+      expect(capturedCreate.energyScore).toBeNull();
     });
 
     it('generates a unique candidateUid starting with ANST-', async () => {
@@ -320,7 +196,6 @@ describe('PublicApplyService', () => {
 
       await service.submitApplication(JOB_TOKEN, {
         candidateName: 'Test Candidate',
-        mcqAnswers: [],
       });
 
       expect(capturedUid).toMatch(/^ANST-/);
@@ -330,7 +205,7 @@ describe('PublicApplyService', () => {
       vi.mocked(prisma.jobOpening.findUnique).mockResolvedValueOnce(null);
 
       await expect(
-        service.submitApplication('bad-token', { candidateName: 'X', mcqAnswers: [] })
+        service.submitApplication('bad-token', { candidateName: 'X' })
       ).rejects.toThrow('Job not found');
     });
   });
@@ -518,9 +393,7 @@ describe('/api/jobs public endpoints (integration)', () => {
   // ── GET /api/jobs/form/:token — public, no auth ────────────────────────
 
   describe('GET /api/jobs/form/:token', () => {
-    it('returns job form without any auth header', async () => {
-      // The service uses a Prisma select that excludes correctOption.
-      // We mock with the projected shape (no correctOption) to match real Prisma behavior.
+    it('returns job form without any auth header and without MCQ questions', async () => {
       vi.mocked(prisma.jobOpening.findUnique).mockResolvedValueOnce(
         {
           id: JOB_ID,
@@ -533,18 +406,7 @@ describe('/api/jobs public endpoints (integration)', () => {
           requirements: 'React experience.',
           publicFormToken: 'pub-token-001',
           publicFormEnabled: true,
-          questions: [
-            {
-              id: 'q-pub-1',
-              questionText: 'What is 2+2?',
-              optionA: '3',
-              optionB: '4',
-              optionC: '5',
-              optionD: '6',
-              category: 'INTELLIGENCE',
-              // correctOption is NOT included — mirrors the Prisma select projection
-            },
-          ],
+          questions: [],
         } as any
       );
 
@@ -552,11 +414,8 @@ describe('/api/jobs public endpoints (integration)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.title).toBe('Frontend Developer');
-      expect(res.body.data.questions).toHaveLength(1);
-      // Correct answer must not be in the public response
-      for (const q of res.body.data.questions) {
-        expect(q).not.toHaveProperty('correctOption');
-      }
+      // MCQ questions are NOT returned to the public form — in-person only
+      expect(res.body.data).not.toHaveProperty('questions');
     });
 
     it('returns 404 for disabled form token', async () => {
@@ -680,10 +539,10 @@ describe('/api/jobs public endpoints (integration)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// MCQ scoring — pure algorithmic edge cases
+// Resume-only ATS scoring — public apply (no MCQ)
 // ─────────────────────────────────────────────────────────────────────────
 
-describe('MCQ scoring algorithm (edge cases)', () => {
+describe('Public application — resume-only scoring', () => {
   let service: PublicApplyService;
 
   beforeEach(() => {
@@ -691,71 +550,33 @@ describe('MCQ scoring algorithm (edge cases)', () => {
     vi.clearAllMocks();
   });
 
-  it('handles empty questions list without dividing by zero', async () => {
+  it('always sets MCQ score fields to null on submit', async () => {
     vi.mocked(prisma.jobOpening.findUnique).mockResolvedValueOnce(
-      makeJob({ questions: [] }) as any
-    );
-
-    let capturedScore: number | null = null;
-    (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => {
-      capturedScore = args.data.mcqScore;
-      return { id: 'app-empty', candidateUid: 'ANST-0000', uid: 'ANST-0000', ...args.data };
-    });
-
-    await service.submitApplication(JOB_TOKEN, { candidateName: 'Edge Case', mcqAnswers: [] });
-
-    // With 0 questions we'd divide by 1 (guarded) → 0%
-    expect(capturedScore).toBe(0);
-  });
-
-  it('handles unanswered questions as incorrect', async () => {
-    const questions = [
-      makeQuestion('q-missing', 'INTELLIGENCE', 'A'), // no answer supplied
-    ];
-    vi.mocked(prisma.jobOpening.findUnique).mockResolvedValueOnce(
-      makeJob({ questions }) as any
-    );
-
-    let capturedScore: number | null = null;
-    (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => {
-      capturedScore = args.data.mcqScore;
-      return { id: 'app-miss', candidateUid: 'ANST-MISS', uid: 'ANST-MISS', ...args.data };
-    });
-
-    // Submit with no answers for q-missing
-    await service.submitApplication(JOB_TOKEN, { candidateName: 'No Answer', mcqAnswers: [] });
-
-    expect(capturedScore).toBeCloseTo(0, 1);
-  });
-
-  it('scores per-category independently', async () => {
-    const questions = [
-      makeQuestion('q-int-1', 'INTELLIGENCE', 'A'),  // correct = A
-      makeQuestion('q-int-2', 'INTELLIGENCE', 'B'),  // correct = B
-      makeQuestion('q-itg-1', 'INTEGRITY', 'C'),      // correct = C
-    ];
-    vi.mocked(prisma.jobOpening.findUnique).mockResolvedValueOnce(
-      makeJob({ questions }) as any
+      makeJob() as any
     );
 
     let capturedData: any = null;
     (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => {
       capturedData = args.data;
-      return { id: 'app-cat', candidateUid: 'ANST-CAT1', uid: 'ANST-CAT1', ...args.data };
+      return { id: 'app-null', candidateUid: 'ANST-NULL', uid: 'ANST-NULL', ...args.data };
     });
 
-    await service.submitApplication(JOB_TOKEN, {
-      candidateName: 'Category Test',
-      mcqAnswers: [
-        { questionId: 'q-int-1', selectedOption: 'A' }, // correct INTEL
-        { questionId: 'q-int-2', selectedOption: 'A' }, // wrong INTEL (correct=B)
-        { questionId: 'q-itg-1', selectedOption: 'C' }, // correct INTEGRITY
-      ],
-    });
+    await service.submitApplication(JOB_TOKEN, { candidateName: 'No MCQ Test' });
 
-    // intelligenceScore: 1/2 = 50%, integrityScore: 1/1 = 100%, energyScore: 0/0 = 0 (no energy qs)
-    expect(capturedData.intelligenceScore).toBeCloseTo(50, 1);
-    expect(capturedData.integrityScore).toBeCloseTo(100, 1);
-    expect(capturedData.energyScore).toBeCloseTo(0, 1);
+    expect(capturedData.mcqScore).toBeNull();
+    expect(capturedData.intelligenceScore).toBeNull();
+    expect(capturedData.integrityScore).toBeNull();
+    expect(capturedData.energyScore).toBeNull();
+  });
+
+  it('accepts a submission with only required candidateName field', async () => {
+    vi.mocked(prisma.jobOpening.findUnique).mockResolvedValueOnce(makeJob() as any);
+    (vi.mocked(prisma.publicApplication.create) as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async (args: any) => ({
+      id: 'app-min', candidateUid: 'ANST-MIN', uid: 'ANST-MIN', ...args.data,
+    }));
+
+    await expect(
+      service.submitApplication(JOB_TOKEN, { candidateName: 'Minimal Applicant' })
+    ).resolves.not.toThrow();
   });
 });

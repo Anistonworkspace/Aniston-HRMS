@@ -136,6 +136,8 @@ interface SocketMessageEvent {
   type: string;
   hasMedia: boolean;
   quotedMsg?: { body: string; fromMe: boolean } | null;
+  senderName?: string | null;
+  senderPhone?: string | null;
 }
 
 interface SocketAckEvent {
@@ -196,6 +198,23 @@ function normalizeChatId(id: string): string {
   return id.replace(/@c\.us$/, '').replace(/@g\.us$/, '').replace(/@lid$/, '');
 }
 
+// Format a raw digit string into a human-readable phone number
+// e.g. "919876543210" → "+91 98765 43210"
+function formatPhoneDisplay(digits: string): string {
+  if (!digits) return '';
+  const d = digits.replace(/\D/g, '');
+  // Indian mobile: 91 + 10 digits
+  if (d.startsWith('91') && d.length === 12) {
+    return `+91 ${d.slice(2, 7)} ${d.slice(7)}`;
+  }
+  // US/Canada: 1 + 10 digits
+  if (d.startsWith('1') && d.length === 11) {
+    return `+1 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
+  }
+  // Generic: just prepend +
+  return `+${d}`;
+}
+
 // Match two chat IDs — handles @c.us and @lid formats
 function chatIdsMatch(a: string, b: string): boolean {
   if (!a || !b) return false;
@@ -245,23 +264,21 @@ export const whatsappApi = api.injectEndpoints({
     getWhatsAppChats: builder.query<ApiResponse<WhatsAppChat[]>, void>({
       query: () => '/whatsapp/chats',
       providesTags: ['WhatsAppChats'],
-      keepUnusedDataFor: 120,
+      keepUnusedDataFor: 30,
       async onCacheEntryAdded(_arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved, dispatch }) {
-        try {
-          await cacheDataLoaded;
+        // Track which chatId is currently open so we don't show toast for it
+        let activeChatId: string | null = null;
+        const setActive = (e: CustomEvent) => { activeChatId = e.detail || null; };
+        window.addEventListener('wa:active-chat', setActive as EventListener);
 
-          // Track which chatId is currently open so we don't show toast for it
-          let activeChatId: string | null = null;
-          const setActive = (e: CustomEvent) => { activeChatId = e.detail || null; };
-          window.addEventListener('wa:active-chat', setActive as EventListener);
+        // After backend sync completes (post-connect preload), force a fresh fetch
+        const handleSyncComplete = () => {
+          dispatch(whatsappApi.util.invalidateTags(['WhatsAppChats']));
+        };
+        onSocketEvent('whatsapp:sync:complete', handleSyncComplete);
 
-          // After backend sync completes (post-connect preload), force a fresh fetch
-          const handleSyncComplete = () => {
-            dispatch(whatsappApi.util.invalidateTags(['WhatsAppChats']));
-          };
-          onSocketEvent('whatsapp:sync:complete', handleSyncComplete);
-
-          const handleNewMsg = (data: SocketMessageEvent) => {
+        const handleNewMsg = (data: SocketMessageEvent) => {
+          try {
             updateCachedData((draft: any) => {
               if (!draft?.data) return;
 
@@ -282,9 +299,13 @@ export const whatsappApi = api.injectEndpoints({
                 draft.data.unshift(chat);
               } else if (!data.fromMe) {
                 // Unknown chat — inject placeholder + trigger refetch
+                const rawDigits = normalizeChatId(data.chatId);
+                const chatName = data.senderName
+                  || (data.senderPhone ? formatPhoneDisplay(data.senderPhone.replace(/^\+/, '')) : null)
+                  || formatPhoneDisplay(rawDigits);
                 draft.data.unshift({
                   id: data.chatId,
-                  name: data.chatId.replace('@c.us', '').replace('@lid', ''),
+                  name: chatName,
                   isGroup: data.chatId.includes('@g.us'),
                   lastMessage: data.body?.slice(0, 100) || '',
                   timestamp: data.timestamp,
@@ -296,52 +317,70 @@ export const whatsappApi = api.injectEndpoints({
                 }, 3000);
               }
             });
+          } catch { /* cache not yet populated — update skipped */ }
 
-            // Toast + sound for incoming messages not in active chat
-            if (!data.fromMe && !chatIdsMatch(data.chatId, activeChatId || '')) {
-              playNotificationSound();
-              const preview = data.body?.slice(0, 60) || 'New WhatsApp message';
-              const phoneDisplay = normalizeChatId(data.chatId);
-              toast(
-                `📩 +${phoneDisplay}: ${preview}`,
-                {
-                  duration: 4000,
-                  style: { background: '#25D366', color: '#fff', fontSize: '13px', maxWidth: '360px' },
-                  icon: '💬',
-                }
-              );
-
-              if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.hidden) {
-                try {
-                  new Notification(`WhatsApp: +${phoneDisplay}`, {
-                    body: preview,
-                    icon: '/icons/icon-192.png',
-                    tag: `wa-${data.chatId}`,
-                  });
-                } catch { /* ignore */ }
+          // Toast + sound for incoming messages not in active chat
+          if (!data.fromMe && !chatIdsMatch(data.chatId, activeChatId || '')) {
+            playNotificationSound();
+            const preview = data.body?.slice(0, 60) || 'New WhatsApp message';
+            const rawDigits = normalizeChatId(data.chatId);
+            const formattedPhone = data.senderPhone ? formatPhoneDisplay(data.senderPhone.replace(/^\+/, '')) : formatPhoneDisplay(rawDigits);
+            const displayLabel = data.senderName ? `${data.senderName} (${formattedPhone})` : formattedPhone;
+            toast(
+              `📩 ${displayLabel}: ${preview}`,
+              {
+                duration: 4000,
+                style: { background: '#25D366', color: '#fff', fontSize: '13px', maxWidth: '360px' },
+                icon: '💬',
               }
-            }
-          };
+            );
 
-          // Real-time unread clear — fires when any client marks a chat read
-          const handleChatRead = (data: SocketChatReadEvent) => {
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.hidden) {
+              try {
+                new Notification(`WhatsApp: ${data.senderName || formattedPhone}`, {
+                  body: `${data.senderName ? formattedPhone + ' — ' : ''}${preview}`,
+                  icon: '/icons/icon-192.png',
+                  tag: `wa-${data.chatId}`,
+                });
+              } catch { /* ignore */ }
+            }
+          }
+        };
+
+        // Real-time unread clear — fires when any client marks a chat read
+        const handleChatRead = (data: SocketChatReadEvent) => {
+          try {
             updateCachedData((draft: any) => {
               if (!draft?.data) return;
               const chat = draft.data.find((c: WhatsAppChat) => chatIdsMatch(c.id, data.chatId));
               if (chat) chat.unreadCount = 0;
             });
-          };
+          } catch { /* ignore */ }
+        };
 
-          onSocketEvent('whatsapp:message:new', handleNewMsg);
-          onSocketEvent('whatsapp:chat:read', handleChatRead);
+        // D2: alert HR when an incoming message was displayed but failed to persist to DB
+        const handlePersistFailed = (data: { chatId: string; warning: string }) => {
+          toast.error(`⚠️ WhatsApp: ${data.warning}`, {
+            duration: 8000,
+            style: { fontSize: '12px', maxWidth: '380px' },
+          });
+        };
 
-          await cacheEntryRemoved;
+        onSocketEvent('whatsapp:message:new', handleNewMsg);
+        onSocketEvent('whatsapp:chat:read', handleChatRead);
+        onSocketEvent('whatsapp:persist:failed', handlePersistFailed);
 
-          offSocketEvent('whatsapp:message:new', handleNewMsg);
-          offSocketEvent('whatsapp:chat:read', handleChatRead);
-          offSocketEvent('whatsapp:sync:complete', handleSyncComplete);
-          window.removeEventListener('wa:active-chat', setActive as EventListener);
-        } catch { /* ignore */ }
+        try {
+          await cacheDataLoaded;
+        } catch { /* query failed — keep listeners, will clean up on cacheEntryRemoved */ }
+
+        await cacheEntryRemoved;
+
+        offSocketEvent('whatsapp:message:new', handleNewMsg);
+        offSocketEvent('whatsapp:chat:read', handleChatRead);
+        offSocketEvent('whatsapp:persist:failed', handlePersistFailed);
+        offSocketEvent('whatsapp:sync:complete', handleSyncComplete);
+        window.removeEventListener('wa:active-chat', setActive as EventListener);
       },
     }),
 
@@ -367,15 +406,19 @@ export const whatsappApi = api.injectEndpoints({
         { type: 'WhatsAppMessages' as const, id: chatId },
       ],
       async onCacheEntryAdded(arg, { updateCachedData, cacheDataLoaded, cacheEntryRemoved }) {
-        try {
-          await cacheDataLoaded;
-
-          const handleNewMsg = (data: SocketMessageEvent) => {
-            if (!chatIdsMatch(data.chatId, arg.chatId)) return;
-
+        // Attach listeners BEFORE awaiting cache load to avoid missing events during the gap
+        const handleNewMsg = (data: SocketMessageEvent) => {
+          if (!chatIdsMatch(data.chatId, arg.chatId)) return;
+          try {
             updateCachedData((draft: any) => {
               if (!draft?.data) return;
+              // Dedup by messageId (primary) — always check, even when ID is present
               if (data.messageId && draft.data.some((m: WhatsAppMessage) => m.id === data.messageId)) return;
+              // Dedup by content (secondary) — catches cases where temp ID was stored first
+              // or when the same message fires twice without an ID
+              if (data.timestamp && data.body !== undefined && draft.data.some((m: WhatsAppMessage) =>
+                m.timestamp === data.timestamp && m.body === data.body && m.fromMe === data.fromMe
+              )) return;
 
               draft.data.push({
                 id: data.messageId || `temp-${Date.now()}`,
@@ -388,24 +431,30 @@ export const whatsappApi = api.injectEndpoints({
                 quotedMsg: data.quotedMsg || null,
               });
             });
-          };
+          } catch { /* updateCachedData failed — cache not yet populated */ }
+        };
 
-          const handleAck = (data: SocketAckEvent) => {
-            if (!chatIdsMatch(data.chatId, arg.chatId)) return;
-
+        const handleAck = (data: SocketAckEvent) => {
+          if (!chatIdsMatch(data.chatId, arg.chatId)) return;
+          try {
             updateCachedData((draft: any) => {
               if (!draft?.data) return;
               const msg = draft.data.find((m: WhatsAppMessage) => m.id === data.messageId);
               if (msg) msg.ack = data.ack;
             });
-          };
+          } catch { /* ignore */ }
+        };
 
-          onSocketEvent('whatsapp:message:new', handleNewMsg);
-          onSocketEvent('whatsapp:message:status', handleAck);
-          await cacheEntryRemoved;
-          offSocketEvent('whatsapp:message:new', handleNewMsg);
-          offSocketEvent('whatsapp:message:status', handleAck);
-        } catch { /* ignore */ }
+        onSocketEvent('whatsapp:message:new', handleNewMsg);
+        onSocketEvent('whatsapp:message:status', handleAck);
+
+        try {
+          await cacheDataLoaded;
+        } catch { /* query failed — listeners still clean up below */ }
+
+        await cacheEntryRemoved;
+        offSocketEvent('whatsapp:message:new', handleNewMsg);
+        offSocketEvent('whatsapp:message:status', handleAck);
       },
     }),
 

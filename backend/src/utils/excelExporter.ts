@@ -81,26 +81,35 @@ export async function generateEmployeeDirectoryExcel(employees: EmployeeForExcel
   return Buffer.from(buffer);
 }
 
-export async function generateAttendanceSummaryExcel(data: AttendanceForExcel[]): Promise<Buffer> {
+export async function generateAttendanceSummaryExcel(data: AttendanceForExcel[], orgName?: string): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Aniston HRMS';
+  workbook.title = orgName || 'Aniston HRMS';
   workbook.created = new Date();
 
   const sheet = workbook.addWorksheet('Attendance Summary', {
-    views: [{ state: 'frozen', ySplit: 1 }],
+    views: [{ state: 'frozen', ySplit: 2 }],
   });
 
   sheet.columns = [
-    { header: 'Employee', key: 'employee', width: 28 },
-    { header: 'Date', key: 'date', width: 14 },
-    { header: 'Status', key: 'status', width: 14 },
-    { header: 'Check-in', key: 'checkIn', width: 14 },
-    { header: 'Check-out', key: 'checkOut', width: 14 },
-    { header: 'Hours', key: 'hours', width: 10 },
+    { key: 'employee', width: 28 },
+    { key: 'date', width: 14 },
+    { key: 'status', width: 14 },
+    { key: 'checkIn', width: 14 },
+    { key: 'checkOut', width: 14 },
+    { key: 'hours', width: 10 },
   ];
 
-  styleHeaderRow(sheet.getRow(1));
+  const titleRow = sheet.addRow([orgName || 'Attendance Report', '', '', '', '', '']);
+  titleRow.getCell(1).font = { bold: true, size: 13, color: { argb: '1E1B4B' } };
+  titleRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+  sheet.mergeCells('A1:F1');
+  titleRow.height = 26;
 
+  const headerRow = sheet.addRow(['Employee', 'Date', 'Status', 'Check-in', 'Check-out', 'Hours']);
+  styleHeaderRow(headerRow);
+
+  let dataRowIndex = 0;
   for (const record of data) {
     const row = sheet.addRow({
       employee: record.employeeName,
@@ -110,15 +119,15 @@ export async function generateAttendanceSummaryExcel(data: AttendanceForExcel[])
       checkOut: record.checkOut ? (record.checkOut instanceof Date ? record.checkOut.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : record.checkOut) : '-',
       hours: record.totalHours != null ? Number(record.totalHours).toFixed(1) : '-',
     });
-
-    if (row.number % 2 === 0) {
+    dataRowIndex++;
+    if (dataRowIndex % 2 === 0) {
       row.eachCell((cell) => {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F3F4F6' } };
       });
     }
   }
 
-  sheet.autoFilter = { from: 'A1', to: `F${data.length + 1}` };
+  sheet.autoFilter = { from: 'A2', to: `F${data.length + 2}` };
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
@@ -136,36 +145,49 @@ interface LeaveForExcel {
   reason: string;
 }
 
-export async function generateLeaveReportExcel(data: LeaveForExcel[], period: string): Promise<Buffer> {
+export async function generateLeaveReportExcel(data: LeaveForExcel[], period: string, orgName?: string): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Aniston HRMS';
+  workbook.title = orgName || 'Aniston HRMS';
   workbook.created = new Date();
 
   const sheetName = `Leave Report${period ? ` - ${period}` : ''}`.slice(0, 31); // Excel sheet name limit
   const sheet = workbook.addWorksheet(sheetName, {
-    views: [{ state: 'frozen', ySplit: 1 }],
+    views: [{ state: 'frozen', ySplit: 2 }],
   });
 
   sheet.columns = [
-    { header: 'Employee Code', key: 'code', width: 16 },
-    { header: 'Employee Name', key: 'name', width: 28 },
-    { header: 'Department', key: 'department', width: 22 },
-    { header: 'Leave Type', key: 'leaveType', width: 18 },
-    { header: 'From', key: 'from', width: 14 },
-    { header: 'To', key: 'to', width: 14 },
-    { header: 'Days', key: 'days', width: 8 },
-    { header: 'Status', key: 'status', width: 14 },
-    { header: 'Reason', key: 'reason', width: 40 },
+    { key: 'code', width: 16 },
+    { key: 'name', width: 28 },
+    { key: 'department', width: 22 },
+    { key: 'leaveType', width: 18 },
+    { key: 'from', width: 14 },
+    { key: 'to', width: 14 },
+    { key: 'days', width: 8 },
+    { key: 'status', width: 14 },
+    { key: 'reason', width: 40 },
   ];
 
-  styleHeaderRow(sheet.getRow(1));
+  const titleRow = sheet.addRow([orgName ? `${orgName} — Leave Report` : 'Leave Report', '', '', '', '', '', '', '', '']);
+  titleRow.getCell(1).font = { bold: true, size: 13, color: { argb: '1E1B4B' } };
+  titleRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+  sheet.mergeCells('A1:I1');
+  titleRow.height = 26;
+
+  const headerRow = sheet.addRow(['Employee Code', 'Employee Name', 'Department', 'Leave Type', 'From', 'To', 'Days', 'Status', 'Reason']);
+  styleHeaderRow(headerRow);
 
   const statusColors: Record<string, string> = {
     APPROVED: 'D1FAE5',
+    APPROVED_WITH_CONDITION: 'DCFCE7',
+    MANAGER_APPROVED: 'DBEAFE',
     PENDING: 'FEF3C7',
+    DRAFT: 'F3F4F6',
     REJECTED: 'FEE2E2',
+    CANCELLED: 'F3F4F6',
   };
 
+  let dataRowIndex = 0;
   for (const record of data) {
     const row = sheet.addRow({
       code: record.employeeCode,
@@ -176,21 +198,23 @@ export async function generateLeaveReportExcel(data: LeaveForExcel[], period: st
       to: record.endDate instanceof Date ? record.endDate.toLocaleDateString('en-IN') : record.endDate,
       days: record.days,
       status: record.status,
-      reason: record.reason,
+      reason: (record.reason || '').slice(0, 1000),
     });
+    dataRowIndex++;
 
     const bgColor = statusColors[record.status];
     if (bgColor) {
-      const statusCell = row.getCell('status');
-      statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
-    } else if (row.number % 2 === 0) {
+      row.eachCell((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+      });
+    } else if (dataRowIndex % 2 === 0) {
       row.eachCell((cell) => {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F3F4F6' } };
       });
     }
   }
 
-  sheet.autoFilter = { from: 'A1', to: `I${data.length + 1}` };
+  sheet.autoFilter = { from: 'A2', to: `I${data.length + 2}` };
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);

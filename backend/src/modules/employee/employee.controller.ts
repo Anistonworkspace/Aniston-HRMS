@@ -378,17 +378,42 @@ export class EmployeeController {
       const orgName = org?.name || 'Aniston Technologies';
       const downloadUrl = 'https://hr.anistonav.com/download';
 
-      // Test email shortcut
+      // Test email shortcut — route through the correct template so HR sees what employees will receive
       if (data.testEmail) {
-        const subject = data.subject || `[TEST] ${data.templateType}`;
-        const body = data.body || '';
-        await enqueueEmail({
-          to: data.testEmail,
-          subject: `[TEST] ${subject}`,
-          template: 'generic',
-          context: { title: subject, message: body },
-          attachments,
-        });
+        const testSubject = data.subject || `[TEST] ${data.templateType}`;
+        if (data.templateType === 'app-download') {
+          await enqueueEmail({
+            to: data.testEmail,
+            subject: `[TEST] 📲 Download Aniston HRMS App — ${orgName}`,
+            template: 'app-download',
+            context: { orgName, downloadUrl },
+            attachments,
+          });
+        } else if (data.templateType === 'attendance-instructions') {
+          await enqueueEmail({
+            to: data.testEmail,
+            subject: `[TEST] ⏰ Attendance Instructions — ${orgName}`,
+            template: 'attendance-instructions',
+            context: { orgName, downloadUrl, hrEmail: 'hr@anistonav.com' },
+            attachments,
+          });
+        } else if (data.templateType === 'onboarding-invite') {
+          await enqueueEmail({
+            to: data.testEmail,
+            subject: `[TEST] You're invited to join ${orgName} — Complete your onboarding`,
+            template: 'onboarding-invite',
+            context: { orgName, email: data.testEmail, downloadUrl, androidDownloadUrl: `${downloadUrl}/android`, iosDownloadUrl: `${downloadUrl}/ios` },
+            attachments,
+          });
+        } else {
+          await enqueueEmail({
+            to: data.testEmail,
+            subject: `[TEST] ${testSubject}`,
+            template: 'generic',
+            context: { title: testSubject, message: data.body || '' },
+            attachments,
+          });
+        }
         res.json({ success: true, data: { queued: 1, testMode: true }, message: `Test email sent to ${data.testEmail}` });
         return;
       }

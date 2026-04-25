@@ -258,6 +258,9 @@ export function generateLetterPDF(
         case 'PROMOTION_LETTER':
           y = renderPromotionLetter(doc, scheme, letterData, leftCol, pageWidth, y);
           break;
+        case 'SALARY_SLIP_LETTER':
+          y = renderSalarySlipLetter(doc, scheme, letterData, leftCol, pageWidth, y);
+          break;
         case 'WARNING_LETTER':
           y = renderWarningLetter(doc, scheme, letterData, leftCol, pageWidth, y);
           break;
@@ -535,6 +538,49 @@ function renderAppreciationLetter(doc: PDFKit.PDFDocument, scheme: any, data: Le
   doc.moveDown(0.5); y = doc.y + 10;
 
   doc.text('Keep up the excellent work!', leftCol, y, { width: pageWidth });
+  doc.moveDown(0.5);
+  return doc.y + 10;
+}
+
+function renderSalarySlipLetter(doc: PDFKit.PDFDocument, scheme: any, data: LetterData, leftCol: number, pageWidth: number, y: number): number {
+  doc.fontSize(10).font(scheme.headingFont).fillColor(scheme.primary).text('SALARY CERTIFICATE', leftCol, y, { align: 'center' });
+  y += 30;
+
+  doc.fontSize(10).font(scheme.bodyFont).fillColor('#1a1a1a')
+    .text(`This is to certify that ${data.employeeName} (Employee Code: ${data.employeeCode}) is employed with our organization as ${data.designation} in the ${data.department} department.`, leftCol, y, { width: pageWidth, lineGap: 4 });
+  doc.moveDown(0.5); y = doc.y + 15;
+
+  // Compensation table
+  doc.fontSize(10).font(scheme.headingFont).fillColor(scheme.primary).text('COMPENSATION SUMMARY', leftCol, y);
+  y += 18;
+
+  const rowHeight = 24;
+  doc.rect(leftCol, y, pageWidth, rowHeight).fill(scheme.headerBg);
+  doc.fontSize(9).font(scheme.headingFont).fillColor('#ffffff')
+    .text('Component', leftCol + 10, y + 7)
+    .text('Amount (Per Annum)', leftCol + 280, y + 7);
+  y += rowHeight;
+
+  const ctc = data.salary ? formatINR(data.salary) : 'As per records';
+  const rows: [string, string][] = [
+    ['Gross Annual CTC', ctc],
+    ['Date of Joining', data.joiningDate ? formatDateStr(data.joiningDate) : 'N/A'],
+    ['Designation', data.designation],
+    ['Department', data.department],
+  ];
+
+  rows.forEach(([label, val], idx) => {
+    doc.rect(leftCol, y, pageWidth, rowHeight).fill(idx % 2 === 0 ? scheme.tableBg : '#ffffff');
+    doc.fontSize(9).font(scheme.bodyFont).fillColor('#374151')
+      .text(label, leftCol + 10, y + 7).text(val, leftCol + 280, y + 7);
+    y += rowHeight;
+  });
+  doc.rect(leftCol, y - rowHeight * rows.length, pageWidth, rowHeight * rows.length)
+    .strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+  y += 20;
+
+  doc.fontSize(10).font(scheme.bodyFont).fillColor('#1a1a1a')
+    .text('This certificate is issued upon request for the purpose of salary verification and without any prejudice.', leftCol, y, { width: pageWidth, lineGap: 4 });
   doc.moveDown(0.5);
   return doc.y + 10;
 }

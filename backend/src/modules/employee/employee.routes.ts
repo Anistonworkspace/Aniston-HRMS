@@ -36,8 +36,13 @@ router.post('/invite-whatsapp', requirePermission('employee', 'create'), async (
       res.status(400).json({ success: false, error: { message: 'firstName, lastName, phone, and role are required' } }); return;
     }
     if (role === 'SUPER_ADMIN') { res.status(403).json({ success: false, error: { message: 'Cannot invite as Super Admin' } }); return; }
-    const cleanPhone = phone.toString().replace(/\D/g, '').replace(/^(91|0)/, '');
-    if (cleanPhone.length !== 10) { res.status(400).json({ success: false, error: { message: 'Phone must be 10 digits' } }); return; }
+    // Strip formatting chars only — preserve country code for international support.
+    // For bare 10-digit Indian numbers, add 91 prefix so sendToNumber resolves correctly.
+    const rawDigits = phone.toString().replace(/\D/g, '');
+    const cleanPhone = rawDigits.length === 10 ? '91' + rawDigits : rawDigits;
+    if (cleanPhone.length < 10 || cleanPhone.length > 15) {
+      res.status(400).json({ success: false, error: { message: 'Invalid phone number — include country code, 10–15 digits (e.g. 919876543210 or 14155551234)' } }); return;
+    }
 
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
@@ -63,8 +68,14 @@ router.post('/invite-whatsapp', requirePermission('employee', 'create'), async (
     let whatsappSent = false;
     try {
       const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
-      await whatsAppService.sendToNumber('91' + cleanPhone, message, req.user!.organizationId);
-      whatsappSent = true;
+      const allowed = await whatsAppService.checkAutoSendQuota(req.user!.organizationId);
+      if (allowed) {
+        await whatsAppService.sendToNumber(cleanPhone, message, req.user!.organizationId);
+        whatsappSent = true;
+      } else {
+        const { logger } = await import('../../lib/logger.js');
+        logger.warn('[WhatsApp invite] Auto-send quota exceeded for org:', req.user!.organizationId);
+      }
     } catch (e: any) {
       const { logger } = await import('../../lib/logger.js');
       logger.warn('[WhatsApp invite] Not sent:', e.message);

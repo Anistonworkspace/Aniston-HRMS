@@ -24,6 +24,10 @@ router.post('/:itemId/create-application', requirePermission('recruitment', 'cre
   bulkResumeController.createApplication(req, res, next)
 );
 
+router.post('/:itemId/invite', requirePermission('recruitment', 'create'), (req, res, next) =>
+  bulkResumeController.sendInvite(req, res, next)
+);
+
 router.get('/:uploadId', requirePermission('recruitment', 'read'), (req, res, next) =>
   bulkResumeController.getUpload(req, res, next)
 );

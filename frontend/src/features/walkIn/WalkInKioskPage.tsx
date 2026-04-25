@@ -3,70 +3,98 @@ import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft, ChevronRight, Check, Upload, X, User, Briefcase,
-  FileText, Loader2, AlertTriangle, CheckCircle2, Plus,
+  FileText, Loader2, CheckCircle2, Plus, Trash2, Brain,
 } from 'lucide-react';
-import { useGetWalkInJobsQuery, useRegisterWalkInMutation } from './walkInApi';
-import { uploadFile, validateFile, formatFileSize } from '../../lib/fileUpload';
+import { useGetWalkInJobsQuery, useRegisterWalkInMutation, useGetPsychometricQuestionsQuery } from './walkInApi';
+import { uploadFile, validateFile } from '../../lib/fileUpload';
 import { QRCodeSVG } from 'qrcode.react';
+import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
 const STEPS = [
-  { label: 'Position & Contact', icon: User },
-  { label: 'KYC Documents', icon: FileText },
-  { label: 'Professional Details', icon: Briefcase },
-  { label: 'Resume Upload', icon: Upload },
-  { label: 'Confirm & Submit', icon: Check },
+  { label: 'Personal Info',       icon: User },
+  { label: 'Job Details',         icon: Briefcase },
+  { label: 'Education',           icon: FileText },
+  { label: 'Work Experience',     icon: Briefcase },
+  { label: 'Skills & Prefs',      icon: Check },
+  { label: 'Documents',           icon: FileText },
+  { label: 'Assessment',          icon: Brain },
+  { label: 'Confirm & Submit',    icon: Check },
 ];
 
-const QUALIFICATIONS = [
-  '10th / SSLC', '12th / HSC', 'Diploma', 'Graduate / Bachelor\'s',
-  'Post-Graduate / Master\'s', 'PhD / Doctorate',
-];
+const IDLE_TIMEOUT = 5 * 60 * 1000;
+const IDLE_WARNING = 30 * 1000;
 
-const NOTICE_PERIODS = ['Immediate', '15 Days', '30 Days', '60 Days', '90 Days'];
-
-const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
-const IDLE_WARNING = 30 * 1000; // 30 seconds before reset
+interface EducationRow { qualification: string; institution: string; year: string; marks: string; }
+interface DocumentsChecklist { resume: boolean; photo: boolean; idProof: boolean; certificates: boolean; salarySlip: boolean; relievingLetter: boolean; }
 
 interface FormData {
+  // Step 0: Personal
   jobOpeningId: string;
   fullName: string;
   email: string;
   phone: string;
   city: string;
-  aadhaarFrontUrl: string;
-  aadhaarBackUrl: string;
-  panCardUrl: string;
-  selfieUrl: string;
-  aadhaarNumber: string;
-  panNumber: string;
-  ocrVerifiedName: string;
-  ocrVerifiedDob: string;
-  ocrVerifiedAddress: string;
-  tamperDetected: boolean;
-  qualification: string;
-  fieldOfStudy: string;
+  fathersName: string;
+  dateOfBirth: string;
+  gender: string;
+  maritalStatus: string;
+  alternatePhone: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  emergencyContactRelation: string;
+  currentAddress: string;
+  permanentAddress: string;
+  // Step 1: Job Details
+  referredBy: string;
+  availableFrom: string;
+  employmentType: string;
+  // Step 2: Education
+  education: EducationRow[];
+  // Step 3: Work Experience
   experienceYears: number;
   experienceMonths: number;
   isFresher: boolean;
+  lastDrawnSalary: string;
+  lastEmployer: string;
+  designation: string;
   currentCompany: string;
-  currentCtc: string;
-  expectedCtc: string;
-  noticePeriod: string;
+  workFromDate: string;
+  workToDate: string;
+  reasonForLeaving: string;
+  keyResponsibilities: string;
+  // Step 4: Skills
   skills: string[];
-  aboutMe: string;
+  openToSiteWork: boolean | null;
+  hasTwoWheeler: boolean | null;
+  willingToRelocate: boolean | null;
+  healthIssues: string;
+  qualification: string;
+  fieldOfStudy: string;
+  // Step 5: Documents
+  documentsChecklist: DocumentsChecklist;
   resumeUrl: string;
-  consent: boolean;
+  // Step 6: Assessment (psychometric)
+  psychAnswers: Array<{ questionId: string; selectedOption: string }>;
 }
+
+const emptyEduRow = (): EducationRow => ({ qualification: '', institution: '', year: '', marks: '' });
 
 const initialFormData: FormData = {
   jobOpeningId: '', fullName: '', email: '', phone: '', city: '',
-  aadhaarFrontUrl: '', aadhaarBackUrl: '', panCardUrl: '', selfieUrl: '',
-  aadhaarNumber: '', panNumber: '',
-  ocrVerifiedName: '', ocrVerifiedDob: '', ocrVerifiedAddress: '', tamperDetected: false,
-  qualification: '', fieldOfStudy: '', experienceYears: 0, experienceMonths: 0,
-  isFresher: true, currentCompany: '', currentCtc: '', expectedCtc: '',
-  noticePeriod: '', skills: [], aboutMe: '', resumeUrl: '', consent: false,
+  fathersName: '', dateOfBirth: '', gender: '', maritalStatus: '',
+  alternatePhone: '', emergencyContactName: '', emergencyContactPhone: '',
+  emergencyContactRelation: '', currentAddress: '', permanentAddress: '',
+  referredBy: '', availableFrom: '', employmentType: '',
+  education: [emptyEduRow(), emptyEduRow(), emptyEduRow(), emptyEduRow()],
+  experienceYears: 0, experienceMonths: 0, isFresher: true,
+  lastDrawnSalary: '', lastEmployer: '', designation: '', currentCompany: '',
+  workFromDate: '', workToDate: '', reasonForLeaving: '', keyResponsibilities: '',
+  skills: [], openToSiteWork: null, hasTwoWheeler: null, willingToRelocate: null,
+  healthIssues: '', qualification: '', fieldOfStudy: '',
+  documentsChecklist: { resume: false, photo: false, idProof: false, certificates: false, salarySlip: false, relievingLetter: false },
+  resumeUrl: '',
+  psychAnswers: [],
 };
 
 export default function WalkInKioskPage() {
@@ -80,35 +108,36 @@ export default function WalkInKioskPage() {
   const [tokenNumber, setTokenNumber] = useState('');
   const [idleWarning, setIdleWarning] = useState(false);
   const [countdown, setCountdown] = useState(30);
+  const [resumeUploading, setResumeUploading] = useState(false);
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const idleTimerRef = useRef<number | null>(null);
   const warningTimerRef = useRef<number | null>(null);
 
-  // Generate a unique temp ID per session for file uploads (before we have a token)
   const tempId = useMemo(() => `walkin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, []);
 
   const { data: jobsData } = useGetWalkInJobsQuery();
+  const { data: psychData } = useGetPsychometricQuestionsQuery();
   const [registerWalkIn, { isLoading: isSubmitting }] = useRegisterWalkInMutation();
 
   const jobs = jobsData?.data || [];
+  const psychQuestions: any[] = psychData?.data || [];
 
-  // --- Idle auto-reset ---
+  // Idle reset
   const resetIdleTimer = useCallback(() => {
     if (submitted) return;
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
     setIdleWarning(false);
-
     idleTimerRef.current = window.setTimeout(() => {
       setIdleWarning(true);
       setCountdown(30);
       warningTimerRef.current = window.setTimeout(() => {
-        setForm(initialFormData);
-        setStep(0);
-        setSubmitted(false);
-        setIdleWarning(false);
+        setForm({ ...initialFormData, jobOpeningId: initialJobId });
+        setStep(0); setSubmitted(false); setIdleWarning(false);
       }, IDLE_WARNING);
     }, IDLE_TIMEOUT - IDLE_WARNING);
-  }, [submitted]);
+  }, [submitted, initialJobId]);
 
   useEffect(() => {
     const events = ['mousedown', 'mousemove', 'keydown', 'touchstart', 'scroll'];
@@ -121,81 +150,86 @@ export default function WalkInKioskPage() {
     };
   }, [resetIdleTimer]);
 
-  // Countdown timer for idle warning
   useEffect(() => {
     if (!idleWarning) return;
-    const interval = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) { clearInterval(interval); return 0; }
-        return prev - 1;
-      });
-    }, 1000);
+    const interval = setInterval(() => { setCountdown(prev => { if (prev <= 1) { clearInterval(interval); return 0; } return prev - 1; }); }, 1000);
     return () => clearInterval(interval);
   }, [idleWarning]);
 
-  // Auto-reset after submission (5 min)
   useEffect(() => {
     if (!submitted) return;
-    const timer = setTimeout(() => {
-      setForm(initialFormData);
-      setStep(0);
-      setSubmitted(false);
-      setTokenNumber('');
-    }, IDLE_TIMEOUT);
+    const timer = setTimeout(() => { setForm({ ...initialFormData, jobOpeningId: initialJobId }); setStep(0); setSubmitted(false); setTokenNumber(''); }, IDLE_TIMEOUT);
     return () => clearTimeout(timer);
-  }, [submitted]);
+  }, [submitted, initialJobId]);
 
-  const updateForm = (field: keyof FormData, value: any) => {
-    setForm(prev => ({ ...prev, [field]: value }));
+  const upd = (field: keyof FormData, value: any) => setForm(prev => ({ ...prev, [field]: value }));
+
+  const handleResumeUpload = async (file: File) => {
+    const err = validateFile(file, { maxSizeMB: 10, allowedTypes: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'] });
+    if (err) { toast.error(err); return; }
+    setResumeFile(file);
+    setResumeUploading(true);
+    try {
+      const url = await uploadFile(file, `/walk-in/upload`, 'file', { sessionId: tempId });
+      upd('resumeUrl', url);
+      toast.success('Resume uploaded');
+    } catch { toast.error('Upload failed'); }
+    finally { setResumeUploading(false); }
   };
 
-  const addSkill = () => {
-    const trimmed = skillInput.trim();
-    if (trimmed && !form.skills.includes(trimmed)) {
-      updateForm('skills', [...form.skills, trimmed]);
-      setSkillInput('');
+  const updateEduRow = (idx: number, field: keyof EducationRow, value: string) => {
+    const next = [...form.education];
+    next[idx] = { ...next[idx], [field]: value };
+    upd('education', next);
+  };
+
+  const togglePsychAnswer = (questionId: string, option: string) => {
+    const existing = form.psychAnswers.findIndex(a => a.questionId === questionId);
+    if (existing >= 0) {
+      const next = [...form.psychAnswers];
+      next[existing] = { questionId, selectedOption: option };
+      upd('psychAnswers', next);
+    } else {
+      upd('psychAnswers', [...form.psychAnswers, { questionId, selectedOption: option }]);
     }
   };
 
-  const removeSkill = (skill: string) => {
-    updateForm('skills', form.skills.filter(s => s !== skill));
-  };
+  const getAnswerFor = (questionId: string) => form.psychAnswers.find(a => a.questionId === questionId)?.selectedOption;
 
   const canProceed = () => {
     switch (step) {
       case 0: {
-        if (!form.fullName || !form.email || !form.phone) return false;
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(form.email)) {
-          return false;
-        }
-        if (!/^\d{10}$/.test(form.phone)) {
-          return false;
-        }
+        if (!form.fullName.trim()) { toast.error('Full name is required'); return false; }
+        if (!form.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) { toast.error('Valid email is required'); return false; }
+        if (!/^\d{10}$/.test(form.phone)) { toast.error('Valid 10-digit phone is required'); return false; }
         return true;
       }
-      case 1: return true; // KYC is optional — candidate can skip
-      case 2: return !!(form.qualification); // At least qualification required
-      case 3: return !!(form.resumeUrl); // Resume mandatory
-      case 4: return form.consent;
+      case 1: return true;
+      case 2: return true;
+      case 3: return true;
+      case 4: return true;
+      case 5: return true;
+      case 6: return true;
+      case 7: return true;
       default: return true;
     }
   };
 
   const handleSubmit = async () => {
     try {
-      const payload = {
+      const payload: any = {
         ...form,
         jobOpeningId: form.jobOpeningId || undefined,
-        currentCtc: form.currentCtc ? parseFloat(form.currentCtc) : undefined,
-        expectedCtc: form.expectedCtc ? parseFloat(form.expectedCtc) : undefined,
-        ocrVerifiedDob: form.ocrVerifiedDob || undefined,
+        dateOfBirth: form.dateOfBirth || undefined,
+        availableFrom: form.availableFrom || undefined,
+        education: form.education.filter(r => r.qualification || r.institution),
+        psychAnswers: form.psychAnswers.length > 0 ? form.psychAnswers : undefined,
+        openToSiteWork: form.openToSiteWork ?? undefined,
+        hasTwoWheeler: form.hasTwoWheeler ?? undefined,
+        willingToRelocate: form.willingToRelocate ?? undefined,
       };
-      // Remove empty strings
-      Object.keys(payload).forEach(key => {
-        if ((payload as any)[key] === '') delete (payload as any)[key];
-      });
-      delete (payload as any).consent;
+      // strip empty strings
+      Object.keys(payload).forEach(k => { if (payload[k] === '') delete payload[k]; });
 
       const result = await registerWalkIn(payload).unwrap();
       if (result.success) {
@@ -204,37 +238,27 @@ export default function WalkInKioskPage() {
         toast.success('Registration complete!');
       }
     } catch (err: any) {
-      const message = err?.data?.error?.message || 'Registration failed. Please try again.';
-      toast.error(message);
+      toast.error(err?.data?.error?.message || 'Registration failed. Please try again.');
     }
   };
 
-  // --- Success Screen ---
   if (submitted) {
     return (
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="text-center py-16"
-      >
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-16">
         <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
           <CheckCircle2 className="w-10 h-10 text-emerald-600" />
         </div>
         <h2 className="text-3xl font-display font-bold text-gray-900 mb-2">Registration Complete!</h2>
         <p className="text-gray-500 mb-8">Please show this to the receptionist</p>
-
         <div className="bg-white rounded-2xl border border-gray-200 shadow-lg p-8 max-w-md mx-auto mb-8">
           <p className="text-sm text-gray-400 mb-2">Your Token Number</p>
-          <p className="text-4xl font-display font-bold text-brand-600 tracking-wider" data-mono>
-            {tokenNumber}
-          </p>
+          <p className="text-4xl font-display font-bold text-brand-600 tracking-wider" data-mono>{tokenNumber}</p>
           <div className="mt-4 pt-4 border-t border-gray-100 flex flex-col items-center gap-3">
             <QRCodeSVG value={tokenNumber} size={120} level="M" />
             <p className="text-sm text-gray-500">{form.fullName}</p>
             <p className="text-sm text-gray-400">{form.email}</p>
           </div>
         </div>
-
         <p className="text-sm text-gray-400">This screen will auto-reset in 5 minutes</p>
       </motion.div>
     );
@@ -242,694 +266,436 @@ export default function WalkInKioskPage() {
 
   return (
     <div className="pb-16">
-      {/* Idle Warning Modal */}
+      {/* Idle Warning */}
       <AnimatePresence>
         {idleWarning && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              className="bg-white rounded-2xl p-8 max-w-sm text-center"
-            >
-              <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
-              <h3 className="text-xl font-display font-bold text-gray-900 mb-2">Still there?</h3>
-              <p className="text-gray-500 mb-4">
-                This form will reset in <span className="font-bold text-amber-600">{countdown}s</span>
-              </p>
-              <button
-                onClick={() => { setIdleWarning(false); resetIdleTimer(); }}
-                className="btn-primary w-full text-lg py-3"
-              >
-                Yes, I'm still here
-              </button>
-            </motion.div>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center px-4">
+            <div className="bg-white rounded-2xl p-8 max-w-sm text-center shadow-2xl">
+              <p className="text-lg font-bold text-gray-900 mb-2">Still there?</p>
+              <p className="text-gray-500 mb-4">Resetting in <span className="font-bold text-red-500">{countdown}s</span></p>
+              <button onClick={resetIdleTimer} className="btn-primary w-full">Continue</button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Step Progress */}
-      <div className="flex items-center justify-center gap-2 mb-8">
-        {STEPS.map((s, i) => (
-          <div key={i} className="flex items-center">
-            <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all
-                ${i < step ? 'bg-emerald-500 text-white' :
-                  i === step ? 'bg-brand-600 text-white ring-4 ring-brand-100' :
-                  'bg-gray-100 text-gray-400'}`}
-            >
-              {i < step ? <Check className="w-5 h-5" /> : i + 1}
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-2">
+          {STEPS.map((s, i) => (
+            <div key={s.label} className="flex flex-col items-center flex-1">
+              <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors',
+                i < step ? 'bg-emerald-500 text-white' : i === step ? 'bg-brand-600 text-white' : 'bg-gray-200 text-gray-400'
+              )}>
+                {i < step ? <Check size={14} /> : i + 1}
+              </div>
+              <span className={cn('text-[9px] mt-1 text-center leading-tight hidden sm:block',
+                i === step ? 'text-brand-600 font-medium' : 'text-gray-400'
+              )}>{s.label}</span>
             </div>
-            {i < STEPS.length - 1 && (
-              <div className={`w-12 h-0.5 mx-1 ${i < step ? 'bg-emerald-400' : 'bg-gray-200'}`} />
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
+        <div className="h-1 bg-gray-200 rounded-full">
+          <div className="h-full bg-brand-600 rounded-full transition-all duration-300" style={{ width: `${(step / (STEPS.length - 1)) * 100}%` }} />
+        </div>
       </div>
-      <p className="text-center text-sm text-gray-500 mb-6">
-        Step {step + 1} of {STEPS.length} — {STEPS[step].label}
-      </p>
 
-      {/* Form Steps */}
       <AnimatePresence mode="wait">
-        <motion.div
-          key={step}
-          initial={{ opacity: 0, x: 30 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -30 }}
-          transition={{ duration: 0.25 }}
-          className="bg-white rounded-2xl border border-gray-100 shadow-lg p-6 sm:p-8"
-        >
-          {step === 0 && <Step1 form={form} updateForm={updateForm} jobs={jobs} />}
-          {step === 1 && <Step2 form={form} updateForm={updateForm} tempId={tempId} />}
-          {step === 2 && <Step3 form={form} updateForm={updateForm} skillInput={skillInput} setSkillInput={setSkillInput} addSkill={addSkill} removeSkill={removeSkill} />}
-          {step === 3 && <Step4 form={form} updateForm={updateForm} tempId={tempId} />}
-          {step === 4 && <Step5 form={form} updateForm={updateForm} jobs={jobs} />}
+        <motion.div key={step} initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.2 }}>
+
+          {/* ── Step 0: Personal Info (Section A) ── */}
+          {step === 0 && (
+            <div className="space-y-5">
+              <h2 className="text-xl font-bold text-gray-900">A. Candidate Information</h2>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Position Applied For</label>
+                  <select value={form.jobOpeningId} onChange={e => upd('jobOpeningId', e.target.value)} className="input-glass w-full text-sm">
+                    <option value="">Select position...</option>
+                    {jobs.map((j: any) => <option key={j.id} value={j.id}>{j.title}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Full Name <span className="text-red-500">*</span></label>
+                  <input value={form.fullName} onChange={e => upd('fullName', e.target.value)} className="input-glass w-full text-sm" placeholder="As per ID proof" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Father's Name</label>
+                  <input value={form.fathersName} onChange={e => upd('fathersName', e.target.value)} className="input-glass w-full text-sm" placeholder="Father's full name" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
+                  <input type="date" value={form.dateOfBirth} onChange={e => upd('dateOfBirth', e.target.value)} className="input-glass w-full text-sm" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
+                  <select value={form.gender} onChange={e => upd('gender', e.target.value)} className="input-glass w-full text-sm">
+                    <option value="">Select...</option>
+                    <option>Male</option><option>Female</option><option>Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Marital Status</label>
+                  <select value={form.maritalStatus} onChange={e => upd('maritalStatus', e.target.value)} className="input-glass w-full text-sm">
+                    <option value="">Select...</option>
+                    <option>Single</option><option>Married</option><option>Divorced</option><option>Widowed</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                  <input value={form.city} onChange={e => upd('city', e.target.value)} className="input-glass w-full text-sm" placeholder="Current city" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email ID <span className="text-red-500">*</span></label>
+                  <input type="email" value={form.email} onChange={e => upd('email', e.target.value)} className="input-glass w-full text-sm" placeholder="email@example.com" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Primary Contact No. <span className="text-red-500">*</span></label>
+                  <input value={form.phone} onChange={e => upd('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} className="input-glass w-full text-sm" placeholder="10-digit mobile" maxLength={10} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Alternate No.</label>
+                  <input value={form.alternatePhone} onChange={e => upd('alternatePhone', e.target.value.replace(/\D/g, '').slice(0, 10))} className="input-glass w-full text-sm" placeholder="Optional" maxLength={10} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Emergency Contact Name</label>
+                  <input value={form.emergencyContactName} onChange={e => upd('emergencyContactName', e.target.value)} className="input-glass w-full text-sm" placeholder="Emergency contact" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Emergency Phone</label>
+                  <input value={form.emergencyContactPhone} onChange={e => upd('emergencyContactPhone', e.target.value.replace(/\D/g, '').slice(0, 10))} className="input-glass w-full text-sm" placeholder="Emergency phone" maxLength={10} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Relation</label>
+                  <input value={form.emergencyContactRelation} onChange={e => upd('emergencyContactRelation', e.target.value)} className="input-glass w-full text-sm" placeholder="e.g. Father, Spouse" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Current Address</label>
+                <textarea value={form.currentAddress} onChange={e => upd('currentAddress', e.target.value)} className="input-glass w-full text-sm" rows={2} placeholder="Full current address" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Permanent Address</label>
+                <textarea value={form.permanentAddress} onChange={e => upd('permanentAddress', e.target.value)} className="input-glass w-full text-sm" rows={2} placeholder="Full permanent address" />
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 1: Job Details (Section B) ── */}
+          {step === 1 && (
+            <div className="space-y-5">
+              <h2 className="text-xl font-bold text-gray-900">B. Job Details</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Referred By</label>
+                  <input value={form.referredBy} onChange={e => upd('referredBy', e.target.value)} className="input-glass w-full text-sm" placeholder="Who referred you?" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Available From</label>
+                  <input type="date" value={form.availableFrom} onChange={e => upd('availableFrom', e.target.value)} className="input-glass w-full text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Employment Type</label>
+                <select value={form.employmentType} onChange={e => upd('employmentType', e.target.value)} className="input-glass w-full text-sm">
+                  <option value="">Select...</option>
+                  <option>Full Time</option><option>Part Time</option><option>Contract</option><option>Internship</option><option>Freelance</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 2: Education (Section C) ── */}
+          {step === 2 && (
+            <div className="space-y-5">
+              <h2 className="text-xl font-bold text-gray-900">C. Educational Qualifications</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="text-left p-2 font-medium text-gray-700 border border-gray-200">Qualification</th>
+                      <th className="text-left p-2 font-medium text-gray-700 border border-gray-200">Institution</th>
+                      <th className="text-left p-2 font-medium text-gray-700 border border-gray-200">Year</th>
+                      <th className="text-left p-2 font-medium text-gray-700 border border-gray-200">Marks/CGPA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {form.education.map((row, i) => (
+                      <tr key={i}>
+                        <td className="border border-gray-200 p-1">
+                          <input value={row.qualification} onChange={e => updateEduRow(i, 'qualification', e.target.value)} className="w-full text-sm px-2 py-1 border-0 outline-none bg-transparent" placeholder="e.g. B.Tech" />
+                        </td>
+                        <td className="border border-gray-200 p-1">
+                          <input value={row.institution} onChange={e => updateEduRow(i, 'institution', e.target.value)} className="w-full text-sm px-2 py-1 border-0 outline-none bg-transparent" placeholder="College/University" />
+                        </td>
+                        <td className="border border-gray-200 p-1">
+                          <input value={row.year} onChange={e => updateEduRow(i, 'year', e.target.value)} className="w-full text-sm px-2 py-1 border-0 outline-none bg-transparent" placeholder="2022" />
+                        </td>
+                        <td className="border border-gray-200 p-1">
+                          <input value={row.marks} onChange={e => updateEduRow(i, 'marks', e.target.value)} className="w-full text-sm px-2 py-1 border-0 outline-none bg-transparent" placeholder="75% / 8.2" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <button onClick={() => upd('education', [...form.education, emptyEduRow()])} className="text-sm text-brand-600 flex items-center gap-1 hover:underline">
+                <Plus size={14} /> Add row
+              </button>
+            </div>
+          )}
+
+          {/* ── Step 3: Work Experience (Section D) ── */}
+          {step === 3 && (
+            <div className="space-y-5">
+              <h2 className="text-xl font-bold text-gray-900">D. Work Experience</h2>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={form.isFresher} onChange={e => upd('isFresher', e.target.checked)} className="w-4 h-4 rounded border-gray-300 text-brand-600" />
+                <span className="text-sm text-gray-700">I am a Fresher (no prior work experience)</span>
+              </label>
+
+              {!form.isFresher && (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Experience (Years)</label>
+                      <input type="number" min={0} value={form.experienceYears} onChange={e => upd('experienceYears', Number(e.target.value))} className="input-glass w-full text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Months</label>
+                      <input type="number" min={0} max={11} value={form.experienceMonths} onChange={e => upd('experienceMonths', Number(e.target.value))} className="input-glass w-full text-sm" />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Last Drawn Salary</label>
+                      <input value={form.lastDrawnSalary} onChange={e => upd('lastDrawnSalary', e.target.value)} className="input-glass w-full text-sm" placeholder="e.g. ₹25,000/month or 3 LPA" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Last Employer</label>
+                      <input value={form.lastEmployer} onChange={e => upd('lastEmployer', e.target.value)} className="input-glass w-full text-sm" placeholder="Company name" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
+                      <input value={form.designation} onChange={e => upd('designation', e.target.value)} className="input-glass w-full text-sm" placeholder="Job title held" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">From (MM/YYYY)</label>
+                      <input value={form.workFromDate} onChange={e => upd('workFromDate', e.target.value)} className="input-glass w-full text-sm" placeholder="01/2021" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">To (MM/YYYY)</label>
+                      <input value={form.workToDate} onChange={e => upd('workToDate', e.target.value)} className="input-glass w-full text-sm" placeholder="06/2024 or Present" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Reason for Leaving</label>
+                    <input value={form.reasonForLeaving} onChange={e => upd('reasonForLeaving', e.target.value)} className="input-glass w-full text-sm" placeholder="Growth opportunity, relocation, etc." />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Key Responsibilities</label>
+                    <textarea value={form.keyResponsibilities} onChange={e => upd('keyResponsibilities', e.target.value)} className="input-glass w-full text-sm" rows={3} placeholder="Briefly describe your main duties and achievements" />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── Step 4: Skills & Preferences (Section E) ── */}
+          {step === 4 && (
+            <div className="space-y-5">
+              <h2 className="text-xl font-bold text-gray-900">E. Skills & Preferences</h2>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Technical Skills / Software Known</label>
+                <div className="flex gap-2 mb-2">
+                  <input value={skillInput} onChange={e => setSkillInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const t = skillInput.trim(); if (t && !form.skills.includes(t)) { upd('skills', [...form.skills, t]); setSkillInput(''); }}}} className="input-glass flex-1 text-sm" placeholder="Type skill and press Enter" />
+                  <button onClick={() => { const t = skillInput.trim(); if (t && !form.skills.includes(t)) { upd('skills', [...form.skills, t]); setSkillInput(''); }}} className="btn-secondary px-3 text-sm">Add</button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {form.skills.map(s => (
+                    <span key={s} className="flex items-center gap-1 bg-brand-50 text-brand-700 text-xs px-3 py-1 rounded-full border border-brand-200">
+                      {s}
+                      <button onClick={() => upd('skills', form.skills.filter(x => x !== s))}><X size={12} /></button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Highest Qualification</label>
+                <select value={form.qualification} onChange={e => upd('qualification', e.target.value)} className="input-glass w-full text-sm">
+                  <option value="">Select...</option>
+                  <option>10th / SSLC</option><option>12th / HSC</option><option>Diploma</option>
+                  <option>Graduate / Bachelor's</option><option>Post-Graduate / Master's</option><option>PhD / Doctorate</option>
+                </select>
+              </div>
+
+              {['openToSiteWork', 'hasTwoWheeler', 'willingToRelocate'].map(field => (
+                <div key={field} className="flex items-center justify-between py-2 border-b border-gray-100">
+                  <span className="text-sm text-gray-700">
+                    {field === 'openToSiteWork' ? 'Open to Site Work?' : field === 'hasTwoWheeler' ? 'Own Two-wheeler?' : 'Willing to Relocate?'}
+                  </span>
+                  <div className="flex gap-3">
+                    {[true, false].map(v => (
+                      <button key={String(v)} onClick={() => upd(field as keyof FormData, v)}
+                        className={cn('px-4 py-1.5 text-sm rounded-lg border transition-colors', (form as any)[field] === v ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-300 text-gray-600 hover:border-brand-300')}>
+                        {v ? 'Yes' : 'No'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Health Issues (if any)</label>
+                <input value={form.healthIssues} onChange={e => upd('healthIssues', e.target.value)} className="input-glass w-full text-sm" placeholder="None / Specify if any" />
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 5: Documents Checklist (Section F) ── */}
+          {step === 5 && (
+            <div className="space-y-5">
+              <h2 className="text-xl font-bold text-gray-900">F. Documents Checklist</h2>
+              <p className="text-sm text-gray-500">Check which original documents you have brought today:</p>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {(Object.keys(form.documentsChecklist) as (keyof DocumentsChecklist)[]).map(key => (
+                  <label key={key} className={cn('flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-colors', form.documentsChecklist[key] ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300')}>
+                    <input type="checkbox" checked={form.documentsChecklist[key]} onChange={e => upd('documentsChecklist', { ...form.documentsChecklist, [key]: e.target.checked })} className="w-4 h-4 rounded border-gray-300 text-brand-600" />
+                    <span className="text-sm font-medium text-gray-700 capitalize">{key === 'idProof' ? 'ID Proof' : key === 'salarySlip' ? 'Salary Slip' : key === 'relievingLetter' ? 'Relieving Letter' : key.charAt(0).toUpperCase() + key.slice(1)}</span>
+                  </label>
+                ))}
+              </div>
+
+              <div className="mt-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Upload Resume (optional)</label>
+                {!form.resumeUrl ? (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-brand-400 hover:bg-brand-50/30 transition-all"
+                  >
+                    {resumeUploading ? <Loader2 size={28} className="mx-auto animate-spin text-brand-500 mb-2" /> : <Upload size={28} className="mx-auto text-gray-400 mb-2" />}
+                    <p className="text-sm text-gray-500">{resumeUploading ? 'Uploading...' : 'Click to upload resume (PDF, DOC)'}</p>
+                    <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleResumeUpload(f); }} />
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-xl">
+                    <FileText size={20} className="text-green-600" />
+                    <span className="text-sm text-gray-700 flex-1">{resumeFile?.name || 'Resume uploaded'}</span>
+                    <button onClick={() => { upd('resumeUrl', ''); setResumeFile(null); }} className="p-1 hover:bg-green-100 rounded"><Trash2 size={14} className="text-gray-500" /></button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 6: Psychometric Assessment (Section G) ── */}
+          {step === 6 && (
+            <div className="space-y-5">
+              <div className="flex items-center gap-3 mb-2">
+                <Brain size={24} className="text-brand-600" />
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">G. Personal Assessment</h2>
+                  <p className="text-sm text-gray-500">Answer honestly — there are no right or wrong answers here.</p>
+                </div>
+              </div>
+
+              {psychQuestions.length === 0 && <p className="text-sm text-gray-400">Loading questions...</p>}
+
+              {psychQuestions.map((q: any, i: number) => (
+                <div key={q.id} className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-sm font-medium text-gray-800 mb-3">{i + 1}. {q.questionText}</p>
+                  <div className="space-y-2">
+                    {(['A', 'B', 'C', 'D'] as const).map(opt => {
+                      const text = q[`option${opt}`];
+                      const selected = getAnswerFor(q.id) === opt;
+                      return (
+                        <button key={opt} onClick={() => togglePsychAnswer(q.id, opt)}
+                          className={cn('w-full text-left px-4 py-2.5 rounded-lg border text-sm transition-all',
+                            selected ? 'bg-brand-50 border-brand-400 text-brand-700 ring-2 ring-brand-200' : 'border-gray-200 hover:border-gray-300 hover:bg-white'
+                          )}>
+                          <span className="font-semibold mr-2">{opt}.</span>{text}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+
+              {psychQuestions.length > 0 && (
+                <p className="text-xs text-gray-400 text-center">{form.psychAnswers.length} of {psychQuestions.length} questions answered</p>
+              )}
+            </div>
+          )}
+
+          {/* ── Step 7: Confirm & Submit (Section G: Declaration) ── */}
+          {step === 7 && (
+            <div className="space-y-5">
+              <h2 className="text-xl font-bold text-gray-900">Confirm & Submit</h2>
+
+              <div className="bg-gray-50 rounded-xl p-4 text-sm space-y-1.5 text-gray-700">
+                <p><strong>Name:</strong> {form.fullName}</p>
+                {form.fathersName && <p><strong>Father's Name:</strong> {form.fathersName}</p>}
+                <p><strong>Email:</strong> {form.email}</p>
+                <p><strong>Phone:</strong> {form.phone}</p>
+                {form.gender && <p><strong>Gender:</strong> {form.gender}</p>}
+                {form.jobOpeningId && <p><strong>Position:</strong> {jobs.find((j: any) => j.id === form.jobOpeningId)?.title || form.jobOpeningId}</p>}
+                {form.employmentType && <p><strong>Employment Type:</strong> {form.employmentType}</p>}
+                <p><strong>Experience:</strong> {form.isFresher ? 'Fresher' : `${form.experienceYears}y ${form.experienceMonths}m`}</p>
+                {form.skills.length > 0 && <p><strong>Skills:</strong> {form.skills.join(', ')}</p>}
+                <p><strong>Assessment answered:</strong> {form.psychAnswers.length}/{psychQuestions.length} questions</p>
+              </div>
+
+              <div className="border border-gray-200 rounded-xl p-4 text-xs text-gray-500 leading-relaxed">
+                <strong className="text-gray-700">Declaration:</strong> I declare that the information provided above is accurate and complete to the best of my knowledge. Any false or misleading details may result in disqualification or dismissal.
+              </div>
+
+              <button onClick={handleSubmit} disabled={isSubmitting} className="btn-primary w-full flex items-center justify-center gap-2">
+                {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                Submit Registration
+              </button>
+            </div>
+          )}
+
         </motion.div>
       </AnimatePresence>
 
       {/* Navigation */}
-      <div className="flex justify-between mt-6">
-        <button
-          onClick={() => setStep(s => Math.max(0, s - 1))}
-          disabled={step === 0}
-          className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all
-            ${step === 0 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-100'}`}
-        >
-          <ChevronLeft className="w-5 h-5" /> Back
-        </button>
-
-        {step < 4 ? (
-          <button
-            onClick={() => setStep(s => Math.min(4, s + 1))}
-            disabled={!canProceed()}
-            className={`flex items-center gap-2 px-8 py-3 rounded-xl font-medium transition-all
-              ${canProceed()
-                ? 'bg-brand-600 text-white hover:bg-brand-700 shadow-md'
-                : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
-          >
-            Next <ChevronRight className="w-5 h-5" />
-          </button>
-        ) : (
-          <button
-            onClick={handleSubmit}
-            disabled={!canProceed() || isSubmitting}
-            className={`flex items-center gap-2 px-8 py-3 rounded-xl font-medium transition-all
-              ${canProceed() && !isSubmitting
-                ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md'
-                : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
-          >
-            {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
-            Submit Registration
+      <div className="flex gap-3 mt-8">
+        {step > 0 && (
+          <button onClick={() => setStep(s => s - 1)} className="btn-secondary flex items-center gap-2 flex-1">
+            <ChevronLeft size={16} /> Back
           </button>
         )}
-      </div>
-    </div>
-  );
-}
-
-// =========================================
-// STEP 1: Position & Contact Info
-// =========================================
-function Step1({ form, updateForm, jobs }: { form: FormData; updateForm: any; jobs: any[] }) {
-  return (
-    <div className="space-y-5">
-      <h3 className="text-xl font-display font-bold text-gray-900 mb-1">Position & Contact Information</h3>
-      <p className="text-sm text-gray-400 mb-4">Tell us which position you're here for and how to reach you.</p>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">I am here for *</label>
-        <select
-          value={form.jobOpeningId}
-          onChange={e => updateForm('jobOpeningId', e.target.value)}
-          className="input-glass w-full"
-        >
-          <option value="">Select a position...</option>
-          {jobs.map((job: any) => (
-            <option key={job.id} value={job.id}>
-              {job.title} — {job.department} ({job.location})
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Full Name *</label>
-          <input
-            type="text"
-            value={form.fullName}
-            onChange={e => updateForm('fullName', e.target.value)}
-            placeholder="Enter your full name"
-            className="input-glass w-full"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Mobile Number *</label>
-          <div className="flex">
-            <span className="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-gray-200 bg-gray-50 text-gray-500 text-sm">
-              +91
-            </span>
-            <input
-              type="tel"
-              value={form.phone}
-              onChange={e => updateForm('phone', e.target.value.replace(/\D/g, '').slice(0, 10))}
-              placeholder="9876543210"
-              className="input-glass w-full rounded-l-none"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Email Address *</label>
-          <input
-            type="email"
-            value={form.email}
-            onChange={e => updateForm('email', e.target.value)}
-            placeholder="you@example.com"
-            className="input-glass w-full"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">City / Location</label>
-          <input
-            type="text"
-            value={form.city}
-            onChange={e => updateForm('city', e.target.value)}
-            placeholder="e.g. Mumbai"
-            className="input-glass w-full"
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// =========================================
-// STEP 2: KYC Documents
-// =========================================
-function Step2({ form, updateForm, tempId }: { form: FormData; updateForm: any; tempId: string }) {
-  const [uploading, setUploading] = useState<Record<string, boolean>>({});
-  const [progress, setProgress] = useState<Record<string, number>>({});
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-
-  const handleRealUpload = async (field: keyof FormData, file: File) => {
-    const validationError = validateFile(file, {
-      maxSizeMB: 50,
-      allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/jpg', 'application/pdf'],
-    });
-    if (validationError) {
-      toast.error(validationError);
-      return;
-    }
-
-    setUploading(prev => ({ ...prev, [field]: true }));
-    setProgress(prev => ({ ...prev, [field]: 0 }));
-
-    try {
-      const result = await uploadFile(
-        file,
-        '/walk-in/upload',
-        { folder: tempId },
-        (p) => setProgress(prev => ({ ...prev, [field]: p.percentage })),
-      );
-      if (result.success && result.data?.url) {
-        updateForm(field, result.data.url);
-        toast.success('Document uploaded successfully');
-      } else {
-        toast.error(result.error || 'Upload failed');
-      }
-    } catch {
-      toast.error('Upload failed. Please try again.');
-    } finally {
-      setUploading(prev => ({ ...prev, [field]: false }));
-      setProgress(prev => ({ ...prev, [field]: 0 }));
-    }
-  };
-
-  const triggerFileInput = (field: string) => {
-    fileInputRefs.current[field]?.click();
-  };
-
-  const onFileSelected = (field: keyof FormData, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleRealUpload(field, file);
-    e.target.value = '';
-  };
-
-  return (
-    <div className="space-y-5">
-      <h3 className="text-xl font-display font-bold text-gray-900 mb-1">Aadhaar Verification</h3>
-      <p className="text-sm text-gray-400 mb-4">Upload your Aadhaar card for identity verification. You can upload images or PDF files. This step is optional.</p>
-
-      {/* Hidden file inputs */}
-      {(['aadhaarFrontUrl', 'aadhaarBackUrl'] as const).map(field => (
-        <input
-          key={field}
-          type="file"
-          accept="image/*,application/pdf"
-          className="hidden"
-          ref={el => { fileInputRefs.current[field] = el; }}
-          onChange={e => onFileSelected(field, e)}
-        />
-      ))}
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <FileUploadBox
-          label="Aadhaar Card (Front)"
-          uploaded={!!form.aadhaarFrontUrl}
-          uploading={!!uploading.aadhaarFrontUrl}
-          progress={progress.aadhaarFrontUrl || 0}
-          onUpload={() => triggerFileInput('aadhaarFrontUrl')}
-          onRemove={() => updateForm('aadhaarFrontUrl', '')}
-        />
-        <FileUploadBox
-          label="Aadhaar Card (Back)"
-          uploaded={!!form.aadhaarBackUrl}
-          uploading={!!uploading.aadhaarBackUrl}
-          progress={progress.aadhaarBackUrl || 0}
-          onUpload={() => triggerFileInput('aadhaarBackUrl')}
-          onRemove={() => updateForm('aadhaarBackUrl', '')}
-        />
-      </div>
-
-      {/* Aadhaar Number Input */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Aadhaar Number (optional)</label>
-        <input
-          type="text"
-          value={form.aadhaarNumber}
-          onChange={e => {
-            const val = e.target.value.replace(/\D/g, '').slice(0, 12);
-            updateForm('aadhaarNumber', val);
-          }}
-          placeholder="Enter 12-digit Aadhaar number"
-          className="input-glass w-full"
-          maxLength={12}
-        />
-        {form.aadhaarNumber && form.aadhaarNumber.length > 0 && form.aadhaarNumber.length < 12 && (
-          <p className="text-xs text-amber-500 mt-1">{12 - form.aadhaarNumber.length} more digits needed</p>
-        )}
-      </div>
-
-      {/* OCR Verified Fields */}
-      {form.aadhaarFrontUrl && (
-        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-          <p className="text-sm font-medium text-blue-700 mb-3 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4" /> Auto-extracted from Aadhaar (verify below)
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-blue-600 mb-1">Name (from Aadhaar)</label>
-              <input
-                value={form.ocrVerifiedName}
-                onChange={e => updateForm('ocrVerifiedName', e.target.value)}
-                className="input-glass w-full text-sm"
-                placeholder="Auto-extracted name"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-blue-600 mb-1">Date of Birth</label>
-              <input
-                type="date"
-                value={form.ocrVerifiedDob}
-                onChange={e => updateForm('ocrVerifiedDob', e.target.value)}
-                className="input-glass w-full text-sm"
-              />
-            </div>
-          </div>
-          <div className="mt-3">
-            <label className="block text-xs text-blue-600 mb-1">Address</label>
-            <input
-              value={form.ocrVerifiedAddress}
-              onChange={e => updateForm('ocrVerifiedAddress', e.target.value)}
-              className="input-glass w-full text-sm"
-              placeholder="Auto-extracted address"
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// =========================================
-// STEP 3: Professional Details
-// =========================================
-function Step3({ form, updateForm, skillInput, setSkillInput, addSkill, removeSkill }: any) {
-  return (
-    <div className="space-y-5">
-      <h3 className="text-xl font-display font-bold text-gray-900 mb-1">Professional Details</h3>
-      <p className="text-sm text-gray-400 mb-4">Tell us about your qualifications and experience.</p>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Highest Qualification</label>
-          <select value={form.qualification} onChange={e => updateForm('qualification', e.target.value)} className="input-glass w-full">
-            <option value="">Select...</option>
-            {QUALIFICATIONS.map(q => <option key={q} value={q}>{q}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Field of Study</label>
-          <input
-            value={form.fieldOfStudy}
-            onChange={e => updateForm('fieldOfStudy', e.target.value)}
-            className="input-glass w-full"
-            placeholder="e.g. Computer Science"
-          />
-        </div>
-      </div>
-
-      {/* Experience */}
-      <div>
-        <div className="flex items-center gap-3 mb-3">
-          <label className="text-sm font-medium text-gray-700">Experience</label>
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input
-              type="checkbox"
-              checked={form.isFresher}
-              onChange={e => {
-                updateForm('isFresher', e.target.checked);
-                if (e.target.checked) { updateForm('experienceYears', 0); updateForm('experienceMonths', 0); updateForm('currentCompany', ''); }
-              }}
-              className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-            />
-            I'm a Fresher
-          </label>
-        </div>
-        {!form.isFresher && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Years</label>
-              <input type="number" min={0} max={40} value={form.experienceYears}
-                onChange={e => updateForm('experienceYears', parseInt(e.target.value) || 0)}
-                className="input-glass w-full" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Months</label>
-              <input type="number" min={0} max={11} value={form.experienceMonths}
-                onChange={e => updateForm('experienceMonths', parseInt(e.target.value) || 0)}
-                className="input-glass w-full" />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs text-gray-500 mb-1">Current/Last Company</label>
-              <input value={form.currentCompany} onChange={e => updateForm('currentCompany', e.target.value)}
-                className="input-glass w-full" placeholder="Company name" />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* CTC */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {!form.isFresher && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Current CTC (LPA)</label>
-            <input type="number" step="0.1" value={form.currentCtc}
-              onChange={e => updateForm('currentCtc', e.target.value)}
-              className="input-glass w-full" placeholder="e.g. 8.5" />
-          </div>
-        )}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Expected CTC (LPA)</label>
-          <input type="number" step="0.1" value={form.expectedCtc}
-            onChange={e => updateForm('expectedCtc', e.target.value)}
-            className="input-glass w-full" placeholder="e.g. 12" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Notice Period</label>
-          <select value={form.noticePeriod} onChange={e => updateForm('noticePeriod', e.target.value)} className="input-glass w-full">
-            <option value="">Select...</option>
-            {NOTICE_PERIODS.map(n => <option key={n} value={n}>{n}</option>)}
-          </select>
-        </div>
-      </div>
-
-      {/* Skills */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Key Skills</label>
-        <div className="flex gap-2">
-          <input
-            value={skillInput}
-            onChange={e => setSkillInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSkill(); } }}
-            className="input-glass flex-1"
-            placeholder="Type a skill and press Enter"
-          />
-          <button onClick={addSkill} className="btn-secondary px-3">
-            <Plus className="w-4 h-4" />
+        {step < STEPS.length - 1 && (
+          <button onClick={() => { if (canProceed()) setStep(s => s + 1); }} className="btn-primary flex items-center gap-2 flex-1">
+            Next <ChevronRight size={16} />
           </button>
-        </div>
-        {form.skills.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-3">
-            {form.skills.map((skill: string) => (
-              <span key={skill} className="badge badge-info flex items-center gap-1">
-                {skill}
-                <button onClick={() => removeSkill(skill)} className="hover:text-red-500">
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* About Me */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          Brief About Me <span className="text-gray-400 font-normal">({form.aboutMe.length}/300)</span>
-        </label>
-        <textarea
-          value={form.aboutMe}
-          onChange={e => { if (e.target.value.length <= 300) updateForm('aboutMe', e.target.value); }}
-          className="input-glass w-full h-24 resize-none"
-          placeholder="A brief summary about yourself..."
-        />
-      </div>
-    </div>
-  );
-}
-
-// =========================================
-// STEP 4: Resume Upload
-// =========================================
-function Step4({ form, updateForm, tempId }: { form: FormData; updateForm: any; tempId: string }) {
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [fileName, setFileName] = useState('');
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  const handleResumeUpload = async (file: File) => {
-    const validationError = validateFile(file, {
-      maxSizeMB: 50,
-      allowedTypes: [
-        'application/pdf',
-        'application/msword',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      ],
-    });
-    if (validationError) {
-      toast.error(validationError);
-      return;
-    }
-
-    setUploading(true);
-    setUploadProgress(0);
-    setFileName(file.name);
-
-    try {
-      const result = await uploadFile(
-        file,
-        '/walk-in/upload',
-        { folder: tempId },
-        (p) => setUploadProgress(p.percentage),
-      );
-      if (result.success && result.data?.url) {
-        updateForm('resumeUrl', result.data.url);
-        toast.success('Resume uploaded successfully');
-      } else {
-        toast.error(result.error || 'Upload failed');
-      }
-    } catch {
-      toast.error('Upload failed. Please try again.');
-    } finally {
-      setUploading(false);
-      setUploadProgress(0);
-    }
-  };
-
-  const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleResumeUpload(file);
-    e.target.value = '';
-  };
-
-  return (
-    <div className="space-y-5">
-      <h3 className="text-xl font-display font-bold text-gray-900 mb-1">Upload Resume</h3>
-      <p className="text-sm text-gray-400 mb-4">Upload your resume so our team can review your profile.</p>
-
-      <input
-        type="file"
-        accept=".pdf,.doc,.docx"
-        className="hidden"
-        ref={fileInputRef}
-        onChange={onFileSelected}
-      />
-
-      <div
-        onClick={() => !uploading && fileInputRef.current?.click()}
-        className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all
-          ${form.resumeUrl ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 hover:border-brand-300 hover:bg-brand-50/30'}`}
-      >
-        {uploading ? (
-          <div>
-            <Loader2 className="w-12 h-12 text-brand-500 mx-auto mb-3 animate-spin" />
-            <p className="text-lg font-medium text-gray-600">Uploading {fileName}...</p>
-            <p className="text-sm text-gray-400 mt-1">{uploadProgress}%</p>
-            <div className="w-48 h-2 bg-gray-200 rounded-full overflow-hidden mx-auto mt-3">
-              <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
-            </div>
-          </div>
-        ) : form.resumeUrl ? (
-          <div>
-            <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
-            <p className="text-lg font-medium text-emerald-700">Resume uploaded</p>
-            {fileName && <p className="text-sm text-gray-500 mt-1">{fileName}</p>}
-            <p className="text-sm text-gray-400 mt-1">Click to replace</p>
-            <button
-              onClick={e => { e.stopPropagation(); updateForm('resumeUrl', ''); setFileName(''); }}
-              className="mt-3 text-sm text-red-500 hover:underline"
-            >
-              Remove
-            </button>
-          </div>
-        ) : (
-          <div>
-            <Upload className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-lg font-medium text-gray-600">Tap to upload your resume</p>
-            <p className="text-sm text-gray-400 mt-1">PDF or DOC, max 50MB</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// =========================================
-// STEP 5: Confirm & Submit
-// =========================================
-function Step5({ form, updateForm, jobs }: { form: FormData; updateForm: any; jobs: any[] }) {
-  const selectedJob = jobs.find((j: any) => j.id === form.jobOpeningId);
-
-  return (
-    <div className="space-y-5">
-      <h3 className="text-xl font-display font-bold text-gray-900 mb-1">Confirm & Submit</h3>
-      <p className="text-sm text-gray-400 mb-4">Review your information before submitting.</p>
-
-      <div className="bg-gray-50 rounded-xl p-5 space-y-4">
-        <SummaryRow label="Position" value={selectedJob ? `${selectedJob.title} — ${selectedJob.department}` : 'Not selected'} />
-        <SummaryRow label="Name" value={form.fullName} />
-        <SummaryRow label="Email" value={form.email} />
-        <SummaryRow label="Phone" value={`+91 ${form.phone}`} />
-        {form.city && <SummaryRow label="City" value={form.city} />}
-        {form.qualification && <SummaryRow label="Qualification" value={`${form.qualification}${form.fieldOfStudy ? ` — ${form.fieldOfStudy}` : ''}`} />}
-        <SummaryRow label="Experience" value={form.isFresher ? 'Fresher' : `${form.experienceYears}y ${form.experienceMonths}m${form.currentCompany ? ` at ${form.currentCompany}` : ''}`} />
-        {form.expectedCtc && <SummaryRow label="Expected CTC" value={`₹${form.expectedCtc} LPA`} />}
-        {form.noticePeriod && <SummaryRow label="Notice Period" value={form.noticePeriod} />}
-        {form.skills.length > 0 && (
-          <div>
-            <span className="text-xs text-gray-400">Skills</span>
-            <div className="flex flex-wrap gap-1 mt-1">
-              {form.skills.map(s => <span key={s} className="badge badge-info">{s}</span>)}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Document Verification Status */}
-      <div className="flex items-center gap-2 text-sm">
-        {form.aadhaarFrontUrl ? (
-          <><CheckCircle2 className="w-4 h-4 text-emerald-500" /><span className="text-emerald-700">Aadhaar uploaded</span></>
-        ) : (
-          <><AlertTriangle className="w-4 h-4 text-amber-500" /><span className="text-amber-700">No Aadhaar uploaded (optional)</span></>
-        )}
-      </div>
-      <div className="flex items-center gap-2 text-sm">
-        {form.resumeUrl ? (
-          <><CheckCircle2 className="w-4 h-4 text-emerald-500" /><span className="text-emerald-700">Resume uploaded</span></>
-        ) : (
-          <><AlertTriangle className="w-4 h-4 text-amber-500" /><span className="text-amber-700">No resume uploaded (optional)</span></>
-        )}
-      </div>
-
-      {/* Consent */}
-      <label className="flex items-start gap-3 p-4 bg-white rounded-xl border border-gray-200 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={form.consent}
-          onChange={e => updateForm('consent', e.target.checked)}
-          className="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-        />
-        <span className="text-sm text-gray-600 leading-relaxed">
-          I confirm that all information provided is accurate and I consent to Aniston Technologies storing my data for recruitment purposes.
-        </span>
-      </label>
-    </div>
-  );
-}
-
-// =========================================
-// Helper Components
-// =========================================
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between items-center">
-      <span className="text-xs text-gray-400">{label}</span>
-      <span className="text-sm font-medium text-gray-800">{value}</span>
-    </div>
-  );
-}
-
-function FileUploadBox({ label, uploaded, uploading, progress, onUpload, onRemove }: {
-  label: string; uploaded: boolean; uploading?: boolean; progress?: number; onUpload: () => void; onRemove: () => void;
-}) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
-      <div
-        onClick={() => !uploading && onUpload()}
-        className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all
-          ${uploaded ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 hover:border-brand-300'}`}
-      >
-        {uploading ? (
-          <div className="flex flex-col items-center gap-1.5">
-            <Loader2 className="w-5 h-5 animate-spin text-brand-600" />
-            <p className="text-xs text-gray-500">{progress || 0}%</p>
-            <div className="w-full h-1 bg-gray-200 rounded-full overflow-hidden">
-              <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${progress || 0}%` }} />
-            </div>
-          </div>
-        ) : uploaded ? (
-          <div className="flex items-center justify-center gap-2 text-emerald-600">
-            <CheckCircle2 className="w-4 h-4" />
-            <span className="text-sm font-medium">Uploaded</span>
-            <button onClick={e => { e.stopPropagation(); onRemove(); }} className="ml-1 text-gray-400 hover:text-red-500">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ) : (
-          <div>
-            <Upload className="w-5 h-5 text-gray-300 mx-auto mb-1" />
-            <p className="text-xs text-gray-500">Tap to upload</p>
-          </div>
         )}
       </div>
     </div>

@@ -1,5 +1,26 @@
 import { z } from 'zod';
 
+const educationRowSchema = z.object({
+  qualification: z.string().optional(),
+  institution: z.string().optional(),
+  year: z.string().optional(),
+  marks: z.string().optional(),
+});
+
+const documentsChecklistSchema = z.object({
+  resume: z.boolean().default(false),
+  photo: z.boolean().default(false),
+  idProof: z.boolean().default(false),
+  certificates: z.boolean().default(false),
+  salarySlip: z.boolean().default(false),
+  relievingLetter: z.boolean().default(false),
+}).optional();
+
+const psychAnswerSchema = z.object({
+  questionId: z.string(),
+  selectedOption: z.string(),
+});
+
 export const registerWalkInSchema = z.object({
   jobOpeningId: z.string().uuid().optional(),
   fullName: z.string().min(2).max(100),
@@ -7,7 +28,45 @@ export const registerWalkInSchema = z.object({
   phone: z.string().min(10).max(15),
   city: z.string().max(100).optional(),
 
-  // KYC (URLs from uploaded files)
+  // Section A: Personal Info
+  fathersName: z.string().max(100).optional(),
+  dateOfBirth: z.string().optional(),
+  gender: z.enum(['Male', 'Female', 'Other']).optional(),
+  maritalStatus: z.enum(['Single', 'Married', 'Divorced', 'Widowed']).optional(),
+  alternatePhone: z.string().max(15).optional(),
+  emergencyContactName: z.string().max(100).optional(),
+  emergencyContactPhone: z.string().max(15).optional(),
+  emergencyContactRelation: z.string().max(50).optional(),
+  currentAddress: z.string().max(500).optional(),
+  permanentAddress: z.string().max(500).optional(),
+
+  // Section B: Job Details
+  referredBy: z.string().max(100).optional(),
+  availableFrom: z.string().optional(),
+  employmentType: z.enum(['Full Time', 'Part Time', 'Contract', 'Internship', 'Freelance']).optional(),
+
+  // Section C: Education
+  education: z.array(educationRowSchema).optional(),
+
+  // Section D: Work Experience
+  lastDrawnSalary: z.string().max(50).optional(),
+  lastEmployer: z.string().max(200).optional(),
+  designation: z.string().max(100).optional(),
+  workFromDate: z.string().optional(),
+  workToDate: z.string().optional(),
+  reasonForLeaving: z.string().max(500).optional(),
+  keyResponsibilities: z.string().max(1000).optional(),
+
+  // Section E: Skills & Preferences
+  openToSiteWork: z.boolean().optional(),
+  hasTwoWheeler: z.boolean().optional(),
+  willingToRelocate: z.boolean().optional(),
+  healthIssues: z.string().max(300).optional(),
+
+  // Section F: Documents Checklist
+  documentsChecklist: documentsChecklistSchema,
+
+  // KYC (optional — for backward compat)
   aadhaarFrontUrl: z.string().optional(),
   aadhaarBackUrl: z.string().optional(),
   panCardUrl: z.string().optional(),
@@ -35,6 +94,9 @@ export const registerWalkInSchema = z.object({
   skills: z.array(z.string()).default([]),
   aboutMe: z.string().max(300).optional(),
   resumeUrl: z.string().optional(),
+
+  // Section G: Psychometric answers
+  psychAnswers: z.array(psychAnswerSchema).optional(),
 });
 
 export const updateWalkInStatusSchema = z.object({
@@ -51,12 +113,11 @@ export const walkInQuerySchema = z.object({
   search: z.string().optional(),
 });
 
-// Interview round schemas
 export const addInterviewRoundSchema = z.object({
   roundName: z.string().min(1).max(100),
   interviewerName: z.string().max(100).optional(),
   interviewerId: z.string().uuid().optional(),
-  scheduledAt: z.string().optional(), // ISO datetime
+  scheduledAt: z.string().optional(),
 });
 
 export const updateInterviewRoundSchema = z.object({

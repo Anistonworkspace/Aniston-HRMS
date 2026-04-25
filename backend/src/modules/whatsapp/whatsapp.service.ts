@@ -44,30 +44,31 @@ function normalizePhone(phone: string): string {
 }
 
 /**
- * Normalize phone for contact storage — strips all non-digits.
- * International-safe: does NOT add any country code prefix.
- * Use this for WhatsAppContact.normalizedPhone storage.
- * Examples: "+1 (415) 555-1234" → "14155551234"
- *           "9876543210" → "9876543210"
- *           "+91 98765 43210" → "919876543210"
+ * Strip all non-digit characters from a phone string.
+ * Used for fuzzy matching and lookup, not for canonical storage.
+ * For WhatsAppContact.normalizedPhone storage, use normalizePhone() instead.
  */
 function normalizePhoneForStorage(phone: string): string {
   return phone.replace(/\D/g, '');
 }
 
 /**
- * Check if two normalized phone numbers match, handling suffix overlap.
- * e.g. "9876543210" matches "919876543210" (one is 10-digit local, other has country code)
+ * Check if two normalized phone numbers match, handling country-code prefix differences.
+ * Strategy: exact match first, then suffix overlap only when the shorter number is ≥10 digits
+ * to avoid false positives from short numbers matching unrelated long numbers.
  */
 function phonesMatch(a: string, b: string): boolean {
   if (!a || !b) return false;
   const digA = a.replace(/\D/g, '');
   const digB = b.replace(/\D/g, '');
+  if (!digA || !digB) return false;
   if (digA === digB) return true;
-  // Handle 10-digit vs full international: compare last 10 digits
-  const last10A = digA.slice(-10);
-  const last10B = digB.slice(-10);
-  return last10A.length === 10 && last10A === last10B;
+  // Only do suffix matching when the shorter one is a full local number (≥10 digits)
+  // This prevents short numbers like "1234" accidentally matching "+911234567890"
+  const shorter = digA.length < digB.length ? digA : digB;
+  const longer = digA.length < digB.length ? digB : digA;
+  if (shorter.length < 10) return false;
+  return longer.endsWith(shorter);
 }
 
 /** Convert phone to WhatsApp chat ID format */
@@ -99,8 +100,8 @@ export class WhatsAppService {
   private _client: any = null;
   private _ready = false;
   private _initializing = false;
+  private _initPromise: Promise<{ isConnected: boolean; status: string; message: string }> | null = null;
   private _syncing = false; // True while preloading chats after connect
-  private _orgId: string | null = null;
   private _qrCode: string | null = null;
   private _pingInterval: ReturnType<typeof setInterval> | null = null;
   private _sessionExpiryInterval: ReturnType<typeof setInterval> | null = null;
@@ -109,8 +110,16 @@ export class WhatsAppService {
 
   async initialize(organizationId: string) {
     if (this._ready) return { isConnected: true, status: 'connected', message: 'Already connected' };
-    if (this._initializing) return { isConnected: false, status: 'initializing', message: 'Already initializing... please wait' };
+    // Return the in-flight promise so concurrent callers don't spawn duplicate clients
+    if (this._initPromise) return this._initPromise;
 
+    this._initPromise = this._runInitialize(organizationId).finally(() => {
+      this._initPromise = null;
+    });
+    return this._initPromise;
+  }
+
+  private async _runInitialize(organizationId: string) {
     try {
       this._initializing = true;
 
@@ -125,8 +134,6 @@ export class WhatsAppService {
       if (!Client || !LocalAuth) {
         throw new Error('whatsapp-web.js Client or LocalAuth not found. Run: npm install whatsapp-web.js@latest');
       }
-
-      this._orgId = organizationId;
 
       // Clean up corrupted session files atomically
       const sessionDir = path.join(WA_AUTH_DIR, `session-aniston-${organizationId}`);
@@ -289,18 +296,54 @@ export class WhatsAppService {
 
     // ===== Incoming messages — save with correct direction + dedup =====
     client.on('message', async (msg: any) => {
-      try {
-        await redis.del(`wa:chats:${organizationId}`);
+      const externalId = msg.id?._serialized || null;
+      const fromNumber = chatIdToPhone(msg.from || '');
+      const fromPhoneNorm = normalizePhone(fromNumber);
+      const inboundText = msg.hasMedia ? (msg.caption || '') : (msg.body || '');
+      const msgTimestamp = msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : new Date().toISOString();
 
+      // Look up sender name early — used in socket emit regardless of DB outcome
+      const [contactRecord, quotedMsg] = await Promise.all([
+        prisma.whatsAppContact.findFirst({
+          where: {
+            organizationId,
+            deletedAt: null,
+            OR: [
+              { normalizedPhone: fromNumber },
+              { normalizedPhone: fromPhoneNorm },
+            ],
+          },
+          select: { name: true },
+        }).catch(() => null),
+        msg.hasQuotedMsg ? msg.getQuotedMessage().catch(() => null) : Promise.resolve(null),
+      ]);
+
+      const senderName = contactRecord?.name || (msg.notifyName as string | undefined) || (msg.pushname as string | undefined) || null;
+      const senderPhone = `+${fromPhoneNorm}`;
+
+      // Always emit to HR immediately — DB persistence is best-effort and must not block display
+      await redis.del(`wa:chats:${organizationId}`).catch(() => {});
+      emitToOrg(organizationId, 'whatsapp:message:new', {
+        chatId: msg.from,
+        messageId: externalId,
+        body: inboundText,
+        fromMe: false,
+        timestamp: msgTimestamp,
+        type: msg.type,
+        hasMedia: msg.hasMedia,
+        quotedMsg: quotedMsg ? { body: (quotedMsg as any).body?.slice(0, 200), fromMe: (quotedMsg as any).fromMe } : null,
+        senderName,
+        senderPhone,
+      });
+
+      // Persist to DB — with one retry after 2s to handle transient DB failures.
+      // Emit already happened above so real-time delivery is guaranteed regardless.
+      const persistInbound = async () => {
         const session = await prisma.whatsAppSession.findFirst({ where: { organizationId } });
         if (!session) {
           logger.warn('WhatsApp: incoming message but no session found, skipping DB save');
           return;
         }
-
-        const externalId = msg.id?._serialized || null;
-        const fromNumber = chatIdToPhone(msg.from || '');
-        const toNumber = session.phoneNumber || '';
 
         // Deduplicate: skip if we already have this external message
         if (externalId) {
@@ -310,16 +353,13 @@ export class WhatsAppService {
           if (existing) return;
         }
 
-        // For media messages, msg.body contains base64 thumbnail data — use caption or empty string
-        const inboundText = msg.hasMedia ? (msg.caption || '') : (msg.body || '');
-
         await prisma.whatsAppMessage.create({
           data: {
             externalMessageId: externalId,
             sessionId: session.id,
             direction: 'INBOUND',
             fromNumber,
-            to: toNumber,
+            to: session.phoneNumber || '',
             message: inboundText,
             templateType: 'GENERAL',
             status: 'RECEIVED',
@@ -328,10 +368,6 @@ export class WhatsAppService {
           },
         });
 
-        // Upsert conversation and increment unread count
-        const fromPhone = chatIdToPhone(msg.from || ''); // strip @c.us — already digits-only
-        const fromPhoneNorm = normalizePhone(fromPhone);  // add 91 prefix for 10-digit Indian numbers
-        // Use sanitized text (not raw msg.body which may be base64 for media)
         const msgPreview = inboundText.trim()
           ? inboundText.slice(0, 100)
           : msg.hasMedia
@@ -346,22 +382,26 @@ export class WhatsAppService {
           where: { organizationId, contactPhone: fromPhoneNorm },
           data: { unreadCount: { increment: 1 } },
         }).catch(() => {});
+      };
 
-        // Include messageId for deduplication + quoted message info
-        const quotedMsg = msg.hasQuotedMsg ? await msg.getQuotedMessage().catch(() => null) : null;
-
-        emitToOrg(organizationId, 'whatsapp:message:new', {
-          chatId: msg.from,
-          messageId: externalId,
-          body: inboundText,   // sanitized — no base64
-          fromMe: false,
-          timestamp: msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : new Date().toISOString(),
-          type: msg.type,
-          hasMedia: msg.hasMedia,
-          quotedMsg: quotedMsg ? { body: quotedMsg.body?.slice(0, 200), fromMe: quotedMsg.fromMe } : null,
-        });
+      try {
+        await persistInbound();
       } catch (err) {
-        logger.error('Failed to save incoming WhatsApp message:', err);
+        logger.error('WhatsApp: DB persist attempt 1 failed, retrying in 2s:', err);
+        setTimeout(async () => {
+          try {
+            await persistInbound();
+            logger.info('WhatsApp: DB persist retry succeeded');
+          } catch (retryErr) {
+            logger.error('WhatsApp: DB persist retry failed — message delivered to UI but NOT stored:', retryErr);
+            // Alert HR that this message will not appear on reload
+            emitToOrg(organizationId, 'whatsapp:persist:failed', {
+              chatId: msg.from,
+              messageId: externalId,
+              warning: 'Message displayed but could not be saved. It will not appear after refresh.',
+            });
+          }
+        }, 2000);
       }
     });
 
@@ -784,11 +824,15 @@ export class WhatsAppService {
           messages = await chat.fetchMessages({ limit: fetchLimit });
 
           // Warm-up: if session returned 0 messages, the chat history may not be loaded yet.
-          // Wait briefly and retry once — this handles freshly connected sessions.
+          // Exponential backoff: 1.5s → 3s → 6s (handles freshly connected sessions).
           if (messages.length === 0 && !before) {
-            logger.info(`WhatsApp: warm-up wait for ${normalizedChatId} — retrying fetchMessages in 1.5s`);
-            await new Promise(r => setTimeout(r, 1500));
-            messages = await chat.fetchMessages({ limit: fetchLimit });
+            const delays = [1500, 3000, 6000];
+            for (const delay of delays) {
+              logger.info(`WhatsApp: warm-up wait for ${normalizedChatId} — retrying fetchMessages in ${delay}ms`);
+              await new Promise(r => setTimeout(r, delay));
+              messages = await chat.fetchMessages({ limit: fetchLimit });
+              if (messages.length > 0) break;
+            }
           }
         } catch (fetchErr: any) {
           logger.warn(`WhatsApp: fetchMessages failed for ${normalizedChatId}, retrying — ${fetchErr.message}`);
@@ -1105,8 +1149,11 @@ export class WhatsAppService {
       if (organizationId) {
         await redis.del(`wa:chats:${organizationId}`);
         emitToOrg(organizationId, 'whatsapp:chat:read', { chatId: normalizedChatId });
+        // Conditional reset — only zero out if currently > 0.
+        // Prevents a race where an incoming message increments after this reset fires,
+        // which would otherwise overwrite the incremented value back to 0.
         await prisma.whatsAppConversation.updateMany({
-          where: { organizationId, providerChatId: normalizedChatId },
+          where: { organizationId, providerChatId: normalizedChatId, unreadCount: { gt: 0 } },
           data: { unreadCount: 0 },
         }).catch(() => {});
       }
@@ -1459,32 +1506,49 @@ export class WhatsAppService {
   }
 
   async createContact(data: CreateContactInput, organizationId: string, userId?: string) {
-    const normalizedPhone = normalizePhoneForStorage(data.phone);
+    // Use normalizePhone (same function as WhatsAppConversation.contactPhone) so that
+    // lookups between the two tables use the same canonical format.
+    // normalizePhoneForStorage was previously used here but produced bare 10-digit numbers
+    // for Indian inputs, causing mismatches against 12-digit conversation records.
+    const normalizedPhone = normalizePhone(data.phone);
     if (!normalizedPhone || normalizedPhone.length < 7) {
       throw new BadRequestError('Invalid phone number — must contain at least 7 digits');
     }
 
-    // Check duplicate
+    // Check duplicate (also check the stripped-only variant to catch legacy records)
     const existing = await prisma.whatsAppContact.findFirst({
-      where: { organizationId, normalizedPhone, deletedAt: null },
+      where: {
+        organizationId,
+        deletedAt: null,
+        OR: [
+          { normalizedPhone },
+          { normalizedPhone: normalizePhoneForStorage(data.phone) },
+        ],
+      },
     });
     if (existing) {
       throw new BadRequestError(`A contact with phone ${data.phone} already exists`);
     }
 
-    const contact = await prisma.whatsAppContact.create({
-      data: {
-        organizationId,
-        name: data.name.trim(),
-        phone: data.phone.trim(),
-        normalizedPhone,
-        email: data.email || null,
-        notes: data.notes || null,
-        source: (data.source as any) || 'MANUAL',
-        referenceId: data.referenceId || null,
-        referenceType: data.referenceType || null,
-      },
-    });
+    let contact: any;
+    try {
+      contact = await prisma.whatsAppContact.create({
+        data: {
+          organizationId,
+          name: data.name.trim(),
+          phone: data.phone.trim(),
+          normalizedPhone,
+          email: data.email || null,
+          notes: data.notes || null,
+          source: (data.source as any) || 'MANUAL',
+          referenceId: data.referenceId || null,
+          referenceType: data.referenceType || null,
+        },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') throw new BadRequestError(`A contact with phone ${data.phone} already exists`);
+      throw err;
+    }
 
     if (userId) {
       await createAuditLog({
@@ -1553,6 +1617,23 @@ export class WhatsAppService {
     return { success: true };
   }
 
+  /**
+   * Rate-limit guard for auto-triggered sends (invitation, public-apply, walkIn, recruitment).
+   * Limits to 10 auto-sends per minute per org to prevent WhatsApp account bans.
+   * Returns true if the send is allowed, false if the quota is exceeded.
+   * Manual sends through the WhatsApp UI are NOT subject to this limit.
+   */
+  async checkAutoSendQuota(organizationId: string): Promise<boolean> {
+    const key = `wa:auto:${organizationId}:${Math.floor(Date.now() / 60000)}`;
+    try {
+      const count = await redis.incr(key);
+      if (count === 1) await redis.expire(key, 120); // 2-min TTL
+      return count <= 10;
+    } catch {
+      return true; // Redis unavailable — allow (don't block sends on cache failure)
+    }
+  }
+
   async destroy() {
     await this._destroyClient();
     this._ready = false;
@@ -1587,6 +1668,9 @@ export class WhatsAppService {
       this._sessionExpiryInterval = null;
     }
     if (this._client) {
+      // Remove all listeners FIRST — prevents stale handlers from firing with old organizationId
+      // after destroy() begins. Puppeteer teardown is async and events can still fire mid-destroy.
+      try { this._client.removeAllListeners(); } catch { /* ignore */ }
       try { await this._client.destroy(); } catch { /* ignore */ }
       this._client = null;
     }

@@ -1,8 +1,8 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CalendarDays, Users, Briefcase, FileSpreadsheet, Loader2, Download,
-  Search, X, ChevronLeft, ChevronRight, Filter, TrendingUp, UserCheck,
+  X, ChevronLeft, ChevronRight, Filter, TrendingUp, UserCheck,
   Clock, AlertCircle, CheckCircle2, XCircle, UserMinus,
 } from 'lucide-react';
 import { useGetAttendanceDetailQuery, useGetLeaveDetailQuery, useGetHeadcountQuery, useGetRecruitmentFunnelQuery } from './reportApi';
@@ -22,6 +22,9 @@ const STATUS_COLORS: Record<string, string> = {
   ON_LEAVE: 'bg-indigo-100 text-indigo-700',
   WORK_FROM_HOME: 'bg-teal-100 text-teal-700',
   APPROVED: 'bg-emerald-100 text-emerald-700',
+  APPROVED_WITH_CONDITION: 'bg-green-100 text-green-700',
+  MANAGER_APPROVED: 'bg-blue-100 text-blue-700',
+  DRAFT: 'bg-gray-100 text-gray-500',
   PENDING: 'bg-amber-100 text-amber-700',
   REJECTED: 'bg-red-100 text-red-700',
   CANCELLED: 'bg-gray-100 text-gray-600',
@@ -76,10 +79,13 @@ function AttendanceTab() {
   const { data: deptRes } = useGetDepartmentsQuery();
   const { download: authDownload, downloading } = useAuthDownload();
 
+  // Reset modal to page 1 whenever filters change
+  useEffect(() => { setModalPage(1); }, [from, to, deptFilter, statusFilter]);
+
   const previewParams = { from, to, departmentId: deptFilter || undefined, status: statusFilter || undefined, page: 1, limit: 10 };
   const modalParams = { from, to, departmentId: deptFilter || undefined, status: statusFilter || undefined, page: modalPage, limit: 50 };
 
-  const { data: previewRes, isLoading: previewLoading } = useGetAttendanceDetailQuery(previewParams);
+  const { data: previewRes, isLoading: previewLoading, isError: previewError } = useGetAttendanceDetailQuery(previewParams);
   const { data: modalRes, isLoading: modalLoading } = useGetAttendanceDetailQuery(modalParams, { skip: !modalOpen });
 
   const summary = previewRes?.data?.summary;
@@ -89,7 +95,7 @@ function AttendanceTab() {
 
   function handleExport() {
     const p = new URLSearchParams({ from, to, ...(deptFilter && { departmentId: deptFilter }), ...(statusFilter && { status: statusFilter }), format: 'xlsx' });
-    authDownload(`/reports/attendance-detail?${p.toString()}`, `Attendance-Report-${from}-to-${to}.xlsx`);
+    authDownload(`/reports/attendance-detail?${p.toString()}`, `Attendance-Report-${from}-${to}.xlsx`);
   }
 
   return (
@@ -115,7 +121,7 @@ function AttendanceTab() {
           <label className="text-xs font-medium text-gray-500">Status</label>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="input-glass text-sm px-3 py-2 min-w-[130px]">
             <option value="">All Statuses</option>
-            {['PRESENT', 'ABSENT', 'LATE', 'HALF_DAY', 'HOLIDAY', 'LEAVE'].map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            {['PRESENT', 'ABSENT', 'HALF_DAY', 'ON_LEAVE', 'HOLIDAY', 'WEEKEND', 'WORK_FROM_HOME'].map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
         <button onClick={handleExport} disabled={!!downloading} className="flex items-center gap-2 text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50 mt-auto">
@@ -152,6 +158,8 @@ function AttendanceTab() {
         </div>
         {previewLoading ? (
           <div className="flex items-center justify-center py-12"><Loader2 size={20} className="animate-spin text-brand-500" /></div>
+        ) : previewError ? (
+          <div className="text-center py-10 text-sm text-red-500">Failed to load attendance data. Please try again.</div>
         ) : previewRecords.length === 0 ? (
           <div className="text-center py-10 text-sm text-gray-400">No records found for the selected period</div>
         ) : (
@@ -170,7 +178,7 @@ function AttendanceTab() {
                     <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">{r.employeeName}<span className="ml-1.5 text-xs text-gray-400 font-mono" data-mono>{r.employeeCode}</span></td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.department}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap font-mono text-xs" data-mono>{new Date(r.date).toLocaleDateString('en-IN')}</td>
-                    <td className="px-4 py-3"><span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-600'}`}>{r.status.replace('_', ' ')}</span></td>
+                    <td className="px-4 py-3"><span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-600'}`}>{r.status.replace(/_/g, ' ')}</span></td>
                     <td className="px-4 py-3 text-gray-600 font-mono text-xs" data-mono>{r.checkIn ? new Date(r.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                     <td className="px-4 py-3 text-gray-600 font-mono text-xs" data-mono>{r.checkOut ? new Date(r.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                     <td className="px-4 py-3 text-gray-600 font-mono text-xs" data-mono>{r.totalHours != null ? `${Number(r.totalHours).toFixed(1)}h` : '—'}</td>
@@ -186,7 +194,12 @@ function AttendanceTab() {
       <DetailModal title={`Attendance Report: ${from} to ${to}`} isOpen={modalOpen} onClose={() => { setModalOpen(false); setModalPage(1); }}>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">Total records: <span className="font-semibold text-gray-800">{modalMeta?.total || 0}</span></p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm text-gray-500">{(deptFilter || statusFilter) ? 'Filtered' : 'Total'} records: <span className="font-semibold text-gray-800">{modalLoading ? '—' : (modalMeta?.total ?? 0)}</span></p>
+              {(deptFilter || statusFilter) && (
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">Filters active</span>
+              )}
+            </div>
             <button onClick={handleExport} disabled={!!downloading} className="flex items-center gap-1.5 text-xs font-medium bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50">
               {downloading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
               Export All
@@ -213,7 +226,7 @@ function AttendanceTab() {
                         <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{r.department}</td>
                         <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap text-xs">{r.designation || '—'}</td>
                         <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap font-mono text-xs" data-mono>{new Date(r.date).toLocaleDateString('en-IN')}</td>
-                        <td className="px-4 py-2.5"><span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-600'}`}>{r.status.replace('_', ' ')}</span></td>
+                        <td className="px-4 py-2.5"><span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-600'}`}>{r.status.replace(/_/g, ' ')}</span></td>
                         <td className="px-4 py-2.5 text-gray-600 font-mono text-xs" data-mono>{r.checkIn ? new Date(r.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                         <td className="px-4 py-2.5 text-gray-600 font-mono text-xs" data-mono>{r.checkOut ? new Date(r.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                         <td className="px-4 py-2.5 text-gray-600 font-mono text-xs" data-mono>{r.totalHours != null ? `${Number(r.totalHours).toFixed(1)}h` : '—'}</td>
@@ -257,6 +270,9 @@ function LeaveTab() {
   const { data: deptRes } = useGetDepartmentsQuery();
   const { download: authDownload, downloading } = useAuthDownload();
 
+  // Reset modal to page 1 whenever filters change
+  useEffect(() => { setModalPage(1); }, [year, month, status, deptFilter]);
+
   const params = {
     year,
     ...(month !== null && { month }),
@@ -264,14 +280,14 @@ function LeaveTab() {
     ...(deptFilter && { departmentId: deptFilter }),
   };
 
-  const { data: previewRes, isLoading: previewLoading } = useGetLeaveDetailQuery({ ...params, page: 1, limit: 10 });
+  const { data: previewRes, isLoading: previewLoading, isError: previewError } = useGetLeaveDetailQuery({ ...params, page: 1, limit: 10 });
   const { data: modalRes, isLoading: modalLoading } = useGetLeaveDetailQuery({ ...params, page: modalPage, limit: 50 }, { skip: !modalOpen });
 
   const summary = previewRes?.data?.summary;
   const previewRecords = previewRes?.data?.records || [];
   const modalRecords = modalRes?.data?.records || [];
   const modalMeta = modalRes?.data?.meta;
-  const leaveTypes = previewRes?.data?.leaveTypes || [];
+  const leaveTypes: any[] = previewRes?.data?.leaveTypes || [];
 
   function handleExport() {
     const p = new URLSearchParams({
@@ -312,7 +328,7 @@ function LeaveTab() {
           <label className="text-xs font-medium text-gray-500">Status</label>
           <select value={status} onChange={(e) => setStatus(e.target.value)} className="input-glass text-sm px-3 py-2 min-w-[130px]">
             <option value="">All Statuses</option>
-            {['APPROVED', 'PENDING', 'REJECTED', 'CANCELLED'].map((s) => <option key={s} value={s}>{s}</option>)}
+            {['APPROVED', 'APPROVED_WITH_CONDITION', 'MANAGER_APPROVED', 'PENDING', 'DRAFT', 'REJECTED', 'CANCELLED'].map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
         <button onClick={handleExport} disabled={!!downloading} className="flex items-center gap-2 text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50 mt-auto">
@@ -322,10 +338,11 @@ function LeaveTab() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
-          { label: 'Total Requests', value: summary?.total || 0, color: 'text-gray-700', bg: 'bg-gray-50', icon: CalendarDays },
+          { label: status ? 'Filtered' : 'Total', value: status ? (summary?.total ?? 0) : (summary?.periodTotal ?? summary?.total ?? 0), color: 'text-gray-700', bg: 'bg-gray-50', icon: CalendarDays },
           { label: 'Approved', value: summary?.approved || 0, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: CheckCircle2 },
+          { label: 'Mgr Approved', value: summary?.managerApproved || 0, color: 'text-blue-600', bg: 'bg-blue-50', icon: UserCheck },
           { label: 'Pending', value: summary?.pending || 0, color: 'text-amber-600', bg: 'bg-amber-50', icon: Clock },
           { label: 'Rejected', value: summary?.rejected || 0, color: 'text-red-600', bg: 'bg-red-50', icon: XCircle },
         ].map(({ label, value, color, bg, icon: Icon }) => (
@@ -358,6 +375,8 @@ function LeaveTab() {
         </div>
         {previewLoading ? (
           <div className="flex items-center justify-center py-12"><Loader2 size={20} className="animate-spin text-brand-500" /></div>
+        ) : previewError ? (
+          <div className="text-center py-10 text-sm text-red-500">Failed to load leave data. Please try again.</div>
         ) : previewRecords.length === 0 ? (
           <div className="text-center py-10 text-sm text-gray-400">No leave records found</div>
         ) : (
@@ -379,7 +398,7 @@ function LeaveTab() {
                     <td className="px-4 py-3 text-gray-600 font-mono text-xs" data-mono>{new Date(r.startDate).toLocaleDateString('en-IN')}</td>
                     <td className="px-4 py-3 text-gray-600 font-mono text-xs" data-mono>{new Date(r.endDate).toLocaleDateString('en-IN')}</td>
                     <td className="px-4 py-3 text-gray-700 font-mono text-xs font-semibold" data-mono>{r.days}</td>
-                    <td className="px-4 py-3"><span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-600'}`}>{r.status}</span></td>
+                    <td className="px-4 py-3"><span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-600'}`}>{r.status.replace(/_/g, ' ')}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -392,7 +411,12 @@ function LeaveTab() {
       <DetailModal title={`Leave Report: ${year}${month !== null ? ` — ${MONTHS[month - 1]}` : ''}`} isOpen={modalOpen} onClose={() => { setModalOpen(false); setModalPage(1); }}>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">Total records: <span className="font-semibold text-gray-800">{modalMeta?.total || 0}</span></p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm text-gray-500">{(deptFilter || status) ? 'Filtered' : 'Total'} records: <span className="font-semibold text-gray-800">{modalLoading ? '—' : (modalMeta?.total ?? 0)}</span></p>
+              {(deptFilter || status) && (
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">Filters active</span>
+              )}
+            </div>
             <button onClick={handleExport} disabled={!!downloading} className="flex items-center gap-1.5 text-xs font-medium bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50">
               {downloading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
               Export All
@@ -421,7 +445,7 @@ function LeaveTab() {
                         <td className="px-4 py-2.5 text-gray-600 font-mono text-xs" data-mono>{new Date(r.startDate).toLocaleDateString('en-IN')}</td>
                         <td className="px-4 py-2.5 text-gray-600 font-mono text-xs" data-mono>{new Date(r.endDate).toLocaleDateString('en-IN')}</td>
                         <td className="px-4 py-2.5 text-gray-700 font-mono text-xs font-semibold" data-mono>{r.days}</td>
-                        <td className="px-4 py-2.5"><span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-600'}`}>{r.status}</span></td>
+                        <td className="px-4 py-2.5"><span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-600'}`}>{r.status.replace(/_/g, ' ')}</span></td>
                         <td className="px-4 py-2.5 text-gray-500 text-xs max-w-[200px] truncate">{r.reason || '—'}</td>
                       </tr>
                     ))}
@@ -451,9 +475,13 @@ function LeaveTab() {
 
 // ── Headcount Tab ─────────────────────────────────────────────────────────────
 function HeadcountTab() {
-  const { data: headcountRes, isLoading } = useGetHeadcountQuery();
+  const { data: headcountRes, isLoading, isError } = useGetHeadcountQuery();
   const { download: authDownload, downloading } = useAuthDownload();
   const headcount = headcountRes?.data;
+
+  if (isError) return (
+    <div className="layer-card p-10 text-center text-sm text-red-500">Failed to load headcount data. Please try again.</div>
+  );
 
   return (
     <div className="space-y-5">
@@ -568,8 +596,12 @@ function HeadcountTab() {
 
 // ── Recruitment Tab ───────────────────────────────────────────────────────────
 function RecruitmentTab() {
-  const { data: recruitRes, isLoading } = useGetRecruitmentFunnelQuery();
+  const { data: recruitRes, isLoading, isError } = useGetRecruitmentFunnelQuery();
   const recruit = recruitRes?.data;
+
+  if (isError) return (
+    <div className="layer-card p-10 text-center text-sm text-red-500">Failed to load recruitment data. Please try again.</div>
+  );
 
   return (
     <div className="space-y-5">

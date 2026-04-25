@@ -222,30 +222,50 @@ export default function KanbanBoard({ applications, jobId }: KanbanBoardProps) {
           );
         })}
 
-        {/* Terminal columns — only shown when they have candidates */}
+        {/* Terminal columns — REJECTED and WITHDRAWN always visible (drag targets);
+            post-offer stages only shown when populated */}
         {TERMINAL_STAGES.map((stage) => {
           const stageApps = applications.filter((a: any) => a.status === stage.key);
-          if (stageApps.length === 0) return null;
+          const alwaysVisible = stage.key === 'REJECTED' || stage.key === 'WITHDRAWN';
+          if (!alwaysVisible && stageApps.length === 0) return null;
+          const isOver = dragOverStage === stage.key;
           return (
-            <div key={stage.key} className="min-w-[220px] w-[220px] shrink-0">
+            <div
+              key={stage.key}
+              className={`min-w-[220px] w-[220px] shrink-0 rounded-xl transition-all duration-150 snap-start ${isOver ? 'ring-2 ring-red-300 ring-offset-1 scale-[1.01]' : ''}`}
+              onDragOver={e => onDragOver(e, stage.key)}
+              onDragLeave={onDragLeave}
+              onDrop={e => onDrop(e, stage.key)}
+            >
               <div className={`rounded-t-xl px-3 py-2.5 ${stage.color} flex items-center justify-between`}>
                 <span className="text-sm font-semibold">{stage.label}</span>
                 <span className="text-xs font-mono opacity-70">{stageApps.length}</span>
               </div>
-              <div className="bg-gray-50/50 rounded-b-xl border border-gray-100 border-t-0 p-2 space-y-2 min-h-[100px]">
-                {stageApps.map((app: any) => (
-                  <CandidateCard
-                    key={app.id}
-                    app={app}
-                    currentStage={stage.key}
-                    isSelected={selectedIds.has(app.id)}
-                    onSelect={() => toggleSelect(app.id)}
-                    onMoveStage={handleMoveStage}
-                    onViewDetail={() => navigate(`/recruitment/candidate/${app.id}`)}
-                    onDragStart={onDragStart}
-                    onDragEnd={onDragEnd}
-                  />
-                ))}
+              <div className={`bg-gray-50/50 rounded-b-xl border border-t-0 p-2 space-y-2 min-h-[120px] transition-colors ${
+                isOver ? 'bg-red-50/40 border-red-200' : 'border-gray-100'
+              }`}>
+                {stageApps.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-xs text-gray-300 gap-1">
+                    <div className="w-7 h-7 rounded-full border-2 border-dashed border-gray-200 flex items-center justify-center">
+                      <User size={12} className="opacity-40" />
+                    </div>
+                    Drop here
+                  </div>
+                ) : (
+                  stageApps.map((app: any) => (
+                    <CandidateCard
+                      key={app.id}
+                      app={app}
+                      currentStage={stage.key}
+                      isSelected={selectedIds.has(app.id)}
+                      onSelect={() => toggleSelect(app.id)}
+                      onMoveStage={handleMoveStage}
+                      onViewDetail={() => navigate(`/recruitment/candidate/${app.id}`)}
+                      onDragStart={onDragStart}
+                      onDragEnd={onDragEnd}
+                    />
+                  ))
+                )}
               </div>
             </div>
           );
@@ -312,12 +332,12 @@ function CandidateCard({
         <span className={`badge text-[10px] ${SOURCE_BADGE[app.source] || 'badge-neutral'}`}>
           {app.source}
         </span>
-        {(app.aiScore != null || app.totalAiScore != null) && (
+        {(() => { const score = app.totalAiScore ?? app.aiScore; return score != null ? (
           <span className="flex items-center gap-0.5 text-[10px] text-amber-600">
             <Star className="w-3 h-3 fill-amber-400" />
-            {Number(app.totalAiScore ?? app.aiScore).toFixed(1)}
+            {Number(score).toFixed(1)}
           </span>
-        )}
+        ) : null; })()}
       </div>
 
       {/* Move Stage Dropdown + View button */}

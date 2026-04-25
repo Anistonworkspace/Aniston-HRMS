@@ -28,6 +28,7 @@ import { useShareJobEmailMutation } from './recruitmentApi';
 import { cn, formatDate, getInitials, getUploadUrl } from '../../lib/utils';
 import toast from 'react-hot-toast';
 import BulkResumeModal from './BulkResumeModal';
+import WalkInBulkImportModal from '../walkIn/WalkInBulkImportModal';
 import AiAssistantFab from '../ai-assistant/AiAssistantPanel';
 
 type RecruitmentTab = 'jobs' | 'walkin' | 'ai-screened' | 'hiring-passed';
@@ -665,6 +666,7 @@ function WalkInTab() {
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showBulkImport, setShowBulkImport] = useState(false);
 
   const { data, isLoading, refetch } = useGetAllWalkInsQuery({
     search: search || undefined, status: statusFilter || undefined,
@@ -714,11 +716,17 @@ function WalkInTab() {
         <button onClick={() => refetch()} className="btn-secondary text-sm flex items-center gap-2 shrink-0">
           <RefreshCw size={14} /> Refresh
         </button>
+        <button onClick={() => setShowBulkImport(true)} className="btn-primary text-sm flex items-center gap-2 shrink-0">
+          <Upload size={14} /> Bulk Import CSV
+        </button>
         {(statusFilter || dateFrom || dateTo || search) && (
           <button onClick={() => { setStatusFilter(''); setDateFrom(''); setDateTo(''); setSearch(''); setPage(1); }}
             className="text-xs text-gray-400 hover:text-gray-600 px-2">Clear All</button>
         )}
       </div>
+      <AnimatePresence>
+        {showBulkImport && <WalkInBulkImportModal onClose={() => { setShowBulkImport(false); refetch(); }} />}
+      </AnimatePresence>
 
       {/* Candidate List */}
       {isLoading ? (

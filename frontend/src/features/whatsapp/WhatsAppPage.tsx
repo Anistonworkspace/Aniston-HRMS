@@ -4,7 +4,7 @@ import {
   Search, Send, Phone, MessageCircle, Loader2, WifiOff, Plus, User,
   Check, CheckCheck, ArrowLeft, X, ExternalLink, FileText, Play,
   Image as ImageIcon, AlertCircle, RefreshCw, Paperclip, Download,
-  Copy, ArrowDown, Clock, Trash2, UserPlus, Edit2, Mail, StickyNote,
+  Copy, ArrowDown, Clock, Trash2, UserPlus, Edit2, Mail, StickyNote, XCircle,
 } from 'lucide-react';
 import {
   useGetWhatsAppStatusQuery,
@@ -29,6 +29,7 @@ import type {
 import { Link } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 
 // =====================================================================
 // CONSTANTS
@@ -55,6 +56,18 @@ export default function WhatsAppPage() {
     if (!lastPing || !isConnected) return false;
     return Date.now() - new Date(lastPing).getTime() > 6 * 60 * 60 * 1000;
   }, [lastPing, isConnected]);
+
+  // G5: real-time disconnect detection — show a banner if WhatsApp disconnects mid-session
+  const [disconnectedMid, setDisconnectedMid] = useState(false);
+  useEffect(() => {
+    const handler = () => setDisconnectedMid(true);
+    onSocketEvent('whatsapp:disconnected', handler);
+    return () => offSocketEvent('whatsapp:disconnected', handler);
+  }, []);
+  // L1: auto-dismiss disconnect banner when status poll confirms reconnection
+  useEffect(() => {
+    if (isConnected) setDisconnectedMid(false);
+  }, [isConnected]);
 
   if (statusLoading) {
     return (
@@ -92,7 +105,17 @@ export default function WhatsAppPage() {
 
   return (
     <div className="flex flex-col h-full">
-      {sessionStale && (
+      {disconnectedMid && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border-b border-red-200 text-red-800 text-xs">
+          <WifiOff size={12} className="flex-shrink-0" />
+          <span>WhatsApp disconnected. Messages cannot be sent until reconnected.</span>
+          <Link to="/settings" className="underline font-medium ml-1">Reconnect in Settings</Link>
+          <button onClick={() => setDisconnectedMid(false)} className="ml-auto p-0.5 hover:bg-red-100 rounded" aria-label="Dismiss">
+            <X size={12} />
+          </button>
+        </div>
+      )}
+      {sessionStale && !disconnectedMid && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs">
           <Clock size={12} className="flex-shrink-0" />
           <span>WhatsApp session may be unstable — last activity was over 6 hours ago.</span>
@@ -102,7 +125,7 @@ export default function WhatsAppPage() {
       {isSyncing && (
         <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border-b border-green-200 text-green-800 text-xs">
           <Loader2 size={12} className="animate-spin flex-shrink-0" />
-          <span>Syncing WhatsApp chats... This may take a few seconds on first connect.</span>
+          <span>Syncing WhatsApp chats... Conversations will appear once sync completes.</span>
         </div>
       )}
       <div className="flex-1 min-h-0">
@@ -186,6 +209,14 @@ function findChatForPhone(chats: WhatsAppChat[], phone: string): WhatsAppChat | 
 function isBase64Blob(s: string): boolean {
   if (!s || s.length < 100) return false;
   return /^[A-Za-z0-9+/=\r\n]{100,}$/.test(s.trim());
+}
+
+function formatPhoneDisplay(digits: string): string {
+  if (!digits) return '';
+  const d = digits.replace(/\D/g, '');
+  if (d.startsWith('91') && d.length === 12) return `+91 ${d.slice(2, 7)} ${d.slice(7)}`;
+  if (d.startsWith('1') && d.length === 11) return `+1 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
+  return `+${d}`;
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -529,8 +560,12 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
       return;
     }
 
-    // 3. Resolve via backend (handles LID multi-device IDs)
+    // 3. Resolve via backend (handles LID multi-device IDs) — 8s timeout prevents infinite spinner
     setResolvingPhone(contact.normalizedPhone);
+    const resolveTimeout = setTimeout(() => {
+      setResolvingPhone(null);
+      toast.error('Phone resolution timed out. Opening composer instead.', { duration: 3000 });
+    }, 8000);
     try {
       const res = await triggerResolve(contact.normalizedPhone).unwrap();
       if (res.data?.chatId) {
@@ -540,6 +575,7 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
         return;
       }
     } catch { /* ignore */ } finally {
+      clearTimeout(resolveTimeout);
       setResolvingPhone(null);
     }
 
@@ -586,10 +622,11 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
 
   // Live contacts filtered by search, excluding those already in DB contacts
   const filteredLiveContacts = useMemo(() => {
-    const dbPhones = new Set(dbContacts.map(c => c.normalizedPhone));
+    // Build a set of last-10 digits from DB contacts to handle 91-prefix vs no-prefix mismatch
+    const dbLast10 = new Set(dbContacts.map(c => c.normalizedPhone.slice(-10)));
     const filtered = liveContacts.filter(c => {
       const digits = c.number?.replace(/\D/g, '') || '';
-      if (dbPhones.has(digits)) return false; // already in DB, skip duplicate
+      if (dbLast10.has(digits.slice(-10))) return false; // already in DB, skip duplicate
       if (searchQuery) {
         return c.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
           c.number?.includes(searchQuery);
@@ -1121,7 +1158,7 @@ function ContactInfoPanel({
   );
 
   const handleCopyPhone = () => {
-    navigator.clipboard.writeText(`+${phoneNumber}`).then(() => toast.success('Phone copied'));
+    navigator.clipboard.writeText(formatPhoneDisplay(phoneNumber)).then(() => toast.success('Phone copied'));
   };
 
   return (
@@ -1154,7 +1191,7 @@ function ContactInfoPanel({
             <p className="text-xs text-gray-400 mb-1">Phone number</p>
             <div className="flex items-center gap-2">
               <Phone size={14} className="text-gray-400" />
-              <span className="text-sm text-gray-700 font-mono flex-1">+{phoneNumber}</span>
+              <span className="text-sm text-gray-700 font-mono flex-1">{formatPhoneDisplay(phoneNumber)}</span>
               <button
                 onClick={handleCopyPhone}
                 className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
@@ -1225,8 +1262,16 @@ function ChatView({
   const inputRef = useRef<HTMLInputElement>(null);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [fetchTimedOut, setFetchTimedOut] = useState(false);
 
   const messages: WhatsAppMessage[] = messagesRes?.data || [];
+
+  // D4: show timeout banner if the fetch is still in-flight after 50s
+  useEffect(() => {
+    if (!isFetching) { setFetchTimedOut(false); return; }
+    const t = setTimeout(() => setFetchTimedOut(true), 50000);
+    return () => clearTimeout(t);
+  }, [isFetching]);
 
   // Auto-retry up to 2 times when messages return empty — handles WhatsApp session warm-up delay
   useEffect(() => {
@@ -1277,6 +1322,7 @@ function ChatView({
     try {
       const phone = chatId.split('@')[0];
       await sendMessage({ to: phone, message: input.trim() }).unwrap();
+      toast.success('Message sent');
       setInput('');
       inputRef.current?.focus();
     } catch (err: any) {
@@ -1341,8 +1387,9 @@ function ChatView({
     }
   }, [chatId, chatSearch, triggerSearch]);
 
-  const renderTick = (ack?: number) => {
+  const renderTick = (ack?: number, errorReason?: string | null) => {
     if (ack === undefined || ack === null) return null;
+    if (ack === -1) return <XCircle size={14} className="text-red-400" title={errorReason ? `Failed: ${errorReason}` : 'Message failed to send'} />;
     if (ack >= 3) return <CheckCheck size={14} className="text-blue-500" />;
     if (ack >= 2) return <CheckCheck size={14} className="text-gray-400" />;
     if (ack >= 1) return <Check size={14} className="text-gray-400" />;
@@ -1452,6 +1499,13 @@ function ChatView({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-2 bg-[#efeae2] relative"
       >
+        {fetchTimedOut && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg mx-2 mt-2 text-amber-800 text-xs">
+            <AlertCircle size={12} className="flex-shrink-0" />
+            <span>Message fetch is taking longer than usual.</span>
+            <button onClick={() => { setFetchTimedOut(false); refetch(); }} className="ml-auto font-medium underline">Refresh</button>
+          </div>
+        )}
         {isLoading ? (
           <MessagesSkeleton />
         ) : isError ? (
@@ -1574,7 +1628,7 @@ const MessageBubble = memo(function MessageBubble({
   msg, renderTick, onDownloadMedia, isDownloading,
 }: {
   msg: WhatsAppMessage;
-  renderTick: (ack?: number) => React.ReactNode;
+  renderTick: (ack?: number, error?: string | null) => React.ReactNode;
   onDownloadMedia: (msg: WhatsAppMessage) => void;
   isDownloading?: boolean;
 }) {
@@ -1693,7 +1747,7 @@ const MessageBubble = memo(function MessageBubble({
           <span className="text-[10px] text-gray-400 whitespace-nowrap">
             {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
           </span>
-          {msg.fromMe && renderTick(msg.ack)}
+          {msg.fromMe && renderTick(msg.ack, (msg as any).error)}
         </div>
       </div>
     </div>
@@ -1722,8 +1776,8 @@ function NewChatView({ onSent, onBack }: { onSent: (chatId: string) => void; onB
     const cleaned = value.replace(/[\s\-()]/g, '');
     if (!cleaned) { setPhoneError(''); return false; }
     const digits = cleaned.replace(/^\+/, '');
-    if (!/^[0-9]{10,15}$/.test(digits)) {
-      setPhoneError('Enter 10–15 digits with country code (e.g. 919876543210 or +14155551234)');
+    if (!/^[0-9]{7,15}$/.test(digits)) {
+      setPhoneError('Enter a valid phone number with country code (e.g. 919876543210 or +14155551234)');
       return false;
     }
     setPhoneError('');

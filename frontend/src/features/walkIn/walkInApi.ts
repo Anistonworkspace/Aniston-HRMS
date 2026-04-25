@@ -170,6 +170,47 @@ export const walkInApi = api.injectEndpoints({
       }),
       invalidatesTags: ['WalkIn'],
     }),
+
+    // Public: Get psychometric questions for in-person kiosk assessment
+    getPsychometricQuestions: builder.query<any, void>({
+      query: () => '/walk-in/psychometric-questions',
+    }),
+
+    // HR: Generate AI interview questions for a candidate
+    generateWalkInInterviewQuestions: builder.mutation<any, string>({
+      query: (id) => ({
+        url: `/walk-in/${id}/generate-questions`,
+        method: 'POST',
+      }),
+    }),
+
+    // HR: Send WhatsApp interview invite with walk-in form link
+    sendWalkInWhatsAppInvite: builder.mutation<any, { phone: string; candidateName: string; position: string; interviewDate: string; interviewTime: string; jobId?: string }>({
+      query: (body) => ({
+        url: '/walk-in/whatsapp-invite',
+        method: 'POST',
+        body,
+      }),
+    }),
+
+    // HR: Share job via WhatsApp (from recruitment)
+    shareJobViaWhatsApp: builder.mutation<any, { jobId: string; phone: string; customMessage?: string }>({
+      query: ({ jobId, ...body }) => ({
+        url: `/recruitment/jobs/${jobId}/share-whatsapp`,
+        method: 'POST',
+        body,
+      }),
+    }),
+
+    // HR: Bulk import walk-in candidates from CSV
+    bulkImportWalkIns: builder.mutation<any, FormData>({
+      query: (formData) => ({
+        url: '/walk-in/bulk-import',
+        method: 'POST',
+        body: formData,
+      }),
+      invalidatesTags: ['WalkIn'],
+    }),
   }),
 });
 
@@ -196,4 +237,9 @@ export const {
   useGetMyInterviewsQuery,
   useGetMyInterviewDetailQuery,
   useSubmitMyScoreMutation,
+  useGetPsychometricQuestionsQuery,
+  useGenerateWalkInInterviewQuestionsMutation,
+  useSendWalkInWhatsAppInviteMutation,
+  useShareJobViaWhatsAppMutation,
+  useBulkImportWalkInsMutation,
 } = walkInApi;

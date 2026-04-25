@@ -186,7 +186,7 @@ export default function BulkEmailPage() {
 
   // Manual email helpers
   const addEmails = (text: string) => {
-    const parsed = text.split(/[,;\n\r]+/).map((e) => e.trim().toLowerCase()).filter((e) => e.includes('@'));
+    const parsed = text.split(/[,;\n\r]+/).map((e) => e.trim().toLowerCase()).filter((e) => e.includes('@') && e.includes('.'));
     const fresh = parsed.filter((e) => !manualEmails.includes(e));
     if (fresh.length) setManualEmails((prev) => [...prev, ...fresh]);
     setEmailInput('');

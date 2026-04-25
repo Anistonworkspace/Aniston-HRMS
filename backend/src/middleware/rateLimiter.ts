@@ -6,16 +6,17 @@ interface RateLimitOptions {
   windowMs: number;
   max: number;
   keyPrefix?: string;
+  keyFn?: (req: Request) => string;
 }
 
 export function rateLimiter(options: RateLimitOptions) {
-  const { windowMs, max, keyPrefix = 'rl' } = options;
+  const { windowMs, max, keyPrefix = 'rl', keyFn } = options;
   const windowSec = Math.ceil(windowMs / 1000);
 
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      const key = `${keyPrefix}:${ip}`;
+      const key = keyFn ? keyFn(req) : `${keyPrefix}:${ip}`;
 
       const current = await redis.incr(key);
       if (current === 1) {

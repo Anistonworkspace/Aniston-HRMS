@@ -86,7 +86,7 @@ export default function WhatsAppPanel({ isOpen, onClose }: Props) {
                       <p className="text-sm font-medium text-gray-700">Scan QR Code</p>
                       <p className="text-xs text-gray-400">Open WhatsApp on your phone → Settings → Linked Devices → Link a Device</p>
                       <img src={qrCode} alt="QR Code" className="mx-auto w-56 h-56 rounded-xl border border-gray-200" />
-                      <button onClick={() => refetchQr()} className="text-xs text-brand-600 hover:underline flex items-center gap-1 mx-auto">
+                      <button onClick={() => { refetchQr(); toast.success('QR code refreshed'); }} className="text-xs text-brand-600 hover:underline flex items-center gap-1 mx-auto">
                         <RefreshCw size={12} /> Refresh QR
                       </button>
                     </div>
@@ -181,6 +181,7 @@ function SendMessageForm() {
 
 function SendJobLinkForm() {
   const [phone, setPhone] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [candidateName, setCandidateName] = useState('');
   const [selectedJobId, setSelectedJobId] = useState('');
   const { data: jobsRes } = useGetJobOpeningsQuery({ page: 1, limit: 50 });
@@ -189,15 +190,28 @@ function SendJobLinkForm() {
   const jobs = jobsRes?.data || [];
   const selectedJob = jobs.find((j: any) => j.id === selectedJobId);
 
+  const validatePhone = (value: string) => {
+    const digits = value.replace(/[\s\-()]/g, '').replace(/^\+/, '');
+    if (!digits) { setPhoneError('Phone number is required'); return false; }
+    if (!/^[0-9]{7,15}$/.test(digits)) {
+      setPhoneError('Enter a valid phone number with country code (e.g. 919876543210)');
+      return false;
+    }
+    setPhoneError('');
+    return true;
+  };
+
   const handleSend = async () => {
-    if (!phone || !selectedJob) return;
+    if (!validatePhone(phone) || !selectedJob) return;
     try {
       const jobUrl = `${window.location.origin}/jobs?apply=${selectedJob.id}`;
-      await sendJobLink({ phone, candidateName: candidateName || undefined, jobTitle: selectedJob.title, jobUrl }).unwrap();
+      await sendJobLink({ phone: phone.replace(/[\s\-()]/g, ''), candidateName: candidateName || undefined, jobTitle: selectedJob.title, jobUrl }).unwrap();
       toast.success('Job link sent!');
       setPhone('');
       setCandidateName('');
-    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed'); }
+      setSelectedJobId('');
+      setPhoneError('');
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to send job link'); }
   };
 
   return (
@@ -211,8 +225,9 @@ function SendJobLinkForm() {
       </div>
       <div>
         <label className="block text-xs font-medium text-gray-500 mb-1">Phone Number</label>
-        <input value={phone} onChange={e => setPhone(e.target.value)}
-          placeholder="+91 98765 43210" className="input-glass w-full text-sm" />
+        <input value={phone} onChange={e => { setPhone(e.target.value); if (phoneError) validatePhone(e.target.value); }}
+          placeholder="+91 98765 43210" className={`input-glass w-full text-sm ${phoneError ? 'border-red-300' : ''}`} />
+        {phoneError && <p className="text-xs text-red-500 mt-0.5">{phoneError}</p>}
       </div>
       <div>
         <label className="block text-xs font-medium text-gray-500 mb-1">Candidate Name (optional)</label>
@@ -228,7 +243,7 @@ function SendJobLinkForm() {
         </div>
       )}
 
-      <button onClick={handleSend} disabled={isLoading || !phone || !selectedJobId}
+      <button onClick={handleSend} disabled={isLoading || !phone || !selectedJobId || !!phoneError}
         className="btn-primary w-full flex items-center justify-center gap-2 text-sm">
         {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Briefcase size={14} />} Send Job Link
       </button>

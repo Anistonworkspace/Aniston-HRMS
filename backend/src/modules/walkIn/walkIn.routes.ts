@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
-import { uploadDocument } from '../../middleware/upload.middleware.js';
+import { uploadDocument, uploadCsv } from '../../middleware/upload.middleware.js';
 import { walkInController } from './walkIn.controller.js';
 
 const router = Router();
@@ -21,6 +21,9 @@ router.post('/upload', uploadDocument.single('file'), (req, res, next) => walkIn
 
 // Get walk-in record by token number (public — for status check)
 router.get('/token/:tokenNumber', (req, res, next) => walkInController.getByToken(req, res, next));
+
+// Get in-person psychometric questions (public — shown on kiosk before submission)
+router.get('/psychometric-questions', (req, res, next) => walkInController.getPsychometricQuestions(req, res, next));
 
 // =====================
 // HR ROUTES (Auth Required)
@@ -77,6 +80,15 @@ router.patch('/:id/convert', ...hrAuth, (req, res, next) => walkInController.con
 
 // Hire walk-in candidate (create employee + send onboarding invite)
 router.post('/:id/hire', ...hrAuth, (req, res, next) => walkInController.hire(req, res, next));
+
+// Generate AI interview questions for a candidate
+router.post('/:id/generate-questions', ...hrAuth, (req, res, next) => walkInController.generateInterviewQuestions(req, res, next));
+
+// Send WhatsApp interview invite with walk-in form link
+router.post('/whatsapp-invite', ...hrAuth, (req, res, next) => walkInController.sendWhatsAppInvite(req, res, next));
+
+// Bulk import walk-in candidates from CSV (Naukri / Indeed / any platform export)
+router.post('/bulk-import', ...hrAuth, uploadCsv.single('file'), (req, res, next) => walkInController.bulkImport(req, res, next));
 
 // Delete a walk-in record
 router.delete('/:id', ...hrAuth, (req, res, next) => walkInController.remove(req, res, next));

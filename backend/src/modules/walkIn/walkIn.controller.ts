@@ -216,6 +216,173 @@ export class WalkInController {
       res.json({ success: true, data: result, message: `Employee ${result.employeeCode} created and invite sent` });
     } catch (err) { next(err); }
   }
+
+  async bulkImport(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.file) {
+        res.status(400).json({ success: false, error: { message: 'No CSV file uploaded' } });
+        return;
+      }
+      const csvContent = req.file.buffer?.toString('utf-8') || fs.readFileSync(req.file.path, 'utf-8');
+      if (req.file.path) { try { fs.unlinkSync(req.file.path); } catch { /* best-effort */ } }
+
+      const lines = csvContent.split('\n').map((l: string) => l.trim()).filter(Boolean);
+      if (lines.length < 2) {
+        res.status(400).json({ success: false, error: { message: 'CSV must have a header row and at least one data row' } });
+        return;
+      }
+
+      const headers = lines[0].split(',').map((h: string) => h.trim().toLowerCase().replace(/["\s]/g, ''));
+      const col = (names: string[]) => names.reduce((found: number, n: string) => found >= 0 ? found : headers.indexOf(n), -1);
+      const nameIdx = col(['fullname', 'name', 'candidatename', 'candidate_name']);
+      const phoneIdx = col(['phone', 'mobile', 'mobileno', 'phonenumber', 'contact']);
+      const emailIdx = col(['email', 'emailaddress', 'email_address']);
+      const positionIdx = col(['position', 'role', 'jobtitle', 'job_title', 'designation']);
+      const expIdx = col(['experienceyears', 'experience', 'exp', 'years']);
+
+      if (nameIdx < 0 || phoneIdx < 0) {
+        res.status(400).json({ success: false, error: { message: 'CSV must have columns: fullName, phone. Optional: email, position, experienceYears' } });
+        return;
+      }
+
+      const rows = lines.slice(1).map((line: string) => {
+        const cells = line.split(',').map((c: string) => c.trim().replace(/^"|"$/g, ''));
+        return {
+          fullName: cells[nameIdx] || '',
+          phone: cells[phoneIdx] || '',
+          email: emailIdx >= 0 ? cells[emailIdx] || undefined : undefined,
+          position: positionIdx >= 0 ? cells[positionIdx] || undefined : undefined,
+          experienceYears: expIdx >= 0 ? parseInt(cells[expIdx]) || 0 : 0,
+        };
+      }).filter((r: any) => r.fullName && r.phone);
+
+      const result = await walkInService.bulkImportFromCsv(rows, req.user!.organizationId);
+      res.status(201).json({ success: true, data: result, message: `Imported ${result.created} candidates (${result.skipped} skipped)` });
+    } catch (err) { next(err); }
+  }
+
+  // Public: get in-person psychometric questions (INTEGRITY + ENERGY, no correct answers)
+  async getPsychometricQuestions(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const { getPsychometricQuestions } = await import('../public-apply/public-apply.service.js');
+      res.json({ success: true, data: getPsychometricQuestions() });
+    } catch (err) { next(err); }
+  }
+
+  // HR: generate AI interview questions for a walk-in candidate
+  async generateInterviewQuestions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const candidate = await walkInService.getById(req.params.id as string, req.user!.organizationId);
+      const { aiService } = await import('../../services/ai.service.js');
+      const { prisma } = await import('../../lib/prisma.js');
+      const job = candidate.jobOpeningId
+        ? await prisma.jobOpening.findUnique({ where: { id: candidate.jobOpeningId }, select: { title: true, description: true } })
+        : null;
+
+      const prompt = `Generate 8 targeted interview questions for a candidate with these details:
+Name: ${candidate.fullName}
+Position: ${job?.title || 'General role'}
+Experience: ${candidate.experienceYears} years ${candidate.experienceMonths} months
+Last Company: ${candidate.currentCompany || candidate.lastEmployer || 'N/A'}
+Skills: ${(candidate.skills || []).join(', ') || 'Not specified'}
+Key Responsibilities: ${candidate.keyResponsibilities || 'Not specified'}
+
+Generate questions that assess:
+1. Technical competency for the role
+2. Behavioral situations (STAR method)
+3. Motivation and cultural fit
+4. Problem-solving ability
+
+Return as a JSON array: [{ "question": "...", "category": "Technical|Behavioral|Motivation|Problem Solving", "followUp": "optional follow-up hint" }]`;
+
+      let questions: any[] = [];
+      try {
+        const aiResponse = await aiService.prompt(req.user!.organizationId, 'You are a professional HR interviewer. Generate structured interview questions as a JSON array.', prompt);
+        const text = aiResponse.data || '';
+        const match = text.match(/\[[\s\S]*\]/);
+        if (match) questions = JSON.parse(match[0]);
+      } catch {
+        questions = [
+          { question: `Tell me about your experience at ${candidate.currentCompany || 'your last company'}.`, category: 'Behavioral', followUp: 'Ask for specific achievements.' },
+          { question: `Why are you interested in the ${job?.title || 'this'} role?`, category: 'Motivation', followUp: 'Look for genuine interest.' },
+          { question: 'Describe a challenging situation and how you handled it.', category: 'Behavioral', followUp: 'Apply STAR method.' },
+          { question: 'What are your key technical strengths relevant to this position?', category: 'Technical', followUp: 'Ask for examples.' },
+          { question: 'Where do you see yourself in the next 3 years?', category: 'Motivation', followUp: 'Check alignment with company growth.' },
+          { question: 'How do you prioritize when handling multiple deadlines?', category: 'Problem Solving', followUp: 'Look for structured approach.' },
+          { question: 'What was your biggest professional achievement so far?', category: 'Behavioral', followUp: 'Quantify impact if possible.' },
+          { question: 'What do you know about Aniston Technologies?', category: 'Motivation', followUp: 'Check research and interest level.' },
+        ];
+      }
+
+      res.json({ success: true, data: questions });
+    } catch (err) { next(err); }
+  }
+
+  // HR: send WhatsApp interview invite with walk-in form link
+  async sendWhatsAppInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { phone, candidateName, position, interviewDate, interviewTime, jobId } = z.object({
+        phone: z.string().min(1),
+        candidateName: z.string(),
+        position: z.string(),
+        interviewDate: z.string(),
+        interviewTime: z.string(),
+        jobId: z.string().optional(),
+      }).parse(req.body);
+
+      // Validate phone: 7–15 digits after stripping formatting characters
+      const phoneDigits = phone.replace(/[\s\-()]/g, '').replace(/^\+/, '');
+      if (!/^[0-9]{10,15}$/.test(phoneDigits)) {
+        res.status(400).json({ success: false, error: { code: 'INVALID_PHONE', message: 'Enter a valid phone number with country code (10–15 digits, e.g. 919876543210)' } });
+        return;
+      }
+
+      const baseUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
+      const formLink = jobId ? `${baseUrl}/walk-in?jobId=${jobId}` : `${baseUrl}/walk-in`;
+
+      const message = `Hello ${candidateName},
+
+Congratulations! You have been shortlisted for the *${position}* position at *Aniston Technologies LLP*.
+
+*Interview Details:*
+Date: ${interviewDate}
+Time: ${interviewTime}
+Venue: 207B, Jaksons Crown Heights, Sec-10, Rohini, New Delhi - 110085
+
+Please fill your interview registration form before arriving:
+${formLink}
+
+Bring your original documents (ID proof, certificates, resume).
+
+Best regards,
+HR Team | Aniston Technologies`;
+
+      const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
+      const allowed = await whatsAppService.checkAutoSendQuota(req.user!.organizationId);
+      if (!allowed) {
+        res.json({ success: true, data: { message, phone: phoneDigits, messageSent: false, reason: 'Auto-send quota exceeded (10/min). Try again shortly.' } });
+        return;
+      }
+      try {
+        await whatsAppService.sendMessage(
+          { to: phoneDigits, message },
+          req.user!.organizationId,
+          req.user!.userId,
+          'INTERVIEW_INVITE'
+        );
+        res.json({ success: true, data: { message, phone: phoneDigits, messageSent: true } });
+      } catch (waErr: any) {
+        // WhatsApp not connected or number not found — return success with messageSent: false
+        // so the walk-in record is not lost due to a WhatsApp connectivity issue
+        const { logger } = await import('../../lib/logger.js');
+        logger.warn('[Walk-in] WhatsApp invite failed:', waErr.message);
+        res.json({
+          success: true,
+          data: { message, phone: phoneDigits, messageSent: false, reason: waErr.message || 'WhatsApp not connected' },
+        });
+      }
+    } catch (err) { next(err); }
+  }
 }
 
 export const walkInController = new WalkInController();

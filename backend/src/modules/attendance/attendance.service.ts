@@ -365,8 +365,11 @@ export class AttendanceService {
         return Math.round((istNow.getTime() - ss.getTime()) / 60000) > threshold;
       })();
 
-      record = await prisma.attendanceRecord.create({
-        data: {
+      // Use upsert to guard against concurrent double-tap creating duplicate rows.
+      // If a row already exists for this employee+date (race), update it instead.
+      record = await prisma.attendanceRecord.upsert({
+        where: { employeeId_date: { employeeId, date: today } },
+        create: {
           employeeId,
           date: today,
           checkIn: now,
@@ -378,6 +381,9 @@ export class AttendanceService {
           geofenceViolation,
           clockInCount: 1,
           lateMinutes: isLate ? lateMinutes : 0,
+        },
+        update: {
+          // Already clocked in — treat as a no-op rather than overwriting the first clock-in time.
         },
       });
     }
@@ -416,7 +422,7 @@ export class AttendanceService {
       }
     }
 
-    // For PROJECT_SITE mode, also create a site check-in
+    // For PROJECT_SITE mode, also create a site check-in if siteName was provided in the same request
     if (employee.workMode === 'PROJECT_SITE' && data.siteName) {
       await prisma.projectSiteCheckIn.create({
         data: {
@@ -2109,6 +2115,10 @@ export class AttendanceService {
   }) {
     const today = getISTToday();
 
+    if (!data.checkInPhoto) {
+      throw new BadRequestError('A check-in photo is required for project site attendance.');
+    }
+
     // Verify employee has an active clock-in for today
     const attendance = await prisma.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId, date: today } },
@@ -2126,7 +2136,7 @@ export class AttendanceService {
         date: today,
         siteName: data.siteName,
         siteAddress: data.siteAddress || null,
-        checkInPhoto: data.checkInPhoto || null,
+        checkInPhoto: data.checkInPhoto,
         checkInLat: data.latitude || null,
         checkInLng: data.longitude || null,
         notes: data.notes || null,

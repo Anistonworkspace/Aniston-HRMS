@@ -2228,13 +2228,51 @@ model WalkInCandidate {
   phone           String
   city            String?
 
-  // KYC Documents
+  // Extended Personal Info (Interview Form Section A)
+  fathersName              String?
+  dateOfBirth              DateTime?
+  gender                   String?
+  maritalStatus            String?
+  alternatePhone           String?
+  emergencyContactName     String?
+  emergencyContactPhone    String?
+  emergencyContactRelation String?
+  currentAddress           String?
+  permanentAddress         String?
+
+  // Job Details (Section B)
+  referredBy     String?
+  availableFrom  DateTime?
+  employmentType String?
+
+  // Education (Section C — JSON array: [{qualification,institution,year,marks}])
+  education Json?
+
+  // Work Experience (Section D)
+  lastDrawnSalary     String?
+  lastEmployer        String?
+  designation         String?
+  workFromDate        String?
+  workToDate          String?
+  reasonForLeaving    String?
+  keyResponsibilities String?
+
+  // Skills & Preferences (Section E)
+  openToSiteWork    Boolean?
+  hasTwoWheeler     Boolean?
+  willingToRelocate Boolean?
+  healthIssues      String?
+
+  // Documents Checklist (Section F — JSON booleans)
+  documentsChecklist Json?
+
+  // KYC Documents (optional — brought physically)
   aadhaarFrontUrl String?
   aadhaarBackUrl  String?
   panCardUrl      String?
   selfieUrl       String?
-  aadhaarNumber   String?      // Masked: XXXX-XXXX-1234
-  panNumber       String?      // Masked: ABCDE1234F
+  aadhaarNumber   String?
+  panNumber       String?
 
   // OCR Verification
   ocrVerifiedName    String?
@@ -2257,9 +2295,15 @@ model WalkInCandidate {
   aboutMe          String?
   resumeUrl        String?
 
+  // Psychometric Assessment (in-person at walk-in, Section G)
+  psychScore     Decimal?    @db.Decimal(5, 2)
+  integrityScore Decimal?    @db.Decimal(5, 2)
+  energyScore    Decimal?    @db.Decimal(5, 2)
+  psychAnswers   Json?
+
   // AI Scoring
-  aiScore          Decimal?    @db.Decimal(5, 2)
-  aiScoreDetails   Json?
+  aiScore        Decimal?    @db.Decimal(5, 2)
+  aiScoreDetails Json?
 
   // Status
   registrationDate DateTime    @default(now())
@@ -2274,8 +2318,8 @@ model WalkInCandidate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  jobOpening       JobOpening?        @relation(fields: [jobOpeningId], references: [id])
-  interviewRounds  WalkInInterviewRound[]
+  jobOpening      JobOpening?           @relation(fields: [jobOpeningId], references: [id])
+  interviewRounds WalkInInterviewRound[]
 
   @@index([organizationId, registrationDate])
   @@index([status])

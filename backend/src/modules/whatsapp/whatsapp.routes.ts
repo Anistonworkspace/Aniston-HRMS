@@ -9,9 +9,26 @@ const router = Router();
 
 router.use(authenticate);
 
-// Rate limiters for send operations (prevent WhatsApp account ban)
-const sendLimiter = rateLimiter({ windowMs: 60 * 1000, max: 20, keyPrefix: 'rl:wa:send' });
-const bulkSendLimiter = rateLimiter({ windowMs: 60 * 1000, max: 10, keyPrefix: 'rl:wa:bulk' });
+// Rate limiters for send operations — keyed per org+user to prevent WhatsApp account bans
+const sendLimiter = rateLimiter({
+  windowMs: 60 * 1000,
+  max: 20,
+  keyFn: (req) => {
+    const u = (req as any).user;
+    // Never fall back to req.ip — behind a proxy all users share the same IP.
+    // 'no-user' creates a single shared bucket for unauthenticated requests,
+    // which is safe because authenticate() runs before this and will 401 first.
+    return `rl:wa:send:${u?.organizationId || 'no-org'}:${u?.id || 'no-user'}`;
+  },
+});
+const bulkSendLimiter = rateLimiter({
+  windowMs: 60 * 1000,
+  max: 10,
+  keyFn: (req) => {
+    const u = (req as any).user;
+    return `rl:wa:bulk:${u?.organizationId || 'no-org'}:${u?.id || 'no-user'}`;
+  },
+});
 
 const WA_ROLES = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR] as Role[];
 

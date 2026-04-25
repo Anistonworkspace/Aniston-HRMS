@@ -148,6 +148,61 @@ router.post('/jobs/:jobId/share-email', authenticate, authorize(Role.SUPER_ADMIN
 });
 
 // =====================
+// SHARE JOB VIA WHATSAPP
+// =====================
+
+router.post('/jobs/:jobId/share-whatsapp', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { phone, customMessage } = z.object({
+      phone: z.string().min(10),
+      customMessage: z.string().optional(),
+    }).parse(req.body);
+
+    const { prisma } = await import('../../lib/prisma.js');
+    const job = await prisma.jobOpening.findFirst({
+      where: { id: req.params.jobId as string, organizationId: req.user!.organizationId },
+      select: { title: true, department: true, location: true, type: true, publicFormToken: true, publicFormEnabled: true },
+    });
+    if (!job) { res.status(404).json({ success: false, error: { message: 'Job not found' } }); return; }
+    if (!job.publicFormEnabled || !job.publicFormToken) {
+      res.status(400).json({ success: false, error: { message: 'Public form not enabled for this job' } });
+      return;
+    }
+
+    const baseUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
+    const applyLink = `${baseUrl}/apply/${job.publicFormToken}`;
+    const defaultMessage = `Hello! Aniston Technologies LLP is hiring for *${job.title}* (${job.department || ''} | ${job.location || ''}).
+
+Apply here: ${applyLink}
+
+- Powered by Aniston HRMS`;
+
+    const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
+    const allowed = await whatsAppService.checkAutoSendQuota(req.user!.organizationId);
+    if (!allowed) {
+      res.status(429).json({ success: false, error: { code: 'QUOTA_EXCEEDED', message: 'Auto-send quota exceeded (10/min). Please wait a moment and try again.' } });
+      return;
+    }
+    try {
+      await whatsAppService.sendMessage(
+        { to: phone, message: customMessage || defaultMessage },
+        req.user!.organizationId,
+        req.user!.userId,
+        'JOB_LINK'
+      );
+      res.json({ success: true, data: { phone, applyLink, message: customMessage || defaultMessage, messageSent: true } });
+    } catch (waErr: any) {
+      // Return 503 with a clear message if WhatsApp is not connected — do not expose internal errors
+      if (waErr.message?.includes('not connected') || waErr.message?.includes('Initialize')) {
+        res.status(503).json({ success: false, error: { code: 'WA_NOT_CONNECTED', message: 'WhatsApp is not connected. Go to Settings → WhatsApp to connect, then try again.' } });
+      } else {
+        next(waErr);
+      }
+    }
+  } catch (err) { next(err); }
+});
+
+// =====================
 // AI JOB DESCRIPTION GENERATOR
 // =====================
 

@@ -34,6 +34,13 @@ export const bulkResumeApi = api.injectEndpoints({
       query: (itemId) => ({ url: `/recruitment/bulk-resume/items/${itemId}`, method: 'DELETE' }),
       invalidatesTags: ['Recruitment'],
     }),
+    sendBulkResumeInvite: builder.mutation<any, { itemId: string; inviteType: 'email' | 'whatsapp'; phone?: string; jobId: string }>({
+      query: ({ itemId, ...body }) => ({
+        url: `/recruitment/bulk-resume/${itemId}/invite`,
+        method: 'POST',
+        body,
+      }),
+    }),
   }),
 });
 
@@ -44,4 +51,5 @@ export const {
   useCreateApplicationFromItemMutation,
   useDeleteBulkUploadMutation,
   useDeleteBulkResumeItemMutation,
+  useSendBulkResumeInviteMutation,
 } = bulkResumeApi;

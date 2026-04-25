@@ -169,13 +169,19 @@ export class InvitationService {
           `This link expires in 72 hours.`,
         ].join('\n');
 
-        await whatsAppService.sendMessage(
-          { to: invitation.mobileNumber, message: whatsAppMessage },
-          organizationId,
-          undefined,
-          'ONBOARDING_INVITE'
-        );
-        whatsappStatus = 'SENT';
+        const allowed = await whatsAppService.checkAutoSendQuota(organizationId);
+        if (allowed) {
+          await whatsAppService.sendMessage(
+            { to: invitation.mobileNumber, message: whatsAppMessage },
+            organizationId,
+            undefined,
+            'ONBOARDING_INVITE'
+          );
+          whatsappStatus = 'SENT';
+        } else {
+          logger.warn('[WhatsApp] Auto-send quota exceeded for org:', organizationId);
+          whatsappStatus = 'FAILED';
+        }
       } catch (err) {
         logger.error('Failed to send WhatsApp invite:', err);
         whatsappStatus = 'FAILED';
@@ -708,13 +714,19 @@ export class InvitationService {
           `This link expires in 72 hours.`,
         ].join('\n');
 
-        await whatsAppService.sendMessage(
-          { to: invitation.mobileNumber, message: whatsAppMessage },
-          organizationId,
-          undefined,
-          'ONBOARDING_INVITE'
-        );
-        whatsappStatus = 'SENT';
+        const allowed = await whatsAppService.checkAutoSendQuota(organizationId);
+        if (allowed) {
+          await whatsAppService.sendMessage(
+            { to: invitation.mobileNumber, message: whatsAppMessage },
+            organizationId,
+            undefined,
+            'ONBOARDING_INVITE'
+          );
+          whatsappStatus = 'SENT';
+        } else {
+          logger.warn('[WhatsApp] Auto-send quota exceeded on resend for org:', organizationId);
+          whatsappStatus = 'FAILED';
+        }
       } catch (err) {
         logger.error('Failed to send WhatsApp invite on resend:', err);
         whatsappStatus = 'FAILED';

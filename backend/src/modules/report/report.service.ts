@@ -77,7 +77,7 @@ export class ReportService {
       by: ['status'],
       _count: true,
       where: {
-        employee: { organizationId },
+        employee: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
         date: { gte: start, lte: end },
       },
     });
@@ -86,7 +86,7 @@ export class ReportService {
       by: ['date'],
       _count: true,
       where: {
-        employee: { organizationId },
+        employee: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
         date: { gte: start, lte: end },
         status: 'PRESENT',
       },
@@ -106,7 +106,7 @@ export class ReportService {
       pendingRegularizations = await prisma.attendanceRegularization.findMany({
         where: {
           status: 'PENDING',
-          employee: { organizationId },
+          employee: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
           attendance: { date: { gte: start, lte: end } },
         },
         select: {
@@ -146,7 +146,7 @@ export class ReportService {
 
     const records = await prisma.attendanceRecord.findMany({
       where: {
-        employee: { organizationId },
+        employee: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
         date: { gte: start, lte: end },
       },
       include: {
@@ -161,7 +161,7 @@ export class ReportService {
       const pending = await prisma.attendanceRegularization.findMany({
         where: {
           status: 'PENDING',
-          employee: { organizationId },
+          employee: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
           attendance: { date: { gte: start, lte: end } },
         },
         select: {
@@ -187,7 +187,7 @@ export class ReportService {
       _sum: { days: true },
       _count: true,
       where: {
-        employee: { organizationId },
+        employee: { organizationId, deletedAt: null, isSystemAccount: { not: true } },
         status: 'APPROVED',
         startDate: { gte: new Date(year, 0, 1), lte: new Date(year, 11, 31) },
       },
@@ -342,6 +342,7 @@ export class ReportService {
       employee: {
         organizationId,
         deletedAt: null,
+        isSystemAccount: { not: true },
         ...(query.departmentId && { departmentId: query.departmentId }),
       },
       date: { gte: from, lte: to },
@@ -383,7 +384,6 @@ export class ReportService {
         checkIn: r.checkIn,
         checkOut: r.checkOut,
         totalHours: r.totalHours ? Number(r.totalHours) : null,
-        workMode: r.workMode || null,
       })),
       meta: {
         page: query.page,
@@ -417,6 +417,7 @@ export class ReportService {
       employee: {
         organizationId,
         deletedAt: null,
+        isSystemAccount: { not: true },
         ...(query.departmentId && { departmentId: query.departmentId }),
       },
       startDate: { gte: startBound, lte: endBound },
@@ -424,7 +425,18 @@ export class ReportService {
       ...(query.status && { status: query.status }),
     };
 
-    const [requests, total, statusCounts, leaveTypes] = await Promise.all([
+    const whereWithoutStatus: any = {
+      employee: {
+        organizationId,
+        deletedAt: null,
+        isSystemAccount: { not: true },
+        ...(query.departmentId && { departmentId: query.departmentId }),
+      },
+      startDate: { gte: startBound, lte: endBound },
+      ...(query.leaveTypeId && { leaveTypeId: query.leaveTypeId }),
+    };
+
+    const [requests, total, statusCounts, usedLeaveTypeRows, periodTotal] = await Promise.all([
       prisma.leaveRequest.findMany({
         where,
         include: {
@@ -442,11 +454,17 @@ export class ReportService {
       }),
       prisma.leaveRequest.count({ where }),
       prisma.leaveRequest.groupBy({ by: ['status'], _count: true, where }),
-      prisma.leaveType.findMany({
-        where: { organizationId },
-        select: { id: true, name: true, code: true },
+      prisma.leaveRequest.findMany({
+        where,
+        select: { leaveTypeId: true, leaveType: { select: { id: true, name: true, code: true } } },
+        distinct: ['leaveTypeId'],
       }),
+      query.status ? prisma.leaveRequest.count({ where: whereWithoutStatus }) : Promise.resolve(null),
     ]);
+
+    const leaveTypes = usedLeaveTypeRows
+      .filter((r) => r.leaveType)
+      .map((r) => r.leaveType!);
 
     return {
       records: requests.map((r) => ({
@@ -469,10 +487,14 @@ export class ReportService {
         totalPages: Math.ceil(total / query.limit),
       },
       summary: {
-        approved: statusCounts.find((s) => s.status === 'APPROVED')?._count || 0,
-        pending: statusCounts.find((s) => s.status === 'PENDING')?._count || 0,
+        approved: (statusCounts.find((s) => s.status === 'APPROVED')?._count || 0) +
+                  (statusCounts.find((s) => s.status === 'APPROVED_WITH_CONDITION')?._count || 0),
+        managerApproved: statusCounts.find((s) => s.status === 'MANAGER_APPROVED')?._count || 0,
+        pending: (statusCounts.find((s) => s.status === 'PENDING')?._count || 0) +
+                 (statusCounts.find((s) => s.status === 'DRAFT')?._count || 0),
         rejected: statusCounts.find((s) => s.status === 'REJECTED')?._count || 0,
         total,
+        periodTotal: periodTotal ?? total,
       },
       leaveTypes,
       period: { from: startBound, to: endBound },

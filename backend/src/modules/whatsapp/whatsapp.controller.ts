@@ -54,6 +54,28 @@ export class WhatsAppController {
         res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'No file uploaded' } });
         return;
       }
+
+      // Server-side file validation (defence-in-depth beyond Multer)
+      const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB — WhatsApp limit for most media
+      const ALLOWED_MIMETYPES = new Set([
+        'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+        'audio/ogg', 'audio/ogg; codecs=opus', 'audio/mpeg', 'audio/mp4',
+        'video/mp4',
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ]);
+
+      if (req.file.size > MAX_FILE_SIZE) {
+        res.status(400).json({ success: false, error: { code: 'FILE_TOO_LARGE', message: 'File exceeds the 10MB WhatsApp media limit' } });
+        return;
+      }
+      if (!ALLOWED_MIMETYPES.has(req.file.mimetype)) {
+        res.status(400).json({ success: false, error: { code: 'INVALID_FILE_TYPE', message: `File type "${req.file.mimetype}" is not supported. Allowed: images, audio, video/mp4, PDF, Word, Excel` } });
+        return;
+      }
+
       const result = await whatsAppService.sendMedia(chatId, req.file.path, caption, req.user!.organizationId, req.user!.userId);
       res.json({ success: true, data: result, message: 'Media sent' });
     } catch (err) { next(err); }

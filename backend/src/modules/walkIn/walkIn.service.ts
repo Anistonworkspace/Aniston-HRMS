@@ -59,6 +59,19 @@ export class WalkInService {
 
     const tokenNumber = await this.generateToken(organizationId);
 
+    // Score psychometric answers if provided
+    let psychScore: number | null = null;
+    let integrityScore: number | null = null;
+    let energyScore: number | null = null;
+
+    if (data.psychAnswers && data.psychAnswers.length > 0) {
+      const { scorePsychAnswers } = await import('../public-apply/public-apply.service.js');
+      const scores = scorePsychAnswers(data.psychAnswers);
+      psychScore = scores.psychScore;
+      integrityScore = scores.integrityScore;
+      energyScore = scores.energyScore;
+    }
+
     const candidate = await prisma.walkInCandidate.create({
       data: {
         tokenNumber,
@@ -67,6 +80,46 @@ export class WalkInService {
         phone: data.phone,
         city: data.city,
         jobOpeningId: data.jobOpeningId || null,
+
+        // Section A
+        fathersName: data.fathersName,
+        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+        gender: data.gender,
+        maritalStatus: data.maritalStatus,
+        alternatePhone: data.alternatePhone,
+        emergencyContactName: data.emergencyContactName,
+        emergencyContactPhone: data.emergencyContactPhone,
+        emergencyContactRelation: data.emergencyContactRelation,
+        currentAddress: data.currentAddress,
+        permanentAddress: data.permanentAddress,
+
+        // Section B
+        referredBy: data.referredBy,
+        availableFrom: data.availableFrom ? new Date(data.availableFrom) : null,
+        employmentType: data.employmentType,
+
+        // Section C
+        education: data.education ? (data.education as any) : undefined,
+
+        // Section D
+        lastDrawnSalary: data.lastDrawnSalary,
+        lastEmployer: data.lastEmployer,
+        designation: data.designation,
+        workFromDate: data.workFromDate,
+        workToDate: data.workToDate,
+        reasonForLeaving: data.reasonForLeaving,
+        keyResponsibilities: data.keyResponsibilities,
+
+        // Section E
+        openToSiteWork: data.openToSiteWork,
+        hasTwoWheeler: data.hasTwoWheeler,
+        willingToRelocate: data.willingToRelocate,
+        healthIssues: data.healthIssues,
+
+        // Section F
+        documentsChecklist: data.documentsChecklist ? (data.documentsChecklist as any) : undefined,
+
+        // KYC
         aadhaarFrontUrl: data.aadhaarFrontUrl,
         aadhaarBackUrl: data.aadhaarBackUrl,
         panCardUrl: data.panCardUrl,
@@ -78,6 +131,8 @@ export class WalkInService {
         ocrVerifiedAddress: data.ocrVerifiedAddress,
         tamperDetected: data.tamperDetected,
         tamperDetails: data.tamperDetails,
+
+        // Professional
         qualification: data.qualification,
         fieldOfStudy: data.fieldOfStudy,
         experienceYears: data.experienceYears,
@@ -90,18 +145,27 @@ export class WalkInService {
         skills: data.skills,
         aboutMe: data.aboutMe,
         resumeUrl: data.resumeUrl,
+
+        // Psychometric
+        psychScore: psychScore !== null ? psychScore : null,
+        integrityScore: integrityScore !== null ? integrityScore : null,
+        energyScore: energyScore !== null ? energyScore : null,
+        psychAnswers: data.psychAnswers ? (data.psychAnswers as any) : undefined,
+
         status: 'WAITING',
         organizationId,
       },
       include: { jobOpening: { select: { title: true, department: true } } },
     });
 
+    const jobOpening = (candidate as any).jobOpening as { title: string; department: string } | null;
+
     // Emit real-time notification to HR users in the organization
     emitToOrg(organizationId, 'walk_in:new', {
       id: candidate.id,
       tokenNumber: candidate.tokenNumber,
       fullName: candidate.fullName,
-      jobTitle: candidate.jobOpening?.title || 'Unknown Position',
+      jobTitle: jobOpening?.title || 'Unknown Position',
       timestamp: new Date().toISOString(),
     });
 
@@ -945,6 +1009,70 @@ export class WalkInService {
     if (!round) throw new NotFoundError('Interview round');
     if (round.interviewerId !== userId) throw new BadRequestError('This interview is not assigned to you');
     return this.updateInterviewRound(roundId, { ...data, status: 'COMPLETED' });
+  }
+
+  /**
+   * Bulk import walk-in candidates from a parsed CSV array.
+   * Each row must have at minimum: fullName, phone.
+   * Optional: email, position, experienceYears.
+   * Candidates are created with status PRE_REGISTERED.
+   */
+  async bulkImportFromCsv(
+    rows: Array<{ fullName: string; phone: string; email?: string; position?: string; experienceYears?: number }>,
+    organizationId: string
+  ) {
+    if (rows.length === 0) throw new BadRequestError('CSV file contains no valid rows');
+    if (rows.length > 200) throw new BadRequestError('Maximum 200 candidates per CSV import');
+
+    // Find matching job openings by position title (best-effort, not required)
+    const positionTitles = [...new Set(rows.map(r => r.position).filter(Boolean) as string[])];
+    const jobMap = new Map<string, string>();
+    if (positionTitles.length > 0) {
+      const jobs = await prisma.jobOpening.findMany({
+        where: { organizationId, status: 'OPEN', title: { in: positionTitles } },
+        select: { id: true, title: true },
+      });
+      jobs.forEach(j => jobMap.set(j.title.toLowerCase(), j.id));
+    }
+
+    const created: any[] = [];
+    const skipped: string[] = [];
+
+    for (const row of rows) {
+      try {
+        // Skip duplicate phone within the same org
+        const existing = await prisma.walkInCandidate.findFirst({
+          where: { phone: row.phone, organizationId },
+          select: { id: true },
+        });
+        if (existing) { skipped.push(row.phone); continue; }
+
+        const token = await this.generateToken(organizationId);
+        const positionKey = row.position?.toLowerCase() || '';
+        const jobId = jobMap.get(positionKey) || null;
+
+        const candidate = await prisma.walkInCandidate.create({
+          data: {
+            organizationId,
+            tokenNumber: token,
+            fullName: row.fullName,
+            phone: row.phone,
+            email: row.email || '',
+            experienceYears: row.experienceYears ?? 0,
+            experienceMonths: 0,
+            status: 'WAITING',
+            jobOpeningId: jobId,
+          },
+          select: { id: true, tokenNumber: true, fullName: true, phone: true, email: true, status: true, jobOpening: { select: { title: true } } },
+        });
+        created.push({ ...candidate, appliedPosition: (candidate as any).jobOpening?.title || row.position || null });
+      } catch (err) {
+        logger.warn(`[WalkIn] Bulk import skipped row for ${row.fullName}:`, err);
+        skipped.push(row.phone || row.fullName);
+      }
+    }
+
+    return { created: created.length, skipped: skipped.length, candidates: created };
   }
 }
 

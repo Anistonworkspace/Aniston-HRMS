@@ -18,10 +18,6 @@ export class PublicApplyController {
   // Public: Submit application (multipart form data with optional resume)
   async submitApplication(req: Request, res: Response, next: NextFunction) {
     try {
-      // mcqAnswers comes as JSON string from FormData
-      const rawAnswers = req.body.mcqAnswers;
-      const mcqAnswers = typeof rawAnswers === 'string' ? JSON.parse(rawAnswers) : rawAnswers;
-
       const body = z.object({
         candidateName: z.string().min(1),
         email: z.string().email().optional(),
@@ -34,9 +30,8 @@ export class PublicApplyController {
         currentCTC: z.string().optional(),
         expectedCTC: z.string().optional(),
         noticePeriod: z.string().optional(),
-        mcqAnswers: z.array(z.object({ questionId: z.string(), selectedOption: z.string() })),
         resumeUrl: z.string().optional(),
-      }).parse({ ...req.body, mcqAnswers });
+      }).parse(req.body);
 
       // If a resume file was uploaded, set resumeUrl to its path
       const file = (req as any).file as Express.Multer.File | undefined;

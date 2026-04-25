@@ -429,13 +429,6 @@ export class PublicApplyService {
 
     if (!job || !job.publicFormEnabled) throw new NotFoundError('Job not found or form disabled');
 
-    // Strip correctOption so candidates cannot see answers in DevTools
-    let questions: any[] = job.questions;
-    if (questions.length === 0) {
-      const fallbacks = buildFallbackQuestions(true);
-      questions = fallbacks.map(({ correctOption: _co, ...rest }) => rest); // strip answers
-    }
-
     return {
       id: job.id,
       title: job.title,
@@ -444,12 +437,12 @@ export class PublicApplyService {
       type: job.type,
       description: job.description,
       requirements: job.requirements,
-      questions,
     };
   }
 
   /**
-   * Submit a public application with MCQ answers + resume.
+   * Submit a public application with resume only.
+   * MCQ/psychometric questions are done in-person at the walk-in stage.
    */
   async submitApplication(publicFormToken: string, data: {
     candidateName: string;
@@ -463,7 +456,6 @@ export class PublicApplyService {
     currentCTC?: string;
     expectedCTC?: string;
     noticePeriod?: string;
-    mcqAnswers: Array<{ questionId: string; selectedOption: string }>;
     resumeUrl?: string;
   }) {
     const job = await prisma.jobOpening.findUnique({
@@ -473,67 +465,11 @@ export class PublicApplyService {
 
     if (!job || !job.publicFormEnabled) throw new NotFoundError('Job not found');
 
-    // Determine the questions to score against — DB questions or fallback bank.
-    // IMPORTANT: For fallback questions, we do NOT re-randomise at submit time.
-    // Instead we build a stable ID→question map from the full bank and look up
-    // each submitted answer by its stable ID. This avoids C-9 where a different
-    // random draw at submit time caused all scores to be 0.
-    const usingFallback = job.questions.length === 0;
-
-    const hasAnswers = data.mcqAnswers && data.mcqAnswers.length > 0;
-
-    let mcqScore: number | null = hasAnswers ? null : 0;
-    let intelligenceScore: number | null = null;
-    let integrityScore: number | null = null;
-    let energyScore: number | null = null;
-
-    if (hasAnswers) {
-      // Build a stable lookup map: questionId → { correctOption, category }
-      const questionMap = new Map<string, { correctOption: string; category: string }>();
-
-      if (usingFallback) {
-        // Flatten the entire bank and build stable-ID map for ALL 30 questions.
-        // This way any question the candidate was shown (regardless of which
-        // random 6 were drawn at form-render time) can be scored correctly.
-        for (const [cat, questions] of Object.entries(FALLBACK_MCQ_BANK)) {
-          for (const q of questions as any[]) {
-            questionMap.set(stableQuestionId(q.questionText), { correctOption: q.correctOption, category: cat });
-          }
-        }
-      } else {
-        for (const q of job.questions) {
-          questionMap.set(q.id, { correctOption: q.correctOption, category: q.category });
-        }
-      }
-
-      let totalAnswered = 0, totalCorrect = 0;
-      let intCorrect = 0, intTotal = 0;
-      let intgCorrect = 0, intgTotal = 0;
-      let enCorrect = 0, enTotal = 0;
-
-      for (const answer of data.mcqAnswers) {
-        const question = questionMap.get(answer.questionId);
-        if (!question) continue; // submitted ID not in bank — skip
-        totalAnswered++;
-        const isCorrect = answer.selectedOption === question.correctOption;
-        if (isCorrect) totalCorrect++;
-
-        switch (question.category) {
-          case 'INTELLIGENCE': intTotal++; if (isCorrect) intCorrect++; break;
-          case 'INTEGRITY': intgTotal++; if (isCorrect) intgCorrect++; break;
-          case 'ENERGY': enTotal++; if (isCorrect) enCorrect++; break;
-        }
-      }
-
-      if (totalAnswered > 0) {
-        mcqScore = (totalCorrect / totalAnswered) * 100;
-        intelligenceScore = intTotal > 0 ? (intCorrect / intTotal) * 100 : null;
-        integrityScore = intgTotal > 0 ? (intgCorrect / intgTotal) * 100 : null;
-        energyScore = enTotal > 0 ? (enCorrect / enTotal) * 100 : null;
-      } else {
-        mcqScore = 0;
-      }
-    }
+    const mcqScore: number | null = null;
+    const intelligenceScore: number | null = null;
+    const integrityScore: number | null = null;
+    const energyScore: number | null = null;
+    const usingFallback = false;
 
     const uid = generateUid();
 
@@ -568,14 +504,8 @@ export class PublicApplyService {
       }
     }
 
-    // Total AI score — weighted: resume 50%, MCQ 50%
-    let totalAiScore: number | null = null;
-    const scoreComponents: number[] = [];
-    if (mcqScore !== null) scoreComponents.push(mcqScore);
-    if (resumeMatchScore !== null) scoreComponents.push(resumeMatchScore);
-    if (scoreComponents.length > 0) {
-      totalAiScore = scoreComponents.reduce((a, b) => a + b, 0) / scoreComponents.length;
-    }
+    // Total AI score = resume ATS score (MCQ removed — done in-person at walk-in)
+    const totalAiScore: number | null = atsScore ?? resumeMatchScore ?? null;
 
     const application = await prisma.publicApplication.create({
       data: {
@@ -600,7 +530,7 @@ export class PublicApplyService {
         missingKeywords,
         atsScore,
         atsScoreData,
-        mcqAnswers: data.mcqAnswers,
+        mcqAnswers: [],
         mcqScore,
         intelligenceScore,
         integrityScore,
@@ -616,9 +546,12 @@ export class PublicApplyService {
     if (data.mobileNumber) {
       try {
         const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
-        const trackUrl = `https://hr.anistonav.com/track/${application.uid}`;
-        const msg = `Hi ${data.candidateName}! 🎯\n\nThank you for applying for *${job.title}* at Aniston Technologies.\n\nYour Application ID: *${application.uid}*\nTrack your application: ${trackUrl}\n\nWe'll review your application and get back to you soon.\n— HR Team, Aniston Technologies LLP`;
-        await whatsAppService.sendMessage({ to: data.mobileNumber, message: msg }, job.organizationId, undefined, 'JOB_LINK');
+        const allowed = await whatsAppService.checkAutoSendQuota(job.organizationId);
+        if (allowed) {
+          const trackUrl = `https://hr.anistonav.com/track/${application.uid}`;
+          const msg = `Hi ${data.candidateName}! 🎯\n\nThank you for applying for *${job.title}* at Aniston Technologies.\n\nYour Application ID: *${application.uid}*\nTrack your application: ${trackUrl}\n\nWe'll review your application and get back to you soon.\n— HR Team, Aniston Technologies LLP`;
+          await whatsAppService.sendMessage({ to: data.mobileNumber, message: msg }, job.organizationId, undefined, 'JOB_LINK');
+        }
       } catch {
         // WhatsApp not connected or failed — silently continue
       }
@@ -1179,19 +1112,31 @@ Return ONLY a JSON array:
       }
     }
 
+    let whatsappMessageSent = false;
     if ((messageType === 'whatsapp' || messageType === 'both') && app.mobileNumber) {
-      try {
-        const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
-        await whatsAppService.sendMessage(
-          { to: app.mobileNumber, message: preview.whatsappDraft || `Hi ${app.candidateName}, your interview is scheduled.` },
-          organizationId
-        );
-      } catch (err) {
-        logger.error('Failed to send interview WhatsApp:', err);
+      const whatsappMsg = (preview.whatsappDraft || `Hi ${app.candidateName}, your interview for *${app.jobOpening.title}* is scheduled. Please be on time. — HR Team`).trim();
+      if (whatsappMsg) {
+        try {
+          const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
+          const allowed = await whatsAppService.checkAutoSendQuota(organizationId);
+          if (allowed) {
+            await whatsAppService.sendMessage(
+              { to: app.mobileNumber, message: whatsappMsg },
+              organizationId
+            );
+            whatsappMessageSent = true;
+          } else {
+            logger.warn('[WhatsApp] Auto-send quota exceeded for interview schedule, org:', organizationId);
+          }
+        } catch (err) {
+          logger.error('Failed to send interview WhatsApp:', err);
+        }
+      } else {
+        logger.warn('Interview WhatsApp message was empty after AI generation — skipping send');
       }
     }
 
-    return { round, preview };
+    return { round, preview, whatsappMessageSent };
   }
 
   async previewScheduleMessage(organizationId: string, data: {
@@ -1406,3 +1351,57 @@ Job Description: ${round.application.jobOpening.description?.slice(0, 500)}`;
 }
 
 export const publicApplyService = new PublicApplyService();
+
+/**
+ * Score psychometric answers (INTEGRITY + ENERGY categories) submitted at the
+ * walk-in stage. Uses the same stable-ID map as public-apply scoring.
+ */
+export function scorePsychAnswers(answers: Array<{ questionId: string; selectedOption: string }>) {
+  const questionMap = new Map<string, { correctOption: string; category: string }>();
+  for (const [cat, questions] of Object.entries(FALLBACK_MCQ_BANK)) {
+    for (const q of questions as any[]) {
+      questionMap.set(stableQuestionId(q.questionText), { correctOption: q.correctOption, category: cat });
+    }
+  }
+
+  let intgCorrect = 0, intgTotal = 0;
+  let enCorrect = 0, enTotal = 0;
+
+  for (const answer of answers) {
+    const question = questionMap.get(answer.questionId);
+    if (!question) continue;
+    const isCorrect = answer.selectedOption === question.correctOption;
+    if (question.category === 'INTEGRITY') { intgTotal++; if (isCorrect) intgCorrect++; }
+    if (question.category === 'ENERGY') { enTotal++; if (isCorrect) enCorrect++; }
+  }
+
+  const integrityScore = intgTotal > 0 ? (intgCorrect / intgTotal) * 100 : null;
+  const energyScore = enTotal > 0 ? (enCorrect / enTotal) * 100 : null;
+  const components = [integrityScore, energyScore].filter(v => v !== null) as number[];
+  const psychScore = components.length > 0 ? components.reduce((a, b) => a + b, 0) / components.length : null;
+
+  return { psychScore, integrityScore, energyScore };
+}
+
+/**
+ * Get INTEGRITY + ENERGY questions for the in-person psychometric test at walk-in.
+ * Returns 3 per category (6 total), with answers stripped.
+ */
+export function getPsychometricQuestions() {
+  const pick = (bank: any[], n: number) => {
+    const shuffled = [...bank].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, n).map(q => ({
+      id: stableQuestionId(q.questionText),
+      questionText: q.questionText,
+      optionA: q.optionA,
+      optionB: q.optionB,
+      optionC: q.optionC,
+      optionD: q.optionD,
+      category: '',
+    }));
+  };
+  return [
+    ...pick(FALLBACK_MCQ_BANK.INTEGRITY, 3).map(q => ({ ...q, category: 'INTEGRITY' })),
+    ...pick(FALLBACK_MCQ_BANK.ENERGY, 3).map(q => ({ ...q, category: 'ENERGY' })),
+  ].sort(() => Math.random() - 0.5);
+}

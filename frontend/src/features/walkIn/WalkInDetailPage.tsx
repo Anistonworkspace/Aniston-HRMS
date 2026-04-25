@@ -5,7 +5,8 @@ import {
   ArrowLeft, User, Mail, Phone, MapPin, Briefcase, FileText, Clock,
   CheckCircle2, XCircle, PauseCircle, Plus, Edit3, Save, X, Send,
   Trash2, Calendar, Star, MessageSquare, ExternalLink, Loader2,
-  ChevronDown, Award, Eye, AlertTriangle,
+  ChevronDown, Award, Eye, AlertTriangle, Brain, MessageCircle,
+  ChevronUp, Sparkles,
 } from 'lucide-react';
 import {
   useGetWalkInByIdQuery,
@@ -19,6 +20,8 @@ import {
   useDeleteWalkInMutation,
   useHireWalkInMutation,
   useGetInterviewersQuery,
+  useGenerateWalkInInterviewQuestionsMutation,
+  useSendWalkInWhatsAppInviteMutation,
 } from './walkInApi';
 import toast from 'react-hot-toast';
 import { getUploadUrl } from '../../lib/utils';
@@ -60,6 +63,16 @@ export default function WalkInDetailPage() {
   const [editingRound, setEditingRound] = useState<string | null>(null);
   const [notesInput, setNotesInput] = useState('');
 
+  // AI interview questions panel
+  const [aiQuestions, setAiQuestions] = useState<any[]>([]);
+  const [showAiPanel, setShowAiPanel] = useState(false);
+
+  // WhatsApp invite modal
+  const [showWaInvite, setShowWaInvite] = useState(false);
+  const [waPhone, setWaPhone] = useState('');
+  const [waDate, setWaDate] = useState('');
+  const [waTime, setWaTime] = useState('10:00 AM');
+
   const [updateStatus] = useUpdateWalkInStatusMutation();
   const [updateCandidate] = useUpdateWalkInCandidateMutation();
   const [addNotes] = useAddWalkInNotesMutation();
@@ -69,6 +82,8 @@ export default function WalkInDetailPage() {
   const [convertWalkIn] = useConvertWalkInMutation();
   const [deleteWalkIn] = useDeleteWalkInMutation();
   const [hireWalkIn, { isLoading: isHiring }] = useHireWalkInMutation();
+  const [generateAiQuestions, { isLoading: isGeneratingAi }] = useGenerateWalkInInterviewQuestionsMutation();
+  const [sendWaInvite, { isLoading: isSendingWa }] = useSendWalkInWhatsAppInviteMutation();
 
   if (isLoading) {
     return (
@@ -120,6 +135,31 @@ export default function WalkInDetailPage() {
     } catch { toast.error('Failed to delete'); }
   };
 
+  const handleGenerateAiQuestions = async () => {
+    try {
+      const res = await generateAiQuestions(candidate.id).unwrap();
+      setAiQuestions(res.data || []);
+      setShowAiPanel(true);
+      toast.success('AI interview questions ready');
+    } catch { toast.error('Failed to generate questions'); }
+  };
+
+  const handleSendWaInvite = async () => {
+    if (!waPhone || !waDate) { toast.error('Phone and date are required'); return; }
+    try {
+      await sendWaInvite({
+        phone: waPhone,
+        candidateName: candidate.fullName,
+        position: candidate.jobOpening?.title || 'the position',
+        interviewDate: waDate,
+        interviewTime: waTime,
+        jobId: candidate.jobOpeningId || undefined,
+      }).unwrap();
+      toast.success('WhatsApp invite sent');
+      setShowWaInvite(false);
+    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to send WhatsApp message'); }
+  };
+
   const handleConvert = async () => {
     try {
       await convertWalkIn(candidate.id).unwrap();
@@ -131,6 +171,7 @@ export default function WalkInDetailPage() {
     { key: 'overview', label: 'Overview', icon: User },
     { key: 'documents', label: 'Documents & KYC', icon: FileText },
     { key: 'interviews', label: 'Interview Rounds', icon: Award },
+    { key: 'ai', label: 'AI Questions', icon: Brain },
     { key: 'actions', label: 'Actions', icon: Briefcase },
   ];
 
@@ -215,6 +256,55 @@ export default function WalkInDetailPage() {
           deleteRound={deleteRound}
         />
       )}
+      {activeTab === 'ai' && (
+        <div className="layer-card p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Brain className="w-5 h-5 text-brand-600" />
+              <h3 className="font-semibold text-gray-800">AI Interview Questions</h3>
+            </div>
+            <button onClick={handleGenerateAiQuestions} disabled={isGeneratingAi} className="btn-primary flex items-center gap-2 text-sm">
+              {isGeneratingAi ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {aiQuestions.length > 0 ? 'Regenerate' : 'Generate Questions'}
+            </button>
+          </div>
+
+          {aiQuestions.length === 0 && !isGeneratingAi && (
+            <div className="text-center py-12 text-gray-400">
+              <Brain className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Click "Generate Questions" to get AI-suggested interview questions based on this candidate's profile and resume.</p>
+            </div>
+          )}
+
+          {aiQuestions.map((q: any, i: number) => (
+            <div key={i} className="border border-gray-200 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-brand-50 text-brand-600 text-xs font-bold flex items-center justify-center">{i + 1}</span>
+                <div className="flex-1">
+                  <span className="text-xs font-medium text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full mb-2 inline-block">{q.category}</span>
+                  <p className="text-sm text-gray-800 font-medium mb-1">{q.question}</p>
+                  {q.followUp && <p className="text-xs text-gray-400 italic">Tip: {q.followUp}</p>}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* WhatsApp Interview Invite */}
+          <div className="mt-6 border-t border-gray-100 pt-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <MessageCircle className="w-5 h-5 text-green-600" />
+                <h3 className="font-semibold text-gray-800">Send Interview Invite via WhatsApp</h3>
+              </div>
+              <button onClick={() => { setWaPhone(candidate.phone || ''); setShowWaInvite(true); }} className="btn-secondary text-sm flex items-center gap-1">
+                <Send size={14} /> Send Invite
+              </button>
+            </div>
+            <p className="text-xs text-gray-500">Sends an auto-generated WhatsApp message with the interview date, time, venue, and walk-in form link to the candidate.</p>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'actions' && (
         <ActionsTab
           candidate={candidate}
@@ -260,6 +350,51 @@ export default function WalkInDetailPage() {
             }}
             onClose={() => setShowEditModal(false)}
           />
+        )}
+      </AnimatePresence>
+
+      {/* WhatsApp Interview Invite Modal */}
+      <AnimatePresence>
+        {showWaInvite && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="w-5 h-5 text-green-600" />
+                  <h3 className="font-semibold text-gray-900">Send Interview Invite</h3>
+                </div>
+                <button onClick={() => setShowWaInvite(false)} className="p-1.5 hover:bg-gray-100 rounded-lg"><X size={16} /></button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Candidate Phone <span className="text-red-500">*</span></label>
+                  <input value={waPhone} onChange={e => setWaPhone(e.target.value)} className="input-glass w-full text-sm" placeholder="10-digit mobile number" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Interview Date <span className="text-red-500">*</span></label>
+                  <input type="date" value={waDate} onChange={e => setWaDate(e.target.value)} className="input-glass w-full text-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Interview Time</label>
+                  <input value={waTime} onChange={e => setWaTime(e.target.value)} className="input-glass w-full text-sm" placeholder="e.g. 10:00 AM" />
+                </div>
+
+                <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-xs text-gray-600 leading-relaxed">
+                  <p className="font-medium text-green-700 mb-1">Message Preview:</p>
+                  <p>Hello <strong>{candidate.fullName}</strong>, You have been shortlisted for <strong>{candidate.jobOpening?.title || 'the position'}</strong> at Aniston Technologies. Please visit our office on <strong>{waDate || 'TBD'}</strong> at <strong>{waTime}</strong> and fill your interview form: <span className="text-blue-600">https://hr.anistonav.com/walk-in</span></p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button onClick={() => setShowWaInvite(false)} className="btn-secondary flex-1 text-sm">Cancel</button>
+                  <button onClick={handleSendWaInvite} disabled={isSendingWa} className="btn-primary flex-1 text-sm flex items-center justify-center gap-2">
+                    {isSendingWa ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                    Send via WhatsApp
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

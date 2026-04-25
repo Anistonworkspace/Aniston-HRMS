@@ -42,6 +42,59 @@ export class BulkResumeController {
     } catch (err) { next(err); }
   }
 
+  async sendInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { inviteType, phone, jobId } = z.object({
+        inviteType: z.enum(['email', 'whatsapp']),
+        phone: z.string().min(10).optional(),
+        jobId: z.string().uuid(),
+      }).parse(req.body);
+
+      const { prisma } = await import('../../lib/prisma.js');
+      const item = await prisma.bulkResumeItem.findFirst({
+        where: { id: req.params.itemId, organizationId: req.user!.organizationId },
+        include: { bulkUpload: { include: { jobOpening: { select: { title: true, publicFormToken: true, publicFormEnabled: true } } } } },
+      });
+      if (!item) { res.status(404).json({ success: false, error: { message: 'Resume item not found' } }); return; }
+
+      const job = item.bulkUpload?.jobOpening;
+      const candidateName = item.candidateName || 'Candidate';
+      const baseUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
+
+      if (inviteType === 'email') {
+        if (!item.email) { res.status(400).json({ success: false, error: { message: 'No email found for this candidate' } }); return; }
+        const { enqueueEmail } = await import('../../jobs/queues.js');
+        const applyLink = job?.publicFormEnabled && job?.publicFormToken ? `${baseUrl}/apply/${job.publicFormToken}` : baseUrl;
+        await enqueueEmail({
+          to: item.email,
+          subject: `Interview Invitation — ${job?.title || 'Open Position'} at Aniston Technologies LLP`,
+          template: 'interview-invite',
+          context: {
+            candidateName,
+            jobTitle: job?.title || 'Open Position',
+            applyLink,
+            venue: '207B, Jaksons Crown Heights, Sec-10, Rohini, New Delhi - 110085',
+          },
+        });
+        res.json({ success: true, data: { sent: true, to: item.email, type: 'email' } });
+      } else {
+        const toPhone = phone || item.phone;
+        if (!toPhone) { res.status(400).json({ success: false, error: { message: 'Phone number required for WhatsApp invite' } }); return; }
+        const applyLink = job?.publicFormEnabled && job?.publicFormToken ? `${baseUrl}/apply/${job.publicFormToken}` : baseUrl;
+        const message = `Hello ${candidateName},\n\nWe have reviewed your profile and would like to invite you to interview for the *${job?.title || 'open position'}* role at *Aniston Technologies LLP*.\n\nPlease complete your application here:\n${applyLink}\n\nVenue: 207B, Jaksons Crown Heights, Sec-10, Rohini, New Delhi - 110085\n\nBest regards,\nHR Team | Aniston Technologies`;
+        const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
+        try {
+          await whatsAppService.sendMessage({ to: toPhone, message }, req.user!.organizationId, req.user!.userId, 'INTERVIEW_INVITE');
+          res.json({ success: true, data: { sent: true, to: toPhone, type: 'whatsapp' } });
+        } catch (waErr: any) {
+          if (waErr.message?.includes('not connected') || waErr.message?.includes('Initialize')) {
+            res.status(503).json({ success: false, error: { code: 'WA_NOT_CONNECTED', message: 'WhatsApp is not connected. Go to Settings → WhatsApp to connect.' } });
+          } else { next(waErr); }
+        }
+      }
+    } catch (err) { next(err); }
+  }
+
   async deleteUpload(req: Request, res: Response, next: NextFunction) {
     try {
       await bulkResumeService.deleteUpload(req.params.uploadId as string, req.user!.organizationId);

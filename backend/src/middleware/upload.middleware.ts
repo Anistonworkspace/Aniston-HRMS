@@ -213,6 +213,20 @@ export const uploadAny = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
+/** CSV uploads — memory storage so controller can parse the buffer directly. 5 MB. */
+export const uploadCsv = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (['.csv'].includes(ext) || ['text/csv', 'application/csv', 'text/plain'].includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new BadRequestError('Only CSV files are allowed'));
+    }
+  },
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
 // ---------------------------------------------------------------------------
 // Dynamic factory functions — entity-scoped storage
 // ---------------------------------------------------------------------------

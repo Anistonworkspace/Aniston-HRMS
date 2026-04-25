@@ -10,6 +10,8 @@ import {
 import { BadRequestError } from '../../middleware/errorHandler.js';
 import { prisma } from '../../lib/prisma.js';
 
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
 /** Fetch org name for use in Excel headers */
 async function getOrgName(organizationId: string): Promise<string> {
   const org = await prisma.organization.findUnique({
@@ -83,18 +85,28 @@ export class ReportController {
     try {
       const query = attendanceDetailQuerySchema.parse(req.query);
 
+      if (query.from && query.to && new Date(query.from) > new Date(query.to)) {
+        throw new BadRequestError('"From" date must be before or equal to "To" date');
+      }
+
       if (req.query.format === 'xlsx') {
-        const result = await reportService.getAttendanceDetail(req.user!.organizationId, { ...query, limit: 10000, page: 1 });
+        const result = await reportService.getAttendanceDetail(req.user!.organizationId, { ...query, limit: 10001, page: 1 });
+        if (result.meta.total > 10000) {
+          throw new BadRequestError(`Too many records (${result.meta.total.toLocaleString()}). Use filters to narrow to 10,000 records or fewer.`);
+        }
         const excelData = result.records.map((r) => ({
           employeeName: `${r.employeeName} (${r.employeeCode})`,
-          date: r.date,
+          date: r.date instanceof Date ? r.date : new Date(r.date),
           status: r.status,
-          checkIn: r.checkIn,
-          checkOut: r.checkOut,
+          checkIn: r.checkIn instanceof Date ? r.checkIn : r.checkIn ? new Date(r.checkIn) : null,
+          checkOut: r.checkOut instanceof Date ? r.checkOut : r.checkOut ? new Date(r.checkOut) : null,
           totalHours: r.totalHours,
         }));
-        const buffer = await generateAttendanceSummaryExcel(excelData);
-        const filename = `Attendance-Report-${query.from || 'all'}.xlsx`;
+        const fromStr = (query.from || 'all').replace(/-/g, '');
+        const toStr = (query.to || 'now').replace(/-/g, '');
+        const filename = `Attendance-Report-${fromStr}-${toStr}.xlsx`;
+        const orgName = await getOrgName(req.user!.organizationId);
+        const buffer = await generateAttendanceSummaryExcel(excelData, orgName);
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(buffer);
@@ -113,9 +125,13 @@ export class ReportController {
       const query = leaveDetailQuerySchema.parse(req.query);
 
       if (req.query.format === 'xlsx') {
-        const result = await reportService.getLeaveDetail(req.user!.organizationId, { ...query, limit: 10000, page: 1 });
-        const period = `${query.month ? `Month-${query.month}-` : ''}${query.year || new Date().getFullYear()}`;
-        const buffer = await generateLeaveReportExcel(result.records, period);
+        const result = await reportService.getLeaveDetail(req.user!.organizationId, { ...query, limit: 10001, page: 1 });
+        if (result.meta.total > 10000) {
+          throw new BadRequestError(`Too many records (${result.meta.total.toLocaleString()}). Use filters to narrow to 10,000 records or fewer.`);
+        }
+        const period = `${query.month ? `${MONTHS[query.month - 1]}-` : ''}${query.year || new Date().getFullYear()}`;
+        const orgName = await getOrgName(req.user!.organizationId);
+        const buffer = await generateLeaveReportExcel(result.records, period, orgName);
         const filename = `Leave-Report-${period}.xlsx`;
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -147,9 +163,7 @@ export class ReportController {
       const orgName = await getOrgName(req.user!.organizationId);
       const buffer = await generateEpfChallanExcel(run, records, orgName);
 
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const filename = `EPF-ECR-${monthNames[run.month - 1]}-${run.year}.xlsx`;
+      const filename = `EPF-ECR-${MONTHS[run.month - 1]}-${run.year}.xlsx`;
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -174,9 +188,7 @@ export class ReportController {
       const orgName = await getOrgName(req.user!.organizationId);
       const buffer = await generateEsiReturnExcel(run, records, orgName);
 
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const filename = `ESI-Return-${monthNames[run.month - 1]}-${run.year}.xlsx`;
+      const filename = `ESI-Return-${MONTHS[run.month - 1]}-${run.year}.xlsx`;
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

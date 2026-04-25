@@ -143,7 +143,7 @@ export class LetterController {
 
       res.set({
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `inline; filename="${fileName}"`,
+        'Content-Disposition': `inline; filename="${fileName.replace(/"/g, '\\"')}"`,
         'Cache-Control': 'no-store, no-cache, must-revalidate, private',
         'Pragma': 'no-cache',
         'X-Content-Type-Options': 'nosniff',
@@ -185,7 +185,7 @@ export class LetterController {
       const fileName = filePath.split('/').pop() || 'letter.pdf';
       res.set({
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${fileName}"`,
+        'Content-Disposition': `attachment; filename="${fileName.replace(/"/g, '\\"')}"`,
         'Cache-Control': 'no-store',
       });
 

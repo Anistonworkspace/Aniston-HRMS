@@ -2,9 +2,9 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Upload, FileText, Loader2, CheckCircle2, AlertCircle, UserPlus, ChevronRight,
-  ChevronDown, ChevronUp, Shield, Target, Star, Tag,
+  ChevronDown, ChevronUp, Shield, Star, Tag, Mail, MessageCircle,
 } from 'lucide-react';
-import { useUploadBulkResumesMutation, useGetBulkUploadQuery, useCreateApplicationFromItemMutation } from './bulkResumeApi';
+import { useUploadBulkResumesMutation, useGetBulkUploadQuery, useCreateApplicationFromItemMutation, useSendBulkResumeInviteMutation } from './bulkResumeApi';
 import { useGetJobOpeningsQuery } from './recruitmentApi';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -182,6 +182,8 @@ export default function BulkResumeModal({ onClose }: Props) {
   const [uploadResumes, { isLoading: uploading }] = useUploadBulkResumesMutation();
   const { data: uploadRes, refetch } = useGetBulkUploadQuery(uploadId!, { skip: !uploadId, pollingInterval: step === 'processing' ? 3000 : 0 });
   const [createApp] = useCreateApplicationFromItemMutation();
+  const [sendInvite] = useSendBulkResumeInviteMutation();
+  const [inviteSending, setInviteSending] = useState<Record<string, boolean>>({});
 
   const jobs = jobsRes?.data || [];
   const upload = uploadRes?.data;
@@ -229,6 +231,26 @@ export default function BulkResumeModal({ onClose }: Props) {
       refetch();
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed');
+    }
+  };
+
+  const handleSendInvite = async (item: any, type: 'email' | 'whatsapp') => {
+    if (type === 'whatsapp' && !item.phone) {
+      toast.error('No phone number extracted from this resume');
+      return;
+    }
+    if (type === 'email' && !item.email) {
+      toast.error('No email address extracted from this resume');
+      return;
+    }
+    setInviteSending(prev => ({ ...prev, [`${item.id}-${type}`]: true }));
+    try {
+      await sendInvite({ itemId: item.id, inviteType: type, phone: item.phone, jobId: selectedJobId }).unwrap();
+      toast.success(type === 'email' ? `Email invite sent to ${item.email}` : `WhatsApp invite sent to ${item.phone}`);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || `Failed to send ${type} invite`);
+    } finally {
+      setInviteSending(prev => ({ ...prev, [`${item.id}-${type}`]: false }));
     }
   };
 
@@ -393,14 +415,14 @@ export default function BulkResumeModal({ onClose }: Props) {
                       <th className="text-left py-2 px-3 font-medium text-gray-500">#</th>
                       <th className="text-left py-2 px-3 font-medium text-gray-500">Candidate</th>
                       <th className="text-left py-2 px-3 font-medium text-gray-500">Contact</th>
-                      <th className="text-center py-2 px-3 font-medium text-gray-500 flex items-center justify-center gap-1">
-                        <Star size={11} /> AI Score
+                      <th className="text-center py-2 px-3 font-medium text-gray-500">
+                        <span className="flex items-center justify-center gap-1"><Star size={11} /> AI Score</span>
                       </th>
                       <th className="text-center py-2 px-3 font-medium text-gray-500">
                         <span className="flex items-center justify-center gap-1"><Shield size={11} /> ATS</span>
                       </th>
                       <th className="text-center py-2 px-3 font-medium text-gray-500">Status</th>
-                      <th className="text-right py-2 px-3 font-medium text-gray-500">Action</th>
+                      <th className="text-right py-2 px-3 font-medium text-gray-500">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -443,14 +465,37 @@ export default function BulkResumeModal({ onClose }: Props) {
                             {item.status === 'PROCESSING' && <span className="text-brand-500">Processing</span>}
                           </td>
                           <td className="py-2 px-3 text-right">
-                            {item.applicationId ? (
-                              <span className="text-emerald-600 text-[10px] font-medium">Applied ✓</span>
-                            ) : item.status === 'SCORED' ? (
-                              <button onClick={() => handleCreateApp(item.id)}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 transition-colors">
-                                <UserPlus size={10} /> Add to Pipeline
-                              </button>
-                            ) : null}
+                            <div className="flex items-center justify-end gap-1 flex-wrap">
+                              {item.status === 'SCORED' && (
+                                <>
+                                  {!item.applicationId && (
+                                    <button onClick={() => handleCreateApp(item.id)}
+                                      className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 transition-colors">
+                                      <UserPlus size={10} /> Add
+                                    </button>
+                                  )}
+                                  {item.applicationId && (
+                                    <span className="text-emerald-600 text-[10px] font-medium">In Pipeline ✓</span>
+                                  )}
+                                  <button
+                                    disabled={!item.email || inviteSending[`${item.id}-email`]}
+                                    onClick={() => handleSendInvite(item, 'email')}
+                                    title={item.email ? `Send email invite to ${item.email}` : 'No email extracted'}
+                                    className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                                    {inviteSending[`${item.id}-email`] ? <Loader2 size={10} className="animate-spin" /> : <Mail size={10} />}
+                                    Email
+                                  </button>
+                                  <button
+                                    disabled={!item.phone || inviteSending[`${item.id}-whatsapp`]}
+                                    onClick={() => handleSendInvite(item, 'whatsapp')}
+                                    title={item.phone ? `Send WhatsApp invite to ${item.phone}` : 'No phone extracted'}
+                                    className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                                    {inviteSending[`${item.id}-whatsapp`] ? <Loader2 size={10} className="animate-spin" /> : <MessageCircle size={10} />}
+                                    WhatsApp
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                         {/* Expandable intelligence row */}
