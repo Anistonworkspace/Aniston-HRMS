@@ -24,6 +24,7 @@ vi.mock('../lib/prisma.js', () => ({
       findMany: vi.fn(),
       findFirst: vi.fn(),
       create: vi.fn(),
+      upsert: vi.fn(),
       update: vi.fn(),
       deleteMany: vi.fn(),
     },
@@ -218,12 +219,12 @@ describe('AttendanceService', () => {
         return fn(txMock);
       });
 
-      vi.mocked(prisma.attendanceRecord.create).mockResolvedValueOnce(newRecord as any);
+      vi.mocked(prisma.attendanceRecord.upsert).mockResolvedValueOnce(newRecord as any);
       vi.mocked(prisma.attendanceLog.create).mockResolvedValueOnce({ id: 'log-001' } as any);
 
       const result = await service.clockIn(EMP_ID, makeClockInData() as any, ORG_ID);
 
-      expect(prisma.attendanceRecord.create).toHaveBeenCalled();
+      expect(prisma.attendanceRecord.upsert).toHaveBeenCalled();
       expect(result.status).toBe('PRESENT');
     });
 
@@ -247,7 +248,7 @@ describe('AttendanceService', () => {
         return fn(txMock);
       });
 
-      vi.mocked(prisma.attendanceRecord.create).mockResolvedValueOnce(newRecord as any);
+      vi.mocked(prisma.attendanceRecord.upsert).mockResolvedValueOnce(newRecord as any);
       vi.mocked(prisma.attendanceLog.create).mockResolvedValueOnce({ id: 'log-001' } as any);
 
       // isPwa=true should bypass the mobile-only check
