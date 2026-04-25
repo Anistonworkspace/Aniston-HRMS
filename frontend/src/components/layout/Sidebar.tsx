@@ -52,8 +52,8 @@ interface NavItem {
   permissionKey?: string;
 }
 
-// Paths visible to ADMIN role (system account) — everything else is hidden
-const ADMIN_ALLOWED_PATHS = new Set(['/dashboard', '/activity-tracking', '/exit-management', '/assets', '/announcements', '/settings', '/profile']);
+// Paths visible to ADMIN role (IT/system admin) — HR paths are intentionally excluded
+const ADMIN_ALLOWED_PATHS = new Set(['/dashboard', '/activity-tracking', '/exit-management', '/assets', '/announcements', '/helpdesk', '/settings', '/profile']);
 
 const navItems: NavItem[] = [
   { nameKey: 'nav.dashboard', path: '/dashboard', icon: Home, exitAccessKey: 'canViewDashboard', permissionKey: 'canViewDashboardStats' },

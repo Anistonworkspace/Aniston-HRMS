@@ -19,7 +19,6 @@ import type { SuperAdminDashboardStats, AttentionItem } from '@aniston/shared';
 
 // Lazy-load heavy chart components
 const TrendCharts = lazy(() => import('./sections/TrendCharts'));
-const LiveAttendanceWidget = lazy(() => import('../attendance/components/LiveAttendanceWidget'));
 
 const container = {
   hidden: { opacity: 0 },
@@ -46,7 +45,6 @@ function AdminDashboard() {
   // Fetch BOTH data sources in parallel
   const { data: saResponse, isLoading: saLoading, isError: saError } = useGetSuperAdminStatsQuery(undefined, {
     pollingInterval: 300000,
-    skip: isHR,
   });
   const { data: hrResponse, isLoading: hrLoading, isError: hrError } = useGetHRStatsQuery(undefined, {
     pollingInterval: 60000,
@@ -108,9 +106,14 @@ function AdminDashboard() {
   );
 
   // ─── Quick Actions ────────────────────────────────────────────
-  // System Admin: only IT/admin-related actions (no HR functions)
   const QUICK_ACTIONS = isSystemAdmin ? [
+    { label: t('nav.helpdesk'), path: '/helpdesk', icon: '🎫' },
+    { label: t('nav.assetManagement') || 'Assets', path: '/assets', icon: '💼' },
     { label: t('nav.activityTracking'), path: '/activity-tracking', icon: '📊' },
+    { label: t('nav.employeeExit') || 'Exit Mgmt', path: '/exit-management', icon: '🚪' },
+    { label: t('nav.employees') || 'Employees', path: '/employees', icon: '👥' },
+    { label: t('nav.reports'), path: '/reports', icon: '📈' },
+    { label: t('nav.announcements'), path: '/announcements', icon: '📢' },
     { label: t('nav.settings'), path: '/settings', icon: '⚙️' },
   ] : [
     { label: t('leaves.approvals'), path: '/pending-approvals', icon: '✅' },
@@ -124,10 +127,10 @@ function AdminDashboard() {
   ];
 
   // ─── LOADING ──────────────────────────────────────────────────
-  if ((isHR ? false : saLoading) && hrLoading) return <SkeletonLoader variant="full-page" />;
+  if (saLoading && hrLoading) return <SkeletonLoader variant="full-page" />;
 
   // ─── ERROR (both failed) ──────────────────────────────────────
-  if ((isHR ? false : (saError || !saStats)) && (hrError || !hrStats)) {
+  if ((saError || !saStats) && (hrError || !hrStats)) {
     return (
       <div className="page-container">
         <div className="layer-card p-12 text-center">
@@ -218,7 +221,7 @@ function AdminDashboard() {
         className="layer-card p-5 mb-6"
       >
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
-        <QuickActionGrid actions={QUICK_ACTIONS} columns={isSystemAdmin ? 'grid-cols-2' : 'grid-cols-4 md:grid-cols-4'} />
+        <QuickActionGrid actions={QUICK_ACTIONS} columns="grid-cols-4 md:grid-cols-4" />
       </motion.div>
 
       {/* ═══ ON LEAVE + RECENT ACTIVITY + BIRTHDAYS ════════════ */}
@@ -397,31 +400,17 @@ function AdminDashboard() {
         </motion.div>
       )}
 
-      {/* ═══ LIVE ATTENDANCE + DEPARTMENT HEADCOUNT ═════════════ */}
-      {/* System Admin: no Live Attendance widget, just Dept Headcount full-width */}
-      {!isHR && isSystemAdmin && saStats && (
+      {/* ═══ DEPARTMENT HEADCOUNT ════════════════════════════════ */}
+      {saStats && (
         <div className="mb-6">
           <DashboardSection title="Department Headcount" icon={Building2} iconColor="text-indigo-500">
             <DepartmentBreakdown departments={saStats.departmentBreakdown} total={saStats.totalEmployees} />
           </DashboardSection>
         </div>
       )}
-      {/* Super Admin: Live Attendance + Dept Headcount side by side */}
-      {!isHR && !isSystemAdmin && (
-        <div className="grid md:grid-cols-2 gap-4 mb-6">
-          <Suspense fallback={<div className="layer-card p-6 h-48 animate-pulse"><div className="h-5 bg-gray-200 rounded w-32 mb-4" /></div>}>
-            <LiveAttendanceWidget />
-          </Suspense>
-          {saStats && (
-            <DashboardSection title="Department Headcount" icon={Building2} iconColor="text-indigo-500">
-              <DepartmentBreakdown departments={saStats.departmentBreakdown} total={saStats.totalEmployees} />
-            </DashboardSection>
-          )}
-        </div>
-      )}
 
-      {/* ═══ TREND CHARTS (Admin / Super Admin only) ════════════ */}
-      {!isHR && saStats && (
+      {/* ═══ TREND CHARTS (all system roles) ═══════════════════ */}
+      {saStats && (
         <Suspense fallback={
           <div className="grid lg:grid-cols-3 gap-4 mb-6">
             {[1,2,3].map(i => (
