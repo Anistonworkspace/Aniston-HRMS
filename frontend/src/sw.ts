@@ -31,10 +31,11 @@ interface PeriodicSyncEvent extends ExtendableEvent {
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// The browser will auto-activate a waiting SW when ALL tabs are closed.
-// On that path we still clear runtime caches so users never see stale data.
-// AppUpdateGuard sends SKIP_WAITING after the 3-second countdown on web,
-// and after download on native — both paths also call clearAllCaches first.
+// Skip waiting immediately so the new SW activates as soon as it installs.
+// This fires a `controllerchange` event in all open tabs, which AppUpdateGuard
+// listens for to show the "New version ready — click to reload" banner.
+self.skipWaiting();
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {

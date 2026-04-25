@@ -1,16 +1,24 @@
 /**
- * AppUpdateGuard — Automatic update handler for all platforms.
+ * AppUpdateGuard — Automatic update detection for all platforms.
  *
  * ── Web (Desktop browser + PWA installed) ────────────────────────────────────
- * When a new SW is detected (= new build deployed):
- *   1. Shows a small non-blocking toast at the top: "Updating in 3…"
- *   2. Auto-reloads after 3 seconds — no user click required.
- *   3. User can click "Reload Now" to apply immediately.
- *   On apply: clears all runtime caches → sends SKIP_WAITING → page reloads.
+ * The service worker calls self.skipWaiting() immediately on install, so it
+ * activates and takes control of all open tabs right away. This fires a
+ * `controllerchange` event in every open tab. AppUpdateGuard listens for it
+ * and shows a sticky "New version ready — Reload Now" banner at the top.
+ * No manual service worker unregistering needed. No DevTools. Ever.
+ *
+ * Flow:
+ *   1. Deploy pushed → new sw.js on server
+ *   2. Browser polls every 30 s (or on tab focus) → fetches new sw.js → installs
+ *   3. New SW calls skipWaiting() → activates → claims all tabs
+ *   4. `controllerchange` fires in every open tab
+ *   5. Banner appears: "New version ready — Reload Now"
+ *   6. User clicks → page reloads with new JS/CSS
  *
  * ── Android / iOS (Capacitor native app) ─────────────────────────────────────
- * Checks /api/app-updates/latest on every app launch via @capgo/capacitor-updater.
- * When a newer OTA bundle exists: shows full-screen modal with download progress.
+ * Checks /api/app-updates/latest on every launch. Shows full-screen modal
+ * with download progress when a newer OTA bundle is available.
  */
 import { useEffect, useRef, useState, ReactNode } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
@@ -43,11 +51,6 @@ async function getUpdater() {
 }
 
 async function clearAllCaches(): Promise<void> {
-  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-    try {
-      navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_CACHES' });
-    } catch { /* ignore */ }
-  }
   if ('caches' in window) {
     try {
       const keys = await caches.keys();
@@ -57,40 +60,56 @@ async function clearAllCaches(): Promise<void> {
   try { sessionStorage.clear(); } catch { /* ignore */ }
 }
 
-// ─── Web Update Toast ─────────────────────────────────────────────────────────
-// Small non-blocking banner at the top — auto-reloads after countdown
+// ─── Web Update Banner ────────────────────────────────────────────────────────
+// Sticky non-blocking banner — stays until user clicks "Reload Now"
 
-interface WebUpdateToastProps {
-  countdown: number;
-  onNow: () => void;
+interface WebUpdateBannerProps {
+  onReload: () => void;
 }
 
-function WebUpdateToast({ countdown, onNow }: WebUpdateToastProps) {
+function WebUpdateBanner({ onReload }: WebUpdateBannerProps) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: -60 }}
+      initial={{ opacity: 0, y: -64 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -60 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-      className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 bg-indigo-600 text-white px-5 py-3 rounded-2xl shadow-2xl shadow-indigo-200 text-sm font-medium"
+      exit={{ opacity: 0, y: -64 }}
+      transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+      className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-between gap-3 bg-indigo-600 text-white px-5 py-3 shadow-lg"
     >
-      <motion.div
-        animate={{ rotate: 360 }}
-        transition={{ repeat: Infinity, duration: 1.2, ease: 'linear' }}
-      >
-        <RefreshCcw size={16} />
-      </motion.div>
-      <span>
-        New version available — reloading in <strong>{countdown}s</strong>
-      </span>
+      <div className="flex items-center gap-2.5 text-sm font-medium">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
+        >
+          <RefreshCcw size={15} />
+        </motion.div>
+        <span>A new version of Aniston HRMS is ready.</span>
+      </div>
       <button
-        onClick={onNow}
-        className="ml-1 bg-white/20 hover:bg-white/30 transition-colors text-white text-xs font-semibold px-3 py-1.5 rounded-xl"
+        onClick={onReload}
+        className="flex-shrink-0 bg-white text-indigo-600 text-sm font-semibold px-4 py-1.5 rounded-lg hover:bg-indigo-50 transition-colors"
       >
         Reload Now
       </button>
     </motion.div>
   );
+}
+
+// ─── SW polling (keeps registration alive + polls for updates) ────────────────
+
+function SWPoller() {
+  useRegisterSW({
+    onRegisteredSW(_swUrl, registration) {
+      if (!registration) return;
+      // Poll every 30 s while the app is open
+      setInterval(() => registration.update(), 30_000);
+      // Also check when user switches back to this tab
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') registration.update();
+      });
+    },
+  });
+  return null;
 }
 
 // ─── Native update screen ─────────────────────────────────────────────────────
@@ -121,18 +140,14 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
         </div>
 
         <div className="bg-white/90 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/50 p-8 text-center">
-
           {phase === 'error' ? (
             <>
               <div className="w-14 h-14 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <AlertCircle size={28} className="text-red-500" />
               </div>
               <h2 className="text-xl font-display font-bold text-gray-900 mb-2">Update Failed</h2>
-              <p className="text-sm text-gray-500 mb-6">{errorMsg || 'Could not apply the update. Please check your connection and try again.'}</p>
-              <button
-                onClick={onUpdate}
-                className="w-full bg-brand-600 hover:bg-brand-700 text-white py-3.5 rounded-2xl font-semibold transition-colors mb-3"
-              >
+              <p className="text-sm text-gray-500 mb-6">{errorMsg || 'Could not apply the update. Please try again.'}</p>
+              <button onClick={onUpdate} className="w-full bg-brand-600 hover:bg-brand-700 text-white py-3.5 rounded-2xl font-semibold transition-colors mb-3">
                 Try Again
               </button>
               {onLater && (
@@ -159,9 +174,7 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
                 )}
               </div>
 
-              <h2 className="text-2xl font-display font-bold text-gray-900 mb-2">
-                New Version Ready
-              </h2>
+              <h2 className="text-2xl font-display font-bold text-gray-900 mb-2">New Version Ready</h2>
               <p className="text-sm text-gray-500 mb-2">
                 {manifest.notes || 'A new version of Aniston HRMS is available with the latest features and improvements.'}
               </p>
@@ -210,11 +223,7 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
               </motion.button>
 
               {!manifest.mandatory && onLater && (
-                <button
-                  onClick={onLater}
-                  disabled={isBusy}
-                  className="w-full py-2 text-sm text-gray-400 hover:text-gray-600 disabled:opacity-40 transition-colors"
-                >
+                <button onClick={onLater} disabled={isBusy} className="w-full py-2 text-sm text-gray-400 hover:text-gray-600 disabled:opacity-40 transition-colors">
                   Later
                 </button>
               )}
@@ -228,66 +237,45 @@ function UpdateScreen({ manifest, phase, progress, onUpdate, onLater, errorMsg }
   );
 }
 
-// ─── Web SW update detector ───────────────────────────────────────────────────
-
-interface WebUpdateDetectorProps {
-  onUpdateAvailable: (triggerUpdate: () => void) => void;
-}
-
-function WebUpdateDetector({ onUpdateAvailable }: WebUpdateDetectorProps) {
-  const { updateServiceWorker } = useRegisterSW({
-    onRegisteredSW(_swUrl, registration) {
-      if (!registration) return;
-
-      if (registration.waiting) {
-        onUpdateAvailable(() => updateServiceWorker(true));
-        return;
-      }
-
-      // Poll every 30s while the app is open
-      setInterval(() => registration.update(), 30_000);
-
-      // Check when user switches back to this tab
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          registration.update();
-        }
-      });
-
-      registration.addEventListener('updatefound', () => {
-        const newSW = registration.installing;
-        if (!newSW) return;
-        newSW.addEventListener('statechange', () => {
-          if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-            onUpdateAvailable(() => updateServiceWorker(true));
-          }
-        });
-      });
-    },
-    onNeedRefresh() {
-      onUpdateAvailable(() => updateServiceWorker(true));
-    },
-    onOfflineReady() {
-      console.info('[AppUpdateGuard] App is ready for offline use.');
-    },
-  });
-  return null;
-}
-
 // ─── Main guard ───────────────────────────────────────────────────────────────
 
 export default function AppUpdateGuard({ children }: { children: ReactNode }) {
+  const [showWebBanner, setShowWebBanner] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [manifest, setManifest] = useState<UpdateManifest | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
-  // Web-specific: countdown before auto-reload
-  const [webCountdown, setWebCountdown] = useState(3);
+  const hasReloaded = useRef(false);
 
   const [isNativeApp] = useState(() => isNative());
-  const webTriggerRef = useRef<(() => void) | null>(null);
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Web: listen for controllerchange → new SW took control → show banner ──
+  useEffect(() => {
+    if (isNativeApp || !('serviceWorker' in navigator)) return;
+
+    const handleControllerChange = () => {
+      // Guard: don't show banner if this is the very first SW install
+      // (controller goes from null → new SW = first visit, not an update)
+      // We detect updates by checking if there was already a controller before.
+      if (!hasReloaded.current) {
+        setShowWebBanner(true);
+      }
+    };
+
+    // Track whether a controller was already present at mount
+    // If controller is null at mount, this is a fresh install — not an update
+    const hadControllerAtMount = !!navigator.serviceWorker.controller;
+    hasReloaded.current = !hadControllerAtMount; // suppress banner on fresh install
+
+    navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+    return () => navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+  }, [isNativeApp]);
+
+  const handleWebReload = async () => {
+    await clearAllCaches();
+    window.location.reload();
+  };
 
   // ── Native OTA update check ───────────────────────────────────────────────
   useEffect(() => {
@@ -318,43 +306,6 @@ export default function AppUpdateGuard({ children }: { children: ReactNode }) {
     })();
   }, [isNativeApp]);
 
-  // ── Web: auto-apply update with countdown toast ───────────────────────────
-  const applyWebUpdate = async () => {
-    if (countdownRef.current) clearInterval(countdownRef.current);
-    setPhase('installing');
-    await clearAllCaches();
-    if (webTriggerRef.current) {
-      webTriggerRef.current();
-    } else {
-      if ('serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg?.waiting) {
-          reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-        }
-      }
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        window.location.reload();
-      }, { once: true });
-    }
-  };
-
-  const handleWebUpdateAvailable = (triggerFn: () => void) => {
-    webTriggerRef.current = triggerFn;
-    setWebCountdown(3);
-    setPhase('update-available');
-
-    // Start 3-second countdown then auto-apply
-    let count = 3;
-    countdownRef.current = setInterval(() => {
-      count -= 1;
-      setWebCountdown(count);
-      if (count <= 0) {
-        clearInterval(countdownRef.current!);
-        applyWebUpdate();
-      }
-    }, 1000);
-  };
-
   // ── Native update action ──────────────────────────────────────────────────
   const handleNativeUpdate = async () => {
     if (!manifest) return;
@@ -380,38 +331,28 @@ export default function AppUpdateGuard({ children }: { children: ReactNode }) {
     }
   };
 
-  const handleLater = () => setDismissed(true);
-
-  const showWebToast = !isNativeApp && phase === 'update-available' && !dismissed;
-  const showNativeModal = isNativeApp && phase !== 'idle' && !dismissed;
-
   return (
     <>
-      {!isNativeApp && (
-        <WebUpdateDetector onUpdateAvailable={handleWebUpdateAvailable} />
-      )}
+      {/* Keep SW registration alive + poll for updates every 30s */}
+      {!isNativeApp && <SWPoller />}
 
       {children}
 
       <AnimatePresence>
-        {/* Web: small non-blocking countdown toast — auto-reloads, no user action needed */}
-        {showWebToast && (
-          <WebUpdateToast
-            key="web-update-toast"
-            countdown={webCountdown}
-            onNow={applyWebUpdate}
-          />
+        {/* Web: sticky top banner — appears when new SW takes control */}
+        {showWebBanner && (
+          <WebUpdateBanner key="web-banner" onReload={handleWebReload} />
         )}
 
         {/* Native: full-screen modal with download progress */}
-        {showNativeModal && manifest && (
+        {isNativeApp && phase !== 'idle' && !dismissed && manifest && (
           <UpdateScreen
             key="native-update-screen"
             manifest={manifest}
             phase={phase}
             progress={progress}
             onUpdate={handleNativeUpdate}
-            onLater={!manifest.mandatory ? handleLater : undefined}
+            onLater={!manifest.mandatory ? () => setDismissed(true) : undefined}
             errorMsg={errorMsg}
           />
         )}
