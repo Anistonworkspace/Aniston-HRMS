@@ -222,6 +222,14 @@ export class AttendanceService {
       );
     }
 
+    // GPS coordinates are MANDATORY for every non-WFH OFFICE clock-in — no exceptions.
+    // This is the primary server-side enforcement; the frontend check is UX-only.
+    if (!effectiveWfh && currentShiftType === 'OFFICE' && (!data.latitude || !data.longitude)) {
+      throw new BadRequestError(
+        'Location is required to mark attendance. Please enable location services on your device and try again.'
+      );
+    }
+
     // ===== PHASE 1.4: GPS spoofing detection =====
     if (data.latitude && data.longitude) {
       const spoofResult = await this.detectGPSSpoofing(employeeId, data.latitude, data.longitude);
@@ -499,6 +507,15 @@ export class AttendanceService {
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const isWfhShiftCheckout = (clockOutShiftAssignment?.shift as any)?.isWfhShift === true;
+    const clockOutShiftType = (clockOutShiftAssignment?.shift as any)?.shiftType || 'OFFICE';
+
+    // GPS coordinates are MANDATORY for non-WFH OFFICE clock-out — same rule as clock-in.
+    if (!isWfhShiftCheckout && clockOutShiftType === 'OFFICE' && (!data.latitude || !data.longitude)) {
+      throw new BadRequestError(
+        'Location is required to clock out. Please enable location services on your device and try again.'
+      );
+    }
+
     const geofenceForCheckout = clockOutShiftAssignment?.location?.geofence ?? empStatus?.officeLocation?.geofence ?? null;
     if (!isWfhShiftCheckout && geofenceForCheckout && geofenceForCheckout.radiusMeters && data.latitude && data.longitude) {
       if (!(data.accuracy && data.accuracy > 150)) {

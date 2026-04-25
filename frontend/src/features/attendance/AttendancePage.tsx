@@ -689,13 +689,9 @@ function AttendancePersonalView() {
   }, []);
 
   /**
-   * Enterprise-grade GPS acquisition.
-   *
-   * Strategy (mirrors Darwinbox / Keka):
-   * 1. If pre-warmed position exists AND is < 30 s old AND accuracy < 50 m → use it instantly.
-   * 2. Otherwise force a FRESH fix with maximumAge: 0 so the device MUST read the
-   *    current GPS signal — no cached/stale positions are ever accepted.
-   * 3. Always include gpsTimestamp so the backend can verify freshness server-side.
+   * GPS acquisition for attendance marking.
+   * Always fetches a LIVE fix — no pre-warm cache used here.
+   * Every check-in/out click triggers a real OS permission check.
    */
   // Returns null when location is unavailable/denied — callers must abort on null.
   const getGPS = async (): Promise<{
@@ -713,29 +709,20 @@ function AttendancePersonalView() {
       gpsTimestamp: new Date(pos.timestamp).toISOString(),
     });
 
-    // --- Stage 1: use pre-warmed position if it is fresh and precise enough ---
-    const prewarm = bestPosRef.current;
-    if (prewarm) {
-      const ageMs = Date.now() - prewarm.timestamp;
-      if (ageMs < 30_000 && prewarm.coords.accuracy < 50) {
-        return toPayload(prewarm);
-      }
-    }
-
-    // --- Stage 2: force a fresh GPS fix (maximumAge: 0 = NO cache allowed) ---
+    // Always force a fresh GPS fix on every button press.
+    // maximumAge: 0 forces the OS to read the current GPS signal — no cached position accepted.
+    // This ensures if the user turned off location after the last fix, the OS will deny here.
     try {
       const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
           timeout: 30000,
-          maximumAge: 0,          // ← CRITICAL: never accept cached location
+          maximumAge: 0,
         })
       );
-      // Update pre-warm ref with the fresh fix for the next action
-      if (!bestPosRef.current || pos.coords.accuracy < bestPosRef.current.coords.accuracy) {
-        bestPosRef.current = pos;
-        setGpsAccuracy(pos.coords.accuracy);
-      }
+      bestPosRef.current = pos;
+      setGpsAccuracy(pos.coords.accuracy);
+      setLocationStatus('granted');
       return toPayload(pos);
     } catch (err: any) {
       if (err?.code === 1) {
@@ -758,16 +745,19 @@ function AttendancePersonalView() {
   const doClockIn = async () => {
     if (actionLockRef.current) return;
     actionLockRef.current = true;
+    // Declare coords outside try so the catch block can include them in the offline queue
+    let coords: { latitude: number; longitude: number; accuracy: number; gpsTimestamp: string } | null = null;
     try {
-      const coords = await getGPS();
-      if (coords === null) return; // location denied/failed — toast already shown
+      coords = await getGPS();
+      if (coords === null) return; // location denied/off — toast already shown, never queue
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockIn({ ...coords, source: 'MANUAL_APP', deviceType }).unwrap();
       toast.success(t('attendance.checkedIn'));
     } catch (err: any) {
-      if (!navigator.onLine) {
+      // Only queue offline if GPS was successfully obtained — never queue without location
+      if (!navigator.onLine && coords) {
         const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
-        enqueueAction('CLOCK_IN', { source: 'MANUAL_APP', deviceType });
+        enqueueAction('CLOCK_IN', { ...coords, source: 'MANUAL_APP', deviceType });
         toast(t('attendance.checkinQueued'), { icon: '📡' });
         return;
       }
@@ -805,16 +795,18 @@ function AttendancePersonalView() {
   const handleClockOut = async () => {
     if (actionLockRef.current) return; // prevent double-tap
     actionLockRef.current = true;
+    let coords: { latitude: number; longitude: number; accuracy: number; gpsTimestamp: string } | null = null;
     try {
-      const coords = await getGPS();
-      if (coords === null) return; // location denied/failed — toast already shown
+      coords = await getGPS();
+      if (coords === null) return; // location denied/off — toast already shown, never queue
       const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
       await clockOut({ ...coords, deviceType }).unwrap();
       toast.success(t('attendance.checkedOut'));
     } catch (err: any) {
-      if (!navigator.onLine) {
+      // Only queue offline if GPS was successfully obtained — never queue without location
+      if (!navigator.onLine && coords) {
         const deviceType = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
-        enqueueAction('CLOCK_OUT', { deviceType });
+        enqueueAction('CLOCK_OUT', { ...coords, deviceType });
         toast(t('attendance.checkoutQueued'), { icon: '📡' });
         return;
       }
