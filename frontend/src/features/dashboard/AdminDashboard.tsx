@@ -221,6 +221,53 @@ function AdminDashboard() {
         <QuickActionGrid actions={QUICK_ACTIONS} columns={isSystemAdmin ? 'grid-cols-2' : 'grid-cols-4 md:grid-cols-4'} />
       </motion.div>
 
+      {/* ═══ ON LEAVE + RECENT ACTIVITY + BIRTHDAYS ════════════ */}
+      <motion.div variants={container} initial="hidden" animate="show" className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        {hrStats && (
+          <DashboardSection title="On Leave Today" icon={CalendarOff} iconColor="text-purple-500" badge={att?.onLeave} badgeVariant="info">
+            {hrStats.todayLeaves.length > 0 ? (
+              <div className="space-y-2">
+                {hrStats.todayLeaves.map((leave) => (
+                  <div key={leave.id} className="flex items-center justify-between py-1.5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-700 truncate">{leave.employeeName}</p>
+                      <p className="text-[10px] text-gray-400">{leave.leaveType}</p>
+                    </div>
+                    <span className="text-xs font-mono text-gray-500" data-mono>{leave.days}d</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 text-center py-6">No one on leave today</p>
+            )}
+          </DashboardSection>
+        )}
+        <DashboardSection title="Recent Activity" icon={UserPlus} iconColor="text-emerald-500">
+          {saStats ? (
+            saStats.recentHires.length === 0 && saStats.recentExits.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-8">No recent activity</p>
+            ) : (
+              <>
+                <EmployeeListWidget items={saStats.recentHires.slice(0, 3)} type="hire" />
+                <EmployeeListWidget items={saStats.recentExits.slice(0, 2)} type="exit" />
+              </>
+            )
+          ) : hrStats ? (
+            <EmployeeListWidget items={hrStats.recentHires} type="hire" emptyText="No recent hires" />
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-8">No recent activity</p>
+          )}
+        </DashboardSection>
+        <DashboardSection title="Upcoming Birthdays" icon={Cake} iconColor="text-pink-500">
+          <EmployeeListWidget
+            items={(saStats?.upcomingBirthdays || hrStats?.upcomingBirthdays || [])}
+            type="birthday"
+            clickable={false}
+            emptyText="No upcoming birthdays"
+          />
+        </DashboardSection>
+      </motion.div>
+
       {/* ═══ ACTION CENTER + ATTENTION REQUIRED + UPCOMING HOLIDAYS (All roles) ═ */}
       {hrStats && (
         <motion.div variants={container} initial="hidden" animate="show" className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
@@ -372,64 +419,6 @@ function AdminDashboard() {
           )}
         </div>
       )}
-
-      {/* ═══ ON LEAVE + RECENT HIRES/EXITS + BIRTHDAYS ══════════ */}
-      <motion.div variants={container} initial="hidden" animate="show" className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        {/* Today's Leaves (HR) */}
-        {hrStats && (
-          <DashboardSection
-            title="On Leave Today"
-            icon={CalendarOff}
-            iconColor="text-purple-500"
-            badge={att?.onLeave}
-            badgeVariant="info"
-          >
-            {hrStats.todayLeaves.length > 0 ? (
-              <div className="space-y-2">
-                {hrStats.todayLeaves.map((leave) => (
-                  <div key={leave.id} className="flex items-center justify-between py-1.5">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-700 truncate">{leave.employeeName}</p>
-                      <p className="text-[10px] text-gray-400">{leave.leaveType}</p>
-                    </div>
-                    <span className="text-xs font-mono text-gray-500" data-mono>{leave.days}d</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400 text-center py-6">No one on leave today</p>
-            )}
-          </DashboardSection>
-        )}
-
-        {/* Recent Activity (SuperAdmin has hires+exits, HR has hires) */}
-        <DashboardSection title="Recent Activity" icon={UserPlus} iconColor="text-emerald-500">
-          {saStats ? (
-            saStats.recentHires.length === 0 && saStats.recentExits.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-8">No recent activity</p>
-            ) : (
-              <>
-                <EmployeeListWidget items={saStats.recentHires.slice(0, 3)} type="hire" />
-                <EmployeeListWidget items={saStats.recentExits.slice(0, 2)} type="exit" />
-              </>
-            )
-          ) : hrStats ? (
-            <EmployeeListWidget items={hrStats.recentHires} type="hire" emptyText="No recent hires" />
-          ) : (
-            <p className="text-sm text-gray-400 text-center py-8">No recent activity</p>
-          )}
-        </DashboardSection>
-
-        {/* Birthdays */}
-        <DashboardSection title="Upcoming Birthdays" icon={Cake} iconColor="text-pink-500">
-          <EmployeeListWidget
-            items={(saStats?.upcomingBirthdays || hrStats?.upcomingBirthdays || [])}
-            type="birthday"
-            clickable={false}
-            emptyText="No upcoming birthdays"
-          />
-        </DashboardSection>
-      </motion.div>
 
       {/* ═══ TREND CHARTS (Admin / Super Admin only) ════════════ */}
       {!isHR && saStats && (
