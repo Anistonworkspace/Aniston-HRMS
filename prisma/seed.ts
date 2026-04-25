@@ -3,6 +3,14 @@ import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+// Safety guard — never seed against production
+const dbUrl = process.env.DATABASE_URL || '';
+if (!dbUrl.includes('localhost') && !dbUrl.includes('127.0.0.1') && process.env.ALLOW_PROD_SEED !== 'true') {
+  console.error('❌ SEED BLOCKED: DATABASE_URL does not point to localhost. Refusing to seed a non-local database.');
+  console.error('   If you truly want to seed production, set ALLOW_PROD_SEED=true explicitly.');
+  process.exit(1);
+}
+
 async function main() {
   console.log('🌱 Seeding Aniston HRMS database...');
 
