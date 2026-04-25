@@ -280,7 +280,14 @@ export class OnboardingService {
       select: { experienceLevel: true, experienceDocFields: true },
     });
     const experienceLevel = (employee as any).experienceLevel || invitation?.experienceLevel || 'FRESHER';
-    const experienceDocFields = (invitation?.experienceDocFields as any[]) || [];
+    const rawExpDocFields = (invitation?.experienceDocFields as any[]) || [];
+    // If EXPERIENCED but no custom doc fields configured (e.g. HR edited after invite), fall back to defaults
+    const experienceDocFields = experienceLevel === 'EXPERIENCED' && rawExpDocFields.length === 0
+      ? [
+          { key: 'EXPERIENCE_LETTER', label: 'Experience Letter', required: true },
+          { key: 'OFFER_LETTER_DOC', label: 'Offer / Appointment Letter', required: false },
+        ]
+      : rawExpDocFields;
 
     const IDENTITY_DOC_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
     const qualification = (employee as any).qualification as string | null;
@@ -571,8 +578,15 @@ export class OnboardingService {
       where: { employeeId },
       select: { experienceDocFields: true },
     });
-    const experienceDocFields = (inv?.experienceDocFields as any[]) || [];
+    const rawInvExpDocFields = (inv?.experienceDocFields as any[]) || [];
     const empExpLevel = (emp as any).experienceLevel as string | null;
+    // Fall back to default employment docs if EXPERIENCED but no fields configured
+    const experienceDocFields = empExpLevel === 'EXPERIENCED' && rawInvExpDocFields.length === 0
+      ? [
+          { key: 'EXPERIENCE_LETTER', label: 'Experience Letter', required: true },
+          { key: 'OFFER_LETTER_DOC', label: 'Offer / Appointment Letter', required: false },
+        ]
+      : rawInvExpDocFields;
     const experienceDocs = empExpLevel === 'EXPERIENCED'
       ? experienceDocFields.filter((f: any) => f.required !== false).map((f: any) => f.key)
       : [];

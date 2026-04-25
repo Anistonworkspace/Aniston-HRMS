@@ -535,8 +535,9 @@ export class EmployeeService {
       }
     }
 
-    // Extract shiftId before building updateData (not a direct Employee field)
+    // Extract shiftId and experienceLevel before building updateData
     const shiftId: string | null | undefined = (data as any).shiftId;
+    const incomingExperienceLevel: string | undefined = (data as any).experienceLevel;
     const updateData: any = { ...data };
     delete updateData.shiftId; // never pass shiftId into employee.update
     if (data.email) updateData.email = data.email.toLowerCase();
@@ -662,6 +663,26 @@ export class EmployeeService {
       if (err instanceof ConflictError || err instanceof BadRequestError || err instanceof NotFoundError) throw err;
       logger.error(`[Employee] update() transaction failed: ${err.message}`);
       throw new AppError('Failed to update employee record. Please try again.', 500, 'TRANSACTION_FAILED');
+    }
+
+    // Sync experienceLevel change → OnboardingDocumentGate so onboarding wizard
+    // immediately reflects the correct required documents (e.g. EXPERIENCED → employment proof required)
+    if (incomingExperienceLevel && incomingExperienceLevel !== (existing as any).experienceLevel) {
+      try {
+        const { documentGateService } = await import('../onboarding/document-gate.service.js');
+        const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId: id } });
+        if (gate && gate.kycStatus !== 'VERIFIED') {
+          const fresherOrExperienced = incomingExperienceLevel === 'EXPERIENCED' ? 'EXPERIENCED' : 'FRESHER';
+          await documentGateService.saveKycConfig(
+            id,
+            (gate.uploadMode as string) || 'SEPARATE',
+            fresherOrExperienced,
+            (gate.highestQualification as string) || 'GRADUATION',
+          );
+        }
+      } catch (err: any) {
+        logger.warn(`[Employee] update() gate sync for experienceLevel change failed (non-blocking): ${err.message}`);
+      }
     }
 
     // Auto-create lifecycle events on key field changes

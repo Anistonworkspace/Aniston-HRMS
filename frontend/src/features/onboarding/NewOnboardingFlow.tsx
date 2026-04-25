@@ -85,8 +85,11 @@ function getRequiredNonIdentityDocs(
   const residenceDocs = addressSameAsPermanent === false
     ? ['RESIDENCE_PROOF', 'PERMANENT_RESIDENCE_PROOF']
     : ['RESIDENCE_PROOF'];
+  const resolvedExpFields = experienceLevel === 'EXPERIENCED' && (experienceDocFields || []).length === 0
+    ? [{ key: 'EXPERIENCE_LETTER', label: 'Experience Letter', required: true }, { key: 'OFFER_LETTER_DOC', label: 'Offer / Appointment Letter', required: false }]
+    : (experienceDocFields || []);
   const expDocs = experienceLevel === 'EXPERIENCED'
-    ? (experienceDocFields || []).filter(f => f.required !== false).map(f => f.key)
+    ? resolvedExpFields.filter(f => f.required !== false).map(f => f.key)
     : [];
   return [...eduDocs, 'PAN', ...residenceDocs, 'PHOTO', ...expDocs];
 }
@@ -135,10 +138,13 @@ function getDocSections(
     { title: 'Passport Photo', docs: [{ name: 'Passport Size Photograph', type: 'PHOTO', required: true }] },
   ];
 
-  if (experienceLevel === 'EXPERIENCED' && experienceDocFields.length > 0) {
+  if (experienceLevel === 'EXPERIENCED') {
+    const resolvedFields = experienceDocFields.length > 0
+      ? experienceDocFields
+      : [{ key: 'EXPERIENCE_LETTER', label: 'Experience Letter', required: true }, { key: 'OFFER_LETTER_DOC', label: 'Offer / Appointment Letter', required: false }];
     sections.push({
       title: 'Previous Employment Documents',
-      docs: experienceDocFields.map(f => ({ name: f.label, type: f.key, required: f.required !== false })),
+      docs: resolvedFields.map(f => ({ name: f.label, type: f.key, required: f.required !== false })),
     });
   }
 
@@ -888,6 +894,9 @@ function Step5Documents({
 }) {
   const [uploads, setUploads] = useState<Record<string, UploadState>>({});
   const [identityType, setIdentityType] = useState<IdentityDocType>('AADHAAR');
+  const [otherDocName, setOtherDocName] = useState('');
+  const [otherUploading, setOtherUploading] = useState(false);
+  const otherFileRef = useRef<HTMLInputElement | null>(null);
   const [uploadDocument] = useUploadDocumentMutation();
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const identityFileRef = useRef<HTMLInputElement | null>(null);
@@ -1117,6 +1126,61 @@ function Step5Documents({
           </div>
         </div>
       ))}
+
+      {/* Optional: Other Documents / Certificates — available to every employee */}
+      <div>
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />Other Documents / Certificates
+          <span className="text-[10px] text-gray-400 font-normal normal-case">(optional)</span>
+        </h4>
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-3">
+          <p className="text-xs text-gray-500">Upload any additional certificates, professional certifications, or supporting documents you'd like to include (e.g. awards, training certificates, language certifications).</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={otherDocName}
+              onChange={e => setOtherDocName(e.target.value)}
+              placeholder="Document name (e.g. AWS Certification)"
+              className="input-glass text-sm flex-1 min-w-0"
+              maxLength={80}
+            />
+            <label className={cn(
+              'text-xs cursor-pointer px-3 py-2 rounded-lg font-medium transition-colors shrink-0',
+              otherDocName.trim() ? 'btn-secondary' : 'bg-gray-100 text-gray-300 cursor-not-allowed pointer-events-none',
+              otherUploading && 'opacity-50 pointer-events-none'
+            )}>
+              <input
+                ref={otherFileRef}
+                type="file"
+                className="hidden"
+                accept="image/*,.pdf,.doc,.docx"
+                disabled={!otherDocName.trim() || otherUploading}
+                onChange={async e => {
+                  const file = e.target.files?.[0];
+                  if (!file || !otherDocName.trim()) return;
+                  e.target.value = '';
+                  setOtherUploading(true);
+                  try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('type', 'OTHER');
+                    formData.append('name', otherDocName.trim());
+                    await (uploadDocument as any)(formData).unwrap();
+                    toast.success(`${otherDocName.trim()} uploaded`);
+                    setOtherDocName('');
+                    onRefetch();
+                  } catch (err: any) {
+                    toast.error(err?.data?.error?.message || 'Upload failed');
+                  } finally {
+                    setOtherUploading(false);
+                  }
+                }}
+              />
+              {otherUploading ? 'Uploading…' : 'Upload'}
+            </label>
+          </div>
+        </div>
+      </div>
 
       <button
         onClick={onContinue}

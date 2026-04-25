@@ -435,10 +435,21 @@ export class InvitationService {
       },
     });
 
-    // Pre-create OnboardingDocumentGate so KYC page works immediately
+    // Pre-create OnboardingDocumentGate and seed fresherOrExperienced from the invitation
+    // so the onboarding wizard immediately shows the correct required documents.
     try {
       const { documentGateService } = await import('../onboarding/document-gate.service.js');
       await documentGateService.createGate(result.employee.id);
+
+      // Map invitation experienceLevel → gate's FRESHER/EXPERIENCED (INTERN → FRESHER, no employment proof)
+      const rawLevel = (invitation.experienceLevel as string) || '';
+      const fresherOrExperienced = rawLevel === 'EXPERIENCED' ? 'EXPERIENCED' : 'FRESHER';
+      await documentGateService.saveKycConfig(
+        result.employee.id,
+        'SEPARATE',
+        fresherOrExperienced,
+        'GRADUATION',
+      );
     } catch (e) {
       logger.warn('Failed to auto-create document gate for employee:', e);
     }
