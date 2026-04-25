@@ -4,7 +4,7 @@ import { Shield, LogOut, ShieldCheck } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setUser, logout } from './authSlice';
 import { useGetMeQuery } from './authApi';
-import MFASetupModal from './MFASetupModal';
+import { MFASetupModal } from './MFASetupModal';
 
 export default function MfaRequiredPage() {
   const dispatch = useAppDispatch();
