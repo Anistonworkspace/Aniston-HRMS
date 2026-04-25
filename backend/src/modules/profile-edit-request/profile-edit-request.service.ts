@@ -3,6 +3,7 @@ import { NotFoundError, ConflictError, BadRequestError } from '../../middleware/
 import { enqueueEmail, enqueueNotification } from '../../jobs/queues.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { encrypt, decrypt } from '../../utils/encryption.js';
+import { computeRequiredDocs, IDENTITY_PROOF_TYPES, EMPLOYMENT_PROOF_TYPES } from '../onboarding/document-gate.service.js';
 
 type Category = 'PERSONAL_DETAILS' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'BANK_DETAILS' | 'EPF_DETAILS';
 
@@ -313,24 +314,51 @@ export class ProfileEditRequestService {
 
   /** Returns profile completion status for an employee (excludes HR-only fields) */
   async getProfileCompletion(employeeId: string) {
-    const emp = await prisma.employee.findUnique({
-      where: { id: employeeId },
-      select: {
-        firstName: true, lastName: true, dateOfBirth: true, gender: true, phone: true,
-        address: true, emergencyContact: true,
-        bankAccountNumber: true, bankName: true, ifscCode: true, accountHolderName: true,
-        onboardingComplete: true,
-        documents: { where: { deletedAt: null }, select: { type: true } },
-      },
-    });
+    const [emp, gate] = await Promise.all([
+      prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: {
+          firstName: true, lastName: true, dateOfBirth: true, gender: true, phone: true,
+          address: true, emergencyContact: true,
+          bankAccountNumber: true, bankName: true, ifscCode: true, accountHolderName: true,
+          onboardingComplete: true,
+          documents: { where: { deletedAt: null }, select: { type: true } },
+        },
+      }),
+      prisma.onboardingDocumentGate.findUnique({ where: { employeeId } }),
+    ]);
     if (!emp) throw new NotFoundError('Employee');
 
-    const REQUIRED_DOC_TYPES = [
-      'AADHAAR', 'PAN', 'TENTH_CERTIFICATE', 'DEGREE_CERTIFICATE',
-      'RESIDENCE_PROOF', 'PHOTO', 'BANK_STATEMENT', 'CANCELLED_CHEQUE',
-    ];
     const uploadedDocTypes = emp.documents.map((d: any) => d.type);
-    const missingDocs = REQUIRED_DOC_TYPES.filter(t => !uploadedDocTypes.includes(t));
+    let missingDocs: string[] = [];
+
+    if (gate) {
+      // Use the employee's gate config to dynamically compute required docs
+      const fresher = gate.fresherOrExperienced || 'FRESHER';
+      const qualification = gate.highestQualification || 'GRADUATION';
+      const { requiredDocs, needsIdentityProof, needsEmploymentProof } = computeRequiredDocs(fresher, qualification);
+
+      // Check specific required doc types (excluding PHOTO — handled separately via photoUrl)
+      missingDocs = requiredDocs.filter(t => t !== 'PHOTO' && !uploadedDocTypes.includes(t));
+
+      // Identity proof: at least one of the allowed types
+      if (needsIdentityProof && !IDENTITY_PROOF_TYPES.some(t => uploadedDocTypes.includes(t))) {
+        missingDocs.push('IDENTITY_PROOF');
+      }
+
+      // Employment proof for experienced hires
+      if (needsEmploymentProof && !EMPLOYMENT_PROOF_TYPES.some(t => uploadedDocTypes.includes(t))) {
+        missingDocs.push('EMPLOYMENT_PROOF');
+      }
+
+      // Photo: check both photoUrl on gate and uploaded doc types
+      const hasPhoto = !!gate.photoUrl || uploadedDocTypes.includes('PHOTO');
+      if (!hasPhoto) missingDocs.push('PHOTO');
+    } else {
+      // No gate configured yet — use minimal baseline
+      const FALLBACK_REQUIRED = ['PAN', 'PHOTO', 'RESIDENCE_PROOF'];
+      missingDocs = FALLBACK_REQUIRED.filter(t => !uploadedDocTypes.includes(t));
+    }
 
     const addr = emp.address as any;
     const ec = emp.emergencyContact as any;

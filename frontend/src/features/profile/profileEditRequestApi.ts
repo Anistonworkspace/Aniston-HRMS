@@ -4,7 +4,7 @@ export interface ProfileEditRequest {
   id: string;
   employeeId: string;
   organizationId: string;
-  category: 'PERSONAL_DETAILS' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'BANK_DETAILS';
+  category: 'PERSONAL_DETAILS' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'BANK_DETAILS' | 'EPF_DETAILS';
   requestedData: Record<string, any>;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'APPLIED';
   hrNote?: string;

@@ -1,5 +1,5 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
-import { FileText, Plus, Search, Loader2, Eye, Trash2, Shield, ShieldOff, X, Award, UserPlus, Check } from 'lucide-react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { FileText, Plus, Search, Loader2, Eye, Trash2, Shield, ShieldOff, X, Award, UserPlus, Check, Upload, ZoomIn } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -9,8 +9,10 @@ import {
   useDeleteLetterMutation,
   useUpdateLetterAssignmentMutation,
   useAssignLetterMutation,
+  useUploadLetterFileMutation,
 } from './letterApi';
 import { useGetEmployeesQuery } from '../employee/employeeApi';
+import { useAppSelector } from '../../app/store';
 import SecureDocumentViewer from './SecureDocumentViewer';
 
 const LETTER_TYPES = [
@@ -36,6 +38,7 @@ const TEMPLATE_COLORS: Record<string, string> = {
 };
 
 export default function LettersTab() {
+  const token = useAppSelector((s) => s.auth.accessToken);
   const { data: lettersRes, isLoading } = useGetLettersQuery();
   const { data: templatesRes, isLoading: templatesLoading } = useGetLetterTemplatesQuery();
   // limit: 500 to load all employees — default pagination is 20 which would miss most employees
@@ -44,10 +47,18 @@ export default function LettersTab() {
   const [deleteLetter] = useDeleteLetterMutation();
   const [updateAssignment] = useUpdateLetterAssignmentMutation();
   const [assignLetter, { isLoading: assigning }] = useAssignLetterMutation();
+  const [uploadLetterFile, { isLoading: uploading }] = useUploadLetterFileMutation();
 
   const [showCreate, setShowCreate] = useState(false);
+  const [createMode, setCreateMode] = useState<'generate' | 'upload'>('generate');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const uploadFileRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState('');
   const [viewLetter, setViewLetter] = useState<any>(null);
+
+  // Preview state — holds blob URL for the generated preview PDF
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
 
   // Create form state
   const [formType, setFormType] = useState('JOINING_LETTER');
@@ -56,6 +67,7 @@ export default function LettersTab() {
   const [formTemplate, setFormTemplate] = useState('modern-minimal');
   const [formDownload, setFormDownload] = useState(false);
   const [formContent, setFormContent] = useState<Record<string, string>>({});
+  const [customBody, setCustomBody] = useState('');
   const [empSearch, setEmpSearch] = useState('');
   const [showEmpDropdown, setShowEmpDropdown] = useState(false);
   const empDropdownRef = useRef<HTMLDivElement>(null);
@@ -109,35 +121,75 @@ export default function LettersTab() {
 
   const selectedEmployee = employees.find((e: any) => e.id === formEmployee);
 
+  const buildContent = useCallback(() => {
+    const { salary, designation, department, joiningDate, lastWorkingDate, resignationDate, ...customRest } = formContent;
+    const content: Record<string, any> = {};
+    if (salary) content.salary = salary;
+    if (designation) content.designation = designation;
+    if (department) content.department = department;
+    if (joiningDate) content.joiningDate = joiningDate;
+    if (lastWorkingDate) content.lastWorkingDate = lastWorkingDate;
+    if (resignationDate) content.resignationDate = resignationDate;
+    if (customBody.trim()) content.customBody = customBody.trim();
+    if (Object.keys(customRest).length > 0) content.customFields = customRest;
+    return content;
+  }, [formContent, customBody]);
+
   const handleCreate = async () => {
     if (!formTitle.trim()) { toast.error('Title is required'); return; }
     if (!formEmployee) { toast.error('Please select an employee'); return; }
 
     try {
-      // Separate known top-level fields from custom fields
-      const { salary, designation, department, joiningDate, lastWorkingDate, resignationDate, ...customRest } = formContent;
-      const content: Record<string, any> = {};
-      if (salary) content.salary = salary;
-      if (designation) content.designation = designation;
-      if (department) content.department = department;
-      if (joiningDate) content.joiningDate = joiningDate;
-      if (lastWorkingDate) content.lastWorkingDate = lastWorkingDate;
-      if (resignationDate) content.resignationDate = resignationDate;
-      if (Object.keys(customRest).length > 0) content.customFields = customRest;
-
       await createLetter({
         type: formType,
         title: formTitle.trim(),
         employeeId: formEmployee,
         templateSlug: formTemplate,
         downloadAllowed: formDownload,
-        content,
+        content: buildContent(),
       }).unwrap();
       toast.success('Letter created and assigned');
       setShowCreate(false);
       resetForm();
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to create letter');
+    }
+  };
+
+  const handlePreview = async () => {
+    if (!formTitle.trim()) { toast.error('Title is required'); return; }
+    if (!formEmployee) { toast.error('Please select an employee'); return; }
+
+    setPreviewing(true);
+    try {
+      const response = await fetch('/api/letters/preview', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          type: formType,
+          title: formTitle.trim(),
+          employeeId: formEmployee,
+          templateSlug: formTemplate,
+          content: buildContent(),
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        toast.error(err?.error?.message || 'Preview failed');
+        return;
+      }
+
+      const blob = await response.blob();
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(URL.createObjectURL(blob));
+    } catch {
+      toast.error('Preview failed');
+    } finally {
+      setPreviewing(false);
     }
   };
 
@@ -148,7 +200,32 @@ export default function LettersTab() {
     setFormTemplate('modern-minimal');
     setFormDownload(false);
     setFormContent({});
+    setCustomBody('');
     setEmpSearch('');
+    setUploadFile(null);
+    setCreateMode('generate');
+    if (previewUrl) { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }
+  };
+
+  const handleUpload = async () => {
+    if (!formTitle.trim()) { toast.error('Title is required'); return; }
+    if (!formEmployee) { toast.error('Please select an employee'); return; }
+    if (!uploadFile) { toast.error('Please select a PDF file'); return; }
+
+    try {
+      const fd = new FormData();
+      fd.append('file', uploadFile);
+      fd.append('type', formType);
+      fd.append('title', formTitle.trim());
+      fd.append('employeeId', formEmployee);
+      fd.append('downloadAllowed', String(formDownload));
+      await uploadLetterFile(fd).unwrap();
+      toast.success('Letter uploaded and assigned');
+      setShowCreate(false);
+      resetForm();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to upload letter');
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -245,6 +322,22 @@ export default function LettersTab() {
                 </button>
               </div>
 
+              {/* Mode toggle */}
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+                <button
+                  onClick={() => setCreateMode('generate')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${createMode === 'generate' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <FileText size={13} /> Generate from Template
+                </button>
+                <button
+                  onClick={() => setCreateMode('upload')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${createMode === 'upload' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <Upload size={13} /> Upload PDF
+                </button>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Title */}
                 <div>
@@ -311,8 +404,39 @@ export default function LettersTab() {
                 </div>
               </div>
 
-              {/* Template Gallery */}
-              <div>
+              {/* Upload PDF section — upload mode only */}
+              {createMode === 'upload' && (
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">PDF File *</label>
+                  <input
+                    ref={uploadFileRef}
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    className="hidden"
+                    onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                  />
+                  {uploadFile ? (
+                    <div className="flex items-center gap-2 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                      <FileText size={16} className="text-indigo-600 shrink-0" />
+                      <span className="text-sm text-indigo-800 truncate flex-1">{uploadFile.name}</span>
+                      <button onClick={() => setUploadFile(null)} className="text-gray-400 hover:text-red-500 shrink-0">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => uploadFileRef.current?.click()}
+                      className="w-full border-2 border-dashed border-gray-200 hover:border-indigo-300 rounded-lg p-4 text-sm text-gray-500 hover:text-indigo-600 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Upload size={16} /> Click to select PDF
+                    </button>
+                  )}
+                  <p className="text-xs text-gray-400 mt-1">Max 10 MB · PDF only</p>
+                </div>
+              )}
+
+              {/* Template Gallery — generate mode only */}
+              {createMode === 'generate' && <div>
                 <label className="block text-xs text-gray-500 mb-2">Choose Template</label>
                 {templatesLoading ? (
                   <div className="flex items-center gap-2 py-4">
@@ -354,44 +478,70 @@ export default function LettersTab() {
                   ))}
                 </div>
                 )}
-              </div>
+              </div>}
 
-              {/* Optional Fields */}
-              {(formType === 'OFFER_LETTER' || formType === 'PROMOTION_LETTER') && (
+              {/* Optional Fields — generate mode only */}
+              {createMode === 'generate' && (formType === 'OFFER_LETTER' || formType === 'PROMOTION_LETTER') && (
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Salary / CTC (optional)</label>
                   <input value={formContent.salary || ''} onChange={(e) => setFormContent({ ...formContent, salary: e.target.value })}
                     className="input-glass w-full text-sm" placeholder="e.g. 600000" />
                 </div>
               )}
-              {formType === 'WARNING_LETTER' && (
+              {createMode === 'generate' && formType === 'WARNING_LETTER' && (
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Reason for Warning *</label>
+                  <label className="block text-xs text-gray-500 mb-1">Reason for Warning</label>
                   <textarea value={formContent.reason || ''} onChange={(e) => setFormContent({ ...formContent, reason: e.target.value })}
                     className="input-glass w-full text-sm" rows={2} placeholder="Describe the reason..." />
                 </div>
               )}
-              {formType === 'APPRECIATION_LETTER' && (
+              {createMode === 'generate' && formType === 'APPRECIATION_LETTER' && (
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Achievement Description</label>
                   <textarea value={formContent.achievement || ''} onChange={(e) => setFormContent({ ...formContent, achievement: e.target.value })}
                     className="input-glass w-full text-sm" rows={2} placeholder="Describe the achievement..." />
                 </div>
               )}
-              {formType === 'CUSTOM' && (
+
+              {/* Custom body — available for all template types */}
+              {createMode === 'generate' && (
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Letter Body *</label>
-                  <textarea value={formContent.body || ''} onChange={(e) => setFormContent({ ...formContent, body: e.target.value })}
-                    className="input-glass w-full text-sm" rows={4} placeholder="Write the letter content..." />
+                  <label className="block text-xs text-gray-500 mb-1">
+                    {formType === 'CUSTOM' ? 'Letter Body *' : 'Custom Letter Body (optional — overrides default template text)'}
+                  </label>
+                  <textarea
+                    value={customBody}
+                    onChange={(e) => setCustomBody(e.target.value)}
+                    className="input-glass w-full text-sm"
+                    rows={formType === 'CUSTOM' ? 5 : 4}
+                    placeholder={formType === 'CUSTOM'
+                      ? 'Write the letter content...'
+                      : 'Leave empty to use the default template text, or type here to replace it with your own wording...'}
+                  />
                 </div>
               )}
 
-              <div className="flex gap-2 pt-1">
-                <button onClick={handleCreate} disabled={creating}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2 rounded-lg flex items-center gap-2 transition-colors">
-                  {creating ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
-                  {creating ? 'Generating...' : 'Generate & Issue'}
-                </button>
+              <div className="flex gap-2 pt-1 flex-wrap">
+                {createMode === 'generate' ? (
+                  <>
+                    <button onClick={handlePreview} disabled={previewing || creating}
+                      className="bg-gray-700 hover:bg-gray-800 text-white text-sm font-medium px-5 py-2 rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50">
+                      {previewing ? <Loader2 size={14} className="animate-spin" /> : <ZoomIn size={14} />}
+                      {previewing ? 'Generating Preview...' : 'Preview'}
+                    </button>
+                    <button onClick={handleCreate} disabled={creating || previewing}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2 rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50">
+                      {creating ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                      {creating ? 'Generating...' : 'Generate & Issue'}
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={handleUpload} disabled={uploading}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                    {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                    {uploading ? 'Uploading...' : 'Upload & Assign'}
+                  </button>
+                )}
                 <button onClick={() => { setShowCreate(false); resetForm(); }} className="btn-secondary text-sm">Cancel</button>
               </div>
             </div>
@@ -575,6 +725,49 @@ export default function LettersTab() {
           onClose={() => setViewLetter(null)}
         />
       )}
+
+      {/* Preview Modal */}
+      <AnimatePresence>
+        {previewUrl && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex flex-col"
+          >
+            <div className="flex items-center justify-between px-4 py-3 bg-gray-900 text-white">
+              <div className="flex items-center gap-2">
+                <Eye size={16} className="text-indigo-400" />
+                <span className="text-sm font-semibold">Letter Preview — {formTitle || 'Untitled'}</span>
+                <span className="text-xs text-gray-400 ml-2">Review before issuing to employee</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCreate}
+                  disabled={creating}
+                  className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {creating ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                  {creating ? 'Issuing...' : 'Issue to Employee'}
+                </button>
+                <button
+                  onClick={() => { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }}
+                  className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                >
+                  <X size={13} /> Back to Edit
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <iframe
+                src={previewUrl}
+                className="w-full h-full border-0"
+                title="Letter Preview"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

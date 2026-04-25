@@ -78,7 +78,7 @@ export default function PoliciesPage() {
 
       {/* Tab Content */}
       <Suspense fallback={<div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-indigo-600" /></div>}>
-        {activeTab === 'policies' && <PoliciesTab isAdmin={!!isAdmin} canDelete={!!user && ['SUPER_ADMIN', 'ADMIN'].includes(user.role)} />}
+        {activeTab === 'policies' && <PoliciesTab isAdmin={!!isAdmin} canDelete={!!user && ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user.role)} />}
         {activeTab === 'letters' && (isAdmin ? <LettersTab /> : <MyLettersTab />)}
         {activeTab === 'branding' && isAdmin && <BrandingTab />}
       </Suspense>

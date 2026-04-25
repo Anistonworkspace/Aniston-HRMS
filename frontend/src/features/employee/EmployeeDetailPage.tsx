@@ -563,6 +563,7 @@ function ProfileRequestsTab({ employeeId }: { employeeId: string }) {
     ADDRESS: 'Address',
     EMERGENCY_CONTACT: 'Emergency Contact',
     BANK_DETAILS: 'Bank Details',
+    EPF_DETAILS: 'EPF / UAN Details',
   };
 
   const handleReview = async (id: string, status: 'APPROVED' | 'REJECTED') => {
@@ -677,8 +678,9 @@ const MANAGEMENT_CAN_EDIT_STATUS = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
 function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { employee: any; userRole?: string; onSave: (data: any) => void; onClose: () => void; isSaving?: boolean }) {
   const canEditStatus = MANAGEMENT_CAN_EDIT_STATUS.includes(userRole || '');
-  const [changeRole] = useChangeEmployeeRoleMutation();
+  const [changeRoleMutation] = useChangeEmployeeRoleMutation();
   const [selectedRole, setSelectedRole] = useState<string>(employee.user?.role || 'EMPLOYEE');
+  const [isChangingRole, setIsChangingRole] = useState(false);
   const [createDepartment] = useCreateDepartmentMutation();
   const [createDesignation] = useCreateDesignationMutation();
   const [deleteDepartment] = useDeleteDepartmentMutation();
@@ -749,6 +751,15 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
   const { data: shiftsData } = useGetShiftsQuery();
   const shifts = (shiftsData as any)?.data || [];
 
+  // Auto-sync system role when employmentType changes to/from INTERN
+  useEffect(() => {
+    if (form.employmentType === 'INTERN') {
+      setSelectedRole('INTERN');
+    } else if (selectedRole === 'INTERN' && form.employmentType !== 'INTERN') {
+      setSelectedRole('EMPLOYEE');
+    }
+  }, [form.employmentType]);
+
   const deptOptions = departments.map((d: any) => ({ value: d.id, label: d.name }));
   const desigOptions = designations
     .filter((d: any) => !form.departmentId || !d.departmentId || d.departmentId === form.departmentId)
@@ -816,6 +827,18 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
         </div>
         <form onSubmit={async (e) => {
           e.preventDefault();
+          // Change system role first if it changed — must succeed before updating employee fields
+          if (selectedRole !== (employee.user?.role || 'EMPLOYEE')) {
+            setIsChangingRole(true);
+            try {
+              await changeRoleMutation({ employeeId: employee.id, role: selectedRole }).unwrap();
+            } catch (err: any) {
+              toast.error('Role change failed: ' + (err?.data?.error?.message || 'Could not update role'));
+              setIsChangingRole(false);
+              return;
+            }
+            setIsChangingRole(false);
+          }
           onSave({
             ...form,
             departmentId: form.departmentId || null,
@@ -876,6 +899,52 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
               onChange={(v) => setForm({ ...form, managerId: v })}
             />
           </div>
+          {/* Employment Type / Experience Level / System Role */}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Employment Type <span className="text-[9px] text-indigo-400">(EPF/ESI/leaves)</span>
+              </label>
+              <select value={form.employmentType} onChange={e => setForm({ ...form, employmentType: e.target.value })} className="input-glass w-full text-sm">
+                <option value="FULL_TIME">Full-Time</option>
+                <option value="PART_TIME">Part-Time</option>
+                <option value="CONTRACT">Contract</option>
+                <option value="INTERN">Intern</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Experience Level <span className="text-[9px] text-indigo-400">(KYC docs)</span>
+              </label>
+              <select value={form.experienceLevel} onChange={e => setForm({ ...form, experienceLevel: e.target.value })} className="input-glass w-full text-sm">
+                <option value="">— Not set —</option>
+                <option value="FRESHER">Fresher</option>
+                <option value="EXPERIENCED">Experienced</option>
+                <option value="INTERN">Intern / Student</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                System Role <span className="text-[9px] text-indigo-400">(portal access)</span>
+              </label>
+              <select
+                value={selectedRole}
+                onChange={e => setSelectedRole(e.target.value)}
+                disabled={form.employmentType === 'INTERN'}
+                className="input-glass w-full text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <option value="EMPLOYEE">Employee</option>
+                <option value="MANAGER">Manager</option>
+                <option value="HR">HR</option>
+                <option value="GUEST_INTERVIEWER">Guest Interviewer</option>
+                <option value="INTERN">Intern</option>
+              </select>
+              {form.employmentType === 'INTERN' && (
+                <p className="text-[9px] text-indigo-500 mt-0.5">Auto-set to Intern from employment type</p>
+              )}
+            </div>
+          </div>
+
           {/* Shift assignment */}
           <div className="grid grid-cols-3 gap-3">
             <div>
@@ -927,7 +996,6 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
                   <optgroup label="Active States">
                     <option value="ONBOARDING">Onboarding</option>
                     <option value="PROBATION">Probation</option>
-                    <option value="INTERN">Intern</option>
                     <option value="ACTIVE">Active</option>
                   </optgroup>
                   <optgroup label="Current States">
@@ -1072,10 +1140,10 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
             </div>
           </div>
           <div className="flex gap-3 pt-3">
-            <button type="button" onClick={onClose} disabled={isSaving} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={isSaving} className="btn-primary flex-1 flex items-center justify-center gap-2">
-              {isSaving && <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
-              {isSaving ? 'Saving…' : 'Save Changes'}
+            <button type="button" onClick={onClose} disabled={isSaving || isChangingRole} className="btn-secondary flex-1">Cancel</button>
+            <button type="submit" disabled={isSaving || isChangingRole} className="btn-primary flex-1 flex items-center justify-center gap-2">
+              {(isSaving || isChangingRole) && <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
+              {isChangingRole ? 'Updating role…' : isSaving ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
         </form>

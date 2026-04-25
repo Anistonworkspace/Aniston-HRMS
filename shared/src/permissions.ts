@@ -101,7 +101,7 @@ export const PERMISSIONS: PermissionsMap = {
     payroll: ['create', 'read', 'update', 'export'],
     recruitment: ['create', 'read', 'update', 'delete'],
     performance: ['create', 'read', 'update'],
-    policy: ['create', 'read', 'update'],
+    policy: ['create', 'read', 'update', 'delete'],
     announcement: ['create', 'read', 'update'],
     helpdesk: ['read', 'update'],
     report: ['read', 'export'],
@@ -117,7 +117,7 @@ export const PERMISSIONS: PermissionsMap = {
     designation: ['create', 'read', 'update'],
     walk_in: ['create', 'read', 'update', 'delete'],
     exit_access: ['create', 'read', 'update'],
-    letter: ['create', 'read', 'update'],
+    letter: ['create', 'read', 'update', 'delete'],
   },
 
   [Role.MANAGER]: {

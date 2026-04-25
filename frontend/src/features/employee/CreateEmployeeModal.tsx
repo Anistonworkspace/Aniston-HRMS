@@ -39,14 +39,6 @@ const EMPLOYMENT_TYPES = [
   { value: 'INTERN', label: 'Intern', hint: 'Stipend only, intern leave rules' },
 ];
 
-const ROLES = [
-  { value: 'EMPLOYEE', label: 'Employee', hint: 'Standard portal access' },
-  { value: 'INTERN', label: 'Intern', hint: 'Limited access — no payroll/org chart' },
-  { value: 'MANAGER', label: 'Manager', hint: 'Can approve team leaves & attendance' },
-  { value: 'HR', label: 'HR', hint: 'Full employee management access' },
-  { value: 'ADMIN', label: 'Admin', hint: 'All settings + HR access' },
-];
-
 const EXPERIENCE_LEVELS = [
   { value: 'FRESHER', label: 'Fresher', hint: 'No prior work experience' },
   { value: 'EXPERIENCED', label: 'Experienced', hint: 'Requires experience letter for KYC' },
@@ -89,7 +81,6 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
   const [employmentType, setEmploymentType] = useState('FULL_TIME');
-  const [role, setRole] = useState('EMPLOYEE');
   const [experienceLevel, setExperienceLevel] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [designationId, setDesignationId] = useState('');
@@ -113,14 +104,12 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
 
   const [success, setSuccess] = useState<{ email?: string; mobile?: string; code: string } | null>(null);
 
-  // Auto-sync role when employmentType changes to/from INTERN
+  // Auto-sync experience level when employmentType changes to INTERN
   useEffect(() => {
     if (employmentType === 'INTERN') {
-      setRole('INTERN');
       setExperienceLevel('INTERN');
-    } else if (role === 'INTERN') {
-      setRole('EMPLOYEE');
-      if (experienceLevel === 'INTERN') setExperienceLevel('');
+    } else if (experienceLevel === 'INTERN') {
+      setExperienceLevel('');
     }
   }, [employmentType]);
 
@@ -162,7 +151,6 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
       const result = await createInvitation({
         email: email.trim() || undefined,
         mobileNumber: mobile.trim() || undefined,
-        role,
         employmentType,
         departmentId,
         designationId,
@@ -233,7 +221,7 @@ export default function CreateEmployeeModal({ open, onClose }: Props) {
   };
 
   const handleClose = () => {
-    setEmail(''); setMobile(''); setEmploymentType('FULL_TIME'); setRole('EMPLOYEE');
+    setEmail(''); setMobile(''); setEmploymentType('FULL_TIME');
     setExperienceLevel(''); setDepartmentId(''); setDesignationId(''); setManagerId('');
     setOfficeLocationId(''); setWorkMode('OFFICE'); setJoiningDate(''); setNotes('');
     setErrors({}); setSuccess(null); setQuickCreate(null); setQuickName('');

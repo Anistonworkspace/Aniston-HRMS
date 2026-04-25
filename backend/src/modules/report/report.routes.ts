@@ -27,6 +27,14 @@ router.get('/recruitment-funnel', (req, res, next) =>
   reportController.recruitmentFunnel(req, res, next)
 );
 
+router.get('/attendance-detail', (req, res, next) =>
+  reportController.attendanceDetail(req, res, next)
+);
+
+router.get('/leave-detail', (req, res, next) =>
+  reportController.leaveDetail(req, res, next)
+);
+
 // Statutory compliance exports
 router.get('/epf-challan', (req, res, next) =>
   reportController.epfChallan(req, res, next)

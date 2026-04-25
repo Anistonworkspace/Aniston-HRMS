@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { reportService } from './report.service.js';
-import { attendanceSummaryQuerySchema, leaveSummaryQuerySchema } from './report.validation.js';
-import { generateEmployeeDirectoryExcel } from '../../utils/excelExporter.js';
+import { attendanceSummaryQuerySchema, leaveSummaryQuerySchema, attendanceDetailQuerySchema, leaveDetailQuerySchema } from './report.validation.js';
+import { generateEmployeeDirectoryExcel, generateAttendanceSummaryExcel, generateLeaveReportExcel } from '../../utils/excelExporter.js';
 import {
   generateEpfChallanExcel,
   generateEsiReturnExcel,
@@ -73,6 +73,57 @@ export class ReportController {
   async recruitmentFunnel(req: Request, res: Response, next: NextFunction) {
     try {
       const data = await reportService.getRecruitmentFunnel(req.user!.organizationId);
+      res.json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async attendanceDetail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const query = attendanceDetailQuerySchema.parse(req.query);
+
+      if (req.query.format === 'xlsx') {
+        const result = await reportService.getAttendanceDetail(req.user!.organizationId, { ...query, limit: 10000, page: 1 });
+        const excelData = result.records.map((r) => ({
+          employeeName: `${r.employeeName} (${r.employeeCode})`,
+          date: r.date,
+          status: r.status,
+          checkIn: r.checkIn,
+          checkOut: r.checkOut,
+          totalHours: r.totalHours,
+        }));
+        const buffer = await generateAttendanceSummaryExcel(excelData);
+        const filename = `Attendance-Report-${query.from || 'all'}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(buffer);
+        return;
+      }
+
+      const data = await reportService.getAttendanceDetail(req.user!.organizationId, query);
+      res.json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async leaveDetail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const query = leaveDetailQuerySchema.parse(req.query);
+
+      if (req.query.format === 'xlsx') {
+        const result = await reportService.getLeaveDetail(req.user!.organizationId, { ...query, limit: 10000, page: 1 });
+        const period = `${query.month ? `Month-${query.month}-` : ''}${query.year || new Date().getFullYear()}`;
+        const buffer = await generateLeaveReportExcel(result.records, period);
+        const filename = `Leave-Report-${period}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(buffer);
+        return;
+      }
+
+      const data = await reportService.getLeaveDetail(req.user!.organizationId, query);
       res.json({ success: true, data });
     } catch (err) {
       next(err);

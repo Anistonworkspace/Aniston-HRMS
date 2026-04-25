@@ -8,8 +8,8 @@ import { enqueueEmail } from '../../jobs/queues.js';
 // CONSTANTS
 // =====================
 
-const IDENTITY_PROOF_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
-const EMPLOYMENT_PROOF_TYPES = ['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER_DOC', 'SALARY_SLIP_DOC'];
+export const IDENTITY_PROOF_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
+export const EMPLOYMENT_PROOF_TYPES = ['EXPERIENCE_LETTER', 'RELIEVING_LETTER', 'OFFER_LETTER_DOC', 'SALARY_SLIP_DOC'];
 
 // Education levels ordered lowest → highest
 const QUALIFICATION_ORDER = ['TENTH', 'TWELFTH', 'GRADUATION', 'POST_GRADUATION', 'PHD'];
@@ -482,6 +482,51 @@ export class DocumentGateService {
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) throw new NotFoundError('Document gate');
 
+    // === DOCUMENT COMPLETENESS GUARD ===
+    const submitted = gate.submittedDocs as string[];
+    const uploadMode = gate.uploadMode || 'SEPARATE';
+
+    const hasPhoto = !!gate.photoUrl || submitted.includes('PHOTO');
+    if (!hasPhoto) {
+      throw new BadRequestError('Cannot approve: Employee has not uploaded their passport photograph.');
+    }
+
+    if (uploadMode === 'COMBINED') {
+      if (!gate.combinedPdfUploaded) {
+        throw new BadRequestError('Cannot approve: Employee has not uploaded their combined document PDF.');
+      }
+    } else {
+      const fresher = gate.fresherOrExperienced || 'FRESHER';
+      const qualification = gate.highestQualification || 'GRADUATION';
+      const { requiredDocs, needsIdentityProof, needsEmploymentProof } = computeRequiredDocs(fresher, qualification);
+      const missingDocs: string[] = [];
+
+      for (const docType of requiredDocs) {
+        if (docType === 'PHOTO') continue;
+        if (!submitted.includes(docType)) missingDocs.push(docLabel(docType));
+      }
+      if (needsIdentityProof && !IDENTITY_PROOF_TYPES.some(t => submitted.includes(t))) {
+        missingDocs.push('Identity Proof (Aadhaar, Passport, Driving License, or Voter ID)');
+      }
+      if (needsEmploymentProof && !EMPLOYMENT_PROOF_TYPES.some(t => submitted.includes(t))) {
+        missingDocs.push('Employment Proof (Experience Letter, Relieving Letter, Offer Letter, or Salary Slips)');
+      }
+      if (missingDocs.length > 0) {
+        throw new BadRequestError(`Cannot approve: Missing required documents — ${missingDocs.join(', ')}`);
+      }
+    }
+
+    // Block if any active document is still REJECTED (employee must re-upload first)
+    const rejectedDocs = await prisma.document.findMany({
+      where: { employeeId, status: 'REJECTED', deletedAt: null },
+      select: { name: true, type: true },
+    });
+    if (rejectedDocs.length > 0) {
+      const names = rejectedDocs.map((d: any) => d.name || docLabel(String(d.type))).join(', ');
+      throw new BadRequestError(`Cannot approve: The following documents need re-upload — ${names}`);
+    }
+    // === END GUARD ===
+
     const updated = await prisma.onboardingDocumentGate.update({
       where: { employeeId },
       data: {
@@ -772,18 +817,35 @@ export class DocumentGateService {
     try {
       const emp = await prisma.employee.findUnique({
         where: { id: employeeId },
-        select: { userId: true, organizationId: true },
+        select: { userId: true, organizationId: true, email: true, firstName: true, lastName: true },
       });
       if (emp?.userId) {
-        const { enqueueNotification } = await import('../../jobs/queues.js');
+        const { enqueueNotification, enqueueEmail } = await import('../../jobs/queues.js');
+        const displayDoc = docLabel(docType);
         await enqueueNotification({
           userId: emp.userId,
           organizationId: emp.organizationId,
           title: 'Document Rejected — Re-upload Required',
-          message: `Your ${docType.replace(/_/g, ' ')} was rejected. Reason: ${rejectionReason || 'Please re-upload a clearer copy.'}`,
+          message: `Your ${displayDoc} was rejected. Reason: ${rejectionReason || 'Please re-upload a clearer copy.'}`,
           type: 'DOCUMENT_FLAGGED',
           link: '/kyc-pending',
         });
+        if (emp.email) {
+          await enqueueEmail({
+            to: emp.email,
+            subject: `Action Required: Document Rejected — Please Re-upload Your ${displayDoc}`,
+            template: 'document-deleted',
+            context: {
+              employeeName: `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Employee',
+              docType: docType.replace(/_/g, ' '),
+              docName: displayDoc,
+              isCombinedPdf: false,
+              reason: rejectionReason || 'Document rejected by HR — please re-upload a clearer copy',
+              reuploadUrl: 'https://hr.anistonav.com/kyc-pending',
+              orgName: 'Aniston Technologies',
+            },
+          });
+        }
       }
     } catch { /* non-blocking */ }
 

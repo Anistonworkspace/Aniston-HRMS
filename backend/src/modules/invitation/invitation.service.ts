@@ -204,7 +204,7 @@ export class InvitationService {
       inviteUrl,
       email,
       mobileNumber,
-      role,
+      role: derivedRole,
       expiresAt,
       status: invitation.status,
       emailStatus,

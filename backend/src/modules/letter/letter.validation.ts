@@ -17,6 +17,7 @@ export const createLetterSchema = z.object({
     joiningDate: z.string().optional(),
     lastWorkingDate: z.string().optional(),
     resignationDate: z.string().optional(),
+    customBody: z.string().optional(),
     customFields: z.record(z.string()).optional(),
   }).optional(),
 });

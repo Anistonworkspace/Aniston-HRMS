@@ -25,6 +25,20 @@ export const reportApi = api.injectEndpoints({
       query: () => '/reports/recruitment-funnel',
       providesTags: ['Recruitment'],
     }),
+    getAttendanceDetail: builder.query<
+      any,
+      { from?: string; to?: string; departmentId?: string; employeeId?: string; status?: string; page?: number; limit?: number }
+    >({
+      query: (params) => ({ url: '/reports/attendance-detail', params }),
+      providesTags: ['Attendance'],
+    }),
+    getLeaveDetail: builder.query<
+      any,
+      { month?: number; year?: number; leaveTypeId?: string; status?: string; departmentId?: string; page?: number; limit?: number }
+    >({
+      query: (params) => ({ url: '/reports/leave-detail', params }),
+      providesTags: ['Leave'],
+    }),
   }),
 });
 
@@ -34,4 +48,6 @@ export const {
   useGetLeaveSummaryQuery,
   useGetPayrollSummaryQuery,
   useGetRecruitmentFunnelQuery,
+  useGetAttendanceDetailQuery,
+  useGetLeaveDetailQuery,
 } = reportApi;

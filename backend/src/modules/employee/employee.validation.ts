@@ -50,7 +50,7 @@ export const updateEmployeeSchema = createEmployeeSchema.partial().extend({
   // status: HR-only; determines leave type eligibility, attendance policy, payroll processing
   // INTERN → intern leave balances; PROBATION → probation leave rules; NOTICE_PERIOD → exit flow
   status: z.enum([
-    'ONBOARDING', 'PROBATION', 'ACTIVE', 'INTERN', 'NOTICE_PERIOD',
+    'ONBOARDING', 'PROBATION', 'ACTIVE', 'NOTICE_PERIOD',
     'SUSPENDED', 'INACTIVE', 'TERMINATED', 'ABSCONDED',
   ]).optional(),
   // HR-only fields

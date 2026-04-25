@@ -119,6 +119,7 @@ interface LetterData {
   salary?: string;
   lastWorkingDate?: string;
   resignationDate?: string;
+  customBody?: string;
   customFields?: Record<string, string>;
 }
 
@@ -237,31 +238,36 @@ export function generateLetterPDF(
     y += 24;
 
     // === LETTER BODY BY TYPE ===
-    switch (type) {
-      case 'OFFER_LETTER':
-        y = renderOfferLetter(doc, scheme, letterData, leftCol, pageWidth, y);
-        break;
-      case 'JOINING_LETTER':
-        y = renderJoiningLetter(doc, scheme, letterData, leftCol, pageWidth, y);
-        break;
-      case 'EXPERIENCE_LETTER':
-        y = renderExperienceLetter(doc, scheme, letterData, leftCol, pageWidth, y);
-        break;
-      case 'RELIEVING_LETTER':
-        y = renderRelievingLetter(doc, scheme, letterData, leftCol, pageWidth, y);
-        break;
-      case 'PROMOTION_LETTER':
-        y = renderPromotionLetter(doc, scheme, letterData, leftCol, pageWidth, y);
-        break;
-      case 'WARNING_LETTER':
-        y = renderWarningLetter(doc, scheme, letterData, leftCol, pageWidth, y);
-        break;
-      case 'APPRECIATION_LETTER':
-        y = renderAppreciationLetter(doc, scheme, letterData, leftCol, pageWidth, y);
-        break;
-      default:
-        y = renderCustomLetter(doc, scheme, letterData, leftCol, pageWidth, y);
-        break;
+    // If HR provided a custom body, render it instead of the default template
+    if (letterData.customBody) {
+      y = renderCustomBodyOverride(doc, scheme, letterData, leftCol, pageWidth, y);
+    } else {
+      switch (type) {
+        case 'OFFER_LETTER':
+          y = renderOfferLetter(doc, scheme, letterData, leftCol, pageWidth, y);
+          break;
+        case 'JOINING_LETTER':
+          y = renderJoiningLetter(doc, scheme, letterData, leftCol, pageWidth, y);
+          break;
+        case 'EXPERIENCE_LETTER':
+          y = renderExperienceLetter(doc, scheme, letterData, leftCol, pageWidth, y);
+          break;
+        case 'RELIEVING_LETTER':
+          y = renderRelievingLetter(doc, scheme, letterData, leftCol, pageWidth, y);
+          break;
+        case 'PROMOTION_LETTER':
+          y = renderPromotionLetter(doc, scheme, letterData, leftCol, pageWidth, y);
+          break;
+        case 'WARNING_LETTER':
+          y = renderWarningLetter(doc, scheme, letterData, leftCol, pageWidth, y);
+          break;
+        case 'APPRECIATION_LETTER':
+          y = renderAppreciationLetter(doc, scheme, letterData, leftCol, pageWidth, y);
+          break;
+        default:
+          y = renderCustomLetter(doc, scheme, letterData, leftCol, pageWidth, y);
+          break;
+      }
     }
 
     // === SIGNATURE BLOCK WITH BRANDING ===
@@ -529,6 +535,13 @@ function renderAppreciationLetter(doc: PDFKit.PDFDocument, scheme: any, data: Le
   doc.moveDown(0.5); y = doc.y + 10;
 
   doc.text('Keep up the excellent work!', leftCol, y, { width: pageWidth });
+  doc.moveDown(0.5);
+  return doc.y + 10;
+}
+
+function renderCustomBodyOverride(doc: PDFKit.PDFDocument, scheme: any, data: LetterData, leftCol: number, pageWidth: number, y: number): number {
+  doc.fontSize(10).font(scheme.bodyFont).fillColor('#1a1a1a')
+    .text(data.customBody!, leftCol, y, { width: pageWidth, lineGap: 4 });
   doc.moveDown(0.5);
   return doc.y + 10;
 }

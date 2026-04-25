@@ -132,6 +132,20 @@ export const uploadPolicy = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
+/** Letter PDF uploads — memory storage so service can write to org-scoped path. PDF only, 10 MB. */
+export const uploadLetterPdf = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (file.mimetype === 'application/pdf' && ext === '.pdf') {
+      cb(null, true);
+    } else {
+      cb(new BadRequestError('Only PDF files are allowed for letter uploads'));
+    }
+  },
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
 /**
  * Branding image uploads (logo / signature / stamp).
  * Alias of uploadImage — both land in branding/ subfolder.
@@ -286,6 +300,19 @@ export function createWalkInUpload(sessionId: string) {
     limits: { fileSize: 10 * 1024 * 1024 },
   });
 }
+
+/**
+ * Email attachment uploads for bulk email sends.
+ * Any file type accepted (HR controls content). 10 MB per file, up to 5 files.
+ * Lands in email-attachments/
+ */
+const anyFileFilter = (_req: any, _file: Express.Multer.File, cb: multer.FileFilterCallback) => cb(null, true);
+
+export const uploadEmailAttachment = multer({
+  storage: diskStorageFor(StorageFolder.EMAIL_ATTACHMENTS),
+  fileFilter: anyFileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 /** Employee profile photo uploads. 5 MB. JPEG/PNG/WebP only. Lands in profiles/. */
 export const uploadProfilePhoto = multer({

@@ -677,6 +677,33 @@ export class EmployeeService {
           createdBy: updatedBy,
         },
       });
+
+      // On status change TO ACTIVE: ensure leave balances exist for all active leave types.
+      // Covers the PROBATION → ACTIVE and ONBOARDING → ACTIVE transitions where some
+      // leave types may have been excluded from the initial seeding.
+      if (data.status === 'ACTIVE') {
+        try {
+          const currentYear = new Date().getFullYear();
+          const leaveTypes = await prisma.leaveType.findMany({
+            where: { organizationId, isActive: true, deletedAt: null },
+            select: { id: true, defaultBalance: true },
+          });
+          if (leaveTypes.length > 0) {
+            await prisma.leaveBalance.createMany({
+              data: leaveTypes.map((lt) => ({
+                employeeId: id,
+                leaveTypeId: lt.id,
+                organizationId,
+                year: currentYear,
+                allocated: lt.defaultBalance,
+              })),
+              skipDuplicates: true, // won't overwrite existing balances — only fills gaps
+            });
+          }
+        } catch (err: any) {
+          logger.warn(`[Employee] update() leave balance re-seeding on ACTIVE transition failed (non-blocking): ${err.message}`);
+        }
+      }
     }
 
     if (data.departmentId && data.departmentId !== existing.departmentId) {

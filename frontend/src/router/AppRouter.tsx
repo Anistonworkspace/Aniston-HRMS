@@ -58,7 +58,7 @@ const KycGatePage = lazy(() => import('../features/kyc/KycGatePage'));
 const KycHrReviewPage = lazy(() => import('../features/kyc/KycHrReviewPage'));
 const MyDocumentsPage = lazy(() => import('../features/my-documents/MyDocumentsPage'));
 const NewOnboardingFlow = lazy(() => import('../features/onboarding/NewOnboardingFlow'));
-const SendBulkEmailPage = lazy(() => import('../features/employee/SendBulkEmailPage'));
+const MfaRequiredPage = lazy(() => import('../features/auth/MfaRequiredPage'));
 const BulkEmailPage = lazy(() => import('../features/bulk-email/BulkEmailPage'));
 
 function PageLoader() {
@@ -169,6 +169,7 @@ export default function AppRouter() {
 
           {/* Employee Onboarding — no sidebar, just the onboarding wizard */}
           <Route path="/employee-onboarding" element={<ProtectedRoute><NewOnboardingFlow /></ProtectedRoute>} />
+          <Route path="/mfa-required" element={<ProtectedRoute><MfaRequiredPage /></ProtectedRoute>} />
 
           {/* KYC Gate — no sidebar, just the KYC form */}
           <Route path="/kyc-pending" element={<ProtectedRoute><RouteErrorBoundary pageName="KYC"><KycGatePage /></RouteErrorBoundary></ProtectedRoute>} />
@@ -216,7 +217,7 @@ export default function AppRouter() {
             <Route path="/kyc-review" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'HR']}><KycHrReviewPage /></ProtectedRoute>} />
             <Route path="/walk-in-management" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'HR']}><WalkInManagementPage /></ProtectedRoute>} />
             <Route path="/walk-in-management/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'HR']}><WalkInDetailPage /></ProtectedRoute>} />
-            <Route path="/send-bulk-email" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'HR']}><SendBulkEmailPage /></ProtectedRoute>} />
+            <Route path="/send-bulk-email" element={<Navigate to="/bulk-email" replace />} />
             <Route path="/bulk-email" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'HR']}><BulkEmailPage /></ProtectedRoute>} />
             <Route path="/whatsapp" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'HR']}><WhatsAppPage /></ProtectedRoute>} />
             <Route path="/exit-management" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><ExitManagementPage /></ProtectedRoute>} />

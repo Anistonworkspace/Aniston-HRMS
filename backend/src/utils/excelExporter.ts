@@ -123,3 +123,75 @@ export async function generateAttendanceSummaryExcel(data: AttendanceForExcel[])
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
+
+interface LeaveForExcel {
+  employeeCode: string;
+  employeeName: string;
+  department: string;
+  leaveType: string;
+  startDate: Date | string;
+  endDate: Date | string;
+  days: number;
+  status: string;
+  reason: string;
+}
+
+export async function generateLeaveReportExcel(data: LeaveForExcel[], period: string): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Aniston HRMS';
+  workbook.created = new Date();
+
+  const sheetName = `Leave Report${period ? ` - ${period}` : ''}`.slice(0, 31); // Excel sheet name limit
+  const sheet = workbook.addWorksheet(sheetName, {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  });
+
+  sheet.columns = [
+    { header: 'Employee Code', key: 'code', width: 16 },
+    { header: 'Employee Name', key: 'name', width: 28 },
+    { header: 'Department', key: 'department', width: 22 },
+    { header: 'Leave Type', key: 'leaveType', width: 18 },
+    { header: 'From', key: 'from', width: 14 },
+    { header: 'To', key: 'to', width: 14 },
+    { header: 'Days', key: 'days', width: 8 },
+    { header: 'Status', key: 'status', width: 14 },
+    { header: 'Reason', key: 'reason', width: 40 },
+  ];
+
+  styleHeaderRow(sheet.getRow(1));
+
+  const statusColors: Record<string, string> = {
+    APPROVED: 'D1FAE5',
+    PENDING: 'FEF3C7',
+    REJECTED: 'FEE2E2',
+  };
+
+  for (const record of data) {
+    const row = sheet.addRow({
+      code: record.employeeCode,
+      name: record.employeeName,
+      department: record.department,
+      leaveType: record.leaveType,
+      from: record.startDate instanceof Date ? record.startDate.toLocaleDateString('en-IN') : record.startDate,
+      to: record.endDate instanceof Date ? record.endDate.toLocaleDateString('en-IN') : record.endDate,
+      days: record.days,
+      status: record.status,
+      reason: record.reason,
+    });
+
+    const bgColor = statusColors[record.status];
+    if (bgColor) {
+      const statusCell = row.getCell('status');
+      statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+    } else if (row.number % 2 === 0) {
+      row.eachCell((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F3F4F6' } };
+      });
+    }
+  }
+
+  sheet.autoFilter = { from: 'A1', to: `I${data.length + 1}` };
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}

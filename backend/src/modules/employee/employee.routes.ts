@@ -3,7 +3,7 @@ import { employeeController } from './employee.controller.js';
 import { authenticate, requirePermission, requirePermissionOrOwn } from '../../middleware/auth.middleware.js';
 import { employeeDeletionController } from '../employee-deletion/employee-deletion.controller.js';
 import { env } from '../../config/env.js';
-import { uploadProfilePhoto } from '../../middleware/upload.middleware.js';
+import { uploadProfilePhoto, uploadEmailAttachment } from '../../middleware/upload.middleware.js';
 
 const router = Router();
 
@@ -94,6 +94,14 @@ router.post('/bulk-email', requirePermission('employee', 'manage'), (req, res, n
 // HR: Preview recipient count for bulk email filters
 router.get('/bulk-email/preview', requirePermission('employee', 'manage'), (req, res, next) =>
   employeeController.bulkEmailPreview(req, res, next)
+);
+
+// HR: Unified bulk email — merges all send modes + attachment support
+router.post(
+  '/unified-bulk-email',
+  requirePermission('employee', 'manage'),
+  uploadEmailAttachment.array('attachments', 5),
+  (req, res, next) => employeeController.sendUnifiedBulkEmail(req, res, next)
 );
 
 // Org Chart: full hierarchy tree (no pagination)

@@ -51,6 +51,8 @@ export const StorageFolder = {
   AGENT_SCREENSHOTS: 'agent-screenshots',
   /** Database backup dumps — never served statically, streamed with auth only */
   BACKUPS: 'backups',
+  /** Email attachments uploaded by HR for bulk email sends */
+  EMAIL_ATTACHMENTS: 'email-attachments',
 } as const;
 
 export type StorageFolder = typeof StorageFolder[keyof typeof StorageFolder];
@@ -89,7 +91,7 @@ class LocalStorageService {
     const foldersToInit = [
       'policies', 'branding', 'employee-documents', 'resumes/bulk',
       'resumes/individual', 'profiles', 'attendance/photos', 'payroll',
-      'letters', 'walkin', 'agent-screenshots', 'backups',
+      'letters', 'walkin', 'agent-screenshots', 'backups', 'email-attachments',
     ];
     for (const folder of foldersToInit) {
       const dir = path.join(this.uploadsRoot, folder);

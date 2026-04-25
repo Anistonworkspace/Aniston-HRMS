@@ -100,6 +100,7 @@ export async function enqueueEmail(data: {
   subject: string;
   template: string;
   context: Record<string, any>;
+  attachments?: { filename: string; path: string }[];
 }) {
   return emailQueue.add('send-email', data, {
     attempts: 3,

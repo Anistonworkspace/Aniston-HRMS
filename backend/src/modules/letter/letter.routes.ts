@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { letterController } from './letter.controller.js';
 import { authenticate, requirePermission, authorize } from '../../middleware/auth.middleware.js';
+import { uploadLetterPdf } from '../../middleware/upload.middleware.js';
 import { Role } from '@aniston/shared';
 
 const router = Router();
@@ -40,6 +41,16 @@ router.get('/:id/download', requirePermission('letter', 'read'), (req, res, next
 // Create letter (generates PDF + assigns to employee)
 router.post('/', requirePermission('letter', 'create'), (req, res, next) =>
   letterController.create(req, res, next)
+);
+
+// Preview letter as PDF without saving to DB
+router.post('/preview', requirePermission('letter', 'create'), (req, res, next) =>
+  letterController.preview(req, res, next)
+);
+
+// Upload a pre-made PDF letter and assign to employee
+router.post('/upload', requirePermission('letter', 'create'), uploadLetterPdf.single('file'), (req, res, next) =>
+  letterController.uploadPdf(req, res, next)
 );
 
 // Assign letter to more employees

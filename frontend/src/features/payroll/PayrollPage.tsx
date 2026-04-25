@@ -5,7 +5,7 @@ import {
   DollarSign, Play, Download, Eye, Plus, Calendar, Upload, FileSpreadsheet,
   Loader2, Filter, ChevronDown, ChevronUp, IndianRupee, TrendingDown,
   Briefcase, FileText, Lock, Unlock, CheckCircle2, XCircle, AlertTriangle,
-  Search, Users, BarChart3, Shield, PlusCircle, Trash2, Clock, Mail,
+  Search, Users, Shield, PlusCircle, Trash2, Clock, Mail,
 } from 'lucide-react';
 import {
   useGetPayrollRunsQuery,
@@ -163,13 +163,7 @@ function PayrollAdminView() {
     );
   }, [runs, searchTerm]);
 
-  // Summary stats
-  const completedRuns = runs.filter((r: any) => ['COMPLETED', 'LOCKED'].includes(r.status));
-  const totalGrossAll = completedRuns.reduce((s: number, r: any) => s + Number(r.totalGross || 0), 0);
-  const totalNetAll = completedRuns.reduce((s: number, r: any) => s + Number(r.totalNet || 0), 0);
-  const totalDeductionsAll = completedRuns.reduce((s: number, r: any) => s + Number(r.totalDeductions || 0), 0);
-
-  const handleCreateRun = async () => {
+const handleCreateRun = async () => {
     try {
       await createRun({ month: newRunMonth, year: newRunYear }).unwrap();
       toast.success(t('payroll.payrollCreated'));
@@ -257,55 +251,6 @@ function PayrollAdminView() {
         </div>
       </div>
 
-      {/* Summary cards */}
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-        <div className="stat-card">
-          <div className="flex items-center justify-between mb-2">
-            <BarChart3 size={18} className="text-brand-500" />
-            <span className="text-[10px] font-medium text-gray-400 uppercase">Runs</span>
-          </div>
-          <p className="text-xl md:text-2xl font-bold font-mono text-gray-900" data-mono>{runs.length}</p>
-          <p className="text-[10px] text-gray-500 mt-1">{completedRuns.length} completed</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center justify-between mb-2">
-            <Calendar size={18} className="text-blue-500" />
-            <span className="text-[10px] font-medium text-gray-400 uppercase">Latest</span>
-          </div>
-          <p className="text-lg font-bold text-gray-900">
-            {runs[0] ? `${MONTH_NAMES[runs[0].month - 1]} ${runs[0].year}` : '—'}
-          </p>
-          <p className="text-[10px] text-gray-500 mt-1">{runs[0] ? t(STATUS_MAP[runs[0].status]?.labelKey) : 'No runs'}</p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center justify-between mb-2">
-            <DollarSign size={18} className="text-emerald-500" />
-            <span className="text-[10px] font-medium text-gray-400 uppercase">{t('payroll.totalGross')}</span>
-          </div>
-          <p className="text-lg font-bold font-mono text-gray-900" data-mono>
-            {totalGrossAll > 0 ? formatCurrency(totalGrossAll) : '—'}
-          </p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center justify-between mb-2">
-            <IndianRupee size={18} className="text-emerald-600" />
-            <span className="text-[10px] font-medium text-gray-400 uppercase">{t('payroll.totalNet')}</span>
-          </div>
-          <p className="text-lg font-bold font-mono text-emerald-600" data-mono>
-            {totalNetAll > 0 ? formatCurrency(totalNetAll) : '—'}
-          </p>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center justify-between mb-2">
-            <TrendingDown size={18} className="text-red-400" />
-            <span className="text-[10px] font-medium text-gray-400 uppercase">{t('payroll.deductions')}</span>
-          </div>
-          <p className="text-lg font-bold font-mono text-red-500" data-mono>
-            {totalDeductionsAll > 0 ? formatCurrency(totalDeductionsAll) : '—'}
-          </p>
-        </div>
-      </div>
 
       {/* New Payroll Run Modal */}
       <AnimatePresence>

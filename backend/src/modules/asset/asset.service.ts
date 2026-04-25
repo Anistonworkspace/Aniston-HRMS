@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, ConflictError, BadRequestError, AppError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
+import { enqueueEmail } from '../../jobs/queues.js';
 import { logger } from '../../lib/logger.js';
 import type { CreateAssetInput, UpdateAssetInput, AssignAssetInput, ReturnAssetInput, ExitChecklistItemInput, AssetQuery } from './asset.validation.js';
 
@@ -131,12 +132,13 @@ export class AssetService {
 
     const employee = await prisma.employee.findFirst({
       where: { id: data.employeeId, organizationId: asset.organizationId, deletedAt: null },
+      include: { user: { select: { email: true } }, organization: { select: { name: true } } },
     });
     if (!employee) throw new NotFoundError('Employee');
 
     try {
-      return await prisma.$transaction(async (tx) => {
-        const assignment = await tx.assetAssignment.create({
+      const assignment = await prisma.$transaction(async (tx) => {
+        const created = await tx.assetAssignment.create({
           data: {
             assetId: data.assetId,
             employeeId: data.employeeId,
@@ -157,8 +159,34 @@ export class AssetService {
           data: { status: 'ASSIGNED' },
         });
 
-        return assignment;
+        return created;
       });
+
+      // Send email notification to employee (non-blocking)
+      const employeeEmail = (employee as any).user?.email;
+      if (employeeEmail) {
+        enqueueEmail({
+          to: employeeEmail,
+          subject: `Asset Assigned: ${asset.name}`,
+          template: 'asset-assigned',
+          context: {
+            employeeName: `${employee.firstName} ${employee.lastName}`,
+            assetName: asset.name,
+            assetCode: (asset as any).assetCode || null,
+            category: (asset as any).category || null,
+            brand: (asset as any).brand || null,
+            model: (asset as any).modelNumber || null,
+            serialNumber: (asset as any).serialNumber || null,
+            condition: data.condition || null,
+            notes: data.notes || null,
+            assignedAt: new Date().toISOString(),
+            orgName: (employee as any).organization?.name || 'Aniston Technologies',
+            hrmsUrl: 'https://hr.anistonav.com/my-assets',
+          },
+        }).catch((err) => logger.warn(`[Asset] Email notification failed: ${err.message}`));
+      }
+
+      return assignment;
     } catch (err: any) {
       if (err instanceof BadRequestError || err instanceof NotFoundError) throw err;
       logger.error(`[Asset] assign() transaction failed: ${err.message}`);

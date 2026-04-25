@@ -63,6 +63,17 @@ export const letterApi = api.injectEndpoints({
       query: (id) => ({ url: `/letters/${id}`, method: 'DELETE' }),
       invalidatesTags: [{ type: 'Letter', id: 'LIST' }, { type: 'Letter', id: 'MY' }],
     }),
+
+    // Upload a pre-made PDF and assign to employee
+    uploadLetterFile: builder.mutation<any, FormData>({
+      query: (formData) => ({
+        url: '/letters/upload',
+        method: 'POST',
+        body: formData,
+        formData: true,
+      }),
+      invalidatesTags: [{ type: 'Letter', id: 'LIST' }, { type: 'Letter', id: 'MY' }],
+    }),
   }),
 });
 
@@ -75,4 +86,5 @@ export const {
   useAssignLetterMutation,
   useUpdateLetterAssignmentMutation,
   useDeleteLetterMutation,
+  useUploadLetterFileMutation,
 } = letterApi;

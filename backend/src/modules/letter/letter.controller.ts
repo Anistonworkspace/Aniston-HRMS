@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { letterService } from './letter.service.js';
 import { createLetterSchema, assignLetterSchema, updateAssignmentSchema } from './letter.validation.js';
+import { BadRequestError } from '../../middleware/errorHandler.js';
 import { Role } from '@aniston/shared';
 
 const ADMIN_ROLES: string[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR];
@@ -29,6 +30,23 @@ export class LetterController {
       const data = createLetterSchema.parse(req.body);
       const letter = await letterService.create(data, req.user!.userId, req.user!.organizationId);
       res.status(201).json({ success: true, data: letter, message: 'Letter created and assigned' });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // Preview letter PDF without saving — streams buffer back to HR
+  async preview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = createLetterSchema.parse(req.body);
+      const pdfBuffer = await letterService.preview(data, req.user!.organizationId);
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'inline; filename="letter-preview.pdf"',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+        'Pragma': 'no-cache',
+      });
+      res.end(pdfBuffer);
     } catch (err) {
       next(err);
     }
@@ -86,6 +104,26 @@ export class LetterController {
     try {
       const templates = await letterService.getTemplates(req.user!.organizationId);
       res.json({ success: true, data: templates });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // Upload a pre-made PDF and assign to employee
+  async uploadPdf(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.file) throw new BadRequestError('No PDF file uploaded');
+      const { type, title, employeeId, downloadAllowed } = req.body;
+      if (!type || !title || !employeeId) throw new BadRequestError('type, title and employeeId are required');
+
+      const letter = await letterService.createFromUpload(
+        { type, title, employeeId, downloadAllowed: downloadAllowed === 'true' || downloadAllowed === true },
+        req.file.buffer,
+        req.file.originalname,
+        req.user!.userId,
+        req.user!.organizationId,
+      );
+      res.status(201).json({ success: true, data: letter, message: 'Letter uploaded and assigned' });
     } catch (err) {
       next(err);
     }

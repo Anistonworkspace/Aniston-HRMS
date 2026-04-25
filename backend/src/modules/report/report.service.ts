@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { NotFoundError, BadRequestError } from '../../middleware/errorHandler.js';
 import { decrypt } from '../../utils/encryption.js';
-import type { AttendanceSummaryQuery, LeaveSummaryQuery } from './report.validation.js';
+import type { AttendanceSummaryQuery, LeaveSummaryQuery, AttendanceDetailQuery, LeaveDetailQuery } from './report.validation.js';
 
 export class ReportService {
   async getEmployeesForExcel(organizationId: string) {
@@ -330,6 +330,153 @@ export class ReportService {
       }
       return r;
     });
+  }
+
+  async getAttendanceDetail(organizationId: string, query: AttendanceDetailQuery) {
+    const now = new Date();
+    const from = query.from ? new Date(query.from) : new Date(now.getFullYear(), now.getMonth(), 1);
+    const to = query.to ? new Date(query.to) : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const skip = (query.page - 1) * query.limit;
+
+    const where: any = {
+      employee: {
+        organizationId,
+        deletedAt: null,
+        ...(query.departmentId && { departmentId: query.departmentId }),
+      },
+      date: { gte: from, lte: to },
+      ...(query.employeeId && { employeeId: query.employeeId }),
+      ...(query.status && { status: query.status }),
+    };
+
+    const [records, total, statusCounts] = await Promise.all([
+      prisma.attendanceRecord.findMany({
+        where,
+        include: {
+          employee: {
+            select: {
+              firstName: true, lastName: true, employeeCode: true,
+              department: { select: { name: true } },
+              designation: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: [{ date: 'desc' }, { employee: { firstName: 'asc' } }],
+        skip,
+        take: query.limit,
+      }),
+      prisma.attendanceRecord.count({ where }),
+      prisma.attendanceRecord.groupBy({
+        by: ['status'], _count: true, where,
+      }),
+    ]);
+
+    return {
+      records: records.map((r) => ({
+        id: r.id,
+        employeeCode: r.employee.employeeCode,
+        employeeName: `${r.employee.firstName} ${r.employee.lastName}`,
+        department: r.employee.department?.name || 'Unassigned',
+        designation: r.employee.designation?.name || '',
+        date: r.date,
+        status: r.status,
+        checkIn: r.checkIn,
+        checkOut: r.checkOut,
+        totalHours: r.totalHours ? Number(r.totalHours) : null,
+        workMode: r.workMode || null,
+      })),
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit),
+      },
+      summary: {
+        present: statusCounts.find((s) => s.status === 'PRESENT')?._count || 0,
+        absent: statusCounts.find((s) => s.status === 'ABSENT')?._count || 0,
+        halfDay: statusCounts.find((s) => s.status === 'HALF_DAY')?._count || 0,
+        onLeave: statusCounts.find((s) => s.status === 'ON_LEAVE')?._count || 0,
+        total,
+      },
+      period: { from, to },
+    };
+  }
+
+  async getLeaveDetail(organizationId: string, query: LeaveDetailQuery) {
+    const year = query.year || new Date().getFullYear();
+    const skip = (query.page - 1) * query.limit;
+
+    const startBound = query.month
+      ? new Date(year, query.month - 1, 1)
+      : new Date(year, 0, 1);
+    const endBound = query.month
+      ? new Date(year, query.month, 0)
+      : new Date(year, 11, 31);
+
+    const where: any = {
+      employee: {
+        organizationId,
+        deletedAt: null,
+        ...(query.departmentId && { departmentId: query.departmentId }),
+      },
+      startDate: { gte: startBound, lte: endBound },
+      ...(query.leaveTypeId && { leaveTypeId: query.leaveTypeId }),
+      ...(query.status && { status: query.status }),
+    };
+
+    const [requests, total, statusCounts, leaveTypes] = await Promise.all([
+      prisma.leaveRequest.findMany({
+        where,
+        include: {
+          employee: {
+            select: {
+              firstName: true, lastName: true, employeeCode: true,
+              department: { select: { name: true } },
+            },
+          },
+          leaveType: { select: { name: true, code: true } },
+        },
+        orderBy: { startDate: 'desc' },
+        skip,
+        take: query.limit,
+      }),
+      prisma.leaveRequest.count({ where }),
+      prisma.leaveRequest.groupBy({ by: ['status'], _count: true, where }),
+      prisma.leaveType.findMany({
+        where: { organizationId },
+        select: { id: true, name: true, code: true },
+      }),
+    ]);
+
+    return {
+      records: requests.map((r) => ({
+        id: r.id,
+        employeeCode: r.employee.employeeCode,
+        employeeName: `${r.employee.firstName} ${r.employee.lastName}`,
+        department: r.employee.department?.name || 'Unassigned',
+        leaveType: r.leaveType?.name || '',
+        leaveCode: r.leaveType?.code || '',
+        startDate: r.startDate,
+        endDate: r.endDate,
+        days: Number(r.days),
+        status: r.status,
+        reason: r.reason,
+      })),
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit),
+      },
+      summary: {
+        approved: statusCounts.find((s) => s.status === 'APPROVED')?._count || 0,
+        pending: statusCounts.find((s) => s.status === 'PENDING')?._count || 0,
+        rejected: statusCounts.find((s) => s.status === 'REJECTED')?._count || 0,
+        total,
+      },
+      leaveTypes,
+      period: { from: startBound, to: endBound },
+    };
   }
 
   async getRecruitmentFunnel(organizationId: string) {

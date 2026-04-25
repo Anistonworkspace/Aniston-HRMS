@@ -9,6 +9,7 @@ interface EmailJob {
   subject: string;
   template: string;
   context: Record<string, any>;
+  attachments?: { filename: string; path: string }[];
 }
 
 // Shared email layout wrapper — Outlook-compatible (uses tables, no flexbox)
@@ -1281,6 +1282,59 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
   ),
 
   // ── Onboarding Completed — sent to admin when an employee finishes onboarding ──
+  'asset-assigned': (ctx) => emailLayout(
+    'linear-gradient(135deg,#0EA5E9 0%,#0284C7 100%)', '&#128187;',
+    'Asset Assigned to You',
+    `${esc(ctx.assetName)} has been assigned to you`,
+    `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      Hi <strong>${esc(ctx.employeeName)}</strong>, an asset has been assigned to you. Please acknowledge receipt and take good care of it.
+    </p>
+
+    <!-- Asset details -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0F9FF;border:1px solid #BAE6FD;margin:0 0 20px;">
+      <tr><td style="padding:20px;">
+        <p style="color:#0369A1;font-weight:700;font-size:14px;margin:0 0 12px;">&#128187; Asset Details</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;width:140px;border-bottom:1px solid #E0F2FE;">Asset Name</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:700;border-bottom:1px solid #E0F2FE;">${esc(ctx.assetName)}</td>
+          </tr>
+          ${ctx.assetCode ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #E0F2FE;">Asset Code</td><td style="padding:6px 0;color:#0369A1;font-size:13px;font-weight:600;font-family:monospace;border-bottom:1px solid #E0F2FE;">${esc(ctx.assetCode)}</td></tr>` : ''}
+          ${ctx.category ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #E0F2FE;">Category</td><td style="padding:6px 0;color:#111827;font-size:13px;border-bottom:1px solid #E0F2FE;">${esc(ctx.category)}</td></tr>` : ''}
+          ${ctx.brand ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #E0F2FE;">Brand / Model</td><td style="padding:6px 0;color:#111827;font-size:13px;border-bottom:1px solid #E0F2FE;">${esc(ctx.brand)}${ctx.model ? ` ${esc(ctx.model)}` : ''}</td></tr>` : ''}
+          ${ctx.serialNumber ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #E0F2FE;">Serial No.</td><td style="padding:6px 0;color:#111827;font-size:13px;font-family:monospace;border-bottom:1px solid #E0F2FE;">${esc(ctx.serialNumber)}</td></tr>` : ''}
+          ${ctx.condition ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px;border-bottom:1px solid #E0F2FE;">Condition</td><td style="padding:6px 0;color:#111827;font-size:13px;border-bottom:1px solid #E0F2FE;">${esc(ctx.condition)}</td></tr>` : ''}
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:13px;">Assigned On</td>
+            <td style="padding:6px 0;color:#111827;font-size:13px;">${ctx.assignedAt ? new Date(ctx.assignedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctx.notes ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FFFBEB;border:1px solid #FDE68A;margin:0 0 20px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="color:#92400E;font-weight:600;font-size:13px;margin:0 0 6px;">&#128221; Notes from Admin</p>
+        <p style="color:#78350F;font-size:13px;margin:0;font-style:italic;">"${esc(ctx.notes)}"</p>
+      </td></tr>
+    </table>` : ''}
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F0FDF4;border:1px solid #BBF7D0;margin:0 0 20px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="color:#14532D;font-weight:600;font-size:13px;margin:0 0 8px;">&#9989; Your Responsibilities</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr><td style="padding:3px 0;color:#166534;font-size:12px;">&#8226; Keep this asset in good condition</td></tr>
+          <tr><td style="padding:3px 0;color:#166534;font-size:12px;">&#8226; Report any damage or theft immediately to IT/Admin</td></tr>
+          <tr><td style="padding:3px 0;color:#166534;font-size:12px;">&#8226; Return the asset when requested or upon exit</td></tr>
+          <tr><td style="padding:3px 0;color:#166534;font-size:12px;">&#8226; Do not share company assets with external parties</td></tr>
+        </table>
+      </td></tr>
+    </table>
+
+    ${ctaButton(ctx.hrmsUrl || 'https://hr.anistonav.com/my-assets', 'View My Assets')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
+
   'onboarding-completed': (ctx) => emailLayout(
     'linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%)', '&#127881;',
     'New Employee Onboarding Complete',
@@ -1492,7 +1546,12 @@ async function sendViaGraphApi(
   }
 }
 
-async function sendEmail(to: string, subject: string, html: string) {
+async function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  attachments?: { filename: string; path: string }[]
+) {
   const config = await getEmailConfig();
 
   if (!config) {
@@ -1502,7 +1561,10 @@ async function sendEmail(to: string, subject: string, html: string) {
 
   try {
     if (config.authMethod === 'oauth2') {
-      // Microsoft 365 Graph API
+      // Microsoft 365 Graph API — attachments not supported via this path
+      if (attachments?.length) {
+        logger.warn(`[EmailAttachment] ${attachments.length} attachment(s) skipped — Graph API path does not support file attachments. Use SMTP to send attachments.`);
+      }
       await sendViaGraphApi(
         {
           tenantId: config.tenantId!,
@@ -1528,6 +1590,7 @@ async function sendEmail(to: string, subject: string, html: string) {
       await transporter.sendMail({
         from: `"${config.fromName}" <${config.fromAddress}>`,
         to, subject, html,
+        attachments: attachments?.map((a) => ({ filename: a.filename, path: a.path })),
       });
       logger.info(`Email sent via SMTP to ${to}: ${subject}`);
     }
@@ -1543,10 +1606,10 @@ export function startEmailWorker() {
   const worker = new Worker<EmailJob>(
     'email',
     async (job: Job<EmailJob>) => {
-      const { to, subject, template, context } = job.data;
+      const { to, subject, template, context, attachments } = job.data;
       const templateFn = templates[template] || templates.generic;
       const html = templateFn(context);
-      await sendEmail(to, subject, html);
+      await sendEmail(to, subject, html, attachments);
     },
     { connection: bullmqConnection, concurrency: 5 }
   );

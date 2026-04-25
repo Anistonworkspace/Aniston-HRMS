@@ -86,6 +86,7 @@ export class LetterService {
       salary: data.content?.salary || (employee.ctc ? String(employee.ctc) : undefined),
       lastWorkingDate: data.content?.lastWorkingDate || (employee.lastWorkingDate ? employee.lastWorkingDate.toISOString() : undefined),
       resignationDate: data.content?.resignationDate || (employee.resignationDate ? employee.resignationDate.toISOString() : undefined),
+      customBody: data.content?.customBody,
       customFields: data.content?.customFields,
     };
 
@@ -144,6 +145,44 @@ export class LetterService {
     });
 
     return letter;
+  }
+
+  // Preview letter as PDF buffer — no DB writes
+  async preview(data: CreateLetterInput, organizationId: string): Promise<Buffer> {
+    const employee = await prisma.employee.findFirst({
+      where: { id: data.employeeId, organizationId },
+      include: {
+        department: { select: { name: true } },
+        designation: { select: { name: true } },
+        salaryStructure: true,
+        organization: { select: { name: true, address: true } },
+      },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const branding = await prisma.companyBranding.findUnique({ where: { organizationId } });
+
+    const letterData = {
+      employeeName: `${employee.firstName} ${employee.lastName}`,
+      employeeCode: employee.employeeCode,
+      designation: data.content?.designation || employee.designation?.name || 'N/A',
+      department: data.content?.department || employee.department?.name || 'N/A',
+      joiningDate: data.content?.joiningDate || employee.joiningDate.toISOString(),
+      salary: data.content?.salary || (employee.ctc ? String(employee.ctc) : undefined),
+      lastWorkingDate: data.content?.lastWorkingDate || (employee.lastWorkingDate ? employee.lastWorkingDate.toISOString() : undefined),
+      resignationDate: data.content?.resignationDate || (employee.resignationDate ? employee.resignationDate.toISOString() : undefined),
+      customBody: data.content?.customBody,
+      customFields: data.content?.customFields,
+    };
+
+    return generateLetterPDF(
+      data.type,
+      data.templateSlug || 'modern-minimal',
+      letterData,
+      branding,
+      employee.organization.name,
+      employee.organization.address,
+    );
   }
 
   // Assign existing letter to more employees
@@ -293,6 +332,61 @@ export class LetterService {
         data: { downloadedAt: new Date() },
       });
     }
+  }
+
+  // Create letter from an uploaded PDF (no template generation)
+  async createFromUpload(
+    data: { type: string; title: string; employeeId: string; downloadAllowed: boolean },
+    fileBuffer: Buffer,
+    originalName: string,
+    userId: string,
+    organizationId: string,
+  ) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: data.employeeId, organizationId },
+      select: { id: true, firstName: true, lastName: true, employeeCode: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const outputDir = storageService.getAbsoluteDir(`letters/${organizationId}`);
+    const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const fileName = `UPLOAD-${employee.employeeCode || 'EMP'}-${Date.now()}-${safeName}`;
+    const outputPath = path.join(outputDir, fileName);
+    await fs.promises.writeFile(outputPath, fileBuffer);
+    const filePath = storageService.buildUrl(`letters/${organizationId}`, fileName);
+
+    return await prisma.$transaction(async (tx) => {
+      const letter = await tx.letter.create({
+        data: {
+          type: data.type as LetterType,
+          title: data.title,
+          content: { source: 'upload', originalName },
+          filePath,
+          organizationId,
+          issuedById: userId,
+        },
+      });
+
+      await tx.letterAssignment.create({
+        data: {
+          letterId: letter.id,
+          employeeId: data.employeeId,
+          organizationId,
+          downloadAllowed: data.downloadAllowed,
+        },
+      });
+
+      await createAuditLog({
+        userId,
+        entity: 'Letter',
+        entityId: letter.id,
+        action: 'CREATE',
+        newValue: { title: data.title, type: data.type, employeeId: data.employeeId, method: 'upload' },
+        organizationId,
+      });
+
+      return letter;
+    });
   }
 
   // Get available templates

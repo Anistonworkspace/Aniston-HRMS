@@ -314,6 +314,12 @@ export interface HRDashboardStats {
 
   // Today's leave details
   todayLeaves: { id: string; employeeName: string; leaveType: string; days: number }[];
+
+  // Recent pending leave requests (HR quick-view panel)
+  recentLeaveRequests?: { id: string; employeeName: string; leaveType: string; startDate: string; endDate: string; days: number }[];
+
+  // HR KPIs
+  hrKpis?: { totalEmployees: number; pendingOnboarding: number };
 }
 
 export interface AttentionItem {

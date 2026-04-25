@@ -333,6 +333,212 @@ export class EmployeeController {
     }
   }
 
+  async sendUnifiedBulkEmail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const schema = z.object({
+        // Recipient mode: 'selected' = specific employee IDs, 'filter' = dept/role/status filters, 'manual' = raw emails (for onboarding)
+        recipientMode: z.enum(['selected', 'filter', 'manual']),
+        employeeIds: z.preprocess((v) => {
+          if (typeof v === 'string') { try { return JSON.parse(v); } catch { return []; } }
+          return v;
+        }, z.array(z.string()).optional()),
+        manualEmails: z.preprocess((v) => {
+          if (typeof v === 'string') { try { return JSON.parse(v); } catch { return []; } }
+          return v;
+        }, z.array(z.string().email()).optional()),
+        filterDepartmentIds: z.preprocess((v) => typeof v === 'string' ? JSON.parse(v) : v, z.array(z.string()).optional()),
+        filterDesignationIds: z.preprocess((v) => typeof v === 'string' ? JSON.parse(v) : v, z.array(z.string()).optional()),
+        filterStatuses: z.preprocess((v) => typeof v === 'string' ? JSON.parse(v) : v, z.array(z.string()).optional()),
+        filterRoles: z.preprocess((v) => typeof v === 'string' ? JSON.parse(v) : v, z.array(z.string()).optional()),
+        // Template
+        templateType: z.enum([
+          'CUSTOM', 'WELCOME', 'PAYROLL_REMINDER', 'ATTENDANCE_REMINDER', 'ANNOUNCEMENT',
+          'app-download', 'attendance-instructions', 'onboarding-invite',
+        ]),
+        subject: z.string().max(200).optional(),
+        body: z.string().max(10000).optional(),
+        testEmail: z.string().email().optional(),
+      });
+
+      const data = schema.parse(req.body);
+      const { enqueueEmail } = await import('../../jobs/queues.js');
+      const { prisma } = await import('../../lib/prisma.js');
+
+      // Build attachment list from uploaded files
+      const uploadedFiles = (req.files as Express.Multer.File[]) ?? [];
+      const attachments = uploadedFiles.map((f) => ({
+        filename: f.originalname,
+        path: f.path,
+      }));
+
+      const org = await prisma.organization.findUnique({
+        where: { id: req.user!.organizationId },
+        select: { name: true },
+      });
+      const orgName = org?.name || 'Aniston Technologies';
+      const downloadUrl = 'https://hr.anistonav.com/download';
+
+      // Test email shortcut
+      if (data.testEmail) {
+        const subject = data.subject || `[TEST] ${data.templateType}`;
+        const body = data.body || '';
+        await enqueueEmail({
+          to: data.testEmail,
+          subject: `[TEST] ${subject}`,
+          template: 'generic',
+          context: { title: subject, message: body },
+          attachments,
+        });
+        res.json({ success: true, data: { queued: 1, testMode: true }, message: `Test email sent to ${data.testEmail}` });
+        return;
+      }
+
+      // Onboarding-invite: only supports 'selected' and 'manual' modes
+      if (data.templateType === 'onboarding-invite') {
+        if (data.recipientMode === 'filter') {
+          res.status(400).json({ success: false, error: { message: 'Onboarding invites cannot be sent using group filters. Please select employees individually or enter emails manually.' } });
+          return;
+        }
+        let emails: string[] = [];
+        if (data.recipientMode === 'manual' && data.manualEmails?.length) {
+          emails = data.manualEmails;
+        } else if (data.recipientMode === 'selected' && data.employeeIds?.length) {
+          const emps = await prisma.employee.findMany({
+            where: { id: { in: data.employeeIds }, organizationId: req.user!.organizationId, deletedAt: null },
+            select: { email: true },
+          });
+          emails = emps.filter((e) => !!e.email).map((e) => e.email!);
+        }
+        if (!emails.length) {
+          res.status(400).json({ success: false, error: { message: 'No emails to send onboarding invites to' } });
+          return;
+        }
+        let sent = 0;
+        const errors: string[] = [];
+        await Promise.all(emails.map(async (email) => {
+          try {
+            await enqueueEmail({
+              to: email,
+              subject: `You're invited to join ${orgName} — Complete your onboarding`,
+              template: 'onboarding-invite',
+              context: { orgName, email, downloadUrl, androidDownloadUrl: `${downloadUrl}/android`, iosDownloadUrl: `${downloadUrl}/ios` },
+              attachments,
+            });
+            sent++;
+          } catch (e: any) {
+            errors.push(`${email}: ${e?.message}`);
+          }
+        }));
+        res.json({ success: true, data: { queued: sent, sentCount: sent, skippedCount: errors.length, errors }, message: `${sent} onboarding invites queued` });
+        return;
+      }
+
+      // manual mode for non-onboarding templates: send directly to the provided email addresses
+      if (data.recipientMode === 'manual') {
+        if (!data.manualEmails?.length) {
+          res.status(400).json({ success: false, error: { message: 'No emails provided. Add at least one email address.' } });
+          return;
+        }
+        const isCustom = ['CUSTOM', 'WELCOME', 'PAYROLL_REMINDER', 'ATTENDANCE_REMINDER', 'ANNOUNCEMENT'].includes(data.templateType);
+        if (isCustom && (!data.subject?.trim() || !data.body?.trim())) {
+          res.status(400).json({ success: false, error: { message: 'Subject and body are required.' } });
+          return;
+        }
+        let queued = 0;
+        await Promise.all(data.manualEmails.map(async (email) => {
+          try {
+            if (data.templateType === 'app-download') {
+              await enqueueEmail({ to: email, subject: `📲 Download Aniston HRMS App — ${orgName}`, template: 'app-download', context: { orgName, downloadUrl }, attachments });
+            } else if (data.templateType === 'attendance-instructions') {
+              await enqueueEmail({ to: email, subject: `⏰ Attendance Instructions — ${orgName}`, template: 'attendance-instructions', context: { orgName, downloadUrl, hrEmail: 'hr@anistonav.com' }, attachments });
+            } else {
+              await enqueueEmail({ to: email, subject: data.subject!, template: 'generic', context: { title: data.subject, message: data.body, orgName }, attachments });
+            }
+            queued++;
+          } catch (e: any) {
+            console.error(`[UnifiedBulkEmail] Failed for ${email}:`, e?.message);
+          }
+        }));
+        res.json({ success: true, data: { queued, totalMatched: data.manualEmails.length }, message: `${queued} emails queued successfully` });
+        return;
+      }
+
+      // Build recipient list (selected or filter mode)
+      if (data.recipientMode === 'selected' && (!data.employeeIds || data.employeeIds.length === 0)) {
+        res.status(400).json({ success: false, error: { message: 'No employees selected. Please select at least one employee.' } });
+        return;
+      }
+
+      let employees: { id: string; firstName: string; lastName: string; email: string | null }[] = [];
+
+      if (data.recipientMode === 'selected' && data.employeeIds?.length) {
+        employees = await prisma.employee.findMany({
+          where: { id: { in: data.employeeIds }, organizationId: req.user!.organizationId, deletedAt: null },
+          select: { id: true, firstName: true, lastName: true, email: true },
+        });
+      } else if (data.recipientMode === 'filter') {
+        const where: Record<string, any> = { organizationId: req.user!.organizationId, deletedAt: null };
+        if (data.filterDepartmentIds?.length) where.departmentId = { in: data.filterDepartmentIds };
+        if (data.filterDesignationIds?.length) where.designationId = { in: data.filterDesignationIds };
+        if (data.filterStatuses?.length) where.status = { in: data.filterStatuses };
+        if (data.filterRoles?.length) where.user = { role: { in: data.filterRoles } };
+        employees = await prisma.employee.findMany({ where, select: { id: true, firstName: true, lastName: true, email: true } });
+      }
+
+      const eligible = employees.filter((e) => !!e.email);
+
+      const isCustom = ['CUSTOM', 'WELCOME', 'PAYROLL_REMINDER', 'ATTENDANCE_REMINDER', 'ANNOUNCEMENT'].includes(data.templateType);
+
+      if (isCustom && (!data.subject?.trim() || !data.body?.trim())) {
+        res.status(400).json({ success: false, error: { message: 'Subject and body are required for custom/generic emails' } });
+        return;
+      }
+
+      let queued = 0;
+      await Promise.all(eligible.map(async (emp) => {
+        try {
+          const employeeName = `${emp.firstName} ${emp.lastName}`;
+          if (data.templateType === 'app-download') {
+            await enqueueEmail({
+              to: emp.email!,
+              subject: `📲 Download Aniston HRMS App — ${orgName}`,
+              template: 'app-download',
+              context: { employeeName, orgName, downloadUrl },
+              attachments,
+            });
+          } else if (data.templateType === 'attendance-instructions') {
+            await enqueueEmail({
+              to: emp.email!,
+              subject: `⏰ Attendance Instructions — ${orgName}`,
+              template: 'attendance-instructions',
+              context: { employeeName, orgName, downloadUrl, hrEmail: 'hr@anistonav.com' },
+              attachments,
+            });
+          } else {
+            await enqueueEmail({
+              to: emp.email!,
+              subject: data.subject!,
+              template: 'generic',
+              context: { title: data.subject, message: data.body, employeeName, orgName },
+              attachments,
+            });
+          }
+          queued++;
+        } catch (e: any) {
+          console.error(`[UnifiedBulkEmail] Failed for ${emp.email}:`, e?.message);
+        }
+      }));
+
+      res.json({
+        success: true,
+        data: { queued, totalMatched: employees.length },
+        message: `${queued} emails queued successfully`,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
       await employeeService.softDelete(req.params.id, req.user!.organizationId, req.user!.userId);

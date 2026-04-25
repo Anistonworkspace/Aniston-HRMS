@@ -175,6 +175,18 @@ export const employeeApi = api.injectEndpoints({
       query: (params) => ({ url: '/employees/bulk-email/preview', params }),
     }),
 
+    // Unified bulk email — multipart/form-data with optional attachments
+    sendUnifiedBulkEmail: builder.mutation<
+      { success: boolean; data: { queued: number; totalMatched?: number; sentCount?: number }; message: string },
+      FormData
+    >({
+      query: (formData) => ({
+        url: '/employees/unified-bulk-email',
+        method: 'POST',
+        body: formData,
+      }),
+    }),
+
     // Org Chart — full tree (no pagination)
     getOrgChart: builder.query<{ success: boolean; data: any[] }, void>({
       query: () => '/employees/org-chart',
@@ -199,5 +211,6 @@ export const {
   useUpdateEmployeeManagerMutation,
   useSendEnhancedBulkEmailMutation,
   useGetBulkEmailPreviewQuery,
+  useSendUnifiedBulkEmailMutation,
   useGetOrgChartQuery,
 } = employeeApi;

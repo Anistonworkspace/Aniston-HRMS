@@ -49,8 +49,8 @@ export default function SecureDocumentViewer({
     if (pdfjsLib) return pdfjsLib;
     // @ts-ignore
     const lib = await import('pdfjs-dist');
-    // Use local worker file from /public instead of CDN to avoid network failures
-    lib.GlobalWorkerOptions.workerSrc = '/uploads/pdf.worker.min.mjs';
+    // Use local worker file from /public — served at root, not under /uploads
+    lib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
     pdfjsLib = lib;
     return lib;
   }, []);
@@ -72,7 +72,11 @@ export default function SecureDocumentViewer({
           headers: { Authorization: `Bearer ${token}` },
         });
 
-        if (!response.ok) throw new Error('Failed to load document');
+        if (!response.ok) {
+          let msg = 'Failed to load document';
+          try { const body = await response.json(); msg = body?.error?.message || msg; } catch { /* ignore */ }
+          throw new Error(msg);
+        }
 
         const arrayBuffer = await response.arrayBuffer();
         const pdf = await lib.getDocument({ data: arrayBuffer }).promise;

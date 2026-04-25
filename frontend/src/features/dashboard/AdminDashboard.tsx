@@ -11,10 +11,12 @@ import { useTranslation } from 'react-i18next';
 import { useAppSelector } from '../../app/store';
 import { useGetSuperAdminStatsQuery, useGetHRStatsQuery } from './dashboardApi';
 import { useGetHolidaysQuery } from '../leaves/leaveApi';
+import { useGetProfileEditRequestsForOrgQuery } from '../profile/profileEditRequestApi';
 import {
   AlertBanner, DashboardSection, StatusCard,
   ActionCard, QuickActionGrid, EmployeeListWidget, SkeletonLoader,
 } from './components';
+import { UserCog } from 'lucide-react';
 import type { SuperAdminDashboardStats, AttentionItem } from '@aniston/shared';
 
 // Lazy-load heavy chart components
@@ -50,6 +52,11 @@ function AdminDashboard() {
     pollingInterval: 60000,
   });
   const { data: holidaysRes } = useGetHolidaysQuery({});
+  const { data: pendingProfileRes } = useGetProfileEditRequestsForOrgQuery(
+    { status: 'PENDING', limit: 100 },
+    { skip: isSystemAdmin, pollingInterval: 60000 }
+  );
+  const pendingProfileEdits = pendingProfileRes?.data?.length || 0;
 
   const saStats = saResponse?.data;
   const hrStats = hrResponse?.data;
@@ -87,6 +94,7 @@ function AdminDashboard() {
       { label: 'Helpdesk Tickets', count: pa.helpdeskTickets, icon: Ticket, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200', path: '/helpdesk' },
       { label: 'Documents to Verify', count: pa.documentsToVerify, icon: FileCheck, color: 'text-teal-600', bg: 'bg-teal-50', border: 'border-teal-200', path: '/employees' },
       { label: 'Pending Onboarding', count: pa.pendingOnboarding, icon: UserPlus, color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200', path: '/employees' },
+      { label: 'Profile Edit Requests', count: pendingProfileEdits, icon: UserCog, color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200', path: '/employees' },
     ].filter((a) => a.count > 0);
   }, [hrStats, isSystemAdmin]);
 
@@ -94,8 +102,8 @@ function AdminDashboard() {
     if (!hrStats) return 0;
     const pa = hrStats.pendingActions;
     if (isSystemAdmin) return pa.helpdeskTickets;
-    return pa.leaveRequests + pa.regularizations + pa.helpdeskTickets + pa.documentsToVerify + pa.pendingOnboarding;
-  }, [hrStats, isSystemAdmin]);
+    return pa.leaveRequests + pa.regularizations + pa.helpdeskTickets + pa.documentsToVerify + pa.pendingOnboarding + pendingProfileEdits;
+  }, [hrStats, isSystemAdmin, pendingProfileEdits]);
 
   const upcomingHolidays = useMemo(() =>
     (holidaysRes?.data || [])
