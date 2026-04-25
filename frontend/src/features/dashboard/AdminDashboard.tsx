@@ -146,17 +146,6 @@ function AdminDashboard() {
 
   return (
     <div className="page-container pb-6">
-      {/* ═══ QUICK ACTIONS (All admin roles) ════════════════════ */}
-      <motion.div
-        variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
-        initial="hidden"
-        animate="show"
-        className="layer-card p-5 mb-6"
-      >
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
-        <QuickActionGrid actions={QUICK_ACTIONS} columns={isSystemAdmin ? 'grid-cols-2' : 'grid-cols-4 md:grid-cols-4'} />
-      </motion.div>
-
       {/* ═══ HEADER ══════════════════════════════════════════════ */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
         <h1 className="text-2xl md:text-3xl font-display font-bold text-gray-900">
@@ -220,6 +209,17 @@ function AdminDashboard() {
           </div>
         </motion.div>
       )}
+
+      {/* ═══ QUICK ACTIONS (All admin roles) ════════════════════ */}
+      <motion.div
+        variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
+        initial="hidden"
+        animate="show"
+        className="layer-card p-5 mb-6"
+      >
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
+        <QuickActionGrid actions={QUICK_ACTIONS} columns={isSystemAdmin ? 'grid-cols-2' : 'grid-cols-4 md:grid-cols-4'} />
+      </motion.div>
 
       {/* ═══ ACTION CENTER + ATTENTION REQUIRED + UPCOMING HOLIDAYS (All roles) ═ */}
       {hrStats && (
