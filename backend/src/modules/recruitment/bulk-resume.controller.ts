@@ -62,7 +62,7 @@ export class BulkResumeController {
 
       const job = item.bulkUpload?.jobOpening;
       const candidateName = item.candidateName || 'Candidate';
-      const baseUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
+      const baseUrl = 'https://hr.anistonav.com';
       const companyName = org?.name || 'Aniston Technologies LLP';
       const addr = org?.address as any;
       const venue = addr ? [addr.street, addr.city, addr.state, addr.pincode].filter(Boolean).join(', ') : '207B, Jaksons Crown Heights, Sec-10, Rohini, New Delhi - 110085';

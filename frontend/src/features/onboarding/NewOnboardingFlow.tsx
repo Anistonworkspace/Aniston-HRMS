@@ -507,16 +507,24 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
     }
   }, [initialData]);
 
-  const addrValid = (a: typeof ADDR_INIT) => !!(a.line1.trim() && a.city.trim() && a.state.trim() && a.pincode.trim());
+  const pincodeValid = (pincode: string) => /^\d{6}$/.test(pincode.replace(/\s/g, ''));
+  const addrValid = (a: typeof ADDR_INIT) =>
+    a.line1.trim().length >= 5 &&
+    a.city.trim().length >= 2 && /[a-zA-Z]/.test(a.city) &&
+    a.state.trim().length >= 2 && /[a-zA-Z]/.test(a.state) &&
+    pincodeValid(a.pincode);
   const sameResolved = sameAsCurrent === true;
   const permAddr = sameResolved ? form.currentAddress : form.permanentAddress;
   const permValid = sameResolved || addrValid(form.permanentAddress);
   const phoneDigits = form.phone.replace(/\D/g, '');
   const phoneValid = phoneDigits.length >= 10 && phoneDigits.length <= 12;
+  const firstNameValid = form.firstName.trim().length >= 2 && /[a-zA-Z]/.test(form.firstName);
+  const lastNameValid = form.lastName.trim().length >= 2 && /[a-zA-Z]/.test(form.lastName);
+  const emailValid = !form.personalEmail.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.personalEmail.trim());
 
   const isValid = !!(
-    form.firstName.trim() && form.lastName.trim() && form.dateOfBirth &&
-    form.gender && phoneValid &&
+    firstNameValid && lastNameValid && form.dateOfBirth &&
+    form.gender && phoneValid && emailValid &&
     (isSiteEmployee || !!form.qualification) &&
     addrValid(form.currentAddress) && permValid &&
     sameAsCurrent !== null // must explicitly choose
@@ -534,7 +542,11 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Street Address <span className="text-red-500">*</span></label>
           <input value={addr.line1} onChange={e => onChange('line1', e.target.value)} disabled={disabled}
-            className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(!!addr.line1.trim()))} />
+            placeholder="House/Flat No., Street, Area"
+            className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(addr.line1.trim().length >= 5))} />
+          {showErrors && addr.line1.trim() && addr.line1.trim().length < 5 && (
+            <p className="text-[11px] text-red-500 mt-1">Enter a complete street address (min 5 characters)</p>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Address Line 2 <span className="text-gray-400 font-normal">(optional)</span></label>
@@ -545,17 +557,31 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">City <span className="text-red-500">*</span></label>
             <input value={addr.city} onChange={e => onChange('city', e.target.value)} disabled={disabled}
-              className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(!!addr.city.trim()))} />
+              className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(addr.city.trim().length >= 2 && /[a-zA-Z]/.test(addr.city)))} />
+            {showErrors && addr.city.trim() && (addr.city.trim().length < 2 || !/[a-zA-Z]/.test(addr.city)) && (
+              <p className="text-[11px] text-red-500 mt-1">Enter a valid city</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">State <span className="text-red-500">*</span></label>
             <input value={addr.state} onChange={e => onChange('state', e.target.value)} disabled={disabled}
-              className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(!!addr.state.trim()))} />
+              className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(addr.state.trim().length >= 2 && /[a-zA-Z]/.test(addr.state)))} />
+            {showErrors && addr.state.trim() && (addr.state.trim().length < 2 || !/[a-zA-Z]/.test(addr.state)) && (
+              <p className="text-[11px] text-red-500 mt-1">Enter a valid state</p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Pincode <span className="text-red-500">*</span></label>
-            <input value={addr.pincode} onChange={e => onChange('pincode', e.target.value)} disabled={disabled}
-              className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(!!addr.pincode.trim()))} />
+            <input
+              value={addr.pincode}
+              onChange={e => onChange('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
+              disabled={disabled}
+              inputMode="numeric"
+              placeholder="6 digits"
+              className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(pincodeValid(addr.pincode)))} />
+            {showErrors && addr.pincode.trim() && !pincodeValid(addr.pincode) && (
+              <p className="text-[11px] text-red-500 mt-1">Enter a valid 6-digit pincode</p>
+            )}
           </div>
         </div>
       </div>
@@ -583,11 +609,17 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">First Name <span className="text-red-500">*</span></label>
-          <input value={form.firstName} onChange={e => set('firstName', e.target.value)} className={cn('input-glass w-full text-sm', err(!!form.firstName.trim()))} />
+          <input value={form.firstName} onChange={e => set('firstName', e.target.value)} className={cn('input-glass w-full text-sm', err(firstNameValid))} />
+          {showErrors && form.firstName.trim() && !firstNameValid && (
+            <p className="text-[11px] text-red-500 mt-1">Enter a valid first name (min 2 characters)</p>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Last Name <span className="text-red-500">*</span></label>
-          <input value={form.lastName} onChange={e => set('lastName', e.target.value)} className={cn('input-glass w-full text-sm', err(!!form.lastName.trim()))} />
+          <input value={form.lastName} onChange={e => set('lastName', e.target.value)} className={cn('input-glass w-full text-sm', err(lastNameValid))} />
+          {showErrors && form.lastName.trim() && !lastNameValid && (
+            <p className="text-[11px] text-red-500 mt-1">Enter a valid last name (min 2 characters)</p>
+          )}
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -635,7 +667,12 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Personal Email <span className="text-gray-400 font-normal">(optional)</span></label>
-          <input type="email" value={form.personalEmail} onChange={e => set('personalEmail', e.target.value)} className="input-glass w-full text-sm" placeholder="personal@email.com" />
+          <input type="email" value={form.personalEmail} onChange={e => set('personalEmail', e.target.value)}
+            className={cn('input-glass w-full text-sm', showErrors && form.personalEmail.trim() && !emailValid ? 'border-red-400 ring-1 ring-red-200' : '')}
+            placeholder="personal@email.com" />
+          {showErrors && form.personalEmail.trim() && !emailValid && (
+            <p className="text-[11px] text-red-500 mt-1">Enter a valid email address</p>
+          )}
         </div>
       </div>
 
@@ -746,7 +783,10 @@ function Step3Emergency({ onSave, saving, initialData }: { onSave: (d: any) => v
     if (ec?.name) setForm({ name: ec.name || '', relationship: ec.relationship || '', phone: ec.phone || '', email: ec.email || '' });
   }, [initialData]);
 
-  const isValid = !!(form.name.trim() && form.relationship && form.phone.trim());
+  const ecNameValid = form.name.trim().length >= 2 && /[a-zA-Z]/.test(form.name);
+  const ecPhoneDigits = form.phone.replace(/\D/g, '');
+  const ecPhoneValid = ecPhoneDigits.length >= 10 && ecPhoneDigits.length <= 12;
+  const isValid = !!(ecNameValid && form.relationship && ecPhoneValid);
   const err = (cond: boolean) => showErrors && !cond ? 'border-red-400 ring-1 ring-red-200' : '';
 
   return (
@@ -759,7 +799,10 @@ function Step3Emergency({ onSave, saving, initialData }: { onSave: (d: any) => v
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Contact Name <span className="text-red-500">*</span></label>
-          <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" className={cn('input-glass w-full text-sm', err(!!form.name.trim()))} />
+          <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" className={cn('input-glass w-full text-sm', err(ecNameValid))} />
+          {showErrors && form.name.trim() && !ecNameValid && (
+            <p className="text-[11px] text-red-500 mt-1">Enter a valid name (min 2 characters)</p>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Relationship <span className="text-red-500">*</span></label>
@@ -776,7 +819,10 @@ function Step3Emergency({ onSave, saving, initialData }: { onSave: (d: any) => v
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Phone <span className="text-red-500">*</span></label>
-          <input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} placeholder="+91 9876543210" className={cn('input-glass w-full text-sm', err(!!form.phone.trim()))} />
+          <input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} placeholder="+91 9876543210" className={cn('input-glass w-full text-sm', err(ecPhoneValid))} />
+          {showErrors && form.phone.trim() && !ecPhoneValid && (
+            <p className="text-[11px] text-red-500 mt-1">Enter a valid 10-digit mobile number</p>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Email <span className="text-gray-400 font-normal">(optional)</span></label>
@@ -816,7 +862,11 @@ function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
   }, [initialData]);
 
   const ifscValid = /^[A-Z]{4}0[A-Z0-9]{6}$/.test(form.ifscCode.toUpperCase().trim());
-  const isValid = !!(form.accountHolderName.trim() && form.bankName.trim() && form.bankAccountNumber.trim() && ifscValid);
+  const acctDigits = form.bankAccountNumber.replace(/\D/g, '');
+  const acctValid = acctDigits.length >= 9 && acctDigits.length <= 18;
+  const holderNameValid = form.accountHolderName.trim().length >= 2 && /[a-zA-Z]/.test(form.accountHolderName);
+  const bankNameValid = form.bankName.trim().length >= 2;
+  const isValid = !!(holderNameValid && bankNameValid && acctValid && ifscValid);
   const err = (cond: boolean) => showErrors && !cond ? 'border-red-400 ring-1 ring-red-200' : '';
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
 
@@ -830,17 +880,28 @@ function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Account Holder Name <span className="text-red-500">*</span></label>
-          <input value={form.accountHolderName} onChange={e => set('accountHolderName', e.target.value)} placeholder="As per bank records" className={cn('input-glass w-full text-sm', err(!!form.accountHolderName.trim()))} />
+          <input value={form.accountHolderName} onChange={e => set('accountHolderName', e.target.value)} placeholder="As per bank records" className={cn('input-glass w-full text-sm', err(holderNameValid))} />
+          {showErrors && form.accountHolderName.trim() && !holderNameValid && (
+            <p className="text-[11px] text-red-500 mt-1">Enter a valid account holder name</p>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Account Number <span className="text-red-500">*</span></label>
-          <input value={form.bankAccountNumber} onChange={e => set('bankAccountNumber', e.target.value)} className={cn('input-glass w-full text-sm', err(!!form.bankAccountNumber.trim()))} />
+          <input value={form.bankAccountNumber} onChange={e => set('bankAccountNumber', e.target.value.replace(/\D/g, ''))}
+            inputMode="numeric" placeholder="9–18 digit account number"
+            className={cn('input-glass w-full text-sm font-mono', err(acctValid))} />
+          {showErrors && form.bankAccountNumber.trim() && !acctValid && (
+            <p className="text-[11px] text-red-500 mt-1">Account number must be 9–18 digits</p>
+          )}
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Bank Name <span className="text-red-500">*</span></label>
-          <input value={form.bankName} onChange={e => set('bankName', e.target.value)} placeholder="e.g. State Bank of India" className={cn('input-glass w-full text-sm', err(!!form.bankName.trim()))} />
+          <input value={form.bankName} onChange={e => set('bankName', e.target.value)} placeholder="e.g. State Bank of India" className={cn('input-glass w-full text-sm', err(bankNameValid))} />
+          {showErrors && form.bankName.trim() && !bankNameValid && (
+            <p className="text-[11px] text-red-500 mt-1">Enter a valid bank name</p>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">IFSC Code <span className="text-red-500">*</span></label>
@@ -941,7 +1002,7 @@ function Step5Documents({
   }, [uploadedDocTypes, rejectedDocs, reuploadDocTypes, documentRejectReasons]);
 
   const handleUpload = useCallback(async (file: File, docType: string, docName: string) => {
-    if (file.size > 100 * 1024 * 1024) { toast.error('File must be under 100MB'); return; }
+    if (file.size > 10 * 1024 * 1024) { toast.error('File is too large. Maximum size is 10MB. Please compress the file and try again.'); return; }
     setUploads(prev => ({ ...prev, [docType]: { status: 'uploading', fileName: file.name } }));
     try {
       const formData = new FormData();
@@ -953,11 +1014,12 @@ function Step5Documents({
       toast.success(`${docName} uploaded`);
       onRefetch();
     } catch (err: any) {
-      const msg = err?.data?.error?.message || 'Upload failed. Please try again.';
+      const isNetwork = err?.status === 'FETCH_ERROR';
+      const msg = isNetwork
+        ? 'Network error — please check your connection and try again.'
+        : err?.data?.error?.message || 'Upload failed. Please try again.';
       setUploads(prev => ({ ...prev, [docType]: { status: 'error', fileName: file.name, error: msg } }));
-      if (err?.status === 'FETCH_ERROR') {
-        toast.error('Upload failed — please check your connection and try again.');
-      }
+      toast.error(isNetwork ? 'Upload failed — please check your connection and try again.' : msg);
     }
   }, [uploadDocument, onRefetch]);
 
@@ -1039,7 +1101,7 @@ function Step5Documents({
                 <input
                   ref={identityFileRef}
                   type="file" className="hidden"
-                  accept="image/*,.pdf"
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.pdf"
                   onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f, identityType, IDENTITY_DOC_LABELS[identityType]); e.target.value = ''; }}
                   disabled={identityState.status === 'uploading'}
                 />
@@ -1126,7 +1188,7 @@ function Step5Documents({
                       <input
                         ref={el => { fileInputRefs.current[doc.type] = el; }}
                         type="file" className="hidden"
-                        accept="image/*,.pdf,.doc,.docx"
+                        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.pdf,.doc,.docx"
                         onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f, doc.type, doc.name); e.target.value = ''; }}
                         disabled={state.status === 'uploading'}
                       />
@@ -1166,7 +1228,7 @@ function Step5Documents({
                 ref={otherFileRef}
                 type="file"
                 className="hidden"
-                accept="image/*,.pdf,.doc,.docx"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.pdf,.doc,.docx"
                 disabled={!otherDocName.trim() || otherUploading}
                 onChange={async e => {
                   const file = e.target.files?.[0];
@@ -1183,7 +1245,10 @@ function Step5Documents({
                     setOtherDocName('');
                     onRefetch();
                   } catch (err: any) {
-                    toast.error(err?.data?.error?.message || 'Upload failed');
+                    const msg = err?.status === 'FETCH_ERROR'
+                      ? 'Upload failed — please check your connection and try again.'
+                      : err?.data?.error?.message || 'Upload failed. Please try again.';
+                    toast.error(msg);
                   } finally {
                     setOtherUploading(false);
                   }

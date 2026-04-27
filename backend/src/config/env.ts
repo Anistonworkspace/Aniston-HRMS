@@ -2,9 +2,11 @@ import { z } from 'zod';
 import { config } from 'dotenv';
 import { resolve } from 'path';
 
-// Load .env from project root (works whether cwd is root or backend/)
-config({ path: resolve(process.cwd(), '.env') });
-config({ path: resolve(process.cwd(), '..', '.env') });
+// Load .env from project root (works whether cwd is root or backend/).
+// override: true ensures .env always wins over any shell/PM2-level env vars
+// so production FRONTEND_URL is always read from the file, not stale process env.
+config({ path: resolve(process.cwd(), '.env'), override: true });
+config({ path: resolve(process.cwd(), '..', '.env'), override: true });
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),

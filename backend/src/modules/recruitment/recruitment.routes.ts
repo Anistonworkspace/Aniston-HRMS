@@ -169,7 +169,7 @@ router.post('/jobs/:jobId/share-whatsapp', authenticate, authorize(Role.SUPER_AD
       return;
     }
 
-    const baseUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
+    const baseUrl = 'https://hr.anistonav.com';
     const applyLink = `${baseUrl}/apply/${job.publicFormToken}`;
     const defaultMessage = `Hello! Aniston Technologies LLP is hiring for *${job.title}* (${job.department || ''} | ${job.location || ''}).
 

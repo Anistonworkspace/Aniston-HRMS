@@ -235,8 +235,10 @@ jobs:
             cd /home/ubuntu/Aniston-HRMS
 
             echo "=== [4/17] Setting production domain + encryption key ==="
-            sed -i '/FRONTEND_URL/d' .env 2>/dev/null || true
-            sed -i '/API_URL/d' .env 2>/dev/null || true
+            # Anchor to start-of-line so partial matches (e.g. VITE_API_URL) are not touched.
+            # Also strips any trailing quotes/spaces that manual edits may have left behind.
+            sed -i '/^FRONTEND_URL/d' .env 2>/dev/null || true
+            sed -i '/^API_URL/d' .env 2>/dev/null || true
             sed -i -e '$a\' .env 2>/dev/null || true
             echo 'FRONTEND_URL=https://hr.anistonav.com' >> .env
             echo 'API_URL=https://hr.anistonav.com' >> .env

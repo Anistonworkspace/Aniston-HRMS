@@ -344,7 +344,7 @@ Return as a JSON array: [{ "question": "...", "category": "Technical|Behavioral|
         return;
       }
 
-      const baseUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
+      const baseUrl = 'https://hr.anistonav.com';
       const formLink = jobId ? `${baseUrl}/walk-in?jobId=${jobId}` : `${baseUrl}/walk-in`;
 
       const { prisma } = await import('../../lib/prisma.js');
