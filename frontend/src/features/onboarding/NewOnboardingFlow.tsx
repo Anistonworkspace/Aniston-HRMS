@@ -6,6 +6,7 @@ import {
   Upload, FileText, CheckCircle2, AlertTriangle,
   RefreshCw, Shield, Building2, Lock, Camera,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setUser } from '../auth/authSlice';
 import { useGetMyOnboardingStatusQuery, useSaveMyStepMutation, useCompleteMyOnboardingMutation } from './onboardingApi';
@@ -13,17 +14,18 @@ import { useGetMfaStatusQuery } from '../auth/authApi';
 import { MFASetupModal } from '../auth/MFASetupModal';
 import { useUploadDocumentMutation } from '../documents/documentApi';
 import PassportPhotoUploader from '../../components/ui/PassportPhotoUploader';
+import LanguageSwitcher from '../../components/ui/LanguageSwitcher';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
-// New 6-step flow — password handled in InviteAcceptPage before this wizard
-const STEPS = [
-  { num: 1, title: 'MFA Setup', desc: 'Two-factor authentication' },
-  { num: 2, title: 'Personal Details', desc: 'Your information' },
-  { num: 3, title: 'Emergency Contact', desc: 'In case of emergency' },
-  { num: 4, title: 'Bank Details', desc: 'Salary account' },
-  { num: 5, title: 'Documents', desc: 'Upload required documents' },
-  { num: 6, title: 'Review & Submit', desc: 'Complete onboarding' },
+// getSteps returns translated step metadata
+const getSteps = (t: (key: string) => string) => [
+  { num: 1, title: t('onboarding.step1Title'), desc: t('onboarding.step1Desc') },
+  { num: 2, title: t('onboarding.step2Title'), desc: t('onboarding.step2Desc') },
+  { num: 3, title: t('onboarding.step3Title'), desc: t('onboarding.step3Desc') },
+  { num: 4, title: t('onboarding.step4Title'), desc: t('onboarding.step4Desc') },
+  { num: 5, title: t('onboarding.step5Title'), desc: t('onboarding.step5Desc') },
+  { num: 6, title: t('onboarding.step6Title'), desc: t('onboarding.step6Desc') },
 ];
 
 const IDENTITY_DOC_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'] as const;
@@ -155,6 +157,8 @@ export default function NewOnboardingFlow() {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector(s => s.auth.user);
+  const { t } = useTranslation();
+  const STEPS = getSteps(t);
 
   const { data: statusRes, isLoading, refetch } = useGetMyOnboardingStatusQuery();
   const [saveStep, { isLoading: saving }] = useSaveMyStepMutation();
@@ -223,9 +227,10 @@ export default function NewOnboardingFlow() {
             <Building2 size={18} className="text-brand-600" />
           </div>
           <div>
-            <h1 className="font-display font-semibold text-gray-900 text-sm">Welcome Aboard!</h1>
+            <h1 className="font-display font-semibold text-gray-900 text-sm">{t('onboarding.welcomeAboard')}</h1>
             <p className="text-xs text-gray-400">{status?.organization?.name || 'Aniston Technologies LLP'}</p>
           </div>
+          <LanguageSwitcher className="ml-auto" />
         </div>
       </header>
 
@@ -234,10 +239,10 @@ export default function NewOnboardingFlow() {
         {isReupload && (
           <div className="mb-5 bg-orange-50 border border-orange-300 rounded-xl p-4">
             <p className="text-sm font-semibold text-orange-800 flex items-center gap-2">
-              <AlertTriangle size={16} /> Document Re-upload Required
+              <AlertTriangle size={16} /> {t('onboarding.reuploadRequired')}
             </p>
             <p className="text-xs text-orange-700 mt-1">
-              HR has flagged some of your documents. Please re-upload them to continue. All your previously filled information is pre-loaded below.
+              {t('onboarding.reuploadDesc')}
             </p>
             {(status?.reuploadDocTypes?.length ?? 0) > 0 && (
               <ul className="mt-2 space-y-1">
@@ -247,7 +252,7 @@ export default function NewOnboardingFlow() {
                   return (
                     <li key={docType} className="text-xs text-orange-700">
                       <span className="font-semibold">{label}:</span>{' '}
-                      {reason || 'Please re-upload a clear, valid copy'}
+                      {reason || t('onboarding.pleaseReupload')}
                     </li>
                   );
                 })}
@@ -365,12 +370,12 @@ export default function NewOnboardingFlow() {
             disabled={currentStep === 1}
             className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 disabled:opacity-30"
           >
-            <ChevronLeft size={16} /> Back
+            <ChevronLeft size={16} /> {t('onboarding.back')}
           </button>
-          <span className="text-xs text-gray-400">Step {currentStep} of {STEPS.length}</span>
+          <span className="text-xs text-gray-400">{t('onboarding.stepOf', { current: currentStep, total: STEPS.length })}</span>
           {currentStep === 1 && (
             <button onClick={() => setCurrentStep(2)} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
-              Skip <ChevronRight size={16} />
+              {t('onboarding.skip')} <ChevronRight size={16} />
             </button>
           )}
           {currentStep !== 1 && <span />}
@@ -389,6 +394,7 @@ function Step1MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
   isMfaEnabled?: boolean;
   workMode?: WorkMode | null;
 }) {
+  const { t } = useTranslation();
   const [showSetup, setShowSetup] = useState(false);
   const { data: mfaStatus, refetch } = useGetMfaStatusQuery();
   const isEnabled = isMfaEnabled || mfaStatus?.data?.isEnabled;
@@ -400,11 +406,11 @@ function Step1MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
         <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex items-center gap-3">
           <Shield size={20} className="text-emerald-500 flex-shrink-0" />
           <div>
-            <p className="text-sm font-semibold text-emerald-700">Two-Factor Authentication Enabled</p>
-            <p className="text-xs text-emerald-600 mt-0.5">Your account is protected with MFA. You're all set!</p>
+            <p className="text-sm font-semibold text-emerald-700">{t('onboarding.mfaEnabled')}</p>
+            <p className="text-xs text-emerald-600 mt-0.5">{t('onboarding.mfaProtected')}</p>
           </div>
         </div>
-        <button onClick={onSkip} className="btn-primary w-full">Continue to Next Step</button>
+        <button onClick={onSkip} className="btn-primary w-full">{t('onboarding.continueNext')}</button>
       </div>
     );
   }
@@ -416,8 +422,11 @@ function Step1MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
           <div className="flex items-start gap-3">
             <Shield size={20} className="text-amber-500 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-sm font-semibold text-amber-800">Two-Factor Authentication <span className="font-normal text-amber-600">(Recommended)</span></p>
-              <p className="text-xs text-amber-700 mt-1">MFA is strongly recommended for office employees to protect your account and company data. You can skip this now and set it up later from your Profile settings.</p>
+              <p className="text-sm font-semibold text-amber-800">
+                {t('onboarding.mfaRecommendedOffice')}{' '}
+                <span className="font-normal text-amber-600">({t('onboarding.mfaRecommendedLabel')})</span>
+              </p>
+              <p className="text-xs text-amber-700 mt-1">{t('onboarding.mfaOfficeDesc')}</p>
             </div>
           </div>
         </div>
@@ -426,27 +435,30 @@ function Step1MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
           <div className="flex items-start gap-3">
             <Shield size={20} className="text-blue-500 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-sm font-semibold text-blue-800">Two-Factor Authentication <span className="font-normal text-blue-600">(Optional)</span></p>
-              <p className="text-xs text-blue-600 mt-1">MFA is recommended but not required for your work mode. You can enable it now or later from your profile.</p>
+              <p className="text-sm font-semibold text-blue-800">
+                {t('onboarding.mfaRecommendedOffice')}{' '}
+                <span className="font-normal text-blue-600">({t('onboarding.mfaOptional')})</span>
+              </p>
+              <p className="text-xs text-blue-600 mt-1">{t('onboarding.mfaOptionalDesc')}</p>
             </div>
           </div>
         </div>
       )}
 
       <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm text-gray-600">
-        <p className="font-medium text-gray-700 text-xs uppercase tracking-wide">How to set up:</p>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">1</span> Download Google Authenticator or Authy on your phone</div>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">2</span> Click "Enable MFA" — scan QR code, or copy the secret key</div>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">3</span> Enter the 6-digit code from the app to verify</div>
-        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">4</span> You'll use this code at every login for extra security</div>
+        <p className="font-medium text-gray-700 text-xs uppercase tracking-wide">{t('onboarding.mfaSetupHow')}</p>
+        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">1</span> {t('onboarding.mfaSetupStep1')}</div>
+        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">2</span> {t('onboarding.mfaSetupStep2')}</div>
+        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">3</span> {t('onboarding.mfaSetupStep3')}</div>
+        <div className="flex items-center gap-2 text-xs"><span className="w-5 h-5 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">4</span> {t('onboarding.mfaSetupStep4')}</div>
       </div>
 
       <div className="flex flex-col gap-3">
         <button onClick={() => setShowSetup(true)} className="btn-primary w-full flex items-center justify-center gap-2">
-          <Shield size={16} /> Enable Two-Factor Authentication
+          <Shield size={16} /> {t('onboarding.enableMfa')}
         </button>
         <button onClick={onSkip} className="text-sm text-gray-500 hover:text-gray-700 text-center py-1">
-          Skip for now — I'll set it up later in Profile settings
+          {t('onboarding.skipForNow')}
         </button>
       </div>
 
@@ -478,6 +490,7 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
   initialData: any;
   isSiteEmployee?: boolean;
 }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState(PERSONAL_INIT);
   // null = not set yet, true = same, false = different
   const [sameAsCurrent, setSameAsCurrent] = useState<boolean | null>(null);
@@ -540,47 +553,47 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
       {label && <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">{label}</p>}
       <div className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Street Address <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.streetAddress')} <span className="text-red-500">*</span></label>
           <input value={addr.line1} onChange={e => onChange('line1', e.target.value)} disabled={disabled}
-            placeholder="House/Flat No., Street, Area"
+            placeholder={t('onboarding.streetAddressPlaceholder')}
             className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(addr.line1.trim().length >= 5))} />
           {showErrors && addr.line1.trim() && addr.line1.trim().length < 5 && (
-            <p className="text-[11px] text-red-500 mt-1">Enter a complete street address (min 5 characters)</p>
+            <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validStreet')}</p>
           )}
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Address Line 2 <span className="text-gray-400 font-normal">(optional)</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.addressLine2')} <span className="text-gray-400 font-normal">({t('onboarding.addressLine2Optional')})</span></label>
           <input value={addr.line2} onChange={e => onChange('line2', e.target.value)} disabled={disabled}
             className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed')} />
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">City <span className="text-red-500">*</span></label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.city')} <span className="text-red-500">*</span></label>
             <input value={addr.city} onChange={e => onChange('city', e.target.value)} disabled={disabled}
               className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(addr.city.trim().length >= 2 && /[a-zA-Z]/.test(addr.city)))} />
             {showErrors && addr.city.trim() && (addr.city.trim().length < 2 || !/[a-zA-Z]/.test(addr.city)) && (
-              <p className="text-[11px] text-red-500 mt-1">Enter a valid city</p>
+              <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validCity')}</p>
             )}
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">State <span className="text-red-500">*</span></label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.state')} <span className="text-red-500">*</span></label>
             <input value={addr.state} onChange={e => onChange('state', e.target.value)} disabled={disabled}
               className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(addr.state.trim().length >= 2 && /[a-zA-Z]/.test(addr.state)))} />
             {showErrors && addr.state.trim() && (addr.state.trim().length < 2 || !/[a-zA-Z]/.test(addr.state)) && (
-              <p className="text-[11px] text-red-500 mt-1">Enter a valid state</p>
+              <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validState')}</p>
             )}
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Pincode <span className="text-red-500">*</span></label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.pincode')} <span className="text-red-500">*</span></label>
             <input
               value={addr.pincode}
               onChange={e => onChange('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
               disabled={disabled}
               inputMode="numeric"
-              placeholder="6 digits"
+              placeholder={t('onboarding.pincodePlaceholder')}
               className={cn('input-glass w-full text-sm', disabled && 'opacity-60 cursor-not-allowed', err(pincodeValid(addr.pincode)))} />
             {showErrors && addr.pincode.trim() && !pincodeValid(addr.pincode) && (
-              <p className="text-[11px] text-red-500 mt-1">Enter a valid 6-digit pincode</p>
+              <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validPincode')}</p>
             )}
           </div>
         </div>
@@ -592,7 +605,7 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
     <div className="space-y-4">
       {showErrors && !isValid && (
         <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2">
-          <AlertTriangle size={13} /> Please fill all required fields marked with *
+          <AlertTriangle size={13} /> {t('onboarding.fillRequired')}
         </div>
       )}
 
@@ -601,34 +614,34 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2">
           <Lock size={13} className="text-blue-500 flex-shrink-0" />
           <span className="text-xs text-blue-700">
-            Joining Date: <span className="font-semibold">{initialData.joiningDate}</span> — set by HR
+            {t('onboarding.joiningDate')}: <span className="font-semibold">{initialData.joiningDate}</span> — {t('onboarding.joiningDateSetByHr')}
           </span>
         </div>
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">First Name <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.firstName')} <span className="text-red-500">*</span></label>
           <input value={form.firstName} onChange={e => set('firstName', e.target.value)} className={cn('input-glass w-full text-sm', err(firstNameValid))} />
           {showErrors && form.firstName.trim() && !firstNameValid && (
-            <p className="text-[11px] text-red-500 mt-1">Enter a valid first name (min 2 characters)</p>
+            <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validFirstName')}</p>
           )}
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Last Name <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.lastName')} <span className="text-red-500">*</span></label>
           <input value={form.lastName} onChange={e => set('lastName', e.target.value)} className={cn('input-glass w-full text-sm', err(lastNameValid))} />
           {showErrors && form.lastName.trim() && !lastNameValid && (
-            <p className="text-[11px] text-red-500 mt-1">Enter a valid last name (min 2 characters)</p>
+            <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validLastName')}</p>
           )}
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Date of Birth <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.dateOfBirth')} <span className="text-red-500">*</span></label>
           <input type="date" value={form.dateOfBirth} onChange={e => set('dateOfBirth', e.target.value)} className={cn('input-glass w-full text-sm', err(!!form.dateOfBirth))} />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Gender <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.gender')} <span className="text-red-500">*</span></label>
           <select value={form.gender} onChange={e => set('gender', e.target.value)} className={cn('input-glass w-full text-sm', err(!!form.gender))}>
             <option value="">Select</option>
             <option value="MALE">Male</option>
@@ -640,14 +653,14 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Blood Group <span className="text-gray-400 font-normal">(optional)</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.bloodGroup')} <span className="text-gray-400 font-normal">(optional)</span></label>
           <select value={form.bloodGroup} onChange={e => set('bloodGroup', e.target.value)} className="input-glass w-full text-sm">
             <option value="">Select</option>
             {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(bg => <option key={bg} value={bg}>{bg}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Marital Status <span className="text-gray-400 font-normal">(optional)</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.maritalStatus')} <span className="text-gray-400 font-normal">(optional)</span></label>
           <select value={form.maritalStatus} onChange={e => set('maritalStatus', e.target.value)} className="input-glass w-full text-sm">
             <option value="">Select</option>
             <option value="Single">Single</option>
@@ -659,19 +672,19 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Phone <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.phone')} <span className="text-red-500">*</span></label>
           <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="9876543210" className={cn('input-glass w-full text-sm', err(phoneValid))} />
           {showErrors && form.phone.trim() && !phoneValid && (
-            <p className="text-[11px] text-red-500 mt-1">Enter a valid 10-digit mobile number</p>
+            <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validPhone')}</p>
           )}
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Personal Email <span className="text-gray-400 font-normal">(optional)</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.personalEmail')} <span className="text-gray-400 font-normal">({t('onboarding.personalEmailOptional')})</span></label>
           <input type="email" value={form.personalEmail} onChange={e => set('personalEmail', e.target.value)}
             className={cn('input-glass w-full text-sm', showErrors && form.personalEmail.trim() && !emailValid ? 'border-red-400 ring-1 ring-red-200' : '')}
             placeholder="personal@email.com" />
           {showErrors && form.personalEmail.trim() && !emailValid && (
-            <p className="text-[11px] text-red-500 mt-1">Enter a valid email address</p>
+            <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validEmail')}</p>
           )}
         </div>
       </div>
@@ -679,17 +692,17 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
       {/* Qualification — office employees only */}
       {!isSiteEmployee && (
         <div className="border-t border-gray-100 pt-4">
-          <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">Education</p>
+          <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">{t('onboarding.education')}</p>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Highest Qualification <span className="text-red-500">*</span></label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.qualification')} <span className="text-red-500">*</span></label>
             <select value={form.qualification} onChange={e => set('qualification', e.target.value)} className={cn('input-glass w-full text-sm', err(!!form.qualification))}>
-              <option value="">Select qualification</option>
+              <option value="">{t('onboarding.selectQualification')}</option>
               {QUALIFICATIONS.map(q => <option key={q.value} value={q.value}>{q.label}</option>)}
             </select>
             {form.qualification && (
               <p className="text-[11px] text-brand-600 mt-1">
-                Required certificates: {getRequiredEducationDocs(form.qualification)
-                  .map(t => REQUIRED_NON_IDENTITY_LABELS[t] || t).join(' + ')}
+                {t('onboarding.requiredCertificates')} {getRequiredEducationDocs(form.qualification)
+                  .map(docType => REQUIRED_NON_IDENTITY_LABELS[docType] || docType).join(' + ')}
               </p>
             )}
           </div>
@@ -697,24 +710,24 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
       )}
 
       {/* Current Address */}
-      {addressBlock('Current Address', form.currentAddress, setCurr)}
+      {addressBlock(t('onboarding.currentAddress'), form.currentAddress, setCurr)}
 
       {/* Permanent Address — with same/different toggle */}
       <div className="border-t border-gray-100 pt-4">
-        <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">Permanent Address</p>
+        <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">{t('onboarding.permanentAddress')}</p>
 
         {/* Must explicitly choose — required for doc logic */}
         {sameAsCurrent === null && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
-            <p className="text-xs text-amber-700 font-medium mb-2">Is your permanent address the same as your current address?</p>
+            <p className="text-xs text-amber-700 font-medium mb-2">{t('onboarding.sameAddressQuestion')}</p>
             <div className="flex gap-2">
               <button type="button" onClick={() => setSameAsCurrent(true)}
                 className="flex-1 py-2 px-3 rounded-lg border-2 border-gray-200 text-xs font-medium hover:border-brand-400 transition-colors">
-                Yes, same address
+                {t('onboarding.yesSameAddress')}
               </button>
               <button type="button" onClick={() => setSameAsCurrent(false)}
                 className="flex-1 py-2 px-3 rounded-lg border-2 border-gray-200 text-xs font-medium hover:border-brand-400 transition-colors">
-                No, different address
+                {t('onboarding.noDifferentAddress')}
               </button>
             </div>
           </div>
@@ -723,23 +736,23 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
         {sameAsCurrent !== null && (
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs text-gray-500">
-              {sameAsCurrent ? '✓ Same as current address' : 'Different from current address'}
+              {sameAsCurrent ? t('onboarding.sameAsCurrent') : t('onboarding.differentFromCurrent')}
             </span>
-            <button type="button" onClick={() => setSameAsCurrent(null)} className="text-xs text-brand-600 hover:underline">Change</button>
+            <button type="button" onClick={() => setSameAsCurrent(null)} className="text-xs text-brand-600 hover:underline">{t('onboarding.change')}</button>
           </div>
         )}
 
         {sameAsCurrent === true && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
             <p className="text-xs text-emerald-700 flex items-center gap-2">
-              <CheckCircle2 size={13} /> Permanent address same as current address. One residence proof required.
+              <CheckCircle2 size={13} /> {t('onboarding.sameAddressNote')}
             </p>
           </div>
         )}
         {sameAsCurrent === false && (
           <>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
-              <p className="text-xs text-blue-700">You will need to upload residence proof for <strong>both</strong> addresses.</p>
+              <p className="text-xs text-blue-700">{t('onboarding.bothAddressNote')}</p>
             </div>
             {addressBlock('', form.permanentAddress, setPerm)}
           </>
@@ -765,7 +778,7 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
         className="btn-primary w-full flex items-center justify-center gap-2 mt-2"
       >
         {saving && <Loader2 size={16} className="animate-spin" />}
-        Save & Continue
+        {t('onboarding.saveAndContinue')}
       </button>
     </div>
   );
@@ -775,6 +788,7 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
 // STEP 3: EMERGENCY CONTACT
 // ==================
 function Step3Emergency({ onSave, saving, initialData }: { onSave: (d: any) => void; saving: boolean; initialData: any }) {
+  const { t } = useTranslation();
   const ec = initialData as any;
   const [form, setForm] = useState({ name: '', relationship: '', phone: '', email: '' });
   const [showErrors, setShowErrors] = useState(false);
@@ -793,39 +807,39 @@ function Step3Emergency({ onSave, saving, initialData }: { onSave: (d: any) => v
     <div className="space-y-4">
       {showErrors && !isValid && (
         <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2">
-          <AlertTriangle size={13} /> Please fill all required fields
+          <AlertTriangle size={13} /> {t('onboarding.fillRequired')}
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Contact Name <span className="text-red-500">*</span></label>
-          <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" className={cn('input-glass w-full text-sm', err(ecNameValid))} />
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.emergencyContactName')} <span className="text-red-500">*</span></label>
+          <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder={t('onboarding.emergencyContactNamePlaceholder')} className={cn('input-glass w-full text-sm', err(ecNameValid))} />
           {showErrors && form.name.trim() && !ecNameValid && (
-            <p className="text-[11px] text-red-500 mt-1">Enter a valid name (min 2 characters)</p>
+            <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validEmergencyName')}</p>
           )}
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Relationship <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.relationship')} <span className="text-red-500">*</span></label>
           <select value={form.relationship} onChange={e => setForm(p => ({ ...p, relationship: e.target.value }))} className={cn('input-glass w-full text-sm', err(!!form.relationship))}>
-            <option value="">Select</option>
-            <option value="SPOUSE">Spouse</option>
-            <option value="PARENT">Parent</option>
-            <option value="SIBLING">Sibling</option>
-            <option value="FRIEND">Friend</option>
-            <option value="OTHER">Other</option>
+            <option value="">{t('onboarding.selectRelationship')}</option>
+            <option value="SPOUSE">{t('onboarding.spouseOption')}</option>
+            <option value="PARENT">{t('onboarding.parentOption')}</option>
+            <option value="SIBLING">{t('onboarding.siblingOption')}</option>
+            <option value="FRIEND">{t('onboarding.friendOption')}</option>
+            <option value="OTHER">{t('onboarding.otherOption')}</option>
           </select>
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Phone <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.phone')} <span className="text-red-500">*</span></label>
           <input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} placeholder="+91 9876543210" className={cn('input-glass w-full text-sm', err(ecPhoneValid))} />
           {showErrors && form.phone.trim() && !ecPhoneValid && (
-            <p className="text-[11px] text-red-500 mt-1">Enter a valid 10-digit mobile number</p>
+            <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validEmergencyPhone')}</p>
           )}
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Email <span className="text-gray-400 font-normal">(optional)</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.emergencyEmail')} <span className="text-gray-400 font-normal">(optional)</span></label>
           <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} className="input-glass w-full text-sm" />
         </div>
       </div>
@@ -835,7 +849,7 @@ function Step3Emergency({ onSave, saving, initialData }: { onSave: (d: any) => v
         className="btn-primary w-full flex items-center justify-center gap-2"
       >
         {saving && <Loader2 size={16} className="animate-spin" />}
-        Save & Continue
+        {t('onboarding.saveAndContinue')}
       </button>
     </div>
   );
@@ -845,6 +859,7 @@ function Step3Emergency({ onSave, saving, initialData }: { onSave: (d: any) => v
 // STEP 4: BANK DETAILS
 // ==================
 function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; saving: boolean; initialData: any }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({ accountHolderName: '', accountType: 'SAVINGS' as 'SAVINGS' | 'CURRENT', bankName: '', bankAccountNumber: '', ifscCode: '', epfMemberId: '' });
   const [showErrors, setShowErrors] = useState(false);
 
@@ -874,70 +889,70 @@ function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
     <div className="space-y-4">
       {showErrors && !isValid && (
         <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2">
-          <AlertTriangle size={13} /> Please fill all required bank fields
+          <AlertTriangle size={13} /> {t('onboarding.fillRequiredBank')}
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Account Holder Name <span className="text-red-500">*</span></label>
-          <input value={form.accountHolderName} onChange={e => set('accountHolderName', e.target.value)} placeholder="As per bank records" className={cn('input-glass w-full text-sm', err(holderNameValid))} />
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.accountHolderName')} <span className="text-red-500">*</span></label>
+          <input value={form.accountHolderName} onChange={e => set('accountHolderName', e.target.value)} placeholder={t('onboarding.accountHolderNamePlaceholder')} className={cn('input-glass w-full text-sm', err(holderNameValid))} />
           {showErrors && form.accountHolderName.trim() && !holderNameValid && (
-            <p className="text-[11px] text-red-500 mt-1">Enter a valid account holder name</p>
+            <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validAccountHolder')}</p>
           )}
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Account Number <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.accountNumber')} <span className="text-red-500">*</span></label>
           <input value={form.bankAccountNumber} onChange={e => set('bankAccountNumber', e.target.value.replace(/\D/g, ''))}
-            inputMode="numeric" placeholder="9–18 digit account number"
+            inputMode="numeric" placeholder={t('onboarding.accountNumberPlaceholder')}
             className={cn('input-glass w-full text-sm font-mono', err(acctValid))} />
           {showErrors && form.bankAccountNumber.trim() && !acctValid && (
-            <p className="text-[11px] text-red-500 mt-1">Account number must be 9–18 digits</p>
+            <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validAccountNumber')}</p>
           )}
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Bank Name <span className="text-red-500">*</span></label>
-          <input value={form.bankName} onChange={e => set('bankName', e.target.value)} placeholder="e.g. State Bank of India" className={cn('input-glass w-full text-sm', err(bankNameValid))} />
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.bankName')} <span className="text-red-500">*</span></label>
+          <input value={form.bankName} onChange={e => set('bankName', e.target.value)} placeholder={t('onboarding.bankNamePlaceholder')} className={cn('input-glass w-full text-sm', err(bankNameValid))} />
           {showErrors && form.bankName.trim() && !bankNameValid && (
-            <p className="text-[11px] text-red-500 mt-1">Enter a valid bank name</p>
+            <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validBankName')}</p>
           )}
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">IFSC Code <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.ifscCode')} <span className="text-red-500">*</span></label>
           <input value={form.ifscCode} onChange={e => set('ifscCode', e.target.value.toUpperCase())} placeholder="SBIN0001234" className={cn('input-glass w-full text-sm font-mono', err(ifscValid))} />
           {showErrors && form.ifscCode.trim() && !ifscValid && (
-            <p className="text-[11px] text-red-500 mt-1">Invalid IFSC — 11 chars: 4 letters + 0 + 6 alphanumeric (e.g. SBIN0001234)</p>
+            <p className="text-[11px] text-red-500 mt-1">{t('onboarding.validIfsc')}</p>
           )}
         </div>
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">Account Type <span className="text-red-500">*</span></label>
+        <label className="block text-xs font-medium text-gray-700 mb-1">{t('onboarding.accountType')} <span className="text-red-500">*</span></label>
         <select value={form.accountType} onChange={e => set('accountType', e.target.value)} className="input-glass w-full text-sm">
-          <option value="SAVINGS">Savings</option>
-          <option value="CURRENT">Current</option>
+          <option value="SAVINGS">{t('onboarding.savings')}</option>
+          <option value="CURRENT">{t('onboarding.currentAccount')}</option>
         </select>
       </div>
       <div className="border-t border-gray-100 pt-3">
         <label className="block text-xs font-medium text-gray-700 mb-1">
-          Previous EPF / UAN Number <span className="text-gray-400 font-normal">(optional — for experienced hires)</span>
+          {t('onboarding.epfUan')} <span className="text-gray-400 font-normal">({t('onboarding.epfUanOptional')})</span>
         </label>
         <input
           value={form.epfMemberId}
           onChange={e => set('epfMemberId', e.target.value.toUpperCase())}
-          placeholder="e.g. 100123456789 (12-digit UAN)"
+          placeholder={t('onboarding.epfUanPlaceholder')}
           className="input-glass w-full text-sm font-mono"
         />
-        <p className="text-[11px] text-gray-400 mt-1">If you have a UAN from a previous employer, enter it here. This helps HR link your EPF account.</p>
+        <p className="text-[11px] text-gray-400 mt-1">{t('onboarding.epfUanHint')}</p>
       </div>
-      <p className="text-xs text-gray-400">Bank details are encrypted and used only for payroll processing.</p>
+      <p className="text-xs text-gray-400">{t('onboarding.bankEncryptionNote')}</p>
       <button
         onClick={() => { setShowErrors(true); if (isValid) onSave(form); else toast.error('Please fill all required bank fields'); }}
         disabled={saving}
         className="btn-primary w-full flex items-center justify-center gap-2"
       >
         {saving && <Loader2 size={16} className="animate-spin" />}
-        Save & Continue
+        {t('onboarding.saveAndContinue')}
       </button>
     </div>
   );
@@ -964,6 +979,7 @@ function Step5Documents({
   experienceLevel: string | null;
   experienceDocFields: { key: string; label: string; required?: boolean }[];
 }) {
+  const { t } = useTranslation();
   const [uploads, setUploads] = useState<Record<string, UploadState>>({});
   const [identityType, setIdentityType] = useState<IdentityDocType>('AADHAAR');
   const [otherDocName, setOtherDocName] = useState('');
@@ -991,13 +1007,13 @@ function Step5Documents({
       };
     }
     // Also show HR-deleted docs (in reuploadDocTypes but not in rejectedDocs) as needing upload
-    for (const t of reuploadDocTypes) {
-      if (!initial[t]) {
-        initial[t] = { status: 'error', error: documentRejectReasons[t] || 'Document removed by HR — please re-upload' };
+    for (const docT of reuploadDocTypes) {
+      if (!initial[docT]) {
+        initial[docT] = { status: 'error', error: documentRejectReasons[docT] || 'Document removed by HR — please re-upload' };
       }
     }
     setUploads(prev => ({ ...initial, ...prev }));
-    const uploadedIdentity = IDENTITY_DOC_TYPES.find(t => uploadedDocTypes.includes(t));
+    const uploadedIdentity = IDENTITY_DOC_TYPES.find(docT => uploadedDocTypes.includes(docT));
     if (uploadedIdentity) setIdentityType(uploadedIdentity);
   }, [uploadedDocTypes, rejectedDocs, reuploadDocTypes, documentRejectReasons]);
 
@@ -1036,24 +1052,26 @@ function Step5Documents({
     }
   }, [uploadDocument, onRefetch]);
 
-  const identityUploaded = IDENTITY_DOC_TYPES.some(t => uploads[t]?.status === 'done');
+  const identityUploaded = IDENTITY_DOC_TYPES.some(docT => uploads[docT]?.status === 'done');
   const identityState = uploads[identityType] || { status: 'idle' };
   const totalRequired = requiredNonIdentityDocs.length + 1;
-  const nonIdentityDone = requiredNonIdentityDocs.filter(t => uploads[t]?.status === 'done').length;
+  const nonIdentityDone = requiredNonIdentityDocs.filter(docT => uploads[docT]?.status === 'done').length;
   const requiredDoneCount = nonIdentityDone + (identityUploaded ? 1 : 0);
   const allRequiredDone = nonIdentityDone === requiredNonIdentityDocs.length && identityUploaded;
+
+  const remaining = totalRequired - requiredDoneCount;
 
   return (
     <div className="space-y-5">
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-        <p className="text-sm font-medium text-amber-800">Upload each document separately</p>
-        <p className="text-xs text-amber-700 mt-1">Documents marked <span className="text-red-500 font-bold">*</span> are required. OCR will automatically extract data from identity documents.</p>
+        <p className="text-sm font-medium text-amber-800">{t('onboarding.uploadEachDoc')}</p>
+        <p className="text-xs text-amber-700 mt-1">{t('onboarding.documentsOcrNote')}</p>
       </div>
 
       {/* Progress */}
       <div className="bg-white border border-gray-200 rounded-lg p-3">
         <div className="flex justify-between mb-1.5">
-          <span className="text-xs font-semibold text-gray-600">Upload Progress</span>
+          <span className="text-xs font-semibold text-gray-600">{t('onboarding.uploadProgress')}</span>
           <span className="text-xs text-gray-400 font-mono">{requiredDoneCount}/{totalRequired} required</span>
         </div>
         <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -1067,7 +1085,7 @@ function Step5Documents({
       {/* Identity Proof */}
       <div>
         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand-500" />Identity Proof
+          <span className="w-1.5 h-1.5 rounded-full bg-brand-500" />{t('onboarding.identityProof')}
         </h4>
         <div className={cn(
           'rounded-lg border transition-colors',
@@ -1081,8 +1099,8 @@ function Step5Documents({
               className="input-glass text-sm flex-1"
               disabled={identityUploaded}
             >
-              {IDENTITY_DOC_TYPES.map(t => (
-                <option key={t} value={t}>{IDENTITY_DOC_LABELS[t]}</option>
+              {IDENTITY_DOC_TYPES.map(docT => (
+                <option key={docT} value={docT}>{IDENTITY_DOC_LABELS[docT]}</option>
               ))}
             </select>
             <span className="text-red-500 text-sm font-bold shrink-0">*</span>
@@ -1094,11 +1112,11 @@ function Step5Documents({
                 {identityUploaded && <CheckCircle2 size={13} className="text-emerald-500" />}
               </p>
               {identityUploaded && (() => {
-                const uploadedIdType = IDENTITY_DOC_TYPES.find(t => uploads[t]?.status === 'done')!;
+                const uploadedIdType = IDENTITY_DOC_TYPES.find(docT => uploads[docT]?.status === 'done')!;
                 return (
                   <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1">
                     <FileText size={10} /> {uploads[uploadedIdType]?.fileName}
-                    <span className="text-emerald-600 ml-1">✓ Pending HR review</span>
+                    <span className="text-emerald-600 ml-1">{t('onboarding.pendingHrReview')}</span>
                   </p>
                 );
               })()}
@@ -1118,7 +1136,7 @@ function Step5Documents({
                   onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f, identityType, IDENTITY_DOC_LABELS[identityType]); e.target.value = ''; }}
                   disabled={identityState.status === 'uploading'}
                 />
-                {identityUploaded ? 'Replace' : identityState.status === 'uploading' ? 'Uploading…' : 'Upload'}
+                {identityUploaded ? t('onboarding.replace') : identityState.status === 'uploading' ? t('onboarding.uploading') : t('onboarding.upload')}
               </label>
             </div>
           </div>
@@ -1178,7 +1196,7 @@ function Step5Documents({
                     {state.fileName && (
                       <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1">
                         <FileText size={10} /> {state.fileName}
-                        {state.status === 'done' && <span className="text-emerald-600 ml-1">✓ Pending HR review</span>}
+                        {state.status === 'done' && <span className="text-emerald-600 ml-1">{t('onboarding.pendingHrReview')}</span>}
                       </p>
                     )}
                     {state.error && <p className="text-[11px] text-red-500 mt-0.5">{state.error}</p>}
@@ -1205,7 +1223,7 @@ function Step5Documents({
                         onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f, doc.type, doc.name); e.target.value = ''; }}
                         disabled={state.status === 'uploading'}
                       />
-                      {state.status === 'done' ? 'Replace' : state.status === 'uploading' ? 'Uploading…' : isReuploadNeeded ? 'Re-upload' : 'Upload'}
+                      {state.status === 'done' ? t('onboarding.replace') : state.status === 'uploading' ? t('onboarding.uploading') : isReuploadNeeded ? t('onboarding.reupload') : t('onboarding.upload')}
                     </label>
                   </div>
                 </div>
@@ -1218,17 +1236,17 @@ function Step5Documents({
       {/* Optional: Other Documents / Certificates — available to every employee */}
       <div>
         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />Other Documents / Certificates
-          <span className="text-[10px] text-gray-400 font-normal normal-case">(optional)</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />{t('onboarding.otherDocuments')}
+          <span className="text-[10px] text-gray-400 font-normal normal-case">({t('onboarding.otherDocumentsOptional')})</span>
         </h4>
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-3">
-          <p className="text-xs text-gray-500">Upload any additional certificates, professional certifications, or supporting documents you'd like to include (e.g. awards, training certificates, language certifications).</p>
+          <p className="text-xs text-gray-500">{t('onboarding.otherDocumentsDesc')}</p>
           <div className="flex gap-2">
             <input
               type="text"
               value={otherDocName}
               onChange={e => setOtherDocName(e.target.value)}
-              placeholder="Document name (e.g. AWS Certification)"
+              placeholder={t('onboarding.otherDocNamePlaceholder')}
               className="input-glass text-sm flex-1 min-w-0"
               maxLength={80}
             />
@@ -1267,7 +1285,7 @@ function Step5Documents({
                   }
                 }}
               />
-              {otherUploading ? 'Uploading…' : 'Upload'}
+              {otherUploading ? t('onboarding.uploading') : t('onboarding.upload')}
             </label>
           </div>
         </div>
@@ -1280,7 +1298,9 @@ function Step5Documents({
           allRequiredDone ? 'btn-primary' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
         )}
       >
-        {allRequiredDone ? 'Continue to Review' : `Upload ${totalRequired - requiredDoneCount} more required document${totalRequired - requiredDoneCount !== 1 ? 's' : ''}`}
+        {allRequiredDone
+          ? t('onboarding.continueToReview')
+          : t(remaining === 1 ? 'onboarding.uploadMoreDocs_one' : 'onboarding.uploadMoreDocs_other', { count: remaining })}
       </button>
     </div>
   );
@@ -1299,6 +1319,7 @@ function Step6Review({ status, onComplete, completing, workMode, qualification, 
   experienceLevel: string | null;
   experienceDocFields: { key: string; label: string; required?: boolean }[];
 }) {
+  const { t } = useTranslation();
   const [agreed, setAgreed] = useState(false);
 
   const addr = status?.currentAddress as any;
@@ -1314,51 +1335,51 @@ function Step6Review({ status, onComplete, completing, workMode, qualification, 
     <div className="space-y-5">
       {!allSectionsDone && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-          <p className="text-sm font-semibold text-amber-800 flex items-center gap-2"><AlertTriangle size={16} /> Incomplete Sections</p>
+          <p className="text-sm font-semibold text-amber-800 flex items-center gap-2"><AlertTriangle size={16} /> {t('onboarding.incompleteSection')}</p>
           <ul className="mt-2 space-y-1 text-xs text-amber-700">
-            {!status?.sections?.personalDetails && <li>• Personal Details — incomplete</li>}
-            {!status?.sections?.emergencyContact && <li>• Emergency Contact — incomplete</li>}
-            {!status?.sections?.bankDetails && <li>• Bank Details — incomplete</li>}
-            {!status?.sections?.documents && <li>• Required Documents — {status?.missingRequiredDocs?.length || 0} missing</li>}
+            {!status?.sections?.personalDetails && <li>• {t('onboarding.personalDetailsIncomplete')}</li>}
+            {!status?.sections?.emergencyContact && <li>• {t('onboarding.emergencyContactIncomplete')}</li>}
+            {!status?.sections?.bankDetails && <li>• {t('onboarding.bankDetailsIncomplete')}</li>}
+            {!status?.sections?.documents && <li>• {t('onboarding.requiredDocsMissing', { count: status?.missingRequiredDocs?.length || 0 })}</li>}
           </ul>
-          <p className="text-xs text-amber-600 mt-2">Please complete all required sections before submitting.</p>
+          <p className="text-xs text-amber-600 mt-2">{t('onboarding.completeSectionsNote')}</p>
         </div>
       )}
       {!status?.sections?.mfa && allSectionsDone && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
           <Shield size={15} className="text-blue-500 mt-0.5 flex-shrink-0" />
           <p className="text-xs text-blue-700">
-            <span className="font-semibold">MFA not set up</span> — You can enable Two-Factor Authentication after onboarding from your Profile settings for extra security.
+            <span className="font-semibold">{t('onboarding.mfaNotSetup')}</span> — {t('onboarding.mfaNotSetupDesc')}
           </p>
         </div>
       )}
 
       <div className="bg-gray-50 rounded-xl p-4 space-y-3 text-sm">
-        <ReviewSection title="Personal Details">
+        <ReviewSection title={t('onboarding.personalDetailsSection')}>
           <ReviewRow label="Name" value={`${status?.firstName || ''} ${status?.lastName || ''}`} />
           <ReviewRow label="DOB" value={status?.dateOfBirth} />
           <ReviewRow label="Gender" value={status?.gender} />
           <ReviewRow label="Phone" value={status?.phone} />
           <ReviewRow label="Joining Date" value={status?.joiningDate} />
-          {qualification && <ReviewRow label="Qualification" value={QUALIFICATIONS.find(q => q.value === qualification)?.label || qualification} />}
-          {addr?.city && <ReviewRow label="Current City" value={`${addr.city}, ${addr.state} ${addr.pincode}`} />}
+          {qualification && <ReviewRow label={t('onboarding.qualificationLabel')} value={QUALIFICATIONS.find(q => q.value === qualification)?.label || qualification} />}
+          {addr?.city && <ReviewRow label={t('onboarding.currentCity')} value={`${addr.city}, ${addr.state} ${addr.pincode}`} />}
           {addressSameAsPermanent === false && permAddr?.city && (
-            <ReviewRow label="Permanent City" value={`${permAddr.city}, ${permAddr.state} ${permAddr.pincode}`} />
+            <ReviewRow label={t('onboarding.permanentCity')} value={`${permAddr.city}, ${permAddr.state} ${permAddr.pincode}`} />
           )}
-          {addressSameAsPermanent === true && <ReviewRow label="Permanent Address" value="Same as current" />}
+          {addressSameAsPermanent === true && <ReviewRow label={t('onboarding.permanentAddressLabel')} value={t('onboarding.sameAsCurrentLabel')} />}
         </ReviewSection>
 
-        <ReviewSection title="Emergency Contact">
+        <ReviewSection title={t('onboarding.emergencyContactSection')}>
           {ec?.name ? (
             <>
               <ReviewRow label="Name" value={ec.name} />
               <ReviewRow label="Relationship" value={ec.relationship} />
               <ReviewRow label="Phone" value={ec.phone} />
             </>
-          ) : <p className="text-xs text-red-500">Not provided</p>}
+          ) : <p className="text-xs text-red-500">{t('onboarding.notProvided')}</p>}
         </ReviewSection>
 
-        <ReviewSection title="Bank Details">
+        <ReviewSection title={t('onboarding.bankDetailsSection')}>
           {status?.bankAccountNumber ? (
             <>
               <ReviewRow label="Bank" value={status.bankName} />
@@ -1366,31 +1387,31 @@ function Step6Review({ status, onComplete, completing, workMode, qualification, 
               <ReviewRow label="IFSC" value={status.ifscCode} />
               {status.epfMemberId && <ReviewRow label="EPF / UAN" value={status.epfMemberId} />}
             </>
-          ) : <p className="text-xs text-red-500">Not provided</p>}
+          ) : <p className="text-xs text-red-500">{t('onboarding.notProvided')}</p>}
         </ReviewSection>
 
-        <ReviewSection title="Documents">
+        <ReviewSection title={t('onboarding.documentsSection')}>
           {(() => {
-            const uploadedIdType = IDENTITY_DOC_TYPES.find(t => status?.uploadedDocTypes?.includes(t));
+            const uploadedIdType = IDENTITY_DOC_TYPES.find(docT => status?.uploadedDocTypes?.includes(docT));
             return (
               <ReviewRow
-                label="Identity Proof"
+                label={t('onboarding.identityProofLabel')}
                 value={uploadedIdType ? `✓ ${IDENTITY_DOC_LABELS[uploadedIdType]}` : '✗ Missing'}
                 valueClass={uploadedIdType ? 'text-emerald-600' : 'text-red-500'}
               />
             );
           })()}
-          {requiredDocs.map(t => (
-            <ReviewRow key={t} label={REQUIRED_NON_IDENTITY_LABELS[t] || t.replace(/_/g, ' ')}
-              value={status?.uploadedDocTypes?.includes(t) ? '✓ Uploaded' : '✗ Missing'}
-              valueClass={status?.uploadedDocTypes?.includes(t) ? 'text-emerald-600' : 'text-red-500'} />
+          {requiredDocs.map(docT => (
+            <ReviewRow key={docT} label={REQUIRED_NON_IDENTITY_LABELS[docT] || docT.replace(/_/g, ' ')}
+              value={status?.uploadedDocTypes?.includes(docT) ? '✓ Uploaded' : '✗ Missing'}
+              valueClass={status?.uploadedDocTypes?.includes(docT) ? 'text-emerald-600' : 'text-red-500'} />
           ))}
         </ReviewSection>
       </div>
 
       <label className="flex items-start gap-2 text-sm text-gray-600 cursor-pointer">
         <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} className="rounded border-gray-300 mt-0.5" />
-        I confirm that all information provided is accurate and complete.
+        {t('onboarding.iConfirm')}
       </label>
 
       <button
@@ -1399,7 +1420,7 @@ function Step6Review({ status, onComplete, completing, workMode, qualification, 
         className="btn-primary w-full flex items-center justify-center gap-2 text-base py-3 disabled:opacity-50"
       >
         {completing ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
-        Complete Onboarding
+        {t('onboarding.completeOnboarding')}
       </button>
     </div>
   );
@@ -1425,6 +1446,7 @@ function ReviewRow({ label, value, valueClass }: { label: string; value?: string
 }
 
 function CompletionScreen({ orgName, onContinue }: { orgName?: string; onContinue: () => void }) {
+  const { t } = useTranslation();
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 to-brand-50 p-4">
       <motion.div
@@ -1436,11 +1458,11 @@ function CompletionScreen({ orgName, onContinue }: { orgName?: string; onContinu
         <motion.div initial={{ rotate: -20 }} animate={{ rotate: 0 }} transition={{ delay: 0.3, type: 'spring' }}>
           <PartyPopper size={56} className="mx-auto text-brand-600 mb-4" />
         </motion.div>
-        <h1 className="text-2xl font-display font-bold text-gray-900 mb-2">Welcome to the Team!</h1>
+        <h1 className="text-2xl font-display font-bold text-gray-900 mb-2">{t('onboarding.welcomeToTeam')}</h1>
         <p className="text-gray-500 text-sm">
-          Your onboarding at {orgName || 'Aniston Technologies LLP'} is complete. Please upload your KYC documents to get full access.
+          {t('onboarding.onboardingCompleteDesc', { org: orgName || 'Aniston Technologies LLP' })}
         </p>
-        <button onClick={onContinue} className="btn-primary inline-block mt-6 px-8">Go to KYC Verification</button>
+        <button onClick={onContinue} className="btn-primary inline-block mt-6 px-8">{t('onboarding.goToKyc')}</button>
       </motion.div>
     </div>
   );
