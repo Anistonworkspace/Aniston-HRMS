@@ -359,6 +359,7 @@ export class OnboardingService {
         employee.dateOfBirth && employee.gender &&
         employee.phone && employee.phone !== '0000000000' &&
         addr?.line1 && addr?.city && addr?.state && addr?.pincode &&
+        addressSameAsPermanent !== null &&
         permAddrValid &&
         (isSiteEmployee || !!qualification)
       ),
@@ -453,6 +454,10 @@ export class OnboardingService {
       if (isNaN(parsedDob.getTime())) {
         throw new BadRequestError('Invalid date of birth. Please use YYYY-MM-DD format.');
       }
+      const phoneDigits = String(stepData.phone).replace(/\D/g, '');
+      if (phoneDigits.length < 10 || phoneDigits.length > 12) {
+        throw new BadRequestError('Phone number must be 10 to 12 digits.');
+      }
       await prisma.employee.update({
         where: { id: employeeId },
         data: {
@@ -496,12 +501,16 @@ export class OnboardingService {
       if (!stepData.bankAccountNumber || !stepData.bankName || !stepData.ifscCode || !stepData.accountHolderName) {
         throw new BadRequestError('All bank detail fields are required');
       }
+      const ifscNorm = String(stepData.ifscCode).toUpperCase().trim();
+      if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscNorm)) {
+        throw new BadRequestError('Invalid IFSC code. Format: 4 letters + 0 + 6 alphanumeric (e.g. SBIN0001234)');
+      }
       await prisma.employee.update({
         where: { id: employeeId },
         data: {
           bankAccountNumber: encrypt(stepData.bankAccountNumber),
           bankName: stepData.bankName,
-          ifscCode: stepData.ifscCode,
+          ifscCode: ifscNorm,
           accountHolderName: stepData.accountHolderName,
           accountType: stepData.accountType || 'SAVINGS',
           // EPF — employee opts in by providing their UAN/member ID from a previous employer
@@ -524,7 +533,7 @@ export class OnboardingService {
     const emp = await prisma.employee.findUnique({
       where: { id: employeeId },
       include: {
-        documents: { where: { deletedAt: null }, select: { type: true } },
+        documents: { where: { deletedAt: null, status: { not: 'REJECTED' } }, select: { type: true } },
         user: { select: { id: true, mfa: { select: { isEnabled: true } } } },
       },
     });
@@ -547,6 +556,9 @@ export class OnboardingService {
       throw new BadRequestError('Current address is required before completing onboarding');
     }
     const addressSame = (emp as any).addressSameAsPermanent as boolean | null;
+    if (addressSame === null || addressSame === undefined) {
+      throw new BadRequestError('Please indicate whether your permanent address is the same as your current address');
+    }
     if (addressSame === false && (!permAddr?.line1 || !permAddr?.city || !permAddr?.state || !permAddr?.pincode)) {
       throw new BadRequestError('Permanent address is required when it differs from current address');
     }

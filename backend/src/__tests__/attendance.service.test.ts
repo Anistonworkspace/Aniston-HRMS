@@ -143,6 +143,15 @@ function makeClockInData(overrides: Record<string, any> = {}) {
   };
 }
 
+function makeClockOutData(overrides: Record<string, any> = {}) {
+  return {
+    latitude: 12.9716,
+    longitude: 77.5946,
+    accuracy: 10,
+    ...overrides,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Unit tests — AttendanceService
 // ─────────────────────────────────────────────────────────────────────────────
@@ -272,6 +281,8 @@ describe('AttendanceService', () => {
       });
 
       vi.mocked(prisma.employee.findUnique).mockResolvedValueOnce({ status: 'ACTIVE' } as any);
+      // No shift assignment → shiftType defaults to 'OFFICE', no geofence, but lat/lng supplied so location check passes
+      vi.mocked(prisma.shiftAssignment.findFirst).mockResolvedValueOnce(null);
 
       // $transaction finds today's record with checkOut already set
       vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn: any) => {
@@ -287,12 +298,14 @@ describe('AttendanceService', () => {
       });
 
       await expect(
-        service.clockOut(EMP_ID, {} as any)
+        service.clockOut(EMP_ID, makeClockOutData() as any)
       ).rejects.toThrow(/Already clocked out/i);
     });
 
     it('throws BadRequestError "No clock-in found" when no record exists for today or yesterday', async () => {
       vi.mocked(prisma.employee.findUnique).mockResolvedValueOnce({ status: 'ACTIVE' } as any);
+      // No shift assignment → lat/lng supplied so location check passes
+      vi.mocked(prisma.shiftAssignment.findFirst).mockResolvedValueOnce(null);
 
       // $transaction: no record today, no record yesterday
       vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn: any) => {
@@ -306,7 +319,7 @@ describe('AttendanceService', () => {
       });
 
       await expect(
-        service.clockOut(EMP_ID, {} as any)
+        service.clockOut(EMP_ID, makeClockOutData() as any)
       ).rejects.toThrow(/No clock-in found/i);
     });
   });

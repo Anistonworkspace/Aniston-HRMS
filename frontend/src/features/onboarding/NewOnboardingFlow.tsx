@@ -189,7 +189,7 @@ export default function NewOnboardingFlow() {
     try {
       await completeOnboarding().unwrap();
       if (currentUser) {
-        dispatch(setUser({ ...currentUser, onboardingComplete: true, profileComplete: true }));
+        dispatch(setUser({ ...currentUser, onboardingComplete: true, profileComplete: true, kycCompleted: false }));
       }
       setCompleted(true);
     } catch (err: any) {
@@ -511,10 +511,12 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
   const sameResolved = sameAsCurrent === true;
   const permAddr = sameResolved ? form.currentAddress : form.permanentAddress;
   const permValid = sameResolved || addrValid(form.permanentAddress);
+  const phoneDigits = form.phone.replace(/\D/g, '');
+  const phoneValid = phoneDigits.length >= 10 && phoneDigits.length <= 12;
 
   const isValid = !!(
     form.firstName.trim() && form.lastName.trim() && form.dateOfBirth &&
-    form.gender && form.phone.trim() &&
+    form.gender && phoneValid &&
     (isSiteEmployee || !!form.qualification) &&
     addrValid(form.currentAddress) && permValid &&
     sameAsCurrent !== null // must explicitly choose
@@ -626,7 +628,10 @@ function Step2Personal({ onSave, saving, initialData, isSiteEmployee }: {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Phone <span className="text-red-500">*</span></label>
-          <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+91 9876543210" className={cn('input-glass w-full text-sm', err(!!form.phone.trim()))} />
+          <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="9876543210" className={cn('input-glass w-full text-sm', err(phoneValid))} />
+          {showErrors && form.phone.trim() && !phoneValid && (
+            <p className="text-[11px] text-red-500 mt-1">Enter a valid 10-digit mobile number</p>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Personal Email <span className="text-gray-400 font-normal">(optional)</span></label>
@@ -810,7 +815,8 @@ function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
     }
   }, [initialData]);
 
-  const isValid = !!(form.accountHolderName.trim() && form.bankName.trim() && form.bankAccountNumber.trim() && form.ifscCode.trim());
+  const ifscValid = /^[A-Z]{4}0[A-Z0-9]{6}$/.test(form.ifscCode.toUpperCase().trim());
+  const isValid = !!(form.accountHolderName.trim() && form.bankName.trim() && form.bankAccountNumber.trim() && ifscValid);
   const err = (cond: boolean) => showErrors && !cond ? 'border-red-400 ring-1 ring-red-200' : '';
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
 
@@ -838,7 +844,10 @@ function Step4Bank({ onSave, saving, initialData }: { onSave: (d: any) => void; 
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">IFSC Code <span className="text-red-500">*</span></label>
-          <input value={form.ifscCode} onChange={e => set('ifscCode', e.target.value.toUpperCase())} placeholder="SBIN0001234" className={cn('input-glass w-full text-sm font-mono', err(!!form.ifscCode.trim()))} />
+          <input value={form.ifscCode} onChange={e => set('ifscCode', e.target.value.toUpperCase())} placeholder="SBIN0001234" className={cn('input-glass w-full text-sm font-mono', err(ifscValid))} />
+          {showErrors && form.ifscCode.trim() && !ifscValid && (
+            <p className="text-[11px] text-red-500 mt-1">Invalid IFSC — 11 chars: 4 letters + 0 + 6 alphanumeric (e.g. SBIN0001234)</p>
+          )}
         </div>
       </div>
       <div>
