@@ -13,7 +13,6 @@ import {
 } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
-import { Queue } from 'workbox-background-sync';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -91,56 +90,18 @@ const navigationRoute = new NavigationRoute(navigationHandler, {
 registerRoute(navigationRoute);
 
 // ── Background Sync ───────────────────────────────────────────────────────────
-// Queue failed API mutations so they're retried when connectivity returns
-const mutationQueue = new Queue('hrms-api-mutations', {
-  maxRetentionTime: 24 * 60, // retry for up to 24 hours
-  onSync: async ({ queue }) => {
-    let entry;
-    while ((entry = await queue.shiftRequest())) {
-      try {
-        await fetch(entry.request);
-      } catch {
-        // Put back on failure and stop; will retry on next sync
-        await queue.unshiftRequest(entry);
-        throw new Error('Background sync replay failed; will retry later.');
-      }
-    }
-    // Notify all app windows that sync completed
-    const clients = await self.clients.matchAll({ type: 'window' });
-    clients.forEach((c) =>
-      c.postMessage({ type: 'BG_SYNC_COMPLETE', timestamp: Date.now() })
-    );
-  },
-});
+// NOTE: We intentionally do NOT use workbox-background-sync Queue here.
+// Queueing and replaying multipart/form-data bodies is not reliably supported
+// across Android WebView versions — the Content-Type boundary detection can
+// fail on WebView < 93, causing duplicate or empty requests. The frontend
+// already implements a one-shot retry (1.5 s delay) for FETCH_ERROR, which
+// handles transient 3G/4G drops without SW involvement.
 
-// Queue non-GET API mutations for background sync when offline.
-// File uploads (multipart/form-data) are excluded — their binary bodies cannot
-// be serialised and replayed by the background sync queue, so we let them fail
-// cleanly and the user retries manually.
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  const contentType = request.headers.get('content-type') || '';
-  const isFileUpload = contentType.includes('multipart/form-data');
-  if (
-    request.method !== 'GET' &&
-    request.url.includes('/api/') &&
-    !request.url.includes('/api/auth/') &&
-    !isFileUpload
-  ) {
-    const bgSyncPromise = fetch(request.clone()).catch(() =>
-      mutationQueue.pushRequest({ request })
-    );
-    event.waitUntil(bgSyncPromise);
-  }
-});
-
-// sync event — triggered by the browser when connectivity is restored
+// sync event — ping health endpoint when connectivity is restored so the app
+// can re-fetch stale data via RTK Query's refetchOnReconnect.
 self.addEventListener('sync', (event: Event) => {
   const syncEvent = event as unknown as SyncEvent;
-  if (
-    syncEvent.tag === 'hrms-sync' ||
-    syncEvent.tag === 'hrms-api-mutations'
-  ) {
+  if (syncEvent.tag === 'hrms-sync') {
     syncEvent.waitUntil(
       fetch('/api/health').catch(() => {
         /* silently ignore if still offline */
@@ -256,7 +217,7 @@ registerRoute(
   ({ url, request }) => url.pathname.startsWith('/api/') && request.method === 'GET',
   new NetworkFirst({
     cacheName: 'api-cache',
-    networkTimeoutSeconds: 10,
+    networkTimeoutSeconds: 30,
     plugins: [
       new ExpirationPlugin({ maxEntries: 100, maxAgeSeconds: 60 * 5 }),
       new CacheableResponsePlugin({ statuses: [0, 200] }),

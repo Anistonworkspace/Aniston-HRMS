@@ -273,11 +273,31 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
           <motion.div key="camera" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
             className="space-y-3">
             {cameraError ? (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-                <AlertTriangle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
-                <div>
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
                   <p className="text-sm font-medium text-red-800">{cameraError}</p>
-                  <button onClick={handleCancelCamera} className="text-xs text-red-600 underline mt-1">Go back</button>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCancelCamera}
+                    className="flex-1 btn-secondary text-xs py-2"
+                  >
+                    Go back
+                  </button>
+                  <label className="flex-[2] btn-primary text-xs py-2 flex items-center justify-center gap-1.5 cursor-pointer">
+                    <Upload size={13} /> Upload Photo Instead
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
+                      className="hidden"
+                      onChange={(e) => {
+                        stopCamera();
+                        setCameraError(null);
+                        handleFileUpload(e);
+                      }}
+                    />
+                  </label>
                 </div>
               </div>
             ) : (
