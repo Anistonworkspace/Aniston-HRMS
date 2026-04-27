@@ -41,7 +41,11 @@ function validateFileType(
   cb: multer.FileFilterCallback,
 ) {
   const ext = path.extname(file.originalname).toLowerCase();
-  if (allowedMimes.includes(file.mimetype) && allowedExts.includes(ext)) {
+  // Android cloud pickers (Google Drive, Samsung Files, etc.) often send
+  // application/octet-stream — fall back to extension-only validation in that case.
+  const mimeOk = allowedMimes.includes(file.mimetype) || file.mimetype === 'application/octet-stream';
+  const extOk = allowedExts.includes(ext);
+  if (mimeOk && extOk) {
     cb(null, true);
   } else {
     cb(new BadRequestError(errorMsg));

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Camera, Upload, RotateCcw, Check, X, Loader2, Sparkles, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import toast from 'react-hot-toast';
 
 type Mode = 'idle' | 'camera' | 'processing' | 'preview';
 
@@ -17,12 +18,24 @@ async function applyWhiteBackground(blob: Blob): Promise<File> {
   // Dynamically import to keep the heavy model out of the initial bundle
   const { removeBackground } = await import('@imgly/background-removal');
 
+  // 60-second timeout — model download can hang on slow mobile connections
+  const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+    Promise.race([
+      promise,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Background removal timed out')), ms)
+      ),
+    ]);
+
   // removeBackground returns a PNG blob with transparent background
-  const noBgBlob = await removeBackground(blob, {
-    // Reduce model quality for faster processing in onboarding context
-    model: 'small',
-    output: { format: 'image/png', quality: 0.95 },
-  });
+  const noBgBlob = await withTimeout(
+    removeBackground(blob, {
+      // Reduce model quality for faster processing in onboarding context
+      model: 'small',
+      output: { format: 'image/png', quality: 0.95 },
+    }),
+    60_000,
+  );
 
   // Composite onto white canvas and export as JPEG
   const img = new Image();
@@ -92,10 +105,12 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
       }
     } catch (err: any) {
       const msg = err?.name === 'NotAllowedError'
-        ? 'Camera permission denied. Please allow camera access in your browser settings.'
-        : err?.name === 'NotFoundError'
-        ? 'No camera found on this device.'
-        : 'Could not start camera. Use the upload option instead.';
+        ? 'Camera permission denied. Please allow camera access in your browser settings, then try again.'
+        : err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError'
+        ? 'Camera not available in this browser. Please open this app in Safari (iPhone) or Chrome (Android), or use the Upload Photo option instead.'
+        : err?.name === 'NotReadableError' || err?.name === 'TrackStartError'
+        ? 'Camera is in use by another app. Close other apps using the camera and try again.'
+        : 'Could not start camera. Use the Upload Photo option instead.';
       setCameraError(msg);
     }
   };
@@ -103,13 +118,20 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
   const capturePhoto = useCallback(async () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
+    if (!video.videoWidth || !video.videoHeight) {
+      toast.error('Camera is not ready yet. Please wait a moment and try again.');
+      return;
+    }
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d')!.drawImage(video, 0, 0);
 
     canvas.toBlob(async (blob) => {
-      if (!blob) return;
+      if (!blob) {
+        toast.error('Failed to capture photo. Please try again or use the Upload option.');
+        return;
+      }
       stopCamera();
       await processImage(blob);
     }, 'image/jpeg', 0.95);
@@ -160,6 +182,10 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Photo must be under 10 MB. Please choose a smaller image.');
+      return;
+    }
     await processImage(file);
   };
 
