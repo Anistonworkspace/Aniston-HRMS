@@ -19,7 +19,7 @@ async function applyWhiteBackground(blob: Blob): Promise<File> {
   const { removeBackground } = await import('@imgly/background-removal');
 
   // 60-second timeout — model download can hang on slow mobile connections
-  const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+  const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
     Promise.race([
       promise,
       new Promise<never>((_, reject) =>
