@@ -2914,7 +2914,7 @@ function HrKycUploadModal({
                           <input
                             ref={el => { fileRefs.current[doc.type] = el; }}
                             type="file"
-                            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                            accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.doc,.docx"
                             className="hidden"
                             onChange={e => {
                               const f = e.target.files?.[0];

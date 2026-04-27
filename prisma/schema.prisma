@@ -58,6 +58,9 @@ model Organization {
   profileEditRequests      ProfileEditRequest[]
   compOffCredits           CompOffCredit[]
 
+  itOffboardingChecklists ITOffboardingChecklist[]
+  exitInterviews          ExitInterview[]
+
   // Denormalized child relations (nullable FK — backfill required for existing rows)
   breaks               Break[]
   attendanceLogs       AttendanceLog[]
@@ -228,6 +231,10 @@ model Employee {
   activityLogs      ActivityLog[]
   agentScreenshots  AgentScreenshot[]
   exitChecklist     ExitChecklist?
+  handoverTasksAssigned HandoverTask[]        @relation("HandoverAssignee")
+  itOffboardingChecklist ITOffboardingChecklist?
+  exitInterview          ExitInterview?
+  conductedExitInterviews ExitInterview[]     @relation("ExitInterviewConductor")
   internProfile     InternProfile?
   internsMentored        InternProfile[]       @relation("InternMentor")
   salaryVisibilityRule   SalaryVisibilityRule?
@@ -1330,8 +1337,8 @@ model Application {
   id              String            @id @default(uuid())
   jobOpeningId    String
   candidateName   String
-  email           String
-  phone           String
+  email           String?
+  phone           String?
   resumeUrl       String
   coverLetter     String?
   source          ApplicationSource @default(PORTAL)
@@ -1349,9 +1356,10 @@ model Application {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
-  jobOpening     JobOpening       @relation(fields: [jobOpeningId], references: [id])
+  jobOpening      JobOpening       @relation(fields: [jobOpeningId], references: [id])
   interviewScores InterviewScore[]
-  offerLetter    OfferLetter?
+  offerLetter     OfferLetter?
+  bulkResumeItem  BulkResumeItem?
 
   @@unique([jobOpeningId, email])
   @@index([jobOpeningId, status])
@@ -1501,8 +1509,8 @@ model BulkResumeItem {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  bulkUpload      BulkResumeUpload    @relation(fields: [bulkUploadId], references: [id])
-  publicApplication PublicApplication? @relation(fields: [applicationId], references: [id])
+  bulkUpload      BulkResumeUpload    @relation(fields: [bulkUploadId], references: [id], onDelete: Cascade)
+  application     Application?        @relation(fields: [applicationId], references: [id], onDelete: SetNull)
 
   @@index([bulkUploadId])
   @@index([organizationId])
@@ -1814,8 +1822,9 @@ model ExitChecklist {
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 
-  employee Employee            @relation(fields: [employeeId], references: [id])
-  items    ExitChecklistItem[]
+  employee      Employee            @relation(fields: [employeeId], references: [id])
+  items         ExitChecklistItem[]
+  handoverTasks HandoverTask[]
 }
 
 model ExitChecklistItem {
@@ -1828,8 +1837,134 @@ model ExitChecklistItem {
   approvedBy  String?
   notes       String?
 
+  // Employee self-declares return before HR confirms
+  employeeConfirmedReturn Boolean   @default(false)
+  employeeConfirmedAt     DateTime?
+  employeeNotes           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   checklist ExitChecklist @relation(fields: [checklistId], references: [id])
   asset     Asset?        @relation(fields: [assetId], references: [id])
+
+  @@index([checklistId])
+}
+
+model HandoverTask {
+  id           String    @id @default(uuid())
+  checklistId  String
+  title        String
+  description  String?
+  category     String    @default("TASK")
+  assignedToId String?
+  isCompleted  Boolean   @default(false)
+  completedAt  DateTime?
+  completedBy  String?
+  dueDate      DateTime?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  checklist  ExitChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  assignedTo Employee?     @relation("HandoverAssignee", fields: [assignedToId], references: [id])
+
+  @@index([checklistId])
+}
+
+// =====================
+// IT OFFBOARDING CHECKLIST
+// =====================
+
+model ITOffboardingChecklist {
+  id             String    @id @default(uuid())
+  employeeId     String    @unique
+  organizationId String
+
+  emailDisabled        Boolean   @default(false)
+  emailDisabledAt      DateTime?
+  emailDisabledBy      String?
+
+  ssoRevoked           Boolean   @default(false)
+  ssoRevokedAt         DateTime?
+  ssoRevokedBy         String?
+
+  vpnRevoked           Boolean   @default(false)
+  vpnRevokedAt         DateTime?
+  vpnRevokedBy         String?
+
+  githubRemoved        Boolean   @default(false)
+  githubRemovedAt      DateTime?
+  githubRemovedBy      String?
+
+  jiraRemoved          Boolean   @default(false)
+  jiraRemovedAt        DateTime?
+  jiraRemovedBy        String?
+
+  slackRemoved         Boolean   @default(false)
+  slackRemovedAt       DateTime?
+  slackRemovedBy       String?
+
+  licensesReclaimed    Boolean   @default(false)
+  licensesReclaimedAt  DateTime?
+  licensesReclaimedBy  String?
+
+  deviceWiped          Boolean   @default(false)
+  deviceWipedAt        DateTime?
+  deviceWipedBy        String?
+
+  notes                String?
+  completedAt          DateTime?
+  deletedAt            DateTime?
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  employee       Employee      @relation(fields: [employeeId], references: [id])
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+}
+
+// =====================
+// EXIT INTERVIEW
+// =====================
+
+model ExitInterview {
+  id             String    @id @default(uuid())
+  employeeId     String    @unique
+  organizationId String
+  conductedById  String?
+
+  primaryReason         String
+  otherReasonDetail     String?
+
+  overallSatisfaction   Int?
+  managementRating      Int?
+  compensationRating    Int?
+  cultureRating         Int?
+  growthRating          Int?
+  workLifeBalanceRating Int?
+
+  likedMost              String?
+  dislikedMost           String?
+  improvementSuggestions String?
+  wouldRehire            Boolean?
+  additionalComments     String?
+
+  rehireEligible         Boolean?
+  rehireNotes            String?
+
+  submittedAt    DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  employee       Employee      @relation(fields: [employeeId], references: [id])
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  conductedBy    Employee?     @relation("ExitInterviewConductor", fields: [conductedById], references: [id])
+
+  @@index([organizationId])
 }
 
 // =====================
@@ -2224,7 +2359,7 @@ model WalkInCandidate {
   tokenNumber     String       @unique  // "WALK-IN-2026-0001"
   jobOpeningId    String?
   fullName        String
-  email           String
+  email           String?
   phone           String
   city            String?
 
@@ -2594,7 +2729,6 @@ model PublicApplication {
 
   jobOpening        JobOpening       @relation(fields: [jobOpeningId], references: [id])
   interviewRounds   InterviewRound[]
-  bulkResumeItem    BulkResumeItem?
 
   @@index([jobOpeningId])
   @@index([organizationId])

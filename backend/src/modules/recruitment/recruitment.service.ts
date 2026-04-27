@@ -1037,47 +1037,45 @@ ${data.requirements ? `Additional Requirements/Notes: ${safe(data.requirements)}
   }
 
   /**
-   * Promote a scored bulk resume item into a PublicApplication record.
+   * Promote a scored bulk resume item into a Kanban Application record.
    */
   async createApplicationFromBulkItem(itemId: string, jobOpeningId: string, organizationId: string) {
     const job = await prisma.jobOpening.findFirst({ where: { id: jobOpeningId, organizationId } });
     if (!job) throw new NotFoundError('Job opening not found');
 
     return prisma.$transaction(async (tx) => {
-      // Re-fetch inside transaction to prevent TOCTOU race (two concurrent requests for same item)
+      // Re-fetch inside transaction to prevent TOCTOU race
       const item = await tx.bulkResumeItem.findFirst({ where: { id: itemId, organizationId } });
       if (!item) throw new NotFoundError('Bulk resume item not found');
-      if (item.status !== 'SCORED') throw new BadRequestError('Item must be fully scored before creating an application');
-      if (item.applicationId) throw new BadRequestError('An application already exists for this item');
+      if (item.status !== 'SCORED') throw new BadRequestError('Item must be fully scored before adding to pipeline');
+      if (item.applicationId) throw new BadRequestError('This resume has already been added to the pipeline');
 
-      const uid = 'BULK-' + crypto.randomBytes(4).toString('hex').toUpperCase();
       const details: any = item.aiScoreDetails || {};
 
-      const app = await tx.publicApplication.create({
+      const app = await tx.application.create({
         data: {
-          uid,
-          candidateUid: uid,
           jobOpeningId,
-          organizationId,
           candidateName: item.candidateName || item.fileName.replace(/\.[^.]+$/, ''),
           email: item.email || null,
-          mobileNumber: item.phone || null,
+          phone: item.phone || null,
           resumeUrl: item.fileUrl,
           resumeText: item.resumeText || null,
-          matchedKeywords: item.matchedKeywords,
-          missingKeywords: item.missingKeywords,
-          resumeMatchScore: item.aiScore ? Number(item.aiScore) : null,
-          atsScore: item.atsScore ? Number(item.atsScore) : null,
-          atsScoreData: item.aiScoreDetails as any,
-          resumeScoreData: {
+          source: 'NAUKRI',
+          status: 'APPLIED',
+          currentStage: 1,
+          aiScore: item.aiScore ? Number(item.aiScore) : null,
+          aiScoreDetails: {
             matchScore: item.aiScore ? Number(item.aiScore) : null,
             strengths: details.strengths || [],
             gaps: details.gaps || [],
             summary: details.summary || '',
             parseMethod: details.parseMethod || 'bulk-upload',
           },
-          totalAiScore: item.aiScore ? Number(item.aiScore) : null,
-          status: 'SUBMITTED',
+          resumeMatchScore: item.aiScore ? Number(item.aiScore) : null,
+          atsScore: item.atsScore ? Number(item.atsScore) : null,
+          atsScoreData: item.aiScoreDetails as any,
+          matchedKeywords: item.matchedKeywords,
+          missingKeywords: item.missingKeywords,
         },
       });
 

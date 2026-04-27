@@ -180,7 +180,7 @@ export default function BulkResumeModal({ onClose }: Props) {
 
   const { data: jobsRes } = useGetJobOpeningsQuery({ page: 1, limit: 50 });
   const [uploadResumes, { isLoading: uploading }] = useUploadBulkResumesMutation();
-  const { data: uploadRes, refetch } = useGetBulkUploadQuery(uploadId!, { skip: !uploadId, pollingInterval: step === 'processing' ? 3000 : 0 });
+  const { data: uploadRes, refetch } = useGetBulkUploadQuery(uploadId!, { skip: !uploadId, pollingInterval: step === 'processing' ? 5000 : 0 });
   const [createApp] = useCreateApplicationFromItemMutation();
   const [sendInvite] = useSendBulkResumeInviteMutation();
   const [inviteSending, setInviteSending] = useState<Record<string, boolean>>({});
@@ -245,8 +245,12 @@ export default function BulkResumeModal({ onClose }: Props) {
     }
     setInviteSending(prev => ({ ...prev, [`${item.id}-${type}`]: true }));
     try {
-      await sendInvite({ itemId: item.id, inviteType: type, phone: item.phone, jobId: selectedJobId }).unwrap();
-      toast.success(type === 'email' ? `Email invite sent to ${item.email}` : `WhatsApp invite sent to ${item.phone}`);
+      const res = await sendInvite({ itemId: item.id, inviteType: type, phone: item.phone, jobId: selectedJobId }).unwrap();
+      if (res?.data?.sent === false) {
+        toast.error(res.data.reason || `${type === 'whatsapp' ? 'WhatsApp' : 'Email'} not connected`);
+      } else {
+        toast.success(type === 'email' ? `Email invite sent to ${item.email}` : `WhatsApp invite sent to ${item.phone}`);
+      }
     } catch (err: any) {
       toast.error(err?.data?.error?.message || `Failed to send ${type} invite`);
     } finally {

@@ -163,7 +163,7 @@ export class BulkResumeService {
         candidateName: result.candidateName || item.fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
         email: result.email || null,
         phone: result.phone || null,
-        aiScore: result.matchScore ?? 0,
+        aiScore: result.matchScore != null ? result.matchScore : null,
         atsScore: result.atsScore ?? null,
         strengths: result.strengths,
         gaps: result.gaps,

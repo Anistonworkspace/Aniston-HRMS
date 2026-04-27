@@ -75,7 +75,9 @@ export default function EmployeeOnboardingPage() {
       setCurrentStep(s => Math.min(s + 1, STEPS.length));
       refetch();
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to save');
+      if (err?.status === 'FETCH_ERROR') {
+        toast.error('You are offline. Please reconnect and try again.');
+      }
     }
   };
 
@@ -89,7 +91,9 @@ export default function EmployeeOnboardingPage() {
       toast.success('Onboarding complete! Welcome aboard!');
       navigate('/kyc-pending', { replace: true });
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to complete onboarding');
+      if (err?.status === 'FETCH_ERROR') {
+        toast.error('You are offline. Please reconnect and try again.');
+      }
     }
   };
 

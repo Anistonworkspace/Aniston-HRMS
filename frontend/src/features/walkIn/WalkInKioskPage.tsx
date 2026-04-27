@@ -117,11 +117,18 @@ export default function WalkInKioskPage() {
   const tempId = useMemo(() => `walkin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, []);
 
   const { data: jobsData } = useGetWalkInJobsQuery();
-  const { data: psychData } = useGetPsychometricQuestionsQuery();
+  const { data: psychData, isLoading: psychLoading, isError: psychError, refetch: refetchPsych } = useGetPsychometricQuestionsQuery();
   const [registerWalkIn, { isLoading: isSubmitting }] = useRegisterWalkInMutation();
+  // Lock in questions once loaded so a refetch() doesn't reshuffle mid-session
+  const [lockedPsychQuestions, setLockedPsychQuestions] = useState<any[]>([]);
+  useEffect(() => {
+    if (psychData?.data?.length && lockedPsychQuestions.length === 0) {
+      setLockedPsychQuestions(psychData.data);
+    }
+  }, [psychData]);
 
   const jobs = jobsData?.data || [];
-  const psychQuestions: any[] = psychData?.data || [];
+  const psychQuestions: any[] = lockedPsychQuestions;
 
   // Idle reset
   const resetIdleTimer = useCallback(() => {
@@ -625,7 +632,19 @@ export default function WalkInKioskPage() {
                 </div>
               </div>
 
-              {psychQuestions.length === 0 && <p className="text-sm text-gray-400">Loading questions...</p>}
+              {psychLoading && (
+                <div className="flex items-center gap-2 text-sm text-gray-400 py-4">
+                  <Loader2 size={16} className="animate-spin" /> Loading questions...
+                </div>
+              )}
+              {psychError && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700">
+                  <p className="font-medium mb-1">Assessment unavailable</p>
+                  <p className="text-xs mb-3">Could not load questions. You can skip this step or try again.</p>
+                  <button onClick={() => refetchPsych()} className="text-xs underline mr-4">Retry</button>
+                  <button onClick={() => setStep(s => s + 1)} className="text-xs underline">Skip Assessment →</button>
+                </div>
+              )}
 
               {psychQuestions.map((q: any, i: number) => (
                 <div key={q.id} className="bg-gray-50 rounded-xl p-4">

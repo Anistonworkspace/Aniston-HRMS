@@ -1271,6 +1271,18 @@ export class EmployeeService {
     const pendingAssets = await prisma.assetAssignment.count({ where: { employeeId, returnedAt: null } });
     if (pendingAssets > 0) throw new ConflictError(`Cannot complete exit: ${pendingAssets} asset(s) still pending return`);
 
+    // Block on incomplete handover tasks
+    const pendingTasks = await prisma.handoverTask.count({
+      where: { checklist: { employeeId }, isCompleted: false },
+    });
+    if (pendingTasks > 0) throw new ConflictError(`Cannot complete exit: ${pendingTasks} handover task(s) still pending`);
+
+    // H-1: block if IT offboarding checklist exists but is not complete
+    const itChecklist = await prisma.iTOffboardingChecklist.findFirst({ where: { employeeId } });
+    if (itChecklist && !itChecklist.completedAt) {
+      throw new ConflictError('Cannot complete exit: IT offboarding checklist is not fully completed');
+    }
+
     // Complete exit
     const updated = await prisma.employee.update({
       where: { id: employeeId },

@@ -51,15 +51,21 @@ export class BulkResumeController {
       }).parse(req.body);
 
       const { prisma } = await import('../../lib/prisma.js');
-      const item = await prisma.bulkResumeItem.findFirst({
-        where: { id: req.params.itemId, organizationId: req.user!.organizationId },
-        include: { bulkUpload: { include: { jobOpening: { select: { title: true, publicFormToken: true, publicFormEnabled: true } } } } },
-      });
+      const [item, org] = await Promise.all([
+        prisma.bulkResumeItem.findFirst({
+          where: { id: req.params.itemId, organizationId: req.user!.organizationId },
+          include: { bulkUpload: { include: { jobOpening: { select: { title: true, publicFormToken: true, publicFormEnabled: true } } } } },
+        }),
+        prisma.organization.findUnique({ where: { id: req.user!.organizationId }, select: { name: true, address: true } }),
+      ]);
       if (!item) { res.status(404).json({ success: false, error: { message: 'Resume item not found' } }); return; }
 
       const job = item.bulkUpload?.jobOpening;
       const candidateName = item.candidateName || 'Candidate';
       const baseUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
+      const companyName = org?.name || 'Aniston Technologies LLP';
+      const addr = org?.address as any;
+      const venue = addr ? [addr.street, addr.city, addr.state, addr.pincode].filter(Boolean).join(', ') : '207B, Jaksons Crown Heights, Sec-10, Rohini, New Delhi - 110085';
 
       if (inviteType === 'email') {
         if (!item.email) { res.status(400).json({ success: false, error: { message: 'No email found for this candidate' } }); return; }
@@ -67,13 +73,13 @@ export class BulkResumeController {
         const applyLink = job?.publicFormEnabled && job?.publicFormToken ? `${baseUrl}/apply/${job.publicFormToken}` : baseUrl;
         await enqueueEmail({
           to: item.email,
-          subject: `Interview Invitation — ${job?.title || 'Open Position'} at Aniston Technologies LLP`,
+          subject: `Interview Invitation — ${job?.title || 'Open Position'} at ${companyName}`,
           template: 'interview-invite',
           context: {
             candidateName,
             jobTitle: job?.title || 'Open Position',
             applyLink,
-            venue: '207B, Jaksons Crown Heights, Sec-10, Rohini, New Delhi - 110085',
+            venue,
           },
         });
         res.json({ success: true, data: { sent: true, to: item.email, type: 'email' } });
@@ -81,15 +87,14 @@ export class BulkResumeController {
         const toPhone = phone || item.phone;
         if (!toPhone) { res.status(400).json({ success: false, error: { message: 'Phone number required for WhatsApp invite' } }); return; }
         const applyLink = job?.publicFormEnabled && job?.publicFormToken ? `${baseUrl}/apply/${job.publicFormToken}` : baseUrl;
-        const message = `Hello ${candidateName},\n\nWe have reviewed your profile and would like to invite you to interview for the *${job?.title || 'open position'}* role at *Aniston Technologies LLP*.\n\nPlease complete your application here:\n${applyLink}\n\nVenue: 207B, Jaksons Crown Heights, Sec-10, Rohini, New Delhi - 110085\n\nBest regards,\nHR Team | Aniston Technologies`;
+        const message = `Hello ${candidateName},\n\nWe have reviewed your profile and would like to invite you to interview for the *${job?.title || 'open position'}* role at *${companyName}*.\n\nPlease complete your application here:\n${applyLink}\n\nVenue: ${venue}\n\nBest regards,\nHR Team | ${companyName}`;
         const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
         try {
           await whatsAppService.sendMessage({ to: toPhone, message }, req.user!.organizationId, req.user!.userId, 'INTERVIEW_INVITE');
           res.json({ success: true, data: { sent: true, to: toPhone, type: 'whatsapp' } });
         } catch (waErr: any) {
-          if (waErr.message?.includes('not connected') || waErr.message?.includes('Initialize')) {
-            res.status(503).json({ success: false, error: { code: 'WA_NOT_CONNECTED', message: 'WhatsApp is not connected. Go to Settings → WhatsApp to connect.' } });
-          } else { next(waErr); }
+          // Return success with sent:false so the recruiter knows WhatsApp failed but the record is not lost
+          res.json({ success: true, data: { sent: false, to: toPhone, type: 'whatsapp', reason: waErr.message?.includes('not connected') || waErr.message?.includes('Initialize') ? 'WhatsApp is not connected. Go to Settings → WhatsApp to connect.' : waErr.message || 'WhatsApp send failed' } });
         }
       }
     } catch (err) { next(err); }

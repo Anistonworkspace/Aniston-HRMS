@@ -178,7 +178,10 @@ export default function NewOnboardingFlow() {
       await refetch();
       setCurrentStep(s => Math.min(s + 1, 6));
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to save');
+      // Global api.ts handler already toasts server errors; only handle offline case here
+      if (err?.status === 'FETCH_ERROR') {
+        toast.error('You are offline. Please reconnect and try again.');
+      }
     }
   };
 
@@ -190,7 +193,9 @@ export default function NewOnboardingFlow() {
       }
       setCompleted(true);
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to complete onboarding');
+      if (err?.status === 'FETCH_ERROR') {
+        toast.error('You are offline. Please reconnect and try again.');
+      }
     }
   };
 
@@ -272,8 +277,7 @@ export default function NewOnboardingFlow() {
                 currentStep > step.num ? 'text-emerald-600' : 'text-gray-400'
               )}>
                 {step.title}
-                {step.num === 1 && workMode === 'OFFICE' && <span className="text-red-400 ml-0.5">*</span>}
-                {step.num === 1 && workMode !== 'OFFICE' && <span className="text-gray-400 ml-0.5">(opt)</span>}
+                {step.num === 1 && <span className="text-gray-400 ml-0.5">(opt)</span>}
               </span>
               {i < STEPS.length - 1 && (
                 <div className={cn('w-4 sm:w-8 h-0.5 mx-1', currentStep > step.num ? 'bg-emerald-400' : 'bg-gray-200')} />
@@ -364,7 +368,7 @@ export default function NewOnboardingFlow() {
             <ChevronLeft size={16} /> Back
           </button>
           <span className="text-xs text-gray-400">Step {currentStep} of {STEPS.length}</span>
-          {currentStep === 1 && workMode !== 'OFFICE' && (
+          {currentStep === 1 && (
             <button onClick={() => setCurrentStep(2)} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
               Skip <ChevronRight size={16} />
             </button>
@@ -408,12 +412,12 @@ function Step1MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
   return (
     <div className="space-y-5">
       {isOffice ? (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
           <div className="flex items-start gap-3">
-            <AlertTriangle size={20} className="text-red-500 mt-0.5 flex-shrink-0" />
+            <Shield size={20} className="text-amber-500 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-sm font-semibold text-red-800">MFA is Required for Office Employees</p>
-              <p className="text-xs text-red-600 mt-1">You must enable Two-Factor Authentication to complete onboarding. This protects your account and company data. You cannot skip this step.</p>
+              <p className="text-sm font-semibold text-amber-800">Two-Factor Authentication <span className="font-normal text-amber-600">(Recommended)</span></p>
+              <p className="text-xs text-amber-700 mt-1">MFA is strongly recommended for office employees to protect your account and company data. You can skip this now and set it up later from your Profile settings.</p>
             </div>
           </div>
         </div>
@@ -441,11 +445,9 @@ function Step1MFA({ onSkip, onEnabled, isMfaEnabled, workMode }: {
         <button onClick={() => setShowSetup(true)} className="btn-primary w-full flex items-center justify-center gap-2">
           <Shield size={16} /> Enable Two-Factor Authentication
         </button>
-        {!isOffice && (
-          <button onClick={onSkip} className="text-sm text-gray-500 hover:text-gray-700 text-center py-1">
-            Skip for now — I'll set it up later in Profile settings
-          </button>
-        )}
+        <button onClick={onSkip} className="text-sm text-gray-500 hover:text-gray-700 text-center py-1">
+          Skip for now — I'll set it up later in Profile settings
+        </button>
       </div>
 
       {showSetup && (
@@ -1213,7 +1215,8 @@ function Step6Review({ status, onComplete, completing, workMode, qualification, 
   const addr = status?.currentAddress as any;
   const permAddr = status?.permanentAddress as any;
   const ec = status?.emergencyContact as any;
-  const allSectionsDone = status?.sections?.mfa && status?.sections?.personalDetails &&
+  // MFA is optional — not required to complete onboarding
+  const allSectionsDone = status?.sections?.personalDetails &&
     status?.sections?.emergencyContact && status?.sections?.bankDetails && status?.sections?.documents;
 
   const requiredDocs = getRequiredNonIdentityDocs(workMode ?? null, qualification, addressSameAsPermanent, experienceLevel, experienceDocFields);
@@ -1224,13 +1227,20 @@ function Step6Review({ status, onComplete, completing, workMode, qualification, 
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
           <p className="text-sm font-semibold text-amber-800 flex items-center gap-2"><AlertTriangle size={16} /> Incomplete Sections</p>
           <ul className="mt-2 space-y-1 text-xs text-amber-700">
-            {!status?.sections?.mfa && <li>• MFA Setup — {workMode === 'OFFICE' ? 'required for office employees' : 'recommended'}</li>}
             {!status?.sections?.personalDetails && <li>• Personal Details — incomplete</li>}
             {!status?.sections?.emergencyContact && <li>• Emergency Contact — incomplete</li>}
             {!status?.sections?.bankDetails && <li>• Bank Details — incomplete</li>}
             {!status?.sections?.documents && <li>• Required Documents — {status?.missingRequiredDocs?.length || 0} missing</li>}
           </ul>
-          <p className="text-xs text-amber-600 mt-2">Please complete all sections before submitting.</p>
+          <p className="text-xs text-amber-600 mt-2">Please complete all required sections before submitting.</p>
+        </div>
+      )}
+      {!status?.sections?.mfa && allSectionsDone && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
+          <Shield size={15} className="text-blue-500 mt-0.5 flex-shrink-0" />
+          <p className="text-xs text-blue-700">
+            <span className="font-semibold">MFA not set up</span> — You can enable Two-Factor Authentication after onboarding from your Profile settings for extra security.
+          </p>
         </div>
       )}
 

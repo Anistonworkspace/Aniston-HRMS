@@ -48,6 +48,7 @@ const ActivityTrackingPage = lazy(() => import('../features/activity/ActivityTra
 const PendingApprovalsPage = lazy(() => import('../features/dashboard/PendingApprovalsPage'));
 const ExitManagementPage = lazy(() => import('../features/exit/ExitManagementPage'));
 const ExitDetailPage = lazy(() => import('../features/exit/ExitDetailPage'));
+const MyExitPage = lazy(() => import('../features/exit/MyExitPage'));
 const InviteAcceptPage = lazy(() => import('../features/invitation/InviteAcceptPage'));
 const WhatsAppPage = lazy(() => import('../features/whatsapp/WhatsAppPage'));
 const PublicApplyPage = lazy(() => import('../features/public-apply/PublicApplyPage'));
@@ -222,6 +223,7 @@ export default function AppRouter() {
             <Route path="/whatsapp" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'HR']}><WhatsAppPage /></ProtectedRoute>} />
             <Route path="/exit-management" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><ExitManagementPage /></ProtectedRoute>} />
             <Route path="/exit-management/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><ExitDetailPage /></ProtectedRoute>} />
+            <Route path="/my-exit" element={<MyExitPage />} />
             <Route path="/more" element={<ProfilePage />} />
           </Route>
 

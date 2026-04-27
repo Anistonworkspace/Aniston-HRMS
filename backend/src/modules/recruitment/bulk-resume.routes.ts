@@ -28,16 +28,16 @@ router.post('/:itemId/invite', requirePermission('recruitment', 'create'), (req,
   bulkResumeController.sendInvite(req, res, next)
 );
 
-router.get('/:uploadId', requirePermission('recruitment', 'read'), (req, res, next) =>
-  bulkResumeController.getUpload(req, res, next)
-);
-
 router.delete('/items/:itemId', requirePermission('recruitment', 'delete'), (req, res, next) =>
   bulkResumeController.deleteItem(req, res, next)
 );
 
 router.delete('/:uploadId', requirePermission('recruitment', 'delete'), (req, res, next) =>
   bulkResumeController.deleteUpload(req, res, next)
+);
+
+router.get('/:uploadId', requirePermission('recruitment', 'read'), (req, res, next) =>
+  bulkResumeController.getUpload(req, res, next)
 );
 
 export { router as bulkResumeRouter };

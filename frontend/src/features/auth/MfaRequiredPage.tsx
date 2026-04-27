@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, LogOut, ShieldCheck } from 'lucide-react';
+import { Shield, LogOut, ShieldCheck, ChevronRight } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../app/store';
 import { setUser, logout } from './authSlice';
 import { useGetMeQuery } from './authApi';
@@ -12,8 +12,6 @@ export default function MfaRequiredPage() {
   const { user } = useAppSelector((state) => state.auth);
   const [showSetup, setShowSetup] = useState(false);
 
-  // Force-fetch /auth/me so we can refetch after MFA is enabled and get
-  // a fresh profileComplete: true from the backend (which re-queries DB for MFA status).
   const { refetch: refetchMe } = useGetMeQuery(undefined, { skip: false });
 
   const handleMfaEnabled = async () => {
@@ -22,6 +20,20 @@ export default function MfaRequiredPage() {
       const result = await refetchMe();
       if (result.data?.data) {
         dispatch(setUser(result.data.data));
+      } else if (user) {
+        dispatch(setUser({ ...user, profileComplete: true }));
+      }
+    } catch {
+      if (user) dispatch(setUser({ ...user, profileComplete: true }));
+    }
+    navigate('/dashboard', { replace: true });
+  };
+
+  const handleSkip = async () => {
+    try {
+      const result = await refetchMe();
+      if (result.data?.data) {
+        dispatch(setUser({ ...result.data.data, profileComplete: true }));
       } else if (user) {
         dispatch(setUser({ ...user, profileComplete: true }));
       }
@@ -41,23 +53,22 @@ export default function MfaRequiredPage() {
       <div className="w-full max-w-md space-y-6">
         {/* Header */}
         <div className="text-center">
-          <div className="w-16 h-16 bg-red-50 border-2 border-red-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Shield size={28} className="text-red-500" />
+          <div className="w-16 h-16 bg-amber-50 border-2 border-amber-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <Shield size={28} className="text-amber-500" />
           </div>
-          <h1 className="text-xl font-bold text-gray-900">Two-Factor Authentication Required</h1>
+          <h1 className="text-xl font-bold text-gray-900">Secure Your Account</h1>
           <p className="text-sm text-gray-500 mt-2 leading-relaxed">
-            Your organization requires MFA for office employees.<br />
-            Set it up now to access the portal.
+            Two-Factor Authentication adds an extra layer of security.<br />
+            You can set it up now or later from your Profile settings.
           </p>
         </div>
 
         {/* Setup card */}
         <div className="layer-card p-5 space-y-4">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <p className="text-sm font-semibold text-red-800">Action Required</p>
-            <p className="text-xs text-red-600 mt-1 leading-relaxed">
-              You must enable Two-Factor Authentication before accessing the portal.
-              Use Google Authenticator, Authy, or any TOTP app — scan the QR code or enter the secret key manually.
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm font-semibold text-blue-800">Recommended</p>
+            <p className="text-xs text-blue-600 mt-1 leading-relaxed">
+              Enable MFA using Google Authenticator, Authy, or any TOTP app — scan the QR code or enter the secret key manually.
             </p>
           </div>
 
@@ -98,6 +109,13 @@ export default function MfaRequiredPage() {
             className="btn-primary w-full flex items-center justify-center gap-2 mt-1"
           >
             <ShieldCheck size={16} /> Set Up Two-Factor Authentication
+          </button>
+
+          <button
+            onClick={handleSkip}
+            className="w-full flex items-center justify-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors py-1"
+          >
+            Skip for now — set up later from Profile <ChevronRight size={14} />
           </button>
         </div>
 

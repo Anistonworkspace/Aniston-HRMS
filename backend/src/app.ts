@@ -55,6 +55,7 @@ import { invitationRouter } from './modules/invitation/invitation.routes.js';
 import { aiAssistantRouter } from './modules/ai-assistant/ai-assistant.routes.js';
 import { publicApplyRouter } from './modules/public-apply/public-apply.routes.js';
 import { exitAccessRouter } from './modules/exit-access/exit-access.routes.js';
+import { exitRouter } from './modules/exit/exit.routes.js';
 import { employeePermissionsRouter } from './modules/employee-permissions/employee-permissions.routes.js';
 import { documentOcrRouter } from './modules/document-ocr/document-ocr.routes.js';
 import { taskIntegrationRouter } from './modules/task-integration/task-integration.routes.js';
@@ -149,7 +150,7 @@ app.use(cors({
     : [env.FRONTEND_URL, 'https://hr.anistonav.com'].filter(Boolean),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Accept', 'Accept-Language', 'Content-Length'],
 }));
 
 // Prevent caching of all API responses
@@ -282,6 +283,7 @@ app.use('/api/invitations', invitationRouter);
 app.use('/api/ai-assistant', aiAssistantRouter);
 app.use('/api/jobs', publicApplyRouter);
 app.use('/api/exit-access', exitAccessRouter);
+app.use('/api/exit', exitRouter);
 app.use('/api/employee-permissions', employeePermissionsRouter);
 app.use('/api/task-integration', taskIntegrationRouter);
 app.use('/api/letters', letterRouter);

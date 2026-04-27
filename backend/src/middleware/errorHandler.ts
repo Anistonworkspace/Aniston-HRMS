@@ -297,6 +297,21 @@ export function errorHandler(
     }
   }
 
+  // Prisma unknown request errors (e.g. connection issues, driver errors)
+  if (err.constructor.name === 'PrismaClientUnknownRequestError' || err.constructor.name === 'PrismaClientRustPanicError') {
+    const requestId2 = (_req.headers?.['x-request-id'] as string) || 'unknown';
+    logger.error('Prisma unknown error:', { message: (err as any).message, requestId: requestId2, url: _req.originalUrl });
+    res.status(500).json({
+      success: false,
+      data: null,
+      error: {
+        code: 'DATABASE_ERROR',
+        message: 'A database error occurred. Please try again in a moment.',
+      },
+    });
+    return;
+  }
+
   // Unknown / programmer errors
   const requestId = (_req.headers?.['x-request-id'] as string) || 'unknown';
   logger.error('Unhandled error:', {
@@ -312,7 +327,7 @@ export function errorHandler(
     error: {
       code: 'INTERNAL_ERROR',
       message: env.NODE_ENV === 'production'
-        ? 'An unexpected error occurred'
+        ? 'Something went wrong. Please try again, or contact support if the issue persists.'
         : err.message,
     },
   });

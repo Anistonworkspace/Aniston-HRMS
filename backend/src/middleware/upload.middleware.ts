@@ -51,9 +51,9 @@ function validateFileType(
 const imageFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) =>
   validateFileType(
     file,
-    ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
-    ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
-    'Only JPEG, PNG, WebP, and GIF images are allowed',
+    ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'],
+    ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif'],
+    'Only JPEG, PNG, WebP, GIF, or HEIC images are allowed',
     cb,
   );
 
@@ -65,10 +65,12 @@ const documentFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFil
       'image/jpeg',
       'image/png',
       'image/webp',
+      'image/heic',
+      'image/heif',
       'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     ],
-    ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.doc', '.docx'],
+    ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.doc', '.docx'],
     'Only PDF, DOC, DOCX, and image files are allowed',
     cb,
   );

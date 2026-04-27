@@ -245,16 +245,21 @@ export class WalkInController {
         return;
       }
 
+      const isValidIndianPhone = (p: string) => {
+        const digits = p.replace(/[\s\-()]/g, '').replace(/^\+/, '');
+        return /^[6-9]\d{9}$/.test(digits) || /^91[6-9]\d{9}$/.test(digits);
+      };
+
       const rows = lines.slice(1).map((line: string) => {
         const cells = line.split(',').map((c: string) => c.trim().replace(/^"|"$/g, ''));
         return {
           fullName: cells[nameIdx] || '',
-          phone: cells[phoneIdx] || '',
+          phone: cells[phoneIdx]?.replace(/[\s\-()]/g, '').replace(/^\+/, '') || '',
           email: emailIdx >= 0 ? cells[emailIdx] || undefined : undefined,
           position: positionIdx >= 0 ? cells[positionIdx] || undefined : undefined,
           experienceYears: expIdx >= 0 ? parseInt(cells[expIdx]) || 0 : 0,
         };
-      }).filter((r: any) => r.fullName && r.phone);
+      }).filter((r: any) => r.fullName && r.phone && isValidIndianPhone(r.phone));
 
       const result = await walkInService.bulkImportFromCsv(rows, req.user!.organizationId);
       res.status(201).json({ success: true, data: result, message: `Imported ${result.created} candidates (${result.skipped} skipped)` });
@@ -330,24 +335,32 @@ Return as a JSON array: [{ "question": "...", "category": "Technical|Behavioral|
         jobId: z.string().optional(),
       }).parse(req.body);
 
-      // Validate phone: 7–15 digits after stripping formatting characters
+      // Validate phone: strip formatting, then accept Indian 10-digit or E.164 with country code
       const phoneDigits = phone.replace(/[\s\-()]/g, '').replace(/^\+/, '');
-      if (!/^[0-9]{10,15}$/.test(phoneDigits)) {
-        res.status(400).json({ success: false, error: { code: 'INVALID_PHONE', message: 'Enter a valid phone number with country code (10–15 digits, e.g. 919876543210)' } });
+      const isIndian10 = /^[6-9]\d{9}$/.test(phoneDigits);
+      const isWithCountryCode = /^91[6-9]\d{9}$/.test(phoneDigits);
+      if (!isIndian10 && !isWithCountryCode) {
+        res.status(400).json({ success: false, error: { code: 'INVALID_PHONE', message: 'Enter a valid Indian mobile number (10 digits starting with 6–9, or with 91 country code)' } });
         return;
       }
 
       const baseUrl = process.env.FRONTEND_URL || 'https://hr.anistonav.com';
       const formLink = jobId ? `${baseUrl}/walk-in?jobId=${jobId}` : `${baseUrl}/walk-in`;
 
+      const { prisma } = await import('../../lib/prisma.js');
+      const org = await prisma.organization.findUnique({ where: { id: req.user!.organizationId }, select: { name: true, address: true } });
+      const companyName = org?.name || 'Aniston Technologies LLP';
+      const addr = org?.address as any;
+      const venue = addr ? [addr.street, addr.city, addr.state, addr.pincode].filter(Boolean).join(', ') : '207B, Jaksons Crown Heights, Sec-10, Rohini, New Delhi - 110085';
+
       const message = `Hello ${candidateName},
 
-Congratulations! You have been shortlisted for the *${position}* position at *Aniston Technologies LLP*.
+Congratulations! You have been shortlisted for the *${position}* position at *${companyName}*.
 
 *Interview Details:*
 Date: ${interviewDate}
 Time: ${interviewTime}
-Venue: 207B, Jaksons Crown Heights, Sec-10, Rohini, New Delhi - 110085
+Venue: ${venue}
 
 Please fill your interview registration form before arriving:
 ${formLink}
@@ -355,7 +368,7 @@ ${formLink}
 Bring your original documents (ID proof, certificates, resume).
 
 Best regards,
-HR Team | Aniston Technologies`;
+HR Team | ${companyName}`;
 
       const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
       const allowed = await whatsAppService.checkAutoSendQuota(req.user!.organizationId);

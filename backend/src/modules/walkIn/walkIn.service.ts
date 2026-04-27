@@ -1036,16 +1036,25 @@ export class WalkInService {
     }
 
     const created: any[] = [];
-    const skipped: string[] = [];
+    const skipped: Array<{ name: string; phone: string; reason: string }> = [];
 
     for (const row of rows) {
       try {
-        // Skip duplicate phone within the same org
+        // Skip duplicate phone or email within the same org
         const existing = await prisma.walkInCandidate.findFirst({
-          where: { phone: row.phone, organizationId },
+          where: {
+            organizationId,
+            OR: [
+              { phone: row.phone },
+              ...(row.email ? [{ email: row.email }] : []),
+            ],
+          },
           select: { id: true },
         });
-        if (existing) { skipped.push(row.phone); continue; }
+        if (existing) {
+          skipped.push({ name: row.fullName, phone: row.phone, reason: 'Duplicate phone or email' });
+          continue;
+        }
 
         const token = await this.generateToken(organizationId);
         const positionKey = row.position?.toLowerCase() || '';
@@ -1057,22 +1066,26 @@ export class WalkInService {
             tokenNumber: token,
             fullName: row.fullName,
             phone: row.phone,
-            email: row.email || '',
+            email: row.email || null,
             experienceYears: row.experienceYears ?? 0,
             experienceMonths: 0,
             status: 'WAITING',
             jobOpeningId: jobId,
           },
-          select: { id: true, tokenNumber: true, fullName: true, phone: true, email: true, status: true, jobOpening: { select: { title: true } } },
+          select: { id: true, tokenNumber: true, fullName: true, phone: true, email: true, status: true, jobOpening: { select: { id: true, title: true } } },
         });
-        created.push({ ...candidate, appliedPosition: (candidate as any).jobOpening?.title || row.position || null });
+        created.push({
+          ...candidate,
+          appliedPosition: (candidate as any).jobOpening?.title || row.position || null,
+          jobOpeningId: (candidate as any).jobOpening?.id || null,
+        });
       } catch (err) {
         logger.warn(`[WalkIn] Bulk import skipped row for ${row.fullName}:`, err);
-        skipped.push(row.phone || row.fullName);
+        skipped.push({ name: row.fullName, phone: row.phone, reason: 'Import error' });
       }
     }
 
-    return { created: created.length, skipped: skipped.length, candidates: created };
+    return { created: created.length, skipped: skipped.length, skippedDetails: skipped, candidates: created };
   }
 }
 

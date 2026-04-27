@@ -333,7 +333,7 @@ function UploadPanel({ existingTypes, onUploaded }: { existingTypes: string[]; o
           <input
             ref={fileRef}
             type="file"
-            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.heic,.heif"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];

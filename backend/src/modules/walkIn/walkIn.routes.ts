@@ -58,6 +58,12 @@ router.get('/interviewers', ...hrAuth, (req, res, next) => walkInController.getI
 // Get today's walk-ins (HR dashboard — legacy)
 router.get('/today', ...hrAuth, (req, res, next) => walkInController.getTodayWalkIns(req, res, next));
 
+// Send WhatsApp interview invite with walk-in form link
+router.post('/whatsapp-invite', ...hrAuth, (req, res, next) => walkInController.sendWhatsAppInvite(req, res, next));
+
+// Bulk import walk-in candidates from CSV (Naukri / Indeed / any platform export)
+router.post('/bulk-import', ...hrAuth, uploadCsv.single('file'), (req, res, next) => walkInController.bulkImport(req, res, next));
+
 // Get a specific walk-in record
 router.get('/:id', ...hrAuth, (req, res, next) => walkInController.getById(req, res, next));
 
@@ -83,12 +89,6 @@ router.post('/:id/hire', ...hrAuth, (req, res, next) => walkInController.hire(re
 
 // Generate AI interview questions for a candidate
 router.post('/:id/generate-questions', ...hrAuth, (req, res, next) => walkInController.generateInterviewQuestions(req, res, next));
-
-// Send WhatsApp interview invite with walk-in form link
-router.post('/whatsapp-invite', ...hrAuth, (req, res, next) => walkInController.sendWhatsAppInvite(req, res, next));
-
-// Bulk import walk-in candidates from CSV (Naukri / Indeed / any platform export)
-router.post('/bulk-import', ...hrAuth, uploadCsv.single('file'), (req, res, next) => walkInController.bulkImport(req, res, next));
 
 // Delete a walk-in record
 router.delete('/:id', ...hrAuth, (req, res, next) => walkInController.remove(req, res, next));

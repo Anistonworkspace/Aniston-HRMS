@@ -367,9 +367,9 @@ export class OnboardingService {
       documents: missingRequiredDocs.length === 0,
     };
 
-    // Step numbering: 1=MFA, 2=Personal, 3=Emergency, 4=Bank, 5=Documents, 6=Review
-    let resumeStep = 1;
-    if (sections.mfa) resumeStep = 2;
+    // Step numbering: 1=MFA (optional), 2=Personal, 3=Emergency, 4=Bank, 5=Documents, 6=Review
+    // MFA is optional — always advance past step 1 so it never blocks other steps
+    let resumeStep = 2;
     if (sections.personalDetails) resumeStep = 3;
     if (sections.emergencyContact) resumeStep = 4;
     if (sections.bankDetails) resumeStep = 5;
@@ -449,12 +449,16 @@ export class OnboardingService {
       if (!baseValid || !currValid || !permValid) {
         throw new BadRequestError('Name, DOB, gender, phone, current address are required; permanent address is required when different from current');
       }
+      const parsedDob = new Date(stepData.dateOfBirth);
+      if (isNaN(parsedDob.getTime())) {
+        throw new BadRequestError('Invalid date of birth. Please use YYYY-MM-DD format.');
+      }
       await prisma.employee.update({
         where: { id: employeeId },
         data: {
           firstName: stepData.firstName,
           lastName: stepData.lastName,
-          dateOfBirth: new Date(stepData.dateOfBirth),
+          dateOfBirth: parsedDob,
           gender: stepData.gender,
           bloodGroup: stepData.bloodGroup || null,
           maritalStatus: stepData.maritalStatus || null,
@@ -526,12 +530,7 @@ export class OnboardingService {
     });
     if (!emp) throw new NotFoundError('Employee');
 
-    // MFA mandatory for OFFICE employees only
-    if (emp.workMode === 'OFFICE') {
-      if (!(emp.user as any)?.mfa?.isEnabled) {
-        throw new BadRequestError('Two-Factor Authentication (MFA) is required for office employees. Please enable MFA in Step 1 before completing onboarding.');
-      }
-    }
+    // MFA is optional — employees can set it up after onboarding from their Profile page
 
     // Validate required employee-filled fields
     const addr = emp.address as any;

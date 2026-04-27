@@ -67,7 +67,9 @@ export default function OnboardingPortal() {
         setCurrentStep(currentStep + 1);
       }
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to save');
+      if (err?.status === 'FETCH_ERROR') {
+        toast.error('You are offline. Please reconnect and try again.');
+      }
     }
   };
 
@@ -76,7 +78,9 @@ export default function OnboardingPortal() {
       await completeOnboarding(token!).unwrap();
       setCompleted(true);
     } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to complete');
+      if (err?.status === 'FETCH_ERROR') {
+        toast.error('You are offline. Please reconnect and try again.');
+      }
     }
   };
 

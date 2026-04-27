@@ -59,6 +59,7 @@ export default function WalkInBulkImportModal({ onClose }: Props) {
         position: candidate.appliedPosition || 'Open Position',
         interviewDate: 'To be confirmed',
         interviewTime: 'To be confirmed',
+        jobId: candidate.jobOpeningId || undefined,
       }).unwrap();
       toast.success(`WhatsApp invite sent to ${candidate.fullName}`);
     } catch (err: any) {
@@ -169,10 +170,26 @@ export default function WalkInBulkImportModal({ onClose }: Props) {
                 {result.skipped > 0 && (
                   <div className="flex items-center gap-2 text-amber-600">
                     <AlertCircle size={16} />
-                    <span className="text-sm">{result.skipped} skipped (duplicates)</span>
+                    <span className="text-sm">{result.skipped} skipped</span>
                   </div>
                 )}
               </div>
+
+              {/* Skipped candidates detail */}
+              {result.skipped > 0 && result.skippedDetails?.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-amber-700 mb-2">Skipped Rows</p>
+                  <div className="space-y-1">
+                    {result.skippedDetails.map((skip: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between text-xs text-amber-700">
+                        <span className="font-medium">{skip.name}</span>
+                        <span className="text-amber-500">{skip.phone}</span>
+                        <span className="text-amber-600 italic">{skip.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Imported candidates table */}
               {result.candidates.length > 0 && (

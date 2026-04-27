@@ -236,7 +236,7 @@ export default function PassportPhotoUploader({ onPhotoReady, isUploading, isUpl
                 <p className="text-sm font-semibold text-gray-700">Upload Photo</p>
                 <p className="text-[11px] text-gray-400 mt-0.5">JPG / PNG · BG removed</p>
               </div>
-              <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+              <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" className="hidden"
                 onChange={handleFileUpload} />
             </label>
           </motion.div>

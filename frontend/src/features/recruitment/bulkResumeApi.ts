@@ -40,6 +40,7 @@ export const bulkResumeApi = api.injectEndpoints({
         method: 'POST',
         body,
       }),
+      invalidatesTags: ['Recruitment'],
     }),
   }),
 });

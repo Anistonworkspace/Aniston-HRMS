@@ -311,6 +311,35 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     standardFooter(ctx.orgName, ctx.applyUrl, 'If the button doesn\'t work, copy and paste this link into your browser:')
   ),
 
+  'interview-invite': (ctx) => emailLayout(
+    '#4F46E5', 'A', `Interview Invitation — ${esc(ctx.jobTitle)}`, `You're invited to interview at Aniston Technologies`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Dear <strong>${esc(ctx.candidateName)}</strong>,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      We have reviewed your profile and are pleased to invite you to interview for the
+      <strong>${esc(ctx.jobTitle)}</strong> position at <strong>Aniston Technologies LLP</strong>.
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;border-radius:8px;margin:0 0 24px;">
+      <tr><td style="padding:20px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:8px 0;color:#6B7280;font-size:13px;width:100px;border-bottom:1px solid #E5E7EB;">Venue</td>
+            <td style="padding:8px 0;font-weight:600;font-size:13px;color:#111827;border-bottom:1px solid #E5E7EB;">${esc(ctx.venue)}</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 0;color:#6B7280;font-size:13px;">Position</td>
+            <td style="padding:8px 0;font-weight:600;font-size:13px;color:#111827;">${esc(ctx.jobTitle)}</td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+    <p style="color:#374151;font-size:14px;line-height:1.6;margin:0 0 24px;">
+      Please complete your application form before attending:
+    </p>
+    ${ctaButton(ctx.applyLink, 'Complete Application')}
+    <p style="color:#6B7280;font-size:13px;margin:24px 0 0;">Please bring your original documents — ID proof, educational certificates, and a copy of your resume.</p>`,
+    standardFooter('Aniston Technologies', ctx.applyLink)
+  ),
+
   'app-download': (ctx) => emailLayout(
     '#4F46E5', 'A', 'Download Aniston HRMS App', 'Mark attendance, apply leaves, and more — right from your phone',
     `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Hello <strong>${esc(ctx.employeeName || 'there')}</strong>,</p>

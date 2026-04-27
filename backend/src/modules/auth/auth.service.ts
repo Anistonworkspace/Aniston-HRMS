@@ -458,7 +458,7 @@ export class AuthService {
   }
 
   /** True when all required profile fields are filled (used as gate before dashboard access) */
-  public calculateProfileComplete(employee: any, mfaEnabled: boolean): boolean {
+  public calculateProfileComplete(employee: any, _mfaEnabled: boolean): boolean {
     if (!employee) return false;
     const addr = employee.address as any;
     const ec = employee.emergencyContact as any;
@@ -470,8 +470,8 @@ export class AuthService {
     const addressOk = !!(addr?.line1 && addr?.city && addr?.state && addr?.pincode);
     const emergencyOk = !!(ec?.name && ec?.relationship && ec?.phone);
     const bankOk = !!(employee.bankAccountNumber && employee.bankName && employee.ifscCode && employee.accountHolderName);
-    const mfaOk = employee.workMode !== 'OFFICE' || mfaEnabled;
-    return personalOk && addressOk && emergencyOk && bankOk && mfaOk;
+    // MFA is optional — never gates profile completion regardless of work mode
+    return personalOk && addressOk && emergencyOk && bankOk;
   }
 
   /** Generate tokens for a user (used by login + invitation accept) */
