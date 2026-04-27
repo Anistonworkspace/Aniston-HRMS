@@ -147,7 +147,8 @@ app.use(helmet({
 app.use(cors({
   origin: env.NODE_ENV === 'development'
     ? [env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:5174']
-    : [env.FRONTEND_URL, 'https://hr.anistonav.com'].filter(Boolean),
+    // Capacitor Android APK (androidScheme:'https') serves from https://localhost
+    : [env.FRONTEND_URL, 'https://hr.anistonav.com', 'https://localhost'].filter(Boolean),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Accept', 'Accept-Language', 'Content-Length'],

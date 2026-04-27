@@ -1004,22 +1004,35 @@ function Step5Documents({
   const handleUpload = useCallback(async (file: File, docType: string, docName: string) => {
     if (file.size > 10 * 1024 * 1024) { toast.error('File is too large. Maximum size is 10MB. Please compress the file and try again.'); return; }
     setUploads(prev => ({ ...prev, [docType]: { status: 'uploading', fileName: file.name } }));
-    try {
+
+    const attemptUpload = async () => {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('type', docType);
       formData.append('name', docName);
       await (uploadDocument as any)(formData).unwrap();
+    };
+
+    try {
+      try {
+        await attemptUpload();
+      } catch (firstErr: any) {
+        // Auto-retry once on network blip — FETCH_ERROR means the TCP connection
+        // dropped (common on 3G/4G); retrying usually succeeds on reconnect.
+        if (firstErr?.status !== 'FETCH_ERROR') throw firstErr;
+        await new Promise(r => setTimeout(r, 1500));
+        await attemptUpload();
+      }
       setUploads(prev => ({ ...prev, [docType]: { status: 'done', fileName: file.name } }));
       toast.success(`${docName} uploaded`);
       onRefetch();
     } catch (err: any) {
       const isNetwork = err?.status === 'FETCH_ERROR';
       const msg = isNetwork
-        ? 'Network error — please check your connection and try again.'
+        ? 'Upload failed — weak signal. Please try again.'
         : err?.data?.error?.message || 'Upload failed. Please try again.';
       setUploads(prev => ({ ...prev, [docType]: { status: 'error', fileName: file.name, error: msg } }));
-      toast.error(isNetwork ? 'Upload failed — please check your connection and try again.' : msg);
+      toast.error(msg);
     }
   }, [uploadDocument, onRefetch]);
 
