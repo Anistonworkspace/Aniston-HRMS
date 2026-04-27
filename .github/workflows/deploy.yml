@@ -214,12 +214,14 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            echo "=== [3.5/17] Restarting Docker services (postgres + redis) for clean state ==="
+            echo "=== [3.5/17] Ensuring Docker services (postgres + redis) are running ==="
             cd /home/ubuntu/Aniston-HRMS/docker
-            sudo docker compose restart postgres redis 2>/dev/null \
-              || sudo docker-compose restart postgres redis 2>/dev/null \
-              || echo "⚠️  Docker restart failed (containers may not be running yet — will start in step 8)"
-            # Wait up to 30s for postgres to be healthy after restart
+            # 'up -d' is idempotent: starts containers if stopped, no-ops if already running.
+            # 'restart' only works on already-running containers — we use 'up -d' to be safe.
+            sudo docker compose up -d postgres redis 2>/dev/null \
+              || sudo docker-compose up -d postgres redis 2>/dev/null \
+              || echo "⚠️  Docker start failed — postgres/redis may already be running natively"
+            # Wait up to 30s for postgres to accept connections
             echo "Waiting for PostgreSQL to become ready..."
             for i in $(seq 1 10); do
               sleep 3
@@ -252,9 +254,9 @@ jobs:
             echo "QUxURVIgVEFCTEUgIkJ1bGtSZXN1bWVJdGVtIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgIm9yZ2FuaXphdGlvbklkIiBURVhUIE5PVCBOVUxMIERFRkFVTFQgJyc7ClVQREFURSAiQnVsa1Jlc3VtZUl0ZW0iIGJyaSBTRVQgIm9yZ2FuaXphdGlvbklkIiA9IGJydS4ib3JnYW5pemF0aW9uSWQiIEZST00gIkJ1bGtSZXN1bWVVcGxvYWQiIGJydSBXSEVSRSBicmkuImJ1bGtVcGxvYWRJZCIgPSBicnUuaWQgQU5EIGJyaS4ib3JnYW5pemF0aW9uSWQiID0gJyc7CkFMVEVSIFRBQkxFICJCdWxrUmVzdW1lSXRlbSIgQUxURVIgQ09MVU1OICJvcmdhbml6YXRpb25JZCIgRFJPUCBERUZBVUxUOwpBTFRFUiBUQUJMRSAiQnVsa1Jlc3VtZUl0ZW0iIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAidXBkYXRlZEF0IiBUSU1FU1RBTVAoMykgTk9UIE5VTEwgREVGQVVMVCBOT1coKTsKQUxURVIgVEFCTEUgIkJ1bGtSZXN1bWVJdGVtIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgImF0c1Njb3JlIiBERUNJTUFMKDUsMik7CkFMVEVSIFRBQkxFICJCdWxrUmVzdW1lSXRlbSIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJyZXN1bWVUZXh0IiBURVhUOwpBTFRFUiBUQUJMRSAiQnVsa1Jlc3VtZUl0ZW0iIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAibWF0Y2hlZEtleXdvcmRzIiBURVhUW10gTk9UIE5VTEwgREVGQVVMVCBBUlJBWVtdOjpURVhUW107CkFMVEVSIFRBQkxFICJCdWxrUmVzdW1lSXRlbSIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJtaXNzaW5nS2V5d29yZHMiIFRFWFRbXSBOT1QgTlVMTCBERUZBVUxUIEFSUkFZW106OlRFWFRbXTsKQUxURVIgVEFCTEUgIlB1YmxpY0FwcGxpY2F0aW9uIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgInJlc3VtZVRleHQiIFRFWFQ7CkFMVEVSIFRBQkxFICJQdWJsaWNBcHBsaWNhdGlvbiIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJtYXRjaGVkS2V5d29yZHMiIFRFWFRbXSBOT1QgTlVMTCBERUZBVUxUIEFSUkFZW106OlRFWFRbXTsKQUxURVIgVEFCTEUgIlB1YmxpY0FwcGxpY2F0aW9uIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgIm1pc3NpbmdLZXl3b3JkcyIgVEVYVFtdIE5PVCBOVUxMIERFRkFVTFQgQVJSQVlbXTo6VEVYVFtdOwpBTFRFUiBUQUJMRSAiUHVibGljQXBwbGljYXRpb24iIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAiYXRzU2NvcmUiIERPVUJMRSBQUkVDSVNJT047CkFMVEVSIFRBQkxFICJQdWJsaWNBcHBsaWNhdGlvbiIgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTICJhdHNTY29yZURhdGEiIEpTT05COwpBTFRFUiBUQUJMRSAiUHVibGljQXBwbGljYXRpb24iIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyAidXNlZEZhbGxiYWNrUXVlc3Rpb25zIiBCT09MRUFOIE5PVCBOVUxMIERFRkFVTFQgRkFMU0U7" | base64 -d > /tmp/premigrate.sql
             npx --no-install prisma db execute --schema prisma/schema.prisma --file /tmp/premigrate.sql && echo "Pre-migration columns ensured" || echo "Pre-migration note: some columns may already exist (safe to ignore)"
 
-            echo "=== [5.7/17] Pre-migration: fix orphaned BulkResumeItem.applicationId FK ==="
-            echo "QUxURVIgVEFCTEUgIkJ1bGtSZXN1bWVJdGVtIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgImFwcGxpY2F0aW9uSWQiIFRFWFQ7ClVQREFURSAiQnVsa1Jlc3VtZUl0ZW0iIFNFVCAiYXBwbGljYXRpb25JZCIgPSBOVUxMIFdIRVJFICJhcHBsaWNhdGlvbklkIiBJUyBOT1QgTlVMTCBBTkQgTk9UIEVYSVNUUyAoU0VMRUNUIDEgRlJPTSAiUHVibGljQXBwbGljYXRpb24iIFdIRVJFIGlkID0gIkJ1bGtSZXN1bWVJdGVtIi4iYXBwbGljYXRpb25JZCIpOwo=" | base64 -d > /tmp/fix_fk_orphans.sql
-            npx --no-install prisma db execute --schema prisma/schema.prisma --file /tmp/fix_fk_orphans.sql && echo "✅ Orphaned applicationId references cleared" || echo "Note: BulkResumeItem table may not exist yet (safe to ignore)"
+            echo "=== [5.7/17] Pre-migration: fix BulkResumeItem.applicationId FK (PublicApplication → Application) ==="
+            echo "QUxURVIgVEFCTEUgIkJ1bGtSZXN1bWVJdGVtIiBBREQgQ09MVU1OIElGIE5PVCBFWElTVFMgImFwcGxpY2F0aW9uSWQiIFRFWFQ7CkFMVEVSIFRBQkxFICJCdWxrUmVzdW1lSXRlbSIgRFJPUCBDT05TVFJBSU5UIElGIEVYSVNUUyAiQnVsa1Jlc3VtZUl0ZW1fYXBwbGljYXRpb25JZF9ma2V5IjsKVVBEQVRFICJCdWxrUmVzdW1lSXRlbSIgU0VUICJhcHBsaWNhdGlvbklkIiA9IE5VTEwgV0hFUkUgImFwcGxpY2F0aW9uSWQiIElTIE5PVCBOVUxMIEFORCBOT1QgRVhJU1RTIChTRUxFQ1QgMSBGUk9NICJBcHBsaWNhdGlvbiIgV0hFUkUgaWQgPSAiQnVsa1Jlc3VtZUl0ZW0iLiJhcHBsaWNhdGlvbklkIik7Cg==" | base64 -d > /tmp/fix_fk_orphans.sql
+            npx --no-install prisma db execute --schema prisma/schema.prisma --file /tmp/fix_fk_orphans.sql && echo "✅ applicationId references cleared (old PublicApplication refs nulled, old FK dropped)" || echo "Note: BulkResumeItem table may not exist yet (safe to ignore)"
 
             echo "=== [5.8/17] Pre-migration: fix AttendancePolicy lateHalfDayAfterMins default (120→30) ==="
             echo "UPDATE \"AttendancePolicy\" SET \"lateHalfDayAfterMins\" = 30 WHERE \"lateHalfDayAfterMins\" = 120;" > /tmp/fix_halfday_threshold.sql
