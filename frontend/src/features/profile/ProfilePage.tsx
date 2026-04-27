@@ -1065,9 +1065,12 @@ export default function ProfilePage() {
 
 function ProfileRow({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) {
   return (
-    <div className="flex justify-between">
-      <dt className="text-xs text-gray-400">{label}</dt>
-      <dd className={`text-sm text-gray-700 ${mono ? 'font-mono' : ''}`} data-mono={mono || undefined}>
+    <div className="flex justify-between items-baseline gap-3">
+      <dt className="text-xs text-gray-400 shrink-0">{label}</dt>
+      <dd
+        className={`min-w-0 text-sm text-gray-700 text-right break-words [overflow-wrap:anywhere] ${mono ? 'font-mono' : ''}`}
+        data-mono={mono || undefined}
+      >
         {value || '—'}
       </dd>
     </div>

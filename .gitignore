@@ -51,6 +51,8 @@ prisma/migrations/**/migration_lock.toml
 
 # Docker
 docker/data/
+docker/docker-compose.override.yml
+docker/.env
 
 # Python
 __pycache__/
