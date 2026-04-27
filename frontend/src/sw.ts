@@ -113,13 +113,19 @@ const mutationQueue = new Queue('hrms-api-mutations', {
   },
 });
 
-// Queue non-GET API requests that fail (offline mutations)
+// Queue non-GET API mutations for background sync when offline.
+// File uploads (multipart/form-data) are excluded — their binary bodies cannot
+// be serialised and replayed by the background sync queue, so we let them fail
+// cleanly and the user retries manually.
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+  const contentType = request.headers.get('content-type') || '';
+  const isFileUpload = contentType.includes('multipart/form-data');
   if (
     request.method !== 'GET' &&
     request.url.includes('/api/') &&
-    !request.url.includes('/api/auth/')
+    !request.url.includes('/api/auth/') &&
+    !isFileUpload
   ) {
     const bgSyncPromise = fetch(request.clone()).catch(() =>
       mutationQueue.pushRequest({ request })
@@ -240,9 +246,14 @@ self.addEventListener('notificationclose', (_event: NotificationEvent) => {
 
 // ── Runtime Caching ───────────────────────────────────────────────────────────
 
-// API responses — NetworkFirst: fresh when online, cached when offline (5 min)
+// API GET responses — NetworkFirst: fresh when online, cached when offline (5 min).
+// POST/PATCH/DELETE mutations (including file uploads) are intentionally excluded —
+// they must never be intercepted by the SW cache layer since:
+//   • POST file uploads can take 30+ seconds on mobile — a timeout would silently
+//     kill the upload and show a false "offline" error to the user.
+//   • Mutation responses should never be served from cache.
 registerRoute(
-  ({ url }) => url.pathname.startsWith('/api/'),
+  ({ url, request }) => url.pathname.startsWith('/api/') && request.method === 'GET',
   new NetworkFirst({
     cacheName: 'api-cache',
     networkTimeoutSeconds: 10,

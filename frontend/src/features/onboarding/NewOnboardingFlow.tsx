@@ -953,10 +953,10 @@ function Step5Documents({
       toast.success(`${docName} uploaded`);
       onRefetch();
     } catch (err: any) {
-      const msg = err?.data?.error?.message || 'Upload failed';
+      const msg = err?.data?.error?.message || 'Upload failed. Please try again.';
       setUploads(prev => ({ ...prev, [docType]: { status: 'error', fileName: file.name, error: msg } }));
       if (err?.status === 'FETCH_ERROR') {
-        toast.error('You are offline. Please reconnect and try again.');
+        toast.error('Upload failed — please check your connection and try again.');
       }
     }
   }, [uploadDocument, onRefetch]);

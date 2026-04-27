@@ -19,18 +19,8 @@ const baseQuery = fetchBaseQuery({
 // Mutex to prevent concurrent token refresh requests
 let refreshPromise: Promise<boolean> | null = null;
 
-// Auto-refresh on 401, with offline detection
+// Auto-refresh on 401
 const baseQueryWithReauth: BaseQueryFn = async (args, api, extraOptions) => {
-  // Fail fast if offline — no point waiting for network timeout
-  if (!navigator.onLine) {
-    return {
-      error: {
-        status: 'FETCH_ERROR',
-        error: 'You are offline. Please connect to the network and try again.',
-      },
-    };
-  }
-
   let result = await baseQuery(args, api, extraOptions);
 
   if (result.error && result.error.status === 401) {
