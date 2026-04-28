@@ -182,19 +182,19 @@ export default function CommandPalette({ open, onClose }: Props) {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: -10 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="fixed top-[4.5rem] sm:top-[10vh] left-1/2 -translate-x-1/2 w-full max-w-xl mx-auto z-[101] px-3 sm:px-4"
+            className="fixed top-[4.5rem] sm:top-[10vh] inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-xl sm:px-4 z-[101]"
           >
-            <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[calc(100dvh-5.5rem)] sm:max-h-[70vh]">
+            <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[calc(100dvh-5.5rem)] sm:max-h-[70vh] min-w-0 max-w-full">
               {/* Search input */}
-              <div className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100">
+              <div className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100 min-w-0">
                 <Search size={18} className="text-gray-400 shrink-0" />
                 <input
                   ref={inputRef}
                   value={query}
                   onChange={e => setQuery(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Search features, pages, actions..."
-                  className="flex-1 text-sm text-gray-800 placeholder:text-gray-400 bg-transparent outline-none"
+                  placeholder="Search..."
+                  className="flex-1 min-w-0 text-sm text-gray-800 placeholder:text-gray-400 bg-transparent outline-none"
                   autoComplete="off"
                 />
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -232,7 +232,7 @@ export default function CommandPalette({ open, onClose }: Props) {
                               data-idx={globalIdx}
                               onClick={() => handleSelect(item)}
                               onMouseEnter={() => setSelectedIdx(globalIdx)}
-                              className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                              className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors min-w-0 ${
                                 isSelected ? 'bg-brand-50' : 'hover:bg-gray-50'
                               }`}
                             >
@@ -242,7 +242,7 @@ export default function CommandPalette({ open, onClose }: Props) {
                                 <Icon size={15} className={isSelected ? 'text-brand-600' : 'text-gray-500'} />
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className={`text-sm font-medium leading-tight ${isSelected ? 'text-brand-700' : 'text-gray-800'}`}>
+                                <p className={`text-sm font-medium leading-tight truncate ${isSelected ? 'text-brand-700' : 'text-gray-800'}`}>
                                   {item.label}
                                 </p>
                                 <p className="text-xs text-gray-400 mt-0.5 truncate">{item.description}</p>
@@ -258,8 +258,8 @@ export default function CommandPalette({ open, onClose }: Props) {
               </div>
 
               {/* Footer hint */}
-              <div className="shrink-0 px-4 py-2.5 border-t border-gray-100 bg-gray-50/50 flex items-center gap-4">
-                <div className="flex items-center gap-1.5">
+              <div className="shrink-0 px-4 py-2.5 border-t border-gray-100 bg-gray-50/50 flex items-center gap-3 sm:gap-4 flex-wrap min-w-0">
+                <div className="hidden sm:flex items-center gap-1.5">
                   <kbd className="text-[10px] text-gray-400 bg-white rounded border border-gray-200 px-1.5 py-0.5 font-mono">↑↓</kbd>
                   <span className="text-[10px] text-gray-400">navigate</span>
                 </div>
@@ -271,7 +271,7 @@ export default function CommandPalette({ open, onClose }: Props) {
                   <kbd className="text-[10px] text-gray-400 bg-white rounded border border-gray-200 px-1.5 py-0.5 font-mono">esc</kbd>
                   <span className="text-[10px] text-gray-400">close</span>
                 </div>
-                <p className="text-[10px] text-gray-300 ml-auto">{filtered.length} result{filtered.length !== 1 ? 's' : ''}</p>
+                <p className="text-[10px] text-gray-300 ml-auto shrink-0">{filtered.length} result{filtered.length !== 1 ? 's' : ''}</p>
               </div>
             </div>
           </motion.div>
