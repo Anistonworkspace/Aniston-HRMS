@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
   Shield, Save, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle,
-  ScanLine, Eye, Pencil, Check, FileText, Ban, Unlock, Lock, Info, ChevronDown, ChevronUp,
+  ScanLine, Eye, Pencil, Check, FileText, Ban, Info, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation } from './documentOcrApi';
 import { useVerifyDocumentMutation } from './documentApi';
-import { useVerifyKycMutation, useRejectKycMutation, useGetKycHrReviewQuery, useReclassifyCombinedPdfMutation } from '../kyc/kycApi';
+import { useGetKycHrReviewQuery, useReclassifyCombinedPdfMutation } from '../kyc/kycApi';
 import toast from 'react-hot-toast';
 import { cn, getUploadUrl } from '../../lib/utils';
 
@@ -17,6 +17,7 @@ interface Props {
   employeeId?: string;
   fileUrl?: string;
   onClose: () => void;
+  onStatusChange?: () => void;
 }
 
 type FieldKey = 'extractedName' | 'extractedDob' | 'extractedFatherName' | 'extractedMotherName' | 'extractedDocNumber' | 'extractedGender' | 'extractedAddress';
@@ -350,20 +351,16 @@ function PageValidationRow({ pv }: { pv: any }) {
 
 function CombinedPdfReviewPanel({
   documentStatus, employeeId, fileUrl, ocr,
-  onVerifyDoc, onApproveKyc, onRevokeKyc, onRetrigger, triggering, verifyingDoc, verifyingKyc, revokingKyc,
+  onVerifyDoc, onRetrigger, triggering, verifyingDoc,
 }: {
   documentStatus?: string;
   employeeId?: string;
   fileUrl?: string;
   ocr: any;
   onVerifyDoc: () => void;
-  onApproveKyc: () => void;
-  onRevokeKyc: () => void;
   onRetrigger: () => void;
   triggering: boolean;
   verifyingDoc: boolean;
-  verifyingKyc: boolean;
-  revokingKyc: boolean;
 }) {
   const [showInlinePreview, setShowInlinePreview] = useState(false);
   const { data: hrReviewRes } = useGetKycHrReviewQuery(employeeId!, { skip: !employeeId });
@@ -629,21 +626,10 @@ function CombinedPdfReviewPanel({
             Mark Combined PDF as Verified
           </button>
         )}
-
-        {employeeId && gate?.kycStatus !== 'VERIFIED' && (
-          <button onClick={onApproveKyc} disabled={verifyingKyc || wrongUploadCount > 0}
-            title={wrongUploadCount > 0 ? 'Cannot approve KYC — wrong documents detected' : ''}
-            className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors disabled:opacity-50">
-            {verifyingKyc ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-            {gate?.kycStatus === 'REJECTED' ? 'Restore Portal Access' : 'Approve KYC & Grant Portal Access'}
-          </button>
-        )}
-        {employeeId && gate?.kycStatus === 'VERIFIED' && (
-          <button onClick={onRevokeKyc} disabled={revokingKyc}
-            className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors bg-white">
-            {revokingKyc ? <Loader2 size={14} className="animate-spin" /> : <Lock size={14} />}
-            Revoke Portal Access
-          </button>
+        {documentStatus === 'VERIFIED' && (
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-sm font-medium text-emerald-700">
+            <CheckCircle2 size={14} /> Combined PDF Already Verified
+          </div>
         )}
       </div>
     </div>
@@ -652,7 +638,7 @@ function CombinedPdfReviewPanel({
 
 // ─── Main OCR Verification Panel ──────────────────────────────────────────────
 export default function OcrVerificationPanel({
-  documentId, documentName, documentType, documentStatus, employeeId, fileUrl, onClose,
+  documentId, documentName, documentType, documentStatus, employeeId, fileUrl, onClose, onStatusChange,
 }: Props) {
   // Poll every 6s until OCR data arrives, then stop
   const [pollInterval, setPollInterval] = useState(6000);
@@ -664,10 +650,9 @@ export default function OcrVerificationPanel({
   const [reclassifyCombinedPdf, { isLoading: reclassifying }] = useReclassifyCombinedPdfMutation();
   const [updateOcr, { isLoading: saving }] = useUpdateDocumentOcrMutation();
   const [verifyDoc, { isLoading: verifyingDoc }] = useVerifyDocumentMutation();
-  const [verifyKyc, { isLoading: verifyingKyc }] = useVerifyKycMutation();
-  const [rejectKyc, { isLoading: revokingKyc }] = useRejectKycMutation();
 
   const [editing, setEditing] = useState(false);
+  const [localDocStatus, setLocalDocStatus] = useState(documentStatus || '');
   const [fields, setFields] = useState<Record<string, string>>({});
   const [hrNotes, setHrNotes] = useState('');
   const [ocrStatus, setOcrStatus] = useState('PENDING');
@@ -774,11 +759,10 @@ export default function OcrVerificationPanel({
   const handleRejectDocument = async (reason: string) => {
     setRejectingDoc(true);
     try {
-      await verifyDoc({ id: documentId, status: 'REJECTED' }).unwrap();
-      // If employee ID exists, also set KYC to re-upload state
-      if (employeeId) {
-        // requestReupload is handled by the parent; just update OCR status
-      }
+      await verifyDoc({ id: documentId, status: 'REJECTED', rejectionReason: reason } as any).unwrap();
+      setLocalDocStatus('REJECTED');
+      refetchHrReview();
+      onStatusChange?.();
       toast.success('Document rejected — employee notified to re-upload');
       setShowRejectDialog(false);
     } catch (err: any) {
@@ -918,38 +902,21 @@ export default function OcrVerificationPanel({
               )}
               {isCombinedPdf ? (
                 <CombinedPdfReviewPanel
-                  documentStatus={documentStatus}
+                  documentStatus={localDocStatus}
                   employeeId={employeeId}
                   fileUrl={fileUrl}
                   ocr={ocr}
                   onVerifyDoc={async () => {
                     try {
                       await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
+                      setLocalDocStatus('VERIFIED');
+                      onStatusChange?.();
                       toast.success('Combined PDF verified!');
                     } catch { toast.error('Failed to verify'); }
-                  }}
-                  onApproveKyc={async () => {
-                    try {
-                      if (documentStatus === 'PENDING' || documentStatus === 'FLAGGED') {
-                        await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
-                      }
-                      await verifyKyc(employeeId!).unwrap();
-                      toast.success('KYC approved! Employee now has full portal access.');
-                      refetchHrReview();
-                    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to approve KYC'); }
-                  }}
-                  onRevokeKyc={async () => {
-                    try {
-                      await rejectKyc({ employeeId: employeeId!, reason: 'Portal access revoked by HR' }).unwrap();
-                      toast.success('Portal access revoked.');
-                      refetchHrReview();
-                    } catch (err: any) { toast.error(err?.data?.error?.message || 'Failed to revoke'); }
                   }}
                   onRetrigger={employeeId ? handleReclassify : handleTriggerOcr}
                   triggering={employeeId ? reclassifying : triggering}
                   verifyingDoc={verifyingDoc}
-                  verifyingKyc={verifyingKyc}
-                  revokingKyc={revokingKyc}
                 />
               ) : (
               <>
@@ -1212,25 +1179,40 @@ export default function OcrVerificationPanel({
 
               {/* Per-document actions */}
               <div className="space-y-2">
-                {/* Verify */}
-                {(documentStatus === 'PENDING' || documentStatus === 'FLAGGED') && !showRejectDialog && (
+                {/* Status badge */}
+                {localDocStatus === 'VERIFIED' && (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-sm font-medium text-emerald-700">
+                    <CheckCircle2 size={14} /> Document Approved
+                  </div>
+                )}
+                {localDocStatus === 'REJECTED' && !showRejectDialog && (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200 text-sm font-medium text-red-700">
+                    <XCircle size={14} /> Document Rejected — Awaiting Re-upload
+                  </div>
+                )}
+
+                {/* Approve button: initial (PENDING/FLAGGED) or re-approve toggle (REJECTED) */}
+                {(localDocStatus === 'PENDING' || localDocStatus === 'FLAGGED' || localDocStatus === 'REJECTED') && !showRejectDialog && (
                   <button onClick={async () => {
                     try {
                       await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
-                      toast.success('Document verified!');
-                    } catch { toast.error('Failed to verify document'); }
+                      setLocalDocStatus('VERIFIED');
+                      onStatusChange?.();
+                      toast.success('Document approved!');
+                    } catch { toast.error('Failed to approve document'); }
                   }} disabled={verifyingDoc}
                     className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors">
                     {verifyingDoc ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                    Approve This Document
+                    {localDocStatus === 'REJECTED' ? 'Re-approve This Document' : 'Approve This Document'}
                   </button>
                 )}
 
-                {/* Reject with reason */}
-                {!showRejectDialog && documentStatus !== 'REJECTED' && (
+                {/* Reject button: visible for PENDING/FLAGGED and VERIFIED (undo toggle), hidden when already REJECTED */}
+                {!showRejectDialog && localDocStatus !== 'REJECTED' && (
                   <button onClick={() => setShowRejectDialog(true)}
                     className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
-                    <Ban size={14} /> Reject Document & Request Re-upload
+                    <Ban size={14} />
+                    {localDocStatus === 'VERIFIED' ? 'Undo Approval — Reject Document' : 'Reject Document & Request Re-upload'}
                   </button>
                 )}
 
@@ -1242,57 +1224,6 @@ export default function OcrVerificationPanel({
                     onCancel={() => setShowRejectDialog(false)}
                     loading={rejectingDoc}
                   />
-                )}
-
-                {/* KYC access toggle — single location, switches between Approve / Revoke / Restore */}
-                {employeeId && (
-                  <div className="rounded-lg border overflow-hidden">
-                    {/* Status indicator */}
-                    <div className={`px-3 py-2 flex items-center gap-2 text-xs font-semibold ${
-                      kycStatus === 'VERIFIED' ? 'bg-green-50 text-green-700 border-b border-green-100'
-                      : kycStatus === 'REJECTED' ? 'bg-red-50 text-red-700 border-b border-red-100'
-                      : 'bg-slate-50 text-slate-600 border-b border-slate-100'
-                    }`}>
-                      {kycStatus === 'VERIFIED'
-                        ? <><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Portal Access: Granted</>
-                        : kycStatus === 'REJECTED'
-                        ? <><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Portal Access: Revoked</>
-                        : <><span className="w-2 h-2 rounded-full bg-orange-400 inline-block" /> Portal Access: Pending</>
-                      }
-                    </div>
-                    {/* Action button */}
-                    {kycStatus !== 'VERIFIED' && (
-                      <button onClick={async () => {
-                        try {
-                          if (documentStatus === 'PENDING' || documentStatus === 'FLAGGED') {
-                            await verifyDoc({ id: documentId, status: 'VERIFIED' }).unwrap();
-                          }
-                          await verifyKyc(employeeId).unwrap();
-                          toast.success('KYC approved — employee can now access the portal.');
-                        } catch (err: any) {
-                          toast.error(err?.data?.error?.message || 'Failed to approve KYC');
-                        }
-                      }} disabled={verifyingKyc}
-                        className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white transition-colors">
-                        {verifyingKyc ? <Loader2 size={14} className="animate-spin" /> : <Unlock size={14} />}
-                        {kycStatus === 'REJECTED' ? 'Restore Portal Access' : 'Approve KYC & Grant Portal Access'}
-                      </button>
-                    )}
-                    {kycStatus === 'VERIFIED' && (
-                      <button onClick={async () => {
-                        try {
-                          await rejectKyc({ employeeId: employeeId!, reason: 'Portal access revoked by HR' }).unwrap();
-                          toast.success('Portal access revoked.');
-                        } catch (err: any) {
-                          toast.error(err?.data?.error?.message || 'Failed to revoke access');
-                        }
-                      }} disabled={revokingKyc}
-                        className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 border-t border-red-100 text-red-600 hover:bg-red-50 transition-colors bg-white">
-                        {revokingKyc ? <Loader2 size={14} className="animate-spin" /> : <Lock size={14} />}
-                        Revoke Portal Access
-                      </button>
-                    )}
-                  </div>
                 )}
               </div>
 

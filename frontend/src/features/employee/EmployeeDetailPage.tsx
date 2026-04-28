@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import {
   ArrowLeft, ArrowRight, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
-  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload, AlertTriangle,
+  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload, AlertTriangle, Unlock, Lock,
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery, useChangeEmployeeRoleMutation } from './employeeApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery } from '../attendance/attendanceApi';
@@ -21,7 +21,7 @@ import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } f
 import PermissionOverridePanel from '../permissions/PermissionOverridePanel';
 import OcrVerificationPanel from '../documents/OcrVerificationPanel';
 import { useGetEmployeeOcrSummaryQuery } from '../documents/documentOcrApi';
-import { useVerifyKycMutation } from '../kyc/kycApi';
+import { useVerifyKycMutation, useGetKycHrReviewQuery, useRejectKycMutation } from '../kyc/kycApi';
 import { useGetDepartmentsQuery, useGetDesignationsQuery, useGetManagersQuery, useGetOfficeLocationsQuery, useCreateDepartmentMutation, useCreateDesignationMutation, useDeleteDepartmentMutation, useDeleteDesignationMutation } from './employeeDepsApi';
 import { useGetProfileEditRequestsForEmployeeQuery, useReviewProfileEditRequestMutation, useGetProfileCompletionQuery } from '../profile/profileEditRequestApi';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -2958,7 +2958,10 @@ const DOC_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID', 
 function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { employeeId: string; documents: any[]; isManagement: boolean; employeeName?: string }) {
   const [verifyDoc] = useVerifyDocumentMutation();
   const [deleteDoc] = useDeleteDocumentMutation();
-  const [verifyKyc, { isLoading: verifyingAll }] = useVerifyKycMutation();
+  const [verifyKyc, { isLoading: grantingAccess }] = useVerifyKycMutation();
+  const [rejectKyc, { isLoading: revokingAccess }] = useRejectKycMutation();
+  const { data: hrReviewRes, refetch: refetchKycStatus } = useGetKycHrReviewQuery(employeeId, { skip: !isManagement });
+  const kycStatus: string = hrReviewRes?.data?.gate?.kycStatus || '';
   const { data: completionRes } = useGetProfileCompletionQuery(employeeId, { skip: !isManagement });
   const profileComplete = completionRes?.data?.allComplete ?? true;
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -3074,48 +3077,6 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-800">Documents ({documents.length})</h3>
         <div className="flex gap-2">
-          {isManagement && documents.some((d: any) => d.status === 'PENDING') && (
-            <div className="relative group">
-              <button onClick={async () => {
-                if (!profileComplete) {
-                  toast.error('Cannot approve KYC — employee has incomplete profile fields or missing required documents.');
-                  return;
-                }
-                try {
-                  const pending = documents.filter((d: any) => d.status === 'PENDING');
-                  for (const doc of pending) {
-                    await verifyDoc({ id: doc.id, status: 'VERIFIED' }).unwrap();
-                  }
-                  await verifyKyc(employeeId).unwrap();
-                  toast.success(`All ${pending.length} documents verified & KYC approved!`);
-                } catch (err: any) {
-                  toast.error(err?.data?.error?.message || 'Failed to verify');
-                }
-              }} disabled={verifyingAll || !profileComplete}
-                className={`text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors ${
-                  profileComplete
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                }`}>
-                {verifyingAll ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                Verify All & Approve KYC
-              </button>
-              {!profileComplete && (
-                <div className="absolute bottom-full left-0 mb-1 w-64 bg-gray-800 text-white text-xs rounded-lg p-2 hidden group-hover:block z-10">
-                  Employee profile is incomplete. Required fields or documents are missing.
-                  {completionRes?.data && (
-                    <ul className="mt-1 space-y-0.5 text-gray-300">
-                      {!completionRes.data.sections.personalDetails && <li>• Personal details missing</li>}
-                      {!completionRes.data.sections.address && <li>• Address missing</li>}
-                      {!completionRes.data.sections.emergencyContact && <li>• Emergency contact missing</li>}
-                      {!completionRes.data.sections.bankDetails && <li>• Bank details missing</li>}
-                      {completionRes.data.missingDocs.length > 0 && <li>• Missing docs: {completionRes.data.missingDocs.join(', ')}</li>}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
           {isManagement && documents.some((d: any) => d.status !== 'REJECTED') && (
             <button
               onClick={() => setShowRejectAll(true)}
@@ -3346,6 +3307,85 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
         </div>
       )}
 
+      {/* Portal Access Section — page-level, HR only */}
+      {isManagement && (() => {
+        const allVerified = documents.length > 0 && documents.every((d: any) => d.status === 'VERIFIED');
+        const pendingCount = documents.filter((d: any) => d.status === 'PENDING' || d.status === 'FLAGGED').length;
+        const rejectedCount = documents.filter((d: any) => d.status === 'REJECTED').length;
+        const canGrant = allVerified && profileComplete && kycStatus !== 'VERIFIED';
+        return (
+          <div className="layer-card p-4 mt-4 border border-gray-100">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Shield size={14} /> Portal Access
+              </p>
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                kycStatus === 'VERIFIED'
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : kycStatus === 'REJECTED' || kycStatus === 'REUPLOAD_REQUIRED'
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-amber-100 text-amber-700'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  kycStatus === 'VERIFIED' ? 'bg-emerald-500'
+                  : kycStatus === 'REJECTED' || kycStatus === 'REUPLOAD_REQUIRED' ? 'bg-red-500'
+                  : 'bg-amber-400'
+                }`} />
+                {kycStatus === 'VERIFIED' ? 'Access Granted' : kycStatus === 'REJECTED' ? 'Access Revoked' : kycStatus === 'REUPLOAD_REQUIRED' ? 'Re-upload Required' : 'Pending Verification'}
+              </span>
+            </div>
+
+            {kycStatus !== 'VERIFIED' && (
+              <ul className="text-xs text-gray-500 space-y-1 mb-3">
+                {documents.length === 0 && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-gray-400 shrink-0" /> No documents uploaded yet</li>}
+                {pendingCount > 0 && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-amber-400 shrink-0" /> {pendingCount} document{pendingCount !== 1 ? 's' : ''} still pending/flagged — approve each one first</li>}
+                {rejectedCount > 0 && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-red-500 shrink-0" /> {rejectedCount} document{rejectedCount !== 1 ? 's' : ''} rejected — employee must re-upload</li>}
+                {!profileComplete && documents.length > 0 && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-red-500 shrink-0" /> Employee profile incomplete (required fields missing)</li>}
+                {allVerified && profileComplete && <li className="flex items-center gap-1.5 text-emerald-700"><span className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" /> All documents verified — ready to grant access</li>}
+              </ul>
+            )}
+
+            {kycStatus !== 'VERIFIED' && (
+              <button
+                disabled={!canGrant || grantingAccess}
+                onClick={async () => {
+                  try {
+                    await verifyKyc(employeeId).unwrap();
+                    toast.success('Portal access granted — employee can now log in.');
+                    refetchKycStatus();
+                  } catch (err: any) {
+                    toast.error(err?.data?.error?.message || 'Failed to grant portal access');
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {grantingAccess ? <Loader2 size={14} className="animate-spin" /> : <Unlock size={14} />}
+                Grant Portal Access
+              </button>
+            )}
+
+            {kycStatus === 'VERIFIED' && (
+              <button
+                disabled={revokingAccess}
+                onClick={async () => {
+                  try {
+                    await rejectKyc({ employeeId, reason: 'Portal access revoked by HR' }).unwrap();
+                    toast.success('Portal access revoked.');
+                    refetchKycStatus();
+                  } catch (err: any) {
+                    toast.error(err?.data?.error?.message || 'Failed to revoke portal access');
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 bg-white transition-colors"
+              >
+                {revokingAccess ? <Loader2 size={14} className="animate-spin" /> : <Lock size={14} />}
+                Revoke Portal Access
+              </button>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Document Preview Modal */}
       {previewUrl && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPreviewUrl(null)}>
@@ -3387,6 +3427,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
           employeeId={employeeId}
           fileUrl={ocrDocFileUrl}
           onClose={() => setOcrDocId(null)}
+          onStatusChange={() => refetchKycStatus()}
         />
       )}
 
