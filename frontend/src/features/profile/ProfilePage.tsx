@@ -644,8 +644,8 @@ export default function ProfilePage() {
         {/* Personal info */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
           className="layer-card p-4 md:p-6 min-w-0 max-w-full">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-3 min-w-0">
+            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 min-w-0 break-words">
               <User size={16} className="text-brand-500" /> {t('profile.personalInfo')}
             </h3>
             {isEmployeeRole && perms.canViewEditProfile && (() => {
@@ -681,17 +681,17 @@ export default function ProfilePage() {
             <Key size={16} className="text-amber-500" /> {t('profile.security')}
           </h3>
           <div className="space-y-3">
-            <div className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
-              <div>
-                <p className="text-sm font-medium text-gray-700">{t('profile.password')}</p>
-                <p className="text-xs text-gray-400">{t('profile.changePassword')}</p>
+            <div className="flex items-center justify-between gap-3 py-3 px-4 bg-surface-2 rounded-lg">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-gray-700 break-words">{t('profile.password')}</p>
+                <p className="text-xs text-gray-400 break-words">{t('profile.changePassword')}</p>
               </div>
-              <button onClick={() => setShowChangePassword(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium">{t('profile.change')}</button>
+              <button onClick={() => setShowChangePassword(true)} className="text-xs text-brand-600 hover:text-brand-700 font-medium shrink-0">{t('profile.change')}</button>
             </div>
-            <div className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
-              <div>
-                <p className="text-sm font-medium text-gray-700">{t('profile.lastLogin')}</p>
-                <p className="text-xs text-gray-400">
+            <div className="flex items-center justify-between gap-3 py-3 px-4 bg-surface-2 rounded-lg">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-gray-700 break-words">{t('profile.lastLogin')}</p>
+                <p className="text-xs text-gray-400 break-words">
                   {employee?.user?.lastLoginAt ? formatDate(employee.user.lastLoginAt, 'long') : 'Unknown'}
                 </p>
               </div>
@@ -715,15 +715,15 @@ export default function ProfilePage() {
             )}
 
             {/* MFA Row */}
-            <div className="flex items-center justify-between py-3 px-4 bg-surface-2 rounded-lg">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between gap-3 py-3 px-4 bg-surface-2 rounded-lg">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
                 {mfaStatus?.data?.isEnabled
-                  ? <ShieldCheck size={16} className="text-emerald-500" />
-                  : <ShieldOff size={16} className="text-gray-400" />
+                  ? <ShieldCheck size={16} className="text-emerald-500 shrink-0" />
+                  : <ShieldOff size={16} className="text-gray-400 shrink-0" />
                 }
-                <div>
-                  <p className="text-sm font-medium text-gray-700">Two-Factor Authentication</p>
-                  <p className="text-xs text-gray-400">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-700 break-words">Two-Factor Authentication</p>
+                  <p className="text-xs text-gray-400 break-words">
                     {mfaStatus?.data?.isEnabled
                       ? `Enabled${mfaStatus.data.enabledAt ? ` · ${formatDate(mfaStatus.data.enabledAt, 'short')}` : ''}`
                       : 'Not enabled — add extra security to your account'}
@@ -732,13 +732,13 @@ export default function ProfilePage() {
               </div>
               {mfaStatus?.data?.isEnabled ? (
                 isEmployeeRole ? (
-                  <span className="text-[11px] text-gray-400 flex items-center gap-1">
+                  <span className="text-[11px] text-gray-400 flex items-center gap-1 shrink-0">
                     <Shield size={12} /> Contact HR to disable
                   </span>
                 ) : (
                   <button
                     onClick={() => setShowMfaDisable(true)}
-                    className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                    className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors shrink-0"
                   >
                     Disable
                   </button>
@@ -746,7 +746,7 @@ export default function ProfilePage() {
               ) : (
                 <button
                   onClick={() => setShowMfaSetup(true)}
-                  className="text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors"
+                  className="text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors shrink-0"
                 >
                   Set Up
                 </button>
@@ -765,8 +765,8 @@ export default function ProfilePage() {
         {/* Address & Emergency */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
           className="layer-card p-4 md:p-6 min-w-0 max-w-full">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-3 min-w-0">
+            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 min-w-0 break-words">
               <MapPin size={16} className="text-brand-500" /> {t('profile.addressEmergency')}
             </h3>
             {isEmployeeRole && perms.canViewEditProfile && (
@@ -801,10 +801,10 @@ export default function ProfilePage() {
             )}
           </div>
           {employee?.address ? (
-            <div className="mb-3 space-y-2">
-              <div>
+            <div className="mb-3 space-y-2 min-w-0">
+              <div className="min-w-0">
                 <p className="text-xs text-gray-400 mb-0.5">Current Address</p>
-                <p className="text-sm text-gray-700">
+                <p className="text-sm text-gray-700 break-words [overflow-wrap:anywhere]">
                   {(employee.address as any).line1 && `${(employee.address as any).line1}, `}
                   {(employee.address as any).city && `${(employee.address as any).city}, `}
                   {(employee.address as any).state && `${(employee.address as any).state} `}
@@ -812,9 +812,9 @@ export default function ProfilePage() {
                 </p>
               </div>
               {(employee as any).permanentAddress && (
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs text-gray-400 mb-0.5">Permanent Address</p>
-                  <p className="text-sm text-gray-700">
+                  <p className="text-sm text-gray-700 break-words [overflow-wrap:anywhere]">
                     {(employee as any).permanentAddress.line1 && `${(employee as any).permanentAddress.line1}, `}
                     {(employee as any).permanentAddress.city && `${(employee as any).permanentAddress.city}, `}
                     {(employee as any).permanentAddress.state && `${(employee as any).permanentAddress.state} `}
@@ -827,9 +827,9 @@ export default function ProfilePage() {
             <p className="text-sm text-gray-400 mb-4">{t('common.noData')}</p>
           )}
           {employee?.emergencyContact ? (
-            <div>
+            <div className="min-w-0">
               <p className="text-xs text-gray-400 mb-1">{t('profile.emergencyContact')}</p>
-              <p className="text-sm text-gray-700">
+              <p className="text-sm text-gray-700 break-words [overflow-wrap:anywhere]">
                 {(employee.emergencyContact as any).name} ({(employee.emergencyContact as any).relationship}) — {(employee.emergencyContact as any).phone}
               </p>
             </div>
@@ -841,8 +841,8 @@ export default function ProfilePage() {
         {/* Bank Details */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
           className="layer-card p-4 md:p-6 min-w-0 max-w-full">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-3 min-w-0">
+            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 min-w-0 break-words">
               <CreditCard size={16} className="text-emerald-500" /> Bank Details
             </h3>
             {isEmployeeRole ? (() => {
@@ -943,8 +943,8 @@ export default function ProfilePage() {
         {/* EPF Details */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}
           className="layer-card p-4 md:p-6 min-w-0 max-w-full">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-3 min-w-0">
+            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 min-w-0 break-words">
               <Shield size={16} className="text-violet-500" /> EPF Details
               {(() => {
                 const enabled = (employee as any)?.epfEnabled;
@@ -1004,12 +1004,12 @@ export default function ProfilePage() {
             </div>
           ) : (
             <dl className="space-y-3">
-              <div className="flex justify-between items-center">
-                <dt className="text-xs text-gray-400">EPF Status</dt>
-                <dd className="text-sm text-gray-700">
+              <div className="flex justify-between items-baseline gap-3">
+                <dt className="text-xs text-gray-400 shrink-0">EPF Status</dt>
+                <dd className="text-sm text-gray-700 min-w-0 text-right break-words [overflow-wrap:anywhere]">
                   {(employee as any)?.epfEnabled
-                    ? <span className="flex items-center gap-1 text-emerald-600"><ShieldCheck size={13} /> Enrolled — EPF deducted from salary</span>
-                    : <span className="flex items-center gap-1 text-gray-400"><ShieldOff size={13} /> Not enrolled — EPF not deducted</span>}
+                    ? <span className="inline-flex items-baseline gap-1 text-emerald-600"><ShieldCheck size={13} className="shrink-0 self-center" /> Enrolled — EPF deducted from salary</span>
+                    : <span className="inline-flex items-baseline gap-1 text-gray-400"><ShieldOff size={13} className="shrink-0 self-center" /> Not enrolled — EPF not deducted</span>}
                 </dd>
               </div>
               {(employee as any)?.epfMemberId && <ProfileRow label="EPF Member ID" value={(employee as any).epfMemberId} mono />}
