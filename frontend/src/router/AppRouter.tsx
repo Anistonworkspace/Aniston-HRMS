@@ -61,6 +61,7 @@ const MyDocumentsPage = lazy(() => import('../features/my-documents/MyDocumentsP
 const NewOnboardingFlow = lazy(() => import('../features/onboarding/NewOnboardingFlow'));
 const MfaRequiredPage = lazy(() => import('../features/auth/MfaRequiredPage'));
 const BulkEmailPage = lazy(() => import('../features/bulk-email/BulkEmailPage'));
+const PrivacyPolicyPage = lazy(() => import('../features/privacy/PrivacyPolicyPage'));
 
 function PageLoader() {
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
@@ -156,6 +157,7 @@ export default function AppRouter() {
           <Route path="/track" element={<TrackApplicationPage />} />
           <Route path="/activate/:token" element={<ActivateAccountPage />} />
           <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/download" element={<DownloadPage />} />
           <Route path="/download/android" element={<AndroidInstallPage />} />
           <Route path="/download/ios" element={<IosInstallPage />} />
