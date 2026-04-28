@@ -35,13 +35,16 @@ router.post('/', requirePermission('document', 'create'), async (req: Request, r
     if (employeeId) {
       // Use employee-specific KYC folder: uploads/employees/{employeeId}/kyc/
       const kycUpload = createEmployeeKycUpload(employeeId as string);
-      kycUpload.document.single('file')(req, res, (err: any) => {
+      kycUpload.document.single('file')(req, res, async (err: any) => {
         if (err) return next(err);
         if (!req.file) {
           res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'No file uploaded' } });
           return;
         }
-        // Set the file URL to the structured path
+        // Convert HEIC/HEIF → JPEG (iPhone uploads) before saving the URL
+        const { convertUploadedHeic } = await import('../../utils/heicConverter.js');
+        await convertUploadedHeic(req);
+        // Set the file URL to the structured path (uses updated filename after conversion)
         const fileUrl = getEmployeeKycUrl(employeeId as string, req.file.filename);
         // Attach to req for controller to use
         (req as any)._structuredFileUrl = fileUrl;
@@ -49,8 +52,11 @@ router.post('/', requirePermission('document', 'create'), async (req: Request, r
       });
     } else {
       // Fallback to default uploads/ folder
-      uploadDocument.single('file')(req, res, (err: any) => {
+      uploadDocument.single('file')(req, res, async (err: any) => {
         if (err) return next(err);
+        // Convert HEIC/HEIF → JPEG (iPhone uploads)
+        const { convertUploadedHeic } = await import('../../utils/heicConverter.js');
+        await convertUploadedHeic(req);
         documentController.upload(req, res, next);
       });
     }

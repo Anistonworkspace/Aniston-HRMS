@@ -238,6 +238,8 @@ router.post('/kyc/:employeeId/photo', authenticate,
           return;
         }
         try {
+          const { convertUploadedHeic } = await import('../../utils/heicConverter.js');
+          await convertUploadedHeic(req);
           const { documentGateService } = await import('./document-gate.service.js');
           const photoUrl = getEmployeeKycUrl(employeeId, req.file.filename);
           const gate = await documentGateService.saveKycPhoto(employeeId, photoUrl);
@@ -287,6 +289,8 @@ router.post('/kyc/:employeeId/photo-upload', authenticate,
           return;
         }
         try {
+          const { convertUploadedHeic } = await import('../../utils/heicConverter.js');
+          await convertUploadedHeic(req);
           const photoUrl = getEmployeeKycUrl(employeeId, req.file.filename);
           const { documentGateService } = await import('./document-gate.service.js');
           const gate = await documentGateService.saveKycPhoto(employeeId, photoUrl);
@@ -414,30 +418,47 @@ router.get('/kyc/:employeeId/document/:docId/view',
         return;
       }
 
-      const fileBuffer = readFileSync(filePath);
-      const ext = extname(filePath).toLowerCase();
+      // HEIC/HEIF from iPhone — convert to JPEG before streaming so the browser can render it
+      let servePath = filePath;
+      let ext = extname(filePath).toLowerCase();
+      if (ext === '.heic' || ext === '.heif') {
+        const { convertHeicToJpeg } = await import('../../utils/heicConverter.js');
+        const converted = await convertHeicToJpeg(filePath);
+        if (converted !== filePath) {
+          servePath = converted;
+          ext = '.jpg';
+        }
+      }
+
+      const fileBuffer = readFileSync(servePath);
       const mimeTypes: Record<string, string> = {
         '.pdf': 'application/pdf',
         '.jpg': 'image/jpeg',
         '.jpeg': 'image/jpeg',
         '.png': 'image/png',
         '.webp': 'image/webp',
+        '.gif': 'image/gif',
+        '.bmp': 'image/bmp',
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.xls': 'application/vnd.ms-excel',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.ppt': 'application/vnd.ms-powerpoint',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        '.txt': 'text/plain',
+        '.csv': 'text/csv',
       };
       const contentType = mimeTypes[ext] || 'application/octet-stream';
 
       // Security headers — serve inline, no caching, block save-as
       res.set({
         'Content-Type': contentType,
-        // inline = render in browser, not download; filename exposed only to renderer, not user
         'Content-Disposition': `inline; filename="document${ext}"`,
-        // Prevent caching so the blob URL cannot be stored
         'Cache-Control': 'no-store, no-cache, must-revalidate, private',
         'Pragma': 'no-cache',
         'Expires': '0',
-        // Block embedding in other origins (prevents exfiltration via iframe on attacker site)
         'X-Frame-Options': 'SAMEORIGIN',
         'X-Content-Type-Options': 'nosniff',
-        // Content-Security-Policy blocks PDF viewer plugins from making external requests
         'Content-Security-Policy': "default-src 'self'; object-src 'none'; plugin-types application/pdf",
         'Content-Length': String(fileBuffer.length),
       });

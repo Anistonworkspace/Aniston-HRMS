@@ -314,6 +314,7 @@ function InlineDocViewer({
   onClose: () => void;
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [blobMime, setBlobMime] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const accessToken = useSelector((s: RootState) => s.auth.accessToken);
@@ -332,6 +333,7 @@ function InlineDocViewer({
         );
         if (!res.ok) throw new Error(`Server returned ${res.status}`);
         const blob = await res.blob();
+        setBlobMime(blob.type);
         objectUrl = URL.createObjectURL(blob);
         setBlobUrl(objectUrl);
       } catch (err: any) {
@@ -347,7 +349,16 @@ function InlineDocViewer({
     return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [employeeId, docId, accessToken, API_BASE]);
 
-  const isPdf = name.toLowerCase().includes('.pdf') || name.toLowerCase().includes('pdf');
+  const nameLower = name.toLowerCase();
+  const isPdf = blobMime.includes('pdf') || nameLower.endsWith('.pdf');
+  // HEIC stream endpoint converts to JPEG server-side, so blobMime will be image/jpeg for new requests.
+  // Keep detection for edge cases where conversion failed (e.g., no libvips HEIC support).
+  const isHeic = (blobMime.includes('heic') || blobMime.includes('heif') || nameLower.match(/\.(heic|heif)$/) !== null) && !blobMime.includes('jpeg');
+  const isOffice = blobMime.includes('word') || blobMime.includes('spreadsheet') || blobMime.includes('presentation') ||
+    blobMime.includes('excel') || blobMime.includes('powerpoint') || blobMime.includes('msword') ||
+    nameLower.match(/\.(doc|docx|xls|xlsx|ppt|pptx)$/) !== null;
+  const isText = blobMime.startsWith('text/') || nameLower.match(/\.(txt|csv|rtf)$/) !== null;
+  const isImage = !isPdf && !isHeic && !isOffice && (blobMime.startsWith('image/') || nameLower.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/) !== null);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
@@ -393,13 +404,11 @@ function InlineDocViewer({
                 src={`${blobUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
                 className="w-full h-full"
                 title={name}
-                // sandbox without allow-downloads prevents Save-As in Chrome 83+
                 sandbox="allow-scripts allow-same-origin"
-                // prevent focus-based keyboard shortcuts for saving
                 tabIndex={-1}
               />
-            ) : (
-              // For images: disable right-click and drag
+            ) : isImage ? (
+              // Standard image formats — disable right-click and drag
               <div
                 className="flex items-center justify-center h-full p-6 select-none"
                 onContextMenu={e => e.preventDefault()}
@@ -411,6 +420,49 @@ function InlineDocViewer({
                   className="max-w-full max-h-full object-contain rounded-lg shadow pointer-events-none"
                   draggable={false}
                 />
+              </div>
+            ) : isOffice || isText ? (
+              // Office/text — served as blob so Google Viewer can't access it; offer download
+              <div className="flex flex-col items-center justify-center h-full gap-4 p-8 select-none">
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center">
+                  <FileText className="w-7 h-7 text-slate-400" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-slate-700 mb-1">
+                    {isText ? 'Text / CSV File' : 'Office Document'}
+                  </p>
+                  <p className="text-xs text-slate-500 max-w-xs">
+                    {isText ? 'Text and CSV files cannot be previewed here.' : 'Word, Excel, and PowerPoint files cannot be previewed in this secure viewer.'}
+                    {' '}Download to open in the appropriate application.
+                  </p>
+                </div>
+                <a href={blobUrl} download={name} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+                  <Download className="w-4 h-4" /> Download to View
+                </a>
+              </div>
+            ) : isHeic ? (
+              // HEIC/HEIF — fallback if server-side conversion was unavailable
+              <div className="flex flex-col items-center justify-center h-full gap-4 p-8 select-none">
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center">
+                  <FileText className="w-7 h-7 text-slate-400" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-slate-700 mb-1">iPhone HEIC Format</p>
+                  <p className="text-xs text-slate-500 max-w-xs">This file is in HEIC format from an iPhone. Download to view on your device.</p>
+                </div>
+                <a href={blobUrl} download={name} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+                  <Download className="w-4 h-4" /> Download to View
+                </a>
+              </div>
+            ) : (
+              // Unknown format — generic download
+              <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
+                <FileText className="w-12 h-12 text-slate-300" />
+                <p className="text-sm font-medium text-slate-600">{name}</p>
+                <p className="text-xs text-slate-500">This file format cannot be previewed in the browser.</p>
+                <a href={blobUrl} download={name} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+                  <Download className="w-4 h-4" /> Download File
+                </a>
               </div>
             )
           )}

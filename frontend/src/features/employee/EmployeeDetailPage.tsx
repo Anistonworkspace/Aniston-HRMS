@@ -3398,20 +3398,50 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
               </button>
             </div>
             <div className="flex-1 overflow-hidden">
-              {previewUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i) ? (
-                <img src={previewUrl} alt={previewName} className="w-full h-full object-contain p-4" />
-              ) : (
-                <object data={previewUrl} type="application/pdf" className="w-full h-full">
+              {(() => {
+                const url = previewUrl.toLowerCase();
+                // Images — HEIC/HEIF auto-converted to JPEG by backend middleware
+                if (/\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$/.test(url)) {
+                  return <img src={previewUrl} alt={previewName} className="w-full h-full object-contain p-4 bg-gray-50" />;
+                }
+                // PDF — native browser rendering
+                if (/\.pdf$/.test(url)) {
+                  return (
+                    <object data={previewUrl} type="application/pdf" className="w-full h-full">
+                      <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
+                        <FileText size={48} className="text-gray-300" />
+                        <p className="text-sm text-gray-500">PDF could not be displayed inline.</p>
+                        <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm px-4 py-2 flex items-center gap-2">
+                          <Download size={14} /> Open PDF
+                        </a>
+                      </div>
+                    </object>
+                  );
+                }
+                // Office docs + text — Google Docs Viewer (static /uploads/ files are publicly accessible)
+                if (/\.(doc|docx|xls|xlsx|ppt|pptx|txt|csv|rtf)$/.test(url)) {
+                  const absoluteUrl = `${window.location.protocol}//${window.location.host}${previewUrl}`;
+                  return (
+                    <iframe
+                      src={`https://docs.google.com/gview?url=${encodeURIComponent(absoluteUrl)}&embedded=true`}
+                      className="w-full h-full border-0"
+                      title={previewName}
+                      sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                    />
+                  );
+                }
+                // Fallback — unknown format
+                return (
                   <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
                     <FileText size={48} className="text-gray-300" />
-                    <p className="text-sm text-gray-500">Unable to preview this document inline.</p>
-                    <a href={previewUrl} target="_blank" rel="noopener noreferrer"
-                      className="btn-primary text-sm px-4 py-2">
-                      Download / Open Document
+                    <p className="text-sm text-gray-600 font-medium">{previewName}</p>
+                    <p className="text-xs text-gray-500">This file format cannot be previewed in the browser.</p>
+                    <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm px-5 py-2 flex items-center gap-2">
+                      <Download size={14} /> Download File
                     </a>
                   </div>
-                </object>
-              )}
+                );
+              })()}
             </div>
           </div>
         </div>

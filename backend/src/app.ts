@@ -1,5 +1,5 @@
 import path from 'path';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import express from 'express';
 
@@ -351,16 +351,45 @@ app.get('/uploads/pdf.worker.min.mjs', (_req, res) => {
 // the file *paths themselves* — a caller must be authenticated to learn
 // which path a file lives at.
 const uploadsRoot = storageService.getUploadsRoot();
+
+// HEIC/HEIF on-the-fly conversion for existing uploaded files.
+// When a browser requests a .heic/.heif file under /uploads/, we convert it to JPEG
+// using sharp and serve image/jpeg instead. The converted .jpg is cached next to the
+// original so subsequent requests are served instantly from disk.
+// This handles ALL files uploaded before the per-upload HEIC conversion was added.
+async function heicConvertMiddleware(req: any, res: any, next: any) {
+  if (!/\.(heic|heif)$/i.test(req.path)) return next();
+
+  const filePath = path.join(uploadsRoot, req.path.replace(/^\//, ''));
+  if (!existsSync(filePath)) return next(); // 404 handled by static middleware
+
+  const jpegPath = filePath.replace(/\.(heic|heif)$/i, '.jpg');
+  try {
+    if (!existsSync(jpegPath)) {
+      const { default: sharp } = await import('sharp');
+      await sharp(filePath).jpeg({ quality: 90 }).toFile(jpegPath);
+    }
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.sendFile(jpegPath);
+  } catch {
+    next(); // serve original if sharp can't handle it (graceful degradation)
+  }
+}
+
 // Allow HR to preview uploaded files (PDFs/images) in same-origin iframes
 app.use('/uploads', (_req, res, next) => {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   next();
 });
+app.use('/uploads', heicConvertMiddleware);
 app.use('/uploads', express.static(uploadsRoot));
 app.use('/api/uploads', (_req, res, next) => {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   next();
 });
+app.use('/api/uploads', heicConvertMiddleware);
 app.use('/api/uploads', express.static(uploadsRoot));
 
 // 404 handler
