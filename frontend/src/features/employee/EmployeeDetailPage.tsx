@@ -3404,14 +3404,13 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                 if (/\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$/.test(url)) {
                   return <img src={previewUrl} alt={previewName} className="w-full h-full object-contain p-4 bg-gray-50" />;
                 }
-                // PDF — use iframe (not <object>) to avoid Chrome/Edge SmartScreen blocking
+                // PDF — no sandbox: Edge Enhanced Security Mode blocks sandboxed iframes for remote URLs
                 if (/\.pdf$/.test(url)) {
                   return (
                     <iframe
                       src={previewUrl}
                       className="w-full h-full border-0"
                       title={previewName}
-                      sandbox="allow-scripts allow-same-origin allow-forms"
                     />
                   );
                 }
