@@ -260,9 +260,9 @@ export default function ProfilePage() {
 
       {/* Profile header */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-        className="md:layer-card md:p-4 md:p-6 mb-6">
-        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
-          <div className="relative">
+        className="md:layer-card md:p-4 md:p-6 mb-6 min-w-0 max-w-full">
+        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 min-w-0">
+          <div className="relative shrink-0">
             <div className="w-24 h-24 rounded-2xl bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-3xl font-display">
               {employee?.avatar ? (
                 <img src={getUploadUrl(employee.avatar)} alt="" className="w-full h-full rounded-2xl object-cover" />
@@ -271,28 +271,28 @@ export default function ProfilePage() {
               )}
             </div>
           </div>
-          <div className="text-center sm:text-left flex-1">
-            <h2 className="text-xl font-display font-bold text-gray-900">
+          <div className="text-center sm:text-left flex-1 min-w-0 w-full">
+            <h2 className="text-xl font-display font-bold text-gray-900 break-words [overflow-wrap:anywhere]">
               {user?.firstName} {user?.lastName}
             </h2>
-            <p className="text-gray-500 text-sm mt-0.5">
+            <p className="text-gray-500 text-sm mt-0.5 break-words [overflow-wrap:anywhere]">
               {employee?.designation?.name || 'No designation'} · {employee?.department?.name || 'No department'}
             </p>
-            <div className="flex flex-wrap gap-3 mt-3 justify-center sm:justify-start">
-              <span className="flex items-center gap-1.5 text-sm text-gray-500">
-                <Mail size={14} className="text-gray-400" /> {user?.email}
+            <div className="flex flex-wrap gap-3 mt-3 justify-center sm:justify-start min-w-0">
+              <span className="inline-flex items-start gap-1.5 text-sm text-gray-500 max-w-full break-words [overflow-wrap:anywhere]">
+                <Mail size={14} className="text-gray-400 mt-0.5 shrink-0" /> <span className="min-w-0">{user?.email}</span>
               </span>
               {employee?.phone && (
-                <span className="flex items-center gap-1.5 text-sm text-gray-500">
-                  <Phone size={14} className="text-gray-400" /> {employee.phone}
+                <span className="inline-flex items-start gap-1.5 text-sm text-gray-500 max-w-full">
+                  <Phone size={14} className="text-gray-400 mt-0.5 shrink-0" /> <span className="min-w-0">{employee.phone}</span>
                 </span>
               )}
-              <span className="flex items-center gap-1.5 text-sm text-gray-500">
-                <Shield size={14} className="text-gray-400" /> {user?.role?.replace(/_/g, ' ')}
+              <span className="inline-flex items-start gap-1.5 text-sm text-gray-500 max-w-full">
+                <Shield size={14} className="text-gray-400 mt-0.5 shrink-0" /> <span className="min-w-0">{user?.role?.replace(/_/g, ' ')}</span>
               </span>
               {employee?.employeeCode && (
-                <span className="flex items-center gap-1.5 text-sm text-gray-500 font-mono" data-mono>
-                  {employee.employeeCode}
+                <span className="inline-flex items-start gap-1.5 text-sm text-gray-500 font-mono max-w-full" data-mono>
+                  <span className="min-w-0">{employee.employeeCode}</span>
                 </span>
               )}
             </div>
@@ -614,10 +614,10 @@ export default function ProfilePage() {
         </div>
       )}
 
-      <div className="grid md:grid-cols-2 gap-4 md:gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         {/* Employment info */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="layer-card p-4 md:p-6">
+          className="layer-card p-4 md:p-6 min-w-0 max-w-full">
           <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <Building2 size={16} className="text-brand-500" /> {t('profile.employmentDetails')}
           </h3>
@@ -643,7 +643,7 @@ export default function ProfilePage() {
 
         {/* Personal info */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-          className="layer-card p-4 md:p-6">
+          className="layer-card p-4 md:p-6 min-w-0 max-w-full">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
               <User size={16} className="text-brand-500" /> {t('profile.personalInfo')}
@@ -676,7 +676,7 @@ export default function ProfilePage() {
 
         {/* Security */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          className="layer-card p-4 md:p-6">
+          className="layer-card p-4 md:p-6 min-w-0 max-w-full">
           <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <Key size={16} className="text-amber-500" /> {t('profile.security')}
           </h3>
@@ -764,7 +764,7 @@ export default function ProfilePage() {
 
         {/* Address & Emergency */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
-          className="layer-card p-4 md:p-6">
+          className="layer-card p-4 md:p-6 min-w-0 max-w-full">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
               <MapPin size={16} className="text-brand-500" /> {t('profile.addressEmergency')}
@@ -840,7 +840,7 @@ export default function ProfilePage() {
 
         {/* Bank Details */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-          className="layer-card p-4 md:p-6">
+          className="layer-card p-4 md:p-6 min-w-0 max-w-full">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
               <CreditCard size={16} className="text-emerald-500" /> Bank Details
@@ -942,7 +942,7 @@ export default function ProfilePage() {
 
         {/* EPF Details */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}
-          className="layer-card p-4 md:p-6">
+          className="layer-card p-4 md:p-6 min-w-0 max-w-full">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
               <Shield size={16} className="text-violet-500" /> EPF Details
@@ -1028,7 +1028,7 @@ export default function ProfilePage() {
         {/* Documents */}
         {employee?.documents && employee.documents.length > 0 && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}
-            className="layer-card p-4 md:p-6">
+            className="layer-card p-4 md:p-6 min-w-0 max-w-full">
             <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
               <FileText size={16} className="text-brand-500" /> My Documents
             </h3>
