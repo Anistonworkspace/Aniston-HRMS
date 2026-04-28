@@ -315,6 +315,16 @@ export default defineConfig({
   // Ensure .wasm files are treated as assets, not processed as JS
   assetsInclude: ['**/*.wasm'],
 
+  build: {
+    rollupOptions: {
+      // Native Capacitor plugins that are only available inside the APK —
+      // not present in the web/PWA bundle. Externalizing prevents Rolldown
+      // from failing the build when it can't resolve the package at build time.
+      // At runtime the dynamic import is guarded by isNativeAndroid checks.
+      external: ['@capacitor-community/background-geolocation'],
+    },
+  },
+
   server: {
     port: 5173,
     proxy: {
