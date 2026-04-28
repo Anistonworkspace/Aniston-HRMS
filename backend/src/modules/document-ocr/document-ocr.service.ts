@@ -150,29 +150,32 @@ export class DocumentOcrService {
       logger.warn(`OCR: AI service call failed for document ${documentId}: ${err.message}`);
     }
 
-    // ── AI Vision Scan: send image directly to configured AI provider ─────────
-    // Works for image files (jpg/png/webp/bmp). PDFs require Python for page rendering.
-    // Vision AI reads the document visually — catches what Tesseract misses.
+    // ── OpenAI KYC Vision Scan (PRIMARY intelligence layer) ──────────────────
+    // Uses process.env.OPENAI_API_KEY directly — no DB config needed.
+    // gpt-4.1-mini first; auto-escalates to gpt-4.1 when confidence < 0.60.
+    // Only runs on image files; PDFs are handled by Python Tesseract above.
+    // ─────────────────────────────────────────────────────────────────────────
     const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'bmp'];
     if (imageExts.includes(ext)) {
       try {
         const imgMime = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
         const imageBase64 = fileBuffer.toString('base64');
-        const visionResp = await aiService.scanDocument(organizationId, imageBase64, imgMime);
-        if (visionResp.success && visionResp.data) {
-          const cleaned = visionResp.data.replace(/```json[\s\S]*?```|```/g, '').trim();
-          const visionJson = JSON.parse(cleaned);
+        const kycResp = await aiService.scanDocumentKyc(imageBase64, imgMime);
+
+        if (kycResp.success && kycResp.data) {
+          const visionJson = JSON.parse(kycResp.data);
           if (!ocrResult) ocrResult = { extracted_fields: {}, validation_reasons: [], raw_text: '' };
           const vf = visionJson.extracted_fields || {};
           const of_ = ocrResult.extracted_fields || {};
-          // Vision AI field values take priority — Tesseract often misreads characters
+
+          // Vision fields take priority over Tesseract — OpenAI reads docs visually
           ocrResult.extracted_fields = {
             name: vf.name || of_.name,
             date_of_birth: vf.date_of_birth || of_.date_of_birth,
             document_number: vf.document_number || of_.aadhaar_number || of_.pan_number || of_.passport_number || of_.document_number,
-            aadhaar_number: vf.document_number || of_.aadhaar_number,
-            pan_number: of_.pan_number || (visionJson.document_type === 'PAN' ? vf.document_number : null),
-            passport_number: of_.passport_number || (visionJson.document_type === 'PASSPORT' ? vf.document_number : null),
+            aadhaar_number: visionJson.document_type === 'AADHAAR' ? (vf.document_number || of_.aadhaar_number) : of_.aadhaar_number,
+            pan_number: visionJson.document_type === 'PAN' ? (vf.document_number || of_.pan_number) : of_.pan_number,
+            passport_number: visionJson.document_type === 'PASSPORT' ? (vf.document_number || of_.passport_number) : of_.passport_number,
             father_name: vf.father_name || of_.father_name,
             mother_name: vf.mother_name || of_.mother_name,
             gender: vf.gender || of_.gender,
@@ -184,7 +187,7 @@ export class DocumentOcrService {
             ifsc_code: vf.ifsc_code || of_.ifsc_code,
             bank_name: vf.bank_name || of_.bank_name,
           };
-          // Vision-generated validation pointers
+
           if (Array.isArray(visionJson.validation_pointers) && visionJson.validation_pointers.length > 0) {
             ocrResult.validation_reasons = [
               ...(ocrResult.validation_reasons || []),
@@ -197,25 +200,24 @@ export class DocumentOcrService {
               ...visionJson.suspicious_indicators.map((s: string) => `⚠ Vision: ${s}`),
             ];
           }
-          // Use vision doc type if Tesseract returned OTHER/UNKNOWN
           if (visionJson.document_type && visionJson.document_type !== 'OTHER' &&
               (!ocrResult.document_type || ocrResult.document_type === 'OTHER')) {
             ocrResult.document_type = visionJson.document_type;
           }
-          // Vision raw text as fallback if Tesseract got very little
           if (visionJson.raw_text && (ocrResult.raw_text || '').length < 100) {
             ocrResult.raw_text = visionJson.raw_text;
           }
-          // Boost confidence if vision is more confident
-          if (typeof visionJson.confidence === 'number' && visionJson.confidence > (ocrResult.confidence || 0)) {
-            ocrResult.confidence = visionJson.confidence;
+          // Use vision confidence when it exceeds Tesseract
+          if (typeof kycResp.confidence === 'number' && kycResp.confidence > (ocrResult.confidence || 0)) {
+            ocrResult.confidence = kycResp.confidence;
           }
           ocrResult.vision_scanned = true;
           ocrResult.vision_quality_note = visionJson.quality_note || null;
-          logger.info(`[OCR] Vision AI scan complete for ${documentId} — type: ${visionJson.document_type}, confidence: ${visionJson.confidence}`);
+          if (kycResp.escalated) ocrResult.validation_reasons = [...(ocrResult.validation_reasons || []), '🔼 Escalated to gpt-4.1 for higher accuracy'];
+          logger.info(`[OCR] OpenAI KYC vision complete for ${documentId} — model: ${visionJson._model || 'gpt-4.1-mini'}, conf: ${kycResp.confidence}, escalated: ${kycResp.escalated}`);
         }
       } catch (visionErr: any) {
-        logger.warn(`[OCR] Vision AI scan skipped for ${documentId}: ${visionErr.message}`);
+        logger.warn(`[OCR] KYC vision scan skipped for ${documentId}: ${visionErr.message}`);
       }
     }
 
@@ -951,25 +953,44 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       });
     }
 
-    // ---- DOB comparison ----
-    const dobs = ocrDocs
+    // ---- DOB comparison — only use high-confidence OCR results ----
+    // Threshold: 0.70. Below this, Tesseract/OCR date reads are unreliable
+    // and cause false cross-validation failures. Low-confidence docs are shown
+    // to HR for manual review instead of triggering an automatic FAIL.
+    const DOB_CONFIDENCE_THRESHOLD = 0.70;
+    const allDobsForDisplay = ocrDocs
       .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedDob }))
       .filter(n => n.value && n.value.trim().length > 0);
 
-    if (dobs.length >= 2) {
-      const normalized = dobs.map(d => this.normalizeDate(d.value!));
-      // Some docs only have year-of-birth — handle gracefully
+    const highConfDobs = ocrDocs
+      .filter(d => (d.ocrVerification!.confidence || 0) >= DOB_CONFIDENCE_THRESHOLD)
+      .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedDob }))
+      .filter(n => n.value && n.value.trim().length > 0);
+
+    if (highConfDobs.length >= 2) {
+      const normalized = highConfDobs.map(d => this.normalizeDate(d.value!));
       const allMatch = normalized.every(n => {
-        // If lengths differ greatly, extract just year component
         const yearA = n.length >= 4 ? n.slice(-4) : n;
         const yearB = normalized[0].length >= 4 ? normalized[0].slice(-4) : normalized[0];
         return n === normalized[0] || yearA === yearB;
       });
       details.push({
         field: 'Date of Birth',
-        values: dobs,
+        values: allDobsForDisplay,
         match: allMatch,
-        matchDetail: allMatch ? 'DOB consistent across documents' : `DOB mismatch detected: ${normalized.join(' vs ')}`,
+        matchDetail: allMatch
+          ? 'DOB consistent across documents'
+          : `DOB mismatch detected: ${normalized.join(' vs ')}`,
+      });
+    } else if (allDobsForDisplay.length >= 1) {
+      // Not enough high-confidence DOBs to compare — skip automatic fail, flag for HR
+      details.push({
+        field: 'Date of Birth',
+        values: allDobsForDisplay,
+        match: true,
+        matchDetail: highConfDobs.length === 0
+          ? 'DOB comparison skipped — OCR confidence below 70% on all documents. HR should manually verify dates.'
+          : 'Only one high-confidence DOB found — manual HR verification recommended.',
       });
     }
 

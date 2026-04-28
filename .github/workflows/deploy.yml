@@ -176,10 +176,13 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_OPENAI_KEY: ${{ secrets.ANISTON_TEST }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: DEPLOY_OPENAI_KEY
           script_stop: true
           timeout: 300s
           script: |
@@ -246,6 +249,10 @@ jobs:
             # Ensure AI_SERVICE_URL has no surrounding quotes — quoted value causes Node.js fetch failed
             sed -i '/^AI_SERVICE_URL=/d' .env 2>/dev/null || true
             echo 'AI_SERVICE_URL=http://localhost:8000' >> .env
+            # OpenAI API key — injected from GitHub Secret ANISTON_TEST.
+            # Takes priority over any per-org DB key for all OpenAI provider calls.
+            sed -i '/^OPENAI_API_KEY=/d' .env 2>/dev/null || true
+            echo "OPENAI_API_KEY=$DEPLOY_OPENAI_KEY" >> .env
 
             echo "=== [5/17] Installing Node.js dependencies ==="
             export SCARF_ANALYTICS=false

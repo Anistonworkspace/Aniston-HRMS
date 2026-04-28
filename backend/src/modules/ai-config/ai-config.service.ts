@@ -35,16 +35,19 @@ export class AiConfigService {
       orderBy: { updatedAt: 'desc' },
     });
 
+    const isEnvManaged = !!process.env.OPENAI_API_KEY;
+
     if (!config) {
       // Return a default shape so the frontend knows "no config yet" vs "config exists"
       return {
         id: null,
-        provider: 'DEEPSEEK',
-        apiKeyMasked: '',
-        hasApiKey: false,
+        provider: isEnvManaged ? 'OPENAI' : 'DEEPSEEK',
+        apiKeyMasked: isEnvManaged ? '🔒 Server-managed' : '',
+        hasApiKey: isEnvManaged,
+        isEnvManaged,
         baseUrl: null,
-        modelName: 'deepseek-chat',
-        isActive: false,
+        modelName: isEnvManaged ? 'gpt-4.1-mini' : 'deepseek-chat',
+        isActive: isEnvManaged,
         updatedAt: null,
         updatedBy: null,
       };
@@ -72,12 +75,29 @@ export class AiConfigService {
       }
     }
 
+    // Env key takes precedence — show server-managed regardless of DB state
+    if (isEnvManaged) {
+      return {
+        id: config.id,
+        provider: 'OPENAI',
+        apiKeyMasked: '🔒 Server-managed',
+        hasApiKey: true,
+        isEnvManaged: true,
+        baseUrl: config.provider === 'OPENAI' ? config.baseUrl : null,
+        modelName: config.provider === 'OPENAI' ? config.modelName : 'gpt-4.1-mini',
+        isActive: true,
+        updatedAt: config.updatedAt,
+        updatedBy: config.updatedBy,
+      };
+    }
+
     return {
       id: config.id,
       provider: config.provider,
       apiKeyMasked: maskedKey,
       hasApiKey,
       decryptError,
+      isEnvManaged: false,
       baseUrl: config.baseUrl,
       modelName: config.modelName,
       isActive: config.isActive,
@@ -248,6 +268,12 @@ export class AiConfigService {
       }
     }
 
+    // Env key: use for OPENAI when no override key is provided
+    const envKey = process.env.OPENAI_API_KEY;
+    if (!apiKey && envKey && (!overrides?.provider || overrides.provider === 'OPENAI') && (!config || config.provider === 'OPENAI')) {
+      apiKey = envKey;
+    }
+
     if (!apiKey) {
       return { success: false, message: 'No API key available. Please enter an API key and try again.', provider: config?.provider || overrides?.provider, model: config?.modelName || overrides?.modelName };
     }
@@ -303,24 +329,48 @@ export class AiConfigService {
    * @returns `{ provider, apiKey, baseUrl, modelName }` or `null` if not configured.
    */
   async getActiveConfigRaw(organizationId: string) {
+    const envKey = process.env.OPENAI_API_KEY;
+
     // Check cache first
     const cached = await redis.get(`${CACHE_KEY_PREFIX}${organizationId}`);
     if (cached) {
-      return JSON.parse(cached);
+      const parsed = JSON.parse(cached);
+      // Env key always wins for OPENAI — inject over cached value
+      if (envKey && parsed.provider === 'OPENAI') {
+        return { ...parsed, apiKey: envKey };
+      }
+      return parsed;
     }
 
     const config = await prisma.aiApiConfig.findFirst({
       where: { organizationId, isActive: true },
     });
 
-    if (!config) return null;
-
-    let apiKey: string;
-    try {
-      apiKey = decrypt(config.apiKeyEncrypted);
-    } catch (err) {
-      logger.error(`[AI Config] Failed to decrypt active config for org ${organizationId}: ${(err as Error).message}`);
+    // No DB config — synthesize OPENAI config from env key if available
+    if (!config) {
+      if (envKey) {
+        const synthetic = { provider: 'OPENAI', apiKey: envKey, baseUrl: null, modelName: 'gpt-4.1-mini' };
+        await redis.setex(`${CACHE_KEY_PREFIX}${organizationId}`, CACHE_TTL, JSON.stringify(synthetic));
+        return synthetic;
+      }
       return null;
+    }
+
+    // Env key always wins when provider is OPENAI
+    let apiKey: string;
+    if (envKey && config.provider === 'OPENAI') {
+      apiKey = envKey;
+    } else {
+      try {
+        apiKey = decrypt(config.apiKeyEncrypted);
+      } catch (err) {
+        logger.error(`[AI Config] Failed to decrypt active config for org ${organizationId}: ${(err as Error).message}`);
+        // Fallback to env key if available, otherwise fail
+        if (envKey) {
+          return { provider: 'OPENAI', apiKey: envKey, baseUrl: null, modelName: 'gpt-4.1-mini' };
+        }
+        return null;
+      }
     }
 
     if (!apiKey) return null;

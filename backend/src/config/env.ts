@@ -35,6 +35,9 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().default('noreply@aniston.in'),
+  // Injected via GitHub Secret ANISTON_TEST at deploy time.
+  // Takes priority over any per-org DB-stored key for all OPENAI provider calls.
+  OPENAI_API_KEY: z.string().optional(),
 });
 
 /** Detect suspiciously low-entropy secrets (repeated chars, all-numeric, common dev patterns) */

@@ -327,6 +327,7 @@ export class AttendanceService {
         graceMinutes: shift.graceMinutes,
         fullDayHours: Number(shift.fullDayHours),
         halfDayHours: Number(shift.halfDayHours),
+        trackingIntervalMinutes: shift.trackingIntervalMinutes || 60,
       };
     }
 
@@ -992,6 +993,7 @@ export class AttendanceService {
         fullDayHours: Number(shift.fullDayHours),
         halfDayHours: Number(shift.halfDayHours),
         shiftType: shift.shiftType,
+        trackingIntervalMinutes: shift.trackingIntervalMinutes || 60,
       } : null,
       hasShift: !!shift,
       weekOffDays: (policy?.weekOffDays as number[]) || [0],
@@ -1373,11 +1375,13 @@ export class AttendanceService {
       throw new BadRequestError('GPS tracking is only available for field sales employees');
     }
 
-    // E8: Filter out GPS points that are more than 10 minutes old
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-    const freshPoints = data.points.filter(p => new Date(p.timestamp) > tenMinutesAgo);
+    // Filter out GPS points that are more than 24 hours old.
+    // 24-hour window allows offline-buffered points to sync when connectivity resumes
+    // (e.g., a field employee who loses signal for hours still gets their trail uploaded).
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const freshPoints = data.points.filter(p => new Date(p.timestamp) > oneDayAgo);
     if (freshPoints.length === 0) {
-      throw new BadRequestError('All GPS points are more than 10 minutes old. Please ensure your GPS is active.');
+      throw new BadRequestError('All GPS points are more than 24 hours old. Please ensure your GPS is active.');
     }
 
     const points = freshPoints.map((p) => ({

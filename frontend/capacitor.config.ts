@@ -35,6 +35,12 @@ const config: CapacitorConfig = {
       // Android: request ACCESS_BACKGROUND_LOCATION so GPS works with screen off
       // User sees the "Allow all the time" dialog on first tracking start
     },
+
+    BackgroundGeolocation: {
+      // Foreground service notification shown while GPS tracking is active.
+      // This keeps the Android process alive when screen is off / app is backgrounded.
+      // Without this, Android 8+ kills the WebView process after ~1 min in background.
+    },
   },
 };
 

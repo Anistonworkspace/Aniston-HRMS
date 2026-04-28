@@ -345,6 +345,82 @@ Return ONLY valid compact JSON (no markdown, no explanation):
         throw new Error(`Unsupported AI provider: ${provider}`);
     }
   }
+
+  // ─── KYC Vision — uses server-level OPENAI_API_KEY only ──────────────────────
+  // Never reads from DB config. Uses gpt-4.1-mini first; escalates to gpt-4.1
+  // when confidence < 0.60. Uses detail:"high" for accurate Indian doc field reads.
+  // ──────────────────────────────────────────────────────────────────────────────
+
+  async scanDocumentKyc(imageBase64: string, mimeType: string): Promise<AiResponse & {
+    confidence?: number;
+    escalated?: boolean;
+  }> {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return { success: false, error: 'OPENAI_API_KEY not configured — KYC vision unavailable' };
+    }
+
+    try {
+      const rawFirst = await this.callOpenAiKycVision(apiKey, 'gpt-4.1-mini', imageBase64, mimeType);
+      const parsed = JSON.parse(rawFirst.replace(/```json[\s\S]*?```|```/g, '').trim());
+      const conf: number = typeof parsed.confidence === 'number' ? parsed.confidence : 0;
+
+      if (conf < 0.60) {
+        // Low confidence on mini → escalate to full gpt-4.1 for better accuracy
+        try {
+          const rawEscalated = await this.callOpenAiKycVision(apiKey, 'gpt-4.1', imageBase64, mimeType);
+          const ep = JSON.parse(rawEscalated.replace(/```json[\s\S]*?```|```/g, '').trim());
+          return {
+            success: true,
+            data: JSON.stringify({ ...ep, _model: 'gpt-4.1' }),
+            confidence: typeof ep.confidence === 'number' ? ep.confidence : conf,
+            escalated: true,
+          };
+        } catch {
+          // Escalation failed — return the mini result as-is
+        }
+      }
+
+      return {
+        success: true,
+        data: JSON.stringify({ ...parsed, _model: 'gpt-4.1-mini' }),
+        confidence: conf,
+        escalated: false,
+      };
+    } catch (err: any) {
+      return { success: false, error: `KYC vision failed: ${err.message}` };
+    }
+  }
+
+  private async callOpenAiKycVision(apiKey: string, model: string, imageBase64: string, mimeType: string): Promise<string> {
+    const KYC_PROMPT = `You are a KYC document analyst for an Indian HR system. Analyze this document image and extract all visible fields.
+Return ONLY compact JSON (no markdown, no explanation):
+{"document_type":"AADHAAR|PAN|PASSPORT|TENTH_CERTIFICATE|TWELFTH_CERTIFICATE|DEGREE|BANK_PASSBOOK|EXPERIENCE_LETTER|OFFER_LETTER|PROFESSIONAL_CERTIFICATION|OTHER","confidence":0.0,"extracted_fields":{"name":null,"date_of_birth":null,"document_number":null,"father_name":null,"mother_name":null,"gender":null,"address":null,"issuing_authority":null,"issue_date":null,"expiry_date":null,"account_number":null,"ifsc_code":null,"bank_name":null},"raw_text":"all visible text","validation_pointers":["specific items HR should verify"],"suspicious_indicators":[],"quality_note":"image quality assessment"}
+Rules: Do NOT guess. Return null for unclear fields. date_of_birth → DD/MM/YYYY. confidence = 0.0–1.0 based on how well ALL key fields were readable. Aadhaar = 12 digits. PAN = 5 letters+4 digits+letter.`;
+
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        max_tokens: 1200,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: KYC_PROMPT },
+            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}`, detail: 'high' } },
+          ],
+        }],
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+
+    if (!res.ok) {
+      throw new Error(`OpenAI KYC vision (${model}) ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    }
+    const data = await res.json() as any;
+    return data.choices?.[0]?.message?.content || '';
+  }
 }
 
 export const aiService = new AiService();

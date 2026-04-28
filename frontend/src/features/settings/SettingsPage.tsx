@@ -1663,73 +1663,17 @@ function ExternalApiIntegrationTab() {
 }
 
 function ApiIntegrationsTab() {
-  const { data: res, isLoading, refetch } = useGetAiConfigQuery();
-  const [saveConfig, { isLoading: saving }] = useSaveAiConfigMutation();
+  const { data: res, isLoading } = useGetAiConfigQuery();
   const [testConnection, { isLoading: testing }] = useTestAiConnectionMutation();
   const { data: aiHealth, refetch: refetchHealth } = useGetAiServiceHealthQuery(undefined, { pollingInterval: 30000 });
 
   const config = res?.data;
-
-  const [provider, setProvider] = useState('DEEPSEEK');
-  const [apiKey, setApiKey] = useState('');
-  const [baseUrl, setBaseUrl] = useState('');
-  const [modelName, setModelName] = useState('deepseek-chat');
+  const isEnvManaged = config?.isEnvManaged === true;
   const [testResult, setTestResult] = useState<any>(null);
-
-  useEffect(() => {
-    if (config) {
-      setProvider(config.provider || 'DEEPSEEK');
-      setModelName(config.modelName || 'deepseek-chat');
-      setBaseUrl(config.baseUrl || '');
-      setApiKey('');
-    }
-  }, [config]);
-
-  const handleProviderChange = (p: string) => {
-    if (p === provider) return; // Don't reset if clicking same provider
-    setProvider(p);
-    setTestResult(null);
-
-    // If switching back to the saved provider, restore saved values
-    if (config && p === config.provider) {
-      setModelName(config.modelName || PROVIDER_DEFAULTS[p]?.modelName || '');
-      setBaseUrl(config.baseUrl || '');
-      setApiKey(''); // Keep empty — saved key is still in backend
-    } else {
-      // New provider — show defaults, user must enter a new key
-      const defaults = PROVIDER_DEFAULTS[p];
-      if (defaults) setModelName(defaults.modelName);
-      setBaseUrl('');
-      setApiKey('');
-    }
-  };
-
-  const handleSave = async () => {
-    const isSameProvider = provider === config?.provider;
-    // Require API key: first-time setup, decrypt error, or switching to a different provider without a key
-    if (!apiKey && (!config?.hasApiKey || config?.decryptError || !isSameProvider)) {
-      toast.error(isSameProvider ? 'Please enter an API key' : 'Please enter an API key for the new provider');
-      return;
-    }
-    try {
-      const body: any = { provider, modelName };
-      if (apiKey) body.apiKey = apiKey.trim(); // Trim whitespace from pasted keys
-      if (provider === 'CUSTOM' && baseUrl) body.baseUrl = baseUrl;
-      await saveConfig(body).unwrap();
-      // Clear API key field immediately — never leave a secret in form state
-      setApiKey('');
-      setTestResult(null);
-      await refetch();
-      toast.success(apiKey ? 'AI configuration saved with new API key' : 'AI configuration updated');
-    } catch (err: any) {
-      toast.error(err?.data?.error?.message || 'Failed to save AI configuration');
-    }
-  };
 
   const handleTest = async () => {
     try {
-      // Send current form values so we test what the user sees, not just what's in DB
-      const result = await testConnection({ provider, modelName, baseUrl: provider === 'CUSTOM' ? baseUrl : undefined, apiKey: apiKey || undefined }).unwrap();
+      const result = await testConnection({ provider: 'OPENAI', modelName: config?.modelName || 'gpt-4.1-mini' }).unwrap();
       setTestResult(result.data);
       if (result.data?.success) {
         toast.success(`Connection successful! (${result.data.latencyMs}ms)`);
@@ -1747,17 +1691,6 @@ function ApiIntegrationsTab() {
 
   return (
     <div className="space-y-6">
-      {/* Warning banner — show when no API key is configured */}
-      {config && !config.hasApiKey && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex items-start gap-3">
-          <AlertTriangle size={20} className="text-blue-500 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-blue-700">AI provider needs an API key</p>
-            <p className="text-xs text-blue-600">Select your AI provider below and enter an API key to enable resume scoring, interview questions, and AI assistant.</p>
-          </div>
-        </div>
-      )}
-
       {/* Python OCR Service Health Card */}
       <div className="layer-card p-4 flex items-start gap-4">
         <div className={cn(
@@ -1800,166 +1733,104 @@ function ApiIntegrationsTab() {
             </button>
           </div>
           <p className="text-xs text-gray-500 mt-0.5">
-            This is the Python Tesseract OCR service that classifies KYC documents. It is separate from the AI Provider below.
-            If offline, KYC classification falls back to Node.js OCR automatically — no action needed.
+            Python Tesseract OCR service for KYC document classification. Separate from the AI Provider below.
+            If offline, KYC falls back to Node.js OCR automatically — no action needed.
           </p>
           {aiHealth?.data?.status === 'offline' && (
             <p className="text-xs text-red-600 mt-1 font-medium">
               Offline reason: {aiHealth.data.error || 'Connection refused'}.
-              KYC will use Node.js fallback (lower accuracy). Check Docker container: <code className="bg-red-50 px-1 rounded">docker ps | grep ai-service</code>
+              Check Docker: <code className="bg-red-50 px-1 rounded">docker ps | grep ai-service</code>
             </p>
           )}
         </div>
       </div>
 
-      {/* AI Provider Configuration */}
+      {/* AI Provider — read-only when env-managed */}
       <div className="layer-card p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
           <Cpu size={20} className="text-brand-600" /> AI Provider
         </h3>
-        <p className="text-sm text-gray-500 mb-5">Configure which AI model powers resume scoring, interview questions, and the AI assistant. <span className="font-medium text-indigo-600">This does NOT affect KYC document scanning</span> — OCR runs locally via the Python service above.</p>
+        <p className="text-sm text-gray-500 mb-5">
+          Powers resume scoring, interview questions, AI assistant, and KYC vision scanning.
+        </p>
 
-        <div className="space-y-4">
-          {/* Provider Selector */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Provider</label>
-            <div className="grid grid-cols-5 gap-2">
-              {Object.keys(PROVIDER_DEFAULTS).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => handleProviderChange(p)}
-                  className={cn(
-                    'px-3 py-2.5 rounded-lg text-xs font-medium border transition-all',
-                    provider === p
-                      ? 'bg-brand-50 border-brand-300 text-brand-700 ring-2 ring-brand-200'
-                      : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
-                  )}
-                >
-                  {p === 'DEEPSEEK' ? 'DeepSeek' : p === 'OPENAI' ? 'OpenAI' : p === 'ANTHROPIC' ? 'Anthropic' : p === 'GEMINI' ? 'Gemini' : 'Custom'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* API Key */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
-            <div className="relative">
-              <input
-                type="password"
-                value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
-                placeholder={config?.hasApiKey ? (config.apiKeyMasked || '••••••••') : 'Enter your API key here'}
-                className="input-glass w-full text-sm pr-10"
-              />
-              <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            </div>
-            {config?.hasApiKey && provider === config.provider && !apiKey && (
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <CheckCircle2 size={12} className="text-green-500" />
-                <p className="text-xs text-green-600 font-medium">API key is saved and encrypted. Leave blank to keep it, or enter a new key to replace.</p>
-              </div>
-            )}
-            {config?.decryptError && provider === config.provider && (
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <AlertTriangle size={12} className="text-red-500" />
-                <p className="text-xs text-red-600 font-medium">Saved key could not be read. Please re-enter your API key.</p>
-              </div>
-            )}
-            {provider !== config?.provider && !apiKey && (
-              <p className="text-xs text-amber-500 mt-1">You are switching providers. Enter a new API key for this provider.</p>
-            )}
-            {!config?.hasApiKey && !config?.decryptError && provider === config?.provider && (
-              <p className="text-xs text-gray-400 mt-1">Your key is encrypted with AES-256-GCM before storage.</p>
-            )}
-          </div>
-
-          {/* Base URL (only for CUSTOM) */}
-          {provider === 'CUSTOM' && (
+        {/* Server-managed banner */}
+        {isEnvManaged && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-start gap-3 mb-5">
+            <CheckCircle2 size={18} className="text-emerald-600 mt-0.5 shrink-0" />
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Base URL</label>
-              <input
-                value={baseUrl}
-                onChange={e => setBaseUrl(e.target.value)}
-                placeholder="https://your-api-endpoint.com"
-                className="input-glass w-full text-sm"
-              />
-              <p className="text-xs text-gray-400 mt-1">Must be OpenAI-compatible. The endpoint /v1/chat/completions will be called.</p>
+              <p className="text-sm font-semibold text-emerald-800">API key is securely managed via server environment</p>
+              <p className="text-xs text-emerald-700 mt-0.5">
+                The OpenAI API key is injected at deploy time via a GitHub Secret. It is never stored in the database
+                or exposed to the frontend. KYC vision uses <span className="font-mono font-semibold">gpt-4.1-mini</span> with
+                automatic escalation to <span className="font-mono font-semibold">gpt-4.1</span> on low-confidence documents.
+              </p>
             </div>
-          )}
-
-          {/* Model Name */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Model Name</label>
-            <input
-              value={modelName}
-              onChange={e => setModelName(e.target.value)}
-              placeholder="Model identifier"
-              className="input-glass w-full text-sm"
-            />
           </div>
+        )}
 
-          {/* Actions */}
-          <div className="flex items-center gap-3 pt-2">
-            <button onClick={handleSave} disabled={saving || !modelName}
-              className="btn-primary flex items-center gap-2 text-sm">
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              Save Configuration
-            </button>
-            <button onClick={handleTest} disabled={testing || (!apiKey && (!config?.hasApiKey || provider !== config?.provider))}
-              className="btn-secondary flex items-center gap-2 text-sm"
-              title={!config?.hasApiKey && !apiKey ? 'Save an API key first to test the connection' : 'Test the AI provider connection'}>
-              {testing ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
-              Test Connection
-            </button>
-          </div>
-
-          {/* Test Result */}
-          {testResult && (
-            <div className={cn(
-              'rounded-xl px-4 py-3 border',
-              testResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-            )}>
-              <div className="flex items-center gap-2 mb-1">
-                {testResult.success ? <CheckCircle2 size={16} className="text-green-600" /> : <AlertTriangle size={16} className="text-red-600" />}
-                <span className={cn('text-sm font-medium', testResult.success ? 'text-green-700' : 'text-red-700')}>
-                  {testResult.success ? 'Connection Successful' : 'Connection Failed'}
+        <div className="grid grid-cols-2 gap-4 mb-5">
+          <div className="bg-slate-50 rounded-xl px-4 py-3 border border-slate-100">
+            <p className="text-xs text-gray-500 mb-1">Provider</p>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-gray-800">{config?.provider || 'OpenAI'}</span>
+              {isEnvManaged && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+                  <CheckCircle2 size={11} /> Active
                 </span>
-              </div>
-              {testResult.success ? (
-                <div className="text-xs text-green-600 space-y-0.5">
-                  <p>Provider: {testResult.provider} | Model: {testResult.model}</p>
-                  <p>Latency: {testResult.latencyMs}ms</p>
-                  <p className="text-gray-500 italic mt-1">"{testResult.response}"</p>
-                </div>
-              ) : (
-                <p className="text-xs text-red-600">{testResult.message}</p>
               )}
             </div>
-          )}
+          </div>
+          <div className="bg-slate-50 rounded-xl px-4 py-3 border border-slate-100">
+            <p className="text-xs text-gray-500 mb-1">Model</p>
+            <p className="text-sm font-semibold text-gray-800 font-mono">{config?.modelName || 'gpt-4.1-mini'}</p>
+          </div>
+        </div>
 
-          {/* Last updated info */}
+        {/* Test Connection */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleTest}
+            disabled={testing}
+            className="btn-secondary flex items-center gap-2 text-sm"
+          >
+            {testing ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+            Test Connection
+          </button>
           {config?.updatedAt && (
             <p className="text-xs text-gray-400">
               Last updated: {new Date(config.updatedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
             </p>
           )}
         </div>
+
+        {/* Test Result */}
+        {testResult && (
+          <div className={cn(
+            'rounded-xl px-4 py-3 border mt-4',
+            testResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+          )}>
+            <div className="flex items-center gap-2 mb-1">
+              {testResult.success ? <CheckCircle2 size={16} className="text-green-600" /> : <AlertTriangle size={16} className="text-red-600" />}
+              <span className={cn('text-sm font-medium', testResult.success ? 'text-green-700' : 'text-red-700')}>
+                {testResult.success ? 'Connection Successful' : 'Connection Failed'}
+              </span>
+            </div>
+            {testResult.success ? (
+              <div className="text-xs text-green-600 space-y-0.5">
+                <p>Provider: {testResult.provider} | Model: {testResult.model}</p>
+                <p>Latency: {testResult.latencyMs}ms</p>
+                <p className="text-gray-500 italic mt-1">"{testResult.response}"</p>
+              </div>
+            ) : (
+              <p className="text-xs text-red-600">{testResult.message}</p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Knowledge Base */}
       <KnowledgeBaseSection />
-
-      {/* Default DeepSeek info */}
-      <div className="layer-card p-5 bg-blue-50/50 border border-blue-100">
-        <div className="flex items-start gap-3">
-          <Zap size={18} className="text-blue-600 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-blue-800">Getting Started with AI</p>
-            <p className="text-xs text-blue-600 mt-1">DeepSeek is the recommended default provider with affordable pricing. Sign up at <span className="font-mono">platform.deepseek.com</span> to get an API key. You can also use OpenAI, Anthropic, Google Gemini, or any OpenAI-compatible endpoint. Select your provider above, enter the API key, save, and test the connection.</p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
