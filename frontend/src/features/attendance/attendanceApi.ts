@@ -148,6 +148,7 @@ export const attendanceApi = api.injectEndpoints({
 
     storeGPSTrail: builder.mutation<any, { points: any[] }>({
       query: (body) => ({ url: '/attendance/gps-trail', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
     }),
 
     projectSiteCheckIn: builder.mutation<any, { siteName: string; siteAddress?: string; notes?: string; latitude?: number; longitude?: number; photoUrl?: string }>({
@@ -172,6 +173,7 @@ export const attendanceApi = api.injectEndpoints({
 
     getEmployeeGPSTrail: builder.query<any, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => `/attendance/gps-trail/${employeeId}/${date}`,
+      providesTags: ['Attendance'],
     }),
 
     getAttendanceLogs: builder.query<any, { employeeId: string; date: string }>({

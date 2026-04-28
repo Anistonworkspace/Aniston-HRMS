@@ -23,12 +23,13 @@ import { Geolocation, type Position } from '@capacitor/geolocation';
 
 // Lazily imported so the web bundle doesn't fail to load when the plugin
 // is not present (browser builds don't include native modules).
-let _bgGeo: typeof import('@capacitor-community/background-geolocation') | null = null;
-async function getBgGeo() {
-  if (!_bgGeo) {
-    _bgGeo = await import('@capacitor-community/background-geolocation');
+// Promise cache ensures concurrent callers share the same import, not race.
+let _bgGeoPromise: Promise<typeof import('@capacitor-community/background-geolocation')> | null = null;
+function getBgGeo() {
+  if (!_bgGeoPromise) {
+    _bgGeoPromise = import('@capacitor-community/background-geolocation');
   }
-  return _bgGeo;
+  return _bgGeoPromise;
 }
 
 export const isNativeAndroid =

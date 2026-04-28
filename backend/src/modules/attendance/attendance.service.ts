@@ -1367,7 +1367,7 @@ export class AttendanceService {
     // E11: Only FIELD_SALES employees may store GPS trail
     const gpsEmployee = await prisma.employee.findFirst({
       where: { id: employeeId, deletedAt: null },
-      select: { workMode: true, shiftAssignments: { where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] }, take: 1, include: { shift: { select: { shiftType: true } } }, orderBy: { startDate: 'desc' } } },
+      select: { workMode: true, organizationId: true, shiftAssignments: { where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] }, take: 1, include: { shift: { select: { shiftType: true } } }, orderBy: { startDate: 'desc' } } },
     });
     const empWorkMode = gpsEmployee?.workMode;
     const empShiftType = gpsEmployee?.shiftAssignments?.[0]?.shift?.shiftType;
@@ -1399,11 +1399,11 @@ export class AttendanceService {
 
     const result = await prisma.gPSTrailPoint.createMany({ data: points });
 
-    // Audit log for GPS trail upload (compliance)
+    // Audit log for GPS trail upload (compliance) — reuse organizationId from first query
     try {
       await createAuditLog({
         userId: employeeId,
-        organizationId: (await prisma.employee.findUnique({ where: { id: employeeId }, select: { organizationId: true } }))?.organizationId || '',
+        organizationId: gpsEmployee?.organizationId || '',
         entity: 'GPSTrailPoint',
         entityId: employeeId,
         action: 'GPS_TRAIL_UPLOAD',
