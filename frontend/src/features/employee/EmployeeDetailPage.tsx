@@ -6,10 +6,10 @@ import 'leaflet/dist/leaflet.css';
 import {
   ArrowLeft, ArrowRight, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
-  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload, AlertTriangle, Unlock, Lock,
+  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload, AlertTriangle, Unlock, Lock, Navigation,
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery, useChangeEmployeeRoleMutation } from './employeeApi';
-import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery } from '../attendance/attendanceApi';
+import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery, useGetEmployeeGPSTrailQuery } from '../attendance/attendanceApi';
 import { useGetHolidaysQuery } from '../leaves/leaveApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation, useGetSalaryHistoryQuery, useSaveSalaryStructureDynamicMutation } from '../payroll/payrollApi';
 import { useGetComponentsQuery } from '../payroll/componentMasterApi';
@@ -3404,18 +3404,15 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                 if (/\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$/.test(url)) {
                   return <img src={previewUrl} alt={previewName} className="w-full h-full object-contain p-4 bg-gray-50" />;
                 }
-                // PDF — native browser rendering
+                // PDF — use iframe (not <object>) to avoid Chrome/Edge SmartScreen blocking
                 if (/\.pdf$/.test(url)) {
                   return (
-                    <object data={previewUrl} type="application/pdf" className="w-full h-full">
-                      <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
-                        <FileText size={48} className="text-gray-300" />
-                        <p className="text-sm text-gray-500">PDF could not be displayed inline.</p>
-                        <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm px-4 py-2 flex items-center gap-2">
-                          <Download size={14} /> Open PDF
-                        </a>
-                      </div>
-                    </object>
+                    <iframe
+                      src={previewUrl}
+                      className="w-full h-full border-0"
+                      title={previewName}
+                      sandbox="allow-scripts allow-same-origin allow-forms"
+                    />
                   );
                 }
                 // Office docs + text — Google Docs Viewer (static /uploads/ files are publicly accessible)
@@ -4071,10 +4068,23 @@ function AttendanceMapModal({ employeeId, records, onClose }: { employeeId: stri
   // Lazy import react-leaflet to avoid SSR issues
   useEffect(() => { setMapReady(true); }, []);
 
-  // Records with location data
-  const locatedRecords = records.filter((r: any) => r.checkInLocation || r.checkOutLocation);
+  // Fetch GPS trail when a FIELD_SALES record is selected
+  const selectedDate = selectedRecord
+    ? new Date(selectedRecord.date).toISOString().split('T')[0]
+    : '';
+  const isFieldRecord = selectedRecord?.workMode === 'FIELD_SALES' || selectedRecord?.mode === 'FIELD_SALES';
+  const { data: gpsTrailRes, isFetching: isLoadingTrail } = useGetEmployeeGPSTrailQuery(
+    { employeeId, date: selectedDate },
+    { skip: !isFieldRecord || !selectedDate }
+  );
+  const gpsTrail: any[] = gpsTrailRes?.data?.points || gpsTrailRes?.data || [];
 
-  // Build markers
+  // Records that have any location data (check-in/out OR are FIELD_SALES with GPS trail potential)
+  const locatedRecords = records.filter((r: any) =>
+    r.checkInLocation || r.checkOutLocation || r.workMode === 'FIELD_SALES' || r.mode === 'FIELD_SALES'
+  );
+
+  // Build check-in/check-out markers
   const markers = locatedRecords.flatMap((r: any) => {
     const out: any[] = [];
     const ciLoc = r.checkInLocation;
@@ -4084,7 +4094,18 @@ function AttendanceMapModal({ employeeId, records, onClose }: { employeeId: stri
     return out;
   });
 
-  const defaultCenter: [number, number] = markers.length > 0 ? [markers[0].lat, markers[0].lng] : [28.6139, 77.209];
+  const trailCenter: [number, number] | null = gpsTrail.length > 0
+    ? [gpsTrail[0].lat, gpsTrail[0].lng]
+    : null;
+
+  const defaultCenter: [number, number] = trailCenter
+    ?? (markers.length > 0 ? [markers[0].lat, markers[0].lng] : [28.6139, 77.209]);
+
+  const mapCenter: [number, number] = selectedRecord?.checkInLocation
+    ? [selectedRecord.checkInLocation.lat, selectedRecord.checkInLocation.lng]
+    : (trailCenter ?? defaultCenter);
+
+  const hasAnyData = markers.length > 0 || gpsTrail.length > 0;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -4112,7 +4133,8 @@ function AttendanceMapModal({ employeeId, records, onClose }: { employeeId: stri
               <p className="text-xs text-gray-400 text-center py-8">No records</p>
             ) : (
               records.slice(0, 50).map((r: any, i: number) => {
-                const hasLoc = r.checkInLocation || r.checkOutLocation;
+                const isField = r.workMode === 'FIELD_SALES' || r.mode === 'FIELD_SALES';
+                const hasLoc = r.checkInLocation || r.checkOutLocation || isField;
                 const isSelected = selectedRecord?.id === r.id;
                 return (
                   <button key={r.id || i} onClick={() => hasLoc && setSelectedRecord(r)}
@@ -4126,7 +4148,10 @@ function AttendanceMapModal({ employeeId, records, onClose }: { employeeId: stri
                         {r.totalHours ? ` (${Number(r.totalHours).toFixed(1)}h)` : ''}
                       </p>
                     </div>
-                    {hasLoc && <MapPin size={12} className="text-emerald-400 flex-shrink-0" />}
+                    {isField
+                      ? <Navigation size={12} className="text-indigo-400 flex-shrink-0" />
+                      : hasLoc && <MapPin size={12} className="text-emerald-400 flex-shrink-0" />
+                    }
                   </button>
                 );
               })
@@ -4138,17 +4163,31 @@ function AttendanceMapModal({ employeeId, records, onClose }: { employeeId: stri
             {mapReady && (
               <AttendanceLeafletMap
                 markers={markers}
-                center={selectedRecord?.checkInLocation ? [selectedRecord.checkInLocation.lat, selectedRecord.checkInLocation.lng] : defaultCenter}
+                gpsTrail={isFieldRecord ? gpsTrail : []}
+                center={mapCenter}
                 selectedRecord={selectedRecord}
+                isLoadingTrail={isLoadingTrail}
               />
             )}
-            {markers.length === 0 && (
+            {!hasAnyData && !isLoadingTrail && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 z-10">
                 <div className="text-center">
                   <MapPin size={32} className="mx-auto text-gray-300 mb-2" />
                   <p className="text-sm text-gray-500">No GPS data available</p>
                   <p className="text-xs text-gray-400">Employee clock-in/out locations will appear here</p>
                 </div>
+              </div>
+            )}
+
+            {/* GPS trail info overlay for field records */}
+            {isFieldRecord && !isLoadingTrail && gpsTrail.length > 0 && (
+              <div className="absolute top-3 right-3 z-[1000] bg-indigo-600 text-white rounded-lg px-3 py-1.5 text-xs font-medium shadow flex items-center gap-1.5">
+                <Navigation size={11} /> {gpsTrail.length} GPS points recorded
+              </div>
+            )}
+            {isLoadingTrail && (
+              <div className="absolute top-3 right-3 z-[1000] bg-white/90 rounded-lg px-3 py-1.5 text-xs text-gray-500 shadow flex items-center gap-1.5">
+                <Loader2 size={11} className="animate-spin" /> Loading GPS trail…
               </div>
             )}
 
@@ -4186,9 +4225,16 @@ function AttendanceMapModal({ employeeId, records, onClose }: { employeeId: stri
   );
 }
 
-// ---- Leaflet Map for attendance markers ----
-function AttendanceLeafletMap({ markers, center, selectedRecord }: { markers: any[]; center: [number, number]; selectedRecord: any }) {
-  // Dynamic import to avoid SSR issues with leaflet
+// ---- Leaflet Map for attendance markers + GPS trail ----
+function AttendanceLeafletMap({
+  markers, gpsTrail = [], center, selectedRecord, isLoadingTrail = false,
+}: {
+  markers: any[];
+  gpsTrail?: any[];
+  center: [number, number];
+  selectedRecord: any;
+  isLoadingTrail?: boolean;
+}) {
   const [MapComponents, setMapComponents] = useState<any>(null);
 
   useEffect(() => {
@@ -4207,29 +4253,74 @@ function AttendanceLeafletMap({ markers, center, selectedRecord }: { markers: an
 
   if (!MapComponents) return <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin text-gray-400" size={24} /></div>;
 
-  const { MapContainer, TileLayer, CircleMarker, Popup, useMap } = MapComponents;
+  const { MapContainer, TileLayer, CircleMarker, Popup, Polyline, useMap } = MapComponents;
 
-  function MapController({ center, shouldFly }: { center: [number, number]; shouldFly: boolean }) {
+  // Auto-fit map to GPS trail bounds when trail loads
+  function MapController({ center, shouldFly, trail }: { center: [number, number]; shouldFly: boolean; trail: any[] }) {
     const map = useMap();
-    // Invalidate map size on mount so tiles render fully
     useEffect(() => {
       setTimeout(() => { map.invalidateSize(); }, 100);
     }, []);
-    // Fly to selected record location
     useEffect(() => {
-      if (shouldFly) {
+      if (trail.length > 1) {
+        // Fit bounds to entire GPS trail for a complete picture
+        const lats = trail.map((p: any) => p.lat);
+        const lngs = trail.map((p: any) => p.lng);
+        const bounds: [[number, number], [number, number]] = [
+          [Math.min(...lats) - 0.002, Math.min(...lngs) - 0.002],
+          [Math.max(...lats) + 0.002, Math.max(...lngs) + 0.002],
+        ];
+        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+        setTimeout(() => { map.invalidateSize(); }, 400);
+      } else if (shouldFly) {
         map.flyTo(center, 16, { duration: 0.8 });
-        // Invalidate again after fly animation
         setTimeout(() => { map.invalidateSize(); }, 900);
       }
-    }, [center[0], center[1], shouldFly]);
+    }, [trail.length, center[0], center[1], shouldFly]);
     return null;
   }
 
+  const trailPositions: [number, number][] = gpsTrail.map((p: any) => [p.lat, p.lng]);
+  const zoomLevel = gpsTrail.length > 0 ? 13 : (markers.length > 0 ? 14 : 5);
+
   return (
-    <MapContainer center={center} zoom={markers.length > 0 ? 14 : 5} style={{ height: '100%', width: '100%', minHeight: '500px' }} scrollWheelZoom zoomControl>
+    <MapContainer center={center} zoom={zoomLevel} style={{ height: '100%', width: '100%', minHeight: '500px' }} scrollWheelZoom zoomControl>
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
-      <MapController center={center} shouldFly={!!selectedRecord} />
+      <MapController center={center} shouldFly={!!selectedRecord && gpsTrail.length === 0} trail={gpsTrail} />
+
+      {/* GPS trail polyline */}
+      {trailPositions.length > 1 && (
+        <Polyline positions={trailPositions} pathOptions={{ color: '#4f46e5', weight: 3, opacity: 0.8 }} />
+      )}
+
+      {/* GPS trail interval markers — each dot = one recorded point */}
+      {gpsTrail.map((p: any, i: number) => {
+        const isFirst = i === 0;
+        const isLast = i === gpsTrail.length - 1;
+        return (
+          <CircleMarker key={`gps-${i}`}
+            center={[p.lat, p.lng]}
+            radius={isFirst || isLast ? 8 : 5}
+            pathOptions={{
+              color: isFirst ? '#059669' : isLast ? '#dc2626' : '#4f46e5',
+              fillColor: isFirst ? '#10b981' : isLast ? '#ef4444' : '#818cf8',
+              fillOpacity: 0.9,
+              weight: 2,
+            }}>
+            <Popup>
+              <div className="text-xs space-y-0.5">
+                <p className="font-semibold">{isFirst ? '🟢 Start' : isLast ? '🔴 Last Point' : `📍 Point ${i + 1}`}</p>
+                <p>{new Date(p.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Kolkata' })}</p>
+                <p className="text-gray-400">{p.lat.toFixed(5)}, {p.lng.toFixed(5)}</p>
+                {p.accuracy && <p className="text-gray-400">Accuracy: ±{Math.round(p.accuracy)}m</p>}
+                {p.speed != null && <p className="text-gray-400">Speed: {(p.speed * 3.6).toFixed(1)} km/h</p>}
+              </div>
+            </Popup>
+          </CircleMarker>
+        );
+      })}
+
+      {/* Check-in/check-out markers (shown even when trail is displayed) */}
       {markers.map((m: any, i: number) => {
         const isCheckIn = m.type === 'checkin';
         const isSelected = selectedRecord?.id === m.id;
