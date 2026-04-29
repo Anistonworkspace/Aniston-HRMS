@@ -19,6 +19,12 @@ export class DocumentOcrService {
     const doc = await prisma.document.findUnique({ where: { id: documentId } });
     if (!doc) throw new NotFoundError('Document');
 
+    // Read existing cross-validation result so kycScore reflects it on every re-run
+    const existingOcr = await prisma.documentOcrVerification.findUnique({
+      where: { documentId },
+      select: { crossValidationStatus: true },
+    }).catch(() => null);
+
     // Fetch employee profile for cross-verification against document fields
     const employee = doc.employeeId ? await prisma.employee.findFirst({
       where: { id: doc.employeeId, deletedAt: null },
@@ -554,7 +560,8 @@ Respond with compact JSON only (no markdown):
     const authenticityScore2 = authenticityPct * 0.15;
     const qualityPct = qualityReport.resolutionQuality === 'HIGH' ? 100 : qualityReport.resolutionQuality === 'MEDIUM' ? 70 : 40;
     const qualityScore = qualityPct * 0.10;
-    const crossDocScore = 20; // neutral until cross-validate runs
+    const prevCross = existingOcr?.crossValidationStatus;
+    const crossDocScore = prevCross === 'PASS' ? 20 : prevCross === 'PARTIAL' ? 10 : prevCross === 'FAIL' ? 0 : 20;
     const kycScore = Math.round(extractionScore + profileScore + crossDocScore + authenticityScore2 + qualityScore);
     const hasCriticalFindings = validationReasons.some((r: string) => r.startsWith('✗ Tampering:'));
     const recommendedStatus = (kycScore >= 85 && !hasCriticalFindings) ? 'VERIFIED'

@@ -3159,23 +3159,35 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
               {isManagement && ocr && (() => {
                 const conf = Math.round((ocr.confidence || 0) * 100);
                 const isFlagged = ocr.ocrStatus === 'FLAGGED' || conf < 60;
-                const hasName = !!ocr.extractedName;
-                const hasDocNum = !!ocr.extractedDocNumber;
-                const noTamper = !doc.tamperDetected && !(ocr.tamperingIndicators?.length);
                 const crossOk = ocr.crossValidationStatus === 'PASS';
                 const crossFail = ocr.crossValidationStatus === 'FAIL';
                 // Real AI findings from llmExtractedData
                 const llmData = (ocr.llmExtractedData as any) || {};
-                const kycScore = llmData.kycScore ?? (ocr as any).kycScore ?? null;
+                const kycScore = (ocr as any).kycScore ?? null;
                 const visionFindings: any[] = llmData.findings || [];
                 const crossDetails: any[] = (ocr.crossValidationDetails as any[]) || [];
                 const issuePointers: Array<{ severity: 'error' | 'warn'; text: string }> = [];
+                // Vision AI findings (FAIL / WARNING)
                 for (const f of visionFindings) {
                   if (f.result === 'FAIL' || f.result === 'WARNING') {
                     issuePointers.push({ severity: f.result === 'FAIL' ? 'error' : 'warn', text: f.detail || f.check });
                   }
                   if (issuePointers.length >= 4) break;
                 }
+                // Fallback: Python validation_reasons when Vision AI hasn't run
+                if (issuePointers.length === 0 && !llmData.vision_scanned) {
+                  const pythonReasons: string[] = llmData.validation_reasons || [];
+                  for (const r of pythonReasons) {
+                    const s = typeof r === 'string' ? r : '';
+                    if (s.startsWith('✗') || s.startsWith('🚩')) {
+                      issuePointers.push({ severity: 'error', text: s.replace(/^[✗🚩]\s*/, '') });
+                    } else if (s.startsWith('⚠')) {
+                      issuePointers.push({ severity: 'warn', text: s.replace(/^⚠\s*/, '') });
+                    }
+                    if (issuePointers.length >= 4) break;
+                  }
+                }
+                // Cross-validation mismatches
                 for (const d of crossDetails) {
                   if (!d.match && issuePointers.length < 4) {
                     issuePointers.push({
