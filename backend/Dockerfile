@@ -27,6 +27,10 @@ FROM node:20-alpine AS runtime
 
 WORKDIR /app
 
+# postgresql-client: provides pg_dump and psql for database backup/restore
+# gzip: used by pg_dump → gzip pipeline and restore decompression
+RUN apk add --no-cache postgresql-client gzip
+
 # Create non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 

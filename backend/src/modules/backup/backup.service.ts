@@ -147,12 +147,13 @@ function parseDatabaseUrl(url: string) {
 }
 
 function buildDbBackupFilename(): string {
-  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  // Include milliseconds (.slice(0,23)) so two rapid backups never produce the same filename
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 23);
   return `db_backup_${ts}.sql.gz`;
 }
 
 function buildFilesBackupFilename(): string {
-  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 23);
   return `files_backup_${ts}.tar.gz`;
 }
 
@@ -290,6 +291,12 @@ export class BackupService {
       );
     }
 
+    // Concurrent guard — prevent two simultaneous DB backups for the same org
+    const inProgress = await prisma.databaseBackup.findFirst({
+      where: { organizationId, category: 'DATABASE', status: 'IN_PROGRESS', deletedAt: null },
+    });
+    if (inProgress) throw new BadRequestError('A database backup is already in progress. Please wait for it to complete.');
+
     const dbUrl = process.env.DATABASE_URL;
     if (!dbUrl) throw new BadRequestError('DATABASE_URL is not configured');
 
@@ -301,6 +308,9 @@ export class BackupService {
     const backupDir = storageService.getAbsoluteDir(StorageFolder.BACKUPS);
     const gzPath = path.join(backupDir, filename);
     const relPath = storageService.buildUrl(StorageFolder.BACKUPS, filename);
+
+    // Disk space pre-check (requires ~500 MB free minimum)
+    this._checkDiskSpace(backupDir);
 
     const record = await prisma.databaseBackup.create({
       data: { filename, filePath: relPath, category: 'DATABASE', type, status: 'IN_PROGRESS', organizationId, createdById: createdById ?? null },
@@ -416,10 +426,19 @@ export class BackupService {
     type: BackupType,
     createdById?: string
   ) {
+    // Concurrent guard — prevent two simultaneous Files backups for the same org
+    const inProgress = await prisma.databaseBackup.findFirst({
+      where: { organizationId, category: 'FILES', status: 'IN_PROGRESS', deletedAt: null },
+    });
+    if (inProgress) throw new BadRequestError('A files backup is already in progress. Please wait for it to complete.');
+
     const filename = buildFilesBackupFilename();
     const backupDir = storageService.getAbsoluteDir(StorageFolder.BACKUPS);
     const tarPath = path.join(backupDir, filename);
     const relPath = storageService.buildUrl(StorageFolder.BACKUPS, filename);
+
+    // Disk space pre-check (requires ~500 MB free minimum)
+    this._checkDiskSpace(backupDir);
 
     const record = await prisma.databaseBackup.create({
       data: { filename, filePath: relPath, category: 'FILES', type, status: 'IN_PROGRESS', organizationId, createdById: createdById ?? null },
@@ -452,6 +471,29 @@ export class BackupService {
       try { if (fs.existsSync(tarPath)) fs.unlinkSync(tarPath); } catch { /* ignore */ }
       logger.error(`[Backup] ❌ Files backup failed: ${err.message}`);
       throw new BadRequestError(`Files backup failed: ${err.message}`);
+    }
+  }
+
+  // Disk space guard — logs a warning and throws if < 500 MB free on the backup volume
+  private _checkDiskSpace(dir: string, minFreeMB = 500): void {
+    try {
+      if (process.platform === 'win32') return; // df not available on Windows dev
+      const out = execSync(`df -B1 "${dir}"`, { encoding: 'utf8', timeout: 5000 });
+      const lines = out.trim().split('\n');
+      const parts = lines[lines.length - 1].trim().split(/\s+/);
+      const freeBytes = parseInt(parts[3], 10); // "Available" column from df -B1
+      if (!isNaN(freeBytes)) {
+        const freeMB = Math.floor(freeBytes / 1024 / 1024);
+        logger.info(`[Backup] Disk space check: ${freeMB}MB free on backup volume`);
+        if (freeMB < minFreeMB) {
+          throw new BadRequestError(
+            `Insufficient disk space: ${freeMB}MB free, at least ${minFreeMB}MB required. Free up space before running a backup.`
+          );
+        }
+      }
+    } catch (err: any) {
+      if (err instanceof BadRequestError) throw err;
+      logger.warn(`[Backup] Disk space check skipped: ${err.message}`);
     }
   }
 
@@ -558,6 +600,7 @@ export class BackupService {
       const psqlArgs = [
         '--host', conn.host, '--port', conn.port,
         '--username', conn.user, '--dbname', conn.database, '--no-password',
+        '--single-transaction', // wrap entire restore in one transaction — partial failure rolls back cleanly
       ];
 
       let psqlCmd: string;

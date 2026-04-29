@@ -378,6 +378,14 @@ async function heicConvertMiddleware(req: any, res: any, next: any) {
   }
 }
 
+// Block direct access to backup archives — download ONLY via authenticated /api/settings/backup/:id/download
+app.use('/uploads/backups', (_req, res) => {
+  res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Backup files must be downloaded via the backup management API.' } });
+});
+app.use('/api/uploads/backups', (_req, res) => {
+  res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Backup files must be downloaded via the backup management API.' } });
+});
+
 // Allow HR to preview uploaded files (PDFs/images) in same-origin iframes
 app.use('/uploads', (_req, res, next) => {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
