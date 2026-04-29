@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Shield, Save, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle,
-  ScanLine, Eye, Check, FileText, Ban, Info, ChevronDown, ChevronUp, Zap,
+  ScanLine, Eye, Check, FileText, Ban, Info, ChevronDown, ChevronUp, Zap, Download,
 } from 'lucide-react';
 import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation, useDeepRecheckDocumentMutation } from './documentOcrApi';
 import { useVerifyDocumentMutation } from './documentApi';
@@ -719,7 +719,6 @@ function CombinedPdfReviewPanel({
                 src={`${getUploadUrl(fileUrl)}#toolbar=0&navpanes=0&scrollbar=0`}
                 title="Combined KYC Document"
                 className="w-full h-full border-0"
-                sandbox="allow-same-origin allow-scripts"
               />
             </div>
           </div>
@@ -1026,21 +1025,56 @@ export default function OcrVerificationPanel({
                     className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 text-lg font-bold">&times;</button>
                 </div>
                 <div className="flex-1 overflow-hidden select-none" onContextMenu={e => e.preventDefault()}>
-                  {getUploadUrl(fileUrl).match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i) ? (
-                    <img
-                      src={getUploadUrl(fileUrl)}
-                      alt={documentName}
-                      className="w-full h-full object-contain p-4 pointer-events-none"
-                      draggable={false}
-                    />
-                  ) : (
-                    <iframe
-                      src={`${getUploadUrl(fileUrl)}#toolbar=0&navpanes=0&scrollbar=0`}
-                      title={documentName}
-                      className="w-full h-full border-0"
-                      sandbox="allow-same-origin allow-scripts"
-                    />
-                  )}
+                  {(() => {
+                    const resolvedUrl = getUploadUrl(fileUrl);
+                    const urlLower = resolvedUrl.toLowerCase();
+                    // Images — HEIC/HEIF auto-converted to JPEG by backend middleware
+                    if (/\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$/.test(urlLower)) {
+                      return (
+                        <img
+                          src={resolvedUrl}
+                          alt={documentName}
+                          className="w-full h-full object-contain p-4 pointer-events-none"
+                          draggable={false}
+                        />
+                      );
+                    }
+                    // PDF — no sandbox (Edge InPrivate blocks sandboxed iframes)
+                    if (/\.pdf$/.test(urlLower)) {
+                      return (
+                        <iframe
+                          src={resolvedUrl}
+                          title={documentName}
+                          className="w-full h-full border-0"
+                        />
+                      );
+                    }
+                    // Office docs — Google Docs Viewer (static /uploads/ files are publicly accessible)
+                    if (/\.(doc|docx|xls|xlsx|ppt|pptx|txt|csv|rtf)$/.test(urlLower)) {
+                      const absoluteUrl = resolvedUrl.startsWith('http')
+                        ? resolvedUrl
+                        : `${window.location.protocol}//${window.location.host}${resolvedUrl}`;
+                      return (
+                        <iframe
+                          src={`https://docs.google.com/gview?url=${encodeURIComponent(absoluteUrl)}&embedded=true`}
+                          title={documentName}
+                          className="w-full h-full border-0"
+                        />
+                      );
+                    }
+                    // Fallback — download button
+                    return (
+                      <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
+                        <FileText size={48} className="text-gray-300" />
+                        <p className="text-sm text-gray-600 font-medium">{documentName}</p>
+                        <p className="text-xs text-gray-500">This file format cannot be previewed in the browser.</p>
+                        <a href={resolvedUrl} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+                          <Download size={14} /> Download File
+                        </a>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
