@@ -888,7 +888,8 @@ export default function OcrVerificationPanel({
       const f: Record<string, string> = {};
       getDocFields(documentType).forEach(({ key }) => { f[key] = ocr[key] || ''; });
       setFields(f);
-      setHrNotes(ocr.hrNotes || '');
+      const existingNotes = ocr.hrNotes || '';
+      setHrNotes(existingNotes.startsWith('AI Analysis') ? '' : existingNotes);
       setOcrStatus(ocr.ocrStatus || 'PENDING');
     }
   }, [ocr, documentType]);

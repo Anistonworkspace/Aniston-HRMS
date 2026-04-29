@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import {
   ArrowLeft, ArrowRight, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
-  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload, AlertTriangle, Unlock, Lock, Navigation, ScanLine,
+  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload, AlertTriangle, Unlock, Lock, Navigation, ScanLine, CheckCircle2, Zap,
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery, useChangeEmployeeRoleMutation } from './employeeApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery, useGetEmployeeGPSTrailQuery } from '../attendance/attendanceApi';
@@ -3164,36 +3164,31 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                 const noTamper = !doc.tamperDetected && !(ocr.tamperingIndicators?.length);
                 const crossOk = ocr.crossValidationStatus === 'PASS';
                 const crossFail = ocr.crossValidationStatus === 'FAIL';
-                // Build 4 KYC pointers
-                const pointers: Array<{ ok: boolean | null; text: string }> = [
-                  {
-                    ok: conf >= 70 ? true : conf >= 40 ? null : false,
-                    text: conf >= 70 ? `AI confidence: ${conf}% — reliable extraction`
-                        : conf >= 40 ? `AI confidence: ${conf}% — verify manually`
-                        : `Low confidence: ${conf}% — manual review required`,
-                  },
-                  {
-                    ok: ocr.isScreenshot ? false : ocr.isOriginalScan ? true : null,
-                    text: ocr.isScreenshot ? 'Screenshot detected — original scan required'
-                        : ocr.isOriginalScan ? 'Original scan — not a screenshot or photocopy'
-                        : 'Scan quality unverified — check original',
-                  },
-                  {
-                    ok: noTamper ? true : false,
-                    text: noTamper ? 'No tampering or forgery indicators detected'
-                        : 'Potential tampering detected — review carefully',
-                  },
-                  ocr.crossValidationStatus
-                    ? {
-                        ok: crossOk ? true : crossFail ? false : null,
-                        text: crossOk ? 'Name/DOB matches other uploaded documents'
-                            : crossFail ? 'Name or DOB mismatch with other documents'
-                            : 'Cross-document validation: partial match',
-                      }
-                    : hasDocNum
-                    ? { ok: true, text: `Document number extracted: ${ocr.extractedDocNumber}` }
-                    : { ok: hasName ? true : null, text: hasName ? `Name on document: ${ocr.extractedName}` : 'No name extracted — document may be unclear' },
-                ];
+                // Real AI findings from llmExtractedData
+                const llmData = (ocr.llmExtractedData as any) || {};
+                const kycScore = llmData.kycScore ?? (ocr as any).kycScore ?? null;
+                const visionFindings: any[] = llmData.findings || [];
+                const crossDetails: any[] = (ocr.crossValidationDetails as any[]) || [];
+                const issuePointers: Array<{ severity: 'error' | 'warn'; text: string }> = [];
+                for (const f of visionFindings) {
+                  if (f.result === 'FAIL' || f.result === 'WARNING') {
+                    issuePointers.push({ severity: f.result === 'FAIL' ? 'error' : 'warn', text: f.detail || f.check });
+                  }
+                  if (issuePointers.length >= 4) break;
+                }
+                for (const d of crossDetails) {
+                  if (!d.match && issuePointers.length < 4) {
+                    issuePointers.push({
+                      severity: 'error',
+                      text: `${d.field} mismatch: ${(d.values || []).map((v: any) => `${v.docType}: ${v.value}`).join(' vs ')}`,
+                    });
+                  }
+                }
+                if (doc.tamperDetected && issuePointers.length < 4) {
+                  issuePointers.push({ severity: 'error', text: (doc as any).tamperDetails || 'Tampering indicators detected' });
+                }
+                const isAutoVerified = doc.status === 'VERIFIED' && !(ocr as any).hrReviewedBy;
+                const isClean = kycScore !== null && kycScore >= 90 && issuePointers.length === 0;
                 return (
                   <div className="mt-3 rounded-xl border border-gray-100 overflow-hidden bg-white shadow-sm">
                     {/* Card header */}
@@ -3270,30 +3265,64 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                       );
                     })()}
 
-                    {/* KYC verification pointers */}
-                    <div className="px-3 py-2 border-t border-gray-50 space-y-1">
-                      <p className="text-[9px] text-gray-400 uppercase tracking-widest font-semibold mb-1">KYC Verification Checks</p>
-                      {pointers.map((p, i) => (
-                        <div key={i} className="flex items-start gap-1.5">
-                          <span className={`shrink-0 mt-0.5 w-3 h-3 rounded-full flex items-center justify-center text-white text-[8px] font-bold
-                            ${p.ok === true ? 'bg-emerald-500' : p.ok === false ? 'bg-red-500' : 'bg-amber-400'}`}>
-                            {p.ok === true ? '✓' : p.ok === false ? '✗' : '!'}
+                    {/* AI Findings — score status + real issue pointers */}
+                    <div className="px-3 py-2 border-t border-gray-50 space-y-1.5">
+                      {/* Status row */}
+                      <div className="flex items-center gap-1.5 mb-1">
+                        {isClean || isAutoVerified ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                            <CheckCircle2 size={9} /> {isAutoVerified ? 'Auto-Verified' : 'Document OK'}
                           </span>
-                          <span className={`text-[10px] leading-relaxed ${p.ok === false ? 'text-red-700 font-medium' : p.ok === null ? 'text-amber-700' : 'text-gray-600'}`}>
+                        ) : issuePointers.length > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-700 bg-red-50 px-2 py-0.5 rounded-full">
+                            <XCircle size={9} /> {issuePointers.filter(p => p.severity === 'error').length} issue{issuePointers.filter(p => p.severity === 'error').length !== 1 ? 's' : ''} found
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+                            <AlertTriangle size={9} /> Needs Review
+                          </span>
+                        )}
+                        {kycScore !== null && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${kycScore >= 90 ? 'text-emerald-700 bg-emerald-50' : kycScore >= 70 ? 'text-amber-700 bg-amber-50' : 'text-red-700 bg-red-50'}`}>
+                            KYC {kycScore}
+                          </span>
+                        )}
+                      </div>
+                      {/* Real AI findings — FAIL/WARNING only */}
+                      {issuePointers.length > 0 && issuePointers.map((p, i) => (
+                        <div key={i} className="flex items-start gap-1.5">
+                          <span className={`shrink-0 mt-0.5 w-3 h-3 rounded-full flex items-center justify-center text-white text-[7px] font-bold ${p.severity === 'error' ? 'bg-red-500' : 'bg-amber-400'}`}>
+                            {p.severity === 'error' ? '✗' : '!'}
+                          </span>
+                          <span className={`text-[10px] leading-relaxed ${p.severity === 'error' ? 'text-red-700 font-medium' : 'text-amber-700'}`}>
                             {p.text}
                           </span>
                         </div>
                       ))}
+                      {issuePointers.length === 0 && !isClean && (
+                        <p className="text-[10px] text-gray-400 italic">No issues detected — review to confirm</p>
+                      )}
+                      {isClean && (
+                        <p className="text-[10px] text-emerald-600">All checks passed · Score {kycScore}/100</p>
+                      )}
                     </div>
 
-                    {/* View full details button */}
-                    <div className="px-3 pb-3">
+                    {/* Action buttons */}
+                    <div className="px-3 pb-3 space-y-1.5">
                       <button
                         onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); setOcrDocStatus(doc.status); }}
                         className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold transition-colors shadow-sm"
                       >
                         <Eye size={12} /> View Full OCR Details & Validation
                       </button>
+                      {llmData.deepRecheckAvailable && llmData.modelUsed !== 'gpt-4.1' && (
+                        <button
+                          onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); setOcrDocStatus(doc.status); }}
+                          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100 text-[10px] font-medium transition-colors"
+                        >
+                          <Zap size={10} /> Deep Analysis (gpt-4.1)
+                        </button>
+                      )}
                     </div>
                   </div>
                 );

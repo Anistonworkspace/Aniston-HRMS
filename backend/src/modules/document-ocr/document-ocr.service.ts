@@ -453,7 +453,7 @@ export class DocumentOcrService {
     const isPythonFlagged = ocrResult.is_flagged === true;
     const hasTamperIssues = qualityReport.tamperingIndicators.length > 0 || qualityReport.isScreenshot;
     // Low confidence alone never auto-flags — spec: "Low confidence = NEEDS_HR_REVIEW, not fake"
-    const autoOcrStatus = (isPythonFlagged || hasTamperIssues) ? 'FLAGGED' : 'PENDING';
+    let autoOcrStatus = (isPythonFlagged || hasTamperIssues) ? 'FLAGGED' : 'PENDING';
 
     // ── AI Enhancement: use configured AI provider (Settings → AI API Config) ──
     // Performs actual checks (profile cross-check + authenticity analysis) and returns
@@ -540,9 +540,7 @@ Respond with compact JSON only (no markdown):
     const validationReasons: string[] = Array.from(deduped.values());
     const dynamicFields: Record<string, string> = ocrResult.dynamic_fields || {};
     const authenticityScore: number = typeof ocrResult.authenticity_score === 'number' ? ocrResult.authenticity_score : 1.0;
-    const hrNotesFromAI = validationReasons.length > 0
-      ? `AI Analysis (Authenticity: ${Math.round(authenticityScore * 100)}%):\n${validationReasons.join('\n')}`
-      : null;
+    // AI findings are stored in llmExtractedData.findings — no longer dumped into hrNotes
 
     // ── KYC Score (weighted 0–100) ────────────────────────────────────────────
     const extractionScore = Math.round(confidence * 100) * 0.30;
@@ -562,6 +560,10 @@ Respond with compact JSON only (no markdown):
     const recommendedStatus = (kycScore >= 85 && !hasCriticalFindings) ? 'VERIFIED'
       : (kycScore < 70 || hasCriticalFindings) ? 'FLAGGED'
       : 'NEEDS_HR_REVIEW';
+
+    if (kycScore >= 90 && !hasCriticalFindings && !hasTamperIssues) {
+      autoOcrStatus = 'REVIEWED';
+    }
 
     // Bank-specific fields extracted by Python — stored at root of llmExtractedData for autoFillFromOcr
     const bankExtras = (fields.ifsc_code || fields.bank_name || fields.account_number) ? {
@@ -592,7 +594,7 @@ Respond with compact JSON only (no markdown):
         resolutionQuality: qualityReport.resolutionQuality,
         tamperingIndicators: qualityReport.tamperingIndicators,
         ocrStatus: autoOcrStatus,
-        hrNotes: hrNotesFromAI,
+        hrNotes: null,  // HR writes their own notes; AI findings live in llmExtractedData
         processingMode: 'python_advanced',
         extractionSource: 'python',
         suspicionScore: hasTamperIssues ? 60 : isLowConfidence ? 30 : 0,
@@ -634,7 +636,7 @@ Respond with compact JSON only (no markdown):
         resolutionQuality: qualityReport.resolutionQuality,
         tamperingIndicators: qualityReport.tamperingIndicators,
         ocrStatus: autoOcrStatus,
-        hrNotes: hrNotesFromAI,
+        // hrNotes intentionally omitted — never overwrite HR's custom notes on re-run
         processingMode: 'python_advanced',
         extractionSource: 'python',
         suspicionScore: hasTamperIssues ? 60 : isLowConfidence ? 30 : 0,
@@ -661,19 +663,27 @@ Respond with compact JSON only (no markdown):
       },
     });
 
-    // Update the Document record — only flag for tampering, NOT low confidence alone
+    // Auto-approve when kycScore >= 90, no critical findings, no tampering
+    const autoApproved = kycScore >= 90 && !hasCriticalFindings && !hasTamperIssues;
+
+    // Update the Document record
     await prisma.document.update({
       where: { id: documentId },
       data: {
         ocrData: ocrResult,
-        status: hasTamperIssues ? 'FLAGGED' : undefined,
+        status: hasTamperIssues ? 'FLAGGED' : autoApproved ? 'VERIFIED' : undefined,
         tamperDetected: hasTamperIssues,
         tamperDetails: hasTamperIssues
           ? qualityReport.tamperingIndicators.join('; ') || 'Possible screenshot detected'
           : null,
-        rejectionReason: null, // rejection only set by HR action, not auto-set by low confidence
+        verifiedAt: autoApproved ? new Date() : undefined,
+        rejectionReason: null,
       },
     });
+
+    if (autoApproved) {
+      logger.info(`[OCR] Auto-approved document ${documentId} (kycScore: ${kycScore})`);
+    }
 
     return ocrVerification;
   }
@@ -1320,7 +1330,7 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
    */
   async triggerAllForEmployee(employeeId: string, organizationId: string) {
     const docs = await prisma.document.findMany({
-      where: { employeeId, organizationId, deletedAt: null },
+      where: { employeeId, deletedAt: null, employee: { organizationId } },
       include: { ocrVerification: { select: { confidence: true } } },
     });
 
