@@ -48,6 +48,16 @@ export class DocumentOcrController {
     } catch (err) { next(err); }
   }
 
+  /** Bulk-trigger OCR for all documents belonging to an employee */
+  async triggerAllForEmployee(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await documentOcrService.triggerAllForEmployee(
+        req.params.employeeId, req.user!.organizationId,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
   /** Deep Re-check using gpt-4.1 directly (images only) */
   async deepRecheck(req: Request, res: Response, next: NextFunction) {
     try {

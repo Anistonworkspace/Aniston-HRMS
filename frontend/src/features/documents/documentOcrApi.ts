@@ -38,6 +38,13 @@ export const documentOcrApi = api.injectEndpoints({
       }),
       invalidatesTags: (_r, _e, id) => [{ type: 'DocumentOcr' as any, id }],
     }),
+    triggerAllEmployeeOcr: builder.mutation<any, string>({
+      query: (employeeId) => ({
+        url: `/documents/ocr/employee/${employeeId}/trigger-all`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['DocumentOcr' as any],
+    }),
   }),
 });
 
@@ -48,4 +55,5 @@ export const {
   useCrossValidateEmployeeMutation,
   useGetEmployeeOcrSummaryQuery,
   useDeepRecheckDocumentMutation,
+  useTriggerAllEmployeeOcrMutation,
 } = documentOcrApi;

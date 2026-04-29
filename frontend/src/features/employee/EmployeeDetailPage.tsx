@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import {
   ArrowLeft, ArrowRight, Mail, Phone, MapPin, Calendar, Building2, Briefcase, FileText,
   Shield, Check, Clock, DollarSign, User, ChevronLeft, ChevronRight,
-  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload, AlertTriangle, Unlock, Lock, Navigation,
+  Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload, AlertTriangle, Unlock, Lock, Navigation, ScanLine,
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery, useChangeEmployeeRoleMutation } from './employeeApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery, useGetEmployeeGPSTrailQuery } from '../attendance/attendanceApi';
@@ -20,7 +20,7 @@ import { useGetInternProfileQuery, useGetAchievementLettersQuery, useIssueAchiev
 import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import PermissionOverridePanel from '../permissions/PermissionOverridePanel';
 import OcrVerificationPanel from '../documents/OcrVerificationPanel';
-import { useGetEmployeeOcrSummaryQuery } from '../documents/documentOcrApi';
+import { useGetEmployeeOcrSummaryQuery, useTriggerAllEmployeeOcrMutation } from '../documents/documentOcrApi';
 import { useVerifyKycMutation, useGetKycHrReviewQuery, useRejectKycMutation } from '../kyc/kycApi';
 import { useGetDepartmentsQuery, useGetDesignationsQuery, useGetManagersQuery, useGetOfficeLocationsQuery, useCreateDepartmentMutation, useCreateDesignationMutation, useDeleteDepartmentMutation, useDeleteDesignationMutation } from './employeeDepsApi';
 import { useGetProfileEditRequestsForEmployeeQuery, useReviewProfileEditRequestMutation, useGetProfileCompletionQuery } from '../profile/profileEditRequestApi';
@@ -2971,6 +2971,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
   const [rejectAllReason, setRejectAllReason] = useState('');
   const [rejectingAll, setRejectingAll] = useState(false);
   const { data: ocrSummaryRes, refetch: refetchOcr } = useGetEmployeeOcrSummaryQuery(employeeId, { skip: !isManagement });
+  const [triggerAllOcr, { isLoading: triggeringAll }] = useTriggerAllEmployeeOcrMutation();
   const [showKycModal, setShowKycModal] = useState(false);
   const [ocrDocId, setOcrDocId] = useState<string | null>(null);
   const [ocrDocName, setOcrDocName] = useState('');
@@ -3083,6 +3084,27 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
               className="text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-colors"
             >
               <X size={14} /> Reject All Documents
+            </button>
+          )}
+          {isManagement && documents.length > 0 && (
+            <button
+              onClick={async () => {
+                try {
+                  const res = await triggerAllOcr(employeeId).unwrap();
+                  const { triggered, skipped } = res.data;
+                  if (triggered > 0) {
+                    toast.success(`KYC queued for ${triggered} document${triggered !== 1 ? 's' : ''}${skipped > 0 ? ` · ${skipped} already processed` : ''}`);
+                    setTimeout(() => refetchOcr(), 4000);
+                  } else {
+                    toast.success(`All ${skipped} document${skipped !== 1 ? 's' : ''} already processed`);
+                  }
+                } catch { toast.error('Failed to trigger KYC'); }
+              }}
+              disabled={triggeringAll}
+              className="text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition-colors disabled:opacity-50"
+            >
+              {triggeringAll ? <Loader2 size={14} className="animate-spin" /> : <ScanLine size={14} />}
+              {triggeringAll ? 'Running KYC...' : 'Run All KYC'}
             </button>
           )}
           {isManagement && (
@@ -3276,6 +3298,21 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                   </div>
                 );
               })()}
+
+              {/* OCR not yet run — show pending state with single trigger button */}
+              {isManagement && !ocr && (
+                <div className="mt-2 p-2.5 bg-gray-50 rounded-lg border border-dashed border-gray-200 flex items-center justify-between">
+                  <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-400">
+                    <Loader2 size={10} className="animate-spin" /> OCR Pending
+                  </span>
+                  <button
+                    onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); setOcrDocStatus(doc.status); }}
+                    className="text-[10px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                  >
+                    <ScanLine size={10} /> Run OCR
+                  </button>
+                </div>
+              )}
 
               {/* HR verify/reject/delete actions */}
               {isManagement && (
@@ -4076,7 +4113,7 @@ function AttendanceMapModal({ employeeId, records, onClose }: { employeeId: stri
     { employeeId, date: selectedDate },
     { skip: !isFieldRecord || !selectedDate }
   );
-  const gpsTrail: any[] = gpsTrailRes?.data?.points || gpsTrailRes?.data || [];
+  const gpsTrail: any[] = gpsTrailRes?.data?.data?.points || [];
 
   // Records that have any location data (check-in/out OR are FIELD_SALES with GPS trail potential)
   const locatedRecords = records.filter((r: any) =>

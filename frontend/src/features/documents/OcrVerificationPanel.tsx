@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Shield, Save, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle,
-  ScanLine, Eye, Pencil, Check, FileText, Ban, Info, ChevronDown, ChevronUp, Zap,
+  ScanLine, Eye, Check, FileText, Ban, Info, ChevronDown, ChevronUp, Zap,
 } from 'lucide-react';
 import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation, useDeepRecheckDocumentMutation } from './documentOcrApi';
 import { useVerifyDocumentMutation } from './documentApi';
@@ -964,11 +964,6 @@ export default function OcrVerificationPanel({
   // Validation reasons from Python AI (stored in llmExtractedData)
   const aiData = ocr?.llmExtractedData as any;
   const validationReasons: string[] = aiData?.validation_reasons || [];
-  const dynamicFields: Record<string, string> = aiData?.dynamic_fields || {};
-  const aiEnhanced: boolean = aiData?.ai_enhanced === true;
-  const aiConfidenceNote: string | null = aiData?.ai_confidence_note || null;
-  const visionScanned: boolean = aiData?.vision_scanned === true;
-  const visionQualityNote: string | null = aiData?.vision_quality_note || null;
   const kycScore: number | null = (ocr as any)?.kycScore ?? null;
   // profile_comparison may be in llmExtractedData OR in the separate profileComparison column
   const profileComparison: any[] = aiData?.profile_comparison?.length > 0
@@ -1118,204 +1113,74 @@ export default function OcrVerificationPanel({
                 />
               ) : (
               <>
-              {/* ── Red flag banner for low-confidence docs ── */}
-              {isFlaggedByScore && (
-                <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2.5">
-                  <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-semibold text-red-700">Low Confidence — Manual Review Required</p>
-                    <p className="text-xs text-red-600 mt-0.5">
-                      OCR confidence is {Math.round(confidence * 100)}%, below the 60% threshold.
-                      The extracted data may be inaccurate. Please open the original document to verify all fields manually.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Quality Indicators */}
-              <div className="layer-card p-4">
-                <p className="text-xs font-semibold text-gray-600 mb-3">Image Quality Analysis</p>
-                <div className="flex flex-wrap gap-2">
+              {/* ── Compact status row ── */}
+              <div className="flex flex-wrap items-center gap-2 px-1">
+                {/* Document status */}
+                <span className={cn(
+                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold',
+                  ocr.ocrStatus === 'FLAGGED' || isFlaggedByScore ? 'bg-red-100 text-red-700' :
+                  ocr.ocrStatus === 'REVIEWED' ? 'bg-emerald-100 text-emerald-700' :
+                  'bg-amber-100 text-amber-700'
+                )}>
+                  {ocr.ocrStatus === 'FLAGGED' || isFlaggedByScore ? <XCircle size={11} /> :
+                   ocr.ocrStatus === 'REVIEWED' ? <CheckCircle2 size={11} /> : <AlertTriangle size={11} />}
+                  {ocr.ocrStatus === 'FLAGGED' || isFlaggedByScore ? 'Flagged' :
+                   ocr.ocrStatus === 'REVIEWED' ? 'Reviewed OK' : 'Needs Review'}
+                </span>
+                {/* Confidence */}
+                <span className="text-xs text-gray-500">{Math.round(confidence * 100)}% confidence</span>
+                {/* Quality */}
+                <span className={cn(
+                  'text-xs px-2 py-0.5 rounded bg-gray-100',
+                  ocr.resolutionQuality === 'HIGH' ? 'text-emerald-700 bg-emerald-50' :
+                  ocr.resolutionQuality === 'MEDIUM' ? 'text-amber-700 bg-amber-50' :
+                  'text-red-700 bg-red-50'
+                )}>
+                  {ocr.resolutionQuality || 'Unknown'} Quality
+                </span>
+                {/* KYC Score */}
+                {kycScore !== null && (
                   <span className={cn(
-                    'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
-                    ocr.isScreenshot ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'
+                    'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold',
+                    kycScore >= 85 ? 'bg-emerald-100 text-emerald-700' :
+                    kycScore >= 70 ? 'bg-amber-100 text-amber-700' :
+                    'bg-red-100 text-red-700'
                   )}>
-                    {ocr.isScreenshot ? <XCircle size={12} /> : <CheckCircle2 size={12} />}
-                    {ocr.isScreenshot ? 'Screenshot Detected' : 'Not a Screenshot'}
+                    <span className={cn('w-1.5 h-1.5 rounded-full', kycScore >= 85 ? 'bg-emerald-500' : kycScore >= 70 ? 'bg-amber-500' : 'bg-red-500')} />
+                    KYC {kycScore}
                   </span>
-                  <span className={cn(
-                    'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
-                    ocr.isOriginalScan ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-                  )}>
-                    {ocr.isOriginalScan ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
-                    {ocr.isOriginalScan ? 'Original Scan' : 'May Not Be Original'}
-                  </span>
-                  <span className={cn(
-                    'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
-                    ocr.resolutionQuality === 'HIGH' ? 'bg-emerald-50 text-emerald-700'
-                      : ocr.resolutionQuality === 'MEDIUM' ? 'bg-amber-50 text-amber-700'
-                      : 'bg-red-50 text-red-700'
-                  )}>
-                    Resolution: {ocr.resolutionQuality || 'Unknown'}
-                  </span>
-                  <ConfidenceBadge confidence={ocr.confidence} />
-                  {kycScore !== null && (
-                    <span className={cn(
-                      'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold',
-                      kycScore >= 85 ? 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300' :
-                      kycScore >= 70 ? 'bg-amber-100 text-amber-700 ring-1 ring-amber-300' :
-                      'bg-red-100 text-red-700 ring-1 ring-red-300'
-                    )}>
-                      <span className={cn(
-                        'w-2 h-2 rounded-full',
-                        kycScore >= 85 ? 'bg-emerald-500' : kycScore >= 70 ? 'bg-amber-500' : 'bg-red-500'
-                      )} />
-                      KYC Score: {kycScore}
-                    </span>
-                  )}
-                  {modelUsed === 'gpt-4.1' && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700">
-                      <Zap size={11} /> Deep Scan (gpt-4.1)
-                    </span>
-                  )}
-                  {visionScanned && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-violet-50 text-violet-700">
-                      <Eye size={11} /> Vision Scanned
-                    </span>
-                  )}
-                  {aiEnhanced && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
-                      <Shield size={11} /> AI Enhanced
-                    </span>
-                  )}
-                </div>
-
-                {(aiConfidenceNote || visionQualityNote) && (
-                  <p className="mt-2 text-xs text-indigo-600 italic">
-                    {visionQualityNote || aiConfidenceNote}
-                  </p>
                 )}
-
-                {/* Tampering warnings */}
-                {ocr.tamperingIndicators && (ocr.tamperingIndicators as string[]).length > 0 && (
-                  <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <p className="text-xs font-medium text-red-700 flex items-center gap-1.5 mb-1">
-                      <AlertTriangle size={12} /> Tampering Indicators
-                    </p>
-                    {(ocr.tamperingIndicators as any[]).map((t: any, i: number) => (
-                      <p key={i} className="text-xs text-red-600 ml-5">
-                        - {typeof t === 'string' ? t : (t?.message ?? JSON.stringify(t))}
-                      </p>
-                    ))}
-                  </div>
+                {/* Screenshot or tampering warning pills */}
+                {ocr.isScreenshot && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700">
+                    <XCircle size={11} /> Screenshot Detected
+                  </span>
+                )}
+                {(ocr.tamperingIndicators as any[])?.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                    <AlertTriangle size={11} /> Tampering Detected
+                  </span>
+                )}
+                {modelUsed === 'gpt-4.1' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-purple-50 text-purple-600">
+                    <Zap size={9} /> Deep Scan
+                  </span>
                 )}
               </div>
 
-              {/* Detected Type */}
-              <div className="layer-card p-4">
-                <p className="text-xs font-semibold text-gray-600 mb-1">Detected Document Type</p>
-                <p className="text-sm font-medium text-gray-800">{ocr.detectedType?.replace(/_/g, ' ') || 'Unknown'}</p>
-              </div>
-
-              {/* AI Findings (from Vision AI + LLM) */}
-              {validationReasons.length > 0 && (
-                <ValidationReasons reasons={validationReasons} />
+              {/* ── AI Findings (Vision AI + LLM — real issues only) ── */}
+              {(validationReasons.length > 0 || tamperingSignals.length > 0) && (
+                <ValidationReasons
+                  reasons={[
+                    ...tamperingSignals.map(t => `✗ Tampering: ${t}`),
+                    ...validationReasons,
+                  ]}
+                />
               )}
 
-              {/* Employee Profile Comparison */}
+              {/* ── Profile Cross-Verification ── */}
               {profileComparison.length > 0 && (
                 <ProfileComparisonPanel items={profileComparison} />
-              )}
-
-              {/* Authenticity & Tampering Signals — dedicated section */}
-              {(authenticityChecks || tamperingSignals.length > 0) && (
-                <AuthenticityPanel checks={authenticityChecks} tampering={tamperingSignals} />
-              )}
-
-              {/* AI-Assisted Verification (from LLM, if available) */}
-              {ocr.llmExtractedData && (ocr.llmExtractedData as any).issues?.length > 0 && (
-                <div className="layer-card p-4 border border-red-100 bg-red-50/20">
-                  <p className="text-xs font-semibold text-red-700 mb-2 flex items-center gap-1.5">
-                    <Shield size={12} /> AI LLM Issues Found
-                    {ocr.llmConfidence != null && (
-                      <span className={cn(
-                        'ml-2 px-2 py-0.5 rounded-full text-[10px] font-medium',
-                        ocr.llmConfidence >= 0.7 ? 'bg-emerald-100 text-emerald-700' :
-                        ocr.llmConfidence >= 0.4 ? 'bg-amber-100 text-amber-700' :
-                        'bg-red-100 text-red-700'
-                      )}>
-                        LLM: {Math.round(ocr.llmConfidence * 100)}%
-                      </span>
-                    )}
-                  </p>
-                  {((ocr.llmExtractedData as any).issues as any[]).map((issue: any, i: number) => (
-                    <p key={i} className="text-xs text-red-600 ml-3">• {typeof issue === 'string' ? issue : (issue?.message ?? JSON.stringify(issue))}</p>
-                  ))}
-                  {((ocr.llmExtractedData as any).corrections || []).map((c: any, i: number) => (
-                    <p key={i} className="text-xs text-amber-600 ml-3 mt-1">↳ Correction: {typeof c === 'string' ? c : (c?.message ?? JSON.stringify(c))}</p>
-                  ))}
-                </div>
-              )}
-
-              {/* Extracted Fields */}
-              <div className="layer-card p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-semibold text-gray-600">Extracted Fields</p>
-                  <div className="flex gap-2">
-                    <button onClick={handleTriggerOcr} disabled={triggering}
-                      className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
-                      {triggering ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
-                      Re-scan
-                    </button>
-                    <button onClick={() => setEditing(!editing)}
-                      className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1">
-                      <Pencil size={12} /> {editing ? 'Cancel Edit' : 'Edit'}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-2.5">
-                  {getDocFields(documentType).map(({ key, label }) => (
-                    <div key={key} className="flex items-start justify-between py-2 border-b border-gray-50 last:border-0">
-                      <label className="text-xs text-gray-500 w-32 flex-shrink-0 pt-0.5">{label}</label>
-                      {editing ? (
-                        <input
-                          value={fields[key] || ''}
-                          onChange={e => setFields(prev => ({ ...prev, [key]: e.target.value }))}
-                          className="input-glass text-sm flex-1 ml-3"
-                          placeholder={`Enter ${label.toLowerCase()}`}
-                        />
-                      ) : (
-                        <span className={cn(
-                          'text-sm font-medium min-w-0 ml-3 break-words',
-                          fields[key] ? 'text-gray-800' : 'text-gray-300'
-                        )}>
-                          {fields[key] || '—'}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Dynamic Fields (extra label:value pairs from Python AI) */}
-              {Object.keys(dynamicFields).length > 0 && (
-                <div className="layer-card p-4">
-                  <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1.5">
-                    <Info size={12} /> Additional Detected Fields
-                    <span className="text-[10px] text-gray-400 font-normal">— captured dynamically by AI</span>
-                  </p>
-                  <div className="space-y-2">
-                    {Object.entries(dynamicFields).map(([k, v]) => (
-                      <div key={k} className="flex items-start justify-between py-1.5 border-b border-gray-50 last:border-0">
-                        <span className="text-xs text-gray-500 w-36 flex-shrink-0">{k}</span>
-                        <span className="text-xs font-medium text-gray-700 min-w-0 ml-3 break-words">
-                          {typeof v === 'string' ? v : (v != null ? JSON.stringify(v) : '—')}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               )}
 
               {/* Cross-Validation Status — fixed overflow layout */}
@@ -1369,53 +1234,42 @@ export default function OcrVerificationPanel({
                 </div>
               )}
 
-              {/* HR Notes & Status */}
-              <div className="layer-card p-4">
-                <p className="text-xs font-semibold text-gray-600 mb-3">Review Status & Notes</p>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Status</label>
-                    <select value={ocrStatus} onChange={e => setOcrStatus(e.target.value)} className="input-glass text-sm w-full">
-                      <option value="PENDING">Pending Review</option>
-                      <option value="REVIEWED">Reviewed — OK</option>
-                      <option value="FLAGGED">Flagged — Issue Found</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">HR Notes</label>
-                    <textarea value={hrNotes} onChange={e => setHrNotes(e.target.value)}
-                      className="input-glass text-sm w-full h-20 resize-none"
-                      placeholder="Add notes about this document..." />
-                  </div>
+              {/* ── HR Review ── */}
+              <div className="layer-card p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <select value={ocrStatus} onChange={e => setOcrStatus(e.target.value)} className="input-glass text-sm flex-1">
+                    <option value="PENDING">Pending Review</option>
+                    <option value="REVIEWED">Reviewed — OK</option>
+                    <option value="FLAGGED">Flagged — Issue Found</option>
+                  </select>
+                  <button onClick={handleTriggerOcr} disabled={triggering}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1 whitespace-nowrap">
+                    {triggering ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+                    Re-run AI
+                  </button>
+                  {deepRecheckAvailable && modelUsed !== 'gpt-4.1' && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          await deepRecheck(documentId).unwrap();
+                          toast.success('Deep Re-check complete — findings updated with gpt-4.1');
+                          refetch();
+                        } catch (err: any) {
+                          toast.error(err?.data?.error?.message || 'Deep Re-check failed');
+                        }
+                      }}
+                      disabled={deepRechecking}
+                      className="text-xs text-purple-600 hover:text-purple-800 border border-purple-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1 whitespace-nowrap"
+                    >
+                      {deepRechecking ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+                      Deep Scan
+                    </button>
+                  )}
                 </div>
+                <textarea value={hrNotes} onChange={e => setHrNotes(e.target.value)}
+                  className="input-glass text-sm w-full h-16 resize-none"
+                  placeholder="HR notes (optional)..." />
               </div>
-
-              {/* Re-run AI Classifier */}
-              <button onClick={handleTriggerOcr} disabled={triggering}
-                className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors">
-                {triggering ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
-                {triggering ? 'Re-classifying...' : 'Re-run AI Classifier'}
-              </button>
-
-              {/* Deep Re-check with gpt-4.1 */}
-              {deepRecheckAvailable && modelUsed !== 'gpt-4.1' && (
-                <button
-                  onClick={async () => {
-                    try {
-                      await deepRecheck(documentId).unwrap();
-                      toast.success('Deep Re-check complete — findings updated with gpt-4.1');
-                      refetch();
-                    } catch (err: any) {
-                      toast.error(err?.data?.error?.message || 'Deep Re-check failed');
-                    }
-                  }}
-                  disabled={deepRechecking}
-                  className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 transition-colors"
-                >
-                  {deepRechecking ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-                  {deepRechecking ? 'Deep scanning...' : 'Deep Re-check (gpt-4.1)'}
-                </button>
-              )}
 
               {/* Save Button */}
               <button onClick={handleSave} disabled={saving}

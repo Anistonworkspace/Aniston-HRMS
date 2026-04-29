@@ -523,7 +523,10 @@ Respond with compact JSON only (no markdown):
     // Deduplicate findings: Vision AI + LLM enhancement may produce overlapping checks.
     // Extract the check name from each reason string (everything before the first ': ')
     // and keep only the most severe result per check (FAIL > WARNING > PASS).
-    const rawReasons: string[] = ocrResult.validation_reasons || [];
+    // When Vision AI produced real findings, skip Python OCR generic template messages entirely —
+    // they add noise like "HR must manually identify and verify this page" with no specific evidence.
+    const visionHasFindings = (visionJson?.findings?.length ?? 0) > 0;
+    const rawReasons: string[] = visionHasFindings ? [] : (ocrResult.validation_reasons || []);
     const severityRank = (r: string) => r.startsWith('✗') ? 2 : r.startsWith('⚠') ? 1 : 0;
     const deduped = new Map<string, string>();
     for (const r of rawReasons) {
@@ -1309,6 +1312,31 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     });
 
     return updated;
+  }
+
+  /**
+   * Bulk-trigger OCR for all of an employee's documents that haven't been processed yet.
+   * Skips docs that already have a confident OCR result (confidence > 0.3).
+   */
+  async triggerAllForEmployee(employeeId: string, organizationId: string) {
+    const docs = await prisma.document.findMany({
+      where: { employeeId, organizationId, deletedAt: null },
+      include: { ocrVerification: { select: { confidence: true } } },
+    });
+
+    const { enqueueDocumentOcr } = await import('../../jobs/queues.js');
+    let triggered = 0;
+    let skipped = 0;
+    for (const doc of docs) {
+      const conf = (doc.ocrVerification as any)?.confidence ?? 0;
+      if (conf > 0.3) {
+        skipped++;
+        continue;
+      }
+      await enqueueDocumentOcr(doc.id, organizationId);
+      triggered++;
+    }
+    return { triggered, skipped, total: docs.length };
   }
 
   /**

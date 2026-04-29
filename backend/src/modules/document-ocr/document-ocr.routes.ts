@@ -27,6 +27,11 @@ router.post('/ocr/cross-validate/:employeeId', (req, res, next) =>
   documentOcrController.crossValidate(req, res, next),
 );
 
+// Bulk-trigger OCR for all documents of an employee (skips already-processed ones)
+router.post('/ocr/employee/:employeeId/trigger-all', (req, res, next) =>
+  documentOcrController.triggerAllForEmployee(req, res, next),
+);
+
 // Get all OCR summaries for an employee
 router.get('/ocr/employee/:employeeId', (req, res, next) =>
   documentOcrController.getEmployeeSummary(req, res, next),
