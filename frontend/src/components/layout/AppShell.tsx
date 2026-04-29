@@ -127,11 +127,17 @@ export default function AppShell() {
   // kycCompleted in Redux so the ProtectedRoute re-gates the employee without waiting for
   // the next token refresh.
   useEffect(() => {
-    const handleKycStatusChanged = (data: { status?: string; kycCompleted?: boolean }) => {
+    const handleKycStatusChanged = (data: { status?: string; kycCompleted?: boolean; trigger?: string }) => {
       if (data?.status === 'REUPLOAD_REQUIRED' && user && user.kycCompleted) {
         dispatch(setUser({ ...user, kycCompleted: false }));
-        toast.error('A document was removed by HR. Please re-upload to regain access.', { duration: 8000 });
+        const msg = data.trigger === 'rejection'
+          ? 'HR rejected a document. Please re-upload it to regain portal access.'
+          : 'A document was removed by HR. Please re-upload to regain portal access.';
+        toast.error(msg, { duration: 8000 });
         dispatch(api.util.invalidateTags(['Document', 'Employee']));
+      } else if (data?.status === 'REUPLOAD_REQUIRED' && user && !user.kycCompleted) {
+        // Already blocked — still refresh tags so KycGatePage shows the new reason
+        dispatch(api.util.invalidateTags(['Document', 'Employee', 'Onboarding']));
       } else if (data?.status === 'VERIFIED' && user && !user.kycCompleted) {
         dispatch(setUser({ ...user, kycCompleted: true }));
         toast.success('Your KYC has been verified! You now have full access.', { duration: 6000 });

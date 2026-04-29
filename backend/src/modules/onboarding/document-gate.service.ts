@@ -394,21 +394,21 @@ export class DocumentGateService {
   /**
    * Emit real-time socket event when KYC status changes.
    */
-  private async emitKycUpdate(employeeId: string, status: string) {
+  private async emitKycUpdate(employeeId: string, status: string, trigger?: 'rejection' | 'deletion') {
     try {
       const emp = await prisma.employee.findUnique({
         where: { id: employeeId },
         select: { organizationId: true, firstName: true, lastName: true, employeeCode: true, userId: true },
       });
       if (emp) {
-        const payload = {
+        const payload: Record<string, any> = {
           employeeId,
           employeeName: `${emp.firstName} ${emp.lastName}`,
           employeeCode: emp.employeeCode,
           status,
+          ...(trigger ? { trigger } : {}),
         };
         emitToOrg(emp.organizationId, 'kyc:status-changed', payload);
-        // Also emit directly to the employee's own socket room so they get it even without org-room membership
         if (emp.userId && (status === 'VERIFIED' || status === 'REUPLOAD_REQUIRED')) {
           emitToUser(emp.userId, 'kyc:status-changed', payload);
         }
@@ -740,7 +740,7 @@ export class DocumentGateService {
     });
 
     // Emit socket event so KycGatePage refetches immediately
-    await this.emitKycUpdate(employeeId, 'REUPLOAD_REQUIRED');
+    await this.emitKycUpdate(employeeId, 'REUPLOAD_REQUIRED', 'deletion');
 
     // Notify employee in-app + email (non-blocking)
     try {
@@ -795,14 +795,17 @@ export class DocumentGateService {
     const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
     if (!gate) return;
 
-    // Only act if KYC was past PENDING
-    if (gate.kycStatus === 'PENDING') return;
+    // Remove the rejected doc from submittedDocs — file is deleted from disk on rejection
+    const newSubmitted = (gate.submittedDocs as string[]).filter(t => t !== docType);
+    const allSubmitted = gate.requiredDocs.every((d: any) => newSubmitted.includes(d));
 
     const updated = await prisma.onboardingDocumentGate.update({
       where: { employeeId },
       data: {
         kycStatus: 'REUPLOAD_REQUIRED',
         reuploadRequested: true,
+        submittedDocs: newSubmitted as any,
+        allSubmitted,
         reuploadDocTypes: [...new Set([...(gate.reuploadDocTypes as string[]), docType])] as any,
         documentRejectReasons: {
           ...((gate.documentRejectReasons as Record<string, string>) || {}),
@@ -812,7 +815,7 @@ export class DocumentGateService {
       },
     });
 
-    await this.emitKycUpdate(employeeId, 'REUPLOAD_REQUIRED');
+    await this.emitKycUpdate(employeeId, 'REUPLOAD_REQUIRED', 'rejection');
 
     try {
       const emp = await prisma.employee.findUnique({

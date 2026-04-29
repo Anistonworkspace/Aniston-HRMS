@@ -166,6 +166,7 @@ export class DocumentService {
 
     // Physically delete the file when HR rejects a document — employee must re-upload
     // Also nullify the fileUrl in the DB so stale references don't accumulate
+    // KYC gate reset is handled by the controller after this method returns
     if (status === 'REJECTED' && doc.fileUrl) {
       await storageService.deleteFile(doc.fileUrl).catch((err) =>
         logger.warn(`[Document] Failed to delete rejected file "${doc.fileUrl}":`, err.message),
@@ -174,21 +175,6 @@ export class DocumentService {
         where: { id },
         data: { fileUrl: '' },
       }).catch((err) => logger.warn(`[Document] Failed to nullify fileUrl for rejected doc ${id}:`, err.message));
-
-      // Update KYC gate: mark this doc type as needing re-upload, emit socket, send email
-      if (doc.employeeId && doc.type) {
-        try {
-          const { documentGateService } = await import('../onboarding/document-gate.service.js');
-          await documentGateService.resetKycOnDocumentRejection(
-            doc.employeeId,
-            String(doc.type),
-            rejectionReason || 'Document rejected by HR — please re-upload a clearer copy',
-            verifierId,
-          );
-        } catch (err: any) {
-          logger.warn(`[Document] KYC gate update failed after rejection for doc ${id}: ${err.message}`);
-        }
-      }
     }
 
     return updated;
