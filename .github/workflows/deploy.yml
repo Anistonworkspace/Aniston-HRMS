@@ -283,6 +283,10 @@ jobs:
             echo 'ALTER TABLE "Employee" ADD COLUMN IF NOT EXISTS "epfEnabled" BOOLEAN NOT NULL DEFAULT false;' > /tmp/fix_epf_enabled.sql
             npx --no-install prisma db execute --schema prisma/schema.prisma --file /tmp/fix_epf_enabled.sql && echo "✅ epfEnabled column ensured on Employee" || echo "Note: Employee table may not exist yet (safe to ignore)"
 
+            echo "=== [5.98/17] Pre-migration: add locationName, customName, isSignificant to LocationVisit ==="
+            printf 'ALTER TABLE "LocationVisit" ADD COLUMN IF NOT EXISTS "locationName" TEXT;\nALTER TABLE "LocationVisit" ADD COLUMN IF NOT EXISTS "customName" TEXT;\nALTER TABLE "LocationVisit" ADD COLUMN IF NOT EXISTS "isSignificant" BOOLEAN NOT NULL DEFAULT false;\n' > /tmp/fix_location_visit_cols.sql
+            npx --no-install prisma db execute --schema prisma/schema.prisma --file /tmp/fix_location_visit_cols.sql && echo "✅ LocationVisit columns ensured" || echo "Note: LocationVisit table may not exist yet (safe to ignore)"
+
             echo "=== [6/17] Syncing database schema ==="
             npx --no-install prisma db push --accept-data-loss || {
               echo "WARNING: Schema push failed. Trying without flag..."
