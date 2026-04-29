@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import {
   Shield, Save, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle,
   ScanLine, Eye, Check, FileText, Ban, Info, ChevronDown, ChevronUp, Zap, Download,
@@ -8,6 +8,8 @@ import { useVerifyDocumentMutation } from './documentApi';
 import { useGetKycHrReviewQuery, useReclassifyCombinedPdfMutation } from '../kyc/kycApi';
 import toast from 'react-hot-toast';
 import { cn, getUploadUrl } from '../../lib/utils';
+import { useAppSelector } from '../../app/store';
+const SecureDocumentViewer = lazy(() => import('../policies/SecureDocumentViewer'));
 
 interface Props {
   documentId: string;
@@ -538,9 +540,10 @@ function PageValidationRow({ pv }: { pv: any }) {
 }
 
 function CombinedPdfReviewPanel({
-  documentStatus, employeeId, fileUrl, ocr,
+  documentId, documentStatus, employeeId, fileUrl, ocr,
   onVerifyDoc, onRetrigger, triggering, verifyingDoc,
 }: {
+  documentId: string;
   documentStatus?: string;
   employeeId?: string;
   fileUrl?: string;
@@ -705,24 +708,18 @@ function CombinedPdfReviewPanel({
         </div>
       )}
 
-      {/* Inline secure document preview */}
+      {/* Combined PDF: secure canvas-based viewer (no download, no URL exposed) */}
       {showInlinePreview && fileUrl && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowInlinePreview(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-[92vw] h-[88vh] max-w-5xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-              <p className="text-sm font-semibold text-gray-800">Combined KYC Document</p>
-              <button onClick={() => setShowInlinePreview(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 text-lg font-bold">&times;</button>
-            </div>
-            <div className="flex-1 overflow-hidden select-none" onContextMenu={e => e.preventDefault()}>
-              <iframe
-                src={`${getUploadUrl(fileUrl)}#toolbar=0&navpanes=0&scrollbar=0`}
-                title="Combined KYC Document"
-                className="w-full h-full border-0"
-              />
-            </div>
+        <Suspense fallback={null}>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 99999 }}>
+            <SecureDocumentViewer
+              streamUrl={`/documents/${documentId}/stream`}
+              title="Combined KYC Document"
+              downloadAllowed={false}
+              onClose={() => setShowInlinePreview(false)}
+            />
           </div>
-        </div>
+        </Suspense>
       )}
 
       {/* Employee KYC profile */}
@@ -847,6 +844,10 @@ export default function OcrVerificationPanel({
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectingDoc, setRejectingDoc] = useState(false);
   const [showInlinePreview, setShowInlinePreview] = useState(false);
+  const [showSecurePdf, setShowSecurePdf] = useState(false);
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const [previewBlobLoading, setPreviewBlobLoading] = useState(false);
+  const token = useAppSelector((state: any) => state.auth.accessToken);
 
   const { data: hrReviewRes, refetch: refetchHrReview } = useGetKycHrReviewQuery(employeeId!, { skip: !employeeId });
   const kycStatus: string = hrReviewRes?.data?.gate?.kycStatus || '';
@@ -1008,14 +1009,47 @@ export default function OcrVerificationPanel({
           {fileUrl && (
             <div className="layer-card p-4">
               <p className="text-xs font-medium text-gray-500 mb-2">Document Preview</p>
-              <button onClick={() => setShowInlinePreview(true)}
+              <button
+                onClick={() => {
+                  const ext = (fileUrl || '').split('.').pop()?.toLowerCase() || '';
+                  if (ext === 'pdf') {
+                    setShowSecurePdf(true);
+                  } else {
+                    // Fetch blob so the real /uploads/ path is never in the DOM
+                    setPreviewBlobUrl(null);
+                    setPreviewBlobLoading(true);
+                    const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace(/\/api$/, '');
+                    fetch(`${apiBase}/api/documents/${documentId}/stream`, {
+                      headers: { Authorization: `Bearer ${token}` },
+                    })
+                      .then(r => { if (!r.ok) throw new Error(); return r.blob(); })
+                      .then(blob => setPreviewBlobUrl(URL.createObjectURL(blob)))
+                      .catch(() => setPreviewBlobUrl(null))
+                      .finally(() => { setPreviewBlobLoading(false); setShowInlinePreview(true); });
+                    setShowInlinePreview(true);
+                  }
+                }}
                 className="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1.5 font-medium">
                 <Eye size={14} /> View Original Document
               </button>
             </div>
           )}
 
-          {/* Inline secure document preview */}
+          {/* PDF: secure canvas-based viewer rendered outside the panel — appears above z-[9999] panel */}
+          {showSecurePdf && fileUrl && (
+            <Suspense fallback={null}>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 99999 }}>
+                <SecureDocumentViewer
+                  streamUrl={`/documents/${documentId}/stream`}
+                  title={documentName}
+                  downloadAllowed={false}
+                  onClose={() => setShowSecurePdf(false)}
+                />
+              </div>
+            </Suspense>
+          )}
+
+          {/* Image / Office: authenticated blob URL preview — real /uploads/ path never in DOM */}
           {showInlinePreview && fileUrl && (
             <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowInlinePreview(false)}>
               <div className="bg-white rounded-2xl shadow-2xl w-[92vw] h-[88vh] max-w-5xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -1025,35 +1059,18 @@ export default function OcrVerificationPanel({
                     className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 text-lg font-bold">&times;</button>
                 </div>
                 <div className="flex-1 overflow-hidden select-none" onContextMenu={e => e.preventDefault()}>
-                  {(() => {
-                    const resolvedUrl = getUploadUrl(fileUrl);
-                    const urlLower = resolvedUrl.toLowerCase();
-                    // Images — HEIC/HEIF auto-converted to JPEG by backend middleware
-                    if (/\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$/.test(urlLower)) {
-                      return (
-                        <img
-                          src={resolvedUrl}
-                          alt={documentName}
-                          className="w-full h-full object-contain p-4 pointer-events-none"
-                          draggable={false}
-                        />
-                      );
-                    }
-                    // PDF — no sandbox (Edge InPrivate blocks sandboxed iframes)
-                    if (/\.pdf$/.test(urlLower)) {
-                      return (
-                        <iframe
-                          src={resolvedUrl}
-                          title={documentName}
-                          className="w-full h-full border-0"
-                        />
-                      );
-                    }
-                    // Office docs — Google Docs Viewer (static /uploads/ files are publicly accessible)
+                  {previewBlobLoading && (
+                    <div className="flex items-center justify-center h-full">
+                      <Loader2 size={32} className="animate-spin text-indigo-400" />
+                    </div>
+                  )}
+                  {!previewBlobLoading && previewBlobUrl && (() => {
+                    const urlLower = (fileUrl || '').toLowerCase();
                     if (/\.(doc|docx|xls|xlsx|ppt|pptx|txt|csv|rtf)$/.test(urlLower)) {
-                      const absoluteUrl = resolvedUrl.startsWith('http')
-                        ? resolvedUrl
-                        : `${window.location.protocol}//${window.location.host}${resolvedUrl}`;
+                      // Office docs need a public URL for Google Docs Viewer
+                      const absoluteUrl = getUploadUrl(fileUrl).startsWith('http')
+                        ? getUploadUrl(fileUrl)
+                        : `${window.location.protocol}//${window.location.host}${getUploadUrl(fileUrl)}`;
                       return (
                         <iframe
                           src={`https://docs.google.com/gview?url=${encodeURIComponent(absoluteUrl)}&embedded=true`}
@@ -1062,19 +1079,25 @@ export default function OcrVerificationPanel({
                         />
                       );
                     }
-                    // Fallback — download button
+                    // Images: blob URL — pointer-events blocked, context menu blocked, no path visible
                     return (
-                      <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
-                        <FileText size={48} className="text-gray-300" />
-                        <p className="text-sm text-gray-600 font-medium">{documentName}</p>
-                        <p className="text-xs text-gray-500">This file format cannot be previewed in the browser.</p>
-                        <a href={resolvedUrl} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
-                          <Download size={14} /> Download File
-                        </a>
+                      <div className="relative w-full h-full">
+                        <img
+                          src={previewBlobUrl}
+                          alt={documentName}
+                          className="w-full h-full object-contain p-4"
+                          style={{ pointerEvents: 'none', userSelect: 'none' }}
+                          draggable={false}
+                        />
+                        <div className="absolute inset-0" onContextMenu={e => e.preventDefault()} />
                       </div>
                     );
                   })()}
+                  {!previewBlobLoading && !previewBlobUrl && (
+                    <div className="flex items-center justify-center h-full text-sm text-gray-500">
+                      Failed to load document.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1130,6 +1153,7 @@ export default function OcrVerificationPanel({
               )}
               {isCombinedPdf ? (
                 <CombinedPdfReviewPanel
+                  documentId={documentId}
                   documentStatus={localDocStatus}
                   employeeId={employeeId}
                   fileUrl={fileUrl}

@@ -20,6 +20,7 @@ import { useGetInternProfileQuery, useGetAchievementLettersQuery, useIssueAchiev
 import { useGetShiftsQuery, useAssignShiftMutation, useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import PermissionOverridePanel from '../permissions/PermissionOverridePanel';
 import OcrVerificationPanel from '../documents/OcrVerificationPanel';
+import SecureDocumentViewer from '../policies/SecureDocumentViewer';
 import { useGetEmployeeOcrSummaryQuery, useTriggerAllEmployeeOcrMutation } from '../documents/documentOcrApi';
 import { useVerifyKycMutation, useGetKycHrReviewQuery, useRejectKycMutation } from '../kyc/kycApi';
 import { useGetDepartmentsQuery, useGetDesignationsQuery, useGetManagersQuery, useGetOfficeLocationsQuery, useCreateDepartmentMutation, useCreateDesignationMutation, useDeleteDepartmentMutation, useDeleteDesignationMutation } from './employeeDepsApi';
@@ -3009,8 +3010,59 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
     }
   };
 
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const token = useAppSelector((state: any) => state.auth.accessToken);
+
+  // Preview state — PDFs use SecureDocumentViewer, images use authenticated blob URLs
+  const [previewDocId, setPreviewDocId] = useState<string | null>(null);
+  const [previewFileUrl, setPreviewFileUrl] = useState('');
   const [previewName, setPreviewName] = useState('');
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const [previewBlobLoading, setPreviewBlobLoading] = useState(false);
+  // Office docs (DOCX/XLSX/etc.) still use Google Docs Viewer with a public URL
+  const [previewOfficeUrl, setPreviewOfficeUrl] = useState<string | null>(null);
+
+  // Fetch image as authenticated blob so the real /uploads/ URL is never in the DOM
+  useEffect(() => {
+    if (!previewDocId || !previewFileUrl) return;
+    const ext = previewFileUrl.split('.').pop()?.toLowerCase() || '';
+    const isImg = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif'].includes(ext);
+    if (!isImg) return;
+
+    let objectUrl: string | null = null;
+    setPreviewBlobLoading(true);
+    setPreviewBlobUrl(null);
+    const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace(/\/api$/, '');
+    fetch(`${apiBase}/api/documents/${previewDocId}/stream`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => { if (!r.ok) throw new Error(); return r.blob(); })
+      .then(blob => { objectUrl = URL.createObjectURL(blob); setPreviewBlobUrl(objectUrl); })
+      .catch(() => setPreviewBlobUrl(null))
+      .finally(() => setPreviewBlobLoading(false));
+
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [previewDocId, previewFileUrl, token]);
+
+  const handleDocPreview = (doc: any) => {
+    const ext = (doc.fileUrl || '').split('.').pop()?.toLowerCase() || '';
+    if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'rtf'].includes(ext)) {
+      const absUrl = `${window.location.protocol}//${window.location.host}${getUploadUrl(doc.fileUrl)}`;
+      setPreviewOfficeUrl(`https://docs.google.com/gview?url=${encodeURIComponent(absUrl)}&embedded=true`);
+      setPreviewName(doc.name);
+    } else {
+      setPreviewDocId(doc.id);
+      setPreviewFileUrl(doc.fileUrl);
+      setPreviewName(doc.name);
+    }
+  };
+
+  const closePreview = () => {
+    setPreviewDocId(null);
+    setPreviewFileUrl('');
+    setPreviewBlobUrl(null);
+    setPreviewOfficeUrl(null);
+    setPreviewName('');
+  };
 
   return (
     <div className="space-y-4">
@@ -3139,7 +3191,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
               )}
 
               {isManagement && doc.fileUrl && (
-                <button onClick={() => { setPreviewUrl(getUploadUrl(doc.fileUrl)); setPreviewName(doc.name); }}
+                <button onClick={() => handleDocPreview(doc)}
                   className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1 mb-2">
                   <FileText size={12} /> View Document
                 </button>
@@ -3464,58 +3516,72 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
         );
       })()}
 
-      {/* Document Preview Modal */}
-      {previewUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPreviewUrl(null)}>
+      {/* PDF: secure canvas-based viewer — no download button, no URL in DevTools */}
+      {previewDocId && /\.pdf$/i.test(previewFileUrl) && (
+        <SecureDocumentViewer
+          streamUrl={`/documents/${previewDocId}/stream`}
+          title={previewName}
+          downloadAllowed={false}
+          onClose={closePreview}
+        />
+      )}
+
+      {/* Image: authenticated blob URL — actual /uploads/ path never exposed */}
+      {previewDocId && !/\.pdf$/i.test(previewFileUrl) && !previewOfficeUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closePreview}>
           <div className="bg-white rounded-2xl shadow-2xl w-[90vw] h-[85vh] max-w-5xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-gray-100">
               <h3 className="text-sm font-semibold text-gray-800">{previewName}</h3>
-              <button onClick={() => setPreviewUrl(null)}
-                className="text-gray-400 hover:text-gray-600 p-1">
+              <button onClick={closePreview} className="text-gray-400 hover:text-gray-600 p-1">
+                <XCircle size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden select-none" onContextMenu={e => e.preventDefault()}>
+              {previewBlobLoading && (
+                <div className="flex items-center justify-center h-full">
+                  <Loader2 size={32} className="animate-spin text-indigo-400" />
+                </div>
+              )}
+              {!previewBlobLoading && previewBlobUrl && (
+                <div className="relative w-full h-full">
+                  <img
+                    src={previewBlobUrl}
+                    alt={previewName}
+                    className="w-full h-full object-contain p-4 bg-gray-50"
+                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                    draggable={false}
+                  />
+                  {/* transparent overlay — blocks right-click directly on the image */}
+                  <div className="absolute inset-0" onContextMenu={e => e.preventDefault()} />
+                </div>
+              )}
+              {!previewBlobLoading && !previewBlobUrl && (
+                <div className="flex items-center justify-center h-full text-sm text-gray-500">
+                  Failed to load document.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Office docs (DOCX/XLSX/PPTX/TXT): Google Docs Viewer */}
+      {previewOfficeUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closePreview}>
+          <div className="bg-white rounded-2xl shadow-2xl w-[90vw] h-[85vh] max-w-5xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-800">{previewName}</h3>
+              <button onClick={closePreview} className="text-gray-400 hover:text-gray-600 p-1">
                 <XCircle size={20} />
               </button>
             </div>
             <div className="flex-1 overflow-hidden">
-              {(() => {
-                const url = previewUrl.toLowerCase();
-                // Images — HEIC/HEIF auto-converted to JPEG by backend middleware
-                if (/\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$/.test(url)) {
-                  return <img src={previewUrl} alt={previewName} className="w-full h-full object-contain p-4 bg-gray-50" />;
-                }
-                // PDF — no sandbox: Edge Enhanced Security Mode blocks sandboxed iframes for remote URLs
-                if (/\.pdf$/.test(url)) {
-                  return (
-                    <iframe
-                      src={previewUrl}
-                      className="w-full h-full border-0"
-                      title={previewName}
-                    />
-                  );
-                }
-                // Office docs + text — Google Docs Viewer (static /uploads/ files are publicly accessible)
-                if (/\.(doc|docx|xls|xlsx|ppt|pptx|txt|csv|rtf)$/.test(url)) {
-                  const absoluteUrl = `${window.location.protocol}//${window.location.host}${previewUrl}`;
-                  return (
-                    <iframe
-                      src={`https://docs.google.com/gview?url=${encodeURIComponent(absoluteUrl)}&embedded=true`}
-                      className="w-full h-full border-0"
-                      title={previewName}
-                      sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-                    />
-                  );
-                }
-                // Fallback — unknown format
-                return (
-                  <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
-                    <FileText size={48} className="text-gray-300" />
-                    <p className="text-sm text-gray-600 font-medium">{previewName}</p>
-                    <p className="text-xs text-gray-500">This file format cannot be previewed in the browser.</p>
-                    <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm px-5 py-2 flex items-center gap-2">
-                      <Download size={14} /> Download File
-                    </a>
-                  </div>
-                );
-              })()}
+              <iframe
+                src={previewOfficeUrl}
+                className="w-full h-full border-0"
+                title={previewName}
+                sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+              />
             </div>
           </div>
         </div>

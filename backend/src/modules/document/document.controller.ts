@@ -224,6 +224,74 @@ export class DocumentController {
       res.status(201).json({ success: true, data: doc, message: `${type.replace(/_/g, ' ')} issued successfully` });
     } catch (err) { next(err); }
   }
+
+  async stream(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { readFileSync, existsSync } = await import('fs');
+      const { join, extname } = await import('path');
+
+      // HR/Admin/SuperAdmin see any doc in their org; employees see their own
+      const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(req.user!.role);
+      const doc = await prisma.document.findFirst({
+        where: isManagement
+          ? { id: req.params.id, deletedAt: null, employee: { organizationId: req.user!.organizationId } }
+          : { id: req.params.id, deletedAt: null, employee: { userId: req.user!.userId } },
+        select: { id: true, fileUrl: true, name: true },
+      });
+
+      if (!doc?.fileUrl) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Document not found' } });
+        return;
+      }
+
+      // Resolve absolute path — fileUrl is stored relative to project root (e.g. /uploads/...)
+      let basePath = process.cwd();
+      if (basePath.endsWith('backend') || basePath.endsWith('backend/') || basePath.endsWith('backend\\')) {
+        basePath = join(basePath, '..');
+      }
+      const filePath = join(basePath, doc.fileUrl);
+
+      if (!existsSync(filePath)) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Document file not found on disk' } });
+        return;
+      }
+
+      // HEIC/HEIF → JPEG conversion for iPhone-uploaded files
+      let servePath = filePath;
+      let ext = extname(filePath).toLowerCase();
+      if (ext === '.heic' || ext === '.heif') {
+        const { convertHeicToJpeg } = await import('../../utils/heicConverter.js');
+        const converted = await convertHeicToJpeg(filePath);
+        if (converted !== filePath) { servePath = converted; ext = '.jpg'; }
+      }
+
+      const mimeTypes: Record<string, string> = {
+        '.pdf': 'application/pdf',
+        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+        '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp',
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.xls': 'application/vnd.ms-excel',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.ppt': 'application/vnd.ms-powerpoint',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        '.txt': 'text/plain', '.csv': 'text/csv',
+      };
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+      const fileBuffer = readFileSync(servePath);
+
+      res.set({
+        'Content-Type': contentType,
+        'Content-Disposition': `inline; filename="document${ext}"`,
+        'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Length': String(fileBuffer.length),
+      });
+      res.send(fileBuffer);
+    } catch (err) { next(err); }
+  }
 }
 
 export const documentController = new DocumentController();

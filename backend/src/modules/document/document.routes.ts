@@ -22,6 +22,11 @@ router.post('/issue/:employeeId', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.H
   documentController.issueLetter(req, res, next)
 );
 
+// Authenticated file stream — serves bytes through API so the real /uploads/ path is never exposed to the browser
+router.get('/:id/stream', (req, res, next) =>
+  documentController.stream(req, res, next)
+);
+
 router.get('/:id', requirePermission('document', 'read'), (req, res, next) =>
   documentController.getById(req, res, next)
 );
