@@ -241,6 +241,86 @@ function RejectDocumentDialog({
   );
 }
 
+// ─── Authenticity & Tampering Panel ──────────────────────────────────────────
+function AuthenticityPanel({ checks, tampering }: { checks: Record<string, any> | null; tampering: string[] }) {
+  const [open, setOpen] = useState(true);
+
+  const entries: { key: string; result: string; evidence: string }[] = checks
+    ? Object.entries(checks).map(([key, val]: [string, any]) => ({
+        key: key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        result: val?.result || 'PASS',
+        evidence: val?.evidence || '',
+      }))
+    : [];
+
+  const hasIssue = entries.some(e => e.result !== 'PASS') || tampering.length > 0;
+
+  return (
+    <div className={cn(
+      'layer-card overflow-hidden border',
+      hasIssue ? 'border-red-200 bg-red-50/20' : 'border-gray-200 bg-gray-50/20',
+    )}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <span className={cn(
+          'text-xs font-semibold flex items-center gap-1.5',
+          hasIssue ? 'text-red-700' : 'text-gray-600',
+        )}>
+          <AlertTriangle size={13} />
+          Authenticity &amp; Tampering Signals
+          {hasIssue && (
+            <span className="ml-1 px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px]">
+              {entries.filter(e => e.result !== 'PASS').length + tampering.length} issue{(entries.filter(e => e.result !== 'PASS').length + tampering.length) !== 1 ? 's' : ''}
+            </span>
+          )}
+        </span>
+        {open ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+      </button>
+      {open && (
+        <div className="px-4 pb-3 space-y-1.5">
+          {/* Tampering signals — most prominent */}
+          {tampering.map((t, i) => (
+            <div key={i} className="flex items-start gap-2 text-xs px-2.5 py-2 rounded bg-red-100 border-l-2 border-red-500 text-red-800 font-medium">
+              <XCircle size={11} className="shrink-0 mt-0.5" />
+              <span className="leading-relaxed">Tampering: {t}</span>
+            </div>
+          ))}
+          {/* Authenticity check entries */}
+          {entries.map((e, i) => {
+            const isPass = e.result === 'PASS';
+            const isFail = e.result === 'FAIL';
+            return (
+              <div key={i} className={cn(
+                'flex items-start gap-2 text-xs px-2.5 py-1.5 rounded',
+                isFail ? 'bg-red-50 text-red-700' :
+                !isPass ? 'bg-amber-50 text-amber-700' :
+                'bg-emerald-50 text-emerald-700',
+              )}>
+                <span className="shrink-0 mt-0.5">
+                  {isFail ? <XCircle size={11} /> : !isPass ? <AlertTriangle size={11} /> : <CheckCircle2 size={11} />}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium">{e.key}</span>
+                  {e.evidence && <span className="ml-1 text-gray-500">— {e.evidence}</span>}
+                </div>
+                <span className={cn(
+                  'text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0',
+                  isFail ? 'bg-red-100 text-red-700' : !isPass ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700',
+                )}>{e.result}</span>
+              </div>
+            );
+          })}
+          {entries.length === 0 && tampering.length === 0 && (
+            <p className="text-xs text-gray-400 px-2">No authenticity signals captured.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Profile Comparison Panel ─────────────────────────────────────────────────
 function ProfileComparisonPanel({ items }: { items: any[] }) {
   const [open, setOpen] = useState(true);
@@ -858,7 +938,12 @@ export default function OcrVerificationPanel({
   const visionScanned: boolean = aiData?.vision_scanned === true;
   const visionQualityNote: string | null = aiData?.vision_quality_note || null;
   const kycScore: number | null = (ocr as any)?.kycScore ?? null;
-  const profileComparison: any[] = aiData?.profile_comparison || [];
+  // profile_comparison may be in llmExtractedData OR in the separate profileComparison column
+  const profileComparison: any[] = aiData?.profile_comparison?.length > 0
+    ? aiData.profile_comparison
+    : ((ocr as any)?.profileComparison as any[] | null) ?? [];
+  const authenticityChecks: Record<string, any> | null = aiData?.authenticity_checks || null;
+  const tamperingSignals: string[] = aiData?.tampering_signals || [];
   const deepRecheckAvailable: boolean = aiData?.deepRecheckAvailable === true;
   const modelUsed: string = aiData?.modelUsed || '';
 
@@ -1105,9 +1190,14 @@ export default function OcrVerificationPanel({
                 <ValidationReasons reasons={validationReasons} />
               )}
 
-              {/* Profile Comparison section */}
+              {/* Employee Profile Comparison */}
               {profileComparison.length > 0 && (
                 <ProfileComparisonPanel items={profileComparison} />
+              )}
+
+              {/* Authenticity & Tampering Signals — dedicated section */}
+              {(authenticityChecks || tamperingSignals.length > 0) && (
+                <AuthenticityPanel checks={authenticityChecks} tampering={tamperingSignals} />
               )}
 
               {/* AI-Assisted Verification (from LLM, if available) */}

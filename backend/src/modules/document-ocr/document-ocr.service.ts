@@ -165,10 +165,16 @@ export class DocumentOcrService {
     // ── OpenAI KYC Vision Scan (PRIMARY intelligence layer) ──────────────────
     // Uses process.env.OPENAI_API_KEY directly — no DB config needed.
     // gpt-4.1-mini first; auto-escalates to gpt-4.1 when confidence < 0.60.
+    // Cost control: only scan when OCR confidence < 85% or result is missing/thin.
     // Only runs on image files; PDFs are handled by Python Tesseract above.
     // ─────────────────────────────────────────────────────────────────────────
     const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'bmp'];
-    if (imageExts.includes(ext)) {
+    const ocrConfidence = ocrResult?.confidence || 0;
+    const needsVisionScan = !ocrResult
+      || ocrConfidence < 0.85
+      || (ocrResult.validation_reasons || []).length === 0
+      || !(ocrResult.extracted_fields?.name || ocrResult.extracted_fields?.document_number);
+    if (imageExts.includes(ext) && needsVisionScan) {
       try {
         const imgMime = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
         const imageBase64 = fileBuffer.toString('base64');
@@ -265,7 +271,7 @@ export class DocumentOcrService {
             ocrResult.confidence = kycResp.confidence;
           }
           ocrResult.vision_scanned = true;
-          ocrResult.vision_quality_note = visionJson.quality_note || null;
+          ocrResult.vision_quality_note = visionJson.quality?.blur_or_noise_note || visionJson.quality?.blur_note || visionJson.quality_note || null;
           if (kycResp.escalated) ocrResult.validation_reasons = [...(ocrResult.validation_reasons || []), '🔼 Escalated to gpt-4.1 for higher accuracy'];
           logger.info(`[OCR] OpenAI KYC vision complete for ${documentId} — model: ${visionJson._model || 'gpt-4.1-mini'}, conf: ${kycResp.confidence}, escalated: ${kycResp.escalated}`);
         }
@@ -441,12 +447,13 @@ export class DocumentOcrService {
     const qualityReport = this.analyzeImageQuality(fileBuffer, ocrResult, ext);
     const fields = ocrResult.extracted_fields || {};
 
-    // Confidence-based automatic status: < 60% → FLAGGED, requires HR review
+    // Status logic: tamper/screenshot → FLAGGED; low confidence alone → PENDING (HR review, not auto-reject)
     const confidence = ocrResult.confidence || 0;
-    const isLowConfidence = confidence < 0.60;
+    const isLowConfidence = confidence > 0 && confidence < 0.60;
     const isPythonFlagged = ocrResult.is_flagged === true;
     const hasTamperIssues = qualityReport.tamperingIndicators.length > 0 || qualityReport.isScreenshot;
-    const autoOcrStatus = (isLowConfidence || isPythonFlagged || hasTamperIssues) ? 'FLAGGED' : 'PENDING';
+    // Low confidence alone never auto-flags — spec: "Low confidence = NEEDS_HR_REVIEW, not fake"
+    const autoOcrStatus = (isPythonFlagged || hasTamperIssues) ? 'FLAGGED' : 'PENDING';
 
     // ── AI Enhancement: use configured AI provider (Settings → AI API Config) ──
     // Performs actual checks (profile cross-check + authenticity analysis) and returns
@@ -585,14 +592,13 @@ Respond with valid compact JSON only (no markdown):
           vision_scanned: ocrResult.vision_scanned === true,
           vision_quality_note: ocrResult.vision_quality_note || null,
           // Enterprise KYC structured data
-          findings: [
-            ...(ocrResult.vision_findings || []),
-          ],
+          findings: [...(ocrResult.vision_findings || [])],
           authenticity_checks: ocrResult.vision_authenticity_checks || null,
           tampering_signals: ocrResult.vision_tampering_signals || [],
           recommended_status: ocrResult.vision_recommended_status || recommendedStatus,
+          profile_comparison: profileComparison.length > 0 ? profileComparison : [],
           modelUsed: ocrResult.vision_scanned ? 'gpt-4.1-mini' : 'python',
-          deepRecheckAvailable: true,
+          deepRecheckAvailable: imageExts.includes(ext), // only images support deep re-check
           ai_enhanced: true,
           ...bankExtras,
         } as any,
@@ -627,14 +633,13 @@ Respond with valid compact JSON only (no markdown):
           ai_confidence_note: ocrResult.ai_confidence_note || null,
           vision_scanned: ocrResult.vision_scanned === true,
           vision_quality_note: ocrResult.vision_quality_note || null,
-          findings: [
-            ...(ocrResult.vision_findings || []),
-          ],
+          findings: [...(ocrResult.vision_findings || [])],
           authenticity_checks: ocrResult.vision_authenticity_checks || null,
           tampering_signals: ocrResult.vision_tampering_signals || [],
           recommended_status: ocrResult.vision_recommended_status || recommendedStatus,
+          profile_comparison: profileComparison.length > 0 ? profileComparison : [],
           modelUsed: ocrResult.vision_scanned ? 'gpt-4.1-mini' : 'python',
-          deepRecheckAvailable: true,
+          deepRecheckAvailable: imageExts.includes(ext),
           ai_enhanced: true,
           ...bankExtras,
         } as any,
@@ -643,19 +648,17 @@ Respond with valid compact JSON only (no markdown):
       },
     });
 
-    // Update the Document record — auto-flag if confidence is low
+    // Update the Document record — only flag for tampering, NOT low confidence alone
     await prisma.document.update({
       where: { id: documentId },
       data: {
         ocrData: ocrResult,
-        status: (hasTamperIssues || isLowConfidence) ? 'FLAGGED' : undefined,
+        status: hasTamperIssues ? 'FLAGGED' : undefined,
         tamperDetected: hasTamperIssues,
         tamperDetails: hasTamperIssues
           ? qualityReport.tamperingIndicators.join('; ') || 'Possible screenshot detected'
           : null,
-        rejectionReason: isLowConfidence && !hasTamperIssues
-          ? `OCR confidence is ${Math.round(confidence * 100)}% (below 60% threshold). HR review required.`
-          : null,
+        rejectionReason: null, // rejection only set by HR action, not auto-set by low confidence
       },
     });
 
