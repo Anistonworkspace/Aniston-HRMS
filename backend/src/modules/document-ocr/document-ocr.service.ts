@@ -463,28 +463,25 @@ export class DocumentOcrService {
       const docType = ocrResult.document_type || doc.type || 'UNKNOWN';
       const aiResp = await aiService.prompt(
         organizationId,
-        `You are an enterprise KYC analyst for an Indian HR system.
-You receive OCR-extracted text from a document and the employee's onboarding profile data.
-Your job: perform each applicable check and report actual findings — not a list of things HR should check.
+        `You are an enterprise KYC analyst for an Indian HR system. You receive OCR text and the employee profile.
+Perform ONLY profile cross-checks and text-level authenticity assessment — Vision AI has already done image forensics.
 
-Perform these checks when applicable:
-1. Confirm document type from text evidence
-2. If profile name provided: fuzzy-compare extracted name to profile name and report the actual similarity result
-3. If profile DOB provided AND document contains DOB: compare and report exact match result (only when confidence >= 70)
-4. If profile gender provided AND document contains gender: compare and report match
-5. Detect suspicious patterns (mismatched data, unusual field formatting, edited sections)
-6. Assess text authenticity from OCR quality and field consistency
+Rules:
+1. Compare extracted fields against profile values where both are present.
+2. Only include findings where you found a real match/mismatch/issue. Skip NOT_APPLICABLE silently.
+3. Return maximum 5 findings total. Focus only on profile mismatches and suspicious text patterns.
+4. Use specific values: "Document: 'Rahul Kumar' vs profile: 'Rahul Kumar' — exact match" not generic text.
+5. If profile data unavailable for a field, set result: NOT_APPLICABLE and skip the finding.
+6. Document-type rules (CRITICAL):
+   - PHOTO: return empty findings and profile_comparison arrays.
+   - RESIDENCE_PROOF: compare name/address only — never DOB.
+   - SALARY_SLIP_DOC: verify gross - deductions = net if all present.
+   - EXPERIENCE_LETTER/OFFER_LETTER_DOC/RELIEVING_LETTER: check name/company/designation/dates.
+   - DEGREE_CERTIFICATE/TENTH_CERTIFICATE/TWELFTH_CERTIFICATE: check name/institution/year.
+   - BANK_STATEMENT/CANCELLED_CHEQUE: check account holder name only.
 
-Document-type rules (CRITICAL — follow strictly):
-- PHOTO: only assess image quality, do NOT extract or compare DOB/PAN/Aadhaar/address fields
-- RESIDENCE_PROOF/PERMANENT_RESIDENCE_PROOF: compare name and address only; bill date/document date is NOT a date-of-birth — never include DOB findings
-- SALARY_SLIP_DOC: verify gross - deductions matches net if all three present; flag suspicious edits near salary amounts
-- EXPERIENCE_LETTER/OFFER_LETTER_DOC/RELIEVING_LETTER: check name/company/designation/dates; flag inconsistent fonts near key fields
-- DEGREE_CERTIFICATE/TENTH_CERTIFICATE/TWELFTH_CERTIFICATE/POST_GRADUATION_CERTIFICATE: check student name/institution/year only
-- BANK_STATEMENT/CANCELLED_CHEQUE: check account holder name only; no DOB check
-
-Respond with valid compact JSON only (no markdown):
-{"confirmed_type":"AADHAAR|PAN|PASSPORT|PHOTO|RESIDENCE_PROOF|EXPERIENCE_LETTER|SALARY_SLIP|DEGREE_CERTIFICATE|OTHER","findings":[{"check":"Name cross-check","result":"PASS|WARNING|FAIL","detail":"Document: X vs profile: Y — exact match"}],"profile_comparison":[{"field":"full_name","profile_value":"","document_value":"","result":"PASS|WARNING|FAIL|NOT_APPLICABLE","confidence":0,"detail":""}],"suspicious_indicators":[],"confidence_note":"one-line assessment"}`,
+Respond with compact JSON only (no markdown):
+{"confirmed_type":"...","findings":[{"check":"Name cross-check","result":"PASS|WARNING|FAIL","detail":"specific evidence"}],"profile_comparison":[{"field":"full_name","profile_value":"","document_value":"","result":"PASS|WARNING|FAIL|NOT_APPLICABLE","confidence":0,"detail":"specific comparison result"}],"suspicious_indicators":[],"confidence_note":"one-line assessment"}`,
         `Document type: ${docType}\nEmployee profile: ${profileJson}\nOCR Text (first 1500 chars):\n${(ocrResult.raw_text || '').substring(0, 1500)}`,
         900,
       );
@@ -523,8 +520,21 @@ Respond with valid compact JSON only (no markdown):
       logger.warn(`[OCR] AI enhancement skipped for ${documentId}: ${aiErr.message}`);
     }
 
-    // Store validation reasons from Python AI in hrNotes for HR display
-    const validationReasons: string[] = ocrResult.validation_reasons || [];
+    // Deduplicate findings: Vision AI + LLM enhancement may produce overlapping checks.
+    // Extract the check name from each reason string (everything before the first ': ')
+    // and keep only the most severe result per check (FAIL > WARNING > PASS).
+    const rawReasons: string[] = ocrResult.validation_reasons || [];
+    const severityRank = (r: string) => r.startsWith('✗') ? 2 : r.startsWith('⚠') ? 1 : 0;
+    const deduped = new Map<string, string>();
+    for (const r of rawReasons) {
+      const colonIdx = r.indexOf(':');
+      const key = colonIdx > 0 ? r.slice(2, colonIdx).trim().toLowerCase() : r.slice(0, 40).toLowerCase();
+      const existing = deduped.get(key);
+      if (!existing || severityRank(r) > severityRank(existing)) {
+        deduped.set(key, r);
+      }
+    }
+    const validationReasons: string[] = Array.from(deduped.values());
     const dynamicFields: Record<string, string> = ocrResult.dynamic_fields || {};
     const authenticityScore: number = typeof ocrResult.authenticity_score === 'number' ? ocrResult.authenticity_score : 1.0;
     const hrNotesFromAI = validationReasons.length > 0

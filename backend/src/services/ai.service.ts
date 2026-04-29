@@ -422,6 +422,15 @@ Return ONLY valid compact JSON (no markdown, no explanation):
   }
 
   private async callOpenAiKycVision(apiKey: string, model: string, imageBase64: string, mimeType: string, deepMode = false): Promise<string> {
+    // Support OpenRouter (sk-or-v1-...) and direct OpenAI — auto-detected via key prefix or env
+    const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+    const isOpenRouter = apiKey.startsWith('sk-or-v1-') || baseUrl.includes('openrouter');
+    // OpenRouter uses namespaced model IDs; map gpt-4.1-* to supported equivalents
+    const resolvedModel = isOpenRouter
+      ? (model === 'gpt-4.1' ? 'openai/gpt-4o' : 'openai/gpt-4o-mini')
+      : model;
+    const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
+
     const DEEP_PREFIX = deepMode
       ? 'This is a deep forensic review. Apply maximum scrutiny to authenticity and tampering detection. Pay special attention to metadata consistency, print quality, digital artifacts, and any signs of selective editing around numbers or dates.\n\n'
       : '';
@@ -432,24 +441,30 @@ Return ONLY compact JSON (no markdown, no explanation):
 {"document_type":"AADHAAR|PAN|PASSPORT|PHOTO|RESIDENCE_PROOF|EXPERIENCE_LETTER|SALARY_SLIP|DEGREE_CERTIFICATE|TENTH_CERTIFICATE|TWELFTH_CERTIFICATE|BANK_PASSBOOK|CANCELLED_CHEQUE|PROFESSIONAL_CERTIFICATION|OTHER","overall_confidence":0.0,"extracted_fields":{"full_name":{"value":null,"confidence":0,"evidence":""},"date_of_birth":{"value":null,"confidence":0,"evidence":""},"gender":{"value":null,"confidence":0,"evidence":""},"father_name":{"value":null,"confidence":0,"evidence":""},"document_number":{"value":null,"confidence":0,"evidence":""},"address":{"value":null,"confidence":0,"evidence":""},"company_name":{"value":null,"confidence":0,"evidence":""},"designation":{"value":null,"confidence":0,"evidence":""},"joining_date":{"value":null,"confidence":0,"evidence":""},"leaving_date":{"value":null,"confidence":0,"evidence":""},"salary":{"gross":null,"net":null,"deductions":null,"confidence":0},"document_date":{"value":null,"confidence":0,"evidence":""}},"authenticity_checks":{"possible_digital_editing":{"result":"PASS","evidence":""},"screenshot_or_screen_photo":{"result":"PASS","evidence":""},"crop_or_missing_boundary":{"result":"PASS","evidence":""},"font_alignment_consistency":{"result":"PASS","evidence":""},"metadata_risk":{"result":"PASS","evidence":""}},"quality":{"result":"HIGH","readability_confidence":0,"blur_or_noise_note":""},"findings":[{"check":"","result":"PASS","severity":"INFO","field":null,"detail":"","evidence":""}],"tampering_signals":[],"recommended_status":"NEEDS_HR_REVIEW","recommended_action":"","raw_text":"all visible text"}
 
 RULES:
-1. result values: PASS (verified OK), WARNING (uncertain), FAIL (definite problem). Never guess — return null for unclear.
-2. detail must contain specific values from THIS document (actual number, name, date you read).
-3. tampering_signals: list ONLY if you see pixel inconsistencies near specific fields, font substitution, edited watermark/stamp, misaligned text, composite artifacts. Empty array if none.
-4. Document-type-specific rules:
-   - PHOTO: check face presence and image quality ONLY. Do NOT extract DOB, Aadhaar, PAN, address. Do NOT produce DOB findings.
-   - RESIDENCE_PROOF: extract name and address. Bill date/document date is NOT a date-of-birth — never compare it as DOB.
-   - SALARY_SLIP: check name/company/month/gross/net. If gross-deductions present, verify arithmetic. Flag edited salary amounts.
-   - EXPERIENCE_LETTER: check name/company/designation/dates/letterhead. Flag font inconsistencies near dates or salary fields.
+1. result: PASS (verified OK), WARNING (uncertain/needs attention), FAIL (definite problem found). Return null for fields you cannot read.
+2. detail and evidence must contain SPECIFIC values from THIS document — the actual number, name, or date you see. Never generic.
+3. findings: return ONLY significant findings. Maximum 8. Skip trivial PASS entries — include PASS only for the single most important field per document type (e.g. Aadhaar format for Aadhaar, PAN format for PAN). Always include all WARNING and FAIL findings.
+4. tampering_signals: list ONLY with actual visual evidence (pixel inconsistencies near specific fields, font substitution, edited stamp/watermark, composite artifacts). Empty array if none found. Never speculate.
+5. Document-type-specific rules (CRITICAL — follow exactly):
+   - PHOTO: assess face presence and image quality ONLY. Do NOT extract DOB, Aadhaar, PAN, address. Do NOT produce DOB findings. Maximum 3 findings.
+   - RESIDENCE_PROOF: extract name and address ONLY. Bill/document date is NOT date-of-birth — never produce DOB findings.
+   - SALARY_SLIP: check name/company/month/gross/net arithmetic only. If gross-deductions present, verify arithmetic. Flag suspicious edits near amounts.
+   - EXPERIENCE_LETTER: check name/company/designation/dates/letterhead presence. Flag font inconsistency near key fields.
    - DEGREE_CERTIFICATE/TENTH_CERTIFICATE/TWELFTH_CERTIFICATE: check student name/institution/year only.
-5. For fields not expected for this document type, set value:null confidence:0.
-6. Never call a document fake on a single weak signal — prefer WARNING with evidence.
-7. date_of_birth format: DD/MM/YYYY. overall_confidence = 0.0–1.0.`;
+   - BANK_STATEMENT/CANCELLED_CHEQUE: check account holder name only. No DOB check.
+6. For fields not applicable to this document type, set value:null confidence:0. Do not produce findings for inapplicable fields.
+7. Never call a document fake on a single weak signal — use WARNING with specific evidence.
+8. date_of_birth format: DD/MM/YYYY. overall_confidence = 0.0–1.0.`;
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        ...(isOpenRouter ? { 'HTTP-Referer': 'https://hr.anistonav.com', 'X-Title': 'Aniston HRMS KYC' } : {}),
+      },
       body: JSON.stringify({
-        model,
+        model: resolvedModel,
         max_tokens: 1200,
         messages: [{
           role: 'user',
@@ -463,7 +478,7 @@ RULES:
     });
 
     if (!res.ok) {
-      throw new Error(`OpenAI KYC vision (${model}) ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      throw new Error(`KYC vision (${resolvedModel}@${isOpenRouter ? 'openrouter' : 'openai'}) ${res.status}: ${(await res.text()).slice(0, 200)}`);
     }
     const data = await res.json() as any;
     return data.choices?.[0]?.message?.content || '';

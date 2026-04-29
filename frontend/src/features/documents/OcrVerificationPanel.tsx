@@ -141,10 +141,20 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
 // ─── Validation Reasons panel ─────────────────────────────────────────────────
 function ValidationReasons({ reasons }: { reasons: string[] }) {
   const [open, setOpen] = useState(true);
+  const [showAllPass, setShowAllPass] = useState(false);
   if (!reasons || reasons.length === 0) return null;
 
-  const hasFlagged = reasons.some((r: any) => { const s = typeof r === 'string' ? r : (r?.message ?? ''); return s.startsWith('🚩') || s.startsWith('✗'); });
-  const hasWarning = reasons.some((r: any) => { const s = typeof r === 'string' ? r : (r?.message ?? ''); return s.startsWith('⚠'); });
+  const toStr = (r: any) => typeof r === 'string' ? r : (r?.message ?? JSON.stringify(r));
+  const isFail = (s: string) => s.startsWith('✗') || s.startsWith('🚩');
+  const isWarn = (s: string) => s.startsWith('⚠');
+  const isPass = (s: string) => s.startsWith('✓');
+
+  const hasFlagged = reasons.some(r => isFail(toStr(r)));
+  const hasWarning = reasons.some(r => isWarn(toStr(r)));
+  const issueReasons = reasons.filter(r => { const s = toStr(r); return isFail(s) || isWarn(s); });
+  const passReasons = reasons.filter(r => isPass(toStr(r)));
+  // Show issues always; pass items only on demand
+  const displayReasons = showAllPass ? reasons : issueReasons;
 
   return (
     <div className={cn(
@@ -163,36 +173,58 @@ function ValidationReasons({ reasons }: { reasons: string[] }) {
         )}>
           <Shield size={13} />
           AI Findings
-          <span className="ml-1 px-1.5 py-0.5 rounded bg-white/60 text-[10px]">
-            {reasons.length} finding{reasons.length !== 1 ? 's' : ''}
-          </span>
+          {issueReasons.length > 0 ? (
+            <span className="ml-1 px-1.5 py-0.5 rounded bg-white/60 text-[10px]">
+              {issueReasons.length} issue{issueReasons.length !== 1 ? 's' : ''}
+            </span>
+          ) : (
+            <span className="ml-1 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px]">
+              All checks passed
+            </span>
+          )}
         </span>
         {open ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
       </button>
       {open && (
         <div className="px-4 pb-3 space-y-1">
-          {reasons.map((reason: any, i) => {
-            const reasonStr = typeof reason === 'string' ? reason : (reason?.message ?? JSON.stringify(reason));
+          {displayReasons.length === 0 && !showAllPass && passReasons.length > 0 && (
+            <p className="text-xs text-emerald-600 px-2 py-1.5 flex items-center gap-1.5">
+              <CheckCircle2 size={11} />
+              All {passReasons.length} check{passReasons.length !== 1 ? 's' : ''} passed — document looks authentic
+            </p>
+          )}
+          {displayReasons.map((reason: any, i) => {
+            const reasonStr = toStr(reason);
             const isTampering = reasonStr.startsWith('✗ Tampering:');
-            const isFail = reasonStr.startsWith('✗') || reasonStr.startsWith('🚩');
-            const isWarn = reasonStr.startsWith('⚠');
-            const isPass = reasonStr.startsWith('✓');
+            const fail = isFail(reasonStr);
+            const warn = isWarn(reasonStr);
+            const pass = isPass(reasonStr);
             return (
               <div key={i} className={cn(
                 'flex items-start gap-2 text-xs px-2.5 py-1.5 rounded',
                 isTampering ? 'bg-red-100 border-l-2 border-red-500 text-red-800 font-medium' :
-                isFail ? 'bg-red-50 text-red-700' :
-                isWarn ? 'bg-amber-50 text-amber-700' :
-                isPass ? 'bg-emerald-50 text-emerald-700' :
+                fail ? 'bg-red-50 text-red-700' :
+                warn ? 'bg-amber-50 text-amber-700' :
+                pass ? 'bg-emerald-50 text-emerald-700' :
                 'bg-gray-50 text-gray-600',
               )}>
                 <span className="shrink-0 mt-0.5">
-                  {isFail ? <XCircle size={11} /> : isWarn ? <AlertTriangle size={11} /> : isPass ? <CheckCircle2 size={11} /> : <Info size={11} />}
+                  {fail ? <XCircle size={11} /> : warn ? <AlertTriangle size={11} /> : pass ? <CheckCircle2 size={11} /> : <Info size={11} />}
                 </span>
                 <span className="leading-relaxed">{reasonStr}</span>
               </div>
             );
           })}
+          {/* Toggle to show/hide passed checks */}
+          {passReasons.length > 0 && (
+            <button
+              onClick={() => setShowAllPass(v => !v)}
+              className="text-[10px] text-gray-400 hover:text-gray-600 mt-1 px-2 flex items-center gap-1"
+            >
+              {showAllPass ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+              {showAllPass ? 'Hide' : `Show ${passReasons.length} passed check${passReasons.length !== 1 ? 's' : ''}`}
+            </button>
+          )}
         </div>
       )}
     </div>
