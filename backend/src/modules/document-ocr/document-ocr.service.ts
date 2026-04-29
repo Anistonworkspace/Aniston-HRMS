@@ -101,7 +101,7 @@ export class DocumentOcrService {
           detectedType: 'COMBINED_PDF',
           confidence: 0,
           ocrStatus: autoStatus,
-          hrNotes: noteLines,
+          hrNotes: null,
           processingMode: 'manual_review',
           extractionSource: 'none',
           suspicionScore,
@@ -117,7 +117,7 @@ export class DocumentOcrService {
           detectedType: 'COMBINED_PDF',
           confidence: 0,
           ocrStatus: autoStatus,
-          hrNotes: noteLines,
+          hrNotes: null,
           processingMode: 'manual_review',
           extractionSource: 'none',
           suspicionScore,
@@ -184,7 +184,7 @@ export class DocumentOcrService {
       try {
         const imgMime = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
         const imageBase64 = fileBuffer.toString('base64');
-        const kycResp = await aiService.scanDocumentKyc(imageBase64, imgMime);
+        const kycResp = await aiService.scanDocumentKyc(imageBase64, imgMime, doc.type);
 
         if (kycResp.success && kycResp.data) {
           const visionJson = JSON.parse(kycResp.data);
@@ -308,7 +308,7 @@ export class DocumentOcrService {
             detectedType: 'COMBINED_PDF',
             confidence: 0,
             ocrStatus: 'PENDING',
-            hrNotes: note,
+            hrNotes: null,
             processingMode: 'manual_review',
             extractionSource: 'none',
             suspicionScore: 0,
@@ -318,7 +318,7 @@ export class DocumentOcrService {
             detectedType: 'COMBINED_PDF',
             confidence: 0,
             ocrStatus: 'PENDING',
-            hrNotes: note,
+            hrNotes: null,
             processingMode: 'manual_review',
             extractionSource: 'none',
           },
@@ -531,7 +531,7 @@ Respond with compact JSON only (no markdown):
     // and keep only the most severe result per check (FAIL > WARNING > PASS).
     // When Vision AI produced real findings, skip Python OCR generic template messages entirely —
     // they add noise like "HR must manually identify and verify this page" with no specific evidence.
-    const visionHasFindings = (visionJson?.findings?.length ?? 0) > 0;
+    const visionHasFindings = (ocrResult?.vision_findings || []).length > 0;
     const rawReasons: string[] = visionHasFindings ? [] : (ocrResult.validation_reasons || []);
     const severityRank = (r: string) => r.startsWith('✗') ? 2 : r.startsWith('⚠') ? 1 : 0;
     const deduped = new Map<string, string>();
@@ -670,27 +670,27 @@ Respond with compact JSON only (no markdown):
       },
     });
 
-    // Auto-approve when kycScore >= 90, no critical findings, no tampering
-    const autoApproved = kycScore >= 90 && !hasCriticalFindings && !hasTamperIssues;
+    // HR must explicitly approve — high OCR score alone does not verify a document.
+    // ocrStatus is set to REVIEWED (via autoOcrStatus above) to signal AI processing
+    // completed cleanly, but document.status stays PENDING until HR clicks Approve.
+    // Only FLAGGED status is set automatically when tampering is detected.
+    if (kycScore >= 90 && !hasCriticalFindings && !hasTamperIssues) {
+      logger.info(`[OCR] High KYC score for document ${documentId} (kycScore: ${kycScore}) — awaiting HR approval`);
+    }
 
-    // Update the Document record
+    // Update the Document record — never auto-set VERIFIED, HR must approve
     await prisma.document.update({
       where: { id: documentId },
       data: {
         ocrData: ocrResult,
-        status: hasTamperIssues ? 'FLAGGED' : autoApproved ? 'VERIFIED' : undefined,
+        status: hasTamperIssues ? 'FLAGGED' : undefined,
         tamperDetected: hasTamperIssues,
         tamperDetails: hasTamperIssues
           ? qualityReport.tamperingIndicators.join('; ') || 'Possible screenshot detected'
           : null,
-        verifiedAt: autoApproved ? new Date() : undefined,
         rejectionReason: null,
       },
     });
-
-    if (autoApproved) {
-      logger.info(`[OCR] Auto-approved document ${documentId} (kycScore: ${kycScore})`);
-    }
 
     return ocrVerification;
   }
@@ -1184,12 +1184,21 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     const anyFail = details.some(d => !d.match);
     const overallStatus = details.length === 0 ? 'PENDING' : allPass ? 'PASS' : anyFail ? 'FAIL' : 'PARTIAL';
 
+    const newCrossDocScore = overallStatus === 'PASS' ? 20 : overallStatus === 'PARTIAL' ? 10 : overallStatus === 'FAIL' ? 0 : 20;
     for (const doc of ocrDocs) {
+      const existingKycScore = (doc.ocrVerification as any)?.kycScore ?? null;
+      let kycScoreUpdate: { kycScore?: number } = {};
+      if (existingKycScore !== null) {
+        const oldCrossStr = (doc.ocrVerification as any)?.crossValidationStatus || '';
+        const oldCrossDocScore = oldCrossStr === 'PASS' ? 20 : oldCrossStr === 'PARTIAL' ? 10 : oldCrossStr === 'FAIL' ? 0 : 20;
+        kycScoreUpdate = { kycScore: Math.max(0, Math.min(100, existingKycScore - oldCrossDocScore + newCrossDocScore)) };
+      }
       await prisma.documentOcrVerification.update({
         where: { documentId: doc.id },
         data: {
           crossValidationStatus: overallStatus,
           crossValidationDetails: details as any,
+          ...kycScoreUpdate,
         },
       });
     }
@@ -1237,7 +1246,7 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
 
     const imgMime = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
     const imageBase64 = fileBuffer.toString('base64');
-    const kycResp = await aiService.deepScanDocumentKyc(imageBase64, imgMime);
+    const kycResp = await aiService.deepScanDocumentKyc(imageBase64, imgMime, doc.type);
     if (!kycResp.success || !kycResp.data) {
       throw new Error(kycResp.error || 'Deep scan failed');
     }
@@ -1292,6 +1301,9 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       (totalCount > 0 ? Math.max(0, (totalCount - failCount) / totalCount) : 0.8) * 100 * 0.15 +
       70 * 0.10, // assume medium quality
     );
+
+    const hasCriticalFindingsDeep = validationReasons.some(r => r.startsWith('✗ Tampering:'));
+    logger.info(`[OCR] Deep recheck completed for document ${documentId} (kycScore: ${kycScore}) — awaiting HR approval`);
 
     const updated = await prisma.documentOcrVerification.update({
       where: { documentId },

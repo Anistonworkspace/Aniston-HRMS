@@ -122,6 +122,17 @@ router.post('/my-complete', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// SUPER_ADMIN: Enforce Cancelled Cheque requirement on all verified employees
+router.post('/admin/enforce-cancelled-cheque', authenticate, authorize(Role.SUPER_ADMIN),
+  async (req, res, next) => {
+    try {
+      const { documentGateService } = await import('./document-gate.service.js');
+      const result = await documentGateService.enforceCancelledChequeRequirement(req.user!.organizationId);
+      res.json({ success: true, data: result, message: `Enforcement complete: ${result.enforced} employees flagged, ${result.skipped} already had it` });
+    } catch (err) { next(err); }
+  }
+);
+
 // Document gate (HR+)
 router.get('/document-gate/:employeeId', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
   async (req, res, next) => {

@@ -100,13 +100,28 @@ export default function EmployeeAttendanceDetailPage() {
   );
   const detail = detailRes?.data;
 
-  // GPS trail for FIELD
+  // GPS trail for FIELD — polls every 30 s so HR sees near-real-time updates
+  const isToday = selectedDate === new Date().toISOString().split('T')[0];
   const { data: gpsRes } = useGetEmployeeGPSTrailQuery(
     { employeeId: employeeId || '', date: selectedDate },
-    { skip: shiftType !== 'FIELD' }
+    { skip: shiftType !== 'FIELD', pollingInterval: isToday ? 30000 : 0 }
   );
   const gpsTrail: any[] = gpsRes?.data?.data?.points || [];
   const gpsVisits: any[] = gpsRes?.data?.data?.visits || [];
+
+  // C3 — detect tracking gap for HR: compare last GPS point to now
+  const trackingIntervalMs = (shift?.trackingIntervalMinutes || 60) * 60_000;
+  const lastGpsTs = gpsTrail.length > 0
+    ? new Date(gpsTrail[gpsTrail.length - 1]?.timestamp).getTime()
+    : null;
+  const msSinceLastGps = lastGpsTs ? Date.now() - lastGpsTs : null;
+  // Warn if last point is older than 2× the interval AND employee is currently checked in but not checked out
+  const trackingGapWarning = isToday
+    && shiftType === 'FIELD'
+    && msSinceLastGps !== null
+    && msSinceLastGps > trackingIntervalMs * 2
+    && selectedRecord?.checkIn
+    && !selectedRecord?.checkOut;
 
   // Attendance logs
   const { data: logsRes } = useGetAttendanceLogsQuery(
@@ -656,7 +671,7 @@ export default function EmployeeAttendanceDetailPage() {
           </AnimatePresence>
 
           {/* Map Section (lazy loaded) */}
-          {(checkInLoc?.lat || (shiftType === 'FIELD' && gpsTrail.length > 0)) && (
+          {(checkInLoc?.lat || gpsTrail.length > 0) && (
             <Suspense fallback={<div className="layer-card overflow-hidden"><div className="px-4 pt-3 pb-1.5"><div className="w-28 h-3 bg-gray-100 rounded animate-pulse" /></div><div className={shiftType === 'FIELD' ? 'h-[320px]' : 'h-[200px]'} style={{ background: '#f9fafb' }} /></div>}>
               <MapSection
                 checkInLoc={checkInLoc}
@@ -669,6 +684,50 @@ export default function EmployeeAttendanceDetailPage() {
                 geofenceViolation={selectedRecord?.geofenceViolation}
               />
             </Suspense>
+          )}
+
+          {/* C3 — Tracking gap warning: last GPS point is stale while employee is on shift */}
+          {trackingGapWarning && (
+            <div className="layer-card p-3 border border-amber-200 bg-amber-50">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={14} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-amber-700">Tracking May Have Stopped</p>
+                  <p className="text-[11px] text-amber-600 mt-0.5">
+                    Last GPS update was{' '}
+                    <strong>
+                      {msSinceLastGps! > 3600000
+                        ? `${Math.floor(msSinceLastGps! / 3600000)}h ${Math.floor((msSinceLastGps! % 3600000) / 60000)}m`
+                        : `${Math.floor(msSinceLastGps! / 60000)} min`}
+                    </strong>{' '}
+                    ago (shift interval: {shift?.trackingIntervalMinutes || 60} min). Employee may have force-stopped the app, disabled GPS, or lost signal.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* No GPS data reason — shown only for FIELD shift employees when trail is empty */}
+          {shiftType === 'FIELD' && gpsTrail.length === 0 && (
+            <div className="layer-card p-4">
+              <div className="flex items-start gap-3">
+                <Navigation size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-gray-700 mb-1">No GPS Trail Available</p>
+                  <p className="text-[11px] text-gray-500">
+                    {selectedDate > new Date().toISOString().split('T')[0]
+                      ? 'Future date selected — GPS data is not available yet.'
+                      : !selectedRecord
+                      ? 'No attendance record found for this date.'
+                      : !selectedRecord.checkIn
+                      ? 'Employee has not clocked in on this date — GPS tracking only starts after clock-in.'
+                      : selectedRecord.workMode !== 'FIELD_SALES'
+                      ? `Attendance recorded in ${selectedRecord.workMode?.replace(/_/g, ' ') || 'Office'} mode — GPS trail is only available for Field Sales mode.`
+                      : 'No GPS points were recorded. The employee may have had GPS disabled, been offline all day, or tracking was not active on this date.'}
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Regularization History */}
@@ -787,7 +846,7 @@ export default function EmployeeAttendanceDetailPage() {
                 <tbody>
                   {records.slice(0, 31).map((r: any, i: number) => {
                     const rowDate = new Date(r.date).toISOString().split('T')[0];
-                    const isFieldSales = r.workMode === 'FIELD_SALES';
+                    const isFieldSales = r.workMode === 'FIELD_SALES' || shiftType === 'FIELD';
                     return (
                     <tr key={i} onClick={() => setSelectedDate(rowDate)}
                       className={cn('border-b border-gray-50 hover:bg-surface-2 cursor-pointer',

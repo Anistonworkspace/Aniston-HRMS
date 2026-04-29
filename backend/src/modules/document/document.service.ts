@@ -150,8 +150,12 @@ export class DocumentService {
     return doc;
   }
 
-  async verify(id: string, status: string, verifierId: string, rejectionReason?: string) {
-    const doc = await prisma.document.findUnique({ where: { id } });
+  async verify(id: string, status: string, verifierId: string, rejectionReason?: string, organizationId?: string) {
+    const doc = await prisma.document.findFirst({
+      where: organizationId
+        ? { id, employee: { organizationId } }
+        : { id },
+    });
     if (!doc) throw new NotFoundError('Document');
 
     const updated = await prisma.document.update({
@@ -194,11 +198,15 @@ export class DocumentService {
       data: { deletedAt: new Date() },
     });
 
-    // Physically delete the file from disk — non-blocking, best-effort
+    // Physically delete the file from disk — non-blocking, best-effort.
+    // Failure is logged with error code so ops can identify orphaned files.
     if (doc.fileUrl) {
-      storageService.deleteFile(doc.fileUrl).catch((err) =>
-        logger.warn(`[Document] Failed to physically delete file "${doc.fileUrl}":`, err.message),
-      );
+      storageService.deleteFile(doc.fileUrl).catch((err) => {
+        logger.error(
+          `[Document] Physical file deletion failed — documentId: ${id}, ` +
+          `code: ${err?.code || 'UNKNOWN'}, message: ${err?.message || err}`,
+        );
+      });
     }
 
     // Audit log the deletion

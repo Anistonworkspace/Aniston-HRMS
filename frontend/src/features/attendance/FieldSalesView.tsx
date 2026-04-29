@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { MapPin, Play, Square, Clock, Navigation, Wifi, WifiOff, Upload, Smartphone } from 'lucide-react';
-import { useClockInMutation, useClockOutMutation, useStoreGPSTrailMutation } from './attendanceApi';
+import { motion, AnimatePresence } from 'framer-motion';
+import { MapPin, Play, Square, Clock, Navigation, Wifi, WifiOff, Upload, Smartphone, Battery, AlertTriangle, RefreshCw, Shield, CheckCircle } from 'lucide-react';
+import { useClockInMutation, useClockOutMutation, useStoreGPSTrailMutation, useRecordGPSConsentMutation, useGetGPSConsentStatusQuery } from './attendanceApi';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import {
   isNative,
@@ -13,6 +13,12 @@ import {
   clearWatch,
 } from '../../lib/capacitorGPS';
 import toast from 'react-hot-toast';
+
+/** Current consent version — bump this string to force re-consent after policy changes */
+const GPS_CONSENT_VERSION = 'v1';
+
+/** Key to track if battery optimization prompt was shown this session */
+const BATTERY_PROMPT_KEY = 'aniston_battery_prompt_dismissed';
 
 const isIOS = isNativeIOS || (/iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream);
 const isPWA = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
@@ -41,6 +47,18 @@ const SYNC_BATCH_SIZE = 30;
 const GPS_BUFFER_KEY = 'aniston_gps_buffer';
 const MAX_SYNC_RETRIES = 3;
 const MIN_INTERVAL_MS = 60_000; // never faster than 1 minute even if shift says so
+const MAX_BUFFER_POINTS = 500; // drop oldest when limit hit to prevent unbounded RAM growth
+
+/**
+ * Module-level singleton — survives React remounts and SPA navigation.
+ * Without this, unmounting + remounting FieldSalesView (e.g. switching tabs and
+ * coming back) would call watchPosition a second time, creating two concurrent
+ * native foreground-service watchers that double-report every GPS fix.
+ */
+const _gpsWatcher: { watchId: string | number | null; isActive: boolean } = {
+  watchId: null,
+  isActive: false,
+};
 
 // Persist/restore GPS buffer to survive crashes
 function loadPersistedBuffer(): GPSPoint[] {
@@ -63,7 +81,12 @@ function clearPersistedBuffer() {
 }
 
 export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
-  const [isTracking, setIsTracking] = useState(false);
+  // Refs declared first — state initializers below must not reference them before this point
+  const watchIdRef = useRef<string | number | null>(_gpsWatcher.watchId);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bufferRef = useRef<GPSPoint[]>(loadPersistedBuffer());
+
+  const [isTracking, setIsTracking] = useState(_gpsWatcher.isActive);
   const [points, setPoints] = useState<GPSPoint[]>([]);
   const [currentPos, setCurrentPos] = useState<GPSPoint | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -71,9 +94,10 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [bannerVisible, setBannerVisible] = useState(!isBannerDismissed());
   const [gpsLostAt, setGpsLostAt] = useState<number | null>(null);
   const [gpsPauseNote, setGpsPauseNote] = useState('');
-  const watchIdRef = useRef<string | number | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const bufferRef = useRef<GPSPoint[]>(loadPersistedBuffer());
+  const [showConsentDialog, setShowConsentDialog] = useState(false);
+  const [showBatteryPrompt, setShowBatteryPrompt] = useState(false);
+  const [syncFailed, setSyncFailed] = useState(false);
+  const [pendingSyncCount, setPendingSyncCount] = useState(bufferRef.current.length);
   const syncRetryRef = useRef(0);
   const lastBufferedTimeRef = useRef<number>(0);
   const wakeLock = useWakeLock();
@@ -81,6 +105,10 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [clockIn, { isLoading: isClockingIn }] = useClockInMutation();
   const [clockOut, { isLoading: isClockingOut }] = useClockOutMutation();
   const [storeTrail] = useStoreGPSTrailMutation();
+  const [recordConsent, { isLoading: isConsenting }] = useRecordGPSConsentMutation();
+  const { data: consentRes } = useGetGPSConsentStatusQuery();
+  const consentData = consentRes?.data;
+  const hasConsented = consentData?.consented && consentData?.consentVersion === GPS_CONSENT_VERSION;
 
   const isCheckedIn = todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut;
 
@@ -95,6 +123,23 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     const mins = Math.round(ms / 60_000);
     return mins >= 60 ? `${mins / 60}h` : `${mins} min`;
   }, [trackingIntervalMs]);
+
+  // H1: On mount, load any persisted buffer and flush immediately if online.
+  // This handles the case where the employee reopens the app while already connected
+  // (no offline→online transition fires, so the sync effect never triggers).
+  useEffect(() => {
+    const persisted = loadPersistedBuffer();
+    if (persisted.length > 0) {
+      bufferRef.current = persisted;
+      if (navigator.onLine) {
+        // Defer slightly so syncPoints callback is stable after first render
+        setTimeout(() => {
+          if (bufferRef.current.length > 0) syncPoints();
+        }, 1500);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Online/offline detection
   useEffect(() => {
@@ -123,14 +168,17 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
         })),
       }).unwrap();
       syncRetryRef.current = 0;
+      setSyncFailed(false);
       persistBuffer(bufferRef.current);
+      setPendingSyncCount(bufferRef.current.length);
       if (bufferRef.current.length === 0) clearPersistedBuffer();
     } catch {
       bufferRef.current.unshift(...batch);
       syncRetryRef.current++;
       persistBuffer(bufferRef.current);
+      setPendingSyncCount(bufferRef.current.length);
       if (syncRetryRef.current >= MAX_SYNC_RETRIES) {
-        toast.error('GPS sync failed after multiple attempts. Data saved locally.');
+        setSyncFailed(true);
         syncRetryRef.current = 0;
       }
     }
@@ -156,6 +204,10 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       lastBufferedTimeRef.current = Date.now();
       setCurrentPos(point);
       setPoints(prev => [...prev, point]);
+      // C5: drop oldest point when buffer exceeds limit to prevent unbounded RAM growth
+      if (bufferRef.current.length >= MAX_BUFFER_POINTS) {
+        bufferRef.current.shift();
+      }
       bufferRef.current.push(point);
       persistBuffer(bufferRef.current, () => {
         toast('GPS storage full — syncing now', { icon: '⚠️' });
@@ -170,7 +222,37 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     }
   }, [isOnline, syncPoints]);
 
+  // Called when employee accepts the consent dialog
+  const handleConsentAccepted = async () => {
+    try {
+      await recordConsent({ consentVersion: GPS_CONSENT_VERSION }).unwrap();
+      setShowConsentDialog(false);
+      // Proceed to actually start tracking after consent
+      await startTrackingCore();
+    } catch {
+      toast.error('Failed to save consent. Please try again.');
+    }
+  };
+
   const startTracking = async () => {
+    // Consent gate: require explicit acceptance before starting GPS tracking
+    if (!hasConsented) {
+      setShowConsentDialog(true);
+      return;
+    }
+    await startTrackingCore();
+  };
+
+  const startTrackingCore = async () => {
+    // Concurrent watcher protection — if a watcher was already started (e.g. user
+    // navigated away and back without stopping), restore local tracking state and bail.
+    // Starting a second watcher would create duplicate foreground services on Android.
+    if (_gpsWatcher.isActive) {
+      setIsTracking(true);
+      toast('GPS tracking already active — resuming.', { icon: '📍', duration: 3000 });
+      return;
+    }
+
     if (isNative) {
       const granted = await requestNativePermissions();
       if (!granted) {
@@ -193,6 +275,14 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
 
       // Capture initial position for clock-in
       const pos = await getCurrentPosition();
+
+      // H4: Warn if initial GPS accuracy is poor before any points are committed
+      if (pos.accuracy > 100) {
+        toast(`GPS signal is weak (±${Math.round(pos.accuracy)}m). Move to an open area for best accuracy. Tracking will still start.`, {
+          icon: '⚠️',
+          duration: 6000,
+        });
+      }
 
       if (!isCheckedIn) {
         await clockIn({
@@ -226,7 +316,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       // Web/PWA: navigator.geolocation.watchPosition (foreground only; screen
       //   must stay on via Wake Lock).
       const intervalMinsForPlugin = Math.round(trackingIntervalMs / 60_000);
-      watchIdRef.current = await watchPosition(
+      const newWatchId = await watchPosition(
         (position) => {
           setGpsPaused(false);
           setGpsLostAt(prev => {
@@ -251,6 +341,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           if (now - lastBufferedTimeRef.current >= trackingIntervalMs) {
             lastBufferedTimeRef.current = now;
             setPoints(prev => [...prev, point]);
+            if (bufferRef.current.length >= MAX_BUFFER_POINTS) bufferRef.current.shift();
             bufferRef.current.push(point);
             persistBuffer(bufferRef.current, () => {
               toast('GPS storage full — syncing now', { icon: '⚠️' });
@@ -269,6 +360,10 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
         },
         intervalMinsForPlugin
       );
+      // Register with singleton so remounts don't spawn a second watcher
+      _gpsWatcher.watchId = newWatchId;
+      _gpsWatcher.isActive = true;
+      watchIdRef.current = newWatchId;
 
       // ── setInterval fallback (PWA/web only) ──────────────────────────────────
       // On native Android, the BackgroundGeolocation plugin fires natively in
@@ -286,11 +381,25 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to start tracking');
     }
+
+    // Show battery optimization prompt once per session after tracking starts on Android
+    if (isNativeAndroid) {
+      const dismissed = localStorage.getItem(BATTERY_PROMPT_KEY);
+      if (!dismissed || Date.now() - Number(dismissed) > 7 * 24 * 60 * 60 * 1000) {
+        setTimeout(() => setShowBatteryPrompt(true), 3000);
+      }
+    }
   };
 
   const stopTracking = async () => {
-    if (watchIdRef.current !== null) {
-      await clearWatch(watchIdRef.current);
+    // Clear the module-level singleton first so any remount attempt won't
+    // see a stale isActive=true and incorrectly restore the tracking state.
+    const watchIdToStop = _gpsWatcher.watchId ?? watchIdRef.current;
+    _gpsWatcher.watchId = null;
+    _gpsWatcher.isActive = false;
+
+    if (watchIdToStop !== null) {
+      await clearWatch(watchIdToStop);
       watchIdRef.current = null;
     }
     if (intervalRef.current !== null) {
@@ -299,6 +408,7 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     }
 
     wakeLock.release();
+    // Flush buffer before checkout — captures any remaining buffered points
     await syncPoints();
 
     try {
@@ -309,16 +419,27 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       }).unwrap();
       toast.success('Field day ended!');
       setIsTracking(false);
-      clearPersistedBuffer();
+      // Only clear buffer after successful checkout — prevents data loss on partial failure
+      if (bufferRef.current.length === 0) {
+        clearPersistedBuffer();
+      } else {
+        // Remaining offline points will sync on next app open
+        toast(`${bufferRef.current.length} GPS points still pending sync — they'll upload next time you open the app.`, {
+          icon: '📤',
+          duration: 5000,
+        });
+      }
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to end tracking');
     }
   };
 
-  // Cleanup on unmount
+  // Cleanup on unmount — intentionally does NOT clear the GPS watcher.
+  // The watcher must survive React unmount/remount caused by SPA navigation.
+  // _gpsWatcher.isActive ensures the next mount restores state without a new watch.
+  // The watcher is only torn down inside stopTracking() via the "End Field Day" button.
   useEffect(() => {
     return () => {
-      if (watchIdRef.current !== null) clearWatch(watchIdRef.current);
       if (intervalRef.current !== null) clearInterval(intervalRef.current);
     };
   }, []);
@@ -369,6 +490,122 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
 
   return (
     <div className="space-y-4">
+
+      {/* ── GPS Consent Dialog ──────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {showConsentDialog && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <Shield className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="font-display font-bold text-gray-900">Location Tracking Consent</h3>
+                  <p className="text-xs text-gray-400">Required before field tracking begins</p>
+                </div>
+              </div>
+              <div className="space-y-2 mb-5 text-sm text-gray-600">
+                <p className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                  Your GPS location is recorded during your field shift after clock-in.
+                </p>
+                <p className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                  HR and authorized managers can view your location trail for that day.
+                </p>
+                <p className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                  Tracking stops automatically when you click "End Field Day" or clock out.
+                </p>
+                <p className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                  On the official Android app, tracking continues in background. On PWA/browser, screen must remain on.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowConsentDialog(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConsentAccepted}
+                  disabled={isConsenting}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-60"
+                >
+                  {isConsenting ? 'Saving…' : 'I Agree — Start Tracking'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Battery Optimization Prompt (Android only, once per week) ─────── */}
+      <AnimatePresence>
+        {showBatteryPrompt && isNativeAndroid && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="bg-amber-50 border border-amber-200 rounded-xl p-4"
+          >
+            <div className="flex items-start gap-3">
+              <Battery className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-amber-800 mb-1">Enable Unrestricted Battery for best GPS accuracy</p>
+                <p className="text-xs text-amber-700 mb-2">
+                  Some devices (Samsung, Xiaomi, Oppo) restrict background apps and may stop GPS tracking.
+                </p>
+                <p className="text-xs text-amber-700 font-medium">
+                  Go to: <strong>Settings → Apps → Aniston HRMS → Battery → Unrestricted</strong>
+                </p>
+                <p className="text-xs text-amber-600 mt-1">
+                  (On MIUI: Settings → Apps → Manage Apps → Aniston HRMS → Battery Saver → No restriction)
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  localStorage.setItem(BATTERY_PROMPT_KEY, String(Date.now()));
+                  setShowBatteryPrompt(false);
+                }}
+                className="text-amber-400 hover:text-amber-600 p-1 flex-shrink-0"
+                aria-label="Dismiss"
+              >
+                <Square className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── PWA/Browser Background Tracking Limitation Warning ───────────── */}
+      {!isNativeAndroid && !isNativeIOS && isTracking && (
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 flex items-start gap-3">
+          <AlertTriangle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-xs font-medium text-orange-800">
+              Background GPS limited in browser/PWA
+            </p>
+            <p className="text-xs text-orange-600 mt-0.5">
+              GPS tracking may pause when screen locks or app backgrounds. Keep screen on, or download the official Android app for uninterrupted background tracking.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* iOS PWA install prompt */}
       {isIOS && !isPWA && !isNative && bannerVisible && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-start gap-3">
@@ -417,18 +654,44 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           </div>
         )}
 
+        {/* C6: Prominent offline banner — shown when tracking is active and device is offline */}
+        {isTracking && !isOnline && (
+          <div className="mb-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 text-xs text-red-700">
+            <WifiOff className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong className="block mb-0.5">You are offline</strong>
+              GPS points are being saved on your device ({bufferRef.current.length} buffered) and will upload automatically when you reconnect. Do not force-close the app.
+            </div>
+          </div>
+        )}
+
         {/* Status Indicators */}
-        <div className="flex items-center gap-4 mb-4">
+        <div className="flex items-center gap-4 mb-4 flex-wrap">
           <div className="flex items-center gap-2 text-sm">
             {isOnline ? (
               <><Wifi className="w-4 h-4 text-emerald-500" /><span className="text-emerald-600">Online</span></>
             ) : (
-              <><WifiOff className="w-4 h-4 text-red-500" /><span className="text-red-600">Offline (data buffered)</span></>
+              <><WifiOff className="w-4 h-4 text-red-500" /><span className="text-red-600">Offline — {pendingSyncCount} pts buffered</span></>
             )}
           </div>
-          {bufferRef.current.length > 0 && (
+          {isOnline && pendingSyncCount > 0 && !syncFailed && (
             <div className="flex items-center gap-1 text-sm text-amber-600">
-              <Upload className="w-4 h-4" /> {bufferRef.current.length} pending sync
+              <Upload className="w-4 h-4" /> {pendingSyncCount} syncing…
+            </div>
+          )}
+          {syncFailed && isOnline && (
+            <button
+              onClick={() => { syncRetryRef.current = 0; setSyncFailed(false); syncPoints(); }}
+              className="flex items-center gap-1.5 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-1 hover:bg-red-100 transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Sync failed — {pendingSyncCount} pts pending. Tap to retry.
+            </button>
+          )}
+          {syncFailed && !isOnline && (
+            <div className="flex items-center gap-1.5 text-xs text-red-600">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              {pendingSyncCount} pts pending sync (will retry when online)
             </div>
           )}
         </div>
@@ -464,13 +727,21 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
             <p className="text-2xl font-display font-bold text-gray-900" data-mono>{totalDistance.toFixed(1)}</p>
             <p className="text-xs text-gray-400">km Traveled</p>
           </div>
-          <div className="stat-card text-center">
-            <p className="text-2xl font-display font-bold text-gray-900" data-mono>
+          <div className={`stat-card text-center ${currentPos && currentPos.accuracy > 100 ? 'border border-amber-300 bg-amber-50' : ''}`}>
+            <p className={`text-2xl font-display font-bold ${currentPos && currentPos.accuracy > 100 ? 'text-amber-600' : 'text-gray-900'}`} data-mono>
               {currentPos ? `±${Math.round(currentPos.accuracy)}m` : '—'}
             </p>
             <p className="text-xs text-gray-400">Accuracy</p>
           </div>
         </motion.div>
+      )}
+
+      {/* GPS accuracy warning */}
+      {isTracking && currentPos && currentPos.accuracy > 100 && (
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+          <span className="mt-0.5 flex-shrink-0">⚠️</span>
+          <span>GPS accuracy is weak (±{Math.round(currentPos.accuracy)}m). Move to an open area for better signal. Recorded points may be inaccurate.</span>
+        </div>
       )}
 
       {/* Next capture countdown */}

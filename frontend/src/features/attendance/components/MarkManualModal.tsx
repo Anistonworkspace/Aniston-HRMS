@@ -22,8 +22,6 @@ const STATUSES = [
 const WORK_MODES = [
   { value: 'OFFICE', label: 'Office' },
   { value: 'FIELD_SALES', label: 'Field Sales' },
-  { value: 'PROJECT_SITE', label: 'Project Site' },
-  { value: 'WORK_FROM_HOME', label: 'Work From Home' },
 ];
 
 export default function MarkManualModal({ isOpen, onClose, defaultDate }: Props) {

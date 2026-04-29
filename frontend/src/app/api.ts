@@ -136,6 +136,7 @@ export const api = createApi({
     'Notification',
     'NotificationUnread',
     'DocumentTemplates',
+    'GPSTrail',
   ],
   endpoints: () => ({}),
 });

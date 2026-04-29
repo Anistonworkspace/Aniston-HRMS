@@ -70,7 +70,35 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses 2>/dev/null || true
 
-      # ── 5. Install NPM dependencies ──────────────────────────────────────────
+      # ── 5. Validate signing secrets before any build work ────────────────────
+      # Fail early with a clear message so the developer knows what to configure
+      # rather than getting a cryptic Gradle signing error at the end.
+      - name: Validate signing secrets
+        run: |
+          MISSING=""
+          [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}"   ] && MISSING="$MISSING ANDROID_KEYSTORE_BASE64"
+          [ -z "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ] && MISSING="$MISSING ANDROID_KEYSTORE_PASSWORD"
+          [ -z "${{ secrets.ANDROID_KEY_ALIAS }}"         ] && MISSING="$MISSING ANDROID_KEY_ALIAS"
+          [ -z "${{ secrets.ANDROID_KEY_PASSWORD }}"      ] && MISSING="$MISSING ANDROID_KEY_PASSWORD"
+          if [ -n "$MISSING" ]; then
+            echo "❌ Missing required secrets:$MISSING"
+            echo ""
+            echo "Configure them in GitHub → Settings → Secrets → Actions."
+            echo ""
+            echo "  ANDROID_KEYSTORE_BASE64  — base64-encoded .jks keystore file"
+            echo "    Generate: base64 -w 0 aniston-hrms.jks"
+            echo "  ANDROID_KEYSTORE_PASSWORD — store password used when generating the keystore"
+            echo "  ANDROID_KEY_ALIAS         — alias inside the keystore (e.g. aniston-hrms)"
+            echo "  ANDROID_KEY_PASSWORD      — key password (can be same as store password)"
+            echo ""
+            echo "NOTE: This AAB must be the Capacitor native build — NOT a PWABuilder/TWA wrap."
+            echo "      Only the Capacitor native AAB supports real background GPS tracking via"
+            echo "      @capacitor-community/background-geolocation foreground service."
+            exit 1
+          fi
+          echo "✅ All required signing secrets are present."
+
+      # ── 6. Install NPM dependencies ──────────────────────────────────────────
       - name: Install dependencies
         run: npm ci
 

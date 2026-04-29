@@ -111,7 +111,37 @@ export class AttendanceController {
   async getGPSTrail(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId, date } = req.params;
-      const result = await attendanceService.getGPSTrail(employeeId, date);
+      // Pass organizationId for cross-org isolation and userId for audit log
+      const result = await attendanceService.getGPSTrail(
+        employeeId, date,
+        req.user!.organizationId,
+        req.user!.userId,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async recordGPSConsent(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employeeId = req.user!.employeeId;
+      if (!employeeId) {
+        res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
+        return;
+      }
+      const { consentVersion = 'v1' } = req.body;
+      const result = await attendanceService.recordGPSConsent(employeeId, req.user!.organizationId, consentVersion);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  async getGPSConsentStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employeeId = req.user!.employeeId;
+      if (!employeeId) {
+        res.status(400).json({ success: false, data: null, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked' } });
+        return;
+      }
+      const result = await attendanceService.getGPSConsentStatus(employeeId, req.user!.organizationId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }

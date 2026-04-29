@@ -25,11 +25,8 @@ interface Props {
 }
 
 const WORK_MODES = [
-  { value: 'OFFICE', label: 'Office', hint: 'Geofence auto check-in/out' },
-  { value: 'HYBRID', label: 'Hybrid', hint: 'Mix of office + remote, manual' },
-  { value: 'REMOTE', label: 'Remote', hint: 'Fully remote, manual attendance' },
-  { value: 'FIELD_SALES', label: 'Field Sales', hint: 'GPS trail every 60s' },
-  { value: 'PROJECT_SITE', label: 'Project Site', hint: 'Photo check-in at site' },
+  { value: 'OFFICE', label: 'Office', hint: 'Geofence-based check-in/out from the assigned office location' },
+  { value: 'FIELD_SALES', label: 'Field Sales', hint: 'Live GPS tracking per shift interval — no geofence required' },
 ];
 
 const EMPLOYMENT_TYPES = [

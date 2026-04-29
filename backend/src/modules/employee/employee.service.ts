@@ -47,6 +47,11 @@ export class EmployeeService {
       if (joiningDateTo) where.joiningDate.lte = new Date(joiningDateTo);
     }
 
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+
     const [employees, total] = await Promise.all([
       prisma.employee.findMany({
         where,
@@ -65,10 +70,23 @@ export class EmployeeService {
             orderBy: { startDate: 'desc' as const },
             include: { shift: { select: { id: true, name: true, shiftType: true, startTime: true, endTime: true } } },
           },
+          documentGate: { select: { kycStatus: true } },
         },
       }),
       prisma.employee.count({ where }),
     ]);
+
+    // Bulk attendance check — one query for all employees on the current page
+    const employeeIds = employees.map((e: any) => e.id);
+    const todayAttendance = await prisma.attendanceRecord.findMany({
+      where: {
+        employeeId: { in: employeeIds },
+        checkIn: { gte: startOfToday, lt: startOfTomorrow },
+        deletedAt: null,
+      },
+      select: { employeeId: true },
+    });
+    const checkedInIds = new Set(todayAttendance.map((r: any) => r.employeeId));
 
     const enriched = employees.map((emp: any) => {
       const activeAssignment = emp.shiftAssignments?.[0];
@@ -92,7 +110,10 @@ export class EmployeeService {
         manager,
         hasShift: !!activeAssignment,
         currentShift: activeAssignment?.shift || null,
-        shiftAssignments: undefined, // remove raw assignments from response
+        shiftAssignments: undefined,
+        kycStatus: emp.documentGate?.kycStatus ?? null,
+        documentGate: undefined,
+        hasCheckedInToday: checkedInIds.has(emp.id),
       };
     });
 

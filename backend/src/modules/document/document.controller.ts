@@ -56,10 +56,30 @@ export class DocumentController {
         } catch { /* non-blocking */ }
       }
 
-      // Trigger async OCR processing (non-blocking)
+      // Trigger async OCR processing — if enqueue fails, mark doc FLAGGED so it
+      // doesn't sit as PENDING forever and HR / employee can see it needs attention.
       try {
         await enqueueDocumentOcr(doc.id, req.user!.organizationId);
-      } catch (e) { logger.warn('Failed to enqueue OCR job', e); }
+      } catch (e: any) {
+        logger.error(`[OCR] Failed to enqueue OCR job for document ${doc.id}: ${e?.message}`);
+        try {
+          await prisma.document.update({
+            where: { id: doc.id },
+            data: { status: 'FLAGGED', rejectionReason: 'OCR processing could not start. HR must review manually or re-run OCR.' },
+          });
+          // Notify the employee via socket so the UI updates immediately
+          if (doc.employeeId) {
+            const emp = await prisma.employee.findUnique({ where: { id: doc.employeeId }, select: { userId: true } });
+            if (emp?.userId) {
+              emitToUser(emp.userId, 'kyc:status-changed', {
+                employeeId: doc.employeeId,
+                status: 'OCR_FAILED',
+                message: 'OCR processing could not start for your document. Please contact HR.',
+              });
+            }
+          }
+        } catch { /* best-effort — do not fail the upload response */ }
+      }
 
       // Queue for consolidated HR email (5-min debounce per employee)
       if (data.employeeId) {
@@ -79,7 +99,7 @@ export class DocumentController {
   async verify(req: Request, res: Response, next: NextFunction) {
     try {
       const { status, rejectionReason } = verifyDocumentSchema.parse(req.body);
-      const doc = await documentService.verify(req.params.id, status, req.user!.userId, rejectionReason);
+      const doc = await documentService.verify(req.params.id, status, req.user!.userId, rejectionReason, req.user!.organizationId);
 
       // Auto-verify KYC gate when HR verifies documents
       if (status === 'VERIFIED' && doc.employeeId) {
@@ -102,8 +122,9 @@ export class DocumentController {
             const hasTwelfth = verifiedTypes.includes('TWELFTH_CERTIFICATE');
             const hasDegree = verifiedTypes.includes('DEGREE_CERTIFICATE');
             const hasResidence = verifiedTypes.includes('RESIDENCE_PROOF');
+            const hasCancelledCheque = verifiedTypes.includes('CANCELLED_CHEQUE');
 
-            if (hasPan && hasIdentity && hasTenth && hasTwelfth && hasDegree && hasResidence) {
+            if (hasPan && hasIdentity && hasTenth && hasTwelfth && hasDegree && hasResidence && hasCancelledCheque) {
               await documentGateService.verifyKyc(doc.employeeId, req.user!.userId);
               logger.info(`KYC auto-verified for employee ${doc.employeeId} — all required docs verified by HR`);
             }
@@ -228,7 +249,7 @@ export class DocumentController {
   async stream(req: Request, res: Response, next: NextFunction) {
     try {
       const { readFileSync, existsSync } = await import('fs');
-      const { join, extname } = await import('path');
+      const { join, extname, resolve, sep } = await import('path');
 
       // HR/Admin/SuperAdmin see any doc in their org; employees see their own
       const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(req.user!.role);
@@ -244,12 +265,40 @@ export class DocumentController {
         return;
       }
 
-      // Resolve absolute path — fileUrl is stored relative to project root (e.g. /uploads/...)
+      // ── Path traversal protection ────────────────────────────────────────────
+      // Reject any fileUrl that contains traversal sequences before path resolution.
+      const rawUrl = doc.fileUrl;
+      const decodedUrl = decodeURIComponent(rawUrl);
+      if (
+        decodedUrl.includes('..') ||
+        rawUrl.includes('%2e') || rawUrl.includes('%2E') ||
+        rawUrl.includes('\0') ||
+        decodedUrl.includes('\0')
+      ) {
+        logger.warn(`[Security] Path traversal attempt blocked — documentId: ${req.params.id}`);
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+        return;
+      }
+
+      // Resolve the uploads root once — all served files must live inside it.
       let basePath = process.cwd();
       if (basePath.endsWith('backend') || basePath.endsWith('backend/') || basePath.endsWith('backend\\')) {
         basePath = join(basePath, '..');
       }
-      const filePath = join(basePath, doc.fileUrl);
+      const uploadsRoot = resolve(basePath, 'uploads');
+
+      // Strip a leading slash from the stored relative URL before resolving.
+      const relativeUrl = rawUrl.startsWith('/') ? rawUrl.slice(1) : rawUrl;
+      const resolvedPath = resolve(uploadsRoot, relativeUrl);
+
+      // Ensure the resolved path cannot escape the uploads directory.
+      if (!resolvedPath.startsWith(uploadsRoot + sep) && resolvedPath !== uploadsRoot) {
+        logger.warn(`[Security] Resolved path escapes uploads root — documentId: ${req.params.id}`);
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+        return;
+      }
+
+      const filePath = resolvedPath;
 
       if (!existsSync(filePath)) {
         res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Document file not found on disk' } });

@@ -269,6 +269,7 @@ Return ONLY valid compact JSON (no markdown, no explanation):
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
           body: JSON.stringify({ model: modelName, messages, max_tokens: maxTokens }),
+          signal: AbortSignal.timeout(30_000),
         });
 
         if (!res.ok) {
@@ -298,6 +299,7 @@ Return ONLY valid compact JSON (no markdown, no explanation):
             system: systemMsg,
             messages: chatMsgs,
           }),
+          signal: AbortSignal.timeout(30_000),
         });
 
         if (!res.ok) {
@@ -330,6 +332,7 @@ Return ONLY valid compact JSON (no markdown, no explanation):
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contents }),
+          signal: AbortSignal.timeout(30_000),
         });
 
         if (!res.ok) {
@@ -351,7 +354,7 @@ Return ONLY valid compact JSON (no markdown, no explanation):
   // when confidence < 0.60. Uses detail:"high" for accurate Indian doc field reads.
   // ──────────────────────────────────────────────────────────────────────────────
 
-  async scanDocumentKyc(imageBase64: string, mimeType: string): Promise<AiResponse & {
+  async scanDocumentKyc(imageBase64: string, mimeType: string, docTypeHint?: string): Promise<AiResponse & {
     confidence?: number;
     escalated?: boolean;
   }> {
@@ -361,7 +364,7 @@ Return ONLY valid compact JSON (no markdown, no explanation):
     }
 
     try {
-      const rawFirst = await this.callOpenAiKycVision(apiKey, 'gpt-4.1-mini', imageBase64, mimeType);
+      const rawFirst = await this.callOpenAiKycVision(apiKey, 'gpt-4.1-mini', imageBase64, mimeType, false, docTypeHint);
       const parsed = JSON.parse(rawFirst.replace(/```json[\s\S]*?```|```/g, '').trim());
       // Support both old 'confidence' and new 'overall_confidence' field names
       const conf: number = typeof parsed.overall_confidence === 'number' ? parsed.overall_confidence
@@ -370,7 +373,7 @@ Return ONLY valid compact JSON (no markdown, no explanation):
       if (conf < 0.60) {
         // Low confidence on mini → escalate to full gpt-4.1 for better accuracy
         try {
-          const rawEscalated = await this.callOpenAiKycVision(apiKey, 'gpt-4.1', imageBase64, mimeType);
+          const rawEscalated = await this.callOpenAiKycVision(apiKey, 'gpt-4.1', imageBase64, mimeType, false, docTypeHint);
           const ep = JSON.parse(rawEscalated.replace(/```json[\s\S]*?```|```/g, '').trim());
           const epConf = typeof ep.overall_confidence === 'number' ? ep.overall_confidence
             : typeof ep.confidence === 'number' ? ep.confidence : conf;
@@ -397,7 +400,7 @@ Return ONLY valid compact JSON (no markdown, no explanation):
   }
 
   // ── Deep Re-check (gpt-4.1 direct, no mini first) ────────────────────────────
-  async deepScanDocumentKyc(imageBase64: string, mimeType: string): Promise<AiResponse & {
+  async deepScanDocumentKyc(imageBase64: string, mimeType: string, docTypeHint?: string): Promise<AiResponse & {
     confidence?: number;
     escalated?: boolean;
   }> {
@@ -406,7 +409,7 @@ Return ONLY valid compact JSON (no markdown, no explanation):
       return { success: false, error: 'OPENAI_API_KEY not configured — KYC vision unavailable' };
     }
     try {
-      const raw = await this.callOpenAiKycVision(apiKey, 'gpt-4.1', imageBase64, mimeType, true);
+      const raw = await this.callOpenAiKycVision(apiKey, 'gpt-4.1', imageBase64, mimeType, true, docTypeHint);
       const parsed = JSON.parse(raw.replace(/```json[\s\S]*?```|```/g, '').trim());
       const conf: number = typeof parsed.overall_confidence === 'number' ? parsed.overall_confidence
         : typeof parsed.confidence === 'number' ? parsed.confidence : 0;
@@ -421,7 +424,7 @@ Return ONLY valid compact JSON (no markdown, no explanation):
     }
   }
 
-  private async callOpenAiKycVision(apiKey: string, model: string, imageBase64: string, mimeType: string, deepMode = false): Promise<string> {
+  private async callOpenAiKycVision(apiKey: string, model: string, imageBase64: string, mimeType: string, deepMode = false, docTypeHint?: string): Promise<string> {
     // Support OpenRouter (sk-or-v1-...) and direct OpenAI — auto-detected via key prefix or env
     const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
     const isOpenRouter = apiKey.startsWith('sk-or-v1-') || baseUrl.includes('openrouter');
@@ -435,7 +438,11 @@ Return ONLY valid compact JSON (no markdown, no explanation):
       ? 'This is a deep forensic review. Apply maximum scrutiny to authenticity and tampering detection. Pay special attention to metadata consistency, print quality, digital artifacts, and any signs of selective editing around numbers or dates.\n\n'
       : '';
 
-    const KYC_PROMPT = `${DEEP_PREFIX}You are an enterprise KYC document analyst for an Indian HR system. Analyze this document image and perform each applicable check yourself — report what you FOUND, never tell HR what to verify manually.
+    const TYPE_HINT = docTypeHint && docTypeHint !== 'OTHER'
+      ? `HR system has classified this as: ${docTypeHint.replace(/_/g, ' ')}. Apply validation rules for this type. If the visible content clearly belongs to a different type, use the correct type but note the discrepancy as a finding.\n\n`
+      : '';
+
+    const KYC_PROMPT = `${DEEP_PREFIX}${TYPE_HINT}You are an enterprise KYC document analyst for an Indian HR system. Analyze this document image and perform each applicable check yourself — report what you FOUND, never tell HR what to verify manually.
 
 Return ONLY compact JSON (no markdown, no explanation):
 {"document_type":"AADHAAR|PAN|PASSPORT|PHOTO|RESIDENCE_PROOF|EXPERIENCE_LETTER|SALARY_SLIP|DEGREE_CERTIFICATE|TENTH_CERTIFICATE|TWELFTH_CERTIFICATE|BANK_PASSBOOK|CANCELLED_CHEQUE|PROFESSIONAL_CERTIFICATION|OTHER","overall_confidence":0.0,"extracted_fields":{"full_name":{"value":null,"confidence":0,"evidence":""},"date_of_birth":{"value":null,"confidence":0,"evidence":""},"gender":{"value":null,"confidence":0,"evidence":""},"father_name":{"value":null,"confidence":0,"evidence":""},"document_number":{"value":null,"confidence":0,"evidence":""},"address":{"value":null,"confidence":0,"evidence":""},"company_name":{"value":null,"confidence":0,"evidence":""},"designation":{"value":null,"confidence":0,"evidence":""},"joining_date":{"value":null,"confidence":0,"evidence":""},"leaving_date":{"value":null,"confidence":0,"evidence":""},"salary":{"gross":null,"net":null,"deductions":null,"confidence":0},"document_date":{"value":null,"confidence":0,"evidence":""}},"authenticity_checks":{"possible_digital_editing":{"result":"PASS","evidence":""},"screenshot_or_screen_photo":{"result":"PASS","evidence":""},"crop_or_missing_boundary":{"result":"PASS","evidence":""},"font_alignment_consistency":{"result":"PASS","evidence":""},"metadata_risk":{"result":"PASS","evidence":""}},"quality":{"result":"HIGH","readability_confidence":0,"blur_or_noise_note":""},"findings":[{"check":"","result":"PASS","severity":"INFO","field":null,"detail":"","evidence":""}],"tampering_signals":[],"recommended_status":"NEEDS_HR_REVIEW","recommended_action":"","raw_text":"all visible text"}

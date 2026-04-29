@@ -5,7 +5,7 @@ import {
   Mail, Phone, X, Loader2, Copy, Send, CheckCircle2, Eye, Pencil,
   RefreshCw, UserCheck, UserX, Users, Clock, AlertTriangle, Shield,
   Building2, ChevronDown, Calendar, Briefcase, MapPin, Download, MessageCircle,
-  Trash2, TriangleAlert,
+  Trash2, TriangleAlert, ShieldCheck, ShieldOff, LogIn, LogOut,
 } from 'lucide-react';
 import {
   useGetEmployeesQuery,
@@ -510,10 +510,7 @@ export default function EmployeeListPage() {
               options={[
                 { value: '', label: 'All Work Modes' },
                 { value: 'OFFICE', label: 'Office' },
-                { value: 'HYBRID', label: 'Hybrid' },
-                { value: 'REMOTE', label: 'Remote' },
                 { value: 'FIELD_SALES', label: 'Field Sales' },
-                { value: 'PROJECT_SITE', label: 'Project Site' },
               ]}
             />
             <FilterSelect label="Onboarding" value={filterOnboarding} onChange={v => { setFilterOnboarding(v); setPage(1); }}
@@ -554,6 +551,8 @@ export default function EmployeeListPage() {
                   <Th className="hidden md:table-cell">Department</Th>
                   <Th className="hidden lg:table-cell">Reporting Manager</Th>
                   <Th className="hidden xl:table-cell">Work Mode</Th>
+                  <Th className="hidden xl:table-cell">Portal</Th>
+                  <Th className="hidden xl:table-cell">Check-in</Th>
                   <Th className="hidden xl:table-cell">Shift</Th>
                   <Th className="hidden sm:table-cell">Joined</Th>
                   <Th>Status</Th>
@@ -565,7 +564,7 @@ export default function EmployeeListPage() {
                 {isLoading ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i} className="border-b border-gray-50">
-                      <td colSpan={8} className="px-4 py-4">
+                      <td colSpan={10} className="px-4 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-lg bg-gray-100 animate-pulse" />
                           <div className="space-y-2">
@@ -578,7 +577,7 @@ export default function EmployeeListPage() {
                   ))
                 ) : employees.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-16">
+                    <td colSpan={10} className="text-center py-16">
                       <Users size={40} className="mx-auto text-gray-200 mb-3" />
                       <p className="text-gray-400 text-sm font-medium">No employees found</p>
                       <p className="text-gray-300 text-xs mt-1">Try adjusting your search or filters</p>
@@ -622,6 +621,28 @@ export default function EmployeeListPage() {
                         <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-600">
                           {emp.workMode?.replace(/_/g, ' ')}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 hidden xl:table-cell">
+                        {emp.kycStatus === 'VERIFIED' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700">
+                            <ShieldCheck size={11} /> Granted
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-red-50 text-red-600">
+                            <ShieldOff size={11} /> Blocked
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 hidden xl:table-cell">
+                        {emp.hasCheckedInToday ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700">
+                            <LogIn size={11} /> Checked In
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-400">
+                            <LogOut size={11} /> Not Yet
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 hidden xl:table-cell">
                         {emp.hasShift ? (
@@ -1288,10 +1309,7 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
                   <option value="">— Select —</option>
                   <option value="OFFICE">Office</option>
-                  <option value="HYBRID">Hybrid</option>
-                  <option value="REMOTE">Remote</option>
                   <option value="FIELD_SALES">Field Sales</option>
-                  <option value="PROJECT_SITE">Project Site</option>
                 </select>
               </div>
               <div>
@@ -1599,9 +1617,9 @@ function InvitationsTab() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={8} className="text-center py-12"><Loader2 className="animate-spin mx-auto text-indigo-600" size={24} /></td></tr>
+              <tr><td colSpan={10} className="text-center py-12"><Loader2 className="animate-spin mx-auto text-indigo-600" size={24} /></td></tr>
             ) : invitations.length === 0 ? (
-              <tr><td colSpan={8} className="text-center py-12 text-gray-400 text-sm">No invitations yet</td></tr>
+              <tr><td colSpan={10} className="text-center py-12 text-gray-400 text-sm">No invitations yet</td></tr>
             ) : invitations.map((inv: any) => (
               <tr key={inv.id} className="border-b border-gray-50">
                 <td className="px-4 py-3">

@@ -36,6 +36,10 @@ router.get('/gps-trail/:employeeId/:date', requirePermission('attendance', 'read
   attendanceController.getGPSTrail(req, res, next)
 );
 
+// GPS consent (DPDP Act 2023 — field sales employees must consent before tracking)
+router.post('/gps-consent', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.recordGPSConsent(req, res, next));
+router.get('/gps-consent', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.getGPSConsentStatus(req, res, next));
+
 // Geo Locations (named visit stops for field sales)
 router.get('/geo-locations', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
   (req, res, next) => attendanceController.getGeoLocations(req, res, next)

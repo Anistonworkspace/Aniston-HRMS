@@ -48,7 +48,7 @@ export function computeRequiredDocs(
   fresherOrExperienced: string,
   highestQualification: string
 ): { requiredDocs: string[]; needsIdentityProof: boolean; needsEmploymentProof: boolean } {
-  const required: string[] = ['PAN', 'PHOTO', 'RESIDENCE_PROOF'];
+  const required: string[] = ['PAN', 'PHOTO', 'RESIDENCE_PROOF', 'CANCELLED_CHEQUE'];
 
   // Education chain — always require all levels up to and including highest
   const qualIdx = QUALIFICATION_ORDER.indexOf(highestQualification);
@@ -88,7 +88,7 @@ export class DocumentGateService {
     return prisma.onboardingDocumentGate.create({
       data: {
         employeeId,
-        requiredDocs: (requiredDocs || ['PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO']) as any,
+        requiredDocs: (requiredDocs || ['PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO', 'CANCELLED_CHEQUE']) as any,
       },
     });
   }
@@ -240,7 +240,7 @@ export class DocumentGateService {
       return prisma.onboardingDocumentGate.create({
         data: {
           employeeId,
-          requiredDocs: ['PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO'] as any,
+          requiredDocs: ['PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO', 'CANCELLED_CHEQUE'] as any,
           photoUrl,
         },
       });
@@ -279,9 +279,19 @@ export class DocumentGateService {
     }
 
     if (uploadMode === 'COMBINED') {
-      // Combined mode: just need combined PDF + photo
+      // Combined mode: need combined PDF + photo + cancelled cheque
       if (!gate.combinedPdfUploaded) {
         throw new BadRequestError('Please upload your combined PDF before submitting.');
+      }
+      if (!submitted.includes('CANCELLED_CHEQUE')) {
+        throw new BadRequestError('Please upload a Cancelled Cheque before submitting. This is required for payroll processing.');
+      }
+
+      // Enforce employment proof for EXPERIENCED employees — same rule as SEPARATE mode.
+      if (fresher === 'EXPERIENCED' && !EMPLOYMENT_PROOF_TYPES.some(t => submitted.includes(t))) {
+        throw new BadRequestError(
+          'As an experienced employee, please upload at least one employment proof separately (Experience Letter, Relieving Letter, Offer Letter, or Salary Slips) before submitting.'
+        );
       }
 
       // If classification ran but detected 0 document types, add a system note to HR review.
@@ -429,7 +439,7 @@ export class DocumentGateService {
       return prisma.onboardingDocumentGate.create({
         data: {
           employeeId,
-          requiredDocs: ['PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO'] as any,
+          requiredDocs: ['PAN', 'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'RESIDENCE_PROOF', 'PHOTO', 'CANCELLED_CHEQUE'] as any,
           ...updateData,
         },
       });
@@ -489,6 +499,11 @@ export class DocumentGateService {
     const hasPhoto = !!gate.photoUrl || submitted.includes('PHOTO');
     if (!hasPhoto) {
       throw new BadRequestError('Cannot approve: Employee has not uploaded their passport photograph.');
+    }
+
+    // Cancelled Cheque is mandatory for all employees regardless of upload mode
+    if (!submitted.includes('CANCELLED_CHEQUE')) {
+      throw new BadRequestError('Cannot approve: Cancelled Cheque is required for payroll processing. Employee must upload a cancelled cheque of their salary account.');
     }
 
     if (uploadMode === 'COMBINED') {
@@ -1026,6 +1041,77 @@ export class DocumentGateService {
       crossValidation,
       separateModeDobCrossVerification,
     };
+  }
+
+  /**
+   * One-time enforcement: flag all VERIFIED employees who have not uploaded a Cancelled Cheque.
+   * Sets their gate to REUPLOAD_REQUIRED and sends in-app notifications.
+   * Safe to call on every startup — only affects VERIFIED gates missing CANCELLED_CHEQUE.
+   */
+  async enforceCancelledChequeRequirement(organizationId?: string) {
+    const verifiedGates = await prisma.onboardingDocumentGate.findMany({
+      where: {
+        kycStatus: 'VERIFIED',
+        ...(organizationId ? { employee: { organizationId } } : {}),
+      },
+      select: { employeeId: true },
+    });
+
+    let enforced = 0;
+    let skipped = 0;
+
+    for (const { employeeId } of verifiedGates) {
+      const hasCancelledCheque = await prisma.document.findFirst({
+        where: { employeeId, type: 'CANCELLED_CHEQUE', deletedAt: null },
+      });
+
+      if (hasCancelledCheque) {
+        skipped++;
+        continue;
+      }
+
+      const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+      if (!gate) continue;
+
+      await prisma.onboardingDocumentGate.update({
+        where: { employeeId },
+        data: {
+          kycStatus: 'REUPLOAD_REQUIRED',
+          reuploadRequested: true,
+          reuploadDocTypes: [...new Set([...(gate.reuploadDocTypes as string[] || []), 'CANCELLED_CHEQUE'])] as any,
+          documentRejectReasons: {
+            ...((gate.documentRejectReasons as Record<string, string>) || {}),
+            CANCELLED_CHEQUE: 'New mandatory requirement: Cancelled Cheque is now required for all employees for payroll processing. Please upload a cancelled cheque of your salary account.',
+          } as any,
+          requiredDocs: [...new Set([...(gate.requiredDocs as string[] || []), 'CANCELLED_CHEQUE'])] as any,
+        },
+      });
+
+      await this.emitKycUpdate(employeeId, 'REUPLOAD_REQUIRED');
+
+      try {
+        const emp = await prisma.employee.findUnique({
+          where: { id: employeeId },
+          select: { userId: true, organizationId: true },
+        });
+        if (emp?.userId) {
+          const { enqueueNotification } = await import('../../jobs/queues.js');
+          await enqueueNotification({
+            userId: emp.userId,
+            organizationId: emp.organizationId,
+            title: 'Action Required: Upload Cancelled Cheque',
+            message: 'A Cancelled Cheque is now required for payroll processing. Please upload it to restore full portal access.',
+            type: 'DOCUMENT_FLAGGED',
+            link: '/kyc-pending',
+          });
+        }
+      } catch { /* non-blocking */ }
+
+      enforced++;
+    }
+
+    logger.info(`[KYC] Cancelled Cheque enforcement: ${enforced} employees flagged, ${skipped} already have it`);
+    return { enforced, skipped, total: verifiedGates.length };
   }
 }
 

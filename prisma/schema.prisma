@@ -189,6 +189,11 @@ model Employee {
   agentPairingCode   String?   @unique
   agentPairedAt      DateTime?
 
+  // GPS / Location Tracking Consent (DPDP Act 2023 — required for FIELD_SALES employees)
+  locationTrackingConsented       Boolean   @default(false)
+  locationTrackingConsentAt       DateTime?
+  locationTrackingConsentVersion  String?   // e.g. "v1" — bump to force re-consent on policy changes
+
   // System accounts (superadmin, hr, admin) — not counted as employees
   isSystemAccount    Boolean   @default(false)
 
@@ -448,6 +453,11 @@ model Document {
 
   employee        Employee?              @relation(fields: [employeeId], references: [id])
   ocrVerification DocumentOcrVerification?
+
+  @@index([employeeId])
+  @@index([employeeId, type])
+  @@index([status])
+  @@index([deletedAt])
 }
 
 model DocumentOcrVerification {
@@ -775,6 +785,8 @@ model GPSTrailPoint {
 
   @@index([employeeId, date])
   @@index([organizationId, date])
+  @@index([organizationId, employeeId, date]) // compound — eliminates full-table-scan for HR trail queries
+  @@index([employeeId, timestamp])            // for duplicate detection and chronological range queries
 }
 
 model ProjectSiteCheckIn {

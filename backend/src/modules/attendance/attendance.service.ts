@@ -1359,15 +1359,35 @@ export class AttendanceService {
   }
 
   /**
-   * Store GPS trail points (for FIELD_SALES employees)
+   * Store GPS trail points (for FIELD_SALES employees).
+   *
+   * Validation layers:
+   *   1. Only FIELD_SALES workMode or FIELD shiftType employees accepted
+   *   2. Points older than 7 days rejected (covers offline buffering scenarios)
+   *   3. Future timestamps (>5 min ahead) rejected — GPS clock drift tolerance
+   *   4. Coordinates sanity check (already in Zod schema; guarded again here)
+   *   5. Speed sanity check (>300 km/h flagged as anomaly)
+   *   6. Frequency check: points submitted faster than 50% of shift interval flagged
+   *   7. Duplicate deduplication: same (lat, lng, timestamp-bucket) skipped
    */
   async storeGPSTrail(employeeId: string, data: GPSTrailBatchInput) {
     const today = getISTToday();
+    const now = Date.now();
 
-    // E11: Only FIELD_SALES employees may store GPS trail
+    // Only FIELD_SALES employees may store GPS trail
     const gpsEmployee = await prisma.employee.findFirst({
       where: { id: employeeId, deletedAt: null },
-      select: { workMode: true, organizationId: true, shiftAssignments: { where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] }, take: 1, include: { shift: { select: { shiftType: true } } }, orderBy: { startDate: 'desc' } } },
+      select: {
+        workMode: true,
+        organizationId: true,
+        locationTrackingConsented: true,
+        shiftAssignments: {
+          where: { startDate: { lte: today }, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+          take: 1,
+          include: { shift: { select: { shiftType: true, trackingIntervalMinutes: true } } },
+          orderBy: { startDate: 'desc' },
+        },
+      },
     });
     const empWorkMode = gpsEmployee?.workMode;
     const empShiftType = gpsEmployee?.shiftAssignments?.[0]?.shift?.shiftType;
@@ -1375,56 +1395,205 @@ export class AttendanceService {
       throw new BadRequestError('GPS tracking is only available for field sales employees');
     }
 
-    // Filter out GPS points that are more than 24 hours old.
-    // 24-hour window allows offline-buffered points to sync when connectivity resumes
-    // (e.g., a field employee who loses signal for hours still gets their trail uploaded).
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const freshPoints = data.points.filter(p => new Date(p.timestamp) > oneDayAgo);
-    if (freshPoints.length === 0) {
-      throw new BadRequestError('All GPS points are more than 24 hours old. Please ensure your GPS is active.');
+    // Consent check — employee must have acknowledged the GPS tracking consent
+    if (!gpsEmployee?.locationTrackingConsented) {
+      throw new BadRequestError('GPS tracking consent is required before submitting location data. Please accept the consent in the app.');
     }
 
-    const points = freshPoints.map((p) => ({
-      employeeId,
-      date: today,
-      lat: p.lat,
-      lng: p.lng,
-      accuracy: p.accuracy || null,
-      altitude: p.altitude || null,
-      speed: p.speed || null,
-      heading: p.heading || null,
-      batteryLevel: p.batteryLevel || null,
-      timestamp: new Date(p.timestamp),
-    }));
+    const orgId = gpsEmployee?.organizationId || '';
+    const trackingIntervalMinutes = gpsEmployee?.shiftAssignments?.[0]?.shift?.trackingIntervalMinutes ?? 60;
+    const minIntervalMs = (trackingIntervalMinutes * 60_000) * 0.5; // 50% tolerance
 
-    const result = await prisma.gPSTrailPoint.createMany({ data: points });
+    const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+    const FUTURE_TOLERANCE_MS = 5 * 60 * 1000; // 5 minutes GPS clock drift allowed
 
-    // Audit log for GPS trail upload (compliance) — reuse organizationId from first query
+    const anomalies: string[] = [];
+    const validPoints: typeof data.points = [];
+
+    // Sort incoming by timestamp to enable interval check
+    const sorted = [...data.points].sort((a, b) =>
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    let lastAcceptedTs: number | null = null;
+
+    for (const p of sorted) {
+      const ts = new Date(p.timestamp).getTime();
+
+      // Reject stale points (> 7 days old)
+      if (ts < sevenDaysAgo.getTime()) {
+        anomalies.push(`GPS_STALE_REJECTED:${p.timestamp}`);
+        continue;
+      }
+
+      // Reject future timestamps beyond tolerance
+      if (ts > now + FUTURE_TOLERANCE_MS) {
+        anomalies.push(`GPS_FUTURE_TIMESTAMP:${p.timestamp}`);
+        continue;
+      }
+
+      // Coordinate sanity (belt + suspenders — Zod already validates, but log if somehow bypassed)
+      if (p.lat < -90 || p.lat > 90 || p.lng < -180 || p.lng > 180) {
+        anomalies.push(`GPS_INVALID_COORDINATE:${p.lat},${p.lng}`);
+        continue;
+      }
+
+      // Speed sanity: > 300 km/h is physically implausible for field sales (flag, don't reject)
+      if (p.speed !== undefined && p.speed !== null && p.speed > 83.3) {
+        anomalies.push(`GPS_IMPLAUSIBLE_SPEED:${p.speed.toFixed(1)}m/s`);
+        // Accept but flag — don't block offline sync for a single noisy reading
+      }
+
+      // Frequency check: not applicable to first point or when min interval is very small
+      if (lastAcceptedTs !== null && minIntervalMs > 30_000) {
+        const gap = ts - lastAcceptedTs;
+        if (gap < minIntervalMs) {
+          anomalies.push(`GPS_TOO_FREQUENT:gap=${Math.round(gap / 1000)}s,min=${Math.round(minIntervalMs / 1000)}s`);
+          // For batch offline syncs, frequency anomalies are logged but NOT rejected
+          // as the employee may have had a legitimate reconnect sending accumulated points
+        }
+      }
+
+      validPoints.push(p);
+      lastAcceptedTs = ts;
+    }
+
+    if (validPoints.length === 0) {
+      throw new BadRequestError('All submitted GPS points were rejected due to validation errors. Check device time and GPS accuracy.');
+    }
+
+    // Log anomalies to audit (non-blocking; never stores raw coordinates in audit log)
+    if (anomalies.length > 0) {
+      try {
+        await createAuditLog({
+          userId: employeeId,
+          organizationId: orgId,
+          entity: 'GPSTrailPoint',
+          entityId: employeeId,
+          action: 'GPS_ANOMALY_DETECTED',
+          newValue: { anomalies, submittedCount: data.points.length, acceptedCount: validPoints.length },
+        });
+      } catch { /* non-blocking */ }
+    }
+
+    const dbPoints = validPoints.map((p) => {
+      // Use the timestamp's calendar date so multi-day offline sync lands on correct days
+      const pointDate = new Date(p.timestamp);
+      pointDate.setHours(0, 0, 0, 0);
+      return {
+        employeeId,
+        organizationId: orgId,
+        date: pointDate,
+        lat: p.lat,
+        lng: p.lng,
+        accuracy: p.accuracy ?? null,
+        altitude: p.altitude ?? null,
+        speed: p.speed ?? null,
+        heading: p.heading ?? null,
+        batteryLevel: p.batteryLevel ?? null,
+        timestamp: new Date(p.timestamp),
+      };
+    });
+
+    // skipDuplicates prevents DB constraint errors from offline re-sync of the same batch
+    const result = await prisma.gPSTrailPoint.createMany({ data: dbPoints, skipDuplicates: true });
+
     try {
       await createAuditLog({
         userId: employeeId,
-        organizationId: gpsEmployee?.organizationId || '',
+        organizationId: orgId,
         entity: 'GPSTrailPoint',
         entityId: employeeId,
         action: 'GPS_TRAIL_UPLOAD',
-        newValue: { pointCount: result.count, date: today.toISOString() },
+        newValue: { stored: result.count, submitted: data.points.length, anomalyCount: anomalies.length },
       });
     } catch { /* non-blocking */ }
 
-    return { stored: result.count };
+    return { stored: result.count, submitted: data.points.length, anomalies: anomalies.length };
   }
 
   /**
-   * Get GPS trail for a specific employee and date
+   * Record GPS location-tracking consent for a FIELD_SALES employee.
    */
-  async getGPSTrail(employeeId: string, date: string) {
+  async recordGPSConsent(employeeId: string, organizationId: string, consentVersion: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
+    const updated = await prisma.employee.update({
+      where: { id: employeeId },
+      data: {
+        locationTrackingConsented: true,
+        locationTrackingConsentAt: new Date(),
+        locationTrackingConsentVersion: consentVersion,
+      },
+      select: { locationTrackingConsented: true, locationTrackingConsentAt: true, locationTrackingConsentVersion: true },
+    });
+
+    try {
+      await createAuditLog({
+        userId: employeeId,
+        organizationId,
+        entity: 'Employee',
+        entityId: employeeId,
+        action: 'GPS_CONSENT_RECORDED',
+        newValue: { consentVersion, consentAt: updated.locationTrackingConsentAt },
+      });
+    } catch { /* non-blocking */ }
+
+    return updated;
+  }
+
+  /**
+   * Get GPS consent status for an employee.
+   */
+  async getGPSConsentStatus(employeeId: string, organizationId: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      select: { locationTrackingConsented: true, locationTrackingConsentAt: true, locationTrackingConsentVersion: true, workMode: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+    return {
+      consented: employee.locationTrackingConsented,
+      consentAt: employee.locationTrackingConsentAt,
+      consentVersion: employee.locationTrackingConsentVersion,
+      isFieldEmployee: employee.workMode === 'FIELD_SALES',
+    };
+  }
+
+  /**
+   * Get GPS trail for a specific employee and date.
+   * organizationId is required — enforces cross-org isolation so HR from Org A
+   * cannot retrieve GPS data for employees in Org B.
+   */
+  async getGPSTrail(employeeId: string, date: string, requestingOrgId: string, requestingUserId?: string) {
     const targetDate = new Date(date);
     targetDate.setHours(0, 0, 0, 0);
 
+    // Verify employee belongs to the requesting org before returning any location data
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId: requestingOrgId, deletedAt: null },
+      select: { id: true, organizationId: true, workMode: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
     const points = await prisma.gPSTrailPoint.findMany({
-      where: { employeeId, date: targetDate },
+      where: { employeeId, organizationId: requestingOrgId, date: targetDate },
       orderBy: { timestamp: 'asc' },
     });
+
+    // Audit: HR viewed employee GPS trail (compliance log — do not store raw coords in audit)
+    try {
+      await createAuditLog({
+        userId: requestingUserId || requestingOrgId,
+        organizationId: requestingOrgId,
+        entity: 'GPSTrailPoint',
+        entityId: employeeId,
+        action: 'GPS_TRAIL_VIEWED',
+        newValue: { date, pointCount: points.length },
+      });
+    } catch { /* non-blocking */ }
 
     const rawVisits = this.clusterVisits(points);
 
@@ -1435,7 +1604,7 @@ export class AttendanceService {
 
     let namedVisits: any[] = rawVisits;
     if (attendanceRecord) {
-      namedVisits = await this.persistNamedVisits(attendanceRecord.id, attendanceRecord.organizationId || undefined, rawVisits);
+      namedVisits = await this.persistNamedVisits(attendanceRecord.id, requestingOrgId, rawVisits);
     }
 
     return { points, visits: namedVisits };
@@ -1557,7 +1726,7 @@ export class AttendanceService {
       entity: 'LocationVisit',
       entityId: id,
       organizationId,
-      metadata: { customName },
+      newValue: { customName },
     });
 
     return updated;

@@ -982,8 +982,8 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
           <div className="grid grid-cols-3 gap-3">
             <div><label className="block text-xs text-gray-500 mb-1">Work Mode</label>
               <select value={form.workMode} onChange={(e) => setForm({ ...form, workMode: e.target.value })} className="input-glass w-full text-sm">
-                <option value="OFFICE">Office</option><option value="HYBRID">Hybrid</option><option value="REMOTE">Remote</option>
-                <option value="FIELD_SALES">Field Sales</option><option value="PROJECT_SITE">Project Site</option>
+                <option value="OFFICE">Office</option>
+                <option value="FIELD_SALES">Field Sales</option>
               </select></div>
             <div><label className="block text-xs text-gray-500 mb-1">Joining Date <span className="text-gray-400 font-normal">(Contractual)</span></label>
               <input type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} className="input-glass w-full text-sm" /></div>

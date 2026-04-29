@@ -27,7 +27,12 @@ import { Geolocation, type Position } from '@capacitor/geolocation';
 let _bgGeoPromise: Promise<typeof import('@capacitor-community/background-geolocation')> | null = null;
 function getBgGeo() {
   if (!_bgGeoPromise) {
-    _bgGeoPromise = import('@capacitor-community/background-geolocation');
+    _bgGeoPromise = import('@capacitor-community/background-geolocation').catch((err) => {
+      // Reset cache so the next caller retries the import rather than receiving
+      // the same rejected promise forever (e.g. after a hot-reload or plugin load race)
+      _bgGeoPromise = null;
+      throw err;
+    });
   }
   return _bgGeoPromise;
 }
@@ -204,7 +209,7 @@ export async function watchPosition(
       timestamp: pos.timestamp,
     }),
     (err) => onError({ code: err.code, message: err.message }),
-    { enableHighAccuracy: true, maximumAge: 60000, timeout: 30000 }
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
   );
 }
 

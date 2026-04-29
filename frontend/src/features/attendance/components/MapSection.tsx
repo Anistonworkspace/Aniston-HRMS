@@ -1,9 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Circle, Polyline, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Activity, Clock, Flag, MapPin, Navigation } from 'lucide-react';
+import { Activity, Clock, Flag, MapPin, Navigation, Edit2, Check, X } from 'lucide-react';
 import { cn, formatDate } from '../../../lib/utils';
+import { useUpdateLocationVisitNameMutation } from '../attendanceApi';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -59,6 +60,13 @@ interface MapSectionProps {
   geofenceViolation?: boolean;
 }
 
+/** Edit state for a single visit stop label */
+interface LabelEditState {
+  visitId: string | null;
+  index: number | null;
+  value: string;
+}
+
 export default function MapSection({
   checkInLoc,
   geofenceCoords,
@@ -69,17 +77,35 @@ export default function MapSection({
   selectedDate,
   geofenceViolation,
 }: MapSectionProps) {
+  const [labelEdit, setLabelEdit] = useState<LabelEditState>({ visitId: null, index: null, value: '' });
+  const [updateVisitName, { isLoading: isSavingLabel }] = useUpdateLocationVisitNameMutation();
+
+  const saveLabel = async () => {
+    if (!labelEdit.visitId || !labelEdit.value.trim()) { setLabelEdit({ visitId: null, index: null, value: '' }); return; }
+    try {
+      await updateVisitName({ id: labelEdit.visitId, customName: labelEdit.value.trim() }).unwrap();
+    } catch { /* label save failure is non-critical */ }
+    setLabelEdit({ visitId: null, index: null, value: '' });
+  };
 
   // ── FIELD SALES: full GPS trail view ──────────────────────────────────────
-  if (shiftType === 'FIELD' && gpsTrail.length > 0) {
+  if (gpsTrail.length > 0) {
     const positions: [number, number][] = gpsTrail.map((p: any) => [
       p.lat ?? p.latitude,
       p.lng ?? p.longitude,
     ]);
 
+    // Jitter-filtered distance: skip a segment if its length is smaller than the GPS accuracy
+    // of either endpoint. This avoids inflating distance when the device is stationary.
     let totalKm = 0;
     for (let i = 1; i < positions.length; i++) {
-      totalKm += haversineKm(positions[i - 1], positions[i]);
+      const segKm = haversineKm(positions[i - 1], positions[i]);
+      const acc1 = (gpsTrail[i - 1]?.accuracy ?? 0) / 1000; // convert m → km
+      const acc2 = (gpsTrail[i]?.accuracy ?? 0) / 1000;
+      const jitterThresholdKm = Math.max(acc1, acc2);
+      if (segKm > jitterThresholdKm) {
+        totalKm += segKm;
+      }
     }
 
     const firstTs = gpsTrail[0]?.timestamp ?? gpsTrail[0]?.time ?? gpsTrail[0]?.recordedAt;
@@ -281,38 +307,75 @@ export default function MapSection({
           </div>
         </div>
 
-        {/* Visit stops summary */}
+        {/* Visit stops summary with editable labels */}
         {gpsVisits.length > 0 && (
           <div className="px-4 pb-3 border-t border-gray-100 pt-2">
             <p className="text-[10px] font-semibold text-gray-600 mb-1.5 flex items-center gap-1">
               <Navigation size={10} className="text-orange-400" />
               Visit Stops ({gpsVisits.length})
+              <span className="text-gray-400 ml-1 font-normal">(click pencil to name a stop)</span>
             </p>
             <div className="space-y-1">
               {gpsVisits.map((v: any, i: number) => {
                 const dwellMs = v.durationMinutes != null ? v.durationMinutes * 60 * 1000 : 0;
+                const displayName = v.customName || v.locationName || null;
+                const isEditing = labelEdit.index === i;
                 return (
-                  <div
-                    key={i}
-                    className="flex items-center gap-2 text-[10px] bg-orange-50 rounded px-2 py-1"
-                  >
-                    <div className="w-1.5 h-1.5 rounded-full bg-orange-400 flex-shrink-0" />
-                    <span className="text-orange-700 font-medium flex-shrink-0">
-                      Stop {i + 1}
-                    </span>
-                    {v.startTime && (
-                      <span className="text-gray-500">{fmtTime(v.startTime)}</span>
+                  <div key={i} className="text-[10px] bg-orange-50 rounded px-2 py-1.5 border border-orange-100">
+                    {isEditing ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={labelEdit.value}
+                          onChange={e => setLabelEdit(s => ({ ...s, value: e.target.value }))}
+                          placeholder={`Name for Stop ${i + 1}`}
+                          className="flex-1 text-[10px] border border-orange-300 rounded px-1.5 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
+                          autoFocus
+                          onKeyDown={e => { if (e.key === 'Enter') saveLabel(); if (e.key === 'Escape') setLabelEdit({ visitId: null, index: null, value: '' }); }}
+                        />
+                        <button onClick={saveLabel} disabled={isSavingLabel} className="text-green-600 hover:text-green-700 p-0.5">
+                          <Check size={12} />
+                        </button>
+                        <button onClick={() => setLabelEdit({ visitId: null, index: null, value: '' })} className="text-gray-400 hover:text-gray-600 p-0.5">
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-orange-400 flex-shrink-0" />
+                        <span className="text-orange-700 font-medium flex-shrink-0">
+                          {displayName || `Stop ${i + 1}`}
+                        </span>
+                        {!displayName && v.startTime && (
+                          <span className="text-gray-500">{fmtTime(v.startTime)}</span>
+                        )}
+                        {!displayName && v.endTime && (
+                          <>
+                            <span className="text-gray-400">→</span>
+                            <span className="text-gray-500">{fmtTime(v.endTime)}</span>
+                          </>
+                        )}
+                        {dwellMs > 0 && (
+                          <span className="text-orange-600 ml-auto font-medium">{fmtDuration(dwellMs)}</span>
+                        )}
+                        {/* Edit button — only shows if visit has been persisted to DB (has an id) */}
+                        {v.id && (
+                          <button
+                            onClick={() => setLabelEdit({ visitId: v.id, index: i, value: v.customName || '' })}
+                            className="text-orange-300 hover:text-orange-600 p-0.5 ml-1 flex-shrink-0"
+                            title="Name this location"
+                          >
+                            <Edit2 size={10} />
+                          </button>
+                        )}
+                      </div>
                     )}
-                    {v.endTime && (
-                      <>
-                        <span className="text-gray-400">→</span>
-                        <span className="text-gray-500">{fmtTime(v.endTime)}</span>
-                      </>
-                    )}
-                    {dwellMs > 0 && (
-                      <span className="text-orange-600 ml-auto font-medium">
-                        {fmtDuration(dwellMs)}
-                      </span>
+                    {displayName && (
+                      <div className="mt-0.5 ml-3.5 text-gray-400">
+                        {v.startTime && fmtTime(v.startTime)}
+                        {v.endTime && <> → {fmtTime(v.endTime)}</>}
+                        {dwellMs > 0 && <span className="ml-1">· {fmtDuration(dwellMs)}</span>}
+                      </div>
                     )}
                   </div>
                 );

@@ -21,7 +21,6 @@ import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
 import FieldSalesView from './FieldSalesView';
-import ProjectSiteView from './ProjectSiteView';
 import CommandCenter from './components/CommandCenter';
 import SelfServiceReport from './components/SelfServiceReport';
 import { CompOffTab } from './components/CompOffTab';
@@ -1048,21 +1047,14 @@ function AttendancePersonalView() {
       )}
       <h1 className="text-xl font-display font-bold text-gray-900 mb-3">{t('nav.attendance')}</h1>
 
-      {/* Work Mode Indicator */}
-      {(workMode === 'FIELD_SALES' || workMode === 'PROJECT_SITE') && (
+      {/* Field Sales: Live Tracking View */}
+      {workMode === 'FIELD_SALES' && (
         <div className="mb-4">
-          <div className="flex gap-2 mb-3">
-            {['OFFICE', 'FIELD_SALES', 'PROJECT_SITE'].map(mode => (
-              <span
-                key={mode}
-                className={`badge text-xs ${mode === workMode ? 'badge-info' : 'badge-neutral'}`}
-              >
-                {mode.replace(/_/g, ' ')}
-              </span>
-            ))}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="badge badge-info text-xs">Field Sales</span>
+            <span className="badge badge-neutral text-xs">Live GPS Tracking</span>
           </div>
-          {workMode === 'FIELD_SALES' && <FieldSalesView todayStatus={today} />}
-          {workMode === 'PROJECT_SITE' && <ProjectSiteView />}
+          <FieldSalesView todayStatus={today} />
         </div>
       )}
 

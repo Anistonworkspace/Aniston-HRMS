@@ -131,6 +131,8 @@ export interface EmployeeListItem {
   status: string;
   joiningDate: string;
   avatar?: string;
+  kycStatus?: string | null;
+  hasCheckedInToday?: boolean;
   user?: {
     id?: string;
     role?: string;

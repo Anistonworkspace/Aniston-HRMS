@@ -5,7 +5,7 @@ import {
   FileText, Camera, Upload, CheckCircle2, Clock, XCircle, Loader2,
   AlertTriangle, Info, GraduationCap, ShieldCheck, CreditCard,
   Home, Briefcase, Image, ArrowRight, ArrowLeft, RefreshCw,
-  ChevronDown, ChevronUp, LayoutDashboard,
+  ChevronDown, ChevronUp, LayoutDashboard, Banknote,
 } from 'lucide-react';
 import { useAppSelector } from '../../app/store';
 import {
@@ -83,6 +83,14 @@ function computeRequiredDocs(experience: Experience, qualification: Qualificatio
       acceptsAnyOf: EMPLOYMENT_TYPES,
     });
   }
+
+  // Cancelled Cheque — mandatory for all employees for payroll processing
+  docs.push({
+    type: 'CANCELLED_CHEQUE',
+    label: 'Cancelled Cheque',
+    hint: 'Upload a cancelled cheque of your salary account — the same bank account you entered in your bank details',
+    required: true,
+  });
 
   // Photo
   docs.push({ type: 'PHOTO', label: 'Passport Size Photograph', required: true });
@@ -616,6 +624,12 @@ function SeparateUploadScreen({
       icon: Briefcase,
       docs: requiredDocs.filter(d => d.type === 'EMPLOYMENT_PROOF'),
     }] : []),
+    {
+      id: 'bank',
+      title: 'Bank Document (Cancelled Cheque)',
+      icon: Banknote,
+      docs: requiredDocs.filter(d => d.type === 'CANCELLED_CHEQUE'),
+    },
     {
       id: 'photo',
       title: 'Passport Size Photo',

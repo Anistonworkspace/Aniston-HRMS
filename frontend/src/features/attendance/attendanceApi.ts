@@ -148,7 +148,8 @@ export const attendanceApi = api.injectEndpoints({
 
     storeGPSTrail: builder.mutation<any, { points: any[] }>({
       query: (body) => ({ url: '/attendance/gps-trail', method: 'POST', body }),
-      invalidatesTags: ['Attendance'],
+      // Use targeted GPS tag so only GPS-trail queries refetch, not all Attendance queries
+      invalidatesTags: (_, __, arg) => [{ type: 'GPSTrail' as const, id: 'PENDING' }],
     }),
 
     projectSiteCheckIn: builder.mutation<any, { siteName: string; siteAddress?: string; notes?: string; latitude?: number; longitude?: number; photoUrl?: string }>({
@@ -173,6 +174,20 @@ export const attendanceApi = api.injectEndpoints({
 
     getEmployeeGPSTrail: builder.query<any, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => `/attendance/gps-trail/${employeeId}/${date}`,
+      // Specific tag per employee+date — avoids over-invalidating all Attendance cache
+      providesTags: (_, __, { employeeId, date }) => [
+        { type: 'GPSTrail' as const, id: `${employeeId}:${date}` },
+        { type: 'GPSTrail' as const, id: 'PENDING' },
+      ],
+    }),
+
+    recordGPSConsent: builder.mutation<any, { consentVersion?: string }>({
+      query: (body) => ({ url: '/attendance/gps-consent', method: 'POST', body }),
+      invalidatesTags: ['Attendance'],
+    }),
+
+    getGPSConsentStatus: builder.query<any, void>({
+      query: () => '/attendance/gps-consent',
       providesTags: ['Attendance'],
     }),
 
@@ -451,4 +466,7 @@ export const {
   // Geo Locations
   useGetGeoLocationsQuery,
   useUpdateLocationVisitNameMutation,
+  // GPS Consent
+  useRecordGPSConsentMutation,
+  useGetGPSConsentStatusQuery,
 } = attendanceApi;

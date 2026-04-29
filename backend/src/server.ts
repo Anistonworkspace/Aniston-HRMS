@@ -35,6 +35,20 @@ async function main() {
       }
     }, 5_000);
 
+    // Enforce Cancelled Cheque requirement: flag all VERIFIED employees who haven't uploaded one.
+    // Idempotent — only acts on VERIFIED gates where CANCELLED_CHEQUE is missing; safe on every restart.
+    setTimeout(async () => {
+      try {
+        const { documentGateService } = await import('./modules/onboarding/document-gate.service.js');
+        const result = await documentGateService.enforceCancelledChequeRequirement();
+        if (result.enforced > 0) {
+          logger.info(`[Startup] Cancelled Cheque enforcement: ${result.enforced} employees flagged for re-upload, ${result.skipped} already compliant`);
+        }
+      } catch (err: any) {
+        logger.warn('[Startup] Cancelled Cheque enforcement failed:', err?.message);
+      }
+    }, 15_000);
+
     // Initialize Socket.io
     initSocketServer(server);
 

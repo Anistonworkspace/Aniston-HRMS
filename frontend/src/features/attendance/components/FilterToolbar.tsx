@@ -34,9 +34,6 @@ const WORK_MODE_OPTIONS = [
   { value: '', label: 'All Modes' },
   { value: 'OFFICE', label: 'Office' },
   { value: 'FIELD_SALES', label: 'Field Sales' },
-  { value: 'REMOTE', label: 'Remote' },
-  { value: 'HYBRID', label: 'Hybrid' },
-  { value: 'PROJECT_SITE', label: 'Project Site' },
 ];
 
 const ANOMALY_OPTIONS = [
