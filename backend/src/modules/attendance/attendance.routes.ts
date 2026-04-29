@@ -36,6 +36,14 @@ router.get('/gps-trail/:employeeId/:date', requirePermission('attendance', 'read
   attendanceController.getGPSTrail(req, res, next)
 );
 
+// Geo Locations (named visit stops for field sales)
+router.get('/geo-locations', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER),
+  (req, res, next) => attendanceController.getGeoLocations(req, res, next)
+);
+router.patch('/location-visits/:id/name', authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  (req, res, next) => attendanceController.updateLocationVisitName(req, res, next)
+);
+
 // Regularization
 router.post('/regularization', requireEmpPerm('canMarkAttendance'), (req, res, next) => attendanceController.submitRegularization(req, res, next));
 router.patch(

@@ -3125,6 +3125,9 @@ model LocationVisit {
   departureTime   DateTime
   durationMinutes Int
   pointCount      Int              @default(1)
+  locationName    String?          // Auto-generated from OSM Nominatim reverse geocoding
+  customName      String?          // HR-edited display name
+  isSignificant   Boolean          @default(false) // stayed >= 60 min
   createdAt       DateTime         @default(now())
   attendance      AttendanceRecord  @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
   organization    Organization?     @relation(fields: [organizationId], references: [id])

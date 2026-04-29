@@ -372,6 +372,20 @@ export const attendanceApi = api.injectEndpoints({
       query: (body) => ({ url: '/attendance/comp-off/redeem', method: 'POST', body }),
       invalidatesTags: ['Attendance'],
     }),
+
+    // ===== GEO LOCATIONS (named visit stops for field sales) =====
+    getGeoLocations: builder.query<any, { startDate?: string; endDate?: string; employeeId?: string; page?: number; limit?: number }>({
+      query: (params) => ({ url: '/attendance/geo-locations', params }),
+      providesTags: ['Attendance'],
+    }),
+    updateLocationVisitName: builder.mutation<any, { id: string; customName: string }>({
+      query: ({ id, customName }) => ({
+        url: `/attendance/location-visits/${id}/name`,
+        method: 'PATCH',
+        body: { customName },
+      }),
+      invalidatesTags: ['Attendance'],
+    }),
   }),
 });
 
@@ -434,4 +448,7 @@ export const {
   useGetOrgCompOffCreditsQuery,
   useGrantCompOffMutation,
   useRedeemCompOffMutation,
+  // Geo Locations
+  useGetGeoLocationsQuery,
+  useUpdateLocationVisitNameMutation,
 } = attendanceApi;

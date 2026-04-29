@@ -18,6 +18,7 @@ import MonthlyReportTab from './MonthlyReportTab';
 import ShiftRotationCalendar from './ShiftRotationCalendar';
 import AnomalyDetectionPanel from './AnomalyDetectionPanel';
 import MarkManualModal from './MarkManualModal';
+import GeoLocationsTab from './GeoLocationsTab';
 import toast from 'react-hot-toast';
 import { useAuthDownload } from '../../../hooks/useAuthDownload';
 
@@ -27,6 +28,7 @@ const TABS = [
   { key: 'monthly', label: 'Monthly Report' },
   { key: 'roster', label: 'Shift Roster' },
   { key: 'anomalies', label: 'AI Anomalies' },
+  { key: 'geo-locations', label: 'Geo Locations' },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -225,6 +227,8 @@ export default function CommandCenter() {
       {activeTab === 'roster' && <ShiftRotationCalendar />}
 
       {activeTab === 'anomalies' && <AnomalyDetectionPanel selectedDate={filters.date} />}
+
+      {activeTab === 'geo-locations' && <GeoLocationsTab />}
 
       <MarkManualModal isOpen={showMarkManual} onClose={() => setShowMarkManual(false)} defaultDate={filters.date} />
     </div>

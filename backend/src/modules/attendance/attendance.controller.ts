@@ -316,6 +316,31 @@ export class AttendanceController {
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
+
+  async getGeoLocations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { startDate, endDate, employeeId, page, limit } = req.query as Record<string, string>;
+      const result = await attendanceService.getGeoLocations(req.user!.organizationId, {
+        startDate, endDate, employeeId,
+        page: page ? parseInt(page) : 1,
+        limit: limit ? parseInt(limit) : 50,
+      });
+      res.json({ success: true, ...result });
+    } catch (err) { next(err); }
+  }
+
+  async updateLocationVisitName(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { customName } = req.body;
+      if (!customName || typeof customName !== 'string') {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'customName is required' } });
+        return;
+      }
+      const result = await attendanceService.updateLocationVisitName(id, customName.trim(), req.user!.organizationId, req.user!.userId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
 }
 
 export const attendanceController = new AttendanceController();

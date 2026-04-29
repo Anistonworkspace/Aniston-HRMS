@@ -1426,10 +1426,141 @@ export class AttendanceService {
       orderBy: { timestamp: 'asc' },
     });
 
-    // Simple visit clustering: group points within 200m that span > 10 min
-    const visits = this.clusterVisits(points);
+    const rawVisits = this.clusterVisits(points);
 
-    return { points, visits };
+    // Persist significant visits (≥60 min) to LocationVisit with geocoded names
+    const attendanceRecord = await prisma.attendanceRecord.findFirst({
+      where: { employeeId, date: targetDate },
+    });
+
+    let namedVisits: any[] = rawVisits;
+    if (attendanceRecord) {
+      namedVisits = await this.persistNamedVisits(attendanceRecord.id, attendanceRecord.organizationId || undefined, rawVisits);
+    }
+
+    return { points, visits: namedVisits };
+  }
+
+  private async persistNamedVisits(attendanceId: string, organizationId: string | undefined, rawVisits: any[]): Promise<any[]> {
+    const SIGNIFICANT_MINUTES = 60;
+    const result: any[] = [];
+
+    for (const v of rawVisits) {
+      if (v.durationMinutes >= SIGNIFICANT_MINUTES) {
+        // Check if already saved
+        const existing = await prisma.locationVisit.findFirst({
+          where: { attendanceId, latitude: v.lat, longitude: v.lng },
+        });
+        if (existing) {
+          result.push({ ...v, id: existing.id, locationName: existing.locationName, customName: existing.customName, isSignificant: true });
+          continue;
+        }
+        // Reverse geocode
+        const locationName = await this.reverseGeocode(v.lat, v.lng);
+        const saved = await prisma.locationVisit.create({
+          data: {
+            attendanceId,
+            organizationId: organizationId ?? null,
+            latitude: v.lat,
+            longitude: v.lng,
+            arrivalTime: new Date(v.startTime),
+            departureTime: new Date(v.endTime),
+            durationMinutes: v.durationMinutes,
+            pointCount: v.pointCount,
+            locationName,
+            isSignificant: true,
+          },
+        });
+        result.push({ ...v, id: saved.id, locationName: saved.locationName, customName: null, isSignificant: true });
+      } else {
+        result.push({ ...v, isSignificant: false });
+      }
+    }
+    return result;
+  }
+
+  private async reverseGeocode(lat: number, lng: number): Promise<string | null> {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=16&addressdetails=1`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'AnistonHRMS/1.0 (hr@anistonav.com)' },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return null;
+      const data: any = await res.json();
+      // Build short name: road/suburb + city
+      const a = data.address || {};
+      const parts = [
+        a.road || a.pedestrian || a.footway,
+        a.suburb || a.neighbourhood || a.village || a.town,
+        a.city || a.county,
+      ].filter(Boolean);
+      return parts.length > 0 ? parts.slice(0, 2).join(', ') : (data.display_name?.split(',').slice(0, 2).join(', ') ?? null);
+    } catch {
+      return null;
+    }
+  }
+
+  async getGeoLocations(organizationId: string, params: { startDate?: string; endDate?: string; employeeId?: string; page?: number; limit?: number }) {
+    const { startDate, endDate, employeeId, page = 1, limit = 50 } = params;
+    const skip = (page - 1) * limit;
+
+    const start = startDate ? new Date(startDate + 'T00:00:00.000Z') : new Date(new Date().toISOString().split('T')[0] + 'T00:00:00.000Z');
+    const end = endDate ? new Date(endDate + 'T00:00:00.000Z') : start;
+
+    const where: any = {
+      organizationId,
+      attendance: {
+        date: { gte: start, lte: end },
+        workMode: 'FIELD_SALES',
+      },
+    };
+    if (employeeId) where.attendance = { ...where.attendance, employeeId };
+
+    const [visits, total] = await Promise.all([
+      prisma.locationVisit.findMany({
+        where,
+        include: {
+          attendance: {
+            select: {
+              date: true,
+              employeeId: true,
+              employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true, departmentId: true } },
+            },
+          },
+        },
+        orderBy: { arrivalTime: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.locationVisit.count({ where }),
+    ]);
+
+    return {
+      data: visits,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  async updateLocationVisitName(id: string, customName: string, organizationId: string, userId: string) {
+    const visit = await prisma.locationVisit.findFirst({ where: { id, organizationId } });
+    if (!visit) throw new NotFoundError('Location visit');
+
+    const updated = await prisma.locationVisit.update({
+      where: { id },
+      data: { customName },
+    });
+
+    await createAuditLog({
+      userId,
+      action: 'UPDATE',
+      entity: 'LocationVisit',
+      entityId: id,
+      organizationId,
+      metadata: { customName },
+    });
+
+    return updated;
   }
 
   /**
@@ -2768,11 +2899,20 @@ export class AttendanceService {
         });
       }
 
-      // --- Fix #5: LEAVE OVERLAP (attendance exists + approved leave exists) ---
-      // This catches edge cases where HR manually created a record for someone on leave
-      if (record.checkIn && onLeaveSet.has(empId)) {
-        // Note: This won't fire because we skip onLeave employees above.
-        // But if we detect a record that was created BEFORE leave was approved, flag it.
+      // --- GPS_NO_DATA: Field sales employee checked in but has no GPS points ---
+      if (!isWfhRecord && record.checkIn && shift.shiftType === 'FIELD') {
+        const gpsCount = await prisma.gPSTrailPoint.count({
+          where: { employeeId: empId, date: queryDate },
+        });
+        if (gpsCount === 0) {
+          anomalies.push({
+            attendanceId: record.id, employeeId: empId, date: queryDate,
+            type: 'GPS_NO_DATA', severity: 'MEDIUM',
+            description: 'Field sales employee checked in but no GPS location data recorded for this day',
+            metadata: { shiftName: shift.name },
+            organizationId, autoDetected: true,
+          });
+        }
       }
     }
 

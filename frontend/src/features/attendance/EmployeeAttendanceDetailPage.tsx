@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowLeft, Clock, MapPin, Calendar, ChevronLeft, ChevronRight, Activity,
   Flag, LogIn, LogOut, Coffee, Play, Shield, FileText, AlertTriangle,
-  Download, PenSquare, ClipboardList, User, Briefcase, Building, Maximize2, X,
+  Download, PenSquare, ClipboardList, User, Briefcase, Building, Maximize2, X, Navigation,
 } from 'lucide-react';
 import { useGetEmployeeQuery } from '../employee/employeeApi';
 import {
@@ -19,6 +19,7 @@ import { cn, formatDate, getInitials, getStatusColor } from '../../lib/utils';
 
 // Lazy load map component
 const MapSection = lazy(() => import('./components/MapSection'));
+const GpsTrailModal = lazy(() => import('./components/GpsTrailModal'));
 
 // ==========================================
 // Constants
@@ -72,6 +73,7 @@ export default function EmployeeAttendanceDetailPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [gpsTrailModal, setGpsTrailModal] = useState<{ date: string } | null>(null);
 
   // Data fetching
   const { data: empRes } = useGetEmployeeQuery(employeeId || '');
@@ -103,7 +105,8 @@ export default function EmployeeAttendanceDetailPage() {
     { employeeId: employeeId || '', date: selectedDate },
     { skip: shiftType !== 'FIELD' }
   );
-  const gpsTrail = gpsRes?.data || [];
+  const gpsTrail: any[] = gpsRes?.data?.data?.points || [];
+  const gpsVisits: any[] = gpsRes?.data?.data?.visits || [];
 
   // Attendance logs
   const { data: logsRes } = useGetAttendanceLogsQuery(
@@ -654,13 +657,14 @@ export default function EmployeeAttendanceDetailPage() {
 
           {/* Map Section (lazy loaded) */}
           {(checkInLoc?.lat || (shiftType === 'FIELD' && gpsTrail.length > 0)) && (
-            <Suspense fallback={<div className="layer-card overflow-hidden"><div className="px-4 pt-3 pb-1.5"><div className="w-28 h-3 bg-gray-100 rounded animate-pulse" /></div><div className="h-[200px] bg-gray-50 animate-pulse" /></div>}>
+            <Suspense fallback={<div className="layer-card overflow-hidden"><div className="px-4 pt-3 pb-1.5"><div className="w-28 h-3 bg-gray-100 rounded animate-pulse" /></div><div className={shiftType === 'FIELD' ? 'h-[320px]' : 'h-[200px]'} style={{ background: '#f9fafb' }} /></div>}>
               <MapSection
                 checkInLoc={checkInLoc}
                 geofenceCoords={geofenceCoords}
                 geofence={geofence}
                 shiftType={shiftType}
                 gpsTrail={gpsTrail}
+                gpsVisits={gpsVisits}
                 selectedDate={selectedDate}
                 geofenceViolation={selectedRecord?.geofenceViolation}
               />
@@ -781,10 +785,13 @@ export default function EmployeeAttendanceDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {records.slice(0, 31).map((r: any, i: number) => (
-                    <tr key={i} onClick={() => setSelectedDate(new Date(r.date).toISOString().split('T')[0])}
+                  {records.slice(0, 31).map((r: any, i: number) => {
+                    const rowDate = new Date(r.date).toISOString().split('T')[0];
+                    const isFieldSales = r.workMode === 'FIELD_SALES';
+                    return (
+                    <tr key={i} onClick={() => setSelectedDate(rowDate)}
                       className={cn('border-b border-gray-50 hover:bg-surface-2 cursor-pointer',
-                        new Date(r.date).toISOString().split('T')[0] === selectedDate && 'bg-brand-50/50')}>
+                        rowDate === selectedDate && 'bg-brand-50/50')}>
                       <td className="px-4 py-1.5 text-gray-600">{formatDate(r.date)}</td>
                       <td className="px-4 py-1.5 font-mono text-gray-600" data-mono>{formatTime(r.checkIn)}</td>
                       <td className="px-4 py-1.5 font-mono text-gray-600" data-mono>{formatTime(r.checkOut)}</td>
@@ -794,15 +801,38 @@ export default function EmployeeAttendanceDetailPage() {
                       <td className="px-4 py-1.5 hidden md:table-cell">
                         {r.geofenceViolation && <Flag size={10} className="text-red-500 inline" />}
                         {r.clockInCount > 1 && <span className="text-[9px] text-amber-500 ml-1">x{r.clockInCount}</span>}
+                        {isFieldSales && (
+                          <button
+                            onClick={e => { e.stopPropagation(); setGpsTrailModal({ date: rowDate }); }}
+                            className="ml-1 inline-flex items-center gap-0.5 text-[9px] text-green-600 bg-green-50 border border-green-200 rounded px-1.5 py-0.5 hover:bg-green-100 transition-colors"
+                            title="View GPS Trail"
+                          >
+                            <Navigation size={9} /> GPS
+                          </button>
+                        )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
         </div>
       </div>
+
+      {/* GPS Trail Modal */}
+      <Suspense fallback={null}>
+        {gpsTrailModal && employee && (
+          <GpsTrailModal
+            isOpen={!!gpsTrailModal}
+            onClose={() => setGpsTrailModal(null)}
+            employeeId={employeeId || ''}
+            employeeName={`${employee.firstName} ${employee.lastName}`}
+            date={gpsTrailModal.date}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

@@ -339,6 +339,7 @@ export enum AnomalyType {
   GPS_SPOOF = 'GPS_SPOOF',
   GPS_SIGNAL_LOST = 'GPS_SIGNAL_LOST',
   GPS_GAP = 'GPS_GAP',
+  GPS_NO_DATA = 'GPS_NO_DATA',
 }
 
 export enum AnomalySeverity {
