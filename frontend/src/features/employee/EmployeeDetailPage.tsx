@@ -341,8 +341,6 @@ export default function EmployeeDetailPage() {
           <div className="p-4 sm:p-6">
             {activeTab === 'attendance' && (
               <div className="space-y-4">
-                {/* Shift Assignment */}
-                <ShiftAssignmentCard employeeId={id!} isManagement={MANAGEMENT_ROLES.includes(user?.role || '')} />
                 <EmployeeAttendanceTab employeeId={id!} employeeName={`${employee.firstName} ${employee.lastName}`} isManagement={isManagement} />
               </div>
             )}
@@ -3442,7 +3440,8 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
         const allVerified = documents.length > 0 && documents.every((d: any) => d.status === 'VERIFIED');
         const pendingCount = documents.filter((d: any) => d.status === 'PENDING' || d.status === 'FLAGGED').length;
         const rejectedCount = documents.filter((d: any) => d.status === 'REJECTED').length;
-        const canGrant = allVerified && profileComplete && kycStatus !== 'VERIFIED';
+        const hasCancelledCheque = documents.some((d: any) => d.type === 'CANCELLED_CHEQUE' && d.status === 'VERIFIED');
+        const canGrant = allVerified && profileComplete && hasCancelledCheque && kycStatus !== 'VERIFIED';
         return (
           <div className="layer-card p-4 mt-4 border border-gray-100">
             <div className="flex items-center justify-between mb-3">
@@ -3470,8 +3469,9 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                 {documents.length === 0 && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-gray-400 shrink-0" /> No documents uploaded yet</li>}
                 {pendingCount > 0 && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-amber-400 shrink-0" /> {pendingCount} document{pendingCount !== 1 ? 's' : ''} still pending/flagged — approve each one first</li>}
                 {rejectedCount > 0 && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-red-500 shrink-0" /> {rejectedCount} document{rejectedCount !== 1 ? 's' : ''} rejected — employee must re-upload</li>}
+                {!hasCancelledCheque && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-amber-500 shrink-0" /> Cancelled Cheque not uploaded — employee must upload it for payroll processing</li>}
                 {!profileComplete && documents.length > 0 && <li className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-red-500 shrink-0" /> Employee profile incomplete (required fields missing)</li>}
-                {allVerified && profileComplete && <li className="flex items-center gap-1.5 text-emerald-700"><span className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" /> All documents verified — ready to grant access</li>}
+                {allVerified && profileComplete && hasCancelledCheque && <li className="flex items-center gap-1.5 text-emerald-700"><span className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" /> All documents verified — ready to grant access</li>}
               </ul>
             )}
 
