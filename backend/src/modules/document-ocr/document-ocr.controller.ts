@@ -47,6 +47,16 @@ export class DocumentOcrController {
       res.json({ success: true, data });
     } catch (err) { next(err); }
   }
+
+  /** Deep Re-check using gpt-4.1 directly (images only) */
+  async deepRecheck(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await documentOcrService.deepRecheckDocument(
+        req.params.id, req.user!.userId, req.user!.organizationId,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
 }
 
 export const documentOcrController = new DocumentOcrController();

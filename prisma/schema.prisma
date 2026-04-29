@@ -495,6 +495,10 @@ model DocumentOcrVerification {
   suspicionScore        Float        @default(0)
   suspicionFlags        Json?        // string[] of suspicion reasons
 
+  // Enterprise KYC scoring
+  kycScore              Float?    // 0–100 weighted KYC score
+  profileComparison     Json?     // structured profile cross-check results
+
   // HR review
   hrReviewedBy          String?
   hrReviewedAt          DateTime?

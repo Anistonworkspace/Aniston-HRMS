@@ -32,4 +32,9 @@ router.get('/ocr/employee/:employeeId', (req, res, next) =>
   documentOcrController.getEmployeeSummary(req, res, next),
 );
 
+// Deep Re-check: reprocess with gpt-4.1 (images only, HR/ADMIN/SUPER_ADMIN)
+router.post('/:id/ocr/deep-recheck', (req, res, next) =>
+  documentOcrController.deepRecheck(req, res, next),
+);
+
 export { router as documentOcrRouter };

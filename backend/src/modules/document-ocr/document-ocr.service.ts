@@ -19,6 +19,18 @@ export class DocumentOcrService {
     const doc = await prisma.document.findUnique({ where: { id: documentId } });
     if (!doc) throw new NotFoundError('Document');
 
+    // Fetch employee profile for cross-verification against document fields
+    const employee = doc.employeeId ? await prisma.employee.findFirst({
+      where: { id: doc.employeeId, deletedAt: null },
+      select: { firstName: true, lastName: true, dateOfBirth: true, gender: true, fatherName: true },
+    }) : null;
+    const profileData = employee ? {
+      name: `${employee.firstName} ${employee.lastName}`.trim(),
+      dateOfBirth: employee.dateOfBirth ? employee.dateOfBirth.toISOString().split('T')[0] : null,
+      gender: (employee.gender as string | null) ?? null,
+      fatherName: employee.fatherName ?? null,
+    } : null;
+
     // Read the file from disk
     let basePath = process.cwd();
     if (basePath.endsWith('backend') || basePath.endsWith('backend/') || basePath.endsWith('backend\\')) {
@@ -168,38 +180,79 @@ export class DocumentOcrService {
           const vf = visionJson.extracted_fields || {};
           const of_ = ocrResult.extracted_fields || {};
 
+          // Support both new enriched schema (vf.full_name.value) and old flat schema (vf.name)
+          const vfName = (vf.full_name?.value) || vf.name || null;
+          const vfDob = (vf.date_of_birth?.value) || (typeof vf.date_of_birth === 'string' ? vf.date_of_birth : null);
+          const vfDocNum = (vf.document_number?.value) || (typeof vf.document_number === 'string' ? vf.document_number : null);
+          const vfGender = (vf.gender?.value) || (typeof vf.gender === 'string' ? vf.gender : null);
+          const vfAddress = (vf.address?.value) || (typeof vf.address === 'string' ? vf.address : null);
+          const vfFatherName = (vf.father_name?.value) || (typeof vf.father_name === 'string' ? vf.father_name : null);
+
           // Vision fields take priority over Tesseract — OpenAI reads docs visually
           ocrResult.extracted_fields = {
-            name: vf.name || of_.name,
-            date_of_birth: vf.date_of_birth || of_.date_of_birth,
-            document_number: vf.document_number || of_.aadhaar_number || of_.pan_number || of_.passport_number || of_.document_number,
-            aadhaar_number: visionJson.document_type === 'AADHAAR' ? (vf.document_number || of_.aadhaar_number) : of_.aadhaar_number,
-            pan_number: visionJson.document_type === 'PAN' ? (vf.document_number || of_.pan_number) : of_.pan_number,
-            passport_number: visionJson.document_type === 'PASSPORT' ? (vf.document_number || of_.passport_number) : of_.passport_number,
-            father_name: vf.father_name || of_.father_name,
+            name: vfName || of_.name,
+            date_of_birth: vfDob || of_.date_of_birth,
+            document_number: vfDocNum || of_.aadhaar_number || of_.pan_number || of_.passport_number || of_.document_number,
+            aadhaar_number: visionJson.document_type === 'AADHAAR' ? (vfDocNum || of_.aadhaar_number) : of_.aadhaar_number,
+            pan_number: visionJson.document_type === 'PAN' ? (vfDocNum || of_.pan_number) : of_.pan_number,
+            passport_number: visionJson.document_type === 'PASSPORT' ? (vfDocNum || of_.passport_number) : of_.passport_number,
+            father_name: vfFatherName || of_.father_name,
             mother_name: vf.mother_name || of_.mother_name,
-            gender: vf.gender || of_.gender,
-            address: vf.address || of_.address,
+            gender: vfGender || of_.gender,
+            address: vfAddress || of_.address,
             issuing_authority: vf.issuing_authority || of_.issuing_authority,
             issue_date: vf.issue_date || of_.issue_date,
             expiry_date: vf.expiry_date || of_.expiry_date,
             account_number: vf.account_number || of_.account_number,
             ifsc_code: vf.ifsc_code || of_.ifsc_code,
             bank_name: vf.bank_name || of_.bank_name,
+            company_name: (vf.company_name?.value) || vf.company_name || of_.company_name || null,
+            designation: (vf.designation?.value) || vf.designation || of_.designation || null,
           };
 
-          if (Array.isArray(visionJson.validation_pointers) && visionJson.validation_pointers.length > 0) {
+          // Build validation_reasons from new findings[] (evidence-based, not checklists)
+          if (Array.isArray(visionJson.findings) && visionJson.findings.length > 0) {
+            for (const f of visionJson.findings) {
+              if (!f.check || !f.detail) continue;
+              const prefix = f.result === 'PASS' ? '✓' : f.result === 'FAIL' ? '✗' : '⚠';
+              ocrResult.validation_reasons = [...(ocrResult.validation_reasons || []), `${prefix} ${f.check}: ${f.detail}`];
+            }
+          }
+          // Tampering signals get prominent FAIL prefix
+          if (Array.isArray(visionJson.tampering_signals) && visionJson.tampering_signals.length > 0) {
+            for (const t of visionJson.tampering_signals) {
+              ocrResult.validation_reasons = [...(ocrResult.validation_reasons || []), `✗ Tampering: ${t}`];
+            }
+          }
+          // Authenticity checks — only show non-PASS entries
+          if (visionJson.authenticity_checks) {
+            for (const [key, val] of Object.entries(visionJson.authenticity_checks as Record<string, any>)) {
+              const v = val as any;
+              if (v?.result !== 'PASS' && v?.evidence) {
+                const prefix = v.result === 'FAIL' ? '✗' : '⚠';
+                const label = key.replace(/_/g, ' ');
+                ocrResult.validation_reasons = [...(ocrResult.validation_reasons || []), `${prefix} ${label}: ${v.evidence}`];
+              }
+            }
+          }
+          // Legacy fallback: old validation_pointers format (Python service / old models)
+          if (!visionJson.findings && Array.isArray(visionJson.validation_pointers) && visionJson.validation_pointers.length > 0) {
             ocrResult.validation_reasons = [
               ...(ocrResult.validation_reasons || []),
-              ...visionJson.validation_pointers.map((p: string) => `👁 Vision AI: ${p}`),
+              ...visionJson.validation_pointers.map((p: string) => `⚠ ${p}`),
             ];
           }
           if (Array.isArray(visionJson.suspicious_indicators) && visionJson.suspicious_indicators.length > 0) {
             ocrResult.validation_reasons = [
               ...(ocrResult.validation_reasons || []),
-              ...visionJson.suspicious_indicators.map((s: string) => `⚠ Vision: ${s}`),
+              ...visionJson.suspicious_indicators.map((s: string) => `⚠ ${s}`),
             ];
           }
+          // Store structured vision data for frontend display
+          ocrResult.vision_findings = visionJson.findings || [];
+          ocrResult.vision_authenticity_checks = visionJson.authenticity_checks || null;
+          ocrResult.vision_tampering_signals = visionJson.tampering_signals || [];
+          ocrResult.vision_recommended_status = visionJson.recommended_status || null;
           if (visionJson.document_type && visionJson.document_type !== 'OTHER' &&
               (!ocrResult.document_type || ocrResult.document_type === 'OTHER')) {
             ocrResult.document_type = visionJson.document_type;
@@ -396,49 +449,67 @@ export class DocumentOcrService {
     const autoOcrStatus = (isLowConfidence || isPythonFlagged || hasTamperIssues) ? 'FLAGGED' : 'PENDING';
 
     // ── AI Enhancement: use configured AI provider (Settings → AI API Config) ──
-    // Augments Python OCR output with LLM-generated validation pointers and field
-    // confirmation. Non-blocking — any failure silently falls back to Python-only output.
+    // Performs actual checks (profile cross-check + authenticity analysis) and returns
+    // structured findings. Non-blocking — any failure silently falls back to Vision-only output.
     try {
+      const profileJson = profileData ? JSON.stringify(profileData) : '{}';
+      const docType = ocrResult.document_type || doc.type || 'UNKNOWN';
       const aiResp = await aiService.prompt(
         organizationId,
-        `You are a KYC document analyst for an Indian HR system. Given OCR-extracted text from a document, you must:
-1. Confirm or correct the document type.
-2. List 4–6 specific HR validation checkpoints (what HR should visually verify in the original document).
-3. Mention any suspicious patterns if found.
-Respond ONLY with valid compact JSON (no markdown):
-{"confirmed_type":"AADHAAR|PAN|PASSPORT|TENTH_CERTIFICATE|TWELFTH_CERTIFICATE|DEGREE|BANK_PASSBOOK|EXPERIENCE_LETTER|OFFER_LETTER|PROFESSIONAL_CERTIFICATION|OTHER","validation_pointers":["..."],"suspicious_indicators":[],"confidence_note":"..."}`,
-        `Document type from OCR: ${ocrResult.document_type || 'UNKNOWN'}\n\nOCR Text (first 1500 chars):\n${(ocrResult.raw_text || '').substring(0, 1500)}`,
-        700,
+        `You are an enterprise KYC analyst for an Indian HR system.
+You receive OCR-extracted text from a document and the employee's onboarding profile data.
+Your job: perform each applicable check and report actual findings — not a list of things HR should check.
+
+Perform these checks when applicable:
+1. Confirm document type from text evidence
+2. If profile name provided: fuzzy-compare extracted name to profile name and report the actual similarity result
+3. If profile DOB provided AND document contains DOB: compare and report exact match result (only when confidence >= 70)
+4. If profile gender provided AND document contains gender: compare and report match
+5. Detect suspicious patterns (mismatched data, unusual field formatting, edited sections)
+6. Assess text authenticity from OCR quality and field consistency
+
+Document-type rules (CRITICAL — follow strictly):
+- PHOTO: only assess image quality, do NOT extract or compare DOB/PAN/Aadhaar/address fields
+- RESIDENCE_PROOF/PERMANENT_RESIDENCE_PROOF: compare name and address only; bill date/document date is NOT a date-of-birth — never include DOB findings
+- SALARY_SLIP_DOC: verify gross - deductions matches net if all three present; flag suspicious edits near salary amounts
+- EXPERIENCE_LETTER/OFFER_LETTER_DOC/RELIEVING_LETTER: check name/company/designation/dates; flag inconsistent fonts near key fields
+- DEGREE_CERTIFICATE/TENTH_CERTIFICATE/TWELFTH_CERTIFICATE/POST_GRADUATION_CERTIFICATE: check student name/institution/year only
+- BANK_STATEMENT/CANCELLED_CHEQUE: check account holder name only; no DOB check
+
+Respond with valid compact JSON only (no markdown):
+{"confirmed_type":"AADHAAR|PAN|PASSPORT|PHOTO|RESIDENCE_PROOF|EXPERIENCE_LETTER|SALARY_SLIP|DEGREE_CERTIFICATE|OTHER","findings":[{"check":"Name cross-check","result":"PASS|WARNING|FAIL","detail":"Document: X vs profile: Y — exact match"}],"profile_comparison":[{"field":"full_name","profile_value":"","document_value":"","result":"PASS|WARNING|FAIL|NOT_APPLICABLE","confidence":0,"detail":""}],"suspicious_indicators":[],"confidence_note":"one-line assessment"}`,
+        `Document type: ${docType}\nEmployee profile: ${profileJson}\nOCR Text (first 1500 chars):\n${(ocrResult.raw_text || '').substring(0, 1500)}`,
+        900,
       );
       if (aiResp.success && aiResp.data) {
         try {
-          const cleaned = aiResp.data.replace(/```json|```/g, '').trim();
+          const cleaned = aiResp.data.replace(/```json[\s\S]*?```|```/g, '').trim();
           const aiJson = JSON.parse(cleaned);
-          if (Array.isArray(aiJson.validation_pointers) && aiJson.validation_pointers.length > 0) {
-            ocrResult.validation_reasons = [
-              ...(ocrResult.validation_reasons || []),
-              ...aiJson.validation_pointers.map((p: string) => `🤖 AI: ${p}`),
-            ];
+
+          // Add evidence-based findings to validation_reasons
+          if (Array.isArray(aiJson.findings)) {
+            for (const f of aiJson.findings) {
+              if (!f.check || !f.detail) continue;
+              const prefix = f.result === 'PASS' ? '✓' : f.result === 'FAIL' ? '✗' : '⚠';
+              ocrResult.validation_reasons = [...(ocrResult.validation_reasons || []), `${prefix} ${f.check}: ${f.detail}`];
+            }
           }
-          if (Array.isArray(aiJson.suspicious_indicators) && aiJson.suspicious_indicators.length > 0) {
-            ocrResult.validation_reasons = [
-              ...(ocrResult.validation_reasons || []),
-              ...aiJson.suspicious_indicators.map((s: string) => `⚠ ${s}`),
-            ];
+          if (Array.isArray(aiJson.suspicious_indicators)) {
+            for (const s of aiJson.suspicious_indicators) {
+              if (s) ocrResult.validation_reasons = [...(ocrResult.validation_reasons || []), `⚠ ${s}`];
+            }
           }
-          if (aiJson.confidence_note) {
-            ocrResult.ai_confidence_note = aiJson.confidence_note;
+          if (aiJson.confidence_note) ocrResult.ai_confidence_note = aiJson.confidence_note;
+          // Store structured profile comparison for frontend
+          if (Array.isArray(aiJson.profile_comparison) && aiJson.profile_comparison.length > 0) {
+            ocrResult.profile_comparison = aiJson.profile_comparison;
           }
-          // Use AI-confirmed type only if Python returned OTHER/UNKNOWN
-          if (
-            aiJson.confirmed_type &&
-            aiJson.confirmed_type !== 'OTHER' &&
-            (!ocrResult.document_type || ocrResult.document_type === 'OTHER')
-          ) {
+          if (aiJson.confirmed_type && aiJson.confirmed_type !== 'OTHER' &&
+              (!ocrResult.document_type || ocrResult.document_type === 'OTHER')) {
             ocrResult.document_type = aiJson.confirmed_type;
           }
         } catch {
-          // Malformed AI JSON — ignore, keep original Python result
+          // Malformed AI JSON — ignore, keep Vision result
         }
       }
     } catch (aiErr: any) {
@@ -452,6 +523,25 @@ Respond ONLY with valid compact JSON (no markdown):
     const hrNotesFromAI = validationReasons.length > 0
       ? `AI Analysis (Authenticity: ${Math.round(authenticityScore * 100)}%):\n${validationReasons.join('\n')}`
       : null;
+
+    // ── KYC Score (weighted 0–100) ────────────────────────────────────────────
+    const extractionScore = Math.round(confidence * 100) * 0.30;
+    const profileComparison: any[] = ocrResult.profile_comparison || [];
+    const profilePassCount = profileComparison.filter((p: any) => p.result === 'PASS').length;
+    const profileTotal = profileComparison.filter((p: any) => p.result !== 'NOT_APPLICABLE').length;
+    const profileScore = profileTotal > 0 ? (profilePassCount / profileTotal) * 100 * 0.25 : 25; // neutral if no profile
+    const failFindings = validationReasons.filter((r: string) => r.startsWith('✗')).length;
+    const totalFindings = validationReasons.filter((r: string) => r.startsWith('✓') || r.startsWith('✗') || r.startsWith('⚠')).length;
+    const authenticityPct = totalFindings > 0 ? Math.max(0, (totalFindings - failFindings) / totalFindings) * 100 : 80;
+    const authenticityScore2 = authenticityPct * 0.15;
+    const qualityPct = qualityReport.resolutionQuality === 'HIGH' ? 100 : qualityReport.resolutionQuality === 'MEDIUM' ? 70 : 40;
+    const qualityScore = qualityPct * 0.10;
+    const crossDocScore = 20; // neutral until cross-validate runs
+    const kycScore = Math.round(extractionScore + profileScore + crossDocScore + authenticityScore2 + qualityScore);
+    const hasCriticalFindings = validationReasons.some((r: string) => r.startsWith('✗ Tampering:'));
+    const recommendedStatus = (kycScore >= 85 && !hasCriticalFindings) ? 'VERIFIED'
+      : (kycScore < 70 || hasCriticalFindings) ? 'FLAGGED'
+      : 'NEEDS_HR_REVIEW';
 
     // Bank-specific fields extracted by Python — stored at root of llmExtractedData for autoFillFromOcr
     const bankExtras = (fields.ifsc_code || fields.bank_name || fields.account_number) ? {
@@ -486,18 +576,28 @@ Respond ONLY with valid compact JSON (no markdown):
         processingMode: 'python_advanced',
         extractionSource: 'python',
         suspicionScore: hasTamperIssues ? 60 : isLowConfidence ? 30 : 0,
-        // Store validation reasons + dynamic fields in llmExtractedData for frontend access
         llmExtractedData: {
           validation_reasons: validationReasons,
           dynamic_fields: dynamicFields,
           authenticity_score: authenticityScore,
           is_flagged: isPythonFlagged,
           ai_confidence_note: ocrResult.ai_confidence_note || null,
-          ai_enhanced: validationReasons.some((r: string) => r.startsWith('🤖 AI:')),
           vision_scanned: ocrResult.vision_scanned === true,
           vision_quality_note: ocrResult.vision_quality_note || null,
+          // Enterprise KYC structured data
+          findings: [
+            ...(ocrResult.vision_findings || []),
+          ],
+          authenticity_checks: ocrResult.vision_authenticity_checks || null,
+          tampering_signals: ocrResult.vision_tampering_signals || [],
+          recommended_status: ocrResult.vision_recommended_status || recommendedStatus,
+          modelUsed: ocrResult.vision_scanned ? 'gpt-4.1-mini' : 'python',
+          deepRecheckAvailable: true,
+          ai_enhanced: true,
           ...bankExtras,
         } as any,
+        kycScore,
+        profileComparison: profileComparison.length > 0 ? profileComparison as any : undefined,
       },
       update: {
         rawText: (ocrResult.raw_text || '').substring(0, 10000),
@@ -525,11 +625,21 @@ Respond ONLY with valid compact JSON (no markdown):
           authenticity_score: authenticityScore,
           is_flagged: isPythonFlagged,
           ai_confidence_note: ocrResult.ai_confidence_note || null,
-          ai_enhanced: validationReasons.some((r: string) => r.startsWith('🤖 AI:')),
           vision_scanned: ocrResult.vision_scanned === true,
           vision_quality_note: ocrResult.vision_quality_note || null,
+          findings: [
+            ...(ocrResult.vision_findings || []),
+          ],
+          authenticity_checks: ocrResult.vision_authenticity_checks || null,
+          tampering_signals: ocrResult.vision_tampering_signals || [],
+          recommended_status: ocrResult.vision_recommended_status || recommendedStatus,
+          modelUsed: ocrResult.vision_scanned ? 'gpt-4.1-mini' : 'python',
+          deepRecheckAvailable: true,
+          ai_enhanced: true,
           ...bankExtras,
         } as any,
+        kycScore,
+        profileComparison: profileComparison.length > 0 ? profileComparison as any : undefined,
       },
     });
 
@@ -907,10 +1017,25 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       include: { ocrVerification: true },
     });
 
+    // Also fetch employee profile to use as an additional source
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, deletedAt: null },
+      select: { firstName: true, lastName: true, dateOfBirth: true, gender: true, fatherName: true },
+    });
+    const profileName = employee ? `${employee.firstName} ${employee.lastName}`.trim() : null;
+    const profileDob = employee?.dateOfBirth ? employee.dateOfBirth.toISOString().split('T')[0] : null;
+
     const ocrDocs = docs.filter(d => d.ocrVerification);
-    if (ocrDocs.length < 2) {
-      return { status: 'PENDING', message: 'Need at least 2 documents with OCR data to cross-validate', details: [] };
+    if (ocrDocs.length < 1) {
+      return { status: 'PENDING', message: 'Need at least 1 document with OCR data to cross-validate', details: [] };
     }
+
+    // Document types that should NOT contribute DOB to cross-validation
+    const DOB_EXCLUDED_TYPES = new Set([
+      'PHOTO', 'RESIDENCE_PROOF', 'PERMANENT_RESIDENCE_PROOF',
+      'BANK_STATEMENT', 'CANCELLED_CHEQUE', 'EXPERIENCE_LETTER',
+      'OFFER_LETTER_DOC', 'RELIEVING_LETTER', 'SALARY_SLIP_DOC',
+    ]);
 
     const details: Array<{
       field: string;
@@ -920,10 +1045,15 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       similarity?: number;
     }> = [];
 
-    // ---- Name comparison (fuzzy) ----
+    // ---- Name comparison (fuzzy) — include employee profile as additional source ----
     const names = ocrDocs
       .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedName }))
       .filter(n => n.value && n.value.trim().length > 2);
+
+    // Add profile name as a source
+    if (profileName && profileName.trim().length > 2) {
+      names.push({ docType: 'PROFILE', value: profileName });
+    }
 
     if (names.length >= 2) {
       // Compare all pairs; overall match = worst pairwise result
@@ -953,19 +1083,25 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       });
     }
 
-    // ---- DOB comparison — only use high-confidence OCR results ----
-    // Threshold: 0.70. Below this, Tesseract/OCR date reads are unreliable
-    // and cause false cross-validation failures. Low-confidence docs are shown
-    // to HR for manual review instead of triggering an automatic FAIL.
+    // ---- DOB comparison — only use high-confidence OCR results from DOB-bearing documents ----
+    // Excluded doc types: PHOTO, RESIDENCE_PROOF, BANK_STATEMENT, etc. — these docs never contain DOB.
+    // Threshold: 0.70 confidence. Below this, OCR date reads are unreliable.
     const DOB_CONFIDENCE_THRESHOLD = 0.70;
     const allDobsForDisplay = ocrDocs
+      .filter(d => !DOB_EXCLUDED_TYPES.has(d.type as string))
       .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedDob }))
       .filter(n => n.value && n.value.trim().length > 0);
 
+    // Add profile DOB as authoritative source (confidence 100%)
+    if (profileDob) allDobsForDisplay.push({ docType: 'PROFILE', value: profileDob });
+
     const highConfDobs = ocrDocs
-      .filter(d => (d.ocrVerification!.confidence || 0) >= DOB_CONFIDENCE_THRESHOLD)
+      .filter(d => !DOB_EXCLUDED_TYPES.has(d.type as string) && (d.ocrVerification!.confidence || 0) >= DOB_CONFIDENCE_THRESHOLD)
       .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedDob }))
       .filter(n => n.value && n.value.trim().length > 0);
+
+    // Profile DOB counts as high-confidence
+    if (profileDob) highConfDobs.push({ docType: 'PROFILE', value: profileDob });
 
     if (highConfDobs.length >= 2) {
       const normalized = highConfDobs.map(d => this.normalizeDate(d.value!));
@@ -1026,6 +1162,140 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     }
 
     return { status: overallStatus, details };
+  }
+
+  /**
+   * Deep Re-check: re-process document using gpt-4.1 directly (highest accuracy).
+   * Only for image files. Updates the existing OCR record with the new result.
+   */
+  async deepRecheckDocument(documentId: string, requestedBy: string, organizationId: string) {
+    const doc = await prisma.document.findUnique({ where: { id: documentId } });
+    if (!doc) throw new NotFoundError('Document');
+
+    const ext = doc.fileUrl.split('.').pop()?.toLowerCase() || '';
+    const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'bmp'];
+    if (!imageExts.includes(ext)) {
+      throw new Error('Deep Re-check requires an image document (JPG, PNG, WebP, BMP)');
+    }
+
+    let basePath = process.cwd();
+    if (basePath.endsWith('backend') || basePath.endsWith('backend/') || basePath.endsWith('backend\\')) {
+      basePath = join(basePath, '..');
+    }
+    const filePath = join(basePath, doc.fileUrl);
+    let fileBuffer: Buffer;
+    try {
+      fileBuffer = readFileSync(filePath);
+    } catch {
+      throw new Error('File not found on disk');
+    }
+
+    // Fetch profile
+    const employee = doc.employeeId ? await prisma.employee.findFirst({
+      where: { id: doc.employeeId, deletedAt: null },
+      select: { firstName: true, lastName: true, dateOfBirth: true, gender: true, fatherName: true },
+    }) : null;
+    const profileData = employee ? {
+      name: `${employee.firstName} ${employee.lastName}`.trim(),
+      dateOfBirth: employee.dateOfBirth ? employee.dateOfBirth.toISOString().split('T')[0] : null,
+      gender: (employee.gender as string | null) ?? null,
+      fatherName: employee.fatherName ?? null,
+    } : null;
+
+    const imgMime = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+    const imageBase64 = fileBuffer.toString('base64');
+    const kycResp = await aiService.deepScanDocumentKyc(imageBase64, imgMime);
+    if (!kycResp.success || !kycResp.data) {
+      throw new Error(kycResp.error || 'Deep scan failed');
+    }
+
+    const visionJson = JSON.parse(kycResp.data);
+    const vf = visionJson.extracted_fields || {};
+    const vfName = vf.full_name?.value || vf.name || null;
+    const vfDob = vf.date_of_birth?.value || (typeof vf.date_of_birth === 'string' ? vf.date_of_birth : null);
+    const vfDocNum = vf.document_number?.value || (typeof vf.document_number === 'string' ? vf.document_number : null);
+
+    const validationReasons: string[] = [];
+    if (Array.isArray(visionJson.findings)) {
+      for (const f of visionJson.findings) {
+        if (!f.check || !f.detail) continue;
+        const prefix = f.result === 'PASS' ? '✓' : f.result === 'FAIL' ? '✗' : '⚠';
+        validationReasons.push(`${prefix} ${f.check}: ${f.detail}`);
+      }
+    }
+    for (const t of (visionJson.tampering_signals || [])) {
+      validationReasons.push(`✗ Tampering: ${t}`);
+    }
+
+    // Run LLM enhancement with profile
+    let profileComparison: any[] = [];
+    try {
+      const aiResp = await aiService.prompt(
+        organizationId,
+        `You are an enterprise KYC analyst for an Indian HR system. Perform actual checks on the document text and report structured findings — not checklists. Follow document-type rules strictly: PHOTO = image quality only (no DOB), RESIDENCE_PROOF = name/address only (no DOB). Respond with compact JSON only: {"confirmed_type":"...","findings":[{"check":"...","result":"PASS|WARNING|FAIL","detail":"..."}],"profile_comparison":[{"field":"full_name","profile_value":"","document_value":"","result":"PASS|WARNING|FAIL|NOT_APPLICABLE","confidence":0,"detail":""}],"suspicious_indicators":[],"confidence_note":"..."}`,
+        `Document type: ${visionJson.document_type || doc.type}\nEmployee profile: ${JSON.stringify(profileData ?? {})}\nOCR text: ${(visionJson.raw_text || '').substring(0, 1500)}`,
+        900,
+      );
+      if (aiResp.success && aiResp.data) {
+        const aiJson = JSON.parse(aiResp.data.replace(/```json[\s\S]*?```|```/g, '').trim());
+        if (Array.isArray(aiJson.findings)) {
+          for (const f of aiJson.findings) {
+            if (!f.check || !f.detail) continue;
+            const prefix = f.result === 'PASS' ? '✓' : f.result === 'FAIL' ? '✗' : '⚠';
+            validationReasons.push(`${prefix} ${f.check}: ${f.detail}`);
+          }
+        }
+        if (Array.isArray(aiJson.profile_comparison)) profileComparison = aiJson.profile_comparison;
+      }
+    } catch { /* non-blocking */ }
+
+    const confidence = typeof kycResp.confidence === 'number' ? kycResp.confidence : 0;
+    const failCount = validationReasons.filter(r => r.startsWith('✗')).length;
+    const totalCount = validationReasons.filter(r => r.startsWith('✓') || r.startsWith('✗') || r.startsWith('⚠')).length;
+    const kycScore = Math.round(
+      confidence * 100 * 0.30 +
+      (profileComparison.filter(p => p.result === 'PASS').length / Math.max(profileComparison.length, 1)) * 100 * 0.25 +
+      20 + // crossDoc neutral
+      (totalCount > 0 ? Math.max(0, (totalCount - failCount) / totalCount) : 0.8) * 100 * 0.15 +
+      70 * 0.10, // assume medium quality
+    );
+
+    const updated = await prisma.documentOcrVerification.update({
+      where: { documentId },
+      data: {
+        confidence,
+        extractedName: vfName || undefined,
+        extractedDob: vfDob || undefined,
+        extractedDocNumber: vfDocNum || undefined,
+        hrReviewedBy: requestedBy,
+        hrReviewedAt: new Date(),
+        kycScore,
+        profileComparison: profileComparison.length > 0 ? profileComparison as any : undefined,
+        llmExtractedData: {
+          validation_reasons: validationReasons,
+          findings: visionJson.findings || [],
+          authenticity_checks: visionJson.authenticity_checks || null,
+          tampering_signals: visionJson.tampering_signals || [],
+          recommended_status: visionJson.recommended_status || 'NEEDS_HR_REVIEW',
+          modelUsed: 'gpt-4.1',
+          deepRecheckAvailable: false,
+          vision_scanned: true,
+          ai_enhanced: true,
+          authenticity_score: confidence,
+        } as any,
+      },
+    });
+
+    await createAuditLog({
+      userId: requestedBy,
+      organizationId,
+      entity: 'DocumentOcrVerification',
+      entityId: documentId,
+      action: 'DEEP_RECHECK',
+      newValues: { modelUsed: 'gpt-4.1', kycScore } as any,
+    });
+
+    return updated;
   }
 
   /**

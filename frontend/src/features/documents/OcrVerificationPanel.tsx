@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
   Shield, Save, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle,
-  ScanLine, Eye, Pencil, Check, FileText, Ban, Info, ChevronDown, ChevronUp,
+  ScanLine, Eye, Pencil, Check, FileText, Ban, Info, ChevronDown, ChevronUp, Zap,
 } from 'lucide-react';
-import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation } from './documentOcrApi';
+import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation, useDeepRecheckDocumentMutation } from './documentOcrApi';
 import { useVerifyDocumentMutation } from './documentApi';
 import { useGetKycHrReviewQuery, useReclassifyCombinedPdfMutation } from '../kyc/kycApi';
 import toast from 'react-hot-toast';
@@ -162,9 +162,9 @@ function ValidationReasons({ reasons }: { reasons: string[] }) {
           hasFlagged ? 'text-red-700' : hasWarning ? 'text-amber-700' : 'text-emerald-700',
         )}>
           <Shield size={13} />
-          AI Validation Analysis
+          AI Findings
           <span className="ml-1 px-1.5 py-0.5 rounded bg-white/60 text-[10px]">
-            {reasons.length} check{reasons.length !== 1 ? 's' : ''}
+            {reasons.length} finding{reasons.length !== 1 ? 's' : ''}
           </span>
         </span>
         {open ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
@@ -173,12 +173,14 @@ function ValidationReasons({ reasons }: { reasons: string[] }) {
         <div className="px-4 pb-3 space-y-1">
           {reasons.map((reason: any, i) => {
             const reasonStr = typeof reason === 'string' ? reason : (reason?.message ?? JSON.stringify(reason));
+            const isTampering = reasonStr.startsWith('✗ Tampering:');
             const isFail = reasonStr.startsWith('✗') || reasonStr.startsWith('🚩');
             const isWarn = reasonStr.startsWith('⚠');
             const isPass = reasonStr.startsWith('✓');
             return (
               <div key={i} className={cn(
                 'flex items-start gap-2 text-xs px-2.5 py-1.5 rounded',
+                isTampering ? 'bg-red-100 border-l-2 border-red-500 text-red-800 font-medium' :
                 isFail ? 'bg-red-50 text-red-700' :
                 isWarn ? 'bg-amber-50 text-amber-700' :
                 isPass ? 'bg-emerald-50 text-emerald-700' :
@@ -235,6 +237,80 @@ function RejectDocumentDialog({
           Confirm Rejection
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── Profile Comparison Panel ─────────────────────────────────────────────────
+function ProfileComparisonPanel({ items }: { items: any[] }) {
+  const [open, setOpen] = useState(true);
+  if (!items || items.length === 0) return null;
+
+  const hasFail = items.some(i => i.result === 'FAIL');
+  const hasWarn = items.some(i => i.result === 'WARNING');
+
+  return (
+    <div className={cn(
+      'layer-card overflow-hidden border',
+      hasFail ? 'border-red-200 bg-red-50/20' :
+      hasWarn ? 'border-amber-200 bg-amber-50/10' :
+      'border-blue-200 bg-blue-50/20',
+    )}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <span className={cn(
+          'text-xs font-semibold flex items-center gap-1.5',
+          hasFail ? 'text-red-700' : hasWarn ? 'text-amber-700' : 'text-blue-700',
+        )}>
+          <Shield size={13} />
+          Profile Comparison
+          <span className="ml-1 px-1.5 py-0.5 rounded bg-white/60 text-[10px]">
+            {items.length} field{items.length !== 1 ? 's' : ''}
+          </span>
+        </span>
+        {open ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+      </button>
+      {open && (
+        <div className="px-4 pb-3">
+          <div className="space-y-1.5">
+            {items.map((item: any, i: number) => {
+              const result: string = item.result || 'NOT_APPLICABLE';
+              const isPass = result === 'PASS';
+              const isFail = result === 'FAIL';
+              const isNA = result === 'NOT_APPLICABLE';
+              return (
+                <div key={i} className={cn(
+                  'grid grid-cols-[120px_1fr_1fr_60px] gap-2 items-start text-xs px-2.5 py-2 rounded',
+                  isFail ? 'bg-red-50' : isPass ? 'bg-emerald-50' : isNA ? 'bg-gray-50' : 'bg-amber-50',
+                )}>
+                  <span className="text-gray-500 font-medium capitalize truncate">
+                    {(item.field || '').replace(/_/g, ' ')}
+                  </span>
+                  <span className="text-gray-400 truncate">
+                    <span className="text-[10px] text-gray-400">Profile: </span>
+                    <span className="text-gray-700">{item.profile_value || '—'}</span>
+                  </span>
+                  <span className="truncate">
+                    <span className="text-[10px] text-gray-400">Doc: </span>
+                    <span className="text-gray-700">{item.document_value || '—'}</span>
+                  </span>
+                  <span className={cn(
+                    'text-[10px] font-bold px-1.5 py-0.5 rounded-full text-center',
+                    isPass ? 'bg-emerald-100 text-emerald-700' :
+                    isFail ? 'bg-red-100 text-red-700' :
+                    isNA ? 'bg-gray-100 text-gray-500' :
+                    'bg-amber-100 text-amber-700',
+                  )}>
+                    {isNA ? 'N/A' : result}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -650,6 +726,7 @@ export default function OcrVerificationPanel({
   const [reclassifyCombinedPdf, { isLoading: reclassifying }] = useReclassifyCombinedPdfMutation();
   const [updateOcr, { isLoading: saving }] = useUpdateDocumentOcrMutation();
   const [verifyDoc, { isLoading: verifyingDoc }] = useVerifyDocumentMutation();
+  const [deepRecheck, { isLoading: deepRechecking }] = useDeepRecheckDocumentMutation();
 
   const [editing, setEditing] = useState(false);
   const [localDocStatus, setLocalDocStatus] = useState(documentStatus || '');
@@ -780,6 +857,10 @@ export default function OcrVerificationPanel({
   const aiConfidenceNote: string | null = aiData?.ai_confidence_note || null;
   const visionScanned: boolean = aiData?.vision_scanned === true;
   const visionQualityNote: string | null = aiData?.vision_quality_note || null;
+  const kycScore: number | null = (ocr as any)?.kycScore ?? null;
+  const profileComparison: any[] = aiData?.profile_comparison || [];
+  const deepRecheckAvailable: boolean = aiData?.deepRecheckAvailable === true;
+  const modelUsed: string = aiData?.modelUsed || '';
 
   const isCombinedPdf =
     ocr?.detectedType === 'COMBINED_PDF' ||
@@ -961,6 +1042,25 @@ export default function OcrVerificationPanel({
                     Resolution: {ocr.resolutionQuality || 'Unknown'}
                   </span>
                   <ConfidenceBadge confidence={ocr.confidence} />
+                  {kycScore !== null && (
+                    <span className={cn(
+                      'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold',
+                      kycScore >= 85 ? 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300' :
+                      kycScore >= 70 ? 'bg-amber-100 text-amber-700 ring-1 ring-amber-300' :
+                      'bg-red-100 text-red-700 ring-1 ring-red-300'
+                    )}>
+                      <span className={cn(
+                        'w-2 h-2 rounded-full',
+                        kycScore >= 85 ? 'bg-emerald-500' : kycScore >= 70 ? 'bg-amber-500' : 'bg-red-500'
+                      )} />
+                      KYC Score: {kycScore}
+                    </span>
+                  )}
+                  {modelUsed === 'gpt-4.1' && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700">
+                      <Zap size={11} /> Deep Scan (gpt-4.1)
+                    </span>
+                  )}
                   {visionScanned && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-violet-50 text-violet-700">
                       <Eye size={11} /> Vision Scanned
@@ -1000,9 +1100,14 @@ export default function OcrVerificationPanel({
                 <p className="text-sm font-medium text-gray-800">{ocr.detectedType?.replace(/_/g, ' ') || 'Unknown'}</p>
               </div>
 
-              {/* AI Validation Reasons (from Python OCR service) */}
+              {/* AI Findings (from Vision AI + LLM) */}
               {validationReasons.length > 0 && (
                 <ValidationReasons reasons={validationReasons} />
+              )}
+
+              {/* Profile Comparison section */}
+              {profileComparison.length > 0 && (
+                <ProfileComparisonPanel items={profileComparison} />
               )}
 
               {/* AI-Assisted Verification (from LLM, if available) */}
@@ -1169,6 +1274,26 @@ export default function OcrVerificationPanel({
                 {triggering ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
                 {triggering ? 'Re-classifying...' : 'Re-run AI Classifier'}
               </button>
+
+              {/* Deep Re-check with gpt-4.1 */}
+              {deepRecheckAvailable && modelUsed !== 'gpt-4.1' && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await deepRecheck(documentId).unwrap();
+                      toast.success('Deep Re-check complete — findings updated with gpt-4.1');
+                      refetch();
+                    } catch (err: any) {
+                      toast.error(err?.data?.error?.message || 'Deep Re-check failed');
+                    }
+                  }}
+                  disabled={deepRechecking}
+                  className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2.5 rounded-lg border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 transition-colors"
+                >
+                  {deepRechecking ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+                  {deepRechecking ? 'Deep scanning...' : 'Deep Re-check (gpt-4.1)'}
+                </button>
+              )}
 
               {/* Save Button */}
               <button onClick={handleSave} disabled={saving}

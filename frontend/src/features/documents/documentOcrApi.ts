@@ -31,6 +31,13 @@ export const documentOcrApi = api.injectEndpoints({
       query: (employeeId) => `/documents/ocr/employee/${employeeId}`,
       providesTags: ['DocumentOcr' as any],
     }),
+    deepRecheckDocument: builder.mutation<any, string>({
+      query: (documentId) => ({
+        url: `/documents/${documentId}/ocr/deep-recheck`,
+        method: 'POST',
+      }),
+      invalidatesTags: (_r, _e, id) => [{ type: 'DocumentOcr' as any, id }],
+    }),
   }),
 });
 
@@ -40,4 +47,5 @@ export const {
   useUpdateDocumentOcrMutation,
   useCrossValidateEmployeeMutation,
   useGetEmployeeOcrSummaryQuery,
+  useDeepRecheckDocumentMutation,
 } = documentOcrApi;
