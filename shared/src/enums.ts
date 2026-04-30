@@ -556,3 +556,21 @@ export enum Qualification {
   POST_GRADUATION = 'POST_GRADUATION',
   PHD = 'PHD',
 }
+
+export enum BackupCategory {
+  DATABASE = 'DATABASE',
+  FILES = 'FILES',
+}
+
+export enum BackupType {
+  MANUAL = 'MANUAL',
+  SCHEDULED = 'SCHEDULED',
+}
+
+export enum BackupStatus {
+  PENDING = 'PENDING',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+  DELETED = 'DELETED',
+}

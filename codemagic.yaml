@@ -1,0 +1,117 @@
+workflows:
+  # ─────────────────────────────────────────────────────────────────────────────
+  #  Aniston HRMS — iOS .ipa build
+  #
+  #  Triggers on:  manual trigger in Codemagic dashboard  (or push to ios-release branch)
+  #  Output:       store-releases/ios/app.ipa  (available in Artifacts tab)
+  #
+  #  One-time setup in Codemagic dashboard:
+  #    1. Connect repo  →  Anistonworkspace/Aniston-HRMS
+  #    2. App Store Connect API key  →  Teams > Integrations > App Store Connect
+  #    3. iOS Distribution certificate  (.p12 + password)
+  #    4. Provisioning profile  (App Store Distribution for com.anistonav.hrms)
+  # ─────────────────────────────────────────────────────────────────────────────
+  aniston-hrms-ios:
+    name: Aniston HRMS iOS
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    integrations:
+      app_store_connect: codemagic  # name of your App Store Connect integration
+
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.anistonav.hrms
+      vars:
+        BUNDLE_ID: com.anistonav.hrms
+        XCODE_SCHEME: App
+        XCODE_WORKSPACE: ios/App/App.xcworkspace
+      node: 20.x
+
+    scripts:
+      - name: Install root dependencies
+        script: npm ci
+
+      - name: Install frontend dependencies
+        script: cd frontend && npm ci
+
+      - name: Build frontend (production)
+        script: cd frontend && npm run build
+
+      - name: Add Capacitor iOS platform (first run only — idempotent)
+        script: |
+          cd frontend
+          npx cap add ios || true
+          npx cap sync ios
+
+      - name: Install CocoaPods
+        script: |
+          cd frontend/ios/App
+          pod install
+
+      - name: Build & archive
+        script: |
+          xcode-project build-ipa \
+            --workspace "$CM_BUILD_DIR/frontend/$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME" \
+            --export-options "$CM_BUILD_DIR/store-releases/ios/ExportOptions.plist"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        cancel_previous_submissions: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  #  Aniston HRMS — Android .aab build  (optional: if you want cloud builds too)
+  #
+  #  Normally build Android locally with store-releases/android/build-android.ps1
+  #  This workflow is a fallback if local build isn't possible.
+  # ─────────────────────────────────────────────────────────────────────────────
+  aniston-hrms-android:
+    name: Aniston HRMS Android
+    max_build_duration: 60
+    instance_type: linux_x2
+
+    environment:
+      android_signing:
+        - aniston_hrms_keystore  # name of keystore uploaded to Codemagic dashboard
+      vars:
+        PACKAGE_NAME: com.anistonav.hrms
+      node: 20.x
+      java: 17
+
+    scripts:
+      - name: Install root dependencies
+        script: npm ci
+
+      - name: Install frontend dependencies
+        script: cd frontend && npm ci
+
+      - name: Build frontend (production)
+        script: cd frontend && npm run build
+
+      - name: Sync Capacitor assets
+        script: cd frontend && npx cap sync android
+
+      - name: Build signed AAB
+        script: |
+          cd frontend/android
+          ./gradlew bundleRelease \
+            -PstoreFile="$CM_KEYSTORE_PATH" \
+            -PstorePassword="$CM_KEYSTORE_PASSWORD" \
+            -PkeyAlias="$CM_KEY_ALIAS" \
+            -PkeyPassword="$CM_KEY_PASSWORD"
+
+    artifacts:
+      - frontend/android/app/build/outputs/bundle/release/app-release.aab
+
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal

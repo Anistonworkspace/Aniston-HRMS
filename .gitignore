@@ -89,6 +89,14 @@ keys.txt
 
 audit-screenshots
 
+# Store release builds — sensitive signing credentials and binaries
+store-releases/android/signing.keystore
+store-releases/android/.keystore-env
+store-releases/android/*.aab
+store-releases/ios/Distribution.p12
+store-releases/ios/Distribution.mobileprovision
+store-releases/ios/*.ipa
+
 # Local debug/test scripts (contain credentials — never commit)
 test-login.js
 test-*.js

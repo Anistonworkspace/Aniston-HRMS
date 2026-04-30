@@ -1,0 +1,18 @@
+# ── Signing credentials (NEVER commit) ──
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+.keystore-env
+
+# ── Build outputs (large binary files) ──
+*.aab
+*.ipa
+*.apk
+
+# ── Apple / Xcode ──
+*.xcarchive
+*.xcworkspace
+
+# ── Keep template files (they have no secrets) ──
+!.keystore-env.template

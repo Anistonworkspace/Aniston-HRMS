@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- "app-store" for App Store submission; "ad-hoc" for internal testing -->
+    <key>method</key>
+    <string>app-store</string>
+
+    <!-- Your Apple Developer Team ID (10-char alphanumeric, found at developer.apple.com) -->
+    <key>teamID</key>
+    <string>YOUR_TEAM_ID_HERE</string>
+
+    <key>uploadBitcode</key>
+    <false/>
+
+    <key>uploadSymbols</key>
+    <true/>
+
+    <key>compileBitcode</key>
+    <false/>
+
+    <!-- App Store Connect distribution certificate -->
+    <key>signingStyle</key>
+    <string>manual</string>
+
+    <key>provisioningProfiles</key>
+    <dict>
+        <!-- Bundle ID : Provisioning Profile name (as it appears in developer.apple.com) -->
+        <key>com.anistonav.hrms</key>
+        <string>Aniston HRMS App Store Distribution</string>
+    </dict>
+</dict>
+</plist>
