@@ -373,8 +373,11 @@ export class DocumentService {
     const updates: Record<string, any> = {};
     const filledFields: string[] = [];
 
-    // Auto-fill DOB (from any identity document)
-    if (!employee.dateOfBirth && ocrData.extractedDob) {
+    // Auto-fill DOB only from identity documents that legally contain date of birth.
+    // PHOTO, RESIDENCE_PROOF, BANK_STATEMENT, EXPERIENCE_LETTER etc. never contain DOB —
+    // if the AI hallucinated a date from those types, it must not reach the employee profile.
+    const DOB_BEARING_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENSE', 'VOTER_ID'];
+    if (!employee.dateOfBirth && ocrData.extractedDob && DOB_BEARING_TYPES.includes(doc.type)) {
       const parsed = new Date(ocrData.extractedDob);
       if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1940 && parsed.getFullYear() < 2010) {
         updates.dateOfBirth = parsed;

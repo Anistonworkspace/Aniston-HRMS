@@ -169,6 +169,9 @@ export class DocumentGateService {
     // If this doc was flagged for re-upload, clear it now that a new one was uploaded
     const prevReuploadTypes = (gate.reuploadDocTypes as string[]) || [];
     const newReuploadTypes = prevReuploadTypes.filter(t => t !== documentType);
+    if (prevReuploadTypes.includes(documentType)) {
+      logger.info(`[KYC] Re-upload completed — employee: ${employeeId}, docType: ${documentType}, remaining flagged: ${newReuploadTypes.length}`);
+    }
 
     // Clear the rejection reason for this specific doc type
     const prevReasons = ((gate.documentRejectReasons as Record<string, string>) || {});
@@ -342,20 +345,19 @@ export class DocumentGateService {
       }
     }
 
-    // Employment proof — soft warning only (not hard-blocked) for experienced
-    // HR will flag if missing; we only hard-block if truly mandatory
-    const employmentWarning = needsEmploymentProof && !EMPLOYMENT_PROOF_TYPES.some(t => submitted.includes(t));
+    // Employment proof — hard-blocked for experienced employees (same rule as COMBINED mode)
+    if (needsEmploymentProof && !EMPLOYMENT_PROOF_TYPES.some(t => submitted.includes(t))) {
+      throw new BadRequestError(
+        'As an experienced employee, please upload at least one employment proof ' +
+        '(Experience Letter, Relieving Letter, Offer Letter, or Salary Slips) before submitting.',
+      );
+    }
 
     if (missing.length > 0) {
       throw new BadRequestError(`Missing required documents: ${missing.join(', ')}`);
     }
 
     const updatedData: any = { kycStatus: 'SUBMITTED' };
-    if (employmentWarning) {
-      // Add a soft note to HR review notes that employment proof was not submitted
-      updatedData.hrReviewNotes = (gate.hrReviewNotes ? gate.hrReviewNotes + '\n' : '') +
-        '[System] Employee declared as EXPERIENCED but no employment proof was uploaded.';
-    }
 
     const updated = await prisma.onboardingDocumentGate.update({
       where: { employeeId },

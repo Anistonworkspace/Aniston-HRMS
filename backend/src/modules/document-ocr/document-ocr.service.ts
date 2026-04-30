@@ -564,7 +564,9 @@ Respond with compact JSON only (no markdown):
     const crossDocScore = prevCross === 'PASS' ? 20 : prevCross === 'PARTIAL' ? 10 : prevCross === 'FAIL' ? 0 : 20;
     const kycScore = Math.round(extractionScore + profileScore + crossDocScore + authenticityScore2 + qualityScore);
     const hasCriticalFindings = validationReasons.some((r: string) => r.startsWith('✗ Tampering:'));
-    const recommendedStatus = (kycScore >= 85 && !hasCriticalFindings) ? 'VERIFIED'
+    // AI must NEVER auto-recommend 'VERIFIED' — that is an exclusive HR action.
+    // Use 'AI_APPROVED' to signal high confidence without bypassing human review.
+    const recommendedStatus = (kycScore >= 85 && !hasCriticalFindings) ? 'AI_APPROVED'
       : (kycScore < 70 || hasCriticalFindings) ? 'FLAGGED'
       : 'NEEDS_HR_REVIEW';
 
@@ -617,7 +619,8 @@ Respond with compact JSON only (no markdown):
           findings: [...(ocrResult.vision_findings || [])],
           authenticity_checks: ocrResult.vision_authenticity_checks || null,
           tampering_signals: ocrResult.vision_tampering_signals || [],
-          recommended_status: ocrResult.vision_recommended_status || recommendedStatus,
+          // Sanitize: AI model may output 'VERIFIED' but that is an HR-only action
+          recommended_status: (ocrResult.vision_recommended_status === 'VERIFIED' ? 'AI_APPROVED' : ocrResult.vision_recommended_status) || recommendedStatus,
           profile_comparison: profileComparison.length > 0 ? profileComparison : [],
           modelUsed: ocrResult.vision_scanned ? 'gpt-4.1-mini' : 'python',
           deepRecheckAvailable: imageExts.includes(ext), // only images support deep re-check
@@ -658,7 +661,8 @@ Respond with compact JSON only (no markdown):
           findings: [...(ocrResult.vision_findings || [])],
           authenticity_checks: ocrResult.vision_authenticity_checks || null,
           tampering_signals: ocrResult.vision_tampering_signals || [],
-          recommended_status: ocrResult.vision_recommended_status || recommendedStatus,
+          // Sanitize: AI model may output 'VERIFIED' but that is an HR-only action
+          recommended_status: (ocrResult.vision_recommended_status === 'VERIFIED' ? 'AI_APPROVED' : ocrResult.vision_recommended_status) || recommendedStatus,
           profile_comparison: profileComparison.length > 0 ? profileComparison : [],
           modelUsed: ocrResult.vision_scanned ? 'gpt-4.1-mini' : 'python',
           deepRecheckAvailable: imageExts.includes(ext),
@@ -1302,8 +1306,21 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       70 * 0.10, // assume medium quality
     );
 
-    const hasCriticalFindingsDeep = validationReasons.some(r => r.startsWith('✗ Tampering:'));
-    logger.info(`[OCR] Deep recheck completed for document ${documentId} (kycScore: ${kycScore}) — awaiting HR approval`);
+    const tamperingSignals: string[] = visionJson.tampering_signals || [];
+    const hasCriticalFindingsDeep = validationReasons.some(r => r.startsWith('✗ Tampering:')) || tamperingSignals.length > 0;
+    logger.info(`[OCR] Deep recheck completed for document ${documentId} (kycScore: ${kycScore}, tamper: ${hasCriticalFindingsDeep}) — awaiting HR approval`);
+
+    // Sync tamper findings back to the Document record so HR dashboard reflects deep recheck results
+    if (hasCriticalFindingsDeep) {
+      await prisma.document.update({
+        where: { id: documentId },
+        data: {
+          tamperDetected: true,
+          tamperDetails: tamperingSignals.join('; ') || 'Tampering signals detected by deep recheck (gpt-4.1)',
+          status: 'FLAGGED',
+        },
+      }).catch(() => {});
+    }
 
     const updated = await prisma.documentOcrVerification.update({
       where: { documentId },
