@@ -192,6 +192,38 @@ export const kycApi = api.injectEndpoints({
       query: () => ({ url: '/onboarding/kyc/expiry-check', method: 'POST' }),
       invalidatesTags: ['Kyc'],
     }),
+
+    // HR: download KYC completion certificate for a verified employee
+    getKycCompletionCertificate: builder.query<Blob, string>({
+      query: (employeeId) => ({
+        url: `/onboarding/kyc/${employeeId}/completion-certificate`,
+        responseHandler: (response: Response) => response.blob(),
+        cache: 'no-cache',
+      }),
+    }),
+
+    // Admin: get org-wide KYC compliance report
+    getKycComplianceReport: builder.query<any, void>({
+      query: () => '/onboarding/kyc/compliance-report',
+      providesTags: ['Kyc'],
+    }),
+
+    // Admin: trigger SLA escalation check (notifies supervisor about overdue submissions)
+    triggerSlaCheck: builder.mutation<any, void>({
+      query: () => ({ url: '/onboarding/kyc/sla-check', method: 'POST' }),
+    }),
+
+    // HR: bulk verify multiple employees
+    bulkVerifyKyc: builder.mutation<any, { employeeIds: string[] }>({
+      query: (body) => ({ url: '/onboarding/kyc/bulk-verify', method: 'POST', body }),
+      invalidatesTags: ['Kyc'],
+    }),
+
+    // HR: bulk request re-upload for multiple employees
+    bulkRequestReupload: builder.mutation<any, { employeeIds: string[]; docTypes: string[]; reason: string }>({
+      query: (body) => ({ url: '/onboarding/kyc/bulk-request-reupload', method: 'POST', body }),
+      invalidatesTags: ['Kyc'],
+    }),
   }),
 });
 
@@ -217,4 +249,9 @@ export const {
   useGetKycAuditLogQuery,
   useCheckDuplicateDocumentMutation,
   useTriggerKycExpiryCheckMutation,
+  useGetKycCompletionCertificateQuery,
+  useGetKycComplianceReportQuery,
+  useTriggerSlaCheckMutation,
+  useBulkVerifyKycMutation,
+  useBulkRequestReuploadMutation,
 } = kycApi;

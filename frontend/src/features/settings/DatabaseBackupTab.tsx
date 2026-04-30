@@ -117,30 +117,44 @@ interface BackupTableProps {
 
 function BackupTable({ category, accessToken, onRestoreDb, onRestoreFiles, onDelete, deletingId, restoringId }: BackupTableProps) {
   const [page, setPage] = useState(1);
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const { data, isLoading, isFetching } = useListBackupsQuery({ page, category });
 
   const backups = data?.backups ?? [];
   const meta = data?.meta;
 
-  const handleDownload = (backup: DatabaseBackup) => {
+  const handleDownload = async (backup: DatabaseBackup) => {
+    if (downloadingIds.has(backup.id)) return;
+    setDownloadingIds((prev) => new Set(prev).add(backup.id));
+
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
     const url = `${apiUrl}/settings/backup/${backup.id}/download`;
-    toast.promise(
-      fetch(url, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}, credentials: 'include' })
-        .then(async (res) => {
-          if (!res.ok) throw new Error('Download failed');
-          const blob = await res.blob();
-          const blobUrl = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = blobUrl;
-          link.download = backup.filename;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
-        }),
-      { loading: 'Preparing download...', success: 'Download started', error: (e) => e.message }
-    );
+
+    const toastId = toast.loading('Preparing download…');
+    try {
+      const res = await fetch(url, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error?.message ?? `Download failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = backup.filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      toast.success('Download started', { id: toastId });
+    } catch (err: any) {
+      toast.error(err.message ?? 'Download failed', { id: toastId });
+    } finally {
+      setDownloadingIds((prev) => { const n = new Set(prev); n.delete(backup.id); return n; });
+    }
   };
 
   if (isLoading) {
@@ -197,7 +211,9 @@ function BackupTable({ category, accessToken, onRestoreDb, onRestoreFiles, onDel
                   </div>
                 </td>
                 <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{formatDate(backup.createdAt)}</td>
-                <td className="px-4 py-3 text-xs text-gray-600 font-mono">{formatBytes(backup.sizeBytes)}</td>
+                <td className="px-4 py-3 text-xs text-gray-600 font-mono">
+                  {backup.status === 'COMPLETED' ? formatBytes(backup.sizeBytes) : '—'}
+                </td>
                 <td className="px-4 py-3">
                   <span className={cn(
                     'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium',
@@ -217,9 +233,12 @@ function BackupTable({ category, accessToken, onRestoreDb, onRestoreFiles, onDel
                   <div className="flex items-center gap-1 justify-end">
                     {backup.status === 'COMPLETED' && (
                       <>
-                        <button onClick={() => handleDownload(backup)} title="Download"
-                          className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
-                          <Download size={14} />
+                        <button
+                          onClick={() => handleDownload(backup)}
+                          disabled={downloadingIds.has(backup.id)}
+                          title={downloadingIds.has(backup.id) ? 'Downloading…' : 'Download'}
+                          className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50">
+                          {downloadingIds.has(backup.id) ? <Loader2 size={14} className="animate-spin text-indigo-500" /> : <Download size={14} />}
                         </button>
                         <button
                           onClick={() => category === 'DATABASE' ? onRestoreDb(backup) : onRestoreFiles(backup)}

@@ -38,9 +38,12 @@ logger.info('✅ BullMQ queues initialized');
 // This covers both database backup + uploaded files backup in one job.
 (async () => {
   try {
+    // Remove only scheduled-backup repeatable jobs (not any future jobs added to this queue)
     const existingBackupJobs = await backupQueue.getRepeatableJobs();
     for (const job of existingBackupJobs) {
-      await backupQueue.removeRepeatableByKey(job.key);
+      if (job.name === 'scheduled-backup') {
+        await backupQueue.removeRepeatableByKey(job.key);
+      }
     }
     await backupQueue.add('scheduled-backup', {}, {
       repeat: { pattern: '0 2 * * *' }, // 02:00 UTC every day

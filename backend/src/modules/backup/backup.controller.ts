@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { backupService } from './backup.service.js';
+import { logger } from '../../lib/logger.js';
+import { AppError } from '../../middleware/errorHandler.js';
 
 export class BackupController {
 
@@ -50,7 +52,6 @@ export class BackupController {
       const id = req.params.id as string;
       const { record, absolutePath } = await backupService.getBackupForDownload(id, req.user!.organizationId);
 
-      // Content-Type depends on backup category
       const isFilesBackup = record.category === 'FILES';
       res.setHeader('Content-Type', isFilesBackup ? 'application/x-tar' : 'application/gzip');
       res.setHeader('Content-Disposition', `attachment; filename="${record.filename}"`);
@@ -58,7 +59,19 @@ export class BackupController {
       res.setHeader('Cache-Control', 'no-store');
 
       const fs = await import('fs');
-      fs.createReadStream(absolutePath).pipe(res);
+      const stream = fs.createReadStream(absolutePath);
+
+      stream.on('error', (err) => {
+        logger.error(`[Backup] Download stream error for ${record.filename}: ${err.message}`);
+        // If headers not sent yet, delegate to error handler; otherwise forcibly close the socket
+        if (!res.headersSent) {
+          next(new AppError('Backup file could not be read — it may have been deleted', 500, 'DOWNLOAD_FAILED'));
+        } else {
+          res.destroy();
+        }
+      });
+
+      stream.pipe(res);
     } catch (err) { next(err); }
   }
 

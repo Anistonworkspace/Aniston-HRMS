@@ -2,7 +2,7 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import {
   Shield, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle,
   ScanLine, Eye, Check, FileText, Ban, Info, ChevronDown, ChevronUp, Zap, Download,
-  History, UserCheck, UserX, ChevronRight,
+  History, UserCheck, UserX, ChevronRight, Pencil, Save,
 } from 'lucide-react';
 import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation, useDeepRecheckDocumentMutation, useReprocessDocumentMutation, useGetDocumentOcrHistoryQuery, useHrApproveDocumentMutation, useHrRejectDocumentMutation } from './documentOcrApi';
 import { useVerifyDocumentMutation } from './documentApi';
@@ -134,6 +134,39 @@ function maskAadhaar(value: string): string {
 function renderFieldValue(docType: string, fieldKey: FieldKey, value: string): string {
   if (fieldKey === 'extractedDocNumber' && docType === 'AADHAAR') return maskAadhaar(value);
   return value;
+}
+
+// ─── Per-field confidence badge ───────────────────────────────────────────────
+function FieldConfidenceBadge({ confidence }: { confidence?: number }) {
+  if (confidence == null) return null;
+  const pct = Math.round(confidence * 100);
+  if (pct >= 90) return <span className="text-[10px] text-emerald-600 font-medium">({pct}%)</span>;
+  if (pct >= 70) return <span className="text-[10px] text-amber-600 font-medium">({pct}% — check)</span>;
+  return <span className="text-[10px] text-red-600 font-medium">({pct}% — low)</span>;
+}
+
+// Map FieldKey → which llmExtractedData keys to look up for confidence
+function getFieldConfidence(fieldKey: FieldKey, docType: string, llmData: any): number | undefined {
+  if (!llmData) return undefined;
+  switch (fieldKey) {
+    case 'extractedName':
+      return llmData.full_name?.confidence ?? llmData.student_name?.confidence ?? llmData.employee_name?.confidence;
+    case 'extractedDob':
+      return llmData.dob?.confidence;
+    case 'extractedDocNumber':
+      if (docType === 'AADHAAR') return llmData.aadhaar_number?.confidence;
+      if (docType === 'PAN') return llmData.pan_number?.confidence;
+      if (docType === 'PASSPORT') return llmData.passport_number?.confidence;
+      return llmData.document_number?.confidence;
+    case 'extractedFatherName':
+      return llmData.father_name?.confidence;
+    case 'extractedGender':
+      return llmData.gender?.confidence;
+    case 'extractedAddress':
+      return llmData.address?.confidence;
+    default:
+      return undefined;
+  }
 }
 
 // ─── Confidence badge helper ──────────────────────────────────────────────────
@@ -1012,6 +1045,7 @@ export default function OcrVerificationPanel({
   const { data: historyRes } = useGetDocumentOcrHistoryQuery(documentId, { skip: panelTab !== 'history' });
 
   const [editing, setEditing] = useState(false);
+  const [editingField, setEditingField] = useState<string | null>(null);
   const [localDocStatus, setLocalDocStatus] = useState(documentStatus || '');
   const [fields, setFields] = useState<Record<string, string>>({});
   const [hrNotes, setHrNotes] = useState('');
@@ -1131,6 +1165,16 @@ export default function OcrVerificationPanel({
       setEditing(false);
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'Failed to save');
+    }
+  };
+
+  const handleSaveField = async (fieldKey: string, value: string) => {
+    try {
+      await updateOcr({ documentId, body: { [fieldKey]: value } }).unwrap();
+      toast.success('Field updated');
+      setEditingField(null);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to save field');
     }
   };
 
@@ -1590,6 +1634,90 @@ export default function OcrVerificationPanel({
                   </button>
                 </div>
               )}
+
+              {/* ── Extracted OCR Fields — per-field edit with confidence badges ── */}
+              {(() => {
+                const docFields = getDocFields(documentType);
+                const hasAnyField = docFields.some(({ key }) => fields[key]);
+                if (!hasAnyField) return null;
+                const isHrEdited = !!(ocr as any)?.hrReviewedAt;
+                return (
+                  <div className="layer-card p-4">
+                    <p className="text-xs font-semibold text-gray-600 mb-3 flex items-center gap-1.5">
+                      <ScanLine size={12} />
+                      Extracted Fields
+                      {isHrEdited && (
+                        <span className="ml-auto text-[10px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">Edited by HR</span>
+                      )}
+                    </p>
+                    <div className="space-y-1.5">
+                      {docFields.map(({ key, label }) => {
+                        const rawValue = fields[key] || '';
+                        if (!rawValue) return null;
+                        const displayValue = renderFieldValue(documentType, key as FieldKey, rawValue);
+                        const conf = getFieldConfidence(key as FieldKey, documentType, aiData);
+                        const isLowConf = conf != null && conf < 0.70;
+                        const isEditing = editingField === key;
+
+                        return (
+                          <div
+                            key={key}
+                            className={cn(
+                              'flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs',
+                              isLowConf ? 'bg-amber-50/60' : 'bg-gray-50/60',
+                            )}
+                          >
+                            <span className="text-gray-500 shrink-0 w-28">{label}:</span>
+                            {isEditing ? (
+                              <>
+                                <input
+                                  className="input-glass flex-1 text-xs py-0.5 h-7"
+                                  value={fields[key]}
+                                  onChange={e => setFields(f => ({ ...f, [key]: e.target.value }))}
+                                  autoFocus
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') handleSaveField(key, fields[key]);
+                                    if (e.key === 'Escape') setEditingField(null);
+                                  }}
+                                />
+                                <button
+                                  onClick={() => handleSaveField(key, fields[key])}
+                                  disabled={saving}
+                                  className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors shrink-0"
+                                >
+                                  {saving ? <Loader2 size={9} className="animate-spin" /> : <Save size={9} />}
+                                  Save
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditingField(null);
+                                    setFields(f => ({ ...f, [key]: ocr[key] || '' }));
+                                  }}
+                                  className="text-[10px] px-2 py-1 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 shrink-0"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <span className="flex-1 font-medium text-gray-800 font-mono text-xs">{displayValue}</span>
+                                <FieldConfidenceBadge confidence={conf} />
+                                <button
+                                  onClick={() => setEditingField(key)}
+                                  className="ml-1 p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors shrink-0"
+                                  title={`Edit ${label}`}
+                                >
+                                  <Pencil size={10} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* ── AI Findings Summary — always visible, all checks with icons ── */}
               <DocFindingsSummary

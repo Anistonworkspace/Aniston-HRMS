@@ -489,6 +489,81 @@ export class DocumentOcrService {
       } catch (photoErr: any) {
         logger.warn(`[OCR] Photo face-validation skipped for ${documentId}: ${photoErr.message}`);
       }
+
+      // ── OpenAI Vision photo quality / liveness check ─────────────────────────
+      // Checks for proper passport-style format: single face, plain background,
+      // no sunglasses, no obstruction, not a selfie. Non-blocking — failure is logged only.
+      try {
+        const mimeType = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+        const photoBase64 = fileBuffer.toString('base64');
+        const photoQualityPrompt = `Analyze this passport-size photograph submitted for KYC identity verification.
+Return ONLY compact JSON (no markdown):
+{
+  "face_count": <number of faces visible>,
+  "face_clearly_visible": <true/false>,
+  "plain_background": <true/false>,
+  "wearing_sunglasses": <true/false>,
+  "face_obstructed": <true/false>,
+  "is_selfie_style": <true/false>,
+  "quality_issues": ["list any issues found"],
+  "suitable_for_kyc": <true/false>
+}`;
+        const apiKey = process.env.OPENAI_API_KEY;
+        if (apiKey) {
+          const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+          const isOpenRouter = apiKey.startsWith('sk-or-v1-') || baseUrl.includes('openrouter');
+          const model = isOpenRouter ? 'openai/gpt-4o-mini' : 'gpt-4.1-mini';
+          const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
+          const pqRes = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`,
+              ...(isOpenRouter ? { 'HTTP-Referer': 'https://hr.anistonav.com', 'X-Title': 'Aniston HRMS KYC' } : {}),
+            },
+            body: JSON.stringify({
+              model,
+              max_tokens: 400,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'text', text: photoQualityPrompt },
+                  { type: 'image_url', image_url: { url: `data:${mimeType};base64,${photoBase64}`, detail: 'high' } },
+                ],
+              }],
+            }),
+            signal: AbortSignal.timeout(20_000),
+          });
+          if (pqRes.ok) {
+            const pqData = await pqRes.json() as any;
+            const pqRaw = pqData.choices?.[0]?.message?.content || '';
+            const pqJson = JSON.parse(pqRaw.replace(/```json[\s\S]*?```|```/g, '').trim());
+            if (!ocrResult) ocrResult = {};
+            if (!ocrResult.llm_extracted_data_extra) ocrResult.llm_extracted_data_extra = {};
+            ocrResult.llm_extracted_data_extra.photo_quality_check = pqJson;
+
+            const issues: string[] = pqJson.quality_issues || [];
+            if (!pqJson.suitable_for_kyc) {
+              if (pqJson.face_count > 1) {
+                ocrResult.validation_reasons = [...(ocrResult.validation_reasons || []),
+                  `✗ Photo: Multiple faces detected (${pqJson.face_count}) — must be a solo photograph`];
+                ocrResult.is_flagged = true;
+              } else if (issues.length > 0) {
+                ocrResult.validation_reasons = [...(ocrResult.validation_reasons || []),
+                  `✗ Photo: ${issues.join(', ')} — employee should re-upload a proper passport-size photograph`];
+                ocrResult.is_flagged = true;
+              }
+            } else {
+              ocrResult.validation_reasons = [...(ocrResult.validation_reasons || []),
+                `✓ Photo: clear face, plain background, passport style — suitable for KYC`];
+            }
+            logger.info(`[OCR] Photo quality check complete for ${documentId} — suitable: ${pqJson.suitable_for_kyc}`);
+          }
+        }
+      } catch (pqErr: any) {
+        logger.warn(`[OCR] Photo quality check skipped for ${documentId}: ${pqErr.message}`);
+      }
+      // ── End photo quality check ───────────────────────────────────────────────
     }
 
     // Analyze image quality — pass docType so PHOTO skips text-based tamper checks
@@ -597,7 +672,9 @@ Respond with compact JSON only (no markdown):
     // Document expiry check: passport / DL validity — flag if expiry date is in the past or within 6 months
     if (['PASSPORT', 'DRIVING_LICENSE'].includes(doc.type)) {
       const expiryRaw = fields.expiry_date || fields.valid_upto || fields.validity || null;
+      if (!ocrResult.extra_fields) ocrResult.extra_fields = {};
       if (expiryRaw) {
+        ocrResult.extra_fields.expiry_date = expiryRaw;
         const normalized = this.normalizeDate(expiryRaw);
         if (normalized) {
           const expiry = new Date(normalized.slice(0, 4) + '-' + normalized.slice(4, 6) + '-' + normalized.slice(6, 8));
@@ -605,10 +682,118 @@ Respond with compact JSON only (no markdown):
           const sixMonthsAhead = new Date(); sixMonthsAhead.setMonth(sixMonthsAhead.getMonth() + 6);
           if (!isNaN(expiry.getTime())) {
             if (expiry < now) {
+              ocrResult.extra_fields.is_expired = true;
               validationReasons.push(`✗ Document Expired: ${doc.type.replace('_', ' ')} expired on ${expiryRaw} — employee must renew`);
             } else if (expiry < sixMonthsAhead) {
+              ocrResult.extra_fields.is_expired = false;
               validationReasons.push(`⚠ Expiring Soon: ${doc.type.replace('_', ' ')} expires on ${expiryRaw} — expires within 6 months`);
+            } else {
+              ocrResult.extra_fields.is_expired = false;
             }
+          }
+        }
+      }
+    }
+
+    // Aadhaar text-level consistency check + QR guidance note
+    if (doc.type === 'AADHAAR') {
+      const rawText = ocrResult.raw_text || '';
+
+      // Check if QR/XML data is present in raw text (UIDAI offline XML format)
+      const hasQrXmlData = /<Poi\b/i.test(rawText) || /<ResidentData\b/i.test(rawText);
+      let qrName: string | null = null;
+      let qrDob: string | null = null;
+      if (hasQrXmlData) {
+        const nameMatch = rawText.match(/\bname=['"](.*?)['"]/i) || rawText.match(/\bn=['"](.*?)['"]/i);
+        const dobMatch = rawText.match(/\bdob=['"](.*?)['"]/i);
+        if (nameMatch) qrName = nameMatch[1];
+        if (dobMatch) qrDob = dobMatch[1];
+      }
+
+      // Text-level consistency: doc number passes Verhoeff + name + DOB all present and consistent
+      const extractedDocNum = fields.aadhaar_number || fields.document_number || null;
+      const extractedName = fields.name || null;
+      const extractedDobRaw = fields.date_of_birth || null;
+
+      let aadhaarConsistencyCheck: 'PASS' | 'FAIL' = 'PASS';
+      const aadhaarCheckReasons: string[] = [];
+
+      if (qrName && extractedName) {
+        const qrNameResult = this.compareNames(qrName, extractedName);
+        if (qrNameResult.match === 'FAIL') {
+          aadhaarConsistencyCheck = 'FAIL';
+          aadhaarCheckReasons.push(`QR name "${qrName}" does not match OCR name "${extractedName}"`);
+        }
+      }
+      if (qrDob && extractedDobRaw) {
+        const qrNorm = this.normalizeDate(qrDob);
+        const ocrNorm = this.normalizeDate(extractedDobRaw);
+        if (qrNorm && ocrNorm && qrNorm !== ocrNorm) {
+          aadhaarConsistencyCheck = 'FAIL';
+          aadhaarCheckReasons.push(`QR DOB "${qrDob}" does not match OCR DOB "${extractedDobRaw}"`);
+        }
+      }
+
+      // Store consistency result in extra_fields for verifyKyc() expiry check to reference
+      if (!ocrResult.extra_fields) ocrResult.extra_fields = {};
+      ocrResult.extra_fields.aadhaar_consistency_check = aadhaarConsistencyCheck;
+      ocrResult.extra_fields.aadhaar_check_reason = aadhaarCheckReasons.length > 0
+        ? aadhaarCheckReasons.join('; ')
+        : extractedDocNum
+          ? 'Aadhaar data internally consistent'
+          : 'Insufficient data for consistency check';
+
+      if (aadhaarConsistencyCheck === 'FAIL') {
+        validationReasons.push(`✗ Aadhaar QR data inconsistency: ${aadhaarCheckReasons.join('; ')}`);
+      } else if (hasQrXmlData) {
+        validationReasons.push(`✓ Aadhaar QR/XML data present and internally consistent`);
+      }
+
+      // Always add HR guidance note for physical Aadhaar verification
+      validationReasons.push(
+        `⚠ For physical Aadhaar cards: scan QR code with mAadhaar app to verify authenticity against UIDAI database`
+      );
+    }
+
+    // Graduation year sanity check for education certificates
+    // Compare the year on the certificate against the employee's date of birth.
+    const EDU_YEAR_CHECK_TYPES: Record<string, { minYearsAfterBirth: number; maxYearsAfterBirth: number }> = {
+      TENTH_CERTIFICATE: { minYearsAfterBirth: 14, maxYearsAfterBirth: 22 },
+      TWELFTH_CERTIFICATE: { minYearsAfterBirth: 16, maxYearsAfterBirth: 24 },
+      DEGREE_CERTIFICATE: { minYearsAfterBirth: 19, maxYearsAfterBirth: 28 },
+      POST_GRADUATION_CERTIFICATE: { minYearsAfterBirth: 21, maxYearsAfterBirth: 32 },
+    };
+    if (EDU_YEAR_CHECK_TYPES[doc.type] && employee?.dateOfBirth) {
+      const dobYear = new Date(employee.dateOfBirth).getFullYear();
+      if (!isNaN(dobYear) && dobYear > 1900) {
+        const rawText = ocrResult.raw_text || '';
+        const llmYear = fields.year || fields.passing_year || fields.graduation_year || null;
+        let gradYear: number | null = null;
+        if (llmYear) {
+          const parsed = parseInt(String(llmYear), 10);
+          if (parsed >= 1980 && parsed <= new Date().getFullYear() + 1) gradYear = parsed;
+        }
+        if (!gradYear) {
+          // Try to extract year from raw text — look for 4-digit year between 1980 and current year+1
+          const yearMatches = rawText.match(/\b(19[89]\d|20[0-2]\d)\b/g);
+          if (yearMatches && yearMatches.length > 0) {
+            // Take the most recently appearing year that makes sense as a passing year
+            const currentYear = new Date().getFullYear();
+            const validYears = yearMatches.map(Number).filter((y: number) => y >= 1980 && y <= currentYear + 1);
+            if (validYears.length > 0) {
+              gradYear = Math.max(...validYears);
+            }
+          }
+        }
+        if (gradYear) {
+          const { minYearsAfterBirth, maxYearsAfterBirth } = EDU_YEAR_CHECK_TYPES[doc.type];
+          const expectedMin = dobYear + minYearsAfterBirth;
+          const expectedMax = dobYear + maxYearsAfterBirth;
+          if (gradYear < expectedMin || gradYear > expectedMax) {
+            const dobStr = employee.dateOfBirth.toISOString().split('T')[0];
+            validationReasons.push(
+              `⚠ Graduation year ${gradYear} appears inconsistent with date of birth ${dobStr} (expected range: ${expectedMin}–${expectedMax}). Verify the certificate year.`
+            );
           }
         }
       }
@@ -646,12 +831,25 @@ Respond with compact JSON only (no markdown):
     }
 
     // Bank-specific fields extracted by Python — stored at root of llmExtractedData for autoFillFromOcr
-    const bankExtras = (fields.ifsc_code || fields.bank_name || fields.account_number) ? {
+    const bankExtras: Record<string, string | null> = (fields.ifsc_code || fields.bank_name || fields.account_number) ? {
       accountNumber: fields.account_number || null,
       ifscCode: fields.ifsc_code || null,
       bankName: fields.bank_name || null,
       branch: fields.branch || null,
     } : {};
+
+    // IFSC real-time validation for bank documents
+    if (['CANCELLED_CHEQUE', 'BANK_STATEMENT'].includes(doc.type) && fields.ifsc_code) {
+      const ifscResult = await this.validateIfscCode(fields.ifsc_code);
+      if (ifscResult.valid && ifscResult.bankName) {
+        validationReasons.push(`✓ IFSC ${fields.ifsc_code} verified — ${ifscResult.bankName}${ifscResult.branch ? ', ' + ifscResult.branch : ''}`);
+        // Enrich bankExtras with verified bank name/branch from IFSC API
+        if (!bankExtras.bankName && ifscResult.bankName) bankExtras.bankName = ifscResult.bankName;
+        if (!bankExtras.branch && ifscResult.branch) bankExtras.branch = ifscResult.branch;
+      } else if (!ifscResult.valid && ifscResult.error) {
+        validationReasons.push(`✗ IFSC code ${fields.ifsc_code} not found in RBI database — verify the cheque details`);
+      }
+    }
 
     // Education certs: student_name has priority; generic name fields often contain school/board names
     const EDU_CERT_TYPES = ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
@@ -743,6 +941,9 @@ Respond with compact JSON only (no markdown):
           modelUsed: ocrResult.vision_scanned ? 'gpt-4.1-mini' : 'python',
           deepRecheckAvailable: imageExts.includes(ext) || ext === 'pdf',
           ai_enhanced: true,
+          ...(ocrResult.extra_fields ? { extra_fields: ocrResult.extra_fields } : {}),
+          // Photo quality check result (Change 4 — populated for PHOTO type documents only)
+          ...(ocrResult.llm_extracted_data_extra || {}),
           ...bankExtras,
         } as any,
         kycScore,
@@ -786,6 +987,9 @@ Respond with compact JSON only (no markdown):
           modelUsed: ocrResult.vision_scanned ? 'gpt-4.1-mini' : 'python',
           deepRecheckAvailable: imageExts.includes(ext),
           ai_enhanced: true,
+          ...(ocrResult.extra_fields ? { extra_fields: ocrResult.extra_fields } : {}),
+          // Photo quality check result (Change 4 — populated for PHOTO type documents only)
+          ...(ocrResult.llm_extracted_data_extra || {}),
           ...bankExtras,
         } as any,
         kycScore,
@@ -1320,6 +1524,38 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
   }
 
   /**
+   * Validate an IFSC code against the Razorpay IFSC API (RBI-sourced database).
+   * Fail-open: any network/service error returns valid:true so OCR is not blocked.
+   */
+  private async validateIfscCode(ifsc: string): Promise<{ valid: boolean; bankName?: string; branch?: string; error?: string }> {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      let response: Response;
+      try {
+        response = await fetch(`https://ifsc.razorpay.com/${encodeURIComponent(ifsc.toUpperCase())}`, {
+          signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+      if (response.status === 404) {
+        return { valid: false, error: 'IFSC code not found in RBI database' };
+      }
+      if (response.ok) {
+        const data = await response.json() as { BANK?: string; BRANCH?: string };
+        return { valid: true, bankName: data.BANK, branch: data.BRANCH };
+      }
+      // Any other HTTP error — fail open
+      return { valid: true };
+    } catch {
+      // Network timeout / unavailable — fail open, don't block OCR pipeline
+      return { valid: true };
+    }
+  }
+
+  /**
    * Return true when a name string is clearly OCR garbage and should be excluded
    * from cross-validation and display (avoids false FAIL on education cert noise).
    * Pass docType to enable education-cert single-word short-name filter.
@@ -1366,7 +1602,7 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     // Also fetch employee profile to use as an additional source (org-scoped)
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, organizationId, deletedAt: null },
-      select: { firstName: true, lastName: true, dateOfBirth: true, gender: true, fatherName: true },
+      select: { firstName: true, lastName: true, dateOfBirth: true, gender: true, fatherName: true, address: true },
     });
     if (!employee) throw new NotFoundError('Employee');
     const profileName = employee ? `${employee.firstName} ${employee.lastName}`.trim() : null;
@@ -1510,6 +1746,86 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
         matchDetail: result.reason,
         similarity: result.similarity,
       });
+    }
+
+    // ---- Bank account holder name vs employee name cross-validation ----
+    // CANCELLED_CHEQUE and BANK_STATEMENT docs have extractedName = account holder name.
+    // Compare against the employee's profile name. Mismatch may indicate a 3rd-party account.
+    const BANK_DOC_TYPES = new Set(['CANCELLED_CHEQUE', 'BANK_STATEMENT']);
+    const bankDocs = ocrDocs.filter(d => BANK_DOC_TYPES.has(d.type as string));
+    if (bankDocs.length > 0 && profileName && profileName.trim().length > 2) {
+      for (const bankDoc of bankDocs) {
+        const bankHolderRaw = bankDoc.ocrVerification!.extractedName;
+        if (!bankHolderRaw || bankHolderRaw.trim().length < 3) continue;
+        if (this.isGarbageName(bankHolderRaw)) continue;
+        const bankResult = this.compareNames(bankHolderRaw, profileName);
+        const simPct = (bankResult.similarity * 100).toFixed(0);
+        const bankDocLabel = bankDoc.type === 'CANCELLED_CHEQUE' ? 'Cancelled Cheque' : 'Bank Statement';
+        if (bankResult.match === 'FAIL') {
+          details.push({
+            field: 'Bank Account Holder Name',
+            values: [
+              { docType: bankDoc.type as string, value: bankHolderRaw },
+              { docType: 'PROFILE', value: profileName },
+            ],
+            match: false,
+            matchDetail: `Bank account holder name on ${bankDocLabel} ("${bankHolderRaw}") does not match employee name ("${profileName}") (similarity: ${simPct}%). Verify the cheque belongs to this employee.`,
+            similarity: bankResult.similarity,
+          });
+        } else if (bankResult.match === 'PARTIAL') {
+          details.push({
+            field: 'Bank Account Holder Name',
+            values: [
+              { docType: bankDoc.type as string, value: bankHolderRaw },
+              { docType: 'PROFILE', value: profileName },
+            ],
+            match: true,
+            matchDetail: `Bank account holder name on ${bankDocLabel} partially matches employee name (similarity: ${simPct}%) — minor name variation acceptable.`,
+            similarity: bankResult.similarity,
+          });
+        }
+        // PASS: no entry needed — no cross-validation noise for perfectly matching names
+      }
+    }
+
+    // ---- Address PIN code cross-validation ----
+    // Compare the 6-digit PIN from AADHAAR or RESIDENCE_PROOF against the employee's stored address.
+    // This is a WARNING-only check — mismatch sets PARTIAL at most (not FAIL).
+    const ADDRESS_DOC_TYPES = new Set(['AADHAAR', 'RESIDENCE_PROOF', 'PERMANENT_RESIDENCE_PROOF']);
+    const employeeAddress = employee?.address as Record<string, string> | null | undefined;
+    const profilePin = employeeAddress?.pincode || employeeAddress?.pin || employeeAddress?.postalCode || null;
+
+    if (profilePin && /^\d{6}$/.test(String(profilePin))) {
+      for (const addrDoc of ocrDocs.filter(d => ADDRESS_DOC_TYPES.has(d.type as string))) {
+        const extractedAddr = addrDoc.ocrVerification!.extractedAddress;
+        if (!extractedAddr) continue;
+        const pinMatch = extractedAddr.match(/\b(\d{6})\b/);
+        if (!pinMatch) continue;
+        const docPin = pinMatch[1];
+        const docTypeLabel = (addrDoc.type as string).replace(/_/g, ' ');
+        if (docPin === String(profilePin)) {
+          details.push({
+            field: 'Address PIN Code',
+            values: [
+              { docType: addrDoc.type as string, value: docPin },
+              { docType: 'PROFILE', value: String(profilePin) },
+            ],
+            match: true,
+            matchDetail: `✓ Address PIN code ${docPin} from ${docTypeLabel} matches employee profile`,
+          });
+        } else {
+          details.push({
+            field: 'Address PIN Code',
+            values: [
+              { docType: addrDoc.type as string, value: docPin },
+              { docType: 'PROFILE', value: String(profilePin) },
+            ],
+            match: true, // WARNING only — kept true so overall status stays PARTIAL not FAIL
+            matchDetail: `⚠ Address PIN code from ${docTypeLabel} (${docPin}) does not match employee profile (${profilePin}) — verify current address`,
+          });
+        }
+        break; // Only check the first address document found
+      }
     }
 
     // Overall status

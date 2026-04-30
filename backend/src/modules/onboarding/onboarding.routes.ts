@@ -4,6 +4,7 @@ import { Role } from '@aniston/shared';
 import { onboardingController } from './onboarding.controller.js';
 import { getEmployeeKycUrl } from '../../middleware/upload.middleware.js';
 import { logger } from '../../lib/logger.js';
+import { createAuditLog } from '../../utils/auditLogger.js';
 
 const router = Router();
 
@@ -599,6 +600,21 @@ router.get('/kyc/:employeeId/document/:docId/view',
         }
       }
 
+      // Audit log: record every HR document view for compliance tracking
+      createAuditLog({
+        userId: req.user!.userId,
+        organizationId: req.user!.organizationId,
+        entity: 'Document',
+        entityId: docId,
+        action: 'DOCUMENT_VIEWED',
+        newValue: {
+          employeeId,
+          docId,
+          viewedBy: req.user!.userId,
+          viewedAt: new Date().toISOString(),
+        },
+      }).catch((err: any) => logger.warn('[KYC View] Audit log failed:', err));
+
       const fileBuffer = readFileSync(servePath);
       const mimeTypes: Record<string, string> = {
         '.pdf': 'application/pdf',
@@ -1108,6 +1124,513 @@ router.post('/kyc/:employeeId/retrigger-ocr', authenticate, authorize(Role.SUPER
         } catch { /* continue */ }
       }
       res.json({ success: true, data: { triggered }, message: `OCR re-queued for ${triggered} document(s)` });
+    } catch (err) { next(err); }
+  }
+);
+
+// ==================
+// CHANGE 2: KYC SLA CHECK — escalate overdue reviews as in-app notifications
+// ==================
+router.post('/kyc/sla-check', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+      const orgId = req.user!.organizationId;
+      const threshold = new Date(Date.now() - 48 * 3600 * 1000); // 48 hours ago
+
+      const overdue = await prisma.onboardingDocumentGate.findMany({
+        where: {
+          employee: { organizationId: orgId },
+          kycStatus: { in: ['SUBMITTED', 'PENDING_HR_REVIEW'] },
+          submittedAt: { lt: threshold },
+        },
+        include: {
+          employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
+        },
+      });
+
+      if (overdue.length === 0) {
+        res.json({ success: true, data: { escalated: 0, message: 'No SLA breaches found' } });
+        return;
+      }
+
+      // Find all HR/ADMIN/SUPER_ADMIN users in the org to notify
+      const hrUsers = await prisma.user.findMany({
+        where: {
+          organizationId: orgId,
+          role: { in: ['HR', 'ADMIN', 'SUPER_ADMIN'] as any },
+          status: 'ACTIVE',
+        },
+        select: { id: true },
+      });
+
+      const { enqueueNotification } = await import('../../jobs/queues.js');
+      let escalated = 0;
+
+      for (const gate of overdue) {
+        const emp = gate.employee as any;
+        const empName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.employeeCode;
+        const submittedAt = (gate as any).submittedAt as Date | null;
+        const hoursWaiting = submittedAt
+          ? Math.round((Date.now() - submittedAt.getTime()) / 3600000)
+          : 0;
+
+        for (const hrUser of hrUsers) {
+          try {
+            await enqueueNotification({
+              userId: hrUser.id,
+              organizationId: orgId,
+              title: 'KYC SLA Breach',
+              message: `KYC pending review for ${hoursWaiting} hours — ${empName} (${emp.employeeCode})`,
+              type: 'SYSTEM_ALERT',
+              link: `/employees/${emp.id}?tab=documents`,
+            });
+          } catch { /* non-blocking per user */ }
+        }
+        escalated++;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          escalated,
+          message: `Escalated ${escalated} overdue KYC review(s) to HR team`,
+        },
+      });
+    } catch (err) { next(err); }
+  }
+);
+
+// ==================
+// CHANGE 5: KYC COMPLETION CERTIFICATE PDF
+// ==================
+router.get('/kyc/:employeeId/completion-certificate', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+      const employeeId = req.params.employeeId as string;
+
+      const gate = await prisma.onboardingDocumentGate.findUnique({
+        where: { employeeId },
+        include: {
+          employee: {
+            select: {
+              firstName: true,
+              lastName: true,
+              employeeCode: true,
+              email: true,
+              department: { select: { name: true } },
+              designation: { select: { name: true } },
+              organizationId: true,
+            },
+          },
+        },
+      });
+
+      if (!gate) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'KYC record not found' } });
+        return;
+      }
+      if ((gate.employee as any).organizationId !== req.user!.organizationId) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'KYC record not found' } });
+        return;
+      }
+      if (gate.kycStatus !== 'VERIFIED') {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'KYC is not VERIFIED — certificate cannot be generated' } });
+        return;
+      }
+
+      const org = await prisma.organization.findUnique({
+        where: { id: (gate.employee as any).organizationId },
+        select: { name: true },
+      });
+
+      const verifiedHr = gate.verifiedBy
+        ? await prisma.user.findUnique({ where: { id: gate.verifiedBy }, select: { email: true } })
+        : null;
+
+      const PDFDocument = (await import('pdfkit')).default;
+      const doc = new PDFDocument({ size: 'A4', margin: 60 });
+      const buffers: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => buffers.push(chunk));
+
+      const pageWidth = doc.page.width - 120;
+      const left = 60;
+      const emp = gate.employee as any;
+      const orgName = org?.name || 'Aniston Technologies';
+
+      // ── Header ──────────────────────────────────────────────────────────────
+      doc.fontSize(20).font('Helvetica-Bold').fillColor('#1a1a1a')
+        .text(orgName, left, 60, { align: 'center', width: pageWidth });
+      doc.fontSize(11).font('Helvetica').fillColor('#6b7280')
+        .text('Enterprise Human Resource Management', left, 85, { align: 'center', width: pageWidth });
+      doc.moveTo(left, 105).lineTo(left + pageWidth, 105).strokeColor('#4F46E5').lineWidth(2).stroke();
+      doc.fontSize(16).font('Helvetica-Bold').fillColor('#4F46E5')
+        .text('KYC VERIFICATION CERTIFICATE', left, 115, { align: 'center', width: pageWidth });
+      doc.moveTo(left, 140).lineTo(left + pageWidth, 140).strokeColor('#4F46E5').lineWidth(0.5).stroke();
+
+      // ── Employee Details ────────────────────────────────────────────────────
+      let y = 160;
+      const row = (label: string, value: string) => {
+        doc.fontSize(9).font('Helvetica').fillColor('#6b7280').text(label, left, y);
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#1a1a1a').text(value, left + 140, y);
+        y += 20;
+      };
+
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#4F46E5').text('EMPLOYEE DETAILS', left, y);
+      y += 18;
+      row('Employee Name', `${emp.firstName || ''} ${emp.lastName || ''}`.trim());
+      row('Employee Code', emp.employeeCode || 'N/A');
+      row('Department', emp.department?.name || 'N/A');
+      row('Designation', emp.designation?.name || 'N/A');
+
+      y += 10;
+      doc.moveTo(left, y).lineTo(left + pageWidth, y).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+      y += 15;
+
+      // ── Verification Details ────────────────────────────────────────────────
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#4F46E5').text('VERIFICATION DETAILS', left, y);
+      y += 18;
+
+      const verifiedAtStr = gate.verifiedAt
+        ? gate.verifiedAt.toLocaleDateString('en-IN', { dateStyle: 'long' })
+        : 'N/A';
+      const expiresAtStr = gate.kycExpiresAt
+        ? gate.kycExpiresAt.toLocaleDateString('en-IN', { dateStyle: 'long' })
+        : 'N/A';
+
+      row('KYC Status', 'VERIFIED');
+      row('Verification Date', verifiedAtStr);
+      row('Verified By (HR)', verifiedHr?.email || gate.verifiedBy || 'HR Reviewer');
+      row('Valid Until', expiresAtStr);
+
+      y += 10;
+      doc.moveTo(left, y).lineTo(left + pageWidth, y).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+      y += 15;
+
+      // ── Documents Verified ──────────────────────────────────────────────────
+      const DOC_LABELS_CERT: Record<string, string> = {
+        PAN: 'PAN Card', AADHAAR: 'Aadhaar Card', PASSPORT: 'Passport',
+        DRIVING_LICENSE: 'Driving License', VOTER_ID: 'Voter ID',
+        TENTH_CERTIFICATE: '10th Marksheet / Certificate',
+        TWELFTH_CERTIFICATE: '12th Marksheet / Certificate',
+        DEGREE_CERTIFICATE: 'Graduation / Degree Certificate',
+        POST_GRADUATION_CERTIFICATE: 'Post-Graduation Certificate',
+        PHOTO: 'Passport Size Photograph', RESIDENCE_PROOF: 'Residence Proof',
+        EXPERIENCE_LETTER: 'Experience / Relieving Letter',
+        RELIEVING_LETTER: 'Relieving Letter',
+        OFFER_LETTER_DOC: 'Appointment / Offer Letter',
+        SALARY_SLIP_DOC: 'Salary Slips',
+        BANK_STATEMENT: 'Bank Statement', CANCELLED_CHEQUE: 'Cancelled Cheque',
+      };
+
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#4F46E5').text('DOCUMENTS VERIFIED', left, y);
+      y += 18;
+
+      const submittedDocs = (gate.submittedDocs as string[]) || [];
+      for (const docType of submittedDocs) {
+        const label = DOC_LABELS_CERT[docType] || docType.replace(/_/g, ' ');
+        doc.fontSize(9).font('Helvetica').fillColor('#374151').text(`  ✓  ${label}`, left, y);
+        y += 16;
+      }
+      if (gate.photoUrl) {
+        doc.fontSize(9).font('Helvetica').fillColor('#374151').text('  ✓  Passport Size Photograph', left, y);
+        y += 16;
+      }
+
+      y += 15;
+      doc.moveTo(left, y).lineTo(left + pageWidth, y).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+      y += 20;
+
+      // ── Footer ───────────────────────────────────────────────────────────────
+      const generatedAt = new Date().toLocaleDateString('en-IN', { dateStyle: 'long' });
+      doc.fontSize(8).font('Helvetica').fillColor('#9ca3af')
+        .text(
+          `This certificate is computer-generated and valid as of ${generatedAt}. ` +
+          `For verification, contact HR at ${orgName}.`,
+          left, y, { align: 'center', width: pageWidth }
+        );
+
+      doc.end();
+
+      const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+        doc.on('end', () => resolve(Buffer.concat(buffers)));
+        doc.on('error', reject);
+      });
+
+      const safeCode = (emp.employeeCode || 'unknown').replace(/[^a-zA-Z0-9-_]/g, '');
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="kyc-certificate-${safeCode}.pdf"`,
+        'Content-Length': String(pdfBuffer.length),
+        'Cache-Control': 'no-store',
+      });
+      res.send(pdfBuffer);
+    } catch (err) { next(err); }
+  }
+);
+
+// ==================
+// CHANGE 6: KYC COMPLIANCE REPORT (JSON endpoint)
+// ==================
+router.get('/kyc/compliance-report', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+      const orgId = req.user!.organizationId;
+      const now = new Date();
+      const slaThreshold = new Date(now.getTime() - 48 * 3600 * 1000);
+      const in60Days = new Date(now.getTime() + 60 * 24 * 3600 * 1000);
+      const in30Days = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
+
+      // Aggregate KYC status counts
+      const statusGroups = await prisma.onboardingDocumentGate.groupBy({
+        by: ['kycStatus'],
+        where: { employee: { organizationId: orgId } },
+        _count: { id: true },
+      });
+      const statusMap: Record<string, number> = {};
+      for (const g of statusGroups) statusMap[g.kycStatus] = g._count.id;
+
+      const expiringSoon = await prisma.onboardingDocumentGate.count({
+        where: {
+          employee: { organizationId: orgId },
+          kycStatus: 'VERIFIED',
+          kycExpiresAt: { lte: in60Days, gt: now },
+        },
+      });
+      const expired = await prisma.onboardingDocumentGate.count({
+        where: {
+          employee: { organizationId: orgId },
+          kycStatus: 'VERIFIED',
+          kycExpiresAt: { lte: now },
+        },
+      });
+
+      const total = Object.values(statusMap).reduce((a, b) => a + b, 0);
+
+      // Average turnaround from submittedAt → verifiedAt
+      const verifiedGates = await prisma.onboardingDocumentGate.findMany({
+        where: {
+          employee: { organizationId: orgId },
+          kycStatus: 'VERIFIED',
+          verifiedAt: { not: null },
+          submittedAt: { not: null },
+        },
+        select: { submittedAt: true, verifiedAt: true },
+        take: 200,
+      });
+      const turnarounds = verifiedGates
+        .filter(g => g.submittedAt && g.verifiedAt)
+        .map(g => (g.verifiedAt!.getTime() - (g.submittedAt as Date).getTime()) / 3600000);
+      const avgTurnaroundHours = turnarounds.length > 0
+        ? Math.round(turnarounds.reduce((a, b) => a + b, 0) / turnarounds.length)
+        : 0;
+
+      // Per-department breakdown
+      const deptData = await prisma.employee.findMany({
+        where: { organizationId: orgId, deletedAt: null },
+        select: {
+          department: { select: { name: true } },
+          documentGate: { select: { kycStatus: true } },
+        },
+      });
+      const deptMap: Record<string, { total: number; verified: number; pending: number }> = {};
+      for (const emp of deptData) {
+        const dept = emp.department?.name || 'No Department';
+        if (!deptMap[dept]) deptMap[dept] = { total: 0, verified: 0, pending: 0 };
+        deptMap[dept].total++;
+        if (emp.documentGate?.kycStatus === 'VERIFIED') deptMap[dept].verified++;
+        else if (emp.documentGate?.kycStatus && !['REJECTED'].includes(emp.documentGate.kycStatus)) {
+          deptMap[dept].pending++;
+        }
+      }
+      const byDepartment = Object.entries(deptMap).map(([department, d]) => ({
+        department,
+        total: d.total,
+        verified: d.verified,
+        pending: d.pending,
+        verifiedPct: d.total > 0 ? Math.round((d.verified / d.total) * 100) : 0,
+      })).sort((a, b) => b.total - a.total);
+
+      // SLA breaches — SUBMITTED/PENDING_HR_REVIEW older than 48h
+      const slaBreachGates = await prisma.onboardingDocumentGate.findMany({
+        where: {
+          employee: { organizationId: orgId },
+          kycStatus: { in: ['SUBMITTED', 'PENDING_HR_REVIEW'] },
+          submittedAt: { lt: slaThreshold },
+        },
+        include: {
+          employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
+        },
+      });
+      const slaBreaches = slaBreachGates.map(g => {
+        const emp = g.employee as any;
+        const submittedAt = (g as any).submittedAt as Date | null;
+        return {
+          employeeId: emp.id,
+          name: `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
+          employeeCode: emp.employeeCode || '',
+          submittedAt: submittedAt ? submittedAt.toISOString() : '',
+          hoursWaiting: submittedAt ? Math.round((now.getTime() - submittedAt.getTime()) / 3600000) : 0,
+        };
+      });
+
+      // Expiring in 30 days
+      const expiringIn30Days = await prisma.onboardingDocumentGate.findMany({
+        where: {
+          employee: { organizationId: orgId },
+          kycStatus: 'VERIFIED',
+          kycExpiresAt: { lte: in30Days, gt: now },
+        },
+        include: {
+          employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
+        },
+        take: 50,
+      });
+      const expiringList = expiringIn30Days.map(g => {
+        const emp = g.employee as any;
+        return {
+          employeeId: emp.id,
+          name: `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
+          employeeCode: emp.employeeCode || '',
+          kycExpiresAt: g.kycExpiresAt ? g.kycExpiresAt.toISOString() : '',
+        };
+      });
+
+      // Top flagged doc types from DocumentOcrVerification
+      const flaggedDocTypes = await prisma.documentOcrVerification.groupBy({
+        by: ['documentId'],
+        where: {
+          organizationId: orgId,
+          suspicionScore: { gt: 30 },
+        },
+        _count: { id: true },
+      });
+      // Join with Document to get type
+      const flaggedDocIds = flaggedDocTypes.map(f => f.documentId);
+      const flaggedDocRecords = await prisma.document.findMany({
+        where: { id: { in: flaggedDocIds }, deletedAt: null },
+        select: { id: true, type: true },
+      });
+      const docTypeMap: Record<string, string> = {};
+      for (const d of flaggedDocRecords) docTypeMap[d.id] = d.type;
+      const docTypeFlagCount: Record<string, number> = {};
+      for (const f of flaggedDocTypes) {
+        const docType = docTypeMap[f.documentId] || 'UNKNOWN';
+        docTypeFlagCount[docType] = (docTypeFlagCount[docType] || 0) + f._count.id;
+      }
+      const topFlaggedDocTypes = Object.entries(docTypeFlagCount)
+        .map(([docType, flagCount]) => ({ docType, flagCount }))
+        .sort((a, b) => b.flagCount - a.flagCount)
+        .slice(0, 8);
+
+      res.json({
+        success: true,
+        data: {
+          generatedAt: now.toISOString(),
+          organizationId: orgId,
+          summary: {
+            total,
+            verified: statusMap['VERIFIED'] || 0,
+            pending: (statusMap['SUBMITTED'] || 0) + (statusMap['PENDING_HR_REVIEW'] || 0),
+            reuploadRequired: statusMap['REUPLOAD_REQUIRED'] || 0,
+            rejected: statusMap['REJECTED'] || 0,
+            expiringSoon,
+            expired,
+          },
+          avgTurnaroundHours,
+          byDepartment,
+          slaBreaches,
+          expiringIn30Days: expiringList,
+          topFlaggedDocTypes,
+        },
+      });
+    } catch (err) { next(err); }
+  }
+);
+
+// ==================
+// CHANGE 7: BULK APPROVE / BULK REQUEST REUPLOAD
+// ==================
+
+// Bulk verify KYC for multiple employees
+router.post('/kyc/bulk-verify', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { employeeIds } = req.body as { employeeIds: string[] };
+      if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'employeeIds array is required' } });
+        return;
+      }
+
+      const { documentGateService } = await import('./document-gate.service.js');
+      const verified: string[] = [];
+      const failed: Array<{ id: string; reason: string }> = [];
+
+      for (const employeeId of employeeIds) {
+        try {
+          await documentGateService.verifyKyc(employeeId, req.user!.userId, req.user!.organizationId);
+          verified.push(employeeId);
+        } catch (err: any) {
+          failed.push({ id: employeeId, reason: err?.message || 'Unknown error' });
+        }
+      }
+
+      res.json({
+        success: true,
+        data: { verified, failed },
+        message: `Bulk verify complete: ${verified.length} verified, ${failed.length} failed`,
+      });
+    } catch (err) { next(err); }
+  }
+);
+
+// Bulk request re-upload for multiple employees
+router.post('/kyc/bulk-request-reupload', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { employeeIds, docTypes, reason } = req.body as {
+        employeeIds: string[];
+        docTypes: string[];
+        reason: string;
+      };
+
+      if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'employeeIds array is required' } });
+        return;
+      }
+      if (!Array.isArray(docTypes) || docTypes.length === 0) {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'docTypes array is required' } });
+        return;
+      }
+      if (!reason || typeof reason !== 'string') {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'reason is required' } });
+        return;
+      }
+
+      const { documentGateService } = await import('./document-gate.service.js');
+      const reuploadRequested: string[] = [];
+      const failed: Array<{ id: string; reason: string }> = [];
+
+      // Build reasons map — same reason for all doc types in bulk operation
+      const reasons: Record<string, string> = {};
+      for (const dt of docTypes) reasons[dt] = reason;
+
+      for (const employeeId of employeeIds) {
+        try {
+          await documentGateService.requestReupload(employeeId, docTypes, reasons, req.user!.userId);
+          reuploadRequested.push(employeeId);
+        } catch (err: any) {
+          failed.push({ id: employeeId, reason: err?.message || 'Unknown error' });
+        }
+      }
+
+      res.json({
+        success: true,
+        data: { reuploadRequested, failed },
+        message: `Bulk re-upload request complete: ${reuploadRequested.length} notified, ${failed.length} failed`,
+      });
     } catch (err) { next(err); }
   }
 );

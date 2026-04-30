@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
@@ -7,8 +7,9 @@ import {
 import {
   TrendingUp, Clock, Shield, AlertTriangle, CheckCircle,
   RefreshCw, Loader2, Building2, XCircle, FileText, Calendar,
+  Download, Bell,
 } from 'lucide-react';
-import { useTriggerKycExpiryCheckMutation } from './kycApi';
+import { useTriggerKycExpiryCheckMutation, useGetKycComplianceReportQuery, useTriggerSlaCheckMutation } from './kycApi';
 import { useGetKycAnalyticsQuery, useOrgBulkTriggerOcrMutation } from '../documents/documentOcrApi';
 import toast from 'react-hot-toast';
 
@@ -42,6 +43,11 @@ export default function KycAnalyticsPage() {
   const { data: analyticsRes, isLoading, refetch } = useGetKycAnalyticsQuery();
   const [triggerExpiry, { isLoading: checkingExpiry }] = useTriggerKycExpiryCheckMutation();
   const [orgBulkTrigger, { isLoading: bulkScanning }] = useOrgBulkTriggerOcrMutation();
+  const [triggerSla, { isLoading: checkingSla }] = useTriggerSlaCheckMutation();
+  const [showComplianceModal, setShowComplianceModal] = useState(false);
+  const { data: complianceRes, isLoading: loadingCompliance, refetch: refetchCompliance } = useGetKycComplianceReportQuery(undefined, {
+    skip: !showComplianceModal,
+  });
   const [activeTab, setActiveTab] = useState<'overview' | 'departments' | 'documents'>('overview');
 
   const d = analyticsRes?.data;
@@ -55,6 +61,16 @@ export default function KycAnalyticsPage() {
         : 'No expired KYC found');
       refetch();
     } catch { toast.error('Expiry check failed'); }
+  };
+
+  const handleSlaCheck = async () => {
+    try {
+      const res = await triggerSla().unwrap();
+      const escalated = res.data?.escalated ?? 0;
+      toast.success(escalated > 0
+        ? `Escalated ${escalated} employee(s) to HR supervisor`
+        : 'No SLA breaches found');
+    } catch { toast.error('SLA check failed'); }
   };
 
   const handleOrgBulkScan = async () => {
@@ -87,6 +103,21 @@ export default function KycAnalyticsPage() {
           <p className="text-slate-500 text-sm mt-1">Org-wide KYC compliance, scan quality, and turnaround tracking</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => { setShowComplianceModal(true); refetchCompliance?.(); }}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-sm font-medium hover:bg-slate-100 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            Export Compliance Report
+          </button>
+          <button
+            onClick={handleSlaCheck}
+            disabled={checkingSla}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-700 border border-purple-200 rounded-xl text-sm font-medium hover:bg-purple-100 transition-colors disabled:opacity-50"
+          >
+            {checkingSla ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />}
+            Check SLA Escalations
+          </button>
           <button
             onClick={handleOrgBulkScan}
             disabled={bulkScanning}
@@ -271,6 +302,142 @@ export default function KycAnalyticsPage() {
           )}
         </div>
       )}
+
+      {/* Compliance Report Modal */}
+      <AnimatePresence>
+        {showComplianceModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 sticky top-0 bg-white rounded-t-2xl">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-indigo-600" />
+                  <h2 className="text-lg font-bold text-slate-900">KYC Compliance Report</h2>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download PDF
+                  </button>
+                  <button onClick={() => setShowComplianceModal(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-lg">&times;</button>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {loadingCompliance ? (
+                  <div className="flex items-center justify-center h-32">
+                    <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+                  </div>
+                ) : (() => {
+                  const cr = complianceRes?.data;
+                  if (!cr) return (
+                    <div className="text-center py-12 text-slate-400">
+                      <FileText className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                      <p className="text-sm">No compliance data available</p>
+                    </div>
+                  );
+                  return (
+                    <>
+                      {/* Summary metrics */}
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Summary</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {[
+                            { label: 'Total Employees', value: cr.total ?? 0 },
+                            { label: 'KYC Verified', value: cr.verified ?? 0 },
+                            { label: 'Pending Review', value: cr.pending ?? 0 },
+                            { label: 'Compliance %', value: `${cr.compliancePct ?? 0}%` },
+                          ].map(({ label, value }) => (
+                            <div key={label} className="bg-slate-50 rounded-lg p-3 text-center border border-slate-100">
+                              <p className="text-xl font-bold font-mono text-slate-800">{value}</p>
+                              <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Department compliance table */}
+                      {cr.departments && cr.departments.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Department Compliance</p>
+                          <table className="min-w-full border border-slate-200 rounded-lg overflow-hidden text-sm">
+                            <thead>
+                              <tr className="bg-slate-50 border-b border-slate-200">
+                                <th className="text-left px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Department</th>
+                                <th className="text-right px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Total</th>
+                                <th className="text-right px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Verified</th>
+                                <th className="text-right px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Compliance</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {cr.departments.map((dept: any) => (
+                                <tr key={dept.name} className="border-b border-slate-100 hover:bg-slate-50">
+                                  <td className="px-4 py-2 font-medium text-slate-700">{dept.name}</td>
+                                  <td className="px-4 py-2 text-right font-mono text-slate-600">{dept.total}</td>
+                                  <td className="px-4 py-2 text-right font-mono text-green-700">{dept.verified}</td>
+                                  <td className="px-4 py-2 text-right">
+                                    <span className={`font-bold font-mono ${(dept.compliancePct ?? 0) >= 80 ? 'text-green-700' : (dept.compliancePct ?? 0) >= 50 ? 'text-amber-700' : 'text-red-700'}`}>
+                                      {dept.compliancePct ?? 0}%
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* SLA breaches table */}
+                      {cr.slaBreaches && cr.slaBreaches.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+                            SLA Breaches ({cr.slaBreaches.length})
+                          </p>
+                          <table className="min-w-full border border-red-200 rounded-lg overflow-hidden text-sm">
+                            <thead>
+                              <tr className="bg-red-50 border-b border-red-200">
+                                <th className="text-left px-4 py-2 text-xs font-semibold text-red-700 uppercase">Employee</th>
+                                <th className="text-left px-4 py-2 text-xs font-semibold text-red-700 uppercase">Status</th>
+                                <th className="text-right px-4 py-2 text-xs font-semibold text-red-700 uppercase">Waiting</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {cr.slaBreaches.map((breach: any, i: number) => (
+                                <tr key={i} className="border-b border-red-100 hover:bg-red-50">
+                                  <td className="px-4 py-2 text-slate-700 font-medium">{breach.name || breach.employeeName || '—'}</td>
+                                  <td className="px-4 py-2 text-slate-500">{breach.status || breach.kycStatus || '—'}</td>
+                                  <td className="px-4 py-2 text-right text-red-600 font-mono font-semibold">{breach.hoursWaiting ?? '?'}h</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {(!cr.departments || cr.departments.length === 0) && (!cr.slaBreaches || cr.slaBreaches.length === 0) && (
+                        <p className="text-sm text-slate-400 text-center py-4">Detailed breakdown not available — compliance summary shown above.</p>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {activeTab === 'documents' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

@@ -544,6 +544,87 @@ function DuplicateDocAlert({ duplicateData }: { duplicateData: any }) {
   );
 }
 
+// ─── SlaBadge — shows how long a submission has been waiting ─────────────────
+function SlaBadge({ submittedAt }: { submittedAt?: string }) {
+  if (!submittedAt) return null;
+  const hours = Math.round((Date.now() - new Date(submittedAt).getTime()) / 36e5);
+  if (hours < 24) return <span className="text-[10px] text-emerald-600">⏱ {hours}h</span>;
+  if (hours < 48) return <span className="text-[10px] text-amber-600 font-medium">⚠ {hours}h waiting</span>;
+  return <span className="text-[10px] text-red-600 font-medium animate-pulse">🔴 {hours}h — SLA breach</span>;
+}
+
+// ─── KYC Scorecard — consolidated metrics for an employee's KYC submission ────
+function KycScorecard({ reviewData }: { reviewData: any }) {
+  const docs: any[] = reviewData?.documents || [];
+  const gate = reviewData?.gate;
+  const crossVal = reviewData?.crossValidation;
+
+  const avgScore = docs.length > 0
+    ? Math.round(docs.reduce((s: number, d: any) => s + (d.ocrVerification?.kycScore || 0), 0) / docs.length)
+    : 0;
+
+  const faceMatch = gate?.faceMatchScore;
+  const suspicionFlags = docs.flatMap((d: any) => d.ocrVerification?.suspicionFlags || []);
+  const expiredCount = docs.filter((d: any) => d.ocrVerification?.llmExtractedData?.extra_fields?.is_expired).length;
+  const nameStatus = crossVal?.details?.find((d: any) => d.field?.toLowerCase().includes('name'))?.match ? 'PASS' : crossVal?.status === 'PASS' ? 'PASS' : crossVal?.status === 'FAIL' ? 'FAIL' : 'PARTIAL';
+  const dobStatus = crossVal?.details?.find((d: any) => d.field?.toLowerCase().includes('dob') || d.field?.toLowerCase().includes('birth'))?.match ? 'MATCH' : crossVal?.status === 'PASS' ? 'MATCH' : 'MISMATCH';
+
+  const grade = avgScore >= 90 ? 'A' : avgScore >= 75 ? 'B' : avgScore >= 60 ? 'C' : 'D';
+  const gradeColor = grade === 'A' ? 'text-emerald-600' : grade === 'B' ? 'text-green-600' : grade === 'C' ? 'text-amber-600' : 'text-red-600';
+
+  // Only show scorecard when there's meaningful data
+  if (avgScore === 0 && suspicionFlags.length === 0 && faceMatch == null) return null;
+
+  return (
+    <div className="layer-card p-4 mb-4 border border-slate-200">
+      <p className="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wide">KYC Summary</p>
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+        {/* Overall Grade */}
+        <div className="col-span-1 text-center">
+          <div className={`text-3xl font-display font-black ${gradeColor}`}>{grade}</div>
+          <div className="text-[10px] text-slate-500">{avgScore}/100</div>
+          <div className="text-[10px] text-slate-400">Overall</div>
+        </div>
+        {/* Name Match */}
+        <div className="text-center">
+          <div className={`text-sm font-bold ${nameStatus === 'PASS' ? 'text-emerald-600' : nameStatus === 'FAIL' ? 'text-red-600' : 'text-amber-600'}`}>
+            {nameStatus === 'PASS' ? '✓ Match' : nameStatus === 'FAIL' ? '✗ Mismatch' : '~ Partial'}
+          </div>
+          <div className="text-[10px] text-slate-400">Name Match</div>
+        </div>
+        {/* DOB Match */}
+        <div className="text-center">
+          <div className={`text-sm font-bold ${dobStatus === 'MATCH' ? 'text-emerald-600' : 'text-red-600'}`}>
+            {dobStatus === 'MATCH' ? '✓ Match' : dobStatus === 'MISMATCH' ? '✗ Mismatch' : '—'}
+          </div>
+          <div className="text-[10px] text-slate-400">DOB Match</div>
+        </div>
+        {/* Face Match */}
+        <div className="text-center">
+          <div className={`text-sm font-bold ${faceMatch != null && faceMatch >= 0.8 ? 'text-emerald-600' : faceMatch != null ? 'text-red-600' : 'text-slate-400'}`}>
+            {faceMatch != null ? `${Math.round(faceMatch * 100)}%` : '—'}
+          </div>
+          <div className="text-[10px] text-slate-400">Face Match</div>
+        </div>
+        {/* Suspicious Flags */}
+        <div className="text-center">
+          <div className={`text-sm font-bold ${suspicionFlags.length === 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+            {suspicionFlags.length === 0 ? 'None' : `${suspicionFlags.length} found`}
+          </div>
+          <div className="text-[10px] text-slate-400">Flags</div>
+        </div>
+        {/* Expired Docs */}
+        <div className="text-center">
+          <div className={`text-sm font-bold ${expiredCount === 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+            {expiredCount === 0 ? 'None' : `${expiredCount} doc${expiredCount > 1 ? 's' : ''}`}
+          </div>
+          <div className="text-[10px] text-slate-400">Expired</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Real-time OCR Progress Bar (Category 5 item 20) ─────────────────────────
 function OcrLiveProgress({ employeeId }: { employeeId: string }) {
   const [progress, setProgress] = useState<{ page: number; total: number; pct: number; docType: string } | null>(null);
@@ -978,6 +1059,9 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
           </div>
         </motion.div>
       )}
+
+      {/* KYC Scorecard — consolidated metrics overview */}
+      <KycScorecard reviewData={review} />
 
       {/* Action Bar */}
       {['SUBMITTED', 'PENDING_HR_REVIEW', 'PROCESSING'].includes(gate?.kycStatus) && (
@@ -1951,9 +2035,12 @@ export default function KycHrReviewPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
-                      <span className="text-xs text-slate-500">
-                        {gate.updatedAt ? new Date(gate.updatedAt).toLocaleDateString('en-IN') : '—'}
-                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs text-slate-500">
+                          {gate.updatedAt ? new Date(gate.updatedAt).toLocaleDateString('en-IN') : '—'}
+                        </span>
+                        <SlaBadge submittedAt={gate.submittedAt || gate.updatedAt} />
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <button className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-800 text-xs font-medium transition-colors">

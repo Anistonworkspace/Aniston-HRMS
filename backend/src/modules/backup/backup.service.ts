@@ -522,7 +522,13 @@ export class BackupService {
       return;
     }
 
-    await tar.create({ gzip: true, file: outputTarPath, cwd: uploadsRoot }, entries);
+    try {
+      await tar.create({ gzip: true, file: outputTarPath, cwd: uploadsRoot }, entries);
+    } catch (err) {
+      // Clean up any partial archive written before the failure
+      try { if (fs.existsSync(outputTarPath)) fs.unlinkSync(outputTarPath); } catch { /* ignore */ }
+      throw err;
+    }
   }
 
   // ── Download ──────────────────────────────────────────────────────────────
@@ -804,7 +810,9 @@ export class BackupService {
   // 30 minutes to FAILED — they were interrupted by a crash or restart.
 
   async cleanupStuckBackups() {
-    const staleThreshold = new Date(Date.now() - 30 * 60 * 1000);
+    // pg_dump has a 15-min hard timeout; allow 60 min before declaring stuck
+    // (handles retries, slow disks, and large databases on server restart)
+    const staleThreshold = new Date(Date.now() - 60 * 60 * 1000);
     const stuck = await prisma.databaseBackup.findMany({
       where: { status: 'IN_PROGRESS', createdAt: { lt: staleThreshold } },
       select: { id: true, filename: true },

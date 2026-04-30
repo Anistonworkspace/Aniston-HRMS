@@ -1623,6 +1623,14 @@ model OnboardingDocumentGate {
   faceMatchStatus       String?      // MATCH | MISMATCH | PENDING | SKIPPED
   faceMatchScore        Float?       // 0–1 match confidence
 
+  // SLA tracking
+  submittedAt           DateTime?    // Set when employee submits KYC; cleared on verify
+
+  // Two-level review for senior roles
+  secondReviewRequired  Boolean      @default(false)
+  secondReviewedBy      String?      // userId of second approver
+  secondReviewedAt      DateTime?
+
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
 

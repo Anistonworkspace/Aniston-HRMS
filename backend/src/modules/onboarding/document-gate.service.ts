@@ -317,7 +317,7 @@ export class DocumentGateService {
           'HR should request re-upload unless documents can be verified by opening the PDF manually.'
         : null;
 
-      const updateData: any = { kycStatus: 'SUBMITTED' };
+      const updateData: any = { kycStatus: 'SUBMITTED', submittedAt: new Date() };
       if (hrSystemNote) {
         updateData.hrReviewNotes = (gate.hrReviewNotes ? gate.hrReviewNotes + '\n' : '') + hrSystemNote;
       }
@@ -366,7 +366,7 @@ export class DocumentGateService {
       throw new BadRequestError(`Missing required documents: ${missing.join(', ')}`);
     }
 
-    const updatedData: any = { kycStatus: 'SUBMITTED' };
+    const updatedData: any = { kycStatus: 'SUBMITTED', submittedAt: new Date() };
 
     const updated = await prisma.onboardingDocumentGate.update({
       where: { employeeId },
@@ -570,6 +570,46 @@ export class DocumentGateService {
       }
     }
 
+    // === TWO-LEVEL REVIEW FOR SENIOR ROLES ===
+    // MANAGER, ADMIN, SUPER_ADMIN require two different HR approvers.
+    const employeeUser = await prisma.user.findFirst({
+      where: { employee: { id: employeeId } },
+      select: { role: true },
+    });
+    const seniorRoles = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'];
+    const isSeniorRole = employeeUser && seniorRoles.includes(employeeUser.role);
+
+    if (isSeniorRole) {
+      if (!gate.secondReviewRequired) {
+        // First approval — record first reviewer, do NOT set VERIFIED yet
+        await prisma.onboardingDocumentGate.update({
+          where: { employeeId },
+          data: {
+            secondReviewRequired: true,
+            verifiedBy: verifiedBy,
+          },
+        });
+        return {
+          requiresSecondApproval: true,
+          message: 'First approval recorded. A second HR approver must also verify this senior role employee.',
+        } as any;
+      } else if (gate.secondReviewedBy === null) {
+        // We have a first approver — check it's a different HR
+        if (gate.verifiedBy === verifiedBy) {
+          throw new BadRequestError('The same HR cannot provide both approvals for a senior role employee.');
+        }
+        // Record second approver and continue with normal verification below
+        await prisma.onboardingDocumentGate.update({
+          where: { employeeId },
+          data: {
+            secondReviewedBy: verifiedBy,
+            secondReviewedAt: new Date(),
+          },
+        });
+      }
+    }
+    // === END TWO-LEVEL REVIEW ===
+
     // Block if any active document is still REJECTED (employee must re-upload first)
     const rejectedDocs = await prisma.document.findMany({
       where: { employeeId, status: 'REJECTED', deletedAt: null },
@@ -578,6 +618,31 @@ export class DocumentGateService {
     if (rejectedDocs.length > 0) {
       const names = rejectedDocs.map((d: any) => d.name || docLabel(String(d.type))).join(', ');
       throw new BadRequestError(`Cannot approve: The following documents need re-upload — ${names}`);
+    }
+
+    // Block if any identity document is expired (PASSPORT or DRIVING_LICENSE)
+    const ocrRecords = await prisma.documentOcrVerification.findMany({
+      where: {
+        document: { employeeId, deletedAt: null },
+        organizationId,
+      },
+      include: { document: { select: { type: true, name: true } } },
+    });
+    const expiredDocs: string[] = [];
+    for (const ocr of ocrRecords) {
+      const llm = ocr.llmExtractedData as any;
+      const extraFields = llm?.extra_fields || {};
+      const isExpired = extraFields?.is_expired === true;
+      const docType = (ocr.document as any)?.type || '';
+      if (isExpired && ['PASSPORT', 'DRIVING_LICENSE'].includes(docType)) {
+        const expDate = extraFields?.expiry_date || 'unknown date';
+        expiredDocs.push(`${docType.replace(/_/g, ' ')} (expired ${expDate})`);
+      }
+    }
+    if (expiredDocs.length > 0) {
+      throw new BadRequestError(
+        `Cannot verify KYC: The following documents have expired — ${expiredDocs.join(', ')}. Please request re-upload before approving.`
+      );
     }
     // === END GUARD ===
 
@@ -593,6 +658,10 @@ export class DocumentGateService {
         rejectionReason: null,
         reuploadRequested: false,
         kycExpiresAt,
+        submittedAt: null,
+        secondReviewRequired: false,
+        secondReviewedBy: null,
+        secondReviewedAt: null,
       },
     });
 
