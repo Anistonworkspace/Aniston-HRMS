@@ -16,6 +16,7 @@ interface Props {
   documentName: string;
   documentType: string;
   documentStatus?: string;
+  rejectionReason?: string;
   employeeId?: string;
   fileUrl?: string;
   onClose: () => void;
@@ -822,7 +823,7 @@ function CombinedPdfReviewPanel({
 
 // ─── Main OCR Verification Panel ──────────────────────────────────────────────
 export default function OcrVerificationPanel({
-  documentId, documentName, documentType, documentStatus, employeeId, fileUrl, onClose, onStatusChange,
+  documentId, documentName, documentType, documentStatus, rejectionReason: initialRejectionReason, employeeId, fileUrl, onClose, onStatusChange,
 }: Props) {
   // Poll every 6s until OCR data arrives, then stop
   const [pollInterval, setPollInterval] = useState(6000);
@@ -847,6 +848,7 @@ export default function OcrVerificationPanel({
   const [showSecurePdf, setShowSecurePdf] = useState(false);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [previewBlobLoading, setPreviewBlobLoading] = useState(false);
+  const [showKycBreakdown, setShowKycBreakdown] = useState(false);
   const token = useAppSelector((state: any) => state.auth.accessToken);
 
   const { data: hrReviewRes, refetch: refetchHrReview } = useGetKycHrReviewQuery(employeeId!, { skip: !employeeId });
@@ -974,6 +976,16 @@ export default function OcrVerificationPanel({
   const tamperingSignals: string[] = aiData?.tampering_signals || [];
   const deepRecheckAvailable: boolean = aiData?.deepRecheckAvailable === true;
   const modelUsed: string = aiData?.modelUsed || '';
+  const processingMode: string = ocr?.processingMode || '';
+
+  // KYC score breakdown components (approximated from available data)
+  const kycExtraction = kycScore !== null ? Math.round(confidence * 100 * 0.30) : 0;
+  const kycProfilePasses = profileComparison.filter((p: any) => p.result === 'PASS').length;
+  const kycProfileTotal = profileComparison.filter((p: any) => p.result !== 'NOT_APPLICABLE').length;
+  const kycProfile = kycProfileTotal > 0 ? Math.round((kycProfilePasses / kycProfileTotal) * 25) : 25;
+  const kycCrossDoc = ocr?.crossValidationStatus === 'PASS' ? 20 : ocr?.crossValidationStatus === 'PARTIAL' ? 10 : ocr?.crossValidationStatus === 'FAIL' ? 0 : 20;
+  const kycQuality = (ocr?.resolutionQuality === 'HIGH' ? 100 : ocr?.resolutionQuality === 'MEDIUM' ? 70 : 40) * 0.10;
+  const kycAuth = kycScore !== null ? Math.max(0, (kycScore ?? 0) - kycExtraction - kycProfile - kycCrossDoc - kycQuality) : 0;
 
   const isCombinedPdf =
     ocr?.detectedType === 'COMBINED_PDF' ||
@@ -1197,16 +1209,33 @@ export default function OcrVerificationPanel({
                 )}>
                   {ocr.resolutionQuality || 'Unknown'} Quality
                 </span>
-                {/* KYC Score */}
+                {/* KYC Score — clickable to show breakdown */}
                 {kycScore !== null && (
-                  <span className={cn(
-                    'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold',
-                    kycScore >= 85 ? 'bg-emerald-100 text-emerald-700' :
-                    kycScore >= 70 ? 'bg-amber-100 text-amber-700' :
-                    'bg-red-100 text-red-700'
-                  )}>
+                  <button
+                    onClick={() => setShowKycBreakdown(v => !v)}
+                    className={cn(
+                      'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold cursor-pointer',
+                      kycScore >= 85 ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' :
+                      kycScore >= 70 ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' :
+                      'bg-red-100 text-red-700 hover:bg-red-200'
+                    )}
+                    title="Click to see score breakdown"
+                  >
                     <span className={cn('w-1.5 h-1.5 rounded-full', kycScore >= 85 ? 'bg-emerald-500' : kycScore >= 70 ? 'bg-amber-500' : 'bg-red-500')} />
                     KYC {kycScore}
+                    <Info size={9} className="opacity-60" />
+                  </button>
+                )}
+                {/* Cross-validation badge in status row */}
+                {ocr.crossValidationStatus && (
+                  <span className={cn(
+                    'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium',
+                    ocr.crossValidationStatus === 'PASS' ? 'bg-emerald-50 text-emerald-700' :
+                    ocr.crossValidationStatus === 'FAIL' ? 'bg-red-50 text-red-700' :
+                    'bg-amber-50 text-amber-700'
+                  )}>
+                    {ocr.crossValidationStatus === 'PASS' ? <CheckCircle2 size={9} /> : <XCircle size={9} />}
+                    Cross-Doc: {ocr.crossValidationStatus}
                   </span>
                 )}
                 {/* Screenshot or tampering warning pills */}
@@ -1220,12 +1249,48 @@ export default function OcrVerificationPanel({
                     <AlertTriangle size={11} /> Tampering Detected
                   </span>
                 )}
-                {modelUsed === 'gpt-4.1' && (
+                {/* Processing mode indicator */}
+                {modelUsed === 'gpt-4.1' ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-purple-50 text-purple-600">
-                    <Zap size={9} /> Deep Scan
+                    <Zap size={9} /> Deep Scan (gpt-4.1)
                   </span>
-                )}
+                ) : modelUsed === 'gpt-4.1-mini' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-blue-50 text-blue-600">
+                    <Zap size={9} /> Vision AI
+                  </span>
+                ) : processingMode === 'node_fallback' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-orange-50 text-orange-600">
+                    <AlertTriangle size={9} /> Node.js Fallback
+                  </span>
+                ) : null}
               </div>
+
+              {/* KYC Score breakdown (expandable) */}
+              {kycScore !== null && showKycBreakdown && (
+                <div className="layer-card p-3 text-xs">
+                  <p className="font-semibold text-gray-600 mb-2">KYC Score Breakdown — {kycScore}/100</p>
+                  <div className="space-y-1.5">
+                    {[
+                      { label: 'Extraction Confidence (30%)', value: kycExtraction, max: 30 },
+                      { label: 'Profile Match (25%)', value: kycProfile, max: 25 },
+                      { label: 'Cross-Document (20%)', value: kycCrossDoc, max: 20 },
+                      { label: 'Authenticity (15%)', value: Math.round(kycAuth), max: 15 },
+                      { label: 'Image Quality (10%)', value: Math.round(kycQuality), max: 10 },
+                    ].map(({ label, value, max }) => (
+                      <div key={label} className="flex items-center gap-2">
+                        <span className="text-gray-500 w-48 shrink-0">{label}</span>
+                        <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                          <div
+                            className={cn('h-1.5 rounded-full', value >= max * 0.8 ? 'bg-emerald-400' : value >= max * 0.5 ? 'bg-amber-400' : 'bg-red-400')}
+                            style={{ width: `${Math.min(100, (value / max) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-gray-700 font-mono w-10 text-right">{value}/{max}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* ── AI Findings (Vision AI + LLM — real issues only) ── */}
               {(validationReasons.length > 0 || tamperingSignals.length > 0) && (
@@ -1302,8 +1367,13 @@ export default function OcrVerificationPanel({
                   </div>
                 )}
                 {localDocStatus === 'REJECTED' && !showRejectDialog && (
-                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200 text-sm font-medium text-red-700">
-                    <XCircle size={14} /> Document Rejected — Awaiting Re-upload
+                  <div className="flex flex-col gap-1.5 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200">
+                    <div className="flex items-center gap-2 text-sm font-medium text-red-700">
+                      <XCircle size={14} /> Document Rejected — Awaiting Re-upload
+                    </div>
+                    {initialRejectionReason && (
+                      <p className="text-xs text-red-600 ml-5 italic">Reason: {initialRejectionReason}</p>
+                    )}
                   </div>
                 )}
 
@@ -1321,6 +1391,31 @@ export default function OcrVerificationPanel({
                     {verifyingDoc ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
                     {localDocStatus === 'REJECTED' ? 'Re-approve This Document' : 'Approve This Document'}
                   </button>
+                )}
+
+                {/* Deep Recheck button — only for images, only when not yet done */}
+                {deepRecheckAvailable && modelUsed !== 'gpt-4.1' && !showRejectDialog && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        await deepRecheck(documentId).unwrap();
+                        toast.success('Deep analysis complete — results updated');
+                        refetch();
+                      } catch (err: any) {
+                        toast.error(err?.data?.error?.message || 'Deep analysis failed');
+                      }
+                    }}
+                    disabled={deepRechecking}
+                    className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors disabled:opacity-50"
+                  >
+                    {deepRechecking ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
+                    Deep Analysis (gpt-4.1) — Higher Accuracy
+                  </button>
+                )}
+                {!deepRecheckAvailable && !showRejectDialog && processingMode !== 'manual_review' && (
+                  <p className="text-[10px] text-gray-400 text-center flex items-center justify-center gap-1">
+                    <Info size={9} /> Deep Analysis unavailable — PDF documents require image format
+                  </p>
                 )}
 
                 {/* Reject button: visible for PENDING/FLAGGED and VERIFIED (undo toggle), hidden when already REJECTED */}

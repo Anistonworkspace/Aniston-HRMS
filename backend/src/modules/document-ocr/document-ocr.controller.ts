@@ -14,7 +14,7 @@ export class DocumentOcrController {
   /** Get OCR data for a document */
   async getOcr(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await documentOcrService.getOcrData(req.params.id);
+      const data = await documentOcrService.getOcrData(req.params.id, req.user!.organizationId);
       res.json({ success: true, data });
     } catch (err) { next(err); }
   }
@@ -43,7 +43,7 @@ export class DocumentOcrController {
   /** Get all OCR summaries for an employee */
   async getEmployeeSummary(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await documentOcrService.getEmployeeOcrSummary(req.params.employeeId);
+      const data = await documentOcrService.getEmployeeOcrSummary(req.params.employeeId, req.user!.organizationId);
       res.json({ success: true, data });
     } catch (err) { next(err); }
   }

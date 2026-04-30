@@ -1,11 +1,11 @@
 import { prisma } from '../../lib/prisma.js';
-import { NotFoundError } from '../../middleware/errorHandler.js';
+import { NotFoundError, ForbiddenError, BadRequestError } from '../../middleware/errorHandler.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { logger } from '../../lib/logger.js';
 import { env } from '../../config/env.js';
 import { aiService } from '../../services/ai.service.js';
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import type { UpdateOcrInput } from './document-ocr.validation.js';
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
@@ -16,7 +16,9 @@ export class DocumentOcrService {
    * Now supports PDFs + images via the upgraded Python AI service.
    */
   async triggerOcr(documentId: string, organizationId: string) {
-    const doc = await prisma.document.findUnique({ where: { id: documentId } });
+    const doc = await prisma.document.findFirst({
+      where: { id: documentId, employee: { organizationId } },
+    });
     if (!doc) throw new NotFoundError('Document');
 
     // Read existing cross-validation result so kycScore reflects it on every re-run
@@ -43,6 +45,13 @@ export class DocumentOcrService {
       basePath = join(basePath, '..');
     }
     const filePath = join(basePath, doc.fileUrl);
+    // Path traversal guard: resolved path must stay inside the uploads directory
+    const resolvedFilePath = resolve(filePath);
+    const resolvedUploadsBase = resolve(join(basePath, 'uploads'));
+    if (!resolvedFilePath.startsWith(resolvedUploadsBase + '/') && !resolvedFilePath.startsWith(resolvedUploadsBase + '\\') && resolvedFilePath !== resolvedUploadsBase) {
+      logger.warn(`OCR: Path traversal attempt blocked for document ${documentId}: ${resolvedFilePath}`);
+      throw new BadRequestError('Invalid file path');
+    }
     let fileBuffer: Buffer;
     try {
       fileBuffer = readFileSync(filePath);
@@ -177,9 +186,10 @@ export class DocumentOcrService {
     const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'bmp'];
     const ocrConfidence = ocrResult?.confidence || 0;
     const needsVisionScan = !ocrResult
-      || ocrConfidence < 0.85
+      || ocrConfidence < 0.70  // lowered: 0.85 was too conservative, missing key-field failures
       || (ocrResult.validation_reasons || []).length === 0
-      || !(ocrResult.extracted_fields?.name || ocrResult.extracted_fields?.document_number);
+      || !(ocrResult.extracted_fields?.name || ocrResult.extracted_fields?.document_number)
+      || (ocrResult.raw_text || '').length < 100;  // very little text → vision needed
     if (imageExts.includes(ext) && needsVisionScan) {
       try {
         const imgMime = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
@@ -462,9 +472,9 @@ export class DocumentOcrService {
     // Low confidence alone never auto-flags — spec: "Low confidence = NEEDS_HR_REVIEW, not fake"
     let autoOcrStatus = (isPythonFlagged || hasTamperIssues) ? 'FLAGGED' : 'PENDING';
 
-    // ── AI Enhancement: use configured AI provider (Settings → AI API Config) ──
-    // Performs actual checks (profile cross-check + authenticity analysis) and returns
-    // structured findings. Non-blocking — any failure silently falls back to Vision-only output.
+    // ── AI Enhancement: run LLM profile cross-check in parallel with image processing ──
+    // Performs profile cross-checks and authenticity analysis.
+    // Non-blocking — any failure silently falls back to Vision-only output.
     try {
       const profileJson = profileData ? JSON.stringify(profileData) : '{}';
       const docType = ocrResult.document_type || doc.type || 'UNKNOWN';
@@ -607,7 +617,7 @@ Respond with compact JSON only (no markdown):
         hrNotes: null,  // HR writes their own notes; AI findings live in llmExtractedData
         processingMode: 'python_advanced',
         extractionSource: 'python',
-        suspicionScore: hasTamperIssues ? 60 : isLowConfidence ? 30 : 0,
+        suspicionScore: Math.min(100, (qualityReport.tamperingIndicators.length * 15) + (failFindings * 10) + (isLowConfidence ? 15 : 0)),
         llmExtractedData: {
           validation_reasons: validationReasons,
           dynamic_fields: dynamicFields,
@@ -651,7 +661,7 @@ Respond with compact JSON only (no markdown):
         // hrNotes intentionally omitted — never overwrite HR's custom notes on re-run
         processingMode: 'python_advanced',
         extractionSource: 'python',
-        suspicionScore: hasTamperIssues ? 60 : isLowConfidence ? 30 : 0,
+        suspicionScore: Math.min(100, (qualityReport.tamperingIndicators.length * 15) + (failFindings * 10) + (isLowConfidence ? 15 : 0)),
         llmExtractedData: {
           validation_reasons: validationReasons,
           dynamic_fields: dynamicFields,
@@ -914,7 +924,12 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
   /**
    * Get OCR verification data for a document.
    */
-  async getOcrData(documentId: string) {
+  async getOcrData(documentId: string, organizationId: string) {
+    // Validate document belongs to the requesting org before exposing OCR data
+    const doc = await prisma.document.findFirst({
+      where: { id: documentId, employee: { organizationId } },
+    });
+    if (!doc) throw new NotFoundError('Document');
     const ocr = await prisma.documentOcrVerification.findUnique({
       where: { documentId },
     });
@@ -929,6 +944,9 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     const existing = await prisma.documentOcrVerification.findUnique({ where: { documentId } });
     if (!existing) throw new NotFoundError('OCR verification data');
 
+    // Validate OCR record belongs to the requesting org
+    if (existing.organizationId !== organizationId) throw new ForbiddenError('Access denied');
+
     const updated = await prisma.documentOcrVerification.update({
       where: { documentId },
       data: {
@@ -937,6 +955,22 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
         hrReviewedAt: new Date(),
       },
     });
+
+    // Sync document.status when ocrStatus changes so both fields stay consistent
+    if (data.ocrStatus) {
+      const statusMap: Record<string, string> = {
+        FLAGGED: 'FLAGGED',
+        REVIEWED: 'PENDING', // REVIEWED means AI is done; HR must still approve → keep PENDING
+        PENDING: 'PENDING',
+      };
+      const newDocStatus = statusMap[data.ocrStatus];
+      if (newDocStatus) {
+        await prisma.document.update({
+          where: { id: documentId },
+          data: { status: newDocStatus as any },
+        }).catch(() => {}); // non-blocking
+      }
+    }
 
     await createAuditLog({
       userId: reviewerId,
@@ -1035,8 +1069,10 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
 
     const effectiveSim = Math.max(sim, tokenSim * 0.95);
 
-    if (effectiveSim >= 0.92) return { match: 'PASS', similarity: effectiveSim, reason: 'High similarity — names match' };
-    if (effectiveSim >= 0.80) return { match: 'PARTIAL', similarity: effectiveSim, reason: `Possible middle name difference or OCR noise (similarity: ${(effectiveSim * 100).toFixed(0)}%)` };
+    // 0.88: allows middle name omission (e.g. "Rajesh Kumar Sharma" vs "Rajesh Sharma")
+    // 0.75: accounts for OCR noise and romanization differences in Indian names
+    if (effectiveSim >= 0.88) return { match: 'PASS', similarity: effectiveSim, reason: 'High similarity — names match' };
+    if (effectiveSim >= 0.75) return { match: 'PARTIAL', similarity: effectiveSim, reason: `Possible middle name difference or OCR noise (similarity: ${(effectiveSim * 100).toFixed(0)}%)` };
     return { match: 'FAIL', similarity: effectiveSim, reason: `Name mismatch: "${a}" vs "${b}" (similarity: ${(effectiveSim * 100).toFixed(0)}%)` };
   }
 
@@ -1128,15 +1164,16 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
    */
   async crossValidateEmployee(employeeId: string, organizationId: string) {
     const docs = await prisma.document.findMany({
-      where: { employeeId, deletedAt: null },
+      where: { employeeId, deletedAt: null, employee: { organizationId } },
       include: { ocrVerification: true },
     });
 
-    // Also fetch employee profile to use as an additional source
+    // Also fetch employee profile to use as an additional source (org-scoped)
     const employee = await prisma.employee.findFirst({
-      where: { id: employeeId, deletedAt: null },
+      where: { id: employeeId, organizationId, deletedAt: null },
       select: { firstName: true, lastName: true, dateOfBirth: true, gender: true, fatherName: true },
     });
+    if (!employee) throw new NotFoundError('Employee');
     const profileName = employee ? `${employee.firstName} ${employee.lastName}`.trim() : null;
     const profileDob = employee?.dateOfBirth ? employee.dateOfBirth.toISOString().split('T')[0] : null;
 
@@ -1145,11 +1182,13 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       return { status: 'PENDING', message: 'Need at least 1 document with OCR data to cross-validate', details: [] };
     }
 
-    // Document types that should NOT contribute DOB to cross-validation
+    // Document types that should NOT contribute DOB to cross-validation.
+    // Education certs contain graduation/passing year — not the holder's birth date.
     const DOB_EXCLUDED_TYPES = new Set([
       'PHOTO', 'RESIDENCE_PROOF', 'PERMANENT_RESIDENCE_PROOF',
       'BANK_STATEMENT', 'CANCELLED_CHEQUE', 'EXPERIENCE_LETTER',
       'OFFER_LETTER_DOC', 'RELIEVING_LETTER', 'SALARY_SLIP_DOC',
+      'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE',
     ]);
 
     const details: Array<{
@@ -1163,14 +1202,14 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     // ---- Name comparison (fuzzy) — include employee profile as additional source ----
     // Exclude OCR garbage names; store CLEANED names (relational suffixes stripped)
     // so display chips show "SUNNY KUMAR MEHTA" not "SUNNY KUMAR MEHTA Father".
-    const names = ocrDocs
+    const names: { docType: string; value: string }[] = ocrDocs
       .map(d => {
         const raw = d.ocrVerification!.extractedName;
         if (!raw || raw.trim().length <= 2) return null;
-        if (this.isGarbageName(raw, d.type)) return null;
+        if (this.isGarbageName(raw, d.type as string)) return null;
         const cleaned = this.cleanNameForComparison(raw);
         if (!cleaned || cleaned.length < 3) return null;
-        return { docType: d.type, value: cleaned };
+        return { docType: d.type as string, value: cleaned };
       })
       .filter((n): n is { docType: string; value: string } => n !== null);
 
@@ -1211,17 +1250,17 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     // Excluded doc types: PHOTO, RESIDENCE_PROOF, BANK_STATEMENT, etc. — these docs never contain DOB.
     // Threshold: 0.70 confidence. Below this, OCR date reads are unreliable.
     const DOB_CONFIDENCE_THRESHOLD = 0.70;
-    const allDobsForDisplay = ocrDocs
+    const allDobsForDisplay: { docType: string; value: string | null }[] = ocrDocs
       .filter(d => !DOB_EXCLUDED_TYPES.has(d.type as string))
-      .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedDob }))
+      .map(d => ({ docType: d.type as string, value: d.ocrVerification!.extractedDob }))
       .filter(n => n.value && n.value.trim().length > 0);
 
     // Add profile DOB as authoritative source (confidence 100%)
     if (profileDob) allDobsForDisplay.push({ docType: 'PROFILE', value: profileDob });
 
-    const highConfDobs = ocrDocs
+    const highConfDobs: { docType: string; value: string | null }[] = ocrDocs
       .filter(d => !DOB_EXCLUDED_TYPES.has(d.type as string) && (d.ocrVerification!.confidence || 0) >= DOB_CONFIDENCE_THRESHOLD)
-      .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedDob }))
+      .map(d => ({ docType: d.type as string, value: d.ocrVerification!.extractedDob }))
       .filter(n => n.value && n.value.trim().length > 0);
 
     // Profile DOB counts as high-confidence
@@ -1253,8 +1292,8 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     }
 
     // ---- Father name comparison (fuzzy) ----
-    const fatherNames = ocrDocs
-      .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedFatherName }))
+    const fatherNames: { docType: string; value: string | null }[] = ocrDocs
+      .map(d => ({ docType: d.type as string, value: d.ocrVerification!.extractedFatherName }))
       .filter(n => n.value && n.value.trim().length > 2);
 
     if (fatherNames.length >= 2) {
@@ -1274,7 +1313,8 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     const overallStatus = details.length === 0 ? 'PENDING' : allPass ? 'PASS' : anyFail ? 'FAIL' : 'PARTIAL';
 
     const newCrossDocScore = overallStatus === 'PASS' ? 20 : overallStatus === 'PARTIAL' ? 10 : overallStatus === 'FAIL' ? 0 : 20;
-    for (const doc of ocrDocs) {
+    // Run all per-document OCR verification updates in parallel (was sequential)
+    await Promise.all(ocrDocs.map(doc => {
       const existingKycScore = (doc.ocrVerification as any)?.kycScore ?? null;
       let kycScoreUpdate: { kycScore?: number } = {};
       if (existingKycScore !== null) {
@@ -1282,7 +1322,7 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
         const oldCrossDocScore = oldCrossStr === 'PASS' ? 20 : oldCrossStr === 'PARTIAL' ? 10 : oldCrossStr === 'FAIL' ? 0 : 20;
         kycScoreUpdate = { kycScore: Math.max(0, Math.min(100, existingKycScore - oldCrossDocScore + newCrossDocScore)) };
       }
-      await prisma.documentOcrVerification.update({
+      return prisma.documentOcrVerification.update({
         where: { documentId: doc.id },
         data: {
           crossValidationStatus: overallStatus,
@@ -1290,7 +1330,7 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
           ...kycScoreUpdate,
         },
       });
-    }
+    }));
 
     return { status: overallStatus, details };
   }
@@ -1300,13 +1340,15 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
    * Only for image files. Updates the existing OCR record with the new result.
    */
   async deepRecheckDocument(documentId: string, requestedBy: string, organizationId: string) {
-    const doc = await prisma.document.findUnique({ where: { id: documentId } });
+    const doc = await prisma.document.findFirst({
+      where: { id: documentId, employee: { organizationId } },
+    });
     if (!doc) throw new NotFoundError('Document');
 
     const ext = doc.fileUrl.split('.').pop()?.toLowerCase() || '';
     const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'bmp'];
     if (!imageExts.includes(ext)) {
-      throw new Error('Deep Re-check requires an image document (JPG, PNG, WebP, BMP)');
+      throw new BadRequestError('Deep Re-check requires an image document (JPG, PNG, WebP, BMP)');
     }
 
     let basePath = process.cwd();
@@ -1314,11 +1356,18 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       basePath = join(basePath, '..');
     }
     const filePath = join(basePath, doc.fileUrl);
+    // Path traversal guard
+    const resolvedFilePath = resolve(filePath);
+    const resolvedUploadsBase = resolve(join(basePath, 'uploads'));
+    if (!resolvedFilePath.startsWith(resolvedUploadsBase + '/') && !resolvedFilePath.startsWith(resolvedUploadsBase + '\\') && resolvedFilePath !== resolvedUploadsBase) {
+      logger.warn(`OCR: Path traversal attempt blocked for document ${documentId}: ${resolvedFilePath}`);
+      throw new BadRequestError('Invalid file path');
+    }
     let fileBuffer: Buffer;
     try {
       fileBuffer = readFileSync(filePath);
     } catch {
-      throw new Error('File not found on disk');
+      throw new BadRequestError('File not found on disk');
     }
 
     // Fetch profile
@@ -1439,7 +1488,7 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       entity: 'DocumentOcrVerification',
       entityId: documentId,
       action: 'DEEP_RECHECK',
-      newValues: { modelUsed: 'gpt-4.1', kycScore } as any,
+      newValue: { modelUsed: 'gpt-4.1', kycScore } as any,
     });
 
     return updated;
@@ -1473,10 +1522,38 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
   /**
    * Get all OCR verifications for an employee.
    */
-  async getEmployeeOcrSummary(employeeId: string) {
+  async getEmployeeOcrSummary(employeeId: string, organizationId: string) {
     const docs = await prisma.document.findMany({
-      where: { employeeId, deletedAt: null },
-      include: { ocrVerification: true },
+      where: { employeeId, deletedAt: null, employee: { organizationId } },
+      include: {
+        ocrVerification: {
+          select: {
+            id: true,
+            documentId: true,
+            confidence: true,
+            ocrStatus: true,
+            detectedType: true,
+            extractedName: true,
+            extractedDob: true,
+            extractedDocNumber: true,
+            extractedFatherName: true,
+            extractedGender: true,
+            extractedAddress: true,
+            kycScore: true,
+            crossValidationStatus: true,
+            crossValidationDetails: true,
+            isScreenshot: true,
+            tamperingIndicators: true,
+            resolutionQuality: true,
+            processingMode: true,
+            hrReviewedAt: true,
+            llmExtractedData: true, // needed for validation_reasons, findings, modelUsed on inline cards
+            profileComparison: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -1486,6 +1563,7 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       documentType: d.type,
       fileUrl: d.fileUrl,
       status: d.status,
+      rejectionReason: d.rejectionReason,
       ocr: d.ocrVerification || null,
     }));
   }

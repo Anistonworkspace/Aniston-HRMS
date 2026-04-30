@@ -29,7 +29,7 @@ export const documentOcrApi = api.injectEndpoints({
     }),
     getEmployeeOcrSummary: builder.query<any, string>({
       query: (employeeId) => `/documents/ocr/employee/${employeeId}`,
-      providesTags: ['DocumentOcr' as any],
+      providesTags: (_r, _e, employeeId) => [{ type: 'DocumentOcr' as any, id: `employee-${employeeId}` }],
     }),
     deepRecheckDocument: builder.mutation<any, string>({
       query: (documentId) => ({
@@ -43,7 +43,7 @@ export const documentOcrApi = api.injectEndpoints({
         url: `/documents/ocr/employee/${employeeId}/trigger-all`,
         method: 'POST',
       }),
-      invalidatesTags: ['DocumentOcr' as any],
+      invalidatesTags: (_r, _e, employeeId) => [{ type: 'DocumentOcr' as any, id: `employee-${employeeId}` }],
     }),
   }),
 });

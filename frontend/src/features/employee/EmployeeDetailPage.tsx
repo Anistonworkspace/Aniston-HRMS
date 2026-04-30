@@ -3094,6 +3094,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
   const [ocrDocType, setOcrDocType] = useState('');
   const [ocrDocFileUrl, setOcrDocFileUrl] = useState('');
   const [ocrDocStatus, setOcrDocStatus] = useState('');
+  const [ocrDocRejectReason, setOcrDocRejectReason] = useState<string | undefined>(undefined);
 
   // Build OCR lookup by documentId for inline display
   const ocrByDocId: Record<string, any> = {};
@@ -3544,14 +3545,14 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                     {/* Action buttons */}
                     <div className="px-3 pb-3 space-y-1.5">
                       <button
-                        onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); setOcrDocStatus(doc.status); }}
+                        onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); setOcrDocStatus(doc.status); setOcrDocRejectReason(doc.rejectionReason ?? undefined); }}
                         className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold transition-colors shadow-sm"
                       >
                         <Eye size={12} /> View Full OCR Details & Validation
                       </button>
                       {llmData.deepRecheckAvailable && llmData.modelUsed !== 'gpt-4.1' && (
                         <button
-                          onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); setOcrDocStatus(doc.status); }}
+                          onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); setOcrDocStatus(doc.status); setOcrDocRejectReason(doc.rejectionReason ?? undefined); }}
                           className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100 text-[10px] font-medium transition-colors"
                         >
                           <Zap size={10} /> Deep Analysis (gpt-4.1)
@@ -3569,7 +3570,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                     <Loader2 size={10} className="animate-spin" /> OCR Pending
                   </span>
                   <button
-                    onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); setOcrDocStatus(doc.status); }}
+                    onClick={() => { setOcrDocId(doc.id); setOcrDocName(doc.name); setOcrDocType(doc.type); setOcrDocFileUrl(doc.fileUrl); setOcrDocStatus(doc.status); setOcrDocRejectReason(doc.rejectionReason ?? undefined); }}
                     className="text-[10px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
                   >
                     <ScanLine size={10} /> Run OCR
@@ -3766,6 +3767,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
           documentName={ocrDocName}
           documentType={ocrDocType}
           documentStatus={ocrDocStatus}
+          rejectionReason={ocrDocRejectReason}
           employeeId={employeeId}
           fileUrl={ocrDocFileUrl}
           onClose={() => setOcrDocId(null)}

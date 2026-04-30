@@ -18,7 +18,7 @@ export const documentApi = api.injectEndpoints({
       invalidatesTags: ['Document', 'Employee', 'Onboarding'],
     }),
 
-    verifyDocument: builder.mutation<any, { id: string; status: string; remarks?: string }>({
+    verifyDocument: builder.mutation<any, { id: string; status: string; rejectionReason?: string }>({
       query: ({ id, ...body }) => ({
         url: `/documents/${id}/verify`,
         method: 'PATCH',
