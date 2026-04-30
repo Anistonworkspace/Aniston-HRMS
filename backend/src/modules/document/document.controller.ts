@@ -249,7 +249,7 @@ export class DocumentController {
   async stream(req: Request, res: Response, next: NextFunction) {
     try {
       const { readFileSync, existsSync } = await import('fs');
-      const { join, extname, resolve, sep } = await import('path');
+      const { extname } = await import('path');
 
       // HR/Admin/SuperAdmin see any doc in their org; employees see their own
       const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(req.user!.role);
@@ -280,25 +280,19 @@ export class DocumentController {
         return;
       }
 
-      // Resolve the uploads root once — all served files must live inside it.
-      let basePath = process.cwd();
-      if (basePath.endsWith('backend') || basePath.endsWith('backend/') || basePath.endsWith('backend\\')) {
-        basePath = join(basePath, '..');
-      }
-      const uploadsRoot = resolve(basePath, 'uploads');
-
-      // Strip a leading slash from the stored relative URL before resolving.
-      const relativeUrl = rawUrl.startsWith('/') ? rawUrl.slice(1) : rawUrl;
-      const resolvedPath = resolve(uploadsRoot, relativeUrl);
+      // Use StorageService as single source of truth for path resolution.
+      // storageService.resolvePath strips the leading /uploads/ prefix correctly,
+      // avoiding the double-uploads bug (resolve(uploadsRoot, 'uploads/...') → .../uploads/uploads/...).
+      const { sep } = await import('path');
+      const uploadsRoot = storageService.getUploadsRoot();
+      const filePath = storageService.resolvePath(rawUrl);
 
       // Ensure the resolved path cannot escape the uploads directory.
-      if (!resolvedPath.startsWith(uploadsRoot + sep) && resolvedPath !== uploadsRoot) {
+      if (!filePath.startsWith(uploadsRoot + sep) && filePath !== uploadsRoot) {
         logger.warn(`[Security] Resolved path escapes uploads root — documentId: ${req.params.id}`);
         res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
         return;
       }
-
-      const filePath = resolvedPath;
 
       if (!existsSync(filePath)) {
         res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Document file not found on disk' } });

@@ -217,7 +217,7 @@ export default function KycGatePage() {
   // Restore saved config from gate OR employee profile (for page reload)
   useEffect(() => {
     // Prefer gate config; fall back to employee profile data returned by backend auto-population
-    const exp = (kyc?.fresherOrExperienced || (kyc as any)?.employeeExperienceLevel === 'EXPERIENCED' ? 'EXPERIENCED' : kyc?.fresherOrExperienced) as Experience;
+    const exp = (kyc?.fresherOrExperienced || ((kyc as any)?.employeeExperienceLevel === 'EXPERIENCED' ? 'EXPERIENCED' : null)) as Experience;
     const qual = (kyc?.highestQualification || (kyc as any)?.employeeQualification || 'GRADUATION') as Qualification;
     if (exp) setExperience(exp);
     if (qual) setQualification(qual);

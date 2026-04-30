@@ -318,7 +318,7 @@ export class OnboardingService {
 
     const REQUIRED_NON_IDENTITY_DOCS = employee.workMode === 'PROJECT_SITE'
       ? ['PHOTO']
-      : [...requiredEduDocs, 'PAN', ...residenceDocs, 'PHOTO', ...experienceDocs];
+      : [...requiredEduDocs, 'PAN', ...residenceDocs, 'CANCELLED_CHEQUE', 'PHOTO', ...experienceDocs];
 
     // Rejected docs: show as "need re-upload" — exclude from uploadedDocTypes so they count as missing
     const rejectedDocs = (employee.documents as any[])

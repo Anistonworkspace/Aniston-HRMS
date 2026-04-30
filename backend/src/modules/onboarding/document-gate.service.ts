@@ -1049,9 +1049,11 @@ export class DocumentGateService {
    * Safe to call on every startup — only affects VERIFIED gates missing CANCELLED_CHEQUE.
    */
   async enforceCancelledChequeRequirement(organizationId?: string) {
+    // Enforce on all non-PENDING, non-REJECTED, non-PROCESSING gates — covers
+    // VERIFIED (already had access), SUBMITTED, and PENDING_HR_REVIEW (stuck waiting for HR).
     const verifiedGates = await prisma.onboardingDocumentGate.findMany({
       where: {
-        kycStatus: 'VERIFIED',
+        kycStatus: { in: ['VERIFIED', 'SUBMITTED', 'PENDING_HR_REVIEW'] },
         ...(organizationId ? { employee: { organizationId } } : {}),
       },
       select: { employeeId: true },

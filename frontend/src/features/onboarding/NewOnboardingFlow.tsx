@@ -93,7 +93,7 @@ function getRequiredNonIdentityDocs(
   const expDocs = experienceLevel === 'EXPERIENCED'
     ? resolvedExpFields.filter(f => f.required !== false).map(f => f.key)
     : [];
-  return [...eduDocs, 'PAN', ...residenceDocs, 'PHOTO', ...expDocs];
+  return [...eduDocs, 'PAN', ...residenceDocs, 'CANCELLED_CHEQUE', 'PHOTO', ...expDocs];
 }
 
 function getDocSections(
@@ -136,6 +136,10 @@ function getDocSections(
         { name: 'PAN Card', type: 'PAN', required: true },
         ...residenceDocs,
       ],
+    },
+    {
+      title: 'Bank Document',
+      docs: [{ name: 'Cancelled Cheque', type: 'CANCELLED_CHEQUE', required: true }],
     },
     { title: 'Passport Photo', docs: [{ name: 'Passport Size Photograph', type: 'PHOTO', required: true }] },
   ];
