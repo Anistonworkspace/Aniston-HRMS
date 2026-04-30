@@ -587,7 +587,12 @@ Respond with compact JSON only (no markdown):
         deduped.set(key, r);
       }
     }
-    const validationReasons: string[] = Array.from(deduped.values());
+    // For PHOTO documents: only face-detection and portrait-format findings are relevant.
+    // Strip all Python OCR text-based reasons — they have no meaning for a photograph.
+    const isPhotoType = doc.type === 'PHOTO';
+    const validationReasons: string[] = isPhotoType
+      ? Array.from(deduped.values()).filter(r => /face|portrait|passport.?size|multiple.?face|🚩/i.test(r))
+      : Array.from(deduped.values());
     const dynamicFields: Record<string, string> = ocrResult.dynamic_fields || {};
     const authenticityScore: number = typeof ocrResult.authenticity_score === 'number' ? ocrResult.authenticity_score : 1.0;
     // AI findings are stored in llmExtractedData.findings — no longer dumped into hrNotes
@@ -605,7 +610,8 @@ Respond with compact JSON only (no markdown):
     const qualityPct = qualityReport.resolutionQuality === 'HIGH' ? 100 : qualityReport.resolutionQuality === 'MEDIUM' ? 70 : 40;
     const qualityScore = qualityPct * 0.10;
     const prevCross = existingOcr?.crossValidationStatus;
-    const crossDocScore = prevCross === 'PASS' ? 20 : prevCross === 'PARTIAL' ? 10 : prevCross === 'FAIL' ? 0 : 20;
+    // null = never cross-validated: use 10 (neutral) not 20 (full pass) to avoid inflating score on first run
+    const crossDocScore = prevCross === 'PASS' ? 20 : prevCross === 'PARTIAL' ? 10 : prevCross === 'FAIL' ? 0 : 10;
     const kycScore = Math.round(extractionScore + profileScore + crossDocScore + authenticityScore2 + qualityScore);
     const hasCriticalFindings = validationReasons.some((r: string) => r.startsWith('✗ Tampering:'));
     // AI must NEVER auto-recommend 'VERIFIED' — that is an exclusive HR action.
@@ -1732,14 +1738,28 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     // Only auto-approve when employee has submitted and is awaiting HR review
     if (!['SUBMITTED', 'PENDING_HR_REVIEW'].includes(gate.kycStatus)) return;
 
-    // Check that every active (non-deleted) document is VERIFIED
+    // Check that every individually-processed active document is VERIFIED.
+    // Combined KYC PDFs (type=OTHER, name contains "combined"/"kyc") use a different review
+    // pipeline — they're never individually VERIFIED, so exclude them from this check.
     const activeDocs = await prisma.document.findMany({
       where: { employeeId, deletedAt: null },
-      select: { status: true },
+      select: { status: true, type: true, name: true },
     });
-    if (activeDocs.length === 0) return;
-    const allVerified = activeDocs.every(d => d.status === 'VERIFIED');
+    const checkableDocs = activeDocs.filter(d => {
+      if (d.type !== 'OTHER') return true;
+      const n = (d.name || '').toLowerCase();
+      return !n.includes('combined') && !n.includes('kyc');
+    });
+    if (checkableDocs.length === 0) return;
+    const allVerified = checkableDocs.every(d => d.status === 'VERIFIED');
     if (!allVerified) return;
+
+    // Fetch employee to get userId (socket rooms are keyed by userId, not employeeId)
+    const emp = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { userId: true, firstName: true, lastName: true, user: { select: { email: true } } },
+    });
+    if (!emp) return;
 
     logger.info(`[OCR] All documents VERIFIED for employee ${employeeId} — auto-approving KYC gate`);
 
@@ -1754,16 +1774,12 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       },
     });
 
-    // Emit real-time event so employee's AppShell reflects access immediately
+    // Emit real-time event — socket rooms are user:${userId}, not employeeId
     const { emitToUser } = await import('../../sockets/index.js');
-    emitToUser(employeeId, 'kyc:status-changed', { kycStatus: 'VERIFIED', autoApproved: true });
+    if (emp.userId) emitToUser(emp.userId, 'kyc:status-changed', { kycStatus: 'VERIFIED', autoApproved: true });
 
     // Congratulations email
     try {
-      const emp = await prisma.employee.findUnique({
-        where: { id: employeeId },
-        select: { firstName: true, lastName: true, user: { select: { email: true } } },
-      });
       if (emp?.user?.email) {
         const { enqueueEmail } = await import('../../jobs/queues.js');
         await enqueueEmail({

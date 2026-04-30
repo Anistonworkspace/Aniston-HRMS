@@ -73,8 +73,12 @@ export default function SecureDocumentViewer({
         });
 
         if (!response.ok) {
-          let msg = 'Failed to load document';
-          try { const body = await response.json(); msg = body?.error?.message || msg; } catch { /* ignore */ }
+          let msg = response.status === 404
+            ? 'Document file not found on the server — the file may be missing or was re-uploaded. Close this viewer and try again, or ask HR to request a re-upload.'
+            : 'Failed to load document';
+          if (response.status !== 404) {
+            try { const body = await response.json(); msg = body?.error?.message || msg; } catch { /* ignore */ }
+          }
           throw new Error(msg);
         }
 

@@ -953,6 +953,7 @@ export default function OcrVerificationPanel({
   const [showSecurePdf, setShowSecurePdf] = useState(false);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [previewBlobLoading, setPreviewBlobLoading] = useState(false);
+  const [previewBlobError, setPreviewBlobError] = useState<string | null>(null);
   const [showKycBreakdown, setShowKycBreakdown] = useState(false);
   const token = useAppSelector((state: any) => state.auth.accessToken);
 
@@ -1152,14 +1153,23 @@ export default function OcrVerificationPanel({
                   } else {
                     // Fetch blob so the real /uploads/ path is never in the DOM
                     setPreviewBlobUrl(null);
+                    setPreviewBlobError(null);
                     setPreviewBlobLoading(true);
                     const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace(/\/api$/, '');
                     fetch(`${apiBase}/api/documents/${documentId}/stream`, {
                       headers: { Authorization: `Bearer ${token}` },
                     })
-                      .then(r => { if (!r.ok) throw new Error(); return r.blob(); })
+                      .then(r => {
+                        if (!r.ok) {
+                          setPreviewBlobError(r.status === 404
+                            ? 'File not found on server — it may have been re-uploaded. Close and reopen the document.'
+                            : 'Failed to load document. Please try again.');
+                          throw new Error();
+                        }
+                        return r.blob();
+                      })
                       .then(blob => setPreviewBlobUrl(URL.createObjectURL(blob)))
-                      .catch(() => setPreviewBlobUrl(null))
+                      .catch(() => {})
                       .finally(() => { setPreviewBlobLoading(false); setShowInlinePreview(true); });
                     setShowInlinePreview(true);
                   }
@@ -1229,8 +1239,9 @@ export default function OcrVerificationPanel({
                     );
                   })()}
                   {!previewBlobLoading && !previewBlobUrl && (
-                    <div className="flex items-center justify-center h-full text-sm text-gray-500">
-                      Failed to load document.
+                    <div className="flex flex-col items-center justify-center h-full gap-2 text-sm text-gray-500">
+                      <AlertTriangle size={20} className="text-amber-500" />
+                      {previewBlobError || 'Failed to load document.'}
                     </div>
                   )}
                 </div>
