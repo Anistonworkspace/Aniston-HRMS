@@ -9,6 +9,7 @@ import {
   Plus, Heart, MessageSquare, Share2, Tag, Paperclip, Save, Loader2, Send, XCircle, Award, Download, Copy, X, Eye, Trash2, Upload, AlertTriangle, Unlock, Lock, Navigation, ScanLine, CheckCircle2, Zap,
 } from 'lucide-react';
 import { useGetEmployeeQuery, useUpdateEmployeeMutation, useAddLifecycleEventMutation, useDeleteLifecycleEventMutation, useSendActivationInviteMutation, useGetLifecycleEventsQuery, useChangeEmployeeRoleMutation } from './employeeApi';
+import { useGetEmployeeMfaStatusQuery, useAdminToggleMfaMutation } from '../auth/authApi';
 import { useGetEmployeeAttendanceQuery, useMarkAttendanceMutation, useSubmitRegularizationMutation, useGetHybridScheduleQuery, useGetEmployeeGPSTrailQuery } from '../attendance/attendanceApi';
 import { useGetHolidaysQuery } from '../leaves/leaveApi';
 import { useGetSalaryStructureQuery, useSaveSalaryStructureMutation, useGetSalaryHistoryQuery, useSaveSalaryStructureDynamicMutation } from '../payroll/payrollApi';
@@ -44,6 +45,23 @@ export default function EmployeeDetailPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [updateEmployee, { isLoading: savingEmployee }] = useUpdateEmployeeMutation();
   const [sendActivationInvite, { isLoading: sendingInvite }] = useSendActivationInviteMutation();
+  const [mfaConfirmAction, setMfaConfirmAction] = useState<'disable' | 'enable' | null>(null);
+  const employeeUserId = (employee as any)?.user?.id ?? '';
+  const { data: mfaStatusRes } = useGetEmployeeMfaStatusQuery(employeeUserId, {
+    skip: !MANAGEMENT_ROLES.includes(user?.role || '') || !employeeUserId,
+  });
+  const mfaStatus = mfaStatusRes?.data;
+  const [adminToggleMfa, { isLoading: togglingMfa }] = useAdminToggleMfaMutation();
+
+  const handleMfaToggle = async (enabled: boolean) => {
+    try {
+      const res = await adminToggleMfa({ userId: employeeUserId, enabled }).unwrap();
+      toast.success(res.data?.message || (enabled ? 'MFA enabled' : 'MFA disabled'));
+      setMfaConfirmAction(null);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to update MFA');
+    }
+  };
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [avatarError, setAvatarError] = useState(false);
@@ -447,6 +465,105 @@ export default function EmployeeDetailPage() {
                       </dl>
                     ) : (
                       <p className="text-xs text-gray-400">No bank details on file</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Security — MFA control (HR/Admin only) */}
+                {isManagement && (
+                  <div className="layer-card p-5">
+                    <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
+                      <Shield size={15} className="text-violet-500" /> Security — Two-Factor Auth
+                    </h3>
+                    {!mfaStatus ? (
+                      <p className="text-xs text-gray-400">Loading…</p>
+                    ) : !mfaStatus.isConfigured ? (
+                      <>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-xs font-medium mb-2">
+                          Not Configured
+                        </span>
+                        <p className="text-xs text-gray-400">Employee has not set up two-factor authentication yet.</p>
+                      </>
+                    ) : mfaStatus.isEnabled ? (
+                      <>
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-medium">
+                            <Lock size={10} /> Enabled
+                          </span>
+                          {mfaStatus.enabledAt && (
+                            <span className="text-xs text-gray-400">since {formatDate(mfaStatus.enabledAt)}</span>
+                          )}
+                        </div>
+                        {mfaConfirmAction === 'disable' ? (
+                          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                            <p className="text-xs text-red-700 font-medium mb-2">
+                              Disable MFA? The employee will be able to log in with password only.
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleMfaToggle(false)}
+                                disabled={togglingMfa}
+                                className="text-xs px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {togglingMfa ? <Loader2 size={11} className="animate-spin" /> : <Unlock size={11} />}
+                                Yes, Disable MFA
+                              </button>
+                              <button
+                                onClick={() => setMfaConfirmAction(null)}
+                                className="text-xs px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setMfaConfirmAction('disable')}
+                            className="text-xs px-3 py-1.5 bg-white border border-red-200 text-red-600 rounded-lg hover:bg-red-50 flex items-center gap-1"
+                          >
+                            <Unlock size={11} /> Disable MFA for this Employee
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200 text-xs font-medium">
+                            <Unlock size={10} /> Disabled
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 mb-3">MFA is configured but disabled. Employee logs in with password only.</p>
+                        {mfaConfirmAction === 'enable' ? (
+                          <div className="bg-violet-50 border border-violet-200 rounded-lg p-3">
+                            <p className="text-xs text-violet-700 font-medium mb-2">
+                              Re-enable MFA? The employee will need their authenticator app to log in.
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleMfaToggle(true)}
+                                disabled={togglingMfa}
+                                className="text-xs px-3 py-1.5 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {togglingMfa ? <Loader2 size={11} className="animate-spin" /> : <Lock size={11} />}
+                                Yes, Re-enable MFA
+                              </button>
+                              <button
+                                onClick={() => setMfaConfirmAction(null)}
+                                className="text-xs px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setMfaConfirmAction('enable')}
+                            className="text-xs px-3 py-1.5 bg-white border border-violet-200 text-violet-600 rounded-lg hover:bg-violet-50 flex items-center gap-1"
+                          >
+                            <Lock size={11} /> Re-enable MFA
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 )}

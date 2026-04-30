@@ -63,6 +63,20 @@ export const authApi = api.injectEndpoints({
     adminResetPassword: builder.mutation<ApiResponse<null>, { targetUserId: string }>({
       query: (body) => ({ url: '/auth/admin-reset-password', method: 'POST', body }),
     }),
+
+    // ── Admin MFA Controls (HR/Admin can manage employee MFA) ───────────────
+    getEmployeeMfaStatus: builder.query<ApiResponse<{ isEnabled: boolean; isConfigured: boolean; enabledAt: string | null }>, string>({
+      query: (userId) => `/auth/mfa/admin/${userId}`,
+      providesTags: (_, __, userId) => [{ type: 'MFA', id: userId }],
+    }),
+    adminToggleMfa: builder.mutation<ApiResponse<{ message: string }>, { userId: string; enabled: boolean }>({
+      query: ({ userId, enabled }) => ({
+        url: `/auth/mfa/admin/${userId}`,
+        method: 'PATCH',
+        body: { enabled },
+      }),
+      invalidatesTags: (_, __, { userId }) => [{ type: 'MFA', id: userId }],
+    }),
   }),
 });
 
@@ -79,4 +93,6 @@ export const {
   useVerifyMfaMutation,
   useDisableMfaMutation,
   useAdminResetPasswordMutation,
+  useGetEmployeeMfaStatusQuery,
+  useAdminToggleMfaMutation,
 } = authApi;

@@ -20,6 +20,8 @@ router.post('/mfa/setup', authenticate, (req, res, next) => authController.setup
 router.post('/mfa/verify-setup', authenticate, (req, res, next) => authController.verifyMFASetup(req, res, next));
 router.post('/mfa/verify', (req, res, next) => authController.verifyMFA(req, res, next)); // no auth — mid-login
 router.post('/mfa/disable', authenticate, (req, res, next) => authController.disableMFA(req, res, next));
+router.get('/mfa/admin/:userId', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res, next) => authController.getEmployeeMFAStatus(req, res, next));
+router.patch('/mfa/admin/:userId', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), (req, res, next) => authController.adminToggleMFA(req, res, next));
 
 // Employee Activation (public, no auth)
 router.get('/activate/:token', (req, res, next) => authController.validateActivation(req, res, next));

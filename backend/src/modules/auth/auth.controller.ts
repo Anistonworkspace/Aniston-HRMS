@@ -345,6 +345,89 @@ export class AuthController {
       res.json({ success: true, data: { message: 'Two-factor authentication disabled.' } });
     } catch (err) { next(err); }
   }
+
+  // =================== ADMIN MFA CONTROLS ===================
+
+  async getEmployeeMFAStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.params;
+      const { prisma } = await import('../../lib/prisma.js');
+      const targetUser = await prisma.user.findFirst({
+        where: { id: userId, organizationId: req.user!.organizationId },
+      });
+      if (!targetUser) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Employee not found' } });
+        return;
+      }
+      const mfa = await prisma.userMFA.findUnique({ where: { userId } });
+      res.json({
+        success: true,
+        data: {
+          isEnabled: mfa?.isEnabled ?? false,
+          isConfigured: !!(mfa?.secret),
+          enabledAt: mfa?.enabledAt ?? null,
+        },
+      });
+    } catch (err) { next(err); }
+  }
+
+  async adminToggleMFA(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.params;
+      const { enabled } = req.body as { enabled: boolean };
+      const { prisma } = await import('../../lib/prisma.js');
+
+      const targetUser = await prisma.user.findFirst({
+        where: { id: userId, organizationId: req.user!.organizationId },
+        include: { employee: { select: { firstName: true, lastName: true } } },
+      });
+      if (!targetUser) {
+        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Employee not found' } });
+        return;
+      }
+
+      const mfa = await prisma.userMFA.findUnique({ where: { userId } });
+
+      if (enabled) {
+        if (!mfa?.secret) {
+          res.status(400).json({
+            success: false,
+            error: { code: 'BAD_REQUEST', message: 'Employee has not configured MFA. They must set it up from their profile first.' },
+          });
+          return;
+        }
+        await prisma.userMFA.update({ where: { userId }, data: { isEnabled: true, enabledAt: new Date() } });
+      } else {
+        if (!mfa) {
+          res.json({ success: true, data: { message: 'MFA was not configured for this employee.' } });
+          return;
+        }
+        await prisma.userMFA.update({ where: { userId }, data: { isEnabled: false, enabledAt: null } });
+      }
+
+      const empName = targetUser.employee
+        ? `${targetUser.employee.firstName} ${targetUser.employee.lastName}`
+        : targetUser.email;
+      createAuditLog({
+        userId: req.user!.userId,
+        organizationId: req.user!.organizationId,
+        entity: 'UserMFA',
+        entityId: userId,
+        action: enabled ? 'ADMIN_MFA_ENABLED' : 'ADMIN_MFA_DISABLED',
+        newValue: { targetUserId: userId, targetEmployee: empName },
+        ipAddress: req.ip,
+      }).catch(() => {});
+
+      res.json({
+        success: true,
+        data: {
+          message: enabled
+            ? 'MFA re-enabled for this employee.'
+            : 'MFA disabled. Employee can now log in with password only.',
+        },
+      });
+    } catch (err) { next(err); }
+  }
 }
 
 export const authController = new AuthController();
