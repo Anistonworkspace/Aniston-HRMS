@@ -1839,6 +1839,7 @@ export default function KycHrReviewPage() {
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3 hidden md:table-cell">Dept.</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Mode</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3">Status</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3 hidden lg:table-cell">OCR Score</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide px-4 py-3 hidden md:table-cell">Submitted</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -1922,6 +1923,32 @@ export default function KycHrReviewPage() {
                           return null;
                         })()}
                       </div>
+                    </td>
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      {gate.ocrSummary?.scannedCount > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-sm font-bold font-mono ${
+                              (gate.ocrSummary.avgScore ?? 0) >= 80 ? 'text-green-700' :
+                              (gate.ocrSummary.avgScore ?? 0) >= 60 ? 'text-amber-700' :
+                              'text-red-700'
+                            }`}>
+                              {gate.ocrSummary.avgScore ?? '—'}
+                            </span>
+                            <span className="text-xs text-slate-400">/100</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {gate.ocrSummary.flaggedCount > 0 && (
+                              <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium">
+                                {gate.ocrSummary.flaggedCount} flagged
+                              </span>
+                            )}
+                            <span className="text-[10px] text-slate-400">{gate.ocrSummary.scannedCount} scanned</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">Not scanned</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
                       <span className="text-xs text-slate-500">

@@ -29,6 +29,7 @@ import { useGetProfileEditRequestsForEmployeeQuery, useReviewProfileEditRequestM
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import { useAppSelector } from '../../app/store';
 import { getInitials, getStatusColor, formatDate, formatCurrency, getUploadUrl } from '../../lib/utils';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import toast from 'react-hot-toast';
 
 const MANAGEMENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
@@ -3089,6 +3090,7 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
   const [rejectingAll, setRejectingAll] = useState(false);
   const { data: ocrSummaryRes, refetch: refetchOcr } = useGetEmployeeOcrSummaryQuery(employeeId, { skip: !isManagement });
   const [triggerAllOcr, { isLoading: triggeringAll }] = useTriggerAllEmployeeOcrMutation();
+  const [ocrBatch, setOcrBatch] = useState<{ total: number; completed: number; results: Array<{ docType: string; status: string }> } | null>(null);
   const [showKycModal, setShowKycModal] = useState(false);
   const [ocrDocId, setOcrDocId] = useState<string | null>(null);
   const [ocrDocName, setOcrDocName] = useState('');
@@ -3096,6 +3098,33 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
   const [ocrDocFileUrl, setOcrDocFileUrl] = useState('');
   const [ocrDocStatus, setOcrDocStatus] = useState('');
   const [ocrDocRejectReason, setOcrDocRejectReason] = useState<string | undefined>(undefined);
+
+  // Listen for real-time OCR progress events when a batch "Run All KYC" is in progress
+  useEffect(() => {
+    if (!ocrBatch) return;
+    const handler = (event: any) => {
+      if (event.employeeId !== employeeId) return;
+      setOcrBatch(prev => {
+        if (!prev) return null;
+        const newCompleted = prev.completed + 1;
+        const newResults = [...prev.results, { docType: event.docType, status: event.status }];
+        if (newCompleted >= prev.total) {
+          // All docs processed — refresh data and clear batch state
+          setTimeout(() => refetchOcr(), 800);
+          const verifiedCount = newResults.filter(r => r.status === 'VERIFIED').length;
+          const flaggedCount = newResults.filter(r => r.status === 'FLAGGED').length;
+          toast.success(
+            `KYC scan complete: ${verifiedCount} verified, ${flaggedCount} flagged`,
+            { duration: 5000 }
+          );
+          return null;
+        }
+        return { ...prev, completed: newCompleted, results: newResults };
+      });
+    };
+    onSocketEvent('ocr:document-processed', handler);
+    return () => offSocketEvent('ocr:document-processed', handler);
+  }, [ocrBatch, employeeId, refetchOcr]);
 
   // Build OCR lookup by documentId for inline display
   const ocrByDocId: Record<string, any> = {};
@@ -3256,25 +3285,42 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
             </button>
           )}
           {isManagement && documents.length > 0 && (
-            <button
-              onClick={async () => {
-                try {
-                  const res = await triggerAllOcr(employeeId).unwrap();
-                  const { triggered, skipped } = res.data;
-                  if (triggered > 0) {
-                    toast.success(`KYC queued for ${triggered} document${triggered !== 1 ? 's' : ''}${skipped > 0 ? ` · ${skipped} already processed` : ''}`);
-                    setTimeout(() => refetchOcr(), 4000);
-                  } else {
-                    toast.success(`All ${skipped} document${skipped !== 1 ? 's' : ''} already processed`);
-                  }
-                } catch { toast.error('Failed to trigger KYC'); }
-              }}
-              disabled={triggeringAll}
-              className="text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition-colors disabled:opacity-50"
-            >
-              {triggeringAll ? <Loader2 size={14} className="animate-spin" /> : <ScanLine size={14} />}
-              {triggeringAll ? 'Running KYC...' : 'Run All KYC'}
-            </button>
+            <div className="flex items-center gap-2">
+              {ocrBatch && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-lg">
+                  <Loader2 size={12} className="animate-spin text-indigo-600" />
+                  <span className="text-xs font-medium text-indigo-700">
+                    Scanning {ocrBatch.completed}/{ocrBatch.total} docs
+                  </span>
+                  <div className="w-20 h-1.5 bg-indigo-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.round((ocrBatch.completed / ocrBatch.total) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await triggerAllOcr(employeeId).unwrap();
+                    const { triggered } = res.data;
+                    if (triggered > 0) {
+                      setOcrBatch({ total: triggered, completed: 0, results: [] });
+                      toast.success(`KYC scan started for ${triggered} document${triggered !== 1 ? 's' : ''} — results will appear live`);
+                    } else {
+                      toast.success('All documents already processed');
+                      refetchOcr();
+                    }
+                  } catch { toast.error('Failed to trigger KYC'); }
+                }}
+                disabled={triggeringAll || !!ocrBatch}
+                className="text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition-colors disabled:opacity-50"
+              >
+                {triggeringAll ? <Loader2 size={14} className="animate-spin" /> : <ScanLine size={14} />}
+                {triggeringAll ? 'Queuing...' : ocrBatch ? 'Scanning...' : 'Run All KYC'}
+              </button>
+            </div>
           )}
           {isManagement && (
             <button onClick={() => setShowKycModal(true)} className="btn-primary text-xs flex items-center gap-1.5">

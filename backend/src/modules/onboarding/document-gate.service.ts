@@ -891,6 +891,14 @@ export class DocumentGateService {
               email: true,
               avatar: true,
               department: { select: { name: true } },
+              documents: {
+                where: { deletedAt: null },
+                select: {
+                  ocrVerification: {
+                    select: { kycScore: true, confidence: true, ocrStatus: true },
+                  },
+                },
+              },
             },
           },
         },
@@ -906,8 +914,32 @@ export class DocumentGateService {
       }),
     ]);
 
+    // Compute per-employee OCR summary: avg kycScore, avg confidence, flagged doc count
+    const enrichedItems = items.map(item => {
+      const docs = (item.employee as any)?.documents ?? [];
+      const ocrResults = docs
+        .map((d: any) => d.ocrVerification)
+        .filter((o: any) => o !== null && o !== undefined);
+
+      const avgScore = ocrResults.length > 0
+        ? Math.round(ocrResults.reduce((sum: number, o: any) => sum + (o.kycScore || 0), 0) / ocrResults.length)
+        : null;
+      const avgConfidence = ocrResults.length > 0
+        ? Math.round(ocrResults.reduce((sum: number, o: any) => sum + (o.confidence || 0), 0) / ocrResults.length * 100)
+        : null;
+      const flaggedCount = ocrResults.filter((o: any) => o.ocrStatus === 'FLAGGED').length;
+      const scannedCount = ocrResults.length;
+
+      const { documents: _docs, ...empWithoutDocs } = (item.employee as any);
+      return {
+        ...item,
+        employee: empWithoutDocs,
+        ocrSummary: { avgScore, avgConfidence, flaggedCount, scannedCount },
+      };
+    });
+
     return {
-      data: items,
+      data: enrichedItems,
       meta: {
         page,
         limit,

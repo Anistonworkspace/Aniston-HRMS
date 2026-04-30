@@ -1714,10 +1714,9 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       await enqueueDocumentOcr(doc.id, organizationId);
     }
 
-    // Cross-validate after queuing so any updated findings are reflected in cross-doc status
-    this.crossValidateEmployee(employeeId, organizationId).catch((err: any) =>
-      logger.warn(`[OCR] Cross-validation after triggerAll failed for ${employeeId}: ${err.message}`)
-    );
+    // Cross-validation is fired by the BullMQ worker after each individual job completes,
+    // so the final job completion yields fully up-to-date cross-validation results.
+    // Firing it here (before jobs run) would compare stale OCR data and is counterproductive.
 
     return { triggered: docs.length, total: docs.length };
   }

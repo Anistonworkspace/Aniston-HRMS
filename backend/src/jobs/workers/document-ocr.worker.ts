@@ -199,9 +199,48 @@ const worker = new Worker<DocumentOcrJob>(
         logger.info(`[OCR Worker] Document ${documentId} flagged for HR review (low quality/confidence)`);
       }
 
+      // 9. Emit real-time progress to all org HR/admin users so batch "Run All KYC" has live feedback
+      try {
+        const { emitToOrg } = await import('../../sockets/index.js');
+        const finalOcr = await prisma.documentOcrVerification.findUnique({
+          where: { documentId },
+          select: { ocrStatus: true, kycScore: true, confidence: true },
+        });
+        emitToOrg(organizationId, 'ocr:document-processed', {
+          documentId,
+          employeeId: employee.id,
+          docType: doc.type,
+          docName: doc.name,
+          status: finalOcr?.ocrStatus ?? 'PENDING',
+          kycScore: finalOcr?.kycScore ?? 0,
+          confidence: finalOcr?.confidence ?? 0,
+        });
+      } catch (socketErr: any) {
+        logger.warn(`[OCR Worker] Socket emit failed: ${socketErr.message}`);
+      }
+
       return ocrResult;
     } catch (err: any) {
       logger.error(`[OCR Worker] Failed for document ${documentId}: ${err.message}`);
+      // Even on failure, emit a failed event so the frontend counter still progresses
+      try {
+        const { emitToOrg } = await import('../../sockets/index.js');
+        const failedDoc = await prisma.document.findUnique({
+          where: { id: documentId },
+          select: { type: true, name: true, employeeId: true },
+        });
+        if (failedDoc?.employeeId) {
+          emitToOrg(organizationId, 'ocr:document-processed', {
+            documentId,
+            employeeId: failedDoc.employeeId,
+            docType: failedDoc.type,
+            docName: failedDoc.name,
+            status: 'FAILED',
+            kycScore: 0,
+            confidence: 0,
+          });
+        }
+      } catch { /* best-effort */ }
       throw err;
     }
   },
