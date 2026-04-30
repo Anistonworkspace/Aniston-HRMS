@@ -90,6 +90,12 @@ export class AttendanceService {
     if (data.gpsTimestamp && data.latitude && data.longitude) {
       const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
       const GPS_MAX_AGE_MS = 60 * 1000; // 60 seconds
+      const FUTURE_TOLERANCE_MS = 5 * 60 * 1000; // 5 min — allow minor clock drift
+      if (gpsAgeMs < -FUTURE_TOLERANCE_MS) {
+        throw new BadRequestError(
+          'GPS timestamp appears to be set in the future. Please check your device clock and try again.'
+        );
+      }
       if (gpsAgeMs > GPS_MAX_AGE_MS) {
         throw new BadRequestError(
           `Your GPS location is ${Math.round(gpsAgeMs / 1000)} seconds old. ` +
@@ -217,6 +223,12 @@ export class AttendanceService {
     // ===== Location enforcement: OFFICE shift requires assigned location =====
     const assignedLocation = shiftAssignment?.location || employee.officeLocation;
     if (!effectiveWfh && currentShiftType === 'OFFICE' && !assignedLocation?.geofence) {
+      // Alert HR so they can fix the configuration — non-blocking
+      setImmediate(() => {
+        this._alertHrNoOfficeLocation(employeeId, organizationId).catch((e) =>
+          logger.warn(`[Attendance] No-location HR alert failed for ${employeeId}: ${e.message}`)
+        );
+      });
       throw new BadRequestError(
         'No office location assigned. Please ask your HR/Admin to assign an office location to your profile before marking attendance.'
       );
@@ -252,6 +264,12 @@ export class AttendanceService {
       if (data.accuracy && data.accuracy > 150) {
         data.notes = `${data.notes || ''} [GPS accuracy poor: ±${Math.round(data.accuracy)}m — geofence check skipped]`.trim();
         logger.warn(`Poor GPS accuracy (${data.accuracy}m) for employee ${employeeId} — skipping geofence check`);
+        // Alert HR so they can investigate potential attendance fraud
+        setImmediate(() => {
+          this._alertHrPoorGpsAccuracy(employeeId, organizationId, data.accuracy!, data.latitude, data.longitude).catch((e) =>
+            logger.warn(`[Attendance] HR poor-GPS alert failed for ${employeeId}: ${e.message}`)
+          );
+        });
       }
       const coords = geofence.coordinates as any;
       if (coords?.lat && coords?.lng && !(data.accuracy && data.accuracy > 150)) {
@@ -490,6 +508,12 @@ export class AttendanceService {
     if (data.gpsTimestamp && data.latitude && data.longitude) {
       const gpsAgeMs = Date.now() - new Date(data.gpsTimestamp).getTime();
       const GPS_MAX_AGE_MS = 60 * 1000; // 60 seconds
+      const FUTURE_TOLERANCE_MS = 5 * 60 * 1000; // 5 min — allow minor clock drift
+      if (gpsAgeMs < -FUTURE_TOLERANCE_MS) {
+        throw new BadRequestError(
+          'GPS timestamp appears to be set in the future. Please check your device clock and try again.'
+        );
+      }
       if (gpsAgeMs > GPS_MAX_AGE_MS) {
         throw new BadRequestError(
           `Your GPS location is ${Math.round(gpsAgeMs / 1000)} seconds old. ` +
@@ -3337,6 +3361,66 @@ export class AttendanceService {
       logger.info(`[Attendance] Sunday notification queued for ${employee.employeeCode} → ${recipient}`);
     } catch (err: any) {
       logger.warn(`[Attendance] Sunday notification setup failed: ${err.message}`);
+    }
+  }
+
+  private async _alertHrPoorGpsAccuracy(employeeId: string, organizationId: string, accuracy: number, lat?: number | null, lng?: number | null) {
+    try {
+      const [emp, org] = await Promise.all([
+        prisma.employee.findUnique({
+          where: { id: employeeId },
+          select: { firstName: true, lastName: true, employeeCode: true },
+        }),
+        prisma.organization.findUnique({
+          where: { id: organizationId },
+          select: { adminNotificationEmail: true, name: true },
+        }),
+      ]);
+      if (!org?.adminNotificationEmail || !emp) return;
+
+      const { enqueueEmail } = await import('../../jobs/queues.js');
+      const time = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      const coordsText = lat && lng ? `Approx. coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}` : 'Coordinates unavailable';
+      await enqueueEmail({
+        to: org.adminNotificationEmail,
+        subject: `Attendance Alert: Poor GPS Accuracy — ${emp.firstName} ${emp.lastName} (${emp.employeeCode})`,
+        template: 'generic',
+        context: {
+          title: 'Poor GPS Accuracy — Geofence Check Skipped',
+          message: `<strong>${emp.firstName} ${emp.lastName}</strong> (${emp.employeeCode}) clocked in at <strong>${time}</strong> with poor GPS accuracy of <strong>±${Math.round(accuracy)}m</strong> (threshold: ±150m).<br/><br/>The geofence check was skipped — attendance was recorded without location verification. Please review manually if needed.<br/><br/><span style="color:#6B7280;font-size:12px;">${coordsText} &middot; ${org.name || 'Aniston Technologies'}</span>`,
+        },
+      });
+    } catch (err: any) {
+      logger.warn(`[Attendance] Poor-GPS HR alert failed: ${err.message}`);
+    }
+  }
+
+  private async _alertHrNoOfficeLocation(employeeId: string, organizationId: string) {
+    try {
+      const [emp, org] = await Promise.all([
+        prisma.employee.findUnique({
+          where: { id: employeeId },
+          select: { firstName: true, lastName: true, employeeCode: true },
+        }),
+        prisma.organization.findUnique({
+          where: { id: organizationId },
+          select: { adminNotificationEmail: true, name: true },
+        }),
+      ]);
+      if (!org?.adminNotificationEmail || !emp) return;
+
+      const { enqueueEmail } = await import('../../jobs/queues.js');
+      await enqueueEmail({
+        to: org.adminNotificationEmail,
+        subject: `Action Required: No Office Location Assigned — ${emp.firstName} ${emp.lastName} (${emp.employeeCode})`,
+        template: 'generic',
+        context: {
+          title: 'Employee Cannot Clock In — No Office Location',
+          message: `<strong>${emp.firstName} ${emp.lastName}</strong> (${emp.employeeCode}) attempted to clock in but has no office location or geofence assigned to their shift.<br/><br/>Please assign an office location to this employee's shift in <strong>Roster → Assign Shift</strong> so they can mark attendance.<br/><br/><span style="color:#6B7280;font-size:12px;">Sent automatically by Aniston HRMS &middot; ${org.name || 'Aniston Technologies'}</span>`,
+        },
+      });
+    } catch (err: any) {
+      logger.warn(`[Attendance] No-location HR alert failed: ${err.message}`);
     }
   }
 }

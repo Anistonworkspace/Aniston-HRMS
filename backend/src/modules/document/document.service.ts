@@ -110,40 +110,23 @@ export class DocumentService {
       }).catch(() => {});
     }
 
-    // Notify HR when a document is submitted — best-effort, non-blocking
+    // Notify HR when a document is submitted — batched per employee with 5-min debounce.
+    // Multiple uploads within 5 min produce ONE email listing all documents together.
     if (data.employeeId) {
       try {
-        const { enqueueEmail } = await import('../../jobs/queues.js');
+        const { enqueueDocumentDigest } = await import('../../jobs/queues.js');
         const employee = await prisma.employee.findUnique({
           where: { id: data.employeeId },
-          select: { firstName: true, lastName: true, employeeCode: true, organizationId: true },
+          select: { organizationId: true },
         });
         if (employee) {
-          const org = await prisma.organization.findUnique({
-            where: { id: employee.organizationId },
-            select: { adminNotificationEmail: true, name: true },
+          await enqueueDocumentDigest(data.employeeId, employee.organizationId, {
+            type: data.type,
+            name: data.name,
           });
-          const hrEmail = org?.adminNotificationEmail;
-          if (hrEmail) {
-            await enqueueEmail({
-              to: hrEmail,
-              subject: `Document Uploaded: ${data.name} — ${employee.firstName} ${employee.lastName} (${employee.employeeCode})`,
-              template: 'document-submitted',
-              context: {
-                employeeName: `${employee.firstName} ${employee.lastName}`,
-                employeeCode: employee.employeeCode,
-                documentType: data.type,
-                documentName: data.name,
-                reviewUrl: `https://hr.anistonav.com/employees/${data.employeeId}`,
-                orgName: org?.name || 'Aniston Technologies',
-              },
-            });
-          }
         }
       } catch (err: any) {
-        // Non-blocking: import/email failure must not fail the document upload
-        const { logger } = await import('../../lib/logger.js');
-        logger.error(`[Document] Failed to send document-submitted notification: ${err.message}`);
+        logger.warn(`[Document] Failed to enqueue document digest notification: ${err.message}`);
       }
     }
 

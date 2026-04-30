@@ -692,10 +692,41 @@ export class OnboardingService {
 
     const targetStatus = 'PROBATION';
 
-    await prisma.employee.update({
-      where: { id: employeeId },
-      data: { status: targetStatus as any },
-    });
+    try {
+      await prisma.employee.update({
+        where: { id: employeeId },
+        data: { status: targetStatus as any },
+      });
+    } catch (err: any) {
+      logger.error(`[Onboarding] Auto-promote DB write failed for ${employeeId}: ${err.message}`);
+      // Notify HR so they can manually update the employee status
+      try {
+        const [emp, org] = await Promise.all([
+          prisma.employee.findUnique({
+            where: { id: employeeId },
+            select: { firstName: true, lastName: true, employeeCode: true },
+          }),
+          prisma.organization.findUnique({
+            where: { id: organizationId },
+            select: { adminNotificationEmail: true, name: true },
+          }),
+        ]);
+        if (org?.adminNotificationEmail && emp) {
+          await enqueueEmail({
+            to: org.adminNotificationEmail,
+            subject: `Action Required: Employee Status Update Failed — ${emp.firstName} ${emp.lastName} (${emp.employeeCode})`,
+            template: 'generic',
+            context: {
+              title: 'Onboarding Auto-Promotion Failed',
+              message: `<strong>${emp.firstName} ${emp.lastName}</strong> (${emp.employeeCode}) has completed onboarding, but their status could not be automatically updated from <strong>ONBOARDING</strong> to <strong>PROBATION</strong>.<br/><br/>Please update their employment status manually in <strong>Employee Profile → Edit</strong>.<br/><br/><em>Error: ${err.message}</em><br/><br/><span style="color:#6B7280;font-size:12px;">Sent automatically by Aniston HRMS &middot; ${org.name || 'Aniston Technologies'}</span>`,
+            },
+          });
+        }
+      } catch (notifyErr: any) {
+        logger.warn(`[Onboarding] HR failure-notification email failed: ${notifyErr.message}`);
+      }
+      return;
+    }
 
     // Emit socket event for real-time UI update
     emitToOrg(organizationId, 'employee:status-changed', {

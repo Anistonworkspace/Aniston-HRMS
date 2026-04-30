@@ -202,6 +202,15 @@ export class DocumentGateService {
       await this.emitKycUpdate(employeeId, newStatus);
     }
 
+    // If all re-uploads are cleared and status advanced to SUBMITTED, notify HR for re-review
+    if (newStatus === 'SUBMITTED' && gate.kycStatus === 'REUPLOAD_REQUIRED') {
+      setImmediate(() => {
+        this._notifyHrKycResubmitted(employeeId).catch((err) =>
+          logger.warn('[KYC] HR re-submission notification failed:', err),
+        );
+      });
+    }
+
     return {
       allSubmitted,
       submitted: submitted.length,
@@ -397,6 +406,34 @@ export class DocumentGateService {
         employeeCode: emp.employeeCode,
         documentType: 'KYC_SUBMISSION',
         documentName: 'All KYC documents submitted for review',
+        orgName: org.name,
+        reviewUrl: `https://hr.anistonav.com/employees/${employeeId}?tab=documents`,
+      },
+    });
+  }
+
+  private async _notifyHrKycResubmitted(employeeId: string) {
+    const emp = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { firstName: true, lastName: true, employeeCode: true, organizationId: true },
+    });
+    if (!emp) return;
+
+    const org = await prisma.organization.findUnique({
+      where: { id: emp.organizationId },
+      select: { name: true, adminNotificationEmail: true },
+    });
+    if (!org?.adminNotificationEmail) return;
+
+    await enqueueEmail({
+      to: org.adminNotificationEmail,
+      subject: `KYC Re-submitted — ${emp.firstName} ${emp.lastName} (${emp.employeeCode}) — Ready for Review`,
+      template: 'document-submitted',
+      context: {
+        employeeName: `${emp.firstName} ${emp.lastName}`,
+        employeeCode: emp.employeeCode,
+        documentType: 'KYC_RESUBMISSION',
+        documentName: 'All flagged documents have been re-uploaded and are ready for HR review',
         orgName: org.name,
         reviewUrl: `https://hr.anistonav.com/employees/${employeeId}?tab=documents`,
       },
