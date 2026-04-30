@@ -165,6 +165,8 @@ export class DocumentService {
         verifiedBy: verifierId,
         verifiedAt: new Date(),
         rejectionReason: status === 'REJECTED' ? rejectionReason : null,
+        // HR approval clears tamper flags — HR has visually reviewed and accepted the document
+        ...(status === 'VERIFIED' ? { tamperDetected: false, tamperDetails: null } : {}),
       },
     });
 

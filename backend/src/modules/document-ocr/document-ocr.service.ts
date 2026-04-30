@@ -1013,8 +1013,9 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
    * FAIL < 0.80 (likely different people)
    */
   private compareNames(a: string, b: string): { match: 'PASS' | 'PARTIAL' | 'FAIL'; similarity: number; reason: string } {
-    const na = this.normalizeName(a);
-    const nb = this.normalizeName(b);
+    // Clean relational suffixes + honorifics, then normalize (lowercase, collapse whitespace)
+    const na = this.normalizeName(this.cleanNameForComparison(a));
+    const nb = this.normalizeName(this.cleanNameForComparison(b));
 
     if (na === nb) return { match: 'PASS', similarity: 1.0, reason: 'Exact match after normalization' };
 
@@ -1034,15 +1035,67 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
   }
 
   /**
-   * Normalize a date string: strip separators, handle DD/MM/YYYY vs YYYY-MM-DD.
+   * Normalize a date string to YYYYMMDD for comparison.
+   * Handles: YYYY-MM-DD, YYYY/MM/DD, DD/MM/YYYY, DD-MM-YYYY, bare 8-digit strings.
    */
   private normalizeDate(d: string): string {
-    const stripped = d.replace(/[-\/\.]/g, '');
-    // If it looks like YYYYMMDD (8 digits starting with 19xx or 20xx), keep as-is
-    if (/^(19|20)\d{6}$/.test(stripped)) return stripped;
-    // If it looks like DDMMYYYY, convert to YYYYMMDD for comparison
-    if (/^\d{8}$/.test(stripped)) return stripped.slice(4) + stripped.slice(2, 4) + stripped.slice(0, 2);
+    if (!d) return '';
+    const trimmed = d.trim();
+    // YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD → already in year-first order
+    const isoMatch = trimmed.match(/^(\d{4})[-\/\.](\d{2})[-\/\.](\d{2})$/);
+    if (isoMatch) return `${isoMatch[1]}${isoMatch[2]}${isoMatch[3]}`;
+    // DD/MM/YYYY / DD-MM-YYYY / DD.MM.YYYY → reorder to YYYYMMDD
+    const dmyMatch = trimmed.match(/^(\d{2})[-\/\.](\d{2})[-\/\.](\d{4})$/);
+    if (dmyMatch) return `${dmyMatch[3]}${dmyMatch[2]}${dmyMatch[1]}`;
+    // Bare 8-digit string: validate as YYYYMMDD first (check month 01-12, day 01-31)
+    const stripped = trimmed.replace(/[-\/\.]/g, '');
+    if (/^\d{8}$/.test(stripped)) {
+      const yyyy = parseInt(stripped.slice(0, 4), 10);
+      const mm   = parseInt(stripped.slice(4, 6), 10);
+      const dd   = parseInt(stripped.slice(6, 8), 10);
+      if (yyyy >= 1900 && yyyy <= 2099 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+        return stripped; // valid YYYYMMDD
+      }
+      // Month/day validation failed → treat as DDMMYYYY → convert to YYYYMMDD
+      return `${stripped.slice(4)}${stripped.slice(2, 4)}${stripped.slice(0, 2)}`;
+    }
     return stripped;
+  }
+
+  /**
+   * Strip relational suffixes and honorifics from a name before comparison.
+   * Examples: "SUNNY KUMAR MEHTA Father" → "SUNNY KUMAR MEHTA"
+   *           "Mr. Rahul Sharma" → "Rahul Sharma"
+   */
+  private cleanNameForComparison(name: string): string {
+    let cleaned = name.trim();
+    // Remove leading honorifics (Mr., Mrs., Ms., Dr., Shri, Smt., Late, Kumari, S/Shri)
+    cleaned = cleaned.replace(/^(?:mr\.?|mrs\.?|ms\.?|dr\.?|shri\.?|smt\.?|late\.?|kumari\.?|s\/shri\.?)\s+/i, '');
+    // Remove trailing relational labels — run multiple passes for chained suffixes
+    const TRAILING_RELATIONAL = [
+      /\s+(?:father|s\/o|d\/o|w\/o|c\/o|son\s+of|daughter\s+of|wife\s+of|guardian\s+of)\.?$/i,
+      /\s+(?:father['']?s?\s+name|mother['']?s?\s+name|guardian\s+name)\.?$/i,
+    ];
+    for (let pass = 0; pass < 3; pass++) {
+      for (const re of TRAILING_RELATIONAL) cleaned = cleaned.replace(re, '').trim();
+    }
+    return cleaned.trim();
+  }
+
+  /**
+   * Return true when a name string is clearly OCR garbage and should be excluded
+   * from cross-validation (avoids false FAIL on education cert noise).
+   */
+  private isGarbageName(name: string): boolean {
+    if (!name || name.trim().length < 4) return true;
+    const n = name.trim();
+    if (/\d/.test(n)) return true;                     // contains digits
+    if (!/[aeiouAEIOU]/.test(n)) return true;           // no vowels → gibberish
+    const lower = n.toLowerCase();
+    const GARBAGE_TOKENS = ['degree programme', 'programme', 'university', 'college',
+      'institute', 'board', 'marksheet', 'certificate', 'examination', 'council'];
+    if (GARBAGE_TOKENS.some(t => lower.includes(t))) return true;
+    return false;
   }
 
   /**
@@ -1083,9 +1136,11 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     }> = [];
 
     // ---- Name comparison (fuzzy) — include employee profile as additional source ----
+    // Exclude OCR garbage names (no vowels, contains digits, or known non-name phrases)
+    // to prevent education-cert noise ("renal", "RRR pn") from polluting cross-validation.
     const names = ocrDocs
       .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedName }))
-      .filter(n => n.value && n.value.trim().length > 2);
+      .filter(n => n.value && n.value.trim().length > 2 && !this.isGarbageName(n.value));
 
     // Add profile name as a source
     if (profileName && profileName.trim().length > 2) {
@@ -1141,12 +1196,10 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     if (profileDob) highConfDobs.push({ docType: 'PROFILE', value: profileDob });
 
     if (highConfDobs.length >= 2) {
+      // Normalize all DOBs to YYYYMMDD — handles DD/MM/YYYY, YYYY-MM-DD, YYYY/MM/DD, bare 8-digit
       const normalized = highConfDobs.map(d => this.normalizeDate(d.value!));
-      const allMatch = normalized.every(n => {
-        const yearA = n.length >= 4 ? n.slice(-4) : n;
-        const yearB = normalized[0].length >= 4 ? normalized[0].slice(-4) : normalized[0];
-        return n === normalized[0] || yearA === yearB;
-      });
+      // Full date must match after normalization — year-only match is NOT enough
+      const allMatch = normalized.every(n => n === normalized[0]);
       details.push({
         field: 'Date of Birth',
         values: allDobsForDisplay,

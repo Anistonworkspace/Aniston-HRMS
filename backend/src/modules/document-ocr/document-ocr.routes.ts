@@ -24,7 +24,12 @@ function evictOldEntries(map: Map<string, number>, maxSize: number, ttlMs: numbe
   }
 }
 
-function ocrRateLimit(cooldownMs: number, tracker: Map<string, number>, keyFn: (req: Request) => string) {
+function ocrRateLimit(
+  cooldownMs: number,
+  tracker: Map<string, number>,
+  keyFn: (req: Request) => string,
+  messageFn?: (waitSec: number) => string,
+) {
   return (req: Request, res: Response, next: NextFunction) => {
     evictOldEntries(tracker, 5_000, cooldownMs * 10);
     const key = keyFn(req);
@@ -32,9 +37,12 @@ function ocrRateLimit(cooldownMs: number, tracker: Map<string, number>, keyFn: (
     const elapsed = Date.now() - last;
     if (elapsed < cooldownMs) {
       const waitSec = Math.ceil((cooldownMs - elapsed) / 1000);
+      const message = messageFn
+        ? messageFn(waitSec)
+        : `Please wait ${waitSec}s before re-triggering OCR for this document.`;
       res.status(429).json({
         success: false,
-        error: { code: 'RATE_LIMITED', message: `Please wait ${waitSec}s before re-triggering OCR for this document.` },
+        error: { code: 'RATE_LIMITED', message },
       });
       return;
     }
@@ -65,9 +73,14 @@ router.post('/ocr/cross-validate/:employeeId', (req, res, next) =>
   documentOcrController.crossValidate(req, res, next),
 );
 
-// Bulk-trigger OCR for all documents of an employee (max once per 30 minutes per employee)
+// Bulk-trigger OCR for all documents of an employee (max once per 5 minutes per employee)
 router.post('/ocr/employee/:employeeId/trigger-all',
-  ocrRateLimit(30 * 60_000, bulkTriggerTracker, (r) => r.params.employeeId),
+  ocrRateLimit(
+    5 * 60_000,
+    bulkTriggerTracker,
+    (r) => r.params.employeeId,
+    (waitSec) => `Please wait ${waitSec}s before re-triggering bulk OCR for this employee.`,
+  ),
   (req, res, next) => documentOcrController.triggerAllForEmployee(req, res, next),
 );
 

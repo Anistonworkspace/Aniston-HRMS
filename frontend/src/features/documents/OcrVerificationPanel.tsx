@@ -1,6 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import {
-  Shield, Save, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle,
+  Shield, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle,
   ScanLine, Eye, Check, FileText, Ban, Info, ChevronDown, ChevronUp, Zap, Download,
 } from 'lucide-react';
 import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation, useDeepRecheckDocumentMutation } from './documentOcrApi';
@@ -1292,50 +1292,6 @@ export default function OcrVerificationPanel({
                   )}
                 </div>
               )}
-
-              {/* ── HR Review ── */}
-              <div className="layer-card p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <select value={ocrStatus} onChange={e => setOcrStatus(e.target.value)} className="input-glass text-sm flex-1">
-                    <option value="PENDING">Pending Review</option>
-                    <option value="REVIEWED">Reviewed — OK</option>
-                    <option value="FLAGGED">Flagged — Issue Found</option>
-                  </select>
-                  <button onClick={handleTriggerOcr} disabled={triggering}
-                    className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1 whitespace-nowrap">
-                    {triggering ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
-                    Re-run AI
-                  </button>
-                  {deepRecheckAvailable && modelUsed !== 'gpt-4.1' && (
-                    <button
-                      onClick={async () => {
-                        try {
-                          await deepRecheck(documentId).unwrap();
-                          toast.success('Deep Re-check complete — findings updated with gpt-4.1');
-                          refetch();
-                        } catch (err: any) {
-                          toast.error(err?.data?.error?.message || 'Deep Re-check failed');
-                        }
-                      }}
-                      disabled={deepRechecking}
-                      className="text-xs text-purple-600 hover:text-purple-800 border border-purple-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1 whitespace-nowrap"
-                    >
-                      {deepRechecking ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
-                      Deep Scan
-                    </button>
-                  )}
-                </div>
-                <textarea value={hrNotes} onChange={e => setHrNotes(e.target.value)}
-                  className="input-glass text-sm w-full h-16 resize-none"
-                  placeholder="HR notes (optional)..." />
-              </div>
-
-              {/* Save Button */}
-              <button onClick={handleSave} disabled={saving}
-                className="btn-primary w-full flex items-center justify-center gap-2 text-sm">
-                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                {saving ? 'Saving...' : 'Save Review'}
-              </button>
 
               {/* Per-document actions */}
               <div className="space-y-2">
