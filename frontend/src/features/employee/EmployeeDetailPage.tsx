@@ -3282,13 +3282,67 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
         </div>
       </div>
 
+      {/* Cross-Document Validation Summary — shown ONCE at employee level, not per-card */}
+      {isManagement && (() => {
+        let cvStatus = '';
+        let cvDetails: any[] = [];
+        for (const d of documents) {
+          const o = ocrByDocId[d.id];
+          if (o?.crossValidationDetails && Array.isArray(o.crossValidationDetails) && o.crossValidationDetails.length > 0) {
+            cvStatus = o.crossValidationStatus || '';
+            cvDetails = o.crossValidationDetails as any[];
+            break;
+          }
+        }
+        if (!cvStatus || cvDetails.length === 0) return null;
+        const cvPass = cvStatus === 'PASS';
+        const cvFail = cvStatus === 'FAIL';
+        return (
+          <div className={`mb-4 rounded-xl border p-4 ${cvFail ? 'border-red-200 bg-red-50/40' : cvPass ? 'border-emerald-200 bg-emerald-50/30' : 'border-amber-200 bg-amber-50/30'}`}>
+            <div className="flex items-center gap-2 mb-3">
+              <Shield size={13} className={cvFail ? 'text-red-600' : cvPass ? 'text-emerald-600' : 'text-amber-600'} />
+              <span className="text-xs font-semibold text-gray-700">Cross-Document Validation</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${cvFail ? 'bg-red-100 text-red-700' : cvPass ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                {cvStatus}
+              </span>
+            </div>
+            <div className="space-y-2.5">
+              {cvDetails.map((d: any, i: number) => (
+                <div key={i} className="flex items-start gap-2 text-xs">
+                  {d.match
+                    ? <CheckCircle2 size={12} className="text-emerald-500 shrink-0 mt-0.5" />
+                    : <XCircle size={12} className="text-red-500 shrink-0 mt-0.5" />}
+                  <div className="flex-1 min-w-0">
+                    <span className="font-medium text-gray-700">{d.field}</span>
+                    {d.matchDetail && <span className="ml-2 text-[10px] text-gray-400 italic">{d.matchDetail}</span>}
+                    {Array.isArray(d.values) && d.values.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {d.values.map((v: any, j: number) => (
+                          <span key={j} className="text-[10px] bg-white px-1.5 py-0.5 rounded border border-gray-200 font-mono text-gray-600">
+                            <span className="text-gray-400 not-italic">{v.docType?.replace(/_/g, ' ')}: </span>
+                            {v.value || '—'}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {d.similarity != null && (
+                    <span className="text-[10px] text-gray-400 shrink-0">{Math.round(d.similarity * 100)}%</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Document list */}
       {documents.length > 0 ? (
         <div className="grid md:grid-cols-2 gap-3">
           {documents.map((doc: any) => {
             const ocr = ocrByDocId[doc.id];
             return (
-            <div key={doc.id} className={`layer-card p-4 ${doc.tamperDetected ? 'ring-2 ring-red-300' : ''}`}>
+            <div key={doc.id} className={`layer-card p-4 ${doc.tamperDetected && !(doc.type === 'PHOTO' && /very small file|very little text/i.test((doc as any).tamperDetails || '')) ? 'ring-2 ring-red-300' : ''}`}>
               <div className="flex items-start justify-between mb-2">
                 <div>
                   <p className="text-sm font-medium text-gray-800">{doc.name}</p>
@@ -3312,8 +3366,8 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                 </button>
               )}
 
-              {/* Tamper/fake alert — HR only */}
-              {isManagement && doc.tamperDetected && (
+              {/* Tamper/fake alert — HR only; suppress PHOTO text-extraction false positives */}
+              {isManagement && doc.tamperDetected && !(doc.type === 'PHOTO' && /very small file|very little text/i.test((doc as any).tamperDetails || '')) && (
                 <div className="mt-2 p-2.5 bg-red-50 border border-red-200 rounded-lg">
                   <p className="text-xs text-red-700 font-medium flex items-center gap-1.5">
                     <Shield size={12} className="text-red-600" /> FLAGGED: This document may be altered or fake
@@ -3328,20 +3382,18 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                 const isFlagged = ocr.ocrStatus === 'FLAGGED' || conf < 60;
                 const crossOk = ocr.crossValidationStatus === 'PASS';
                 const crossFail = ocr.crossValidationStatus === 'FAIL';
-                // Real AI findings from llmExtractedData
                 const llmData = (ocr.llmExtractedData as any) || {};
                 const kycScore = (ocr as any).kycScore ?? null;
+                // Per-document AI findings from Vision AI — FAIL/WARNING only
                 const visionFindings: any[] = llmData.findings || [];
-                const crossDetails: any[] = (ocr.crossValidationDetails as any[]) || [];
                 const issuePointers: Array<{ severity: 'error' | 'warn'; text: string }> = [];
-                // Vision AI findings (FAIL / WARNING)
                 for (const f of visionFindings) {
                   if (f.result === 'FAIL' || f.result === 'WARNING') {
                     issuePointers.push({ severity: f.result === 'FAIL' ? 'error' : 'warn', text: f.detail || f.check });
                   }
                   if (issuePointers.length >= 4) break;
                 }
-                // Fallback: Python validation_reasons when Vision AI hasn't run
+                // Fallback: Python validation_reasons when Vision AI hasn't run yet
                 if (issuePointers.length === 0 && !llmData.vision_scanned) {
                   const pythonReasons: string[] = llmData.validation_reasons || [];
                   for (const r of pythonReasons) {
@@ -3354,19 +3406,15 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                     if (issuePointers.length >= 4) break;
                   }
                 }
-                // Cross-validation mismatches
-                for (const d of crossDetails) {
-                  if (!d.match && issuePointers.length < 4) {
-                    issuePointers.push({
-                      severity: 'error',
-                      text: `${d.field} mismatch: ${(d.values || []).map((v: any) => `${v.docType}: ${v.value}`).join(' vs ')}`,
-                    });
-                  }
+                // Tamper warning — suppress text-extraction false positives on PHOTO type
+                const tamperDetail: string = (doc as any).tamperDetails || '';
+                const isPhotoTextFalsePositive = doc.type === 'PHOTO' &&
+                  /very small file|very little text/i.test(tamperDetail);
+                if (doc.tamperDetected && !isPhotoTextFalsePositive && issuePointers.length < 4) {
+                  issuePointers.push({ severity: 'error', text: tamperDetail || 'Tampering indicators detected' });
                 }
-                if (doc.tamperDetected && issuePointers.length < 4) {
-                  issuePointers.push({ severity: 'error', text: (doc as any).tamperDetails || 'Tampering indicators detected' });
-                }
-                const isAutoVerified = doc.status === 'VERIFIED' && !(ocr as any).hrReviewedBy;
+                // AI summary — show as a pointer when no other findings exist
+                const visionSummary: string = llmData.vision_summary || '';
                 const isClean = kycScore !== null && kycScore >= 90 && issuePointers.length === 0;
                 return (
                   <div className="mt-3 rounded-xl border border-gray-100 overflow-hidden bg-white shadow-sm">
@@ -3423,8 +3471,11 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                         RESIDENCE_PROOF: ['name', 'address'],
                       };
                       const allowed = OCR_FIELD_WHITELIST[doc.type] || ['name', 'dob', 'docNumber', 'fatherName', 'gender', 'address'];
+                      // Filter garbage OCR names (institution keywords, very short, digits) from display
+                      const GARBAGE_NAME_TOKENS = ['degree programme', 'programme', 'university', 'college', 'institute', 'board', 'marksheet', 'certificate', 'examination', 'council', 'department', 'faculty', 'hereby certify', 'awarded to'];
+                      const isGarbageDisplayName = (n: string) => !n || n.trim().length < 4 || /\d{3,}/.test(n) || GARBAGE_NAME_TOKENS.some(t => n.toLowerCase().includes(t));
                       const show = {
-                        name: allowed.includes('name') && ocr.extractedName,
+                        name: allowed.includes('name') && ocr.extractedName && !isGarbageDisplayName(ocr.extractedName),
                         dob: allowed.includes('dob') && ocr.extractedDob,
                         fatherName: allowed.includes('fatherName') && ocr.extractedFatherName,
                         docNumber: allowed.includes('docNumber') && ocr.extractedDocNumber,
@@ -3448,9 +3499,9 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                     <div className="px-3 py-2 border-t border-gray-50 space-y-1.5">
                       {/* Status row */}
                       <div className="flex items-center gap-1.5 mb-1">
-                        {isClean || isAutoVerified ? (
+                        {isClean ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-                            <CheckCircle2 size={9} /> {isAutoVerified ? 'Auto-Verified' : 'Document OK'}
+                            <CheckCircle2 size={9} /> Document OK
                           </span>
                         ) : issuePointers.length > 0 ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-700 bg-red-50 px-2 py-0.5 rounded-full">
@@ -3479,10 +3530,14 @@ function DocumentsTab({ employeeId, documents, isManagement, employeeName }: { e
                         </div>
                       ))}
                       {issuePointers.length === 0 && !isClean && (
-                        <p className="text-[10px] text-gray-400 italic">No issues detected — review to confirm</p>
+                        visionSummary
+                          ? <p className="text-[10px] text-gray-500 italic">{visionSummary}</p>
+                          : <p className="text-[10px] text-gray-400 italic">No issues detected — review to confirm</p>
                       )}
                       {isClean && (
-                        <p className="text-[10px] text-emerald-600">All checks passed · Score {kycScore}/100</p>
+                        visionSummary
+                          ? <p className="text-[10px] text-emerald-600">{visionSummary}</p>
+                          : <p className="text-[10px] text-emerald-600">All checks passed · Score {kycScore}/100</p>
                       )}
                     </div>
 

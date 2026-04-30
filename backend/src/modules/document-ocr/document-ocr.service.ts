@@ -278,6 +278,7 @@ export class DocumentOcrService {
           }
           ocrResult.vision_scanned = true;
           ocrResult.vision_quality_note = visionJson.quality?.blur_or_noise_note || visionJson.quality?.blur_note || visionJson.quality_note || null;
+          ocrResult.vision_summary = visionJson.summary || null;  // one-sentence AI verdict
           if (kycResp.escalated) ocrResult.validation_reasons = [...(ocrResult.validation_reasons || []), '🔼 Escalated to gpt-4.1 for higher accuracy'];
           logger.info(`[OCR] OpenAI KYC vision complete for ${documentId} — model: ${visionJson._model || 'gpt-4.1-mini'}, conf: ${kycResp.confidence}, escalated: ${kycResp.escalated}`);
         }
@@ -449,8 +450,8 @@ export class DocumentOcrService {
       }
     }
 
-    // Analyze image quality
-    const qualityReport = this.analyzeImageQuality(fileBuffer, ocrResult, ext);
+    // Analyze image quality — pass docType so PHOTO skips text-based tamper checks
+    const qualityReport = this.analyzeImageQuality(fileBuffer, ocrResult, ext, doc.type);
     const fields = ocrResult.extracted_fields || {};
 
     // Status logic: tamper/screenshot → FLAGGED; low confidence alone → PENDING (HR review, not auto-reject)
@@ -615,6 +616,7 @@ Respond with compact JSON only (no markdown):
           ai_confidence_note: ocrResult.ai_confidence_note || null,
           vision_scanned: ocrResult.vision_scanned === true,
           vision_quality_note: ocrResult.vision_quality_note || null,
+          vision_summary: ocrResult.vision_summary || null,
           // Enterprise KYC structured data
           findings: [...(ocrResult.vision_findings || [])],
           authenticity_checks: ocrResult.vision_authenticity_checks || null,
@@ -658,6 +660,7 @@ Respond with compact JSON only (no markdown):
           ai_confidence_note: ocrResult.ai_confidence_note || null,
           vision_scanned: ocrResult.vision_scanned === true,
           vision_quality_note: ocrResult.vision_quality_note || null,
+          vision_summary: ocrResult.vision_summary || null,
           findings: [...(ocrResult.vision_findings || [])],
           authenticity_checks: ocrResult.vision_authenticity_checks || null,
           tampering_signals: ocrResult.vision_tampering_signals || [],
@@ -702,29 +705,32 @@ Respond with compact JSON only (no markdown):
   /**
    * Image/document quality analysis.
    */
-  private analyzeImageQuality(buffer: Buffer, ocrResult: any, ext: string) {
+  private analyzeImageQuality(buffer: Buffer, ocrResult: any, ext: string, docType?: string) {
     const indicators: string[] = [];
     const fileSize = buffer.length;
     const isPdf = ext === 'pdf';
+    const isPhoto = docType === 'PHOTO';
 
-    // Very small file might be a screenshot crop (but not for PDFs)
-    if (!isPdf && fileSize < 20_000) {
+    // Very small file might be a screenshot crop (but not for PDFs or passport photos)
+    if (!isPdf && !isPhoto && fileSize < 20_000) {
       indicators.push('Very small file size — may be a cropped screenshot');
     }
 
     const isPng = buffer[0] === 0x89 && buffer[1] === 0x50;
     const isJpeg = buffer[0] === 0xFF && buffer[1] === 0xD8;
 
-    if (ocrResult.confidence < 0.3) {
+    // Very low OCR confidence on a text document is suspicious — but PHOTO has no text by design
+    if (!isPhoto && ocrResult.confidence < 0.3) {
       indicators.push('Very low OCR confidence — document may be unclear or heavily edited');
     }
 
     const rawLen = (ocrResult.raw_text || '').length;
-    if (rawLen < 20 && ocrResult.document_type !== 'OTHER' && !isPdf) {
+    // Skip "very little text" check for PHOTO — photos have no OCR text by design
+    if (!isPhoto && rawLen < 20 && ocrResult.document_type !== 'OTHER' && !isPdf) {
       indicators.push('Very little text extracted — may be a photo of a photo or heavily edited');
     }
 
-    const isScreenshot = !isPdf && isPng && fileSize > 500_000 && rawLen < 100;
+    const isScreenshot = !isPdf && !isPhoto && isPng && fileSize > 500_000 && rawLen < 100;
 
     return {
       isScreenshot,
@@ -1084,17 +1090,36 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
 
   /**
    * Return true when a name string is clearly OCR garbage and should be excluded
-   * from cross-validation (avoids false FAIL on education cert noise).
+   * from cross-validation and display (avoids false FAIL on education cert noise).
+   * Pass docType to enable education-cert single-word short-name filter.
    */
-  private isGarbageName(name: string): boolean {
+  private isGarbageName(name: string, docType?: string): boolean {
     if (!name || name.trim().length < 4) return true;
     const n = name.trim();
     if (/\d/.test(n)) return true;                     // contains digits
     if (!/[aeiouAEIOU]/.test(n)) return true;           // no vowels → gibberish
     const lower = n.toLowerCase();
-    const GARBAGE_TOKENS = ['degree programme', 'programme', 'university', 'college',
-      'institute', 'board', 'marksheet', 'certificate', 'examination', 'council'];
+    // Explicit single-word OCR garbage common in Indian education certificates
+    const EXPLICIT_GARBAGE = new Set([
+      'renal', 'nil', 'null', 'n/a', 'na', 'none', 'name', 'applicant',
+      'candidate', 'student', 'holder', 'bearer', 'pass', 'fail',
+    ]);
+    if (EXPLICIT_GARBAGE.has(lower)) return true;
+    // Institution/document keywords that appear near names but are not names
+    const GARBAGE_TOKENS = [
+      'degree programme', 'programme', 'university', 'college',
+      'institute', 'board', 'marksheet', 'certificate', 'examination',
+      'council', 'department', 'faculty', 'academic', 'school of', 'hereby certify',
+      'awarded to', 'conferred upon',
+    ];
     if (GARBAGE_TOKENS.some(t => lower.includes(t))) return true;
+    // Education certs: single-word names < 6 chars are almost always OCR noise
+    // (genuine names have first + last name or are longer)
+    const EDUCATION_TYPES = new Set([
+      'TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE',
+      'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE',
+    ]);
+    if (docType && EDUCATION_TYPES.has(docType) && !n.includes(' ') && n.length < 6) return true;
     return false;
   }
 
@@ -1136,11 +1161,18 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     }> = [];
 
     // ---- Name comparison (fuzzy) — include employee profile as additional source ----
-    // Exclude OCR garbage names (no vowels, contains digits, or known non-name phrases)
-    // to prevent education-cert noise ("renal", "RRR pn") from polluting cross-validation.
+    // Exclude OCR garbage names; store CLEANED names (relational suffixes stripped)
+    // so display chips show "SUNNY KUMAR MEHTA" not "SUNNY KUMAR MEHTA Father".
     const names = ocrDocs
-      .map(d => ({ docType: d.type, value: d.ocrVerification!.extractedName }))
-      .filter(n => n.value && n.value.trim().length > 2 && !this.isGarbageName(n.value));
+      .map(d => {
+        const raw = d.ocrVerification!.extractedName;
+        if (!raw || raw.trim().length <= 2) return null;
+        if (this.isGarbageName(raw, d.type)) return null;
+        const cleaned = this.cleanNameForComparison(raw);
+        if (!cleaned || cleaned.length < 3) return null;
+        return { docType: d.type, value: cleaned };
+      })
+      .filter((n): n is { docType: string; value: string } => n !== null);
 
     // Add profile name as a source
     if (profileName && profileName.trim().length > 2) {

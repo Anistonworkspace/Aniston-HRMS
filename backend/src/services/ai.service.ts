@@ -442,26 +442,28 @@ Return ONLY valid compact JSON (no markdown, no explanation):
       ? `HR system has classified this as: ${docTypeHint.replace(/_/g, ' ')}. Apply validation rules for this type. If the visible content clearly belongs to a different type, use the correct type but note the discrepancy as a finding.\n\n`
       : '';
 
-    const KYC_PROMPT = `${DEEP_PREFIX}${TYPE_HINT}You are an enterprise KYC document analyst for an Indian HR system. Analyze this document image and perform each applicable check yourself — report what you FOUND, never tell HR what to verify manually.
+    const KYC_PROMPT = `${DEEP_PREFIX}${TYPE_HINT}You are an enterprise KYC document analyst for an Indian HR system. Analyze this document image and perform each applicable check yourself — report EXACTLY what you see with specific values.
 
 Return ONLY compact JSON (no markdown, no explanation):
-{"document_type":"AADHAAR|PAN|PASSPORT|PHOTO|RESIDENCE_PROOF|EXPERIENCE_LETTER|SALARY_SLIP|DEGREE_CERTIFICATE|TENTH_CERTIFICATE|TWELFTH_CERTIFICATE|BANK_PASSBOOK|CANCELLED_CHEQUE|PROFESSIONAL_CERTIFICATION|OTHER","overall_confidence":0.0,"extracted_fields":{"full_name":{"value":null,"confidence":0,"evidence":""},"date_of_birth":{"value":null,"confidence":0,"evidence":""},"gender":{"value":null,"confidence":0,"evidence":""},"father_name":{"value":null,"confidence":0,"evidence":""},"document_number":{"value":null,"confidence":0,"evidence":""},"address":{"value":null,"confidence":0,"evidence":""},"company_name":{"value":null,"confidence":0,"evidence":""},"designation":{"value":null,"confidence":0,"evidence":""},"joining_date":{"value":null,"confidence":0,"evidence":""},"leaving_date":{"value":null,"confidence":0,"evidence":""},"salary":{"gross":null,"net":null,"deductions":null,"confidence":0},"document_date":{"value":null,"confidence":0,"evidence":""}},"authenticity_checks":{"possible_digital_editing":{"result":"PASS","evidence":""},"screenshot_or_screen_photo":{"result":"PASS","evidence":""},"crop_or_missing_boundary":{"result":"PASS","evidence":""},"font_alignment_consistency":{"result":"PASS","evidence":""},"metadata_risk":{"result":"PASS","evidence":""}},"quality":{"result":"HIGH","readability_confidence":0,"blur_or_noise_note":""},"findings":[{"check":"","result":"PASS","severity":"INFO","field":null,"detail":"","evidence":""}],"tampering_signals":[],"recommended_status":"NEEDS_HR_REVIEW","recommended_action":"","raw_text":"all visible text"}
+{"document_type":"AADHAAR|PAN|PASSPORT|PHOTO|RESIDENCE_PROOF|EXPERIENCE_LETTER|SALARY_SLIP|DEGREE_CERTIFICATE|TENTH_CERTIFICATE|TWELFTH_CERTIFICATE|BANK_PASSBOOK|CANCELLED_CHEQUE|PROFESSIONAL_CERTIFICATION|OTHER","overall_confidence":0.0,"extracted_fields":{"full_name":{"value":null,"confidence":0,"evidence":"exact name as printed"},"date_of_birth":{"value":null,"confidence":0,"evidence":"exact DOB as printed — ONLY the holder's birth date, never the document issue date"},"gender":{"value":null,"confidence":0,"evidence":""},"father_name":{"value":null,"confidence":0,"evidence":"exact father name as printed"},"document_number":{"value":null,"confidence":0,"evidence":"exact number as printed"},"address":{"value":null,"confidence":0,"evidence":""},"company_name":{"value":null,"confidence":0,"evidence":""},"designation":{"value":null,"confidence":0,"evidence":""},"joining_date":{"value":null,"confidence":0,"evidence":"employment start date only"},"leaving_date":{"value":null,"confidence":0,"evidence":""},"salary":{"gross":null,"net":null,"deductions":null,"confidence":0},"document_date":{"value":null,"confidence":0,"evidence":"date document was ISSUED — NOT the holder's DOB"}},"authenticity_checks":{"possible_digital_editing":{"result":"PASS","evidence":""},"screenshot_or_screen_photo":{"result":"PASS","evidence":""},"crop_or_missing_boundary":{"result":"PASS","evidence":""},"font_alignment_consistency":{"result":"PASS","evidence":""},"metadata_risk":{"result":"PASS","evidence":""}},"quality":{"result":"HIGH","readability_confidence":0,"blur_or_noise_note":""},"findings":[{"check":"","result":"PASS|WARNING|FAIL","severity":"INFO|WARN|ERROR","field":null,"detail":"specific value found: 'ABCDE1234F' — format valid","evidence":""}],"tampering_signals":[],"recommended_status":"NEEDS_HR_REVIEW","recommended_action":"","summary":"One-sentence verdict with specific evidence. State what is correct AND what (if anything) needs attention. Example: 'Aadhaar 1234 5678 9012 passes Verhoeff check, name SUNNY KUMAR MEHTA extracted cleanly, document appears genuine with consistent print quality.'","raw_text":"all visible text from document"}
 
 RULES:
 1. result: PASS (verified OK), WARNING (uncertain/needs attention), FAIL (definite problem found). Return null for fields you cannot read.
-2. detail and evidence must contain SPECIFIC values from THIS document — the actual number, name, or date you see. Never generic.
-3. findings: return ONLY significant findings. Maximum 8. Skip trivial PASS entries — include PASS only for the single most important field per document type (e.g. Aadhaar format for Aadhaar, PAN format for PAN). Always include all WARNING and FAIL findings.
-4. tampering_signals: list ONLY with actual visual evidence (pixel inconsistencies near specific fields, font substitution, edited stamp/watermark, composite artifacts). Empty array if none found. Never speculate.
-5. Document-type-specific rules (CRITICAL — follow exactly):
+2. detail MUST contain the SPECIFIC value from this document — the actual number, name, or date you see. Never write generic text like "name found" — write "name 'SUNNY KUMAR MEHTA' extracted from line 2".
+3. findings: return ONLY significant findings. Maximum 8. Include the ONE most important PASS finding (e.g. Aadhaar format pass, PAN format pass). Always include ALL WARNING and FAIL findings.
+4. tampering_signals: list ONLY with actual visual evidence (pixel inconsistencies near specific fields, font substitution, edited stamp, composite image artifacts). Empty array if none found. Never speculate without visual evidence.
+5. CRITICAL — date_of_birth is ONLY the document holder's date of birth (as printed on ID cards). document_date / issue_date is when the document was issued — these are COMPLETELY DIFFERENT fields. A 10th certificate shows graduation year, NOT the student's DOB — leave date_of_birth null for certificates.
+6. Document-type-specific rules (CRITICAL — follow exactly):
    - PHOTO: assess face presence and image quality ONLY. Do NOT extract DOB, Aadhaar, PAN, address. Do NOT produce DOB findings. Maximum 3 findings.
-   - RESIDENCE_PROOF: extract name and address ONLY. Bill/document date is NOT date-of-birth — never produce DOB findings.
+   - RESIDENCE_PROOF: extract name and address ONLY. Bill/document date is NOT date-of-birth — leave date_of_birth null. Never produce DOB findings.
    - SALARY_SLIP: check name/company/month/gross/net arithmetic only. If gross-deductions present, verify arithmetic. Flag suspicious edits near amounts.
-   - EXPERIENCE_LETTER: check name/company/designation/dates/letterhead presence. Flag font inconsistency near key fields.
-   - DEGREE_CERTIFICATE/TENTH_CERTIFICATE/TWELFTH_CERTIFICATE: check student name/institution/year only.
-   - BANK_STATEMENT/CANCELLED_CHEQUE: check account holder name only. No DOB check.
-6. For fields not applicable to this document type, set value:null confidence:0. Do not produce findings for inapplicable fields.
-7. Never call a document fake on a single weak signal — use WARNING with specific evidence.
-8. date_of_birth format: DD/MM/YYYY. overall_confidence = 0.0–1.0.`;
+   - EXPERIENCE_LETTER/RELIEVING_LETTER: check name/company/designation/dates/letterhead. Flag font inconsistency near key fields.
+   - DEGREE_CERTIFICATE/TENTH_CERTIFICATE/TWELFTH_CERTIFICATE: check student name/institution/year only. Leave date_of_birth null — the year printed is graduation year, not DOB.
+   - BANK_STATEMENT/CANCELLED_CHEQUE: check account holder name and account number only. No DOB check.
+7. For fields not applicable to this document type, set value:null confidence:0. Do not produce findings for inapplicable fields.
+8. Never call a document fake on a single weak signal — use WARNING with specific evidence.
+9. summary field is REQUIRED — always produce a concise one-sentence verdict with specific values found.
+10. date_of_birth format: DD/MM/YYYY. overall_confidence = 0.0–1.0.`;
 
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -472,7 +474,7 @@ RULES:
       },
       body: JSON.stringify({
         model: resolvedModel,
-        max_tokens: 1200,
+        max_tokens: 1600,
         messages: [{
           role: 'user',
           content: [
