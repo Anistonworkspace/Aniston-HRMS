@@ -106,8 +106,8 @@ export default function EmployeeAttendanceDetailPage() {
     { employeeId: employeeId || '', date: selectedDate },
     { skip: shiftType !== 'FIELD', pollingInterval: isToday ? 30000 : 0 }
   );
-  const gpsTrail: any[] = gpsRes?.data?.data?.points || [];
-  const gpsVisits: any[] = gpsRes?.data?.data?.visits || [];
+  const gpsTrail: any[] = gpsRes?.data?.points || [];
+  const gpsVisits: any[] = gpsRes?.data?.visits || [];
 
   // C3 — detect tracking gap for HR: compare last GPS point to now
   const trackingIntervalMs = (shift?.trackingIntervalMinutes || 60) * 60_000;
@@ -464,6 +464,12 @@ export default function EmployeeAttendanceDetailPage() {
               <h3 className="text-xs font-semibold text-gray-700 mb-2.5 flex items-center gap-1.5">
                 <Shield size={12} className="text-brand-500" /> Shift & Policy
               </h3>
+              {shiftAssignment?.endDate && new Date(shiftAssignment.endDate) < new Date() && (
+                <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mb-2.5 text-[10px] text-amber-700">
+                  <AlertTriangle size={11} className="shrink-0" />
+                  Assignment expired {formatDate(shiftAssignment.endDate)} — using org default shift
+                </div>
+              )}
               <div className="space-y-1.5 text-[11px]">
                 <div className="flex justify-between"><span className="text-gray-400">Assigned Shift</span><span className="text-gray-700 font-medium">{shift.name}</span></div>
                 <div className="flex justify-between"><span className="text-gray-400">Shift Window</span><span className="text-gray-700 font-mono" data-mono>{shift.startTime} – {shift.endTime}</span></div>

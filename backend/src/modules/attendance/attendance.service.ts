@@ -413,6 +413,7 @@ export class AttendanceService {
 
     // Log anomaly if no GPS provided at clock-in
     if (!data.latitude || !data.longitude) {
+      const isFieldMode = employee.workMode === 'FIELD_SALES' || currentShiftType === 'FIELD';
       try {
         await prisma.attendanceAnomaly.create({
           data: {
@@ -420,9 +421,11 @@ export class AttendanceService {
             employeeId,
             organizationId: employee.organizationId,
             date: today,
-            type: 'UNAPPROVED_REMOTE',
-            severity: 'LOW',
-            description: 'Clock-in recorded without GPS coordinates',
+            type: isFieldMode ? 'GPS_SIGNAL_LOST' : 'UNAPPROVED_REMOTE',
+            severity: isFieldMode ? 'MEDIUM' : 'LOW',
+            description: isFieldMode
+              ? 'Field employee clocked in without GPS coordinates — trail start location unknown'
+              : 'Clock-in recorded without GPS coordinates',
             resolution: 'PENDING',
           },
         });
@@ -1509,6 +1512,11 @@ export class AttendanceService {
       });
     } catch { /* non-blocking */ }
 
+    // Fire-and-forget: persist named visits as GPS points arrive so GeoLocationsTab
+    // populates automatically without waiting for HR to open an individual trail.
+    const uniqueDates = [...new Set(dbPoints.map(p => p.date.toISOString().split('T')[0]))];
+    this.persistVisitsForUploadedDates(employeeId, orgId, uniqueDates).catch(() => {});
+
     return { stored: result.count, submitted: data.points.length, anomalies: anomalies.length };
   }
 
@@ -1608,6 +1616,30 @@ export class AttendanceService {
     }
 
     return { points, visits: namedVisits };
+  }
+
+  private async persistVisitsForUploadedDates(employeeId: string, orgId: string, dateStrs: string[]) {
+    for (const dateStr of dateStrs) {
+      try {
+        const date = new Date(dateStr);
+        const [points, attendanceRecord] = await Promise.all([
+          prisma.gPSTrailPoint.findMany({
+            where: { employeeId, date },
+            orderBy: { timestamp: 'asc' },
+          }),
+          prisma.attendanceRecord.findUnique({
+            where: { employeeId_date: { employeeId, date } },
+          }),
+        ]);
+        if (points.length < 2 || !attendanceRecord) continue;
+        const rawVisits = this.clusterVisits(points);
+        if (rawVisits.length > 0) {
+          await this.persistNamedVisits(attendanceRecord.id, orgId, rawVisits);
+        }
+      } catch (err) {
+        logger.warn(`[GPS] Background visit persistence failed for employee ${employeeId} on ${dateStr}: ${(err as any)?.message}`);
+      }
+    }
   }
 
   private async persistNamedVisits(attendanceId: string, organizationId: string | undefined, rawVisits: any[]): Promise<any[]> {

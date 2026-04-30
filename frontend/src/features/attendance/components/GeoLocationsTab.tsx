@@ -117,7 +117,11 @@ export default function GeoLocationsTab() {
           <div className="flex flex-col items-center justify-center h-40 gap-2">
             <Navigation size={24} className="text-gray-300" />
             <p className="text-sm text-gray-500">No location visits found</p>
-            <p className="text-xs text-gray-400">Field sales employees who stay ≥1 hour at a location will appear here</p>
+            <p className="text-xs text-gray-400 text-center max-w-xs">
+              Named stops appear automatically as field employees upload GPS data.
+              Visits where an employee stayed ≥1 hour are shown here.
+              {search.trim() && ' Try clearing the employee search filter.'}
+            </p>
           </div>
         ) : (
           <>
