@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation, useDeepRecheckDocumentMutation, useReprocessDocumentMutation } from './documentOcrApi';
 import { useVerifyDocumentMutation } from './documentApi';
-import { useGetKycHrReviewQuery, useReclassifyCombinedPdfMutation } from '../kyc/kycApi';
+import { useGetKycHrReviewQuery, useReclassifyCombinedPdfMutation, useRequestReuploadMutation } from '../kyc/kycApi';
 import toast from 'react-hot-toast';
 import { cn, getUploadUrl } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
@@ -121,6 +121,18 @@ const DEFAULT_OCR_FIELDS: FieldDef[] = [
 
 function getDocFields(docType: string): FieldDef[] {
   return DOC_TYPE_FIELDS[docType] ?? DEFAULT_OCR_FIELDS;
+}
+
+// Aadhaar: UIDAI mandate — mask first 8 digits in display (XXXX XXXX 1234)
+function maskAadhaar(value: string): string {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length !== 12) return value;
+  return `XXXX XXXX ${digits.slice(8)}`;
+}
+
+function renderFieldValue(docType: string, fieldKey: FieldKey, value: string): string {
+  if (fieldKey === 'extractedDocNumber' && docType === 'AADHAAR') return maskAadhaar(value);
+  return value;
 }
 
 // ─── Confidence badge helper ──────────────────────────────────────────────────
@@ -941,6 +953,7 @@ export default function OcrVerificationPanel({
   const [verifyDoc, { isLoading: verifyingDoc }] = useVerifyDocumentMutation();
   const [deepRecheck, { isLoading: deepRechecking }] = useDeepRecheckDocumentMutation();
   const [reprocessDoc, { isLoading: reprocessing }] = useReprocessDocumentMutation();
+  const [requestReupload, { isLoading: requestingReupload }] = useRequestReuploadMutation();
 
   const [editing, setEditing] = useState(false);
   const [localDocStatus, setLocalDocStatus] = useState(documentStatus || '');
@@ -1498,7 +1511,7 @@ export default function OcrVerificationPanel({
                   </button>
                 )}
 
-                {/* Deep Recheck button — only for images, only when not yet done */}
+                {/* Deep Recheck — available for images AND PDFs, hidden once already run with gpt-4.1 */}
                 {deepRecheckAvailable && modelUsed !== 'gpt-4.1' && !showRejectDialog && (
                   <button
                     onClick={async () => {
@@ -1517,10 +1530,29 @@ export default function OcrVerificationPanel({
                     Deep Analysis (gpt-4.1) — Higher Accuracy
                   </button>
                 )}
-                {!deepRecheckAvailable && !showRejectDialog && processingMode !== 'manual_review' && (
-                  <p className="text-[10px] text-gray-400 text-center flex items-center justify-center gap-1">
-                    <Info size={9} /> Deep Analysis unavailable — PDF documents require image format
-                  </p>
+
+                {/* Per-document re-upload request — HR can target just this doc */}
+                {employeeId && localDocStatus !== 'VERIFIED' && !showRejectDialog && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        await requestReupload({
+                          employeeId,
+                          docTypes: [documentType],
+                          reasons: { [documentType]: 'HR requested re-upload from document review' },
+                        } as any).unwrap();
+                        toast.success(`Re-upload requested for ${documentType.replace(/_/g, ' ')}`);
+                        onStatusChange?.();
+                      } catch (err: any) {
+                        toast.error(err?.data?.error?.message || 'Failed to request re-upload');
+                      }
+                    }}
+                    disabled={requestingReupload}
+                    className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border border-orange-200 text-orange-700 hover:bg-orange-50 transition-colors disabled:opacity-50"
+                  >
+                    {requestingReupload ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                    Request Re-upload for This Document
+                  </button>
                 )}
 
                 {/* Re-run Full OCR Pipeline — available for all document types */}

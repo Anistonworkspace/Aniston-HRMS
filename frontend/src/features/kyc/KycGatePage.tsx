@@ -1050,6 +1050,37 @@ function StatusScreen({
         )}
       </div>
 
+      {/* Per-document re-upload tips — helps employee fix the issue on first try */}
+      {canReupload && reuploadDocTypes?.length > 0 && (
+        <div className="layer-card p-4 space-y-2 border border-orange-100 bg-orange-50/30">
+          <p className="text-xs font-semibold text-orange-800 flex items-center gap-1.5">
+            <AlertTriangle size={13} /> Tips for re-uploading your documents
+          </p>
+          {(reuploadDocTypes as string[]).map((dt: string) => {
+            const tips: Record<string, string> = {
+              AADHAAR: 'Photograph all 4 corners clearly. Both sides if required. Use original government-issued card — not a photocopy.',
+              PAN: 'Upload the full PAN card. Ensure your name, DOB, and PAN number are clearly readable.',
+              PASSPORT: 'Upload the bio-data page (with photo). Ensure passport number and expiry date are visible.',
+              VOTER_ID: 'Upload both front and back. Ensure your EPIC number is fully visible.',
+              DRIVING_LICENSE: 'Upload both sides. Ensure your licence number and validity date are clear.',
+              PHOTO: 'Plain white or light background. Front-facing, clear face, no sunglasses. JPEG or PNG, under 5MB.',
+              TENTH_CERTIFICATE: 'Upload your marksheet — not just the passing certificate. Student name and roll number must be visible.',
+              TWELFTH_CERTIFICATE: 'Upload your marksheet — not just the passing certificate. Student name and roll number must be visible.',
+              DEGREE_CERTIFICATE: 'Upload the final degree certificate. Your full name and enrollment number must be readable.',
+              RESIDENCE_PROOF: 'Upload a utility bill, bank statement, or rent agreement dated within the last 3 months.',
+              CANCELLED_CHEQUE: 'Upload a cancelled cheque of your salary account. Account holder name and account number must match.',
+            };
+            const tip = tips[dt] || 'Ensure all text is clearly visible and the document is not blurry or cut off.';
+            return (
+              <div key={dt} className="flex items-start gap-2 text-xs text-orange-700">
+                <span className="shrink-0 font-semibold mt-0.5">{dt.replace(/_/g, ' ')}:</span>
+                <span>{tip}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Re-upload button */}
       {canReupload && (
         <button onClick={onStartReupload} className="w-full btn-primary flex items-center justify-center gap-2 text-sm">

@@ -1456,10 +1456,15 @@ function HrReviewDetail({ employeeId, onBack }: { employeeId: string; onBack: ()
               {/* OCR Extracted Fields — read from ocrVerification (Prisma relation with flat fields) */}
               {doc.ocrVerification && (() => {
                 const ocr = doc.ocrVerification;
+                // Aadhaar masking: UIDAI mandate — show only last 4 digits in UI
+                const docNum = ocr.extractedDocNumber;
+                const maskedDocNum = doc.type === 'AADHAAR' && docNum && /^\d{12}$/.test(docNum.replace(/\s/g, ''))
+                  ? `XXXX XXXX ${docNum.replace(/\s/g, '').slice(8)}`
+                  : docNum;
                 const fields: Record<string, string | null> = {
                   Name: ocr.extractedName,
                   'Date of Birth': ocr.extractedDob,
-                  'Doc Number': ocr.extractedDocNumber,
+                  'Doc Number': maskedDocNum ?? null,
                   'Father Name': ocr.extractedFatherName,
                   'Mother Name': ocr.extractedMotherName,
                   Gender: ocr.extractedGender,

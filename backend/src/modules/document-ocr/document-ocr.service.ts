@@ -593,6 +593,27 @@ Respond with compact JSON only (no markdown):
     const validationReasons: string[] = isPhotoType
       ? Array.from(deduped.values()).filter(r => /face|portrait|passport.?size|multiple.?face|🚩/i.test(r))
       : Array.from(deduped.values());
+
+    // Document expiry check: passport / DL validity — flag if expiry date is in the past or within 6 months
+    if (['PASSPORT', 'DRIVING_LICENSE'].includes(doc.type)) {
+      const expiryRaw = fields.expiry_date || fields.valid_upto || fields.validity || null;
+      if (expiryRaw) {
+        const normalized = this.normalizeDate(expiryRaw);
+        if (normalized) {
+          const expiry = new Date(normalized.slice(0, 4) + '-' + normalized.slice(4, 6) + '-' + normalized.slice(6, 8));
+          const now = new Date();
+          const sixMonthsAhead = new Date(); sixMonthsAhead.setMonth(sixMonthsAhead.getMonth() + 6);
+          if (!isNaN(expiry.getTime())) {
+            if (expiry < now) {
+              validationReasons.push(`✗ Document Expired: ${doc.type.replace('_', ' ')} expired on ${expiryRaw} — employee must renew`);
+            } else if (expiry < sixMonthsAhead) {
+              validationReasons.push(`⚠ Expiring Soon: ${doc.type.replace('_', ' ')} expires on ${expiryRaw} — expires within 6 months`);
+            }
+          }
+        }
+      }
+    }
+
     const dynamicFields: Record<string, string> = ocrResult.dynamic_fields || {};
     const authenticityScore: number = typeof ocrResult.authenticity_score === 'number' ? ocrResult.authenticity_score : 1.0;
     // AI findings are stored in llmExtractedData.findings — no longer dumped into hrNotes
@@ -639,6 +660,32 @@ Respond with compact JSON only (no markdown):
       ? (fields.student_name || fields.name || null)
       : (fields.name || fields.account_holder_name || fields.student_name || null);
 
+    // Compute extractedDocNumber here so we can run duplicate detection before the upsert
+    const extractedDocNumberValue = fields.aadhaar_number || fields.pan_number || fields.passport_number || fields.epic_number || fields.dl_number || fields.account_number || null;
+
+    // Cross-employee duplicate detection: same identity document number used by two employees = fraud signal
+    if (extractedDocNumberValue && doc.employeeId && ['AADHAAR', 'PAN', 'PASSPORT', 'VOTER_ID', 'DRIVING_LICENSE'].includes(doc.type)) {
+      try {
+        const duplicateOcr = await prisma.documentOcrVerification.findFirst({
+          where: {
+            extractedDocNumber: extractedDocNumberValue,
+            document: {
+              type: doc.type,
+              deletedAt: null,
+              employee: { organizationId },
+              NOT: { id: documentId },
+            },
+          },
+          select: { documentId: true },
+        });
+        if (duplicateOcr) {
+          validationReasons.push(`✗ Duplicate Document: This ${doc.type.replace(/_/g, ' ')} number (${extractedDocNumberValue}) is already registered by another employee in your organization`);
+        }
+      } catch (err: any) {
+        logger.warn(`[OCR] Duplicate check failed for ${documentId}: ${err.message}`);
+      }
+    }
+
     // PAN DOB sanity: DigiLocker stamps "Verified On" dates which AI may pick up as date_of_birth.
     // Any date within the last 18 years cannot be a valid DOB for an employee — discard it.
     let extractedDobValue: string | null = fields.date_of_birth || null;
@@ -665,7 +712,7 @@ Respond with compact JSON only (no markdown):
         extractedDob: extractedDobValue,
         extractedFatherName: fields.father_name || null,
         extractedMotherName: fields.mother_name || null,
-        extractedDocNumber: fields.aadhaar_number || fields.pan_number || fields.passport_number || fields.epic_number || fields.dl_number || fields.account_number || null,
+        extractedDocNumber: extractedDocNumberValue,
         extractedGender: fields.gender || null,
         extractedAddress: fields.address || null,
         isScreenshot: qualityReport.isScreenshot,
@@ -694,7 +741,7 @@ Respond with compact JSON only (no markdown):
           recommended_status: (ocrResult.vision_recommended_status === 'VERIFIED' ? 'AI_APPROVED' : ocrResult.vision_recommended_status) || recommendedStatus,
           profile_comparison: profileComparison.length > 0 ? profileComparison : [],
           modelUsed: ocrResult.vision_scanned ? 'gpt-4.1-mini' : 'python',
-          deepRecheckAvailable: imageExts.includes(ext), // only images support deep re-check
+          deepRecheckAvailable: imageExts.includes(ext) || ext === 'pdf',
           ai_enhanced: true,
           ...bankExtras,
         } as any,
@@ -709,7 +756,7 @@ Respond with compact JSON only (no markdown):
         extractedDob: extractedDobValue,
         extractedFatherName: fields.father_name || null,
         extractedMotherName: fields.mother_name || null,
-        extractedDocNumber: fields.aadhaar_number || fields.pan_number || fields.passport_number || fields.epic_number || fields.dl_number || fields.account_number || null,
+        extractedDocNumber: extractedDocNumberValue,
         extractedGender: fields.gender || null,
         extractedAddress: fields.address || null,
         isScreenshot: qualityReport.isScreenshot,
@@ -775,6 +822,35 @@ Respond with compact JSON only (no markdown):
           logger.warn(`[OCR] KYC auto-approve check failed for employee ${doc.employeeId}: ${err.message}`)
         );
       }
+    }
+
+    // Auto-escalate: very low confidence + poor score on an image → fire deep recheck immediately
+    // Only escalates for image files (PDFs use a different flow); only once (not if already deep-checked)
+    const alreadyDeepChecked = (ocrResult as any)._model === 'gpt-4.1';
+    if (!shouldAutoVerify && kycScore < 60 && confidence < 0.55 && imageExts.includes(ext) && !alreadyDeepChecked && !hasTamperIssues) {
+      logger.info(`[OCR] Auto-escalating ${documentId} to gpt-4.1 deep recheck (score:${kycScore}, conf:${Math.round(confidence * 100)}%)`);
+      this.deepRecheckDocument(documentId, 'system-auto-escalate', organizationId).catch((err: any) =>
+        logger.warn(`[OCR] Auto-escalate deep recheck failed for ${documentId}: ${err.message}`)
+      );
+    }
+
+    // Cross-validation timing fix: run cross-validation AFTER OCR completes (not when queuing).
+    // Check if all sibling docs for this employee are now processed — the last one triggers cross-validation.
+    if (doc.employeeId) {
+      try {
+        const stillPending = await prisma.documentOcrVerification.count({
+          where: {
+            document: { employeeId: doc.employeeId, deletedAt: null },
+            ocrStatus: 'PENDING',
+            NOT: { documentId },
+          },
+        });
+        if (stillPending === 0) {
+          this.crossValidateEmployee(doc.employeeId, organizationId).catch((err: any) =>
+            logger.warn(`[OCR] Auto cross-validation failed for employee ${doc.employeeId}: ${err.message}`)
+          );
+        }
+      } catch { /* non-blocking */ }
     }
 
     return ocrVerification;
@@ -1476,8 +1552,9 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
 
     const ext = doc.fileUrl.split('.').pop()?.toLowerCase() || '';
     const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'bmp'];
-    if (!imageExts.includes(ext)) {
-      throw new BadRequestError('Deep Re-check requires an image document (JPG, PNG, WebP, BMP)');
+    const supportedDeep = [...imageExts, 'pdf'];
+    if (!supportedDeep.includes(ext)) {
+      throw new BadRequestError('Deep Re-check supports image files (JPG, PNG, WebP) and PDF documents');
     }
 
     let basePath = process.cwd();
@@ -1511,7 +1588,7 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       fatherName: employee.fatherName ?? null,
     } : null;
 
-    const imgMime = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+    const imgMime = ext === 'pdf' ? 'application/pdf' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
     const imageBase64 = fileBuffer.toString('base64');
     const kycResp = await aiService.deepScanDocumentKyc(imageBase64, imgMime, doc.type);
     if (!kycResp.success || !kycResp.data) {

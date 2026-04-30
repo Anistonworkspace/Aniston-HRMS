@@ -460,6 +460,9 @@ RULES:
    - EXPERIENCE_LETTER/RELIEVING_LETTER: check name/company/designation/dates/letterhead. Flag font inconsistency near key fields.
    - DEGREE_CERTIFICATE/TENTH_CERTIFICATE/TWELFTH_CERTIFICATE: check student name/institution/year only. Leave date_of_birth null — the year printed is graduation year, not DOB.
    - BANK_STATEMENT/CANCELLED_CHEQUE: check account holder name and account number only. No DOB check.
+   - VOTER_ID: extract name, EPIC number (format: 3 uppercase letters + 7 digits, e.g. ABC1234567), father/husband name, DOB, address. Verify EPIC format. Flag font inconsistency near name or EPIC number. Leave date_of_birth null if only partial year visible.
+   - DRIVING_LICENSE: extract name, DL number, DOB, address, validity/expiry date. Flag if validity date (valid_upto / expiry_date field) is in the past — write the expiry date in expiry_date extracted field. Flag font anomalies near name or licence number.
+   - PASSPORT: extract name, passport number (1 letter + 7 digits, e.g. A1234567), DOB, nationality, expiry date. Flag if expiry is within 6 months or already past — write the expiry date in expiry_date extracted field. Flag MRZ line inconsistency if visible.
 7. For fields not applicable to this document type, set value:null confidence:0. Do not produce findings for inapplicable fields.
 8. Never call a document fake on a single weak signal — use WARNING with specific evidence.
 9. summary field is REQUIRED — always produce a concise one-sentence verdict with specific values found.
