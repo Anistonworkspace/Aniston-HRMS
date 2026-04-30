@@ -1111,6 +1111,7 @@ function EditEmployeeModal({ employee, userRole, onSave, onClose, isSaving }: { 
                 <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="input-glass w-full text-sm">
                   <optgroup label="Active States">
                     <option value="ONBOARDING">Onboarding</option>
+                    <option value="INTERN">Intern</option>
                     <option value="PROBATION">Probation</option>
                     <option value="ACTIVE">Active</option>
                   </optgroup>
