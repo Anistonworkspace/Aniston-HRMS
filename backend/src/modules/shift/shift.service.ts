@@ -23,7 +23,7 @@ export class ShiftService {
       for (const hybrid of hybridShifts) {
         if (officeShift) {
           await prisma.shiftAssignment.updateMany({
-            where: { shiftId: hybrid.id, OR: [{ endDate: null }, { endDate: { gte: new Date() } }] },
+            where: { shiftId: hybrid.id, OR: [{ endDate: null }, { endDate: { gt: new Date() } }] },
             data: { shiftId: officeShift.id },
           });
         }
@@ -195,8 +195,10 @@ export class ShiftService {
     if (!shift) throw new NotFoundError('Shift');
 
     // Check if shift has active assignments
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const activeAssignments = await prisma.shiftAssignment.count({
-      where: { shiftId: id, OR: [{ endDate: null }, { endDate: { gte: new Date() } }] },
+      where: { shiftId: id, OR: [{ endDate: null }, { endDate: { gt: today } }] },
     });
 
     if (activeAssignments > 0) {
@@ -211,10 +213,8 @@ export class ShiftService {
       });
       // Reassign all affected employees to default shift
       if (defaultShift) {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
         await prisma.shiftAssignment.updateMany({
-          where: { shiftId: id, OR: [{ endDate: null }, { endDate: { gte: today } }] },
+          where: { shiftId: id, OR: [{ endDate: null }, { endDate: { gt: today } }] },
           data: { shiftId: defaultShift.id },
         });
       }
@@ -283,13 +283,13 @@ export class ShiftService {
       where: {
         employeeId,
         startDate: { lte: today },
-        OR: [{ endDate: null }, { endDate: { gte: today } }],
+        OR: [{ endDate: null }, { endDate: { gt: today } }],
       },
       include: {
         shift: true,
         location: { include: { geofence: true } },
       },
-      orderBy: { startDate: 'desc' },
+      orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
     });
   }
 
@@ -375,14 +375,17 @@ export class ShiftService {
       where: {
         employee: { organizationId, deletedAt: null },
         startDate: { lte: today },
-        OR: [{ endDate: null }, { endDate: { gte: today } }],
+        // Use gt (not gte) so assignments closed today don't show alongside the new same-day assignment.
+        // When HR reassigns with startDate=today, the old one gets endDate=today; exclusive end prevents
+        // the old record from appearing alongside the new one and winning the frontend dedup map.
+        OR: [{ endDate: null }, { endDate: { gt: today } }],
       },
       include: {
         shift: true,
         location: { include: { geofence: true } },
         employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true, workMode: true } },
       },
-      orderBy: { startDate: 'desc' },
+      orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
     });
   }
 
