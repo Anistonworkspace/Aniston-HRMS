@@ -7,9 +7,8 @@ name: Build & Deploy to EC2
 #   build-agent      — always builds Windows Desktop Agent .exe
 #   build-and-deploy — typecheck, test, build frontend+backend, deploy to EC2
 #
-# Android APK and iOS IPA are NOT built here on every push.
-# Build them manually via workflow_dispatch on the mobile-builds.yml workflow
-# (or trigger from GitHub Actions tab) only when you need a new release.
+# Mobile builds (.aab / .ipa) are built locally using Android Studio / Codemagic.
+# See docs/BUILD_NATIVE_AAB.md for Android and docs/IOS_APP_STORE_RELEASE.md for iOS.
 #
 # Required GitHub Secrets:
 #   EC2_HOST / EC2_USER / EC2_SSH_KEY
@@ -401,13 +400,11 @@ jobs:
                 echo "WARNING: frontend/dist not found — skipping OTA zip"
               fi
               python3 -c "import json; m={'version':'${BUNDLE_VERSION}','url':'https://hr.anistonav.com/app-updates/bundle-${BUNDLE_VERSION}.zip','mandatory':True,'notes':'v${BUNDLE_VERSION} - ${COMMIT_SUBJECT}'}; open('app-updates/manifest.json','w').write(json.dumps(m,indent=2)); print('manifest.json updated to v${BUNDLE_VERSION}')" 2>/dev/null || echo "WARNING: manifest.json write failed"
-              mkdir -p downloads downloads/agent/agent-build app-updates uploads/ios-builds
+              mkdir -p downloads downloads/agent/agent-build app-updates
               chmod 755 downloads app-updates 2>/dev/null || true
             ) || echo "WARNING: OTA versioning step failed (non-blocking) — deployment continues"
 
             echo "=== [13/17] Verifying app binaries ==="
-            ls -lh downloads/aniston-hrms.apk 2>/dev/null && echo "✅ Android APK present" || echo "ℹ️  Android APK not yet uploaded (will appear after first successful android build)"
-            ls -lh uploads/ios-builds/*.ipa 2>/dev/null && echo "✅ iOS IPA present" || echo "ℹ️  iOS IPA not yet uploaded"
             ls -lh downloads/agent/agent-build/aniston-agent-setup.exe 2>/dev/null && echo "✅ Agent .exe present" || echo "ℹ️  Agent installer not yet uploaded (will appear after first successful windows build)"
 
             echo "=== [14/17] Updating Nginx config ==="

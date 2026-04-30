@@ -1221,10 +1221,10 @@ function AttendancePersonalView() {
                   </p>
                   <div className="flex gap-2">
                     <a href="/download/android" className="flex-1 text-center text-[11px] font-semibold bg-orange-600 text-white py-1.5 rounded-lg hover:bg-orange-700 transition-colors">
-                      Android App
+                      Install on Android
                     </a>
                     <a href="/download/ios" className="flex-1 text-center text-[11px] font-semibold bg-gray-800 text-white py-1.5 rounded-lg hover:bg-gray-900 transition-colors">
-                      iOS App
+                      Install on iPhone
                     </a>
                   </div>
                   <p className="text-[10px] text-orange-500 mt-2">
@@ -1241,10 +1241,10 @@ function AttendancePersonalView() {
                   </p>
                   <div className="flex gap-2">
                     <a href="/download/android" className="flex-1 text-center text-[11px] font-semibold bg-indigo-600 text-white py-1.5 rounded-lg hover:bg-indigo-700 transition-colors">
-                      Android App
+                      Install on Android
                     </a>
                     <a href="/download/ios" className="flex-1 text-center text-[11px] font-semibold bg-gray-800 text-white py-1.5 rounded-lg hover:bg-gray-900 transition-colors">
-                      iOS App
+                      Install on iPhone
                     </a>
                   </div>
                 </div>

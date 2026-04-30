@@ -106,8 +106,6 @@ export class InvitationService {
       : inviter?.email || 'HR Team';
 
     const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`;
-    const androidDownloadUrl = `https://hr.anistonav.com/download/android`;
-    const iosDownloadUrl = `https://hr.anistonav.com/download/ios`;
 
     // Track delivery statuses
     let emailStatus: string = email ? 'NOT_SENT' : 'NOT_SENT';
@@ -123,8 +121,6 @@ export class InvitationService {
           context: {
             orgName: org?.name || 'Aniston Technologies',
             inviteUrl,
-            androidDownloadUrl,
-            iosDownloadUrl,
             expiresAt: expiresAt.toISOString(),
             inviterName,
             role: derivedRole,
@@ -151,12 +147,7 @@ export class InvitationService {
           `${inviteUrl}`,
           ``,
           `📱 *Step 2 — Install the Aniston HRMS app:*`,
-          ``,
-          `🤖 *Android — Download APK:*`,
-          `${androidDownloadUrl}`,
-          ``,
-          `🍎 *iPhone / iPad — Add to Home Screen:*`,
-          `${iosDownloadUrl}`,
+          `Search "Aniston HRMS" on Google Play Store or Apple App Store.`,
           ``,
           `_Install the app to mark attendance, apply for leaves, view payslips and more._`,
           ``,
@@ -568,8 +559,6 @@ export class InvitationService {
         });
 
         const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`;
-        const androidDownloadUrl = `https://hr.anistonav.com/download/android`;
-        const iosDownloadUrl = `https://hr.anistonav.com/download/ios`;
 
         // Fire-and-forget: don't let email queue failure abort the invitation creation
         enqueueEmail({
@@ -579,8 +568,6 @@ export class InvitationService {
           context: {
             orgName: org?.name || 'Aniston Technologies',
             inviteUrl,
-            androidDownloadUrl,
-            iosDownloadUrl,
             expiresAt: expiresAt.toISOString(),
             inviterName,
             role: options?.role || 'EMPLOYEE',
@@ -679,8 +666,6 @@ export class InvitationService {
     });
 
     const inviteUrl = `https://hr.anistonav.com/onboarding/invite/${updated.inviteToken}`;
-    const androidDownloadUrl = `https://hr.anistonav.com/download/android`;
-    const iosDownloadUrl = `https://hr.anistonav.com/download/ios`;
 
     let emailStatus: string = invitation.email ? 'NOT_SENT' : 'NOT_SENT';
     let whatsappStatus: string = invitation.mobileNumber ? 'NOT_SENT' : 'NOT_SENT';
@@ -694,8 +679,6 @@ export class InvitationService {
           context: {
             orgName: org?.name || 'Aniston Technologies',
             inviteUrl,
-            androidDownloadUrl,
-            iosDownloadUrl,
             expiresAt: newExpiresAt.toISOString(),
             inviterName: 'HR Team',
             role: invitation.role || 'EMPLOYEE',
@@ -721,8 +704,7 @@ export class InvitationService {
           `${inviteUrl}`,
           ``,
           `📱 *Install the Aniston HRMS app:*`,
-          `🤖 Android (APK): ${androidDownloadUrl}`,
-          `🍎 iPhone/iPad (Add to Home Screen): ${iosDownloadUrl}`,
+          `Search "Aniston HRMS" on Google Play Store or Apple App Store.`,
           ``,
           `This link expires in 72 hours.`,
         ].join('\n');

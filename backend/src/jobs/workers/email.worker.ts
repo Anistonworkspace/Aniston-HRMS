@@ -123,7 +123,7 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
       </td></tr>
     </table>
 
-    <!-- Download App Section -->
+    <!-- Install App Section -->
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EFF6FF;border:1px solid #BFDBFE;margin:0 0 24px;">
       <tr><td style="padding:20px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
@@ -132,43 +132,11 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
               <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td style="width:40px;height:40px;background:#DBEAFE;text-align:center;vertical-align:middle;font-size:20px;">&#128241;</td></tr></table>
             </td>
             <td style="padding-left:12px;">
-              <p style="color:#1E40AF;font-weight:700;margin:0 0 4px;font-size:14px;">Download Aniston HRMS App</p>
-              <p style="color:#1E3A5F;font-size:12px;margin:0 0 14px;line-height:1.5;">Install the app on your phone to mark attendance, apply for leaves, view payslips and more.</p>
-
-              <!-- Android + iOS side-by-side buttons (table-based for email clients) -->
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                <tr>
-                  <!-- Android button -->
-                  <td style="width:48%;padding-right:6px;vertical-align:top;">
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                      <tr>
-                        <td style="background:#16A34A;padding:10px 8px;text-align:center;">
-                          <a href="${ctx.androidDownloadUrl || 'https://hr.anistonav.com/download/android'}" style="color:#ffffff;font-size:13px;font-weight:700;text-decoration:none;font-family:'DM Sans',Arial,sans-serif;display:inline-block;">
-                            &#x1F4F1; Android
-                          </a>
-                          <p style="color:rgba(255,255,255,0.85);font-size:10px;margin:3px 0 0;font-family:'DM Sans',Arial,sans-serif;">Install Guide</p>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                  <!-- iOS button -->
-                  <td style="width:48%;padding-left:6px;vertical-align:top;">
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                      <tr>
-                        <td style="background:#1D1D1F;padding:10px 8px;text-align:center;">
-                          <a href="${ctx.iosDownloadUrl || 'https://hr.anistonav.com/download/ios'}" style="color:#ffffff;font-size:13px;font-weight:700;text-decoration:none;font-family:'DM Sans',Arial,sans-serif;display:inline-block;">
-                            &#x1F34E; iPhone / iPad
-                          </a>
-                          <p style="color:rgba(255,255,255,0.85);font-size:10px;margin:3px 0 0;font-family:'DM Sans',Arial,sans-serif;">Add to Home Screen</p>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:12px;">
-                <tr><td style="padding:3px 0;color:#3B82F6;font-size:11px;">&#8226; Allow Location &amp; Notification permissions after install (required)</td></tr>
+              <p style="color:#1E40AF;font-weight:700;margin:0 0 4px;font-size:14px;">Get the Aniston HRMS App</p>
+              <p style="color:#1E3A5F;font-size:12px;margin:0 0 14px;line-height:1.5;">Install the app on your phone to mark attendance, apply for leaves, view payslips and more. Available on Google Play Store and Apple App Store.</p>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:4px;">
+                <tr><td style="padding:3px 0;color:#3B82F6;font-size:11px;">&#8226; Search "Aniston HRMS" on Google Play Store or Apple App Store</td></tr>
+                <tr><td style="padding:3px 0;color:#3B82F6;font-size:11px;">&#8226; Allow Location &amp; Notification permissions after install (required for attendance)</td></tr>
                 <tr><td style="padding:3px 0;color:#3B82F6;font-size:11px;">&#8226; App updates automatically when a new version is available</td></tr>
               </table>
             </td>
