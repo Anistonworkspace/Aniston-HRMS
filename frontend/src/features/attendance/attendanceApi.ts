@@ -401,6 +401,11 @@ export const attendanceApi = api.injectEndpoints({
       }),
       invalidatesTags: ['Attendance'],
     }),
+
+    getMyShiftHistory: builder.query<any, void>({
+      query: () => '/shifts/my-history',
+      providesTags: ['Attendance'],
+    }),
   }),
 });
 
@@ -469,4 +474,6 @@ export const {
   // GPS Consent
   useRecordGPSConsentMutation,
   useGetGPSConsentStatusQuery,
+  // Shift history (employee self-service)
+  useGetMyShiftHistoryQuery,
 } = attendanceApi;

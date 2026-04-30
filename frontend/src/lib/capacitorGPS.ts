@@ -23,16 +23,16 @@ import { Geolocation, type Position } from '@capacitor/geolocation';
 
 // Lazily imported so the web bundle doesn't fail to load when the plugin
 // is not present (browser builds don't include native modules).
-// Promise cache ensures concurrent callers share the same import, not race.
-let _bgGeoPromise: Promise<typeof import('@capacitor-community/background-geolocation')> | null = null;
-function getBgGeo() {
+// The plugin exports a default — we unwrap it here.
+let _bgGeoPromise: Promise<any> | null = null;
+function getBgGeo(): Promise<any> {
   if (!_bgGeoPromise) {
-    _bgGeoPromise = import('@capacitor-community/background-geolocation').catch((err) => {
-      // Reset cache so the next caller retries the import rather than receiving
-      // the same rejected promise forever (e.g. after a hot-reload or plugin load race)
-      _bgGeoPromise = null;
-      throw err;
-    });
+    _bgGeoPromise = import('@capacitor-community/background-geolocation')
+      .then((mod) => mod.default ?? mod)
+      .catch((err) => {
+        _bgGeoPromise = null;
+        throw err;
+      });
   }
   return _bgGeoPromise;
 }
@@ -152,21 +152,18 @@ export async function watchPosition(
   // ── Native Android: BackgroundGeolocation foreground service ────────────────
   if (isNativeAndroid) {
     try {
-      const { BackgroundGeolocation } = await getBgGeo();
+      const BackgroundGeolocation = await getBgGeo();
       const watchId = await BackgroundGeolocation.addWatcher(
         {
-          // Foreground service notification (Android 8+ requirement)
           backgroundMessage: `Location recorded every ${trackingIntervalMinutes >= 60 ? `${trackingIntervalMinutes / 60}h` : `${trackingIntervalMinutes} min`}`,
           backgroundTitle: 'Aniston HRMS — Field GPS Active',
-          // Request permissions inline if not yet granted
           requestPermissions: true,
-          // Accept any fresh fix (distanceFilter: 0 = no movement threshold)
           stale: false,
           distanceFilter: 0,
         },
-        (position, error) => {
+        (position: any, error: any) => {
           if (error) {
-            onError({ code: (error as any).code, message: error.message ?? 'GPS error' });
+            onError({ code: error.code, message: error.message ?? 'GPS error' });
             return;
           }
           if (position) {
@@ -182,7 +179,6 @@ export async function watchPosition(
       );
       return watchId;
     } catch (err: any) {
-      // Plugin not available (e.g. dev build without native sync) — fall through
       console.warn('BackgroundGeolocation unavailable, falling back to standard GPS:', err?.message);
     }
   }
@@ -220,7 +216,7 @@ export async function watchPosition(
 export async function clearWatch(watchId: string | number): Promise<void> {
   if (isNativeAndroid) {
     try {
-      const { BackgroundGeolocation } = await getBgGeo();
+      const BackgroundGeolocation = await getBgGeo();
       await BackgroundGeolocation.removeWatcher({ id: watchId as string });
       return;
     } catch {

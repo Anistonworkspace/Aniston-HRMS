@@ -296,7 +296,7 @@ function CandidateCard({
       initial={{ opacity: 0, y: 5 }}
       animate={{ opacity: 1, y: 0 }}
       draggable
-      onDragStart={e => onDragStart(e, app.id, currentStage)}
+      onDragStart={e => onDragStart(e as any, app.id, currentStage)}
       onDragEnd={onDragEnd}
       className={`bg-white rounded-lg border shadow-sm p-3 cursor-grab active:cursor-grabbing select-none hover:shadow-md transition-all ${
         isSelected ? 'border-brand-400 ring-1 ring-brand-300 bg-brand-50/20' : 'border-gray-100'

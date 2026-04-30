@@ -187,7 +187,7 @@ function DocumentCard({ doc, locked, canDownload = true }: { doc: any; locked: b
 /*  Category section                                                   */
 /* ------------------------------------------------------------------ */
 
-function CategorySection({ category, documents }: { category: Category; documents: any[] }) {
+function CategorySection({ category, documents, canDownload = true }: { category: Category; documents: any[]; canDownload?: boolean }) {
   const [open, setOpen] = useState(true);
   const Icon = category.icon;
 
@@ -224,7 +224,7 @@ function CategorySection({ category, documents }: { category: Category; document
                   key={doc.id}
                   doc={doc}
                   locked={ONBOARDING_LOCKED_TYPES.has(doc.type)}
-                  canDownload={perms.canDownloadDocuments}
+                  canDownload={canDownload}
                 />
               ))}
             </div>
@@ -434,7 +434,7 @@ export default function MyDocumentsPage() {
               cat.key === 'education'
                 ? [...getDocsForCategory(cat.types), ...uncategorised]
                 : getDocsForCategory(cat.types);
-            return <CategorySection key={cat.key} category={cat} documents={docs} />;
+            return <CategorySection key={cat.key} category={cat} documents={docs} canDownload={perms.canDownloadDocuments} />;
           })}
 
           {/* My Letters */}

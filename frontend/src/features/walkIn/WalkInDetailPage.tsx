@@ -256,7 +256,7 @@ export default function WalkInDetailPage() {
           deleteRound={deleteRound}
         />
       )}
-      {activeTab === 'ai' && (
+      {(activeTab as any) === 'ai' && (
         <div className="layer-card p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">

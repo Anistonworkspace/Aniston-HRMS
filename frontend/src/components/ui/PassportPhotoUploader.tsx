@@ -30,8 +30,7 @@ async function applyWhiteBackground(blob: Blob): Promise<File> {
   // removeBackground returns a PNG blob with transparent background
   const noBgBlob = await withTimeout(
     removeBackground(blob, {
-      // Reduce model quality for faster processing in onboarding context
-      model: 'small',
+      model: 'small' as any,
       output: { format: 'image/png', quality: 0.95 },
     }),
     60_000,

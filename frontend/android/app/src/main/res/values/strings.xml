@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Aniston HRMS</string>
+    <string name="title_activity_main">Aniston HRMS</string>
+    <string name="package_name">com.anistonav.hrms</string>
+    <string name="custom_url_scheme">com.anistonav.hrms</string>
+</resources>

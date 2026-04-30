@@ -177,8 +177,8 @@ export default function WalkInKioskPage() {
     setResumeFile(file);
     setResumeUploading(true);
     try {
-      const url = await uploadFile(file, `/walk-in/upload`, 'file', { sessionId: tempId });
-      upd('resumeUrl', url);
+      const result = await uploadFile(file, `/walk-in/upload`, { sessionId: tempId });
+      upd('resumeUrl', result.data?.url ?? '');
       toast.success('Resume uploaded');
     } catch { toast.error('Upload failed'); }
     finally { setResumeUploading(false); }

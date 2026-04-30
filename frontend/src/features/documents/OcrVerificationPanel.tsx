@@ -989,6 +989,7 @@ export default function OcrVerificationPanel({
   const deepRecheckAvailable: boolean = aiData?.deepRecheckAvailable === true;
   const modelUsed: string = aiData?.modelUsed || '';
   const processingMode: string = ocr?.processingMode || '';
+  const confidence = ocr?.confidence || 0;
 
   // KYC score breakdown components (approximated from available data)
   const kycExtraction = kycScore !== null ? Math.round(confidence * 100 * 0.30) : 0;
@@ -1006,7 +1007,6 @@ export default function OcrVerificationPanel({
       documentName?.toLowerCase().includes('kyc')
     ));
 
-  const confidence = ocr?.confidence || 0;
   const isFlaggedByScore = confidence > 0 && confidence < 0.60;
 
   // Stale findings detection: warn HR when OCR is >30 days old or from node_fallback

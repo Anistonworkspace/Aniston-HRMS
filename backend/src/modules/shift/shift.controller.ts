@@ -52,6 +52,17 @@ export class ShiftController {
     } catch (err) { next(err); }
   }
 
+  async getMyShiftHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employeeId = (req as any).user?.employeeId;
+      if (!employeeId) {
+        return res.status(400).json({ success: false, error: { code: 'NO_EMPLOYEE', message: 'No employee profile linked to this account.' } });
+      }
+      const history = await shiftService.getMyShiftHistory(employeeId);
+      res.json({ success: true, data: history });
+    } catch (err) { next(err); }
+  }
+
   async getAllAssignments(req: Request, res: Response, next: NextFunction) {
     try {
       const assignments = await shiftService.getAllAssignments(req.user!.organizationId);

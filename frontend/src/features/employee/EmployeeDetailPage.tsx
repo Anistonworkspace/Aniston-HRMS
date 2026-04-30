@@ -373,8 +373,8 @@ export default function EmployeeDetailPage() {
                   <dl className="space-y-2.5">
                     <InfoRow label="Department" value={employee.department?.name || '—'} />
                     <InfoRow label="Designation" value={employee.designation?.name || '—'} />
-                    <InfoRow label="Employment Type" value={(employee.employmentType as string)?.replace(/_/g, ' ') || '—'} />
-                    <InfoRow label="Experience Level" value={(employee.experienceLevel as string) || '—'} />
+                    <InfoRow label="Employment Type" value={((employee as any).employmentType as string)?.replace(/_/g, ' ') || '—'} />
+                    <InfoRow label="Experience Level" value={((employee as any).experienceLevel as string) || '—'} />
                     <InfoRow label="Work Mode" value={employee.workMode?.replace(/_/g, ' ')} />
                     <InfoRow label="Reports To" value={employee.manager ? `${employee.manager.firstName} ${employee.manager.lastName}` : '—'} />
                     <InfoRow label="Office" value={employee.officeLocation?.name || '—'} />

@@ -176,11 +176,11 @@ export default function WalkInBulkImportModal({ onClose }: Props) {
               </div>
 
               {/* Skipped candidates detail */}
-              {result.skipped > 0 && result.skippedDetails?.length > 0 && (
+              {result.skipped > 0 && (result as any).skippedDetails?.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
                   <p className="text-xs font-semibold text-amber-700 mb-2">Skipped Rows</p>
                   <div className="space-y-1">
-                    {result.skippedDetails.map((skip: any, i: number) => (
+                    {(result as any).skippedDetails.map((skip: any, i: number) => (
                       <div key={i} className="flex items-center justify-between text-xs text-amber-700">
                         <span className="font-medium">{skip.name}</span>
                         <span className="text-amber-500">{skip.phone}</span>

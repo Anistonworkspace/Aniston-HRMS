@@ -1389,7 +1389,7 @@ function ChatView({
 
   const renderTick = (ack?: number, errorReason?: string | null) => {
     if (ack === undefined || ack === null) return null;
-    if (ack === -1) return <XCircle size={14} className="text-red-400" title={errorReason ? `Failed: ${errorReason}` : 'Message failed to send'} />;
+    if (ack === -1) return <XCircle size={14} className="text-red-400" aria-label={errorReason ? `Failed: ${errorReason}` : 'Message failed to send'} />;
     if (ack >= 3) return <CheckCheck size={14} className="text-blue-500" />;
     if (ack >= 2) return <CheckCheck size={14} className="text-gray-400" />;
     if (ack >= 1) return <Check size={14} className="text-gray-400" />;

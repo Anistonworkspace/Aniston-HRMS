@@ -8,14 +8,18 @@ import {
   ChevronLeft, ChevronRight, Calendar as CalendarIcon,
   Users, Search, Filter, UserCheck, UserX, UserMinus, Eye, Monitor,
   Shield, Bell, RefreshCw, Flag, AlertTriangle, Download, X, Loader2,
+  Briefcase, ChevronDown, ChevronUp, Navigation,
 } from 'lucide-react';
 import {
   useGetTodayStatusQuery,
   useClockInMutation,
   useClockOutMutation,
+  useStartBreakMutation,
+  useEndBreakMutation,
   useGetMyAttendanceQuery,
   useGetAllAttendanceQuery,
   useSubmitRegularizationMutation,
+  useGetMyShiftHistoryQuery,
 } from './attendanceApi';
 import { cn, formatDate, getStatusColor } from '../../lib/utils';
 import { useAppSelector } from '../../app/store';
@@ -650,7 +654,32 @@ function AttendancePersonalView() {
 
   const [clockIn, { isLoading: clockingIn }] = useClockInMutation();
   const [clockOut, { isLoading: clockingOut }] = useClockOutMutation();
+  const [startBreak, { isLoading: startingBreak }] = useStartBreakMutation();
+  const [endBreak, { isLoading: endingBreak }] = useEndBreakMutation();
+  const [breakType, setBreakType] = useState<'LUNCH' | 'SHORT' | 'PRAYER' | 'CUSTOM'>('SHORT');
+  const [showBreakPicker, setShowBreakPicker] = useState(false);
   const [submitRegularization, { isLoading: submittingReg }] = useSubmitRegularizationMutation();
+
+  const handleStartBreak = async (type: string) => {
+    try {
+      await startBreak({ type }).unwrap();
+      toast.success(`${type === 'LUNCH' ? 'Lunch' : type === 'PRAYER' ? 'Prayer' : 'Short'} break started`);
+      setShowBreakPicker(false);
+      refetchToday();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to start break');
+    }
+  };
+
+  const handleEndBreak = async () => {
+    try {
+      await endBreak().unwrap();
+      toast.success('Break ended — back to work!');
+      refetchToday();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to end break');
+    }
+  };
 
   const [showRegModal, setShowRegModal] = useState(false);
   const [regReason, setRegReason] = useState('');
@@ -1128,14 +1157,50 @@ function AttendancePersonalView() {
               return null;
             })()}
 
-            {/* Shift info banner */}
-            {today?.shift && (
-              <div className="mb-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
-                <p className="text-xs font-medium text-blue-700">
-                  Shift: {today.shift.name} ({today.shift.startTime} – {today.shift.endTime})
-                </p>
-              </div>
-            )}
+            {/* Shift info banner + grace period countdown */}
+            {today?.shift && (() => {
+              const shift = today.shift as any;
+              const nowIST = new Date(liveTime.getTime() + liveTime.getTimezoneOffset() * 60000 + 5.5 * 3600 * 1000);
+              const nowMins = nowIST.getUTCHours() * 60 + nowIST.getUTCMinutes();
+              const [startH, startM] = (shift.startTime || '09:00').split(':').map(Number);
+              const shiftStartMins = startH * 60 + startM;
+              const graceMins: number = shift.graceMinutes ?? shift.lateGraceMinutes ?? 15;
+              const minsToStart = shiftStartMins - nowMins;
+              const minsLate = nowMins - shiftStartMins;
+              const inGrace = minsLate > 0 && minsLate <= graceMins;
+              const isLate = minsLate > graceMins;
+              const beforeShift = minsToStart > 0 && minsToStart <= 60;
+              return (
+                <div className="mb-2 space-y-1">
+                  <div className="p-2 bg-blue-50 rounded-lg border border-blue-100">
+                    <p className="text-xs font-medium text-blue-700">
+                      Shift: {shift.name} ({shift.startTime} – {shift.endTime})
+                    </p>
+                  </div>
+                  {!today.isCheckedIn && beforeShift && (
+                    <div className="p-1.5 bg-indigo-50 rounded-lg border border-indigo-100 text-center">
+                      <p className="text-[11px] font-medium text-indigo-700">
+                        Shift starts in <span className="font-bold">{minsToStart}m</span>
+                      </p>
+                    </div>
+                  )}
+                  {!today.isCheckedIn && inGrace && (
+                    <div className="p-1.5 bg-amber-50 rounded-lg border border-amber-200 text-center">
+                      <p className="text-[11px] font-medium text-amber-700">
+                        Grace period — <span className="font-bold">{graceMins - minsLate}m</span> left before Late
+                      </p>
+                    </div>
+                  )}
+                  {!today.isCheckedIn && isLate && (
+                    <div className="p-1.5 bg-red-50 rounded-lg border border-red-200 text-center">
+                      <p className="text-[11px] font-medium text-red-600">
+                        Late by <span className="font-bold">{minsLate}m</span>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             {!today?.shift && today?.hasShift === false && (
               <div className="mb-2 p-2 bg-amber-50 rounded-lg border border-amber-100">
                 <p className="text-xs font-medium text-amber-700">
@@ -1146,22 +1211,44 @@ function AttendancePersonalView() {
 
             {/* Desktop: no marking allowed — show app download prompt */}
             {isDesktop ? (
-              <div className="mt-2 p-3 bg-indigo-50 rounded-xl border border-indigo-100 text-left">
-                <p className="text-xs font-semibold text-indigo-800 mb-1 flex items-center gap-1">
-                  <MapPin size={11} /> Mark attendance on the app
-                </p>
-                <p className="text-[11px] text-indigo-600 leading-relaxed mb-2">
-                  Check-in and check-out is only available on the Aniston HRMS mobile app.
-                </p>
-                <div className="flex gap-2">
-                  <a href="/download/android" className="flex-1 text-center text-[11px] font-semibold bg-indigo-600 text-white py-1.5 rounded-lg hover:bg-indigo-700 transition-colors">
-                    Android App
-                  </a>
-                  <a href="/download/ios" className="flex-1 text-center text-[11px] font-semibold bg-gray-800 text-white py-1.5 rounded-lg hover:bg-gray-900 transition-colors">
-                    iOS App
-                  </a>
+              workMode === 'FIELD_SALES' ? (
+                <div className="mt-2 p-3 bg-orange-50 rounded-xl border border-orange-200 text-left">
+                  <p className="text-xs font-semibold text-orange-800 mb-1 flex items-center gap-1.5">
+                    <MapPin size={11} /> Field GPS requires the mobile app
+                  </p>
+                  <p className="text-[11px] text-orange-700 leading-relaxed mb-2">
+                    Continuous background GPS tracking for field shifts only works on the native Android or iOS app. Desktop cannot track your location while you're out in the field.
+                  </p>
+                  <div className="flex gap-2">
+                    <a href="/download/android" className="flex-1 text-center text-[11px] font-semibold bg-orange-600 text-white py-1.5 rounded-lg hover:bg-orange-700 transition-colors">
+                      Android App
+                    </a>
+                    <a href="/download/ios" className="flex-1 text-center text-[11px] font-semibold bg-gray-800 text-white py-1.5 rounded-lg hover:bg-gray-900 transition-colors">
+                      iOS App
+                    </a>
+                  </div>
+                  <p className="text-[10px] text-orange-500 mt-2">
+                    Desktop can view your attendance history and reports.
+                  </p>
                 </div>
-              </div>
+              ) : (
+                <div className="mt-2 p-3 bg-indigo-50 rounded-xl border border-indigo-100 text-left">
+                  <p className="text-xs font-semibold text-indigo-800 mb-1 flex items-center gap-1">
+                    <MapPin size={11} /> Mark attendance on the app
+                  </p>
+                  <p className="text-[11px] text-indigo-600 leading-relaxed mb-2">
+                    Check-in and check-out is only available on the Aniston HRMS mobile app.
+                  </p>
+                  <div className="flex gap-2">
+                    <a href="/download/android" className="flex-1 text-center text-[11px] font-semibold bg-indigo-600 text-white py-1.5 rounded-lg hover:bg-indigo-700 transition-colors">
+                      Android App
+                    </a>
+                    <a href="/download/ios" className="flex-1 text-center text-[11px] font-semibold bg-gray-800 text-white py-1.5 rounded-lg hover:bg-gray-900 transition-colors">
+                      iOS App
+                    </a>
+                  </div>
+                </div>
+              )
             ) : (
               <>
                 {/* GPS readiness badge — shown above action buttons so employee knows signal quality */}
@@ -1205,6 +1292,64 @@ function AttendancePersonalView() {
 
                 {perms.canMarkAttendance && today?.isCheckedIn && !today?.isCheckedOut && (
                   <div className="space-y-1.5">
+                    {/* Break controls */}
+                    {today?.isOnBreak ? (
+                      <div className="space-y-1.5">
+                        <div className="px-2 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-center">
+                          <p className="text-[11px] text-amber-700 font-medium">
+                            ☕ On break
+                            {today.activeBreak?.startTime && (
+                              <span className="font-normal ml-1">
+                                since {new Date(today.activeBreak.startTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
+                              </span>
+                            )}
+                            {today.activeBreak?.type && (
+                              <span className="ml-1 text-amber-500">· {today.activeBreak.type.charAt(0) + today.activeBreak.type.slice(1).toLowerCase()}</span>
+                            )}
+                          </p>
+                        </div>
+                        <motion.button
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={handleEndBreak}
+                          disabled={endingBreak}
+                          className="w-full bg-amber-500 hover:bg-amber-400 text-white py-2 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                        >
+                          {endingBreak ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Clock size={15} />}
+                          {t('attendance.endBreak')}
+                        </motion.button>
+                      </div>
+                    ) : (
+                      <div>
+                        {showBreakPicker ? (
+                          <div className="border border-gray-200 rounded-xl p-2 space-y-1.5 bg-gray-50">
+                            <p className="text-[10px] font-semibold text-gray-500 text-center mb-1">Select break type</p>
+                            {(['SHORT', 'LUNCH', 'PRAYER', 'CUSTOM'] as const).map((bt) => (
+                              <button
+                                key={bt}
+                                onClick={() => handleStartBreak(bt)}
+                                disabled={startingBreak}
+                                className="w-full text-left px-3 py-1.5 rounded-lg hover:bg-amber-50 hover:text-amber-700 text-xs font-medium text-gray-600 transition-colors disabled:opacity-50"
+                              >
+                                {bt === 'SHORT' ? '☕ Short Break' : bt === 'LUNCH' ? '🍽 Lunch Break' : bt === 'PRAYER' ? '🕌 Prayer Break' : '⏸ Custom Break'}
+                              </button>
+                            ))}
+                            <button
+                              onClick={() => setShowBreakPicker(false)}
+                              className="w-full text-center text-[10px] text-gray-400 hover:text-gray-600 py-1"
+                            >Cancel</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setShowBreakPicker(true)}
+                            className="w-full py-2 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                          >
+                            <Clock size={13} /> {t('attendance.startBreak')}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     {/* Earliest checkout info — shown when shift hasn't ended yet */}
                     {checkoutGate && !checkoutGate.canCheckOut && (
                       <div className="flex items-center gap-1.5 px-2 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
@@ -1225,7 +1370,7 @@ function AttendancePersonalView() {
                       whileHover={{ scale: checkoutGate?.canCheckOut !== false ? 1.02 : 1 }}
                       whileTap={{ scale: checkoutGate?.canCheckOut !== false ? 0.98 : 1 }}
                       onClick={handleClockOut}
-                      disabled={clockingOut || checkoutGate?.canCheckOut === false}
+                      disabled={clockingOut || checkoutGate?.canCheckOut === false || today?.isOnBreak}
                       className="w-full bg-red-500 hover:bg-red-400 text-white py-2.5 md:py-3.5 rounded-xl font-semibold text-sm md:text-base flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {clockingOut ? (
@@ -1233,7 +1378,7 @@ function AttendancePersonalView() {
                       ) : (
                         <LogOut size={20} />
                       )}
-                      {t('attendance.checkOut')}
+                      {today?.isOnBreak ? 'End break first' : t('attendance.checkOut')}
                     </motion.button>
                   </div>
                 )}
@@ -1270,7 +1415,20 @@ function AttendancePersonalView() {
             {today?.workMode && (
               <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-gray-400">
                 <MapPin size={12} />
-                {today.workMode.replace('_', ' ')}
+                {today.workMode.replace(/_/g, ' ')}
+              </div>
+            )}
+
+            {/* WFH option for hybrid/WFH-enabled shifts — only before clock-in */}
+            {!today?.isCheckedIn && !today?.isCheckedOut && (today?.shift as any)?.allowWfh && (
+              <div className="mt-2 p-2 bg-teal-50 border border-teal-200 rounded-lg text-center">
+                <p className="text-[10px] text-teal-600 font-medium mb-1">Your shift allows WFH today</p>
+                <a
+                  href={`/leaves/new?type=WFH`}
+                  className="text-[10px] font-semibold text-teal-700 underline hover:text-teal-900"
+                >
+                  Submit WFH request →
+                </a>
               </div>
             )}
 
@@ -1420,6 +1578,16 @@ function AttendancePersonalView() {
         <CompOffTab />
       </motion.div>
 
+      {/* My Shifts History */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+        className="mt-4"
+      >
+        <MyShiftsSection />
+      </motion.div>
+
       {/* Regularization Modal */}
       {showRegModal && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-4">
@@ -1521,6 +1689,112 @@ function AttendancePersonalView() {
               </button>
             </div>
           </motion.div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =============================================================================
+   MY SHIFTS HISTORY SECTION
+   ============================================================================= */
+function MyShiftsSection() {
+  const [expanded, setExpanded] = useState(false);
+  const { data, isLoading } = useGetMyShiftHistoryQuery();
+  const shifts: any[] = data?.data || [];
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const shiftTypeColors: Record<string, string> = {
+    OFFICE: 'bg-blue-100 text-blue-700',
+    FIELD: 'bg-orange-100 text-orange-700',
+    HYBRID: 'bg-purple-100 text-purple-700',
+    PROJECT_SITE: 'bg-emerald-100 text-emerald-700',
+  };
+
+  const getStatus = (a: any): { label: string; color: string } => {
+    const start = new Date(a.startDate);
+    const end = a.endDate ? new Date(a.endDate) : null;
+    if (start > today) return { label: 'Upcoming', color: 'text-indigo-600 bg-indigo-50' };
+    if (!end || end >= today) return { label: 'Active', color: 'text-emerald-600 bg-emerald-50' };
+    return { label: 'Past', color: 'text-gray-400 bg-gray-50' };
+  };
+
+  return (
+    <div className="layer-card p-4">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between"
+      >
+        <h3 className="text-sm font-display font-semibold text-gray-800 flex items-center gap-2">
+          <Briefcase size={14} className="text-brand-500" />
+          My Shifts
+        </h3>
+        {expanded ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+      </button>
+
+      {expanded && (
+        <div className="mt-3">
+          {isLoading ? (
+            <div className="flex justify-center py-6">
+              <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : shifts.length === 0 ? (
+            <div className="text-center py-6">
+              <Navigation size={24} className="mx-auto text-gray-200 mb-2" />
+              <p className="text-sm text-gray-400">No shift assignments found</p>
+              <p className="text-xs text-gray-300 mt-1">Contact HR to assign a shift.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {shifts.map((a: any) => {
+                const status = getStatus(a);
+                const shift = a.shift;
+                return (
+                  <div
+                    key={a.id}
+                    className="border border-gray-100 rounded-xl p-3 hover:bg-surface-2 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          <span className="text-sm font-semibold text-gray-800 truncate">{shift?.name || '—'}</span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${shiftTypeColors[shift?.shiftType] || 'bg-gray-100 text-gray-500'}`}>
+                            {shift?.shiftType || '—'}
+                          </span>
+                          <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${status.color}`}>
+                            {status.label}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 font-mono" data-mono>
+                          {shift?.startTime} – {shift?.endTime}
+                          {shift?.graceMinutes != null && (
+                            <span className="text-gray-400 ml-1.5">· {shift.graceMinutes}m grace</span>
+                          )}
+                        </p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          From {new Date(a.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          {a.endDate && ` → ${new Date(a.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                          {!a.endDate && <span className="text-emerald-500"> (ongoing)</span>}
+                        </p>
+                        {a.location?.name && (
+                          <p className="text-[10px] text-gray-400 flex items-center gap-1 mt-0.5">
+                            <MapPin size={9} /> {a.location.name}
+                          </p>
+                        )}
+                        {shift?.shiftType === 'FIELD' && shift?.trackingIntervalMinutes && (
+                          <p className="text-[10px] text-orange-500 mt-0.5">
+                            GPS interval: every {shift.trackingIntervalMinutes >= 60 ? `${shift.trackingIntervalMinutes / 60}h` : `${shift.trackingIntervalMinutes}m`}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

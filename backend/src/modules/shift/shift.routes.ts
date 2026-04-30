@@ -15,6 +15,7 @@ router.patch('/shifts/:id', hrAuth, (req, res, next) => shiftController.updateSh
 router.delete('/shifts/:id', hrAuth, (req, res, next) => shiftController.deleteShift(req, res, next));
 
 // Shift assignments
+router.get('/shifts/my-history', (req, res, next) => shiftController.getMyShiftHistory(req, res, next));
 router.get('/shifts/assignments', hrAuth, (req, res, next) => shiftController.getAllAssignments(req, res, next));
 router.post('/shifts/assign', hrAuth, (req, res, next) => shiftController.assignShift(req, res, next));
 router.post('/shifts/auto-assign', hrAuth, (req, res, next) => shiftController.autoAssignDefault(req, res, next));

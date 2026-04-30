@@ -40,7 +40,7 @@ export function connectSocket(token: string) {
     // Fire the RTK Query refresh endpoint; on success update socket auth token.
     import('../app/api').then(({ api: baseApi }) =>
       import('../app/store').then(({ store }) => {
-        store.dispatch(baseApi.util.invalidateTags(['Auth']) as any);
+        store.dispatch(baseApi.util.invalidateTags(['Auth'] as any));
         setTimeout(() => {
           const newToken = store.getState().auth?.accessToken;
           if (newToken && socket) {

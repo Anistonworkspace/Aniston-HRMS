@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Pencil, Trash2, Loader2, Search, ToggleLeft, ToggleRight,
   ChevronDown, ChevronUp, Save, X, AlertTriangle,
-  Settings2,
+  Settings2, DollarSign,
 } from 'lucide-react';
 import {
   useGetComponentsQuery,

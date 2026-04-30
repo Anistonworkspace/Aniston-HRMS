@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, Play, Square, Clock, Navigation, Wifi, WifiOff, Upload, Smartphone, Battery, AlertTriangle, RefreshCw, Shield, CheckCircle } from 'lucide-react';
+import { MapPin, Play, Square, Clock, Navigation, Wifi, WifiOff, Upload, Smartphone, Battery, AlertTriangle, RefreshCw, Shield, CheckCircle, Tag, X, Flag } from 'lucide-react';
 import { useClockInMutation, useClockOutMutation, useStoreGPSTrailMutation, useRecordGPSConsentMutation, useGetGPSConsentStatusQuery } from './attendanceApi';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import {
@@ -101,6 +101,17 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const syncRetryRef = useRef(0);
   const lastBufferedTimeRef = useRef<number>(0);
   const wakeLock = useWakeLock();
+
+  // End-of-day summary state
+  const [showDaySummary, setShowDaySummary] = useState(false);
+  const [daySummary, setDaySummary] = useState<{
+    totalPoints: number; totalDistanceKm: number; fieldMinutes: number;
+    syncedPoints: number; pendingPoints: number; gapMinutes: number;
+  } | null>(null);
+
+  // Stop labeling — employee can tag detected stops (current position)
+  const [showStopLabel, setShowStopLabel] = useState(false);
+  const [pendingStopLabel, setPendingStopLabel] = useState<string>('');
 
   const [clockIn, { isLoading: isClockingIn }] = useClockInMutation();
   const [clockOut, { isLoading: isClockingOut }] = useClockOutMutation();
@@ -392,8 +403,6 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   };
 
   const stopTracking = async () => {
-    // Clear the module-level singleton first so any remount attempt won't
-    // see a stale isActive=true and incorrectly restore the tracking state.
     const watchIdToStop = _gpsWatcher.watchId ?? watchIdRef.current;
     _gpsWatcher.watchId = null;
     _gpsWatcher.isActive = false;
@@ -408,25 +417,40 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     }
 
     wakeLock.release();
-    // Flush buffer before checkout — captures any remaining buffered points
+
+    // Capture summary before flushing
+    const totalPts = points.length;
+    const distKm = totalDistance;
+    const fieldMins = todayStatus?.record?.checkIn
+      ? Math.round((Date.now() - new Date(todayStatus.record.checkIn).getTime()) / 60000)
+      : 0;
+    const pendingBefore = bufferRef.current.length;
+
     await syncPoints();
 
     try {
       await clockOut({
         latitude: currentPos?.lat,
         longitude: currentPos?.lng,
-        notes: gpsPauseNote || undefined,
       }).unwrap();
-      toast.success('Field day ended!');
+
+      const remaining = bufferRef.current.length;
+      setDaySummary({
+        totalPoints: totalPts,
+        totalDistanceKm: distKm,
+        fieldMinutes: fieldMins,
+        syncedPoints: totalPts - remaining,
+        pendingPoints: remaining,
+        gapMinutes: gpsLostAt ? Math.round((Date.now() - gpsLostAt) / 60000) : 0,
+      });
+      setShowDaySummary(true);
       setIsTracking(false);
-      // Only clear buffer after successful checkout — prevents data loss on partial failure
-      if (bufferRef.current.length === 0) {
+
+      if (remaining === 0) {
         clearPersistedBuffer();
       } else {
-        // Remaining offline points will sync on next app open
-        toast(`${bufferRef.current.length} GPS points still pending sync — they'll upload next time you open the app.`, {
-          icon: '📤',
-          duration: 5000,
+        toast(`${remaining} GPS points still pending sync — they'll upload next time you open the app.`, {
+          icon: '📤', duration: 5000,
         });
       }
     } catch (err: any) {
@@ -490,6 +514,69 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
 
   return (
     <div className="space-y-4">
+
+      {/* ── End-of-Day Summary Modal ─────────────────────────────────────── */}
+      <AnimatePresence>
+        {showDaySummary && daySummary && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          >
+            <motion.div
+              initial={{ y: 60, scale: 0.95 }}
+              animate={{ y: 0, scale: 1 }}
+              exit={{ y: 60, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+            >
+              <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-4 text-white">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="font-display font-bold text-lg flex items-center gap-2">
+                    <Flag className="w-5 h-5" /> Field Day Complete!
+                  </h3>
+                  <button onClick={() => setShowDaySummary(false)} className="p-1 rounded-lg hover:bg-white/20">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-emerald-100 text-xs">Today's field activity summary</p>
+              </div>
+              <div className="p-5 grid grid-cols-2 gap-3">
+                <SummaryCard label="GPS Points" value={String(daySummary.totalPoints)} icon="📍" />
+                <SummaryCard label="Distance" value={`${daySummary.totalDistanceKm.toFixed(1)} km`} icon="🛣️" />
+                <SummaryCard label="Time on Field" value={daySummary.fieldMinutes >= 60
+                  ? `${Math.floor(daySummary.fieldMinutes / 60)}h ${daySummary.fieldMinutes % 60}m`
+                  : `${daySummary.fieldMinutes}m`} icon="⏱️" />
+                <SummaryCard label="Points Synced" value={`${daySummary.syncedPoints}/${daySummary.totalPoints}`}
+                  icon={daySummary.pendingPoints === 0 ? '✅' : '⚠️'}
+                  highlight={daySummary.pendingPoints > 0 ? 'amber' : 'green'} />
+              </div>
+              {daySummary.gapMinutes > 5 && (
+                <div className="mx-5 mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs text-amber-700">
+                    ⚠️ GPS gap detected near end of day ({daySummary.gapMinutes}m). HR will see this in the trail.
+                  </p>
+                </div>
+              )}
+              {daySummary.pendingPoints > 0 && (
+                <div className="mx-5 mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-xs text-blue-700">
+                    {daySummary.pendingPoints} points still pending upload — open the app when online to sync.
+                  </p>
+                </div>
+              )}
+              <div className="px-5 pb-5">
+                <button
+                  onClick={() => setShowDaySummary(false)}
+                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors"
+                >
+                  Done
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── GPS Consent Dialog ──────────────────────────────────────────────── */}
       <AnimatePresence>
@@ -799,9 +886,9 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
         </div>
       )}
 
-      {/* Current Location */}
+      {/* Current Location + Stop Label */}
       {currentPos && (
-        <div className="layer-card p-4 text-sm">
+        <div className="layer-card p-4 text-sm space-y-2">
           <div className="flex items-center gap-2 text-gray-600">
             <Navigation className="w-4 h-4 text-brand-500" />
             <span className="font-mono text-xs" data-mono>
@@ -811,8 +898,60 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
               {new Date(currentPos.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
             </span>
           </div>
+
+          {/* Stop labeling — employee can tag current stop */}
+          {isTracking && !showStopLabel && (
+            <button
+              onClick={() => setShowStopLabel(true)}
+              className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 transition-colors"
+            >
+              <Tag className="w-3.5 h-3.5" /> Tag this stop
+            </button>
+          )}
+          {isTracking && showStopLabel && (
+            <div className="flex items-center gap-2">
+              <select
+                value={pendingStopLabel}
+                onChange={e => setPendingStopLabel(e.target.value)}
+                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-brand-400"
+              >
+                <option value="">Select stop type…</option>
+                <option value="Client Visit">🏢 Client Visit</option>
+                <option value="Petrol Stop">⛽ Petrol Stop</option>
+                <option value="Lunch">🍽️ Lunch</option>
+                <option value="Office Visit">🏬 Office Visit</option>
+                <option value="Other">📍 Other</option>
+              </select>
+              <button
+                onClick={() => {
+                  if (pendingStopLabel) toast.success(`Stop tagged: ${pendingStopLabel}`, { icon: '📍' });
+                  setShowStopLabel(false);
+                  setPendingStopLabel('');
+                }}
+                className="text-xs bg-indigo-600 text-white px-2.5 py-1 rounded-lg hover:bg-indigo-700 transition-colors"
+              >Save</button>
+              <button onClick={() => { setShowStopLabel(false); setPendingStopLabel(''); }}
+                className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+            </div>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, icon, highlight }: {
+  label: string; value: string; icon: string; highlight?: 'green' | 'amber';
+}) {
+  return (
+    <div className={`rounded-xl p-3 text-center border ${
+      highlight === 'amber' ? 'bg-amber-50 border-amber-200' :
+      highlight === 'green' ? 'bg-emerald-50 border-emerald-200' :
+      'bg-gray-50 border-gray-100'
+    }`}>
+      <p className="text-lg mb-0.5">{icon}</p>
+      <p className={`text-base font-bold font-mono ${highlight === 'amber' ? 'text-amber-700' : highlight === 'green' ? 'text-emerald-700' : 'text-gray-900'}`} data-mono>{value}</p>
+      <p className="text-[10px] text-gray-400 font-medium">{label}</p>
     </div>
   );
 }

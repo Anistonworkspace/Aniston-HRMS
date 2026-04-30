@@ -93,6 +93,11 @@ export default function EmployeeAttendanceDetailPage() {
   const holidays = attRes?.data?.holidays || [];
   const summary = attRes?.data?.summary;
 
+  // Selected record — hoisted so it can be used in trackingGapWarning below
+  const selectedRecord = useMemo(() => {
+    return records.find((r: any) => new Date(r.date).toISOString().split('T')[0] === selectedDate);
+  }, [records, selectedDate]);
+
   // Enriched detail for selected date
   const { data: detailRes } = useGetEmployeeAttendanceDetailQuery(
     { employeeId: employeeId || '', date: selectedDate },
@@ -142,11 +147,6 @@ export default function EmployeeAttendanceDetailPage() {
     { skip: !employeeId }
   );
   const screenshots = screenshotRes?.data || [];
-
-  // Selected record
-  const selectedRecord = useMemo(() => {
-    return records.find((r: any) => new Date(r.date).toISOString().split('T')[0] === selectedDate);
-  }, [records, selectedDate]);
 
   // Calendar
   const calendarDays = useMemo(() => {

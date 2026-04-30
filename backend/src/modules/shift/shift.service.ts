@@ -293,6 +293,18 @@ export class ShiftService {
     });
   }
 
+  async getMyShiftHistory(employeeId: string) {
+    return prisma.shiftAssignment.findMany({
+      where: { employeeId },
+      include: {
+        shift: true,
+        location: true,
+      },
+      orderBy: { startDate: 'desc' },
+      take: 20,
+    });
+  }
+
   /**
    * Auto-assign the default (General/OFFICE) shift to all employees without an active shift assignment.
    * Called when the General shift is created or on-demand via API.
