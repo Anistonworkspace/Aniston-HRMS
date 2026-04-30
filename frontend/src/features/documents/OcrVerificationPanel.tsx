@@ -3,7 +3,7 @@ import {
   Shield, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle,
   ScanLine, Eye, Check, FileText, Ban, Info, ChevronDown, ChevronUp, Zap, Download,
 } from 'lucide-react';
-import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation, useDeepRecheckDocumentMutation } from './documentOcrApi';
+import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation, useDeepRecheckDocumentMutation, useReprocessDocumentMutation } from './documentOcrApi';
 import { useVerifyDocumentMutation } from './documentApi';
 import { useGetKycHrReviewQuery, useReclassifyCombinedPdfMutation } from '../kyc/kycApi';
 import toast from 'react-hot-toast';
@@ -836,6 +836,7 @@ export default function OcrVerificationPanel({
   const [updateOcr, { isLoading: saving }] = useUpdateDocumentOcrMutation();
   const [verifyDoc, { isLoading: verifyingDoc }] = useVerifyDocumentMutation();
   const [deepRecheck, { isLoading: deepRechecking }] = useDeepRecheckDocumentMutation();
+  const [reprocessDoc, { isLoading: reprocessing }] = useReprocessDocumentMutation();
 
   const [editing, setEditing] = useState(false);
   const [localDocStatus, setLocalDocStatus] = useState(documentStatus || '');
@@ -903,6 +904,17 @@ export default function OcrVerificationPanel({
       refetch();
     } catch (err: any) {
       toast.error(err?.data?.error?.message || 'OCR failed');
+    }
+  };
+
+  const handleReprocess = async () => {
+    try {
+      await reprocessDoc(documentId).unwrap();
+      toast.success('Full OCR pipeline re-triggered — results will update shortly');
+      setPollInterval(4000);
+      setTimeout(() => { setPollInterval(0); refetch(); }, 30_000);
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Reprocess failed');
     }
   };
 
@@ -996,6 +1008,13 @@ export default function OcrVerificationPanel({
 
   const confidence = ocr?.confidence || 0;
   const isFlaggedByScore = confidence > 0 && confidence < 0.60;
+
+  // Stale findings detection: warn HR when OCR is >30 days old or from node_fallback
+  const ocrUpdatedAt = (ocr as any)?.updatedAt ? new Date((ocr as any).updatedAt) : null;
+  const daysOld = ocrUpdatedAt ? Math.floor((Date.now() - ocrUpdatedAt.getTime()) / (1000 * 60 * 60 * 24)) : null;
+  const isStale = daysOld !== null && daysOld > 30;
+  const isNodeFallback = processingMode === 'node_fallback';
+  const showStaleBanner = (isStale || isNodeFallback) && !isCombinedPdf;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1292,6 +1311,31 @@ export default function OcrVerificationPanel({
                 </div>
               )}
 
+              {/* ── Stale findings banner ── */}
+              {showStaleBanner && (
+                <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
+                  <AlertTriangle size={15} className="text-amber-500 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-amber-800">
+                      {isNodeFallback ? 'Limited Accuracy — Node.js Fallback' : `OCR findings are ${daysOld} days old`}
+                    </p>
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      {isNodeFallback
+                        ? 'Python OCR was offline when this document was scanned. Vision AI was skipped. Re-run the full pipeline for accurate extraction and AI verification.'
+                        : 'These findings may not reflect the current OCR pipeline capabilities. Re-run for up-to-date analysis.'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleReprocess}
+                    disabled={reprocessing}
+                    className="shrink-0 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50 transition-colors"
+                  >
+                    {reprocessing ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+                    Re-run Now
+                  </button>
+                </div>
+              )}
+
               {/* ── AI Findings (Vision AI + LLM — real issues only) ── */}
               {(validationReasons.length > 0 || tamperingSignals.length > 0) && (
                 <ValidationReasons
@@ -1416,6 +1460,18 @@ export default function OcrVerificationPanel({
                   <p className="text-[10px] text-gray-400 text-center flex items-center justify-center gap-1">
                     <Info size={9} /> Deep Analysis unavailable — PDF documents require image format
                   </p>
+                )}
+
+                {/* Re-run Full OCR Pipeline — available for all document types */}
+                {!showRejectDialog && (
+                  <button
+                    onClick={handleReprocess}
+                    disabled={reprocessing}
+                    className="w-full flex items-center justify-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  >
+                    {reprocessing ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                    Re-run Full OCR Pipeline
+                  </button>
                 )}
 
                 {/* Reject button: visible for PENDING/FLAGGED and VERIFIED (undo toggle), hidden when already REJECTED */}

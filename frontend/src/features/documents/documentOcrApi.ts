@@ -45,6 +45,13 @@ export const documentOcrApi = api.injectEndpoints({
       }),
       invalidatesTags: (_r, _e, employeeId) => [{ type: 'DocumentOcr' as any, id: `employee-${employeeId}` }],
     }),
+    reprocessDocument: builder.mutation<any, string>({
+      query: (documentId) => ({
+        url: `/documents/${documentId}/ocr/reprocess`,
+        method: 'POST',
+      }),
+      invalidatesTags: (_r, _e, id) => [{ type: 'DocumentOcr' as any, id }],
+    }),
   }),
 });
 
@@ -56,4 +63,5 @@ export const {
   useGetEmployeeOcrSummaryQuery,
   useDeepRecheckDocumentMutation,
   useTriggerAllEmployeeOcrMutation,
+  useReprocessDocumentMutation,
 } = documentOcrApi;

@@ -274,6 +274,7 @@ model Employee {
   profileEditRequests       ProfileEditRequest[]
 
   @@index([organizationId, status])
+  @@index([organizationId, deletedAt])
   @@index([departmentId])
   @@index([managerId])
   @@index([email])
@@ -456,8 +457,10 @@ model Document {
 
   @@index([employeeId])
   @@index([employeeId, type])
+  @@index([employeeId, deletedAt])
   @@index([status])
   @@index([deletedAt])
+  @@index([createdAt])
 }
 
 model DocumentOcrVerification {
@@ -521,8 +524,10 @@ model DocumentOcrVerification {
   document              Document  @relation(fields: [documentId], references: [id])
 
   @@index([organizationId])
+  @@index([organizationId, ocrStatus])
   @@index([documentId])
   @@index([ocrStatus])
+  @@index([updatedAt])
 }
 
 enum DocumentType {

@@ -67,6 +67,16 @@ export class DocumentOcrController {
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
+
+  /** Reprocess: force-run full OCR pipeline on an existing document */
+  async reprocessDocument(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await documentOcrService.reprocessDocument(
+        req.params.id, req.user!.userId, req.user!.organizationId,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
 }
 
 export const documentOcrController = new DocumentOcrController();

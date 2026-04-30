@@ -573,6 +573,73 @@ function ProfileInfoScreen({ experience, qualification, onExperienceChange, onQu
 
 // ─── Step 3B: Separate Upload ───────────────────────────────────────────────────
 
+function SubmitConfirmDialog({
+  requiredDocs, submittedDocs, hasPhoto, onConfirm, onCancel, submitting,
+}: {
+  requiredDocs: RequiredDoc[];
+  submittedDocs: string[];
+  hasPhoto: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  submitting: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-200">
+        <div className="px-5 pt-5 pb-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-brand-50 flex items-center justify-center">
+              <CheckCircle2 size={18} className="text-brand-600" />
+            </div>
+            <div>
+              <p className="text-base font-bold text-gray-900">Submit for HR Review?</p>
+              <p className="text-xs text-gray-500">Please confirm all documents below are correct</p>
+            </div>
+          </div>
+        </div>
+        <div className="px-5 py-3 max-h-72 overflow-y-auto space-y-1.5">
+          {requiredDocs.map(doc => {
+            const submitted = doc.type === 'PHOTO' ? hasPhoto : isDocTypeSubmitted(doc, submittedDocs);
+            const label = doc.label.replace(' (any one)', '');
+            return (
+              <div key={doc.type} className={cn(
+                'flex items-center gap-3 px-3 py-2 rounded-lg text-sm',
+                submitted ? 'bg-emerald-50' : doc.required ? 'bg-red-50' : 'bg-gray-50',
+              )}>
+                {submitted
+                  ? <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
+                  : doc.required
+                  ? <XCircle size={14} className="text-red-400 shrink-0" />
+                  : <Info size={14} className="text-gray-300 shrink-0" />}
+                <span className={cn('flex-1', submitted ? 'text-gray-700' : doc.required ? 'text-red-600' : 'text-gray-400')}>
+                  {label}
+                </span>
+                <span className={cn('text-xs font-medium', submitted ? 'text-emerald-600' : doc.required ? 'text-red-500' : 'text-gray-400')}>
+                  {submitted ? 'Ready' : doc.required ? 'Missing' : 'Skipped'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="px-5 pb-5 pt-3 flex gap-3">
+          <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            Go Back
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={submitting}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold disabled:opacity-50"
+          >
+            {submitting ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
+            Confirm Submit
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SeparateUploadScreen({
   experience, qualification, submittedDocs, photoUrl, uploading, showCamera,
   fileInputRefs, photoFileRef, reuploadDocTypes, documentRejectReasons,
@@ -580,6 +647,7 @@ function SeparateUploadScreen({
   onFileChange, onPhotoFileChange, onPhotoCapture,
   onBack, onSubmit, submitting,
 }: any) {
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const hasPhoto = !!photoUrl || submittedDocs.includes('PHOTO');
   const requiredDocs = computeRequiredDocs(experience, qualification);
 
@@ -730,7 +798,7 @@ function SeparateUploadScreen({
           <ArrowLeft size={15} /> Back
         </button>
         <button
-          onClick={onSubmit}
+          onClick={() => setShowConfirmDialog(true)}
           disabled={!canSubmit || submitting || uploading !== null}
           className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm disabled:opacity-50"
         >
@@ -742,6 +810,18 @@ function SeparateUploadScreen({
         <p className="text-xs text-center text-amber-600 flex items-center justify-center gap-1">
           <AlertTriangle size={12} /> Upload all required documents marked with * to submit
         </p>
+      )}
+
+      {/* Confirmation dialog — employee reviews document list before final submit */}
+      {showConfirmDialog && (
+        <SubmitConfirmDialog
+          requiredDocs={requiredDocs}
+          submittedDocs={submittedDocs}
+          hasPhoto={hasPhoto}
+          onConfirm={() => { setShowConfirmDialog(false); onSubmit(); }}
+          onCancel={() => setShowConfirmDialog(false)}
+          submitting={submitting}
+        />
       )}
     </div>
   );

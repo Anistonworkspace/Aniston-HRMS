@@ -2,51 +2,45 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
 import { Role } from '@aniston/shared';
 import { documentOcrController } from './document-ocr.controller.js';
+import { redis } from '../../lib/redis.js';
+import { logger } from '../../lib/logger.js';
 
 const router = Router();
 router.use(authenticate);
 router.use(authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR));
 
-// ── Per-document in-memory rate limiters ──────────────────────────────────────
-// Prevents HR from burning API credits by repeatedly re-triggering OCR on the
-// same document. Keys are documentId strings; values are last-triggered timestamps.
-// The Map is bounded by eviction once it exceeds 5 000 entries (low-traffic HR system).
-const ocrTriggerTracker = new Map<string, number>();
-const deepRecheckTracker = new Map<string, number>();
-const bulkTriggerTracker = new Map<string, number>();
-
-function evictOldEntries(map: Map<string, number>, maxSize: number, ttlMs: number) {
-  if (map.size <= maxSize) return;
-  const cutoff = Date.now() - ttlMs;
-  for (const [k, v] of map) {
-    if (v < cutoff) map.delete(k);
-    if (map.size <= maxSize) break;
-  }
-}
+// ── Redis-backed rate limiters ────────────────────────────────────────────────
+// Uses Redis SET NX EX so limits survive process restarts and work across
+// multiple backend replicas (unlike in-memory Maps which are per-process).
+// Key format: ocr:rl:<prefix>:<entityId>
+// ─────────────────────────────────────────────────────────────────────────────
 
 function ocrRateLimit(
   cooldownMs: number,
-  tracker: Map<string, number>,
+  keyPrefix: string,
   keyFn: (req: Request) => string,
   messageFn?: (waitSec: number) => string,
 ) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    evictOldEntries(tracker, 5_000, cooldownMs * 10);
-    const key = keyFn(req);
-    const last = tracker.get(key) || 0;
-    const elapsed = Date.now() - last;
-    if (elapsed < cooldownMs) {
-      const waitSec = Math.ceil((cooldownMs - elapsed) / 1000);
-      const message = messageFn
-        ? messageFn(waitSec)
-        : `Please wait ${waitSec}s before re-triggering OCR for this document.`;
-      res.status(429).json({
-        success: false,
-        error: { code: 'RATE_LIMITED', message },
-      });
-      return;
+  const ttlSec = Math.ceil(cooldownMs / 1000);
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const redisKey = `ocr:rl:${keyPrefix}:${keyFn(req)}`;
+    try {
+      // SET NX EX: sets key only if it does not exist; returns 'OK' on success, null if already set
+      const result = await redis.set(redisKey, '1', 'EX', ttlSec, 'NX');
+      if (result === null) {
+        // Key exists — rate limited; get remaining TTL for accurate wait message
+        const ttl = await redis.ttl(redisKey);
+        const waitSec = Math.max(1, ttl);
+        const message = messageFn
+          ? messageFn(waitSec)
+          : `Please wait ${waitSec}s before re-triggering OCR for this document.`;
+        res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message } });
+        return;
+      }
+    } catch (err: any) {
+      // Redis unavailable — fail open (allow request) so OCR still works without Redis
+      logger.warn(`[OCR rate limit] Redis error, failing open: ${err.message}`);
     }
-    tracker.set(key, Date.now());
     next();
   };
 }
@@ -54,7 +48,7 @@ function ocrRateLimit(
 
 // Trigger OCR for a document (max once per 3 minutes per document)
 router.post('/:id/ocr',
-  ocrRateLimit(3 * 60_000, ocrTriggerTracker, (r) => r.params.id),
+  ocrRateLimit(3 * 60_000, 'trigger', (r) => r.params.id),
   (req, res, next) => documentOcrController.triggerOcr(req, res, next),
 );
 
@@ -77,7 +71,7 @@ router.post('/ocr/cross-validate/:employeeId', (req, res, next) =>
 router.post('/ocr/employee/:employeeId/trigger-all',
   ocrRateLimit(
     5 * 60_000,
-    bulkTriggerTracker,
+    'bulk',
     (r) => r.params.employeeId,
     (waitSec) => `Please wait ${waitSec}s before re-triggering bulk OCR for this employee.`,
   ),
@@ -91,8 +85,14 @@ router.get('/ocr/employee/:employeeId', (req, res, next) =>
 
 // Deep Re-check: reprocess with gpt-4.1 (max once per 10 minutes per document)
 router.post('/:id/ocr/deep-recheck',
-  ocrRateLimit(10 * 60_000, deepRecheckTracker, (r) => r.params.id),
+  ocrRateLimit(10 * 60_000, 'deeprecheck', (r) => r.params.id),
   (req, res, next) => documentOcrController.deepRecheck(req, res, next),
+);
+
+// Reprocess: re-run full OCR pipeline on an existing document (max once per 5 minutes)
+router.post('/:id/ocr/reprocess',
+  ocrRateLimit(5 * 60_000, 'reprocess', (r) => r.params.id),
+  (req, res, next) => documentOcrController.reprocessDocument(req, res, next),
 );
 
 export { router as documentOcrRouter };
