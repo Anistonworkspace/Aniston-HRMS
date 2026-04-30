@@ -234,6 +234,110 @@ function ValidationReasons({ reasons }: { reasons: string[] }) {
   );
 }
 
+// ─── Document AI Findings Summary (always visible in popup) ─────────────────
+function DocFindingsSummary({
+  reasons,
+  tamperingSignals,
+  kycScore,
+}: {
+  reasons: string[];
+  tamperingSignals: string[];
+  kycScore: number | null;
+}) {
+  const allReasons: string[] = [
+    ...tamperingSignals.map(t => `✗ Tampering: ${t}`),
+    ...reasons,
+  ];
+
+  const isFail = (s: string) => s.startsWith('✗') || s.startsWith('🚩');
+  const isWarn = (s: string) => s.startsWith('⚠');
+  const isPass = (s: string) => s.startsWith('✓');
+
+  const failCount = allReasons.filter(isFail).length;
+  const warnCount = allReasons.filter(isWarn).length;
+  const passCount = allReasons.filter(isPass).length;
+  const issueCount = failCount + warnCount;
+  const hasAnyFindings = allReasons.length > 0;
+
+  // Sort: failures → warnings → passes
+  const sorted = [...allReasons].sort((a, b) => {
+    const rank = (s: string) => isFail(s) ? 0 : isWarn(s) ? 1 : 2;
+    return rank(a) - rank(b);
+  });
+
+  const hasFail = failCount > 0;
+  const hasWarn = warnCount > 0;
+
+  const cardBorder = hasFail ? 'border-red-200 bg-red-50/10'
+    : hasWarn ? 'border-amber-200 bg-amber-50/10'
+    : hasAnyFindings ? 'border-emerald-200 bg-emerald-50/10'
+    : 'border-gray-200 bg-gray-50/20';
+
+  const headerBg = hasFail ? 'bg-red-50/60 border-red-100 text-red-700'
+    : hasWarn ? 'bg-amber-50/60 border-amber-100 text-amber-700'
+    : hasAnyFindings ? 'bg-emerald-50/60 border-emerald-100 text-emerald-700'
+    : 'bg-gray-50 border-gray-100 text-gray-500';
+
+  const summaryText = !hasAnyFindings
+    ? 'No AI findings — run OCR to analyse'
+    : issueCount > 0
+    ? `${issueCount} issue${issueCount !== 1 ? 's' : ''} found`
+    : `All ${passCount} check${passCount !== 1 ? 's' : ''} passed`;
+
+  const SummaryIcon = hasFail ? XCircle : hasWarn ? AlertTriangle : hasAnyFindings ? CheckCircle2 : Info;
+
+  return (
+    <div className={cn('layer-card overflow-hidden border', cardBorder)}>
+      {/* Summary header */}
+      <div className={cn('flex items-center justify-between px-4 py-2.5 border-b', headerBg)}>
+        <span className="flex items-center gap-1.5 text-sm font-semibold">
+          <SummaryIcon size={14} />
+          AI Findings — {summaryText}
+        </span>
+        {kycScore !== null && (
+          <span className={cn(
+            'text-xs font-bold px-2 py-0.5 rounded-full',
+            kycScore >= 85 ? 'bg-emerald-100 text-emerald-700' :
+            kycScore >= 70 ? 'bg-amber-100 text-amber-700' :
+            'bg-red-100 text-red-700',
+          )}>
+            Score {kycScore}/100
+          </span>
+        )}
+      </div>
+
+      {/* Individual check bullets */}
+      <div className="px-4 py-3 space-y-1.5">
+        {hasAnyFindings ? sorted.map((reason, i) => {
+          const fail = isFail(reason);
+          const warn = isWarn(reason);
+          const pass = isPass(reason);
+          const isTamper = reason.startsWith('✗ Tampering:');
+          return (
+            <div key={i} className={cn(
+              'flex items-start gap-2 text-xs px-2.5 py-1.5 rounded',
+              isTamper ? 'bg-red-100 border-l-2 border-red-500 text-red-800 font-medium' :
+              fail ? 'bg-red-50 text-red-700' :
+              warn ? 'bg-amber-50 text-amber-700' :
+              pass ? 'bg-emerald-50 text-emerald-700' :
+              'bg-gray-50 text-gray-600',
+            )}>
+              <span className="shrink-0 mt-0.5">
+                {fail ? <XCircle size={11} /> : warn ? <AlertTriangle size={11} /> : <CheckCircle2 size={11} />}
+              </span>
+              <span className="leading-relaxed">{reason}</span>
+            </div>
+          );
+        }) : (
+          <p className="text-xs text-gray-400 py-1">
+            OCR has not been run yet — click <strong>Re-run Full OCR Pipeline</strong> to analyse this document.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Reject document dialog ───────────────────────────────────────────────────
 function RejectDocumentDialog({
   docType, onConfirm, onCancel, loading,
@@ -1336,15 +1440,12 @@ export default function OcrVerificationPanel({
                 </div>
               )}
 
-              {/* ── AI Findings (Vision AI + LLM — real issues only) ── */}
-              {(validationReasons.length > 0 || tamperingSignals.length > 0) && (
-                <ValidationReasons
-                  reasons={[
-                    ...tamperingSignals.map(t => `✗ Tampering: ${t}`),
-                    ...validationReasons,
-                  ]}
-                />
-              )}
+              {/* ── AI Findings Summary — always visible, all checks with icons ── */}
+              <DocFindingsSummary
+                reasons={validationReasons}
+                tamperingSignals={tamperingSignals}
+                kycScore={kycScore}
+              />
 
               {/* ── Profile Cross-Verification ── */}
               {profileComparison.length > 0 && (
