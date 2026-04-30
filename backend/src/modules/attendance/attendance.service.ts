@@ -242,12 +242,29 @@ export class AttendanceService {
       );
     }
 
-    // ===== PHASE 1.4: GPS spoofing detection =====
+    // GPS is also mandatory for FIELD shifts — field employees must share live location.
+    if (currentShiftType === 'FIELD' && (!data.latitude || !data.longitude)) {
+      throw new BadRequestError(
+        'Field sales employees must share their GPS location to mark attendance. ' +
+        'Please enable location services and ensure GPS has a signal before trying again.'
+      );
+    }
+
+    // ===== PHASE 1.4: GPS spoofing detection — block if detected =====
     if (data.latitude && data.longitude) {
       const spoofResult = await this.detectGPSSpoofing(employeeId, data.latitude, data.longitude);
       if (spoofResult.spoofing) {
-        data.notes = `${data.notes || ''} [GPS SPOOF WARNING: ${spoofResult.distance}m jump in ${spoofResult.timeDiff}min]`.trim();
-        logger.warn(`GPS spoofing detected for employee ${employeeId}: ${spoofResult.distance}m in ${spoofResult.timeDiff}min`);
+        logger.warn(`[Attendance] GPS spoofing blocked for ${employeeId}: ${spoofResult.distance}m jump in ${spoofResult.timeDiff}min`);
+        // Alert HR non-blocking
+        setImmediate(() => {
+          this._alertHrGpsSpoof(employeeId, organizationId, spoofResult.distance!, spoofResult.timeDiff!).catch((e) =>
+            logger.warn(`[Attendance] GPS spoof HR alert failed: ${e.message}`)
+          );
+        });
+        throw new BadRequestError(
+          `Your GPS location jumped ${spoofResult.distance}m in ${spoofResult.timeDiff} minutes, which is not physically possible. ` +
+          `Please disable any mock location apps and try again. If this is an error, contact HR for manual attendance.`
+        );
       }
     }
 
@@ -260,16 +277,13 @@ export class AttendanceService {
     let geofenceStatus = 'NO_GEOFENCE';
 
     if (!effectiveWfh && currentShiftType === 'OFFICE' && geofence && geofence.radiusMeters && data.latitude && data.longitude) {
-      // GPS accuracy check — reject unreliable readings (>150m) for geofence decisions
+      // GPS accuracy check — reject if accuracy is too poor for reliable geofence decisions
       if (data.accuracy && data.accuracy > 150) {
-        data.notes = `${data.notes || ''} [GPS accuracy poor: ±${Math.round(data.accuracy)}m — geofence check skipped]`.trim();
-        logger.warn(`Poor GPS accuracy (${data.accuracy}m) for employee ${employeeId} — skipping geofence check`);
-        // Alert HR so they can investigate potential attendance fraud
-        setImmediate(() => {
-          this._alertHrPoorGpsAccuracy(employeeId, organizationId, data.accuracy!, data.latitude, data.longitude).catch((e) =>
-            logger.warn(`[Attendance] HR poor-GPS alert failed for ${employeeId}: ${e.message}`)
-          );
-        });
+        throw new BadRequestError(
+          `GPS accuracy too low (±${Math.round(data.accuracy)}m, need ±150m or better). ` +
+          `Move to an open area away from buildings, wait 10–15 seconds for GPS to stabilize, then try again. ` +
+          `Tip: briefly turning Wi-Fi off can help GPS lock faster.`
+        );
       }
       const coords = geofence.coordinates as any;
       if (coords?.lat && coords?.lng && !(data.accuracy && data.accuracy > 150)) {
@@ -610,13 +624,25 @@ export class AttendanceService {
         const shiftEndMinutes = endH * 60 + endM;
 
         if (halfDayLeave) {
-          // Half-day approved: minimum = shift start + halfDayHours
+          // Half-day approved: minimum = max(shiftStart, actualCheckIn) + halfDayHours
+          // Using actual check-in time prevents early-leavers who clocked in late from
+          // checking out after only a fraction of the half-day hours.
           const [startH, startM] = (coShift.startTime as string).split(':').map(Number);
-          const halfDayMinMinutes = startH * 60 + startM + Math.round(Number(coShift.halfDayHours ?? 4) * 60);
+          const shiftStartMins = startH * 60 + startM;
+          const checkInMins = todayRecordForTimeCheck?.checkIn
+            ? (() => {
+                const ci = new Date(todayRecordForTimeCheck.checkIn!);
+                const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+                const ist = new Date(ci.getTime() + ci.getTimezoneOffset() * 60000 + IST_OFFSET);
+                return ist.getUTCHours() * 60 + ist.getUTCMinutes();
+              })()
+            : shiftStartMins;
+          const effectiveStartMins = Math.max(shiftStartMins, checkInMins);
+          const halfDayMinMinutes = effectiveStartMins + Math.round(Number(coShift.halfDayHours ?? 4) * 60);
           if (currentISTMinutes < halfDayMinMinutes) {
             throw new BadRequestError(
               `Half-day checkout not allowed before ${fmt12h(halfDayMinMinutes)} ` +
-              `(${coShift.name} starts at ${coShift.startTime} + ${coShift.halfDayHours ?? 4}h half-day).`
+              `(you clocked in at ${fmt12h(checkInMins)} + ${coShift.halfDayHours ?? 4}h half-day).`
             );
           }
         } else {
@@ -768,6 +794,35 @@ export class AttendanceService {
     } else if (!effectiveOtEnabled && totalHours > fullDayHours + this.OVERTIME_FLAG_EXTRA_HOURS) {
       // Fallback: flag excessive hours even if OT tracking is off (informational only)
       overtimeFlag = true;
+    }
+
+    // ===== Auto-create OvertimeRequest for manager approval when OT is enabled and detected =====
+    if (effectiveOtEnabled && overtimeFlag && overtimeHours > 0) {
+      setImmediate(async () => {
+        try {
+          await prisma.overtimeRequest.upsert({
+            where: { employeeId_date: { employeeId, date: new Date(record.date) } },
+            create: {
+              employeeId,
+              organizationId: employee?.organizationId || '',
+              date: new Date(record.date),
+              plannedHours: overtimeHours,
+              actualHours: overtimeHours,
+              reason: `Auto-detected: worked ${totalHours.toFixed(1)}h (shift: ${fullDayHours}h, extra: ${overtimeHours.toFixed(1)}h)`,
+              status: 'PENDING',
+              attendanceId: record.id,
+            },
+            update: {
+              actualHours: overtimeHours,
+              reason: `Auto-detected: worked ${totalHours.toFixed(1)}h (shift: ${fullDayHours}h, extra: ${overtimeHours.toFixed(1)}h)`,
+              status: 'PENDING',
+            },
+          });
+          logger.info(`[Attendance] OvertimeRequest auto-created for ${employeeId} — ${overtimeHours}h on ${record.date}`);
+        } catch (e: any) {
+          logger.warn(`[Attendance] OvertimeRequest auto-create failed for ${employeeId}: ${e.message}`);
+        }
+      });
     }
 
     const locationData = data.latitude && data.longitude
@@ -2339,11 +2394,16 @@ export class AttendanceService {
       }
     }
 
-    // Subtract break durations
+    // Subtract break durations — always recompute from startTime/endTime to prevent
+    // manipulation of the stored durationMinutes field.
     const breaks = await prisma.break.findMany({
       where: { attendanceId: recordId, endTime: { not: null } },
     });
-    const totalBreakMs = breaks.reduce((sum, b) => sum + (b.durationMinutes || 0) * 60 * 1000, 0);
+    const totalBreakMs = breaks.reduce((sum, b) => {
+      if (!b.startTime || !b.endTime) return sum;
+      const computed = new Date(b.endTime).getTime() - new Date(b.startTime).getTime();
+      return sum + Math.max(0, computed);
+    }, 0);
 
     const accurateMs = (checkOut.getTime() - checkIn.getTime()) - totalGapMs - totalBreakMs;
     const accurateHours = Math.max(0, accurateMs / (1000 * 60 * 60));
@@ -3361,6 +3421,29 @@ export class AttendanceService {
       logger.info(`[Attendance] Sunday notification queued for ${employee.employeeCode} → ${recipient}`);
     } catch (err: any) {
       logger.warn(`[Attendance] Sunday notification setup failed: ${err.message}`);
+    }
+  }
+
+  private async _alertHrGpsSpoof(employeeId: string, organizationId: string, distance: number, timeDiff: number) {
+    try {
+      const [emp, org] = await Promise.all([
+        prisma.employee.findUnique({ where: { id: employeeId }, select: { firstName: true, lastName: true, employeeCode: true } }),
+        prisma.organization.findUnique({ where: { id: organizationId }, select: { adminNotificationEmail: true, name: true } }),
+      ]);
+      if (!org?.adminNotificationEmail || !emp) return;
+      const { enqueueEmail } = await import('../../jobs/queues.js');
+      const time = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      await enqueueEmail({
+        to: org.adminNotificationEmail,
+        subject: `Security Alert: GPS Spoofing Attempt — ${emp.firstName} ${emp.lastName} (${emp.employeeCode})`,
+        template: 'generic',
+        context: {
+          title: '🚨 GPS Spoofing Blocked',
+          message: `<strong>${emp.firstName} ${emp.lastName}</strong> (${emp.employeeCode}) attempted to clock in at <strong>${time}</strong>, but GPS showed an impossible location jump of <strong>${distance}m in ${timeDiff} minutes</strong>.<br/><br/>The clock-in was blocked automatically. If this employee is genuinely at a different location, please mark attendance manually via the HR dashboard.<br/><br/><span style="color:#6B7280;font-size:12px;">${org.name || 'Aniston Technologies'}</span>`,
+        },
+      });
+    } catch (err: any) {
+      logger.warn(`[Attendance] GPS spoof HR alert setup failed: ${err.message}`);
     }
   }
 

@@ -187,6 +187,9 @@ app.use('/api/auth/mfa/verify-setup', rateLimiter({ windowMs: 15 * 60 * 1000, ma
 app.use('/api/auth/mfa/disable', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:mfa-disable' }));
 app.use('/api/auth', rateLimiter({ windowMs: 15 * 60 * 1000, max: 200, keyPrefix: 'rl:auth' }));
 app.use('/api/onboarding/kyc', rateLimiter({ windowMs: 60 * 1000, max: 30, keyPrefix: 'rl:kyc-ops' }));
+// Attendance clock-in/out: max 5 attempts per 30 seconds — prevents tap-spam and replay attacks
+app.use('/api/attendance/clock-in', rateLimiter({ windowMs: 30 * 1000, max: 5, keyPrefix: 'rl:clock-in' }));
+app.use('/api/attendance/clock-out', rateLimiter({ windowMs: 30 * 1000, max: 5, keyPrefix: 'rl:clock-out' }));
 app.use('/api', rateLimiter({ windowMs: 60 * 1000, max: 100, keyPrefix: 'rl:api' }));
 
 // API Documentation

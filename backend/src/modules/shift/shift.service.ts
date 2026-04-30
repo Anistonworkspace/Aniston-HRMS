@@ -231,8 +231,31 @@ export class ShiftService {
     const employee = await prisma.employee.findFirst({ where: { id: data.employeeId, organizationId } });
     if (!employee) throw new NotFoundError('Employee');
 
-    const shift = await prisma.shift.findFirst({ where: { id: data.shiftId, organizationId } });
+    // Block assignment for employees who are no longer active
+    const BLOCKED_STATUSES = ['TERMINATED', 'INACTIVE'];
+    if (BLOCKED_STATUSES.includes(employee.status)) {
+      throw new BadRequestError(`Cannot assign a shift to a ${employee.status.toLowerCase()} employee.`);
+    }
+
+    const shift = await prisma.shift.findFirst({ where: { id: data.shiftId, organizationId, isActive: true } });
     if (!shift) throw new NotFoundError('Shift');
+
+    const newStart = new Date(data.startDate);
+
+    // Check for overlapping non-open-ended assignments that won't be closed by the updateMany below
+    const overlapping = await prisma.shiftAssignment.findFirst({
+      where: {
+        employeeId: data.employeeId,
+        endDate: { not: null, gt: newStart },
+        startDate: { lt: newStart },
+      },
+    });
+    if (overlapping) {
+      throw new BadRequestError(
+        `Employee already has a shift assignment active from ${overlapping.startDate.toISOString().split('T')[0]} ` +
+        `to ${overlapping.endDate!.toISOString().split('T')[0]} that overlaps this start date.`
+      );
+    }
 
     // End any current open assignment
     await prisma.shiftAssignment.updateMany({
