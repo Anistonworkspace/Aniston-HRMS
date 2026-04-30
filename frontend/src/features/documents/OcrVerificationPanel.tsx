@@ -1351,57 +1351,6 @@ export default function OcrVerificationPanel({
                 <ProfileComparisonPanel items={profileComparison} />
               )}
 
-              {/* Cross-Validation Status — fixed overflow layout */}
-              {ocr.crossValidationStatus && (
-                <div className="layer-card p-4">
-                  <p className="text-xs font-semibold text-gray-600 mb-2">Cross-Document Validation</p>
-                  <span className={cn(
-                    'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium mb-3',
-                    ocr.crossValidationStatus === 'PASS' ? 'bg-emerald-50 text-emerald-700'
-                      : ocr.crossValidationStatus === 'FAIL' ? 'bg-red-50 text-red-700'
-                      : 'bg-amber-50 text-amber-700'
-                  )}>
-                    {ocr.crossValidationStatus === 'PASS' ? <CheckCircle2 size={12} /> :
-                     ocr.crossValidationStatus === 'FAIL' ? <XCircle size={12} /> :
-                     <AlertTriangle size={12} />}
-                    {ocr.crossValidationStatus}
-                  </span>
-                  {ocr.crossValidationDetails && (
-                    <div className="space-y-2">
-                      {(ocr.crossValidationDetails as any[]).map((d: any, i: number) => (
-                        <div key={i} className="flex flex-col gap-1 text-xs py-2 border-b border-gray-50 last:border-0">
-                          <div className="flex items-center gap-1.5">
-                            {d.match
-                              ? <CheckCircle2 size={12} className="text-emerald-500 shrink-0" />
-                              : <XCircle size={12} className="text-red-500 shrink-0" />}
-                            <span className="text-gray-700 font-medium">{d.field}</span>
-                            {d.similarity != null && (
-                              <span className="ml-auto text-[10px] text-gray-400">
-                                Similarity: {Math.round(d.similarity * 100)}%
-                              </span>
-                            )}
-                          </div>
-                          {/* Values — each in its own chip to prevent overflow */}
-                          {d.values?.length > 0 && (
-                            <div className="ml-4 flex flex-wrap gap-1.5">
-                              {d.values.map((v: any, j: number) => (
-                                <span key={j} className="bg-gray-100 px-2 py-0.5 rounded text-[10px] text-gray-700 font-mono break-all max-w-full">
-                                  <span className="text-gray-400">{v.docType?.replace(/_/g, ' ')}: </span>
-                                  {v.value || '—'}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          {d.matchDetail && (
-                            <p className="ml-4 text-[10px] text-gray-400 italic">{d.matchDetail}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* Per-document actions */}
               <div className="space-y-2">
                 {/* Status badge */}

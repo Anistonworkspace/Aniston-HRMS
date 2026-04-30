@@ -522,7 +522,7 @@ Rules:
 5. If profile data unavailable for a field, set result: NOT_APPLICABLE and skip the finding.
 6. Document-type rules (CRITICAL):
    - PHOTO: return empty findings and profile_comparison arrays.
-   - RESIDENCE_PROOF: compare name/address only — never DOB.
+   - RESIDENCE_PROOF: verify address only — NEVER compare name. The name on a residence proof (electricity/water bill, rental agreement) is often a parent or property owner — a different name is expected and normal, NOT a mismatch.
    - SALARY_SLIP_DOC: verify gross - deductions = net if all present.
    - EXPERIENCE_LETTER/OFFER_LETTER_DOC/RELIEVING_LETTER: check name/company/designation/dates.
    - DEGREE_CERTIFICATE/TENTH_CERTIFICATE/TWELFTH_CERTIFICATE: check name/institution/year.
@@ -1284,7 +1284,17 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     // ---- Name comparison (fuzzy) — include employee profile as additional source ----
     // Exclude OCR garbage names; store CLEANED names (relational suffixes stripped)
     // so display chips show "SUNNY KUMAR MEHTA" not "SUNNY KUMAR MEHTA Father".
+    //
+    // Address-only documents (residence proof, utility bills, rent agreements) are
+    // intentionally excluded from name cross-validation: these documents are commonly
+    // in the name of a parent, spouse, or property owner — a name mismatch is expected
+    // and does NOT indicate fraud for these document types.
+    const NAME_EXCLUDED_TYPES = new Set([
+      'RESIDENCE_PROOF', 'PERMANENT_RESIDENCE_PROOF', 'UTILITY_BILL', 'RENT_AGREEMENT',
+    ]);
+
     const names: { docType: string; value: string }[] = ocrDocs
+      .filter(d => !NAME_EXCLUDED_TYPES.has(d.type as string))
       .map(d => {
         const raw = d.ocrVerification!.extractedName;
         if (!raw || raw.trim().length <= 2) return null;
