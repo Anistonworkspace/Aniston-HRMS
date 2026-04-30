@@ -34,7 +34,7 @@ export const leaveCarryForwardQueue = new Queue('leave-carry-forward', connectio
 
 logger.info('✅ BullMQ queues initialized');
 
-// Schedule backup cron job: every Sunday at 02:00 UTC (7-day cycle)
+// Schedule backup cron job: every day at 02:00 UTC
 // This covers both database backup + uploaded files backup in one job.
 (async () => {
   try {
@@ -43,9 +43,9 @@ logger.info('✅ BullMQ queues initialized');
       await backupQueue.removeRepeatableByKey(job.key);
     }
     await backupQueue.add('scheduled-backup', {}, {
-      repeat: { pattern: '0 2 * * 0' }, // 02:00 UTC every Sunday
+      repeat: { pattern: '0 2 * * *' }, // 02:00 UTC every day
     });
-    logger.info('✅ Backup cron job scheduled (every Sunday at 02:00 UTC — DB + Files)');
+    logger.info('✅ Backup cron job scheduled (daily at 02:00 UTC — DB + Files)');
   } catch (err) {
     logger.warn('Failed to schedule backup cron job:', err);
   }

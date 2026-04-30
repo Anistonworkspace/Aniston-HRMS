@@ -178,6 +178,21 @@ export default function KycGatePage() {
     return () => { offSocketEvent('kyc:status-changed', handler); };
   }, [refetch]);
 
+  // Real-time: clear scanning indicator when OCR finishes for this employee's doc
+  useEffect(() => {
+    const handler = (data: { employeeId: string; docType: string }) => {
+      if (data.employeeId === user?.employeeId) {
+        setScanningDocs(prev => {
+          const next = new Set(prev);
+          next.delete(data.docType);
+          return next;
+        });
+      }
+    };
+    onSocketEvent('ocr:document-processed', handler);
+    return () => { offSocketEvent('ocr:document-processed', handler); };
+  }, [user?.employeeId]);
+
   // Polling while combined PDF is being classified (PROCESSING state, ~5s interval, max 5 min)
   useEffect(() => {
     if (kycStatus !== 'PROCESSING') return;
@@ -204,6 +219,7 @@ export default function KycGatePage() {
   const [qualification, setQualification] = useState<Qualification>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [uploading, setUploading] = useState<string | null>(null);
+  const [scanningDocs, setScanningDocs] = useState<Set<string>>(new Set());
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const photoFileRef = useRef<HTMLInputElement | null>(null);
@@ -270,6 +286,7 @@ export default function KycGatePage() {
       formData.append('employeeId', user.employeeId);
       await uploadDoc({ employeeId: user.employeeId, formData }).unwrap();
       toast.success(`${(docName || docType).replace(/_/g, ' ')} uploaded`);
+      setScanningDocs(prev => new Set([...prev, docType]));
       refetch();
     } catch (err: any) {
       if (err?.status === 'FETCH_ERROR') {
@@ -307,6 +324,7 @@ export default function KycGatePage() {
       formData.append('photo', blob, 'kyc-photo.jpg');
       await uploadPhoto({ employeeId: user.employeeId, formData }).unwrap();
       toast.success('Photo captured successfully');
+      setScanningDocs(prev => new Set([...prev, 'PHOTO']));
       refetch();
     } catch (err: any) {
       if (err?.status === 'FETCH_ERROR') {
@@ -331,6 +349,7 @@ export default function KycGatePage() {
       formData.append('file', file);
       await uploadPhotoFile({ employeeId: user.employeeId, formData }).unwrap();
       toast.success('Photo uploaded successfully');
+      setScanningDocs(prev => new Set([...prev, 'PHOTO']));
       refetch();
     } catch (err: any) {
       if (err?.status === 'FETCH_ERROR') {
@@ -385,6 +404,7 @@ export default function KycGatePage() {
                 submittedDocs={submittedDocs}
                 photoUrl={photoUrl}
                 uploading={uploading}
+                scanningDocs={scanningDocs}
                 showCamera={showCamera}
                 fileInputRefs={fileInputRefs}
                 photoFileRef={photoFileRef}
@@ -641,7 +661,7 @@ function SubmitConfirmDialog({
 }
 
 function SeparateUploadScreen({
-  experience, qualification, submittedDocs, photoUrl, uploading, showCamera,
+  experience, qualification, submittedDocs, photoUrl, uploading, scanningDocs, showCamera,
   fileInputRefs, photoFileRef, reuploadDocTypes, documentRejectReasons,
   openSections, onToggleSection, onShowCamera, onHideCamera,
   onFileChange, onPhotoFileChange, onPhotoCapture,
@@ -766,6 +786,7 @@ function SeparateUploadScreen({
                     {section.isPhotoSection ? (
                       <PhotoUploadSection
                         hasPhoto={hasPhoto} photoUrl={photoUrl} uploading={uploading}
+                        isScanning={scanningDocs?.has('PHOTO')}
                         showCamera={openSections._camera} onShowCamera={() => onShowCamera()}
                         onHideCamera={() => onHideCamera()} photoFileRef={photoFileRef}
                         onPhotoFileChange={onPhotoFileChange} onPhotoCapture={onPhotoCapture}
@@ -777,6 +798,7 @@ function SeparateUploadScreen({
                           doc={doc}
                           submittedDocs={submittedDocs}
                           uploading={uploading}
+                          scanningDocs={scanningDocs}
                           fileInputRefs={fileInputRefs}
                           reuploadDocTypes={reuploadDocTypes}
                           documentRejectReasons={documentRejectReasons}
@@ -829,7 +851,7 @@ function SeparateUploadScreen({
 
 // ─── Doc Upload Row ─────────────────────────────────────────────────────────────
 
-function DocUploadRow({ doc, submittedDocs, uploading, fileInputRefs, reuploadDocTypes, documentRejectReasons, onFileChange }: any) {
+function DocUploadRow({ doc, submittedDocs, uploading, scanningDocs, fileInputRefs, reuploadDocTypes, documentRejectReasons, onFileChange }: any) {
   const isSubmitted = isDocTypeSubmitted(doc, submittedDocs);
   const needsReupload = doc.acceptsAnyOf
     ? doc.acceptsAnyOf.some((t: string) => reuploadDocTypes.includes(t))
@@ -845,12 +867,18 @@ function DocUploadRow({ doc, submittedDocs, uploading, fileInputRefs, reuploadDo
     };
 
     const submittedOne = doc.acceptsAnyOf.find((t: string) => submittedDocs.includes(t));
+    const anyScanningAnyOf = doc.acceptsAnyOf.some((t: string) => scanningDocs?.has(t));
 
     return (
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-gray-700">{doc.label} {doc.required && <span className="text-red-400">*</span>}</p>
           {isSubmitted && <CheckCircle2 size={14} className="text-emerald-500" />}
+          {anyScanningAnyOf && (
+            <span className="flex items-center gap-1 text-[10px] text-indigo-600 font-medium">
+              <Loader2 size={10} className="animate-spin" /> Scanning…
+            </span>
+          )}
         </div>
         {doc.hint && <p className="text-xs text-gray-400">{doc.hint}</p>}
 
@@ -868,20 +896,27 @@ function DocUploadRow({ doc, submittedDocs, uploading, fileInputRefs, reuploadDo
           {doc.acceptsAnyOf.map((type: string) => {
             const isTypeSubmitted = submittedDocs.includes(type);
             const isUploading = uploading === type;
+            const isTypeScanning = scanningDocs?.has(type);
             return (
               <div key={type} className={cn('relative rounded-lg border p-2.5 text-xs flex items-center justify-between',
-                isTypeSubmitted ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200 bg-white'
+                isTypeSubmitted ? 'border-emerald-200 bg-emerald-50' : isTypeScanning ? 'border-indigo-200 bg-indigo-50' : 'border-gray-200 bg-white'
               )}>
-                <span className={isTypeSubmitted ? 'text-emerald-700 font-medium' : 'text-gray-600'}>
+                <span className={isTypeSubmitted ? 'text-emerald-700 font-medium' : isTypeScanning ? 'text-indigo-700 font-medium' : 'text-gray-600'}>
                   {typeLabels[type] || type}
                 </span>
-                <label className={cn('cursor-pointer px-2 py-1 rounded text-[10px] font-medium shrink-0 ml-1',
-                  isTypeSubmitted ? 'bg-emerald-100 text-emerald-700' : 'bg-brand-100 text-brand-700'
-                )}>
-                  {isUploading ? <Loader2 size={10} className="animate-spin inline" /> : isTypeSubmitted ? 'Replace' : 'Upload'}
-                  <input type="file" className="hidden" accept="image/*,.pdf"
-                    onChange={e => { const f = e.target.files?.[0]; if (f) onFileChange(type, f, typeLabels[type]); e.target.value = ''; }} />
-                </label>
+                {isTypeScanning ? (
+                  <span className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 shrink-0 ml-1">
+                    <Loader2 size={9} className="animate-spin" /> Scanning
+                  </span>
+                ) : (
+                  <label className={cn('cursor-pointer px-2 py-1 rounded text-[10px] font-medium shrink-0 ml-1',
+                    isTypeSubmitted ? 'bg-emerald-100 text-emerald-700' : 'bg-brand-100 text-brand-700'
+                  )}>
+                    {isUploading ? <Loader2 size={10} className="animate-spin inline" /> : isTypeSubmitted ? 'Replace' : 'Upload'}
+                    <input type="file" className="hidden" accept="image/*,.pdf"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) onFileChange(type, f, typeLabels[type]); e.target.value = ''; }} />
+                  </label>
+                )}
               </div>
             );
           })}
@@ -891,32 +926,46 @@ function DocUploadRow({ doc, submittedDocs, uploading, fileInputRefs, reuploadDo
   }
 
   const isUploading = uploading === doc.type;
+  const isScanning = scanningDocs?.has(doc.type);
 
   return (
     <div>
       <div className={cn('p-3 rounded-xl border flex items-center justify-between',
-        isSubmitted ? 'border-emerald-200 bg-emerald-50/50' : needsReupload ? 'border-orange-200 bg-orange-50/50' : 'border-gray-100 bg-gray-50/30'
+        isSubmitted ? 'border-emerald-200 bg-emerald-50/50' :
+        needsReupload ? 'border-orange-200 bg-orange-50/50' :
+        isScanning ? 'border-indigo-200 bg-indigo-50/50' :
+        'border-gray-100 bg-gray-50/30'
       )}>
         <div className="flex items-center gap-3 min-w-0">
-          {isSubmitted ? <CheckCircle2 size={16} className="text-emerald-500 shrink-0" /> :
+          {isScanning ? <Loader2 size={16} className="text-indigo-500 shrink-0 animate-spin" /> :
+           isSubmitted ? <CheckCircle2 size={16} className="text-emerald-500 shrink-0" /> :
            needsReupload ? <AlertTriangle size={16} className="text-orange-500 shrink-0" /> :
            <FileText size={16} className="text-gray-400 shrink-0" />}
           <div>
             <p className="text-sm font-medium text-gray-700">
               {doc.label} {doc.required && <span className="text-red-400">*</span>}
             </p>
-            {doc.hint && <p className="text-xs text-gray-400">{doc.hint}</p>}
+            {isScanning
+              ? <p className="text-xs text-indigo-500 animate-pulse">AI scanning document…</p>
+              : doc.hint && <p className="text-xs text-gray-400">{doc.hint}</p>
+            }
           </div>
         </div>
-        <label className={cn('shrink-0 text-xs cursor-pointer px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-all',
-          isSubmitted ? 'bg-emerald-100 text-emerald-700' : 'btn-primary'
-        )}>
-          {isUploading ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
-          {isUploading ? 'Uploading' : isSubmitted ? 'Replace' : 'Upload'}
-          <input ref={el => { fileInputRefs.current[doc.type] = el; }} type="file" className="hidden"
-            accept="image/*,.pdf" disabled={isUploading}
-            onChange={e => { const f = e.target.files?.[0]; if (f) onFileChange(doc.type, f, doc.label); e.target.value = ''; }} />
-        </label>
+        {isScanning ? (
+          <span className="shrink-0 text-xs px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 bg-indigo-100 text-indigo-600">
+            <Loader2 size={11} className="animate-spin" /> Scanning
+          </span>
+        ) : (
+          <label className={cn('shrink-0 text-xs cursor-pointer px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 transition-all',
+            isSubmitted ? 'bg-emerald-100 text-emerald-700' : 'btn-primary'
+          )}>
+            {isUploading ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+            {isUploading ? 'Uploading' : isSubmitted ? 'Replace' : 'Upload'}
+            <input ref={el => { fileInputRefs.current[doc.type] = el; }} type="file" className="hidden"
+              accept="image/*,.pdf" disabled={isUploading}
+              onChange={e => { const f = e.target.files?.[0]; if (f) onFileChange(doc.type, f, doc.label); e.target.value = ''; }} />
+          </label>
+        )}
       </div>
       {needsReupload && <ReuploadBanner reason={documentRejectReasons[doc.type] || 'Re-upload requested by HR'} />}
     </div>
@@ -934,16 +983,25 @@ function ReuploadBanner({ reason }: { reason: string }) {
 
 // ─── Photo Upload Section ───────────────────────────────────────────────────────
 
-function PhotoUploadSection({ hasPhoto, photoUrl, uploading, showCamera, onShowCamera, onHideCamera, photoFileRef, onPhotoFileChange, onPhotoCapture }: any) {
+function PhotoUploadSection({ hasPhoto, photoUrl, uploading, isScanning, showCamera, onShowCamera, onHideCamera, photoFileRef, onPhotoFileChange, onPhotoCapture }: any) {
   return (
     <div>
-      <div className={cn('p-4 rounded-xl border', hasPhoto ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-100 bg-gray-50/30')}>
+      <div className={cn('p-4 rounded-xl border',
+        isScanning ? 'border-indigo-200 bg-indigo-50/30' :
+        hasPhoto ? 'border-emerald-200 bg-emerald-50/30' :
+        'border-gray-100 bg-gray-50/30'
+      )}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {hasPhoto ? <CheckCircle2 size={18} className="text-emerald-500" /> : <Camera size={18} className="text-gray-400" />}
+            {isScanning ? <Loader2 size={18} className="text-indigo-500 animate-spin" /> :
+             hasPhoto ? <CheckCircle2 size={18} className="text-emerald-500" /> :
+             <Camera size={18} className="text-gray-400" />}
             <div>
               <p className="text-sm font-medium text-gray-700">Passport Size Photo <span className="text-red-400">*</span></p>
-              <p className="text-xs text-gray-400">Clear, front-facing, plain background</p>
+              {isScanning
+                ? <p className="text-xs text-indigo-500 animate-pulse">AI scanning photo…</p>
+                : <p className="text-xs text-gray-400">Clear, front-facing, plain background</p>
+              }
             </div>
           </div>
           {photoUrl && (

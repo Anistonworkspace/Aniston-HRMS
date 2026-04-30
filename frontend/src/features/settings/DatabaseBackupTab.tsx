@@ -130,11 +130,14 @@ function BackupTable({ category, accessToken, onRestoreDb, onRestoreFiles, onDel
         .then(async (res) => {
           if (!res.ok) throw new Error('Download failed');
           const blob = await res.blob();
+          const blobUrl = URL.createObjectURL(blob);
           const link = document.createElement('a');
-          link.href = URL.createObjectURL(blob);
+          link.href = blobUrl;
           link.download = backup.filename;
+          document.body.appendChild(link);
           link.click();
-          URL.revokeObjectURL(link.href);
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
         }),
       { loading: 'Preparing download...', success: 'Download started', error: (e) => e.message }
     );
@@ -268,7 +271,9 @@ export default function DatabaseBackupTab() {
   const avail = availData?.data;
 
   // Mutations
-  const [createBackup, { isLoading: creating }] = useCreateBackupMutation();
+  const [createBackup] = useCreateBackupMutation();
+  const [creatingDb, setCreatingDb] = useState(false);
+  const [creatingFiles, setCreatingFiles] = useState(false);
   const [deleteBackup] = useDeleteBackupMutation();
   const [restoreBackup, { isLoading: restoringDb }] = useRestoreBackupMutation();
   const [restoreFilesBackup, { isLoading: restoringFiles }] = useRestoreFilesBackupMutation();
@@ -295,12 +300,17 @@ export default function DatabaseBackupTab() {
 
   const handleCreate = async (category: BackupCategory) => {
     setConfirmCreate(null);
+    if (category === 'DATABASE') setCreatingDb(true);
+    else setCreatingFiles(true);
     try {
       await createBackup({ category }).unwrap();
       toast.success(`${category === 'FILES' ? 'Files' : 'Database'} backup created successfully`);
       refetch();
     } catch (err: any) {
       toast.error(err?.data?.error?.message ?? 'Backup failed');
+    } finally {
+      if (category === 'DATABASE') setCreatingDb(false);
+      else setCreatingFiles(false);
     }
   };
 
@@ -398,7 +408,7 @@ export default function DatabaseBackupTab() {
           </div>
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Backup & Recovery</h2>
-            <p className="text-sm text-gray-500">Automated backups every 7 days (Sunday 02:00 UTC) · Super Admin only</p>
+            <p className="text-sm text-gray-500">Automated daily backups at 02:00 UTC · Super Admin only</p>
           </div>
         </div>
         <button onClick={() => refetch()} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
@@ -469,7 +479,7 @@ export default function DatabaseBackupTab() {
             <span className="text-xs text-gray-500 font-medium">Next Scheduled</span>
           </div>
           <p className="text-xs font-semibold text-gray-800">{formatDate(stats?.nextScheduledAt)}</p>
-          <p className="text-[10px] text-gray-400 mt-0.5">Weekly (Sunday 02:00 UTC)</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">Daily (02:00 UTC)</p>
         </div>
         <div className="layer-card p-4">
           <div className="flex items-center gap-2 mb-2">
@@ -517,14 +527,14 @@ export default function DatabaseBackupTab() {
               {uploadingDbRestore ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
               Restore from File
             </button>
-            <input ref={dbFileInputRef} type="file" accept=".gz,.sql" className="hidden"
+            <input ref={dbFileInputRef} type="file" accept=".gz" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) { setConfirmUploadDb(f); } e.target.value = ''; }} />
             <button
               onClick={() => setConfirmCreate('DATABASE')}
-              disabled={creating || pgDumpMissing === true}
+              disabled={creatingDb || pgDumpMissing === true}
               title={pgDumpMissing ? 'pg_dump not found — see warning above' : 'Create database backup now'}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50">
-              {creating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+              {creatingDb ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
               Create DB Backup
             </button>
           </div>
@@ -564,13 +574,13 @@ export default function DatabaseBackupTab() {
               {uploadingFilesRestore ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
               Restore from Archive
             </button>
-            <input ref={filesFileInputRef} type="file" accept=".gz,.tar" className="hidden"
+            <input ref={filesFileInputRef} type="file" accept=".gz" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) { setConfirmUploadFiles(f); } e.target.value = ''; }} />
             <button
               onClick={() => setConfirmCreate('FILES')}
-              disabled={creating}
+              disabled={creatingFiles}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors disabled:opacity-50">
-              {creating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+              {creatingFiles ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
               Create Files Backup
             </button>
           </div>
@@ -598,7 +608,7 @@ export default function DatabaseBackupTab() {
       </div>
 
       <div className="text-xs text-gray-400 text-center">
-        Scheduled backups retain the latest 15 copies of each type. Older backups are automatically purged.
+        Daily backups run at 02:00 UTC. The latest 15 copies of each type are retained — 15 days of restore history.
       </div>
 
       {/* ── Confirmation Modals ── */}
@@ -611,7 +621,7 @@ export default function DatabaseBackupTab() {
           confirmCls="bg-indigo-600 hover:bg-indigo-700 text-white"
           onConfirm={() => handleCreate('DATABASE')}
           onCancel={() => setConfirmCreate(null)}
-          isLoading={creating}
+          isLoading={creatingDb}
         />
       )}
 
@@ -623,7 +633,7 @@ export default function DatabaseBackupTab() {
           confirmCls="bg-teal-600 hover:bg-teal-700 text-white"
           onConfirm={() => handleCreate('FILES')}
           onCancel={() => setConfirmCreate(null)}
-          isLoading={creating}
+          isLoading={creatingFiles}
         />
       )}
 

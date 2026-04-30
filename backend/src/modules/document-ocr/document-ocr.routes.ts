@@ -95,4 +95,36 @@ router.post('/:id/ocr/reprocess',
   (req, res, next) => documentOcrController.reprocessDocument(req, res, next),
 );
 
+// OCR history: get all past snapshots for a document (audit trail)
+router.get('/:id/ocr/history', (req, res, next) =>
+  documentOcrController.getOcrHistory(req, res, next),
+);
+
+// HR per-document approve
+router.patch('/:id/hr-approve', (req, res, next) =>
+  documentOcrController.hrApproveDocument(req, res, next),
+);
+
+// HR per-document reject
+router.patch('/:id/hr-reject', (req, res, next) =>
+  documentOcrController.hrRejectDocument(req, res, next),
+);
+
+// Org-wide bulk OCR trigger (max once per 15 minutes per org)
+router.post('/ocr/org-bulk-trigger',
+  ocrRateLimit(
+    15 * 60_000,
+    'org-bulk',
+    (r) => r.user!.organizationId,
+    (waitSec) => `Please wait ${waitSec}s before triggering another org-wide OCR scan.`,
+  ),
+  (req, res, next) => documentOcrController.orgBulkTrigger(req, res, next),
+);
+
+// Face comparison for a specific employee (manual trigger)
+router.post('/ocr/face-compare/:employeeId',
+  ocrRateLimit(5 * 60_000, 'face', (r) => r.params.employeeId),
+  (req, res, next) => documentOcrController.compareFaces(req, res, next),
+);
+
 export { router as documentOcrRouter };

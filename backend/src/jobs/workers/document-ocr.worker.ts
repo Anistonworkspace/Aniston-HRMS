@@ -18,6 +18,9 @@ const worker = new Worker<DocumentOcrJob>(
     logger.info(`[OCR Worker] Processing document ${documentId}`);
 
     try {
+      // 0. Snapshot existing OCR data to history before overwriting (preserves audit trail)
+      await documentOcrService.snapshotOcrToHistory(documentId, organizationId, 'bulk-trigger');
+
       // 1. Run Tesseract/PDF OCR extraction
       const ocrResult = await documentOcrService.triggerOcr(documentId, organizationId);
       logger.info(`[OCR Worker] OCR done for ${documentId} — confidence: ${ocrResult.confidence}`);
@@ -197,6 +200,16 @@ const worker = new Worker<DocumentOcrJob>(
           }),
         ]);
         logger.info(`[OCR Worker] Document ${documentId} flagged for HR review (low quality/confidence)`);
+      }
+
+      // 9a. Face comparison: when PHOTO or AADHAAR is scanned, compare faces for anti-impersonation
+      if (doc?.type === 'PHOTO' || doc?.type === 'AADHAAR') {
+        try {
+          await documentOcrService.compareFacesForEmployee(employee.id, organizationId);
+          logger.info(`[OCR Worker] Face comparison completed for employee ${employee.id}`);
+        } catch (faceErr: any) {
+          logger.warn(`[OCR Worker] Face comparison skipped: ${faceErr.message}`);
+        }
       }
 
       // 9. Emit real-time progress to all org HR/admin users so batch "Run All KYC" has live feedback

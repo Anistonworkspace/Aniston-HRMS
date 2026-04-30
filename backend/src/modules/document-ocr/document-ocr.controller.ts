@@ -77,6 +77,57 @@ export class DocumentOcrController {
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
+
+  /** Get OCR verification history for a document */
+  async getOcrHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const history = await documentOcrService.getOcrHistory(req.params.id, req.user!.organizationId);
+      res.json({ success: true, data: history });
+    } catch (err) { next(err); }
+  }
+
+  /** Org-wide bulk OCR trigger — queues all pending employees' documents */
+  async orgBulkTrigger(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await documentOcrService.orgBulkTrigger(req.user!.organizationId);
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  /** HR approves an individual document */
+  async hrApproveDocument(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await documentOcrService.hrApproveDocument(
+        req.params.id, req.user!.userId, req.user!.organizationId,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  /** HR rejects an individual document with a reason */
+  async hrRejectDocument(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { reason } = req.body;
+      if (!reason?.trim()) {
+        res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Rejection reason is required' } });
+        return;
+      }
+      const result = await documentOcrService.hrRejectDocument(
+        req.params.id, reason, req.user!.userId, req.user!.organizationId,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
+
+  /** Run face comparison for an employee */
+  async compareFaces(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await documentOcrService.compareFacesForEmployee(
+        req.params.employeeId, req.user!.organizationId,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) { next(err); }
+  }
 }
 
 export const documentOcrController = new DocumentOcrController();

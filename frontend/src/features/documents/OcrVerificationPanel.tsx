@@ -2,8 +2,9 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import {
   Shield, Loader2, RotateCcw, AlertTriangle, CheckCircle2, XCircle,
   ScanLine, Eye, Check, FileText, Ban, Info, ChevronDown, ChevronUp, Zap, Download,
+  History, UserCheck, UserX, ChevronRight,
 } from 'lucide-react';
-import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation, useDeepRecheckDocumentMutation, useReprocessDocumentMutation } from './documentOcrApi';
+import { useGetDocumentOcrQuery, useTriggerDocumentOcrMutation, useUpdateDocumentOcrMutation, useDeepRecheckDocumentMutation, useReprocessDocumentMutation, useGetDocumentOcrHistoryQuery, useHrApproveDocumentMutation, useHrRejectDocumentMutation } from './documentOcrApi';
 import { useVerifyDocumentMutation } from './documentApi';
 import { useGetKycHrReviewQuery, useReclassifyCombinedPdfMutation, useRequestReuploadMutation } from '../kyc/kycApi';
 import toast from 'react-hot-toast';
@@ -350,6 +351,42 @@ function DocFindingsSummary({
   );
 }
 
+// ─── Rejection reason templates ───────────────────────────────────────────────
+const REJECTION_TEMPLATES: Record<string, string[]> = {
+  default: [
+    'Image is blurry or unclear — please upload a sharper scan',
+    'Document appears to be a screenshot — please upload original scan or photo',
+    'Name on document does not match employee profile',
+    'Document is expired — please upload a valid document',
+    'Document number format is invalid or unreadable',
+    'Key information is cut off — ensure entire document is visible',
+    'Suspected digital alteration detected — please submit original',
+  ],
+  PHOTO: [
+    'No face detected — please upload a passport-size photograph',
+    'Multiple faces detected — upload a photo of the employee only',
+    'Photo quality is too low — use a well-lit, clear photo',
+    'Photo appears to be a screenshot — upload a physical photograph',
+  ],
+  AADHAAR: [
+    'Aadhaar number is not clearly visible or is incomplete',
+    'Name on Aadhaar does not match employee profile — use corrected Aadhaar',
+    'Both sides of Aadhaar card must be uploaded',
+    'QR code is obscured — ensure full document is visible',
+  ],
+  PAN: [
+    'PAN number format is invalid (must be ABCDE1234F pattern)',
+    "Father's name is not clearly visible",
+    'PAN appears to be from DigiLocker — please upload physical scan',
+  ],
+  PASSPORT: [
+    'Passport has expired — please upload a valid passport',
+    'Passport expiry is within 6 months — may need renewal soon',
+    'MRZ lines at bottom are not visible — ensure full data page is captured',
+    'Passport number format is invalid',
+  ],
+};
+
 // ─── Reject document dialog ───────────────────────────────────────────────────
 function RejectDocumentDialog({
   docType, onConfirm, onCancel, loading,
@@ -360,6 +397,7 @@ function RejectDocumentDialog({
   loading: boolean;
 }) {
   const [reason, setReason] = useState('');
+  const templates = REJECTION_TEMPLATES[docType] ?? REJECTION_TEMPLATES.default;
   return (
     <div className="layer-card p-4 border border-red-200 bg-red-50/40">
       <p className="text-sm font-semibold text-red-700 mb-2 flex items-center gap-1.5">
@@ -368,12 +406,26 @@ function RejectDocumentDialog({
       <p className="text-xs text-red-600 mb-3">
         This will mark <strong>{docType.replace(/_/g, ' ')}</strong> as rejected and notify the employee to re-upload.
       </p>
+      {/* Quick template buttons */}
+      <div className="mb-3">
+        <p className="text-xs text-slate-500 mb-1.5 font-medium">Quick reasons:</p>
+        <div className="flex flex-col gap-1">
+          {templates.map(t => (
+            <button
+              key={t}
+              onClick={() => setReason(t)}
+              className={`text-left text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${reason === t ? 'bg-red-100 border-red-300 text-red-800' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
       <textarea
         value={reason}
         onChange={e => setReason(e.target.value)}
-        placeholder="Enter reason for rejection (shown to employee)..."
-        className="input-glass text-sm w-full h-20 resize-none mb-3"
-        autoFocus
+        placeholder="Or type a custom reason..."
+        className="input-glass text-sm w-full h-16 resize-none mb-3"
       />
       <div className="flex gap-2">
         <button onClick={onCancel} className="flex-1 text-sm text-gray-600 border border-gray-200 rounded-lg py-2 hover:bg-gray-50">
@@ -947,6 +999,7 @@ export default function OcrVerificationPanel({
     pollingInterval: pollInterval,
   });
 
+  const [panelTab, setPanelTab] = useState<'analysis' | 'history'>('analysis');
   const [triggerOcr, { isLoading: triggering }] = useTriggerDocumentOcrMutation();
   const [reclassifyCombinedPdf, { isLoading: reclassifying }] = useReclassifyCombinedPdfMutation();
   const [updateOcr, { isLoading: saving }] = useUpdateDocumentOcrMutation();
@@ -954,6 +1007,9 @@ export default function OcrVerificationPanel({
   const [deepRecheck, { isLoading: deepRechecking }] = useDeepRecheckDocumentMutation();
   const [reprocessDoc, { isLoading: reprocessing }] = useReprocessDocumentMutation();
   const [requestReupload, { isLoading: requestingReupload }] = useRequestReuploadMutation();
+  const [hrApprove, { isLoading: hrApproving }] = useHrApproveDocumentMutation();
+  const [hrReject] = useHrRejectDocumentMutation();
+  const { data: historyRes } = useGetDocumentOcrHistoryQuery(documentId, { skip: panelTab !== 'history' });
 
   const [editing, setEditing] = useState(false);
   const [localDocStatus, setLocalDocStatus] = useState(documentStatus || '');
@@ -1153,7 +1209,78 @@ export default function OcrVerificationPanel({
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-700 transition-colors text-lg font-bold">&times;</button>
         </div>
 
-        <div className="p-6 space-y-5 overflow-y-auto flex-1">
+        {/* Tab bar */}
+        <div className="flex gap-1 px-6 pt-3 pb-0 border-b border-gray-100 bg-white sticky top-[73px] z-10">
+          {(['analysis', 'history'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setPanelTab(tab)}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors capitalize ${
+                panelTab === tab
+                  ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {tab === 'history' ? <History size={13} /> : <ScanLine size={13} />}
+              {tab === 'analysis' ? 'Analysis' : 'Scan History'}
+            </button>
+          ))}
+        </div>
+
+        {/* History tab content */}
+        {panelTab === 'history' && (
+          <div className="p-6">
+            {!historyRes?.data?.length ? (
+              <div className="text-center py-12 text-slate-400">
+                <History className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                <p className="text-sm">No scan history yet</p>
+                <p className="text-xs mt-1">History is captured on each re-scan after the first.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {(historyRes.data as any[]).map((snap: any, i: number) => (
+                  <div key={snap.id ?? i} className="layer-card p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-slate-500">
+                        {new Date(snap.snapshotAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {snap.triggerReason && (
+                          <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-mono">{snap.triggerReason}</span>
+                        )}
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${snap.ocrStatus === 'VERIFIED' ? 'bg-green-100 text-green-700' : snap.ocrStatus === 'FLAGGED' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                          {snap.ocrStatus || '—'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-xs">
+                      <div>
+                        <p className="text-slate-400 mb-0.5">KYC Score</p>
+                        <p className="font-bold font-mono text-slate-800">{snap.kycScore != null ? Math.round(snap.kycScore) : '—'}<span className="font-normal text-slate-400">/100</span></p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 mb-0.5">Confidence</p>
+                        <p className="font-bold font-mono text-slate-800">{snap.confidence != null ? `${Math.round(snap.confidence * 100)}%` : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 mb-0.5">Mode</p>
+                        <p className="font-mono text-slate-600">{snap.processingMode?.replace(/_/g, ' ') || '—'}</p>
+                      </div>
+                    </div>
+                    {snap.extractedName && (
+                      <p className="text-xs text-slate-500 mt-2">
+                        <span className="font-medium">Name:</span> {snap.extractedName}
+                        {snap.extractedDob && <span className="ml-3"><span className="font-medium">DOB:</span> {snap.extractedDob}</span>}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="p-6 space-y-5 overflow-y-auto flex-1" style={{ display: panelTab === 'analysis' ? undefined : 'none' }}>
           {/* Document Preview */}
           {fileUrl && (
             <div className="layer-card p-4">
@@ -1475,6 +1602,32 @@ export default function OcrVerificationPanel({
               {profileComparison.length > 0 && (
                 <ProfileComparisonPanel items={profileComparison} />
               )}
+
+              {/* ── Face Match Result (PHOTO / AADHAAR only) ── */}
+              {(() => {
+                const faceMatch = (ocr as any)?.faceMatchResult as { match: boolean; confidence: number; reason: string } | null;
+                if (!faceMatch || faceMatch.confidence === 0) return null;
+                const isPending = !faceMatch.match && faceMatch.confidence === 0;
+                const isMatch = faceMatch.match;
+                const isMismatch = !faceMatch.match && faceMatch.confidence > 0;
+                return (
+                  <div className={`p-4 rounded-xl border ${isMatch ? 'bg-green-50 border-green-200' : isMismatch && faceMatch.confidence >= 0.7 ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      {isMatch ? <UserCheck className="w-4 h-4 text-green-600" /> : isMismatch && faceMatch.confidence >= 0.7 ? <UserX className="w-4 h-4 text-red-600" /> : <UserX className="w-4 h-4 text-amber-600" />}
+                      <span className={`text-sm font-semibold ${isMatch ? 'text-green-800' : isMismatch && faceMatch.confidence >= 0.7 ? 'text-red-800' : 'text-amber-800'}`}>
+                        Face Comparison: {isMatch ? 'MATCH' : isMismatch && faceMatch.confidence >= 0.7 ? 'MISMATCH — FRAUD RISK' : 'LOW CONFIDENCE'}
+                      </span>
+                      <span className="ml-auto text-xs font-mono font-bold">{Math.round(faceMatch.confidence * 100)}%</span>
+                    </div>
+                    <p className={`text-xs ${isMatch ? 'text-green-700' : isMismatch && faceMatch.confidence >= 0.7 ? 'text-red-700' : 'text-amber-700'}`}>{faceMatch.reason}</p>
+                    {isMismatch && faceMatch.confidence >= 0.7 && (
+                      <p className="text-xs font-semibold text-red-800 mt-2">
+                        The passport photo and Aadhaar card appear to show different people. Verify identity in person before approving.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Per-document actions */}
               <div className="space-y-2">

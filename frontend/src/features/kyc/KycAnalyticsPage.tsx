@@ -5,12 +5,11 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import {
-  TrendingUp, Clock, Shield, AlertTriangle, CheckCircle, Users,
+  TrendingUp, Clock, Shield, AlertTriangle, CheckCircle,
   RefreshCw, Loader2, Building2, XCircle, FileText, Calendar,
 } from 'lucide-react';
-import { useGetKycStatsQuery as useGetKycAnalyticsQuery } from './kycApi';
 import { useTriggerKycExpiryCheckMutation } from './kycApi';
-import { useOrgBulkTriggerOcrMutation } from '../documents/documentOcrApi';
+import { useGetKycAnalyticsQuery, useOrgBulkTriggerOcrMutation } from '../documents/documentOcrApi';
 import toast from 'react-hot-toast';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];

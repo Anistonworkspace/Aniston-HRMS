@@ -1882,6 +1882,259 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
       }
     } catch { /* non-blocking */ }
   }
+
+  /**
+   * Snapshot existing OCR verification to history before a re-run.
+   * Call this before any upsert that would overwrite a previous result.
+   */
+  async snapshotOcrToHistory(documentId: string, organizationId: string, triggerReason = 'retrigger') {
+    try {
+      const existing = await prisma.documentOcrVerification.findUnique({ where: { documentId } });
+      if (!existing) return;
+      await (prisma as any).documentOcrVerificationHistory.create({
+        data: {
+          documentId,
+          organizationId,
+          ocrStatus: existing.ocrStatus,
+          confidence: existing.confidence,
+          kycScore: existing.kycScore,
+          extractedName: existing.extractedName,
+          extractedDob: existing.extractedDob,
+          extractedDocNumber: existing.extractedDocNumber,
+          processingMode: existing.processingMode,
+          llmExtractedData: existing.llmExtractedData as any,
+          triggerReason,
+        },
+      });
+    } catch (err: any) {
+      logger.warn(`[OCR] Failed to snapshot history for ${documentId}: ${err.message}`);
+    }
+  }
+
+  /**
+   * Get OCR verification history for a document (most recent first).
+   */
+  async getOcrHistory(documentId: string, organizationId: string) {
+    const doc = await prisma.document.findFirst({
+      where: { id: documentId, employee: { organizationId } },
+    });
+    if (!doc) throw new NotFoundError('Document');
+
+    return (prisma as any).documentOcrVerificationHistory.findMany({
+      where: { documentId },
+      orderBy: { snapshotAt: 'desc' },
+      take: 20,
+    });
+  }
+
+  /**
+   * Compare faces between the employee's PHOTO and their Aadhaar card image.
+   * Stores result in both docs' ocrVerification.faceMatchResult and in the gate.
+   */
+  async compareFacesForEmployee(employeeId: string, organizationId: string) {
+    const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'bmp'];
+
+    const [photoDoc, aadhaarDoc] = await Promise.all([
+      prisma.document.findFirst({
+        where: { employeeId, type: 'PHOTO', deletedAt: null, employee: { organizationId } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.document.findFirst({
+        where: { employeeId, type: 'AADHAAR', deletedAt: null, employee: { organizationId } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    if (!photoDoc || !aadhaarDoc) {
+      logger.info(`[Face] Skipping face compare for ${employeeId} — missing PHOTO or AADHAAR`);
+      return null;
+    }
+
+    let basePath = process.cwd();
+    if (basePath.endsWith('backend') || basePath.endsWith('backend/') || basePath.endsWith('backend\\')) {
+      basePath = join(basePath, '..');
+    }
+
+    const photoExt = photoDoc.fileUrl.split('.').pop()?.toLowerCase() || '';
+    const aadhaarExt = aadhaarDoc.fileUrl.split('.').pop()?.toLowerCase() || '';
+
+    if (!imageExts.includes(photoExt) || !imageExts.includes(aadhaarExt)) {
+      logger.info(`[Face] Skipping face compare — non-image file type (photo: ${photoExt}, aadhaar: ${aadhaarExt})`);
+      await prisma.onboardingDocumentGate.updateMany({
+        where: { employeeId },
+        data: { faceMatchStatus: 'SKIPPED' },
+      });
+      return null;
+    }
+
+    let photoBuffer: Buffer, aadhaarBuffer: Buffer;
+    try {
+      photoBuffer = readFileSync(join(basePath, photoDoc.fileUrl));
+      aadhaarBuffer = readFileSync(join(basePath, aadhaarDoc.fileUrl));
+    } catch (err: any) {
+      logger.warn(`[Face] Could not read files for comparison: ${err.message}`);
+      return null;
+    }
+
+    const photo1Base64 = photoBuffer.toString('base64');
+    const photo2Base64 = aadhaarBuffer.toString('base64');
+    const mime1 = `image/${photoExt === 'jpg' ? 'jpeg' : photoExt}`;
+    const mime2 = `image/${aadhaarExt === 'jpg' ? 'jpeg' : aadhaarExt}`;
+
+    const result = await aiService.compareFaces(photo1Base64, mime1, photo2Base64, mime2, organizationId);
+
+    logger.info(`[Face] Compare for ${employeeId}: match=${result.match}, confidence=${result.confidence}`);
+
+    // Store on gate
+    await prisma.onboardingDocumentGate.updateMany({
+      where: { employeeId },
+      data: {
+        faceMatchStatus: result.match ? 'MATCH' : result.confidence === 0 ? 'SKIPPED' : 'MISMATCH',
+        faceMatchScore: result.confidence,
+      },
+    });
+
+    // Store on both document OCR verifications for display in HR panel
+    await Promise.allSettled([
+      prisma.documentOcrVerification.updateMany({
+        where: { documentId: photoDoc.id },
+        data: { faceMatchResult: result as any },
+      }),
+      prisma.documentOcrVerification.updateMany({
+        where: { documentId: aadhaarDoc.id },
+        data: { faceMatchResult: result as any },
+      }),
+    ]);
+
+    // If mismatch with high confidence, emit alert to org HR
+    if (!result.match && result.confidence >= 0.7) {
+      try {
+        const { emitToOrg } = await import('../../sockets/index.js');
+        const emp = await prisma.employee.findUnique({
+          where: { id: employeeId },
+          select: { firstName: true, lastName: true, employeeCode: true },
+        });
+        emitToOrg(organizationId, 'kyc:face-mismatch', {
+          employeeId,
+          employeeName: `${emp?.firstName} ${emp?.lastName}`,
+          employeeCode: emp?.employeeCode,
+          confidence: result.confidence,
+          reason: result.reason,
+        });
+        logger.warn(`[Face] MISMATCH alert emitted for ${employeeId}: ${result.reason}`);
+      } catch { /* non-blocking */ }
+    }
+
+    return result;
+  }
+
+  /**
+   * Org-wide bulk OCR trigger — queues all SUBMITTED / PENDING_HR_REVIEW employees' docs.
+   * Rate limited to once per 15 minutes per org via Redis.
+   */
+  async orgBulkTrigger(organizationId: string): Promise<{ queued: number; employees: number }> {
+    const gates = await prisma.onboardingDocumentGate.findMany({
+      where: {
+        kycStatus: { in: ['SUBMITTED', 'PENDING_HR_REVIEW', 'REUPLOAD_REQUIRED'] },
+        employee: { organizationId },
+      },
+      select: { employeeId: true },
+    });
+
+    const docs = await prisma.document.findMany({
+      where: {
+        employeeId: { in: gates.map(g => g.employeeId) },
+        deletedAt: null,
+        employee: { organizationId },
+      },
+      select: { id: true, employeeId: true },
+    });
+
+    const { enqueueDocumentOcr } = await import('../../jobs/queues.js');
+    for (const doc of docs) {
+      await enqueueDocumentOcr(doc.id, organizationId);
+    }
+
+    logger.info(`[OCR] Org-wide bulk trigger: ${docs.length} docs across ${gates.length} employees in org ${organizationId}`);
+    return { queued: docs.length, employees: gates.length };
+  }
+
+  /**
+   * HR approves an individual document.
+   */
+  async hrApproveDocument(documentId: string, reviewerId: string, organizationId: string) {
+    const doc = await prisma.document.findFirst({
+      where: { id: documentId, employee: { organizationId }, deletedAt: null },
+    });
+    if (!doc) throw new NotFoundError('Document');
+
+    await prisma.$transaction([
+      prisma.document.update({
+        where: { id: documentId },
+        data: { status: 'VERIFIED', verifiedBy: reviewerId, verifiedAt: new Date() },
+      }),
+      prisma.documentOcrVerification.updateMany({
+        where: { documentId },
+        data: { ocrStatus: 'VERIFIED', hrReviewedBy: reviewerId, hrReviewedAt: new Date() },
+      }),
+    ]);
+
+    await createAuditLog({
+      userId: reviewerId, organizationId,
+      entity: 'Document', entityId: documentId,
+      action: 'HR_APPROVED', newValue: { status: 'VERIFIED' } as any,
+    });
+
+    // Check if all docs are now verified → auto-approve KYC gate
+    if (doc.employeeId) {
+      this.checkAutoApproveKyc(doc.employeeId, organizationId).catch(() => {});
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * HR rejects an individual document with a reason.
+   */
+  async hrRejectDocument(documentId: string, reason: string, reviewerId: string, organizationId: string) {
+    const doc = await prisma.document.findFirst({
+      where: { id: documentId, employee: { organizationId }, deletedAt: null },
+      include: { employee: { select: { id: true, userId: true, organizationId: true } } },
+    });
+    if (!doc) throw new NotFoundError('Document');
+
+    await prisma.$transaction([
+      prisma.document.update({
+        where: { id: documentId },
+        data: { status: 'REJECTED', rejectionReason: reason, verifiedBy: reviewerId },
+      }),
+      prisma.documentOcrVerification.updateMany({
+        where: { documentId },
+        data: { ocrStatus: 'FLAGGED', hrNotes: reason, hrReviewedBy: reviewerId, hrReviewedAt: new Date() },
+      }),
+    ]);
+
+    await createAuditLog({
+      userId: reviewerId, organizationId,
+      entity: 'Document', entityId: documentId,
+      action: 'HR_REJECTED', newValue: { status: 'REJECTED', reason } as any,
+    });
+
+    // Notify employee via in-app notification
+    if (doc.employee?.userId) {
+      const { enqueueNotification } = await import('../../jobs/queues.js');
+      await enqueueNotification({
+        userId: doc.employee.userId,
+        organizationId,
+        title: 'Document Rejected',
+        message: `Your ${doc.type.replace(/_/g, ' ')} was rejected: ${reason}. Please re-upload.`,
+        type: 'DOCUMENT_FLAGGED',
+        link: '/kyc-pending',
+      });
+    }
+
+    return { success: true };
+  }
 }
 
 export const documentOcrService = new DocumentOcrService();

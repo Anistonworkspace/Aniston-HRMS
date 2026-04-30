@@ -2,7 +2,7 @@ import { execSync } from 'child_process';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { createGzip } from 'zlib';
+import { createGzip, createGunzip } from 'zlib';
 import { prisma } from '../../lib/prisma.js';
 import { storageService, StorageFolder } from '../../services/storage.service.js';
 import { createAuditLog } from '../../utils/auditLogger.js';
@@ -237,14 +237,13 @@ export class BackupService {
       }),
     ]);
 
-    // Next scheduled = 7 days after the most recent successful backup (either category)
-    const scheduleIntervalMs = 7 * 24 * 60 * 60 * 1000;
-    let nextScheduledAt: Date | null = null;
-    const latestEither = latestDb && latestFiles
-      ? (latestDb.createdAt > latestFiles.createdAt ? latestDb : latestFiles)
-      : (latestDb ?? latestFiles);
-    if (latestEither) {
-      nextScheduledAt = new Date(latestEither.createdAt.getTime() + scheduleIntervalMs);
+    // Next scheduled = next daily backup at 02:00 UTC
+    const now = new Date();
+    const nextScheduledAt = new Date(Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 2, 0, 0, 0
+    ));
+    if (nextScheduledAt <= now) {
+      nextScheduledAt.setUTCDate(nextScheduledAt.getUTCDate() + 1);
     }
 
     return {
@@ -613,15 +612,23 @@ export class BackupService {
         psqlCmdArgs = ['exec', '-i', '-e', `PGPASSWORD=${conn.password}`, src.container, 'psql', ...psqlArgs];
       }
 
-      // gzip -dc decompresses to stdout, piped to psql stdin
-      const zcatProc = spawn('gzip', ['-dc', gzPath], { env });
-      const psqlProc = spawn(psqlCmd, psqlCmdArgs, { env });
+      // Use Node.js built-in zlib.createGunzip() — works on all platforms (Windows/Linux/macOS)
+      // without requiring the gzip binary to be installed.
+      const readStream = fs.createReadStream(gzPath);
+      const gunzip = createGunzip();
+      const psqlProc = spawn(psqlCmd, psqlCmdArgs, { env, stdio: ['pipe', 'pipe', 'pipe'] });
 
-      zcatProc.stdout.pipe(psqlProc.stdin);
+      readStream.pipe(gunzip).pipe(psqlProc.stdin!);
 
       const stderrChunks: Buffer[] = [];
       psqlProc.stderr.on('data', (c) => stderrChunks.push(c));
-      zcatProc.on('error', reject);
+
+      const abort = (err: Error) => {
+        try { psqlProc.kill(); } catch { /* ignore */ }
+        reject(err);
+      };
+      readStream.on('error', abort);
+      gunzip.on('error', abort);
 
       psqlProc.on('close', (code) => {
         if (code === 0) resolve();
@@ -790,6 +797,27 @@ export class BackupService {
 
     logger.info(`[Backup] 🗑️  Backup deleted: ${record.filename}`);
     return { success: true };
+  }
+
+  // ── Stuck Backup Cleanup ──────────────────────────────────────────────────
+  // Called on server/worker startup. Resets any IN_PROGRESS records older than
+  // 30 minutes to FAILED — they were interrupted by a crash or restart.
+
+  async cleanupStuckBackups() {
+    const staleThreshold = new Date(Date.now() - 30 * 60 * 1000);
+    const stuck = await prisma.databaseBackup.findMany({
+      where: { status: 'IN_PROGRESS', createdAt: { lt: staleThreshold } },
+      select: { id: true, filename: true },
+    });
+    if (stuck.length === 0) return;
+    await prisma.databaseBackup.updateMany({
+      where: { id: { in: stuck.map((b) => b.id) } },
+      data: {
+        status: 'FAILED',
+        notes: 'Backup interrupted — server restarted while backup was in progress.',
+      },
+    });
+    logger.warn(`[Backup] Cleaned up ${stuck.length} stuck IN_PROGRESS backup(s) on startup`);
   }
 
   // ── Retention ─────────────────────────────────────────────────────────────

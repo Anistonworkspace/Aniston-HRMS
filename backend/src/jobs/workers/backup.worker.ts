@@ -27,6 +27,11 @@ async function notifyAdminsOfFailure(orgId: string, category: string, errorMessa
 }
 
 export function startBackupWorker() {
+  // Reset any backups that got stuck IN_PROGRESS due to a previous crash/restart
+  backupService.cleanupStuckBackups().catch((err: any) => {
+    logger.warn(`[Backup Worker] Startup stuck-backup cleanup failed: ${err.message}`);
+  });
+
   const worker = new Worker(
     'database-backup',
     async (job) => {

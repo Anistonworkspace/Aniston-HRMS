@@ -186,6 +186,12 @@ export const kycApi = api.injectEndpoints({
         body,
       }),
     }),
+
+    // Admin: trigger KYC expiry check for the org (moves expired VERIFIED → REUPLOAD_REQUIRED)
+    triggerKycExpiryCheck: builder.mutation<any, void>({
+      query: () => ({ url: '/onboarding/kyc/expiry-check', method: 'POST' }),
+      invalidatesTags: ['Kyc'],
+    }),
   }),
 });
 
@@ -210,4 +216,5 @@ export const {
   useViewKycDocumentQuery,
   useGetKycAuditLogQuery,
   useCheckDuplicateDocumentMutation,
+  useTriggerKycExpiryCheckMutation,
 } = kycApi;

@@ -544,14 +544,18 @@ export class DocumentGateService {
     }
     // === END GUARD ===
 
+    const verifiedAt = new Date();
+    const kycExpiresAt = new Date(verifiedAt.getTime() + 365 * 24 * 3600 * 1000); // 1 year
+
     const updated = await prisma.onboardingDocumentGate.update({
       where: { employeeId },
       data: {
         kycStatus: 'VERIFIED',
-        verifiedAt: new Date(),
+        verifiedAt,
         verifiedBy,
         rejectionReason: null,
         reuploadRequested: false,
+        kycExpiresAt,
       },
     });
 

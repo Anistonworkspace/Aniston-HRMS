@@ -388,6 +388,164 @@ router.get('/kyc/stats', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, R
   }
 );
 
+// HR: KYC analytics dashboard data
+router.get('/kyc/analytics', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
+  async (req, res, next) => {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+      const orgId = req.user!.organizationId;
+      const now = new Date();
+
+      // Last 8 weeks approval trend
+      const weeklyData: Array<{ week: string; approved: number; rejected: number; submitted: number }> = [];
+      for (let i = 7; i >= 0; i--) {
+        const weekStart = new Date(now);
+        weekStart.setDate(weekStart.getDate() - i * 7);
+        weekStart.setHours(0, 0, 0, 0);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 7);
+
+        const [approved, rejected, submitted] = await Promise.all([
+          prisma.onboardingDocumentGate.count({ where: { employee: { organizationId: orgId }, kycStatus: 'VERIFIED', verifiedAt: { gte: weekStart, lt: weekEnd } } }),
+          prisma.onboardingDocumentGate.count({ where: { employee: { organizationId: orgId }, kycStatus: 'REJECTED', updatedAt: { gte: weekStart, lt: weekEnd } } }),
+          prisma.onboardingDocumentGate.count({ where: { employee: { organizationId: orgId }, kycStatus: { in: ['SUBMITTED', 'PENDING_HR_REVIEW'] }, updatedAt: { gte: weekStart, lt: weekEnd } } }),
+        ]);
+        weeklyData.push({
+          week: `${weekStart.getDate()}/${weekStart.getMonth() + 1}`,
+          approved, rejected, submitted,
+        });
+      }
+
+      // Average turnaround time (submission → verification) for verified employees
+      const verifiedGates = await prisma.onboardingDocumentGate.findMany({
+        where: { employee: { organizationId: orgId }, kycStatus: 'VERIFIED', verifiedAt: { not: null } },
+        select: { createdAt: true, verifiedAt: true },
+        take: 100,
+        orderBy: { verifiedAt: 'desc' },
+      });
+      const turnarounds = verifiedGates
+        .filter(g => g.verifiedAt)
+        .map(g => (g.verifiedAt!.getTime() - g.createdAt.getTime()) / (1000 * 3600));
+      const avgTurnaroundHours = turnarounds.length > 0
+        ? Math.round(turnarounds.reduce((a, b) => a + b, 0) / turnarounds.length)
+        : null;
+
+      // Per-department compliance
+      const deptData = await prisma.employee.findMany({
+        where: { organizationId: orgId, deletedAt: null },
+        select: {
+          department: { select: { name: true } },
+          documentGate: { select: { kycStatus: true } },
+        },
+      });
+      const deptMap: Record<string, { total: number; verified: number; pending: number; rejected: number }> = {};
+      for (const emp of deptData) {
+        const dept = emp.department?.name || 'No Department';
+        if (!deptMap[dept]) deptMap[dept] = { total: 0, verified: 0, pending: 0, rejected: 0 };
+        deptMap[dept].total++;
+        const status = emp.documentGate?.kycStatus || 'PENDING';
+        if (status === 'VERIFIED') deptMap[dept].verified++;
+        else if (status === 'REJECTED') deptMap[dept].rejected++;
+        else deptMap[dept].pending++;
+      }
+      const deptCompliance = Object.entries(deptMap).map(([dept, d]) => ({
+        dept,
+        ...d,
+        compliancePct: d.total > 0 ? Math.round((d.verified / d.total) * 100) : 0,
+      })).sort((a, b) => b.total - a.total);
+
+      // OCR score distribution (from OcrVerification across org)
+      const scoreDistrib = await prisma.documentOcrVerification.groupBy({
+        by: ['ocrStatus'],
+        where: { organizationId: orgId },
+        _count: { id: true },
+      });
+      const ocrStatusCounts: Record<string, number> = {};
+      for (const s of scoreDistrib) ocrStatusCounts[s.ocrStatus] = s._count.id;
+
+      // Flagged doc type frequency (most common doc types that get FLAGGED)
+      const flaggedTypes = await prisma.document.groupBy({
+        by: ['type'],
+        where: { employee: { organizationId: orgId }, status: 'FLAGGED', deletedAt: null },
+        _count: { id: true },
+        orderBy: { _count: { id: 'desc' } },
+        take: 8,
+      });
+
+      // KYC expiry in next 30/60/90 days
+      const d30 = new Date(now); d30.setDate(d30.getDate() + 30);
+      const d60 = new Date(now); d60.setDate(d60.getDate() + 60);
+      const d90 = new Date(now); d90.setDate(d90.getDate() + 90);
+      const [expiring30, expiring60, expiring90] = await Promise.all([
+        prisma.onboardingDocumentGate.count({ where: { employee: { organizationId: orgId }, kycStatus: 'VERIFIED', kycExpiresAt: { lte: d30, gt: now } } }),
+        prisma.onboardingDocumentGate.count({ where: { employee: { organizationId: orgId }, kycStatus: 'VERIFIED', kycExpiresAt: { lte: d60, gt: d30 } } }),
+        prisma.onboardingDocumentGate.count({ where: { employee: { organizationId: orgId }, kycStatus: 'VERIFIED', kycExpiresAt: { lte: d90, gt: d60 } } }),
+      ]);
+
+      res.json({
+        success: true,
+        data: {
+          weeklyTrend: weeklyData,
+          avgTurnaroundHours,
+          deptCompliance,
+          ocrStatusCounts,
+          flaggedDocTypes: flaggedTypes.map(f => ({ type: f.type, count: f._count.id })),
+          kycExpiry: { next30Days: expiring30, next60Days: expiring60, next90Days: expiring90 },
+        },
+      });
+    } catch (err) { next(err); }
+  }
+);
+
+// System: KYC expiry check — moves expired VERIFIED employees back to REUPLOAD_REQUIRED
+// Called by a cron job daily. Also exposed as an HTTP endpoint for manual trigger.
+router.post('/kyc/expiry-check', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN),
+  async (req, res, next) => {
+    try {
+      const { prisma } = await import('../../lib/prisma.js');
+      const orgId = req.user!.organizationId;
+      const now = new Date();
+
+      const expired = await prisma.onboardingDocumentGate.findMany({
+        where: {
+          employee: { organizationId: orgId },
+          kycStatus: 'VERIFIED',
+          kycExpiresAt: { lte: now },
+        },
+        select: { employeeId: true },
+      });
+
+      for (const gate of expired) {
+        await prisma.onboardingDocumentGate.update({
+          where: { employeeId: gate.employeeId },
+          data: {
+            kycStatus: 'REUPLOAD_REQUIRED',
+            reuploadRequested: true,
+            employeeVisibleReasons: ['Your KYC documents have expired. Please re-upload to regain portal access.'] as any,
+          },
+        });
+        const emp = await prisma.employee.findUnique({
+          where: { id: gate.employeeId },
+          select: { userId: true, organizationId: true },
+        });
+        if (emp?.userId) {
+          const { enqueueNotification } = await import('../../jobs/queues.js');
+          await enqueueNotification({
+            userId: emp.userId,
+            organizationId: emp.organizationId,
+            title: 'KYC Renewal Required',
+            message: 'Your KYC verification has expired. Please re-upload your documents to maintain access.',
+            type: 'DOCUMENT_FLAGGED',
+            link: '/kyc-pending',
+          });
+        }
+      }
+
+      res.json({ success: true, data: { expired: expired.length } });
+    } catch (err) { next(err); }
+  }
+);
+
 // HR: Securely stream a KYC document (no download, no direct URL exposure)
 // The file is served through this authenticated proxy — the real file path is never exposed to the browser.
 router.get('/kyc/:employeeId/document/:docId/view',

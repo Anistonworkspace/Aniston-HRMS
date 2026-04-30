@@ -424,6 +424,73 @@ Return ONLY valid compact JSON (no markdown, no explanation):
     }
   }
 
+  /**
+   * Compare two face images (passport photo vs Aadhaar card) to detect impersonation.
+   * Returns { match, confidence, reason } — match=true means faces are the same person.
+   */
+  async compareFaces(
+    photo1Base64: string, mime1: string,
+    photo2Base64: string, mime2: string,
+    organizationId?: string,
+  ): Promise<{ match: boolean; confidence: number; reason: string }> {
+    const orgId = organizationId || 'default';
+    const config = await aiConfigService.getActiveConfigRaw(orgId);
+    if (!config || !config.apiKey || config.provider !== 'openai') {
+      return { match: false, confidence: 0, reason: 'AI provider not configured for face comparison' };
+    }
+    const apiKey = config.apiKey;
+    const model = config.model || 'gpt-4.1';
+    const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+    const isOpenRouter = apiKey.startsWith('sk-or-v1-') || baseUrl.includes('openrouter');
+    const resolvedModel = isOpenRouter ? 'openai/gpt-4o' : model;
+    const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
+
+    const PROMPT = `You are an anti-fraud face verification system for an Indian HR KYC process.
+You will be shown two images. Image 1 is the employee's submitted passport photo. Image 2 is an identity document (Aadhaar card or similar) that contains a small photo of the holder.
+Your task: Determine if both images show the SAME person.
+
+Respond ONLY with compact JSON (no markdown):
+{"match":true,"confidence":0.0,"reason":"one sentence explanation with specific visual evidence"}
+
+Rules:
+- match: true if same person (high confidence ≥ 0.7 needed), false if different or uncertain
+- confidence: 0.0–1.0 how certain you are
+- If Image 2 has no visible face (small/unclear photo on document), set match:false, confidence:0, reason:"No face visible in document photo"
+- Focus on: face shape, eye distance, nose shape, jawline — ignore lighting and background differences
+- Never guess — if confidence < 0.6, set match:false`;
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          ...(isOpenRouter ? { 'HTTP-Referer': 'https://hr.anistonav.com', 'X-Title': 'Aniston HRMS KYC' } : {}),
+        },
+        body: JSON.stringify({
+          model: resolvedModel,
+          max_tokens: 200,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'text', text: PROMPT },
+              { type: 'image_url', image_url: { url: `data:${mime1};base64,${photo1Base64}`, detail: 'high' } },
+              { type: 'image_url', image_url: { url: `data:${mime2};base64,${photo2Base64}`, detail: 'high' } },
+            ],
+          }],
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) throw new Error(`Face compare API ${res.status}`);
+      const data = await res.json() as any;
+      const raw = data.choices?.[0]?.message?.content || '';
+      const clean = raw.replace(/```json\n?|```/g, '').trim();
+      return JSON.parse(clean);
+    } catch (err: any) {
+      return { match: false, confidence: 0, reason: `Face comparison failed: ${err.message}` };
+    }
+  }
+
   private async callOpenAiKycVision(apiKey: string, model: string, imageBase64: string, mimeType: string, deepMode = false, docTypeHint?: string): Promise<string> {
     // Support OpenRouter (sk-or-v1-...) and direct OpenAI — auto-detected via key prefix or env
     const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';

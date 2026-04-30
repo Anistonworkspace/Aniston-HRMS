@@ -452,8 +452,9 @@ model Document {
   updatedAt       DateTime       @updatedAt
   deletedAt       DateTime?
 
-  employee        Employee?              @relation(fields: [employeeId], references: [id])
-  ocrVerification DocumentOcrVerification?
+  employee          Employee?              @relation(fields: [employeeId], references: [id])
+  ocrVerification   DocumentOcrVerification?
+  ocrHistory        DocumentOcrVerificationHistory[]
 
   @@index([employeeId])
   @@index([employeeId, type])
@@ -512,11 +513,14 @@ model DocumentOcrVerification {
   kycScore              Float?    // 0–100 weighted KYC score
   profileComparison     Json?     // structured profile cross-check results
 
+  // Face comparison result (PHOTO vs AADHAAR card photo)
+  faceMatchResult       Json?     // { match: boolean, confidence: number, reason: string }
+
   // HR review
   hrReviewedBy          String?
   hrReviewedAt          DateTime?
   hrNotes               String?
-  ocrStatus             String    @default("PENDING") // PENDING, REVIEWED, FLAGGED
+  ocrStatus             String    @default("PENDING") // PENDING, REVIEWED, FLAGGED, VERIFIED
 
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
@@ -528,6 +532,30 @@ model DocumentOcrVerification {
   @@index([documentId])
   @@index([ocrStatus])
   @@index([updatedAt])
+}
+
+// Snapshot of DocumentOcrVerification before each re-run — preserves history so HR can
+// see if re-uploads improved or worsened scores, and for audit trail purposes.
+model DocumentOcrVerificationHistory {
+  id               String   @id @default(uuid())
+  documentId       String
+  organizationId   String
+  ocrStatus        String?
+  confidence       Float?
+  kycScore         Float?
+  extractedName    String?
+  extractedDob     String?
+  extractedDocNumber String?
+  processingMode   String?
+  llmExtractedData Json?
+  triggerReason    String?  // "manual-retrigger" | "system-auto-escalate" | "bulk-trigger" | "initial"
+  snapshotAt       DateTime @default(now())
+
+  document         Document @relation(fields: [documentId], references: [id])
+
+  @@index([documentId])
+  @@index([organizationId])
+  @@index([snapshotAt])
 }
 
 enum DocumentType {
@@ -1587,6 +1615,13 @@ model OnboardingDocumentGate {
   // Missing / duplicate doc tracking
   missingDocuments      String[]     @default([])
   duplicateDocuments    String[]     @default([])
+
+  // KYC expiry (annual re-verification)
+  kycExpiresAt          DateTime?    // Set to verifiedAt + 1 year; cron moves back to REUPLOAD_REQUIRED when expired
+
+  // Face match result across PHOTO + Aadhaar documents (anti-impersonation)
+  faceMatchStatus       String?      // MATCH | MISMATCH | PENDING | SKIPPED
+  faceMatchScore        Float?       // 0–1 match confidence
 
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt

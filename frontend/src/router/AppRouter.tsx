@@ -57,6 +57,7 @@ const ActivateAccountPage = lazy(() => import('../features/auth/ActivateAccountP
 const ResetPasswordPage = lazy(() => import('../features/auth/ResetPasswordPage'));
 const KycGatePage = lazy(() => import('../features/kyc/KycGatePage'));
 const KycHrReviewPage = lazy(() => import('../features/kyc/KycHrReviewPage'));
+const KycAnalyticsPage = lazy(() => import('../features/kyc/KycAnalyticsPage'));
 const MyDocumentsPage = lazy(() => import('../features/my-documents/MyDocumentsPage'));
 const NewOnboardingFlow = lazy(() => import('../features/onboarding/NewOnboardingFlow'));
 const MfaRequiredPage = lazy(() => import('../features/auth/MfaRequiredPage'));
@@ -218,6 +219,7 @@ export default function AppRouter() {
             <Route path="/my-assets" element={<MyAssetsPage />} />
             <Route path="/my-documents" element={<MyDocumentsPage />} />
             <Route path="/kyc-review" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'HR']}><KycHrReviewPage /></ProtectedRoute>} />
+            <Route path="/kyc-analytics" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'ADMIN', 'HR']}><KycAnalyticsPage /></ProtectedRoute>} />
             <Route path="/walk-in-management" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'HR']}><WalkInManagementPage /></ProtectedRoute>} />
             <Route path="/walk-in-management/:id" element={<ProtectedRoute allowedRoles={['SUPER_ADMIN', 'HR']}><WalkInDetailPage /></ProtectedRoute>} />
             <Route path="/send-bulk-email" element={<Navigate to="/bulk-email" replace />} />
