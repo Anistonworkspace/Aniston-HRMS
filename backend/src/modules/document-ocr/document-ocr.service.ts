@@ -520,13 +520,15 @@ Rules:
 3. Return maximum 5 findings total. Focus only on profile mismatches and suspicious text patterns.
 4. Use specific values: "Document: 'Rahul Kumar' vs profile: 'Rahul Kumar' — exact match" not generic text.
 5. If profile data unavailable for a field, set result: NOT_APPLICABLE and skip the finding.
-6. Document-type rules (CRITICAL):
-   - PHOTO: return empty findings and profile_comparison arrays.
+6. Document-type rules (CRITICAL — read carefully before generating any finding):
+   - PHOTO/PROFILE_PHOTO: ONLY verify (1) a human face is clearly visible, (2) portrait/passport-size format. Return EMPTY findings and profile_comparison arrays. NEVER flag for missing text, keywords, or document structure.
    - RESIDENCE_PROOF: verify address only — NEVER compare name. The name on a residence proof (electricity/water bill, rental agreement) is often a parent or property owner — a different name is expected and normal, NOT a mismatch.
+   - PAN: extract date_of_birth ONLY from the field explicitly labeled "Date of Birth" or "जन्म तिथि". NEVER use "Verified On", "VERIFIED ON", "Verified Date", "Digitally Signed", "Signed on", or any system/verification timestamp as DOB. The PAN DOB must be a birth date at least 18 years in the past — any date within the last 5 years is a verification timestamp, NOT a DOB.
+   - TENTH_CERTIFICATE/TWELFTH_CERTIFICATE/DEGREE_CERTIFICATE/POST_GRADUATION_CERTIFICATE: extract name ONLY from the student/examinee name field (labeled "Name of Student", "विद्यार्थी का नाम", "This is to certify that [NAME]", "Candidate Name"). NEVER extract Mother's Name, Father's Name, school name, board name, or any header text as the student name. If only mother/father name is visible and no student name, return NOT_APPLICABLE for name.
    - SALARY_SLIP_DOC: verify gross - deductions = net if all present.
    - EXPERIENCE_LETTER/OFFER_LETTER_DOC/RELIEVING_LETTER: check name/company/designation/dates.
-   - DEGREE_CERTIFICATE/TENTH_CERTIFICATE/TWELFTH_CERTIFICATE: check name/institution/year.
    - BANK_STATEMENT/CANCELLED_CHEQUE: check account holder name only.
+   - DIGILOCKER: if the document shows a DigiLocker logo, QR code, or "Powered by DigiLocker" / "Digitally signed" text, it is a government-digitally-verified document — treat this as a strong positive authenticity signal and note it explicitly.
 
 Respond with compact JSON only (no markdown):
 {"confirmed_type":"...","findings":[{"check":"Name cross-check","result":"PASS|WARNING|FAIL","detail":"specific evidence"}],"profile_comparison":[{"field":"full_name","profile_value":"","document_value":"","result":"PASS|WARNING|FAIL|NOT_APPLICABLE","confidence":0,"detail":"specific comparison result"}],"suspicious_indicators":[],"confidence_note":"one-line assessment"}`,
@@ -624,6 +626,26 @@ Respond with compact JSON only (no markdown):
       branch: fields.branch || null,
     } : {};
 
+    // Education certs: student_name has priority; generic name fields often contain school/board names
+    const EDU_CERT_TYPES = ['TENTH_CERTIFICATE', 'TWELFTH_CERTIFICATE', 'DEGREE_CERTIFICATE', 'POST_GRADUATION_CERTIFICATE'];
+    const isEduCertDoc = EDU_CERT_TYPES.includes(doc.type);
+    const extractedNameValue = isEduCertDoc
+      ? (fields.student_name || fields.name || null)
+      : (fields.name || fields.account_holder_name || fields.student_name || null);
+
+    // PAN DOB sanity: DigiLocker stamps "Verified On" dates which AI may pick up as date_of_birth.
+    // Any date within the last 18 years cannot be a valid DOB for an employee — discard it.
+    let extractedDobValue: string | null = fields.date_of_birth || null;
+    if (doc.type === 'PAN' && extractedDobValue) {
+      const dobDate = new Date(extractedDobValue);
+      const cutoff18 = new Date();
+      cutoff18.setFullYear(cutoff18.getFullYear() - 18);
+      if (!isNaN(dobDate.getTime()) && dobDate > cutoff18) {
+        logger.warn(`[OCR] PAN DOB sanity rejected for ${documentId}: "${extractedDobValue}" is within 18 years — treating as verification timestamp`);
+        extractedDobValue = null;
+      }
+    }
+
     // Upsert the OCR verification record
     const ocrVerification = await prisma.documentOcrVerification.upsert({
       where: { documentId },
@@ -633,8 +655,8 @@ Respond with compact JSON only (no markdown):
         rawText: (ocrResult.raw_text || '').substring(0, 10000),
         detectedType: ocrResult.document_type || doc.type,
         confidence,
-        extractedName: fields.name || fields.account_holder_name || fields.student_name || null,
-        extractedDob: fields.date_of_birth || null,
+        extractedName: extractedNameValue,
+        extractedDob: extractedDobValue,
         extractedFatherName: fields.father_name || null,
         extractedMotherName: fields.mother_name || null,
         extractedDocNumber: fields.aadhaar_number || fields.pan_number || fields.passport_number || fields.epic_number || fields.dl_number || fields.account_number || null,
@@ -677,8 +699,8 @@ Respond with compact JSON only (no markdown):
         rawText: (ocrResult.raw_text || '').substring(0, 10000),
         detectedType: ocrResult.document_type || doc.type,
         confidence,
-        extractedName: fields.name || fields.account_holder_name || fields.student_name || null,
-        extractedDob: fields.date_of_birth || null,
+        extractedName: extractedNameValue,
+        extractedDob: extractedDobValue,
         extractedFatherName: fields.father_name || null,
         extractedMotherName: fields.mother_name || null,
         extractedDocNumber: fields.aadhaar_number || fields.pan_number || fields.passport_number || fields.epic_number || fields.dl_number || fields.account_number || null,
@@ -718,20 +740,15 @@ Respond with compact JSON only (no markdown):
       },
     });
 
-    // HR must explicitly approve — high OCR score alone does not verify a document.
-    // ocrStatus is set to REVIEWED (via autoOcrStatus above) to signal AI processing
-    // completed cleanly, but document.status stays PENDING until HR clicks Approve.
-    // Only FLAGGED status is set automatically when tampering is detected.
-    if (kycScore >= 90 && !hasCriticalFindings && !hasTamperIssues) {
-      logger.info(`[OCR] High KYC score for document ${documentId} (kycScore: ${kycScore}) — awaiting HR approval`);
-    }
+    // Auto-verify: kycScore ≥ 90 + no tampering + no critical findings → VERIFIED without waiting for HR
+    const shouldAutoVerify = kycScore >= 90 && !hasTamperIssues && !hasCriticalFindings;
 
-    // Update the Document record — never auto-set VERIFIED, HR must approve
+    // Update the Document record
     await prisma.document.update({
       where: { id: documentId },
       data: {
         ocrData: ocrResult,
-        status: hasTamperIssues ? 'FLAGGED' : undefined,
+        status: hasTamperIssues ? 'FLAGGED' : (shouldAutoVerify ? 'VERIFIED' : undefined),
         tamperDetected: hasTamperIssues,
         tamperDetails: hasTamperIssues
           ? qualityReport.tamperingIndicators.join('; ') || 'Possible screenshot detected'
@@ -739,6 +756,20 @@ Respond with compact JSON only (no markdown):
         rejectionReason: null,
       },
     });
+
+    if (shouldAutoVerify) {
+      logger.info(`[OCR] Auto-verified document ${documentId} (kycScore: ${kycScore})`);
+      await prisma.documentOcrVerification.update({
+        where: { documentId },
+        data: { ocrStatus: 'VERIFIED' as any },
+      });
+      // Fire-and-forget: check if all docs for this employee are now VERIFIED → auto-approve KYC gate
+      if (doc.employeeId) {
+        this.checkAutoApproveKyc(doc.employeeId, organizationId).catch((err: any) =>
+          logger.warn(`[OCR] KYC auto-approve check failed for employee ${doc.employeeId}: ${err.message}`)
+        );
+      }
+    }
 
     return ocrVerification;
   }
@@ -1587,28 +1618,25 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
   }
 
   /**
-   * Bulk-trigger OCR for all of an employee's documents that haven't been processed yet.
-   * Skips docs that already have a confident OCR result (confidence > 0.3).
+   * Bulk-trigger OCR for all of an employee's documents (always re-runs regardless of prior confidence).
+   * After queuing all docs, fires cross-validation so cross-doc results are always current.
    */
   async triggerAllForEmployee(employeeId: string, organizationId: string) {
     const docs = await prisma.document.findMany({
       where: { employeeId, deletedAt: null, employee: { organizationId } },
-      include: { ocrVerification: { select: { confidence: true } } },
     });
 
     const { enqueueDocumentOcr } = await import('../../jobs/queues.js');
-    let triggered = 0;
-    let skipped = 0;
     for (const doc of docs) {
-      const conf = (doc.ocrVerification as any)?.confidence ?? 0;
-      if (conf > 0.3) {
-        skipped++;
-        continue;
-      }
       await enqueueDocumentOcr(doc.id, organizationId);
-      triggered++;
     }
-    return { triggered, skipped, total: docs.length };
+
+    // Cross-validate after queuing so any updated findings are reflected in cross-doc status
+    this.crossValidateEmployee(employeeId, organizationId).catch((err: any) =>
+      logger.warn(`[OCR] Cross-validation after triggerAll failed for ${employeeId}: ${err.message}`)
+    );
+
+    return { triggered: docs.length, total: docs.length };
   }
 
   /**
@@ -1691,6 +1719,76 @@ Please extract all identity fields from the above OCR text. Apply OCR error corr
     });
 
     return this.triggerOcr(documentId, organizationId);
+  }
+
+  /**
+   * Auto-approve KYC gate if all of the employee's active documents are now VERIFIED.
+   * Called after a document is auto-verified (kycScore ≥ 90). Non-blocking — errors are
+   * caught by the caller. Skips employees whose gate is already VERIFIED or not yet SUBMITTED.
+   */
+  private async checkAutoApproveKyc(employeeId: string, organizationId: string) {
+    const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+    if (!gate) return;
+    // Only auto-approve when employee has submitted and is awaiting HR review
+    if (!['SUBMITTED', 'PENDING_HR_REVIEW'].includes(gate.kycStatus)) return;
+
+    // Check that every active (non-deleted) document is VERIFIED
+    const activeDocs = await prisma.document.findMany({
+      where: { employeeId, deletedAt: null },
+      select: { status: true },
+    });
+    if (activeDocs.length === 0) return;
+    const allVerified = activeDocs.every(d => d.status === 'VERIFIED');
+    if (!allVerified) return;
+
+    logger.info(`[OCR] All documents VERIFIED for employee ${employeeId} — auto-approving KYC gate`);
+
+    await prisma.onboardingDocumentGate.update({
+      where: { employeeId },
+      data: {
+        kycStatus: 'VERIFIED',
+        verifiedAt: new Date(),
+        verifiedBy: 'system-auto-verify',
+        rejectionReason: null,
+        reuploadRequested: false,
+      },
+    });
+
+    // Emit real-time event so employee's AppShell reflects access immediately
+    const { emitToUser } = await import('../../sockets/index.js');
+    emitToUser(employeeId, 'kyc:status-changed', { kycStatus: 'VERIFIED', autoApproved: true });
+
+    // Congratulations email
+    try {
+      const emp = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { firstName: true, lastName: true, user: { select: { email: true } } },
+      });
+      if (emp?.user?.email) {
+        const { enqueueEmail } = await import('../../jobs/queues.js');
+        await enqueueEmail({
+          to: emp.user.email,
+          subject: '✅ KYC Verified — Your Aniston HRMS Portal Access is Now Active',
+          template: 'kyc-verified',
+          context: {
+            employeeName: [emp.firstName, emp.lastName].filter(Boolean).join(' ') || 'Employee',
+            verifiedAt: new Date().toLocaleDateString('en-IN', { dateStyle: 'long' }),
+          },
+        });
+      }
+    } catch { /* non-blocking */ }
+
+    // Auto-fill employee profile from verified OCR data
+    try {
+      const { documentService } = await import('../document/document.service.js');
+      const verifiedDocs = await prisma.document.findMany({
+        where: { employeeId, deletedAt: null, status: 'VERIFIED' },
+        select: { id: true },
+      });
+      for (const d of verifiedDocs) {
+        await documentService.autoFillFromOcr(d.id, employeeId, 'system-auto-verify', organizationId).catch(() => {});
+      }
+    } catch { /* non-blocking */ }
   }
 }
 
