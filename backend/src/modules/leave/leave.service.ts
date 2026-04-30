@@ -734,6 +734,7 @@ export class LeaveService {
 
     // Block draft save for non-active statuses
     const BLOCKED_STATUSES: Record<string, string> = {
+      ONBOARDING: 'Employees in onboarding cannot apply for leave. Complete your onboarding first.',
       SUSPENDED: 'Your account is currently suspended. Contact HR before applying for leave.',
       INACTIVE: 'Your employment is marked as inactive. Please contact HR.',
       TERMINATED: 'Terminated employees cannot apply for leave.',
