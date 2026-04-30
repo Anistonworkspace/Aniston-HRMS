@@ -82,7 +82,6 @@ export class EmployeeService {
       where: {
         employeeId: { in: employeeIds },
         checkIn: { gte: startOfToday, lt: startOfTomorrow },
-        deletedAt: null,
       },
       select: { employeeId: true },
     });
