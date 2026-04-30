@@ -256,22 +256,22 @@ export class AiConfigService {
       where: { organizationId, isActive: true },
     });
 
-    // If user provided an apiKey override, use that directly; otherwise decrypt from DB
+    // Env key always wins for OPENAI — same priority rule as getActiveConfigRaw().
+    // This ensures testConnection() and the real OCR pipeline use the same key source.
+    const envKey = process.env.OPENAI_API_KEY;
+    const effectiveProvider = overrides?.provider || config?.provider || 'DEEPSEEK';
+
     let apiKey: string | undefined;
     if (overrides?.apiKey) {
       apiKey = overrides.apiKey;
+    } else if (envKey && effectiveProvider === 'OPENAI') {
+      apiKey = envKey;
     } else if (config) {
       try {
         apiKey = decrypt(config.apiKeyEncrypted);
       } catch {
         return { success: false, message: 'Failed to decrypt API key. Please re-save your configuration with a new API key.', provider: config?.provider, model: config?.modelName };
       }
-    }
-
-    // Env key: use for OPENAI when no override key is provided
-    const envKey = process.env.OPENAI_API_KEY;
-    if (!apiKey && envKey && (!overrides?.provider || overrides.provider === 'OPENAI') && (!config || config.provider === 'OPENAI')) {
-      apiKey = envKey;
     }
 
     if (!apiKey) {
