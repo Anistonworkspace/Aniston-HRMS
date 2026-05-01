@@ -2,13 +2,9 @@ import { Tray, Menu, nativeImage, BrowserWindow, app, ipcMain } from 'electron';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 import { isTracking, pauseTracking, resumeTracking, stopTracking } from './tracker';
 import { stopScreenshots } from './screenshot';
 import { isLoggedIn } from './api';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 let tray: Tray | null = null;
 let pairWindow: BrowserWindow | null = null;

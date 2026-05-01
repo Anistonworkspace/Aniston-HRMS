@@ -140,16 +140,18 @@ jobs:
 
       - name: Download agent installer artifact
         if: needs.build-agent.result == 'success'
+        id: download-agent
         uses: actions/download-artifact@v4
         with:
           name: aniston-agent-setup
           path: ./agent-build
+        continue-on-error: true
 
       # ── SCP: push binaries to EC2 ────────────────────────────────────────
 
       # Create agent download directory BEFORE SCP so the target path exists
       - name: Prepare agent download directory on EC2
-        if: needs.build-agent.result == 'success'
+        if: steps.download-agent.outcome == 'success'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -160,7 +162,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload agent .exe to EC2
-        if: needs.build-agent.result == 'success'
+        if: steps.download-agent.outcome == 'success'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}

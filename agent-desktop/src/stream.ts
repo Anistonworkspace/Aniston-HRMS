@@ -13,12 +13,8 @@ import { BrowserWindow, ipcMain, desktopCapturer } from 'electron';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 import { getAccessToken } from './api';
 import { CONFIG } from './config';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 let streamWindow: BrowserWindow | null = null;
 let isStreaming = false;
