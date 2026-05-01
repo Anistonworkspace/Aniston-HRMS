@@ -102,7 +102,7 @@ router.get('/contacts', authorize(...WA_ROLES), readLimiter, (req, res, next) =>
 router.get('/conversations', authorize(...WA_ROLES), readLimiter, (req, res, next) =>
   whatsAppController.getConversations(req, res, next)
 );
-router.get('/resolve/:phone', authorize(...WA_ROLES), (req, res, next) =>
+router.get('/resolve/:phone', authorize(...WA_ROLES), readLimiter, (req, res, next) =>
   whatsAppController.resolveChatByPhone(req, res, next)
 );
 

@@ -46,7 +46,7 @@ export class BulkResumeController {
     try {
       const { inviteType, phone, jobId } = z.object({
         inviteType: z.enum(['email', 'whatsapp']),
-        phone: z.string().min(10).optional(),
+        phone: z.string().regex(/^\+?[0-9]{10,15}$/, 'Invalid phone number').optional(),
         jobId: z.string().uuid(),
       }).parse(req.body);
 
@@ -90,7 +90,7 @@ export class BulkResumeController {
         const message = `Hello ${candidateName},\n\nWe have reviewed your profile and would like to invite you to interview for the *${job?.title || 'open position'}* role at *${companyName}*.\n\nPlease complete your application here:\n${applyLink}\n\nVenue: ${venue}\n\nBest regards,\nHR Team | ${companyName}`;
         const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
         try {
-          await whatsAppService.sendMessage({ to: toPhone, message }, req.user!.organizationId, req.user!.userId, 'INTERVIEW_INVITE');
+          await whatsAppService.sendMessage({ to: toPhone, message }, req.user!.organizationId, req.user!.userId, 'INTERVIEW_INVITE', { skipQuotaCheck: true });
           res.json({ success: true, data: { sent: true, to: toPhone, type: 'whatsapp' } });
         } catch (waErr: any) {
           // Return success with sent:false so the recruiter knows WhatsApp failed but the record is not lost

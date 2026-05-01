@@ -317,6 +317,10 @@ export class WhatsAppService {
       this._initializing = false;
       this._syncing = false;
       this._qrCode = null;
+      // Clear all timers — prevents orphaned intervals accumulating across reconnect cycles
+      if (this._qrTimeoutTimer) { clearTimeout(this._qrTimeoutTimer); this._qrTimeoutTimer = null; }
+      if (this._pingInterval) { clearInterval(this._pingInterval); this._pingInterval = null; }
+      if (this._sessionExpiryInterval) { clearInterval(this._sessionExpiryInterval); this._sessionExpiryInterval = null; }
       await prisma.whatsAppSession.updateMany({
         where: { sessionName: `main-${organizationId}` },
         data: { isConnected: false, qrCode: null },
@@ -643,21 +647,27 @@ export class WhatsAppService {
 
       return { ...msg, chatId };
     } catch (error: any) {
-      // Log failed attempt
-      const session = await prisma.whatsAppSession.findFirst({ where: { organizationId } });
-      await prisma.whatsAppMessage.create({
-        data: {
-          sessionId: session?.id || 'unknown',
-          direction: 'OUTBOUND',
-          fromNumber: session?.phoneNumber || '',
-          to: phone,
-          message: data.message,
-          templateType,
-          status: 'FAILED',
-          error: error.message?.slice(0, 500),
-          organizationId,
-        },
-      });
+      // Log failed attempt — only if session exists (avoids corrupt sessionId='unknown' records)
+      try {
+        const session = await prisma.whatsAppSession.findFirst({ where: { organizationId } });
+        if (session) {
+          await prisma.whatsAppMessage.create({
+            data: {
+              sessionId: session.id,
+              direction: 'OUTBOUND',
+              fromNumber: session.phoneNumber || '',
+              to: phone,
+              message: data.message,
+              templateType,
+              status: 'FAILED',
+              error: error.message?.slice(0, 500),
+              organizationId,
+            },
+          });
+        }
+      } catch (logErr) {
+        logger.warn('WhatsApp: failed to log failed message attempt:', logErr);
+      }
       throw new BadRequestError(`Failed to send: ${error.message}`);
     }
   }
@@ -801,9 +811,9 @@ export class WhatsAppService {
         'Chat fetch timed out'
       ) as any[];
 
+      // Sort first, then slice — most recent MAX_CHATS_DISPLAY chats
       const sorted = chats
         .sort((a: any, b: any) => {
-          // Sort by lastMessage timestamp descending; chats with no lastMessage go to bottom
           const tA = a.lastMessage?.timestamp || 0;
           const tB = b.lastMessage?.timestamp || 0;
           return tB - tA;

@@ -100,6 +100,9 @@ export class WhatsAppController {
   async getChatMessages(req: Request, res: Response, next: NextFunction) {
     try {
       const chatId = String(req.params.chatId);
+      if (!chatId || chatId.length > 200 || !/^[a-zA-Z0-9@._\-+]+$/.test(chatId)) {
+        res.status(400).json({ success: false, error: { message: 'Invalid chatId format' } }); return;
+      }
       const limit = Math.min(Number(req.query.limit) || 50, 200);
       const before = typeof req.query.before === 'string' ? req.query.before : undefined;
       const messages = await whatsAppService.getChatMessages(chatId, limit, before, req.user!.organizationId);
@@ -109,10 +112,11 @@ export class WhatsAppController {
 
   async markAsRead(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await whatsAppService.markChatAsRead(
-        String(req.params.chatId),
-        req.user!.organizationId,
-      );
+      const chatId = String(req.params.chatId);
+      if (!chatId || chatId.length > 200 || !/^[a-zA-Z0-9@._\-+]+$/.test(chatId)) {
+        res.status(400).json({ success: false, error: { message: 'Invalid chatId format' } }); return;
+      }
+      const result = await whatsAppService.markChatAsRead(chatId, req.user!.organizationId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
@@ -120,6 +124,9 @@ export class WhatsAppController {
   async searchMessages(req: Request, res: Response, next: NextFunction) {
     try {
       const chatId = String(req.params.chatId);
+      if (!chatId || chatId.length > 200 || !/^[a-zA-Z0-9@._\-+]+$/.test(chatId)) {
+        res.status(400).json({ success: false, error: { message: 'Invalid chatId format' } }); return;
+      }
       const query = typeof req.query.q === 'string' ? req.query.q : '';
       if (!query || query.length < 2) {
         res.status(400).json({ success: false, error: { message: 'Search query must be at least 2 characters' } });
@@ -147,6 +154,9 @@ export class WhatsAppController {
   async resolveChatByPhone(req: Request, res: Response, next: NextFunction) {
     try {
       const phone = String(req.params.phone);
+      if (!phone || !/^\+?[0-9]{10,15}$/.test(phone.replace(/\s/g, ''))) {
+        res.status(400).json({ success: false, error: { message: 'Invalid phone number format' } }); return;
+      }
       const result = await whatsAppService.getOrResolveChatByPhone(phone, req.user!.organizationId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }

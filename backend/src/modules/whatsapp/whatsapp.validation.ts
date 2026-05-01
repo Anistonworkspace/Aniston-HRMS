@@ -9,7 +9,7 @@ export const sendMessageSchema = z.object({
     .max(20, 'Phone number too long')
     .regex(phoneRegex, 'Invalid phone number — digits only, 10-15 characters (e.g. 919876543210)'),
   message: z.string().min(1, 'Message is required').max(4096, 'Message too long (max 4096 chars)'),
-  quotedMessageId: z.string().optional(),
+  quotedMessageId: z.string().max(200).regex(/^[A-Za-z0-9_\-.:@]+$/, 'Invalid message ID format').optional(),
 });
 
 export const sendJobLinkSchema = z.object({
@@ -31,7 +31,7 @@ export const sendToNumberSchema = z.object({
 });
 
 export const sendMediaSchema = z.object({
-  chatId: z.string().min(1, 'Chat ID is required'),
+  chatId: z.string().min(1, 'Chat ID is required').max(200).regex(/^[a-zA-Z0-9@._\-+]+$/, 'Invalid chatId format'),
   caption: z.string().max(1024, 'Caption too long').optional(),
 });
 
