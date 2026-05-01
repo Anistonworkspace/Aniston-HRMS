@@ -178,14 +178,36 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
-          DEPLOY_OPENAI_KEY: ${{ secrets.ANISTON_TEST }}
+          # ── Required secrets ────────────────────────────────────────────────
+          DEPLOY_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DEPLOY_JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DEPLOY_JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
           DEPLOY_ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
           DEPLOY_REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          DEPLOY_OPENAI_KEY: ${{ secrets.ANISTON_TEST }}
+          # ── Email ────────────────────────────────────────────────────────────
+          DEPLOY_SMTP_USER: ${{ secrets.SMTP_USER }}
+          DEPLOY_SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          # ── Storage (S3 / MinIO) ─────────────────────────────────────────────
+          DEPLOY_STORAGE_ENDPOINT: ${{ secrets.STORAGE_ENDPOINT }}
+          DEPLOY_STORAGE_ACCESS_KEY: ${{ secrets.STORAGE_ACCESS_KEY }}
+          DEPLOY_STORAGE_SECRET_KEY: ${{ secrets.STORAGE_SECRET_KEY }}
+          # ── AI providers ─────────────────────────────────────────────────────
+          DEPLOY_AI_SERVICE_API_KEY: ${{ secrets.AI_SERVICE_API_KEY }}
+          DEPLOY_DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEPLOY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEPLOY_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # ── Integrations ─────────────────────────────────────────────────────
+          DEPLOY_MAPBOX_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
+          DEPLOY_TEAMS_CLIENT_ID: ${{ secrets.TEAMS_CLIENT_ID }}
+          DEPLOY_TEAMS_CLIENT_SECRET: ${{ secrets.TEAMS_CLIENT_SECRET }}
+          DEPLOY_TEAMS_TENANT_ID: ${{ secrets.TEAMS_TENANT_ID }}
+          DEPLOY_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: DEPLOY_OPENAI_KEY,DEPLOY_ENCRYPTION_KEY,DEPLOY_REDIS_PASSWORD
+          envs: DEPLOY_DATABASE_URL,DEPLOY_JWT_SECRET,DEPLOY_JWT_REFRESH_SECRET,DEPLOY_ENCRYPTION_KEY,DEPLOY_REDIS_PASSWORD,DEPLOY_OPENAI_KEY,DEPLOY_SMTP_USER,DEPLOY_SMTP_PASS,DEPLOY_STORAGE_ENDPOINT,DEPLOY_STORAGE_ACCESS_KEY,DEPLOY_STORAGE_SECRET_KEY,DEPLOY_AI_SERVICE_API_KEY,DEPLOY_DEEPSEEK_API_KEY,DEPLOY_ANTHROPIC_API_KEY,DEPLOY_GEMINI_API_KEY,DEPLOY_MAPBOX_TOKEN,DEPLOY_TEAMS_CLIENT_ID,DEPLOY_TEAMS_CLIENT_SECRET,DEPLOY_TEAMS_TENANT_ID,DEPLOY_SENTRY_DSN
           script_stop: true
           timeout: 300s
           script: |
@@ -240,39 +262,48 @@ jobs:
             done
             cd /home/ubuntu/Aniston-HRMS
 
-            echo "=== [4/17] Setting production domain + secrets ==="
-            # Anchor to start-of-line so partial matches (e.g. VITE_API_URL) are not touched.
-            # Also strips any trailing quotes/spaces that manual edits may have left behind.
-            sed -i '/^FRONTEND_URL/d' .env 2>/dev/null || true
-            sed -i '/^API_URL/d' .env 2>/dev/null || true
-            sed -i -e '$a\' .env 2>/dev/null || true
-            echo 'FRONTEND_URL=https://hr.anistonav.com' >> .env
-            echo 'API_URL=https://hr.anistonav.com' >> .env
-            # ENCRYPTION_KEY — injected from GitHub Secret ENCRYPTION_KEY (never hardcoded).
-            # Rotate the key and re-encrypt sensitive DB fields if this secret is ever compromised.
-            if [ -z "$DEPLOY_ENCRYPTION_KEY" ]; then
-              echo "❌ ENCRYPTION_KEY secret is not set — aborting deploy to prevent data corruption"
-              exit 1
-            fi
-            sed -i '/^ENCRYPTION_KEY=/d' .env 2>/dev/null || true
-            echo "ENCRYPTION_KEY=$DEPLOY_ENCRYPTION_KEY" >> .env
-            # REDIS_PASSWORD — injected from GitHub Secret REDIS_PASSWORD.
-            if [ -z "$DEPLOY_REDIS_PASSWORD" ]; then
-              echo "❌ REDIS_PASSWORD secret is not set — aborting deploy"
-              exit 1
-            fi
-            sed -i '/^REDIS_PASSWORD=/d' .env 2>/dev/null || true
-            echo "REDIS_PASSWORD=$DEPLOY_REDIS_PASSWORD" >> .env
-            # REDIS_URL — include password so Node.js can authenticate.
-            sed -i '/^REDIS_URL=/d' .env 2>/dev/null || true
-            echo "REDIS_URL=redis://:$DEPLOY_REDIS_PASSWORD@127.0.0.1:6379" >> .env
-            # Ensure AI_SERVICE_URL has no surrounding quotes — quoted value causes Node.js fetch failed
-            sed -i '/^AI_SERVICE_URL=/d' .env 2>/dev/null || true
-            echo 'AI_SERVICE_URL=http://localhost:8000' >> .env
-            # OpenAI API key — injected from GitHub Secret ANISTON_TEST.
-            # Takes priority over any per-org DB key for all OpenAI provider calls.
-            sed -i '/^OPENAI_API_KEY=/d' .env 2>/dev/null || true
-            echo "OPENAI_API_KEY=$DEPLOY_OPENAI_KEY" >> .env
+            echo "=== [4/17] Writing .env from GitHub Secrets ==="
+            [ -z "$DEPLOY_DATABASE_URL" ]    && echo "Missing DATABASE_URL secret"    && exit 1
+            [ -z "$DEPLOY_JWT_SECRET" ]      && echo "Missing JWT_SECRET secret"      && exit 1
+            [ -z "$DEPLOY_JWT_REFRESH_SECRET" ] && echo "Missing JWT_REFRESH_SECRET" && exit 1
+            [ -z "$DEPLOY_ENCRYPTION_KEY" ]  && echo "Missing ENCRYPTION_KEY secret"  && exit 1
+            [ -z "$DEPLOY_REDIS_PASSWORD" ]  && echo "Missing REDIS_PASSWORD secret"  && exit 1
+            {
+              echo "NODE_ENV=production"
+              echo "PORT=4000"
+              echo "FRONTEND_URL=https://hr.anistonav.com"
+              echo "API_URL=https://hr.anistonav.com"
+              echo "AI_SERVICE_URL=http://localhost:8000"
+              echo "DATABASE_URL=$DEPLOY_DATABASE_URL"
+              echo "REDIS_PASSWORD=$DEPLOY_REDIS_PASSWORD"
+              echo "REDIS_URL=redis://:$DEPLOY_REDIS_PASSWORD@127.0.0.1:6379"
+              echo "JWT_SECRET=$DEPLOY_JWT_SECRET"
+              echo "JWT_REFRESH_SECRET=$DEPLOY_JWT_REFRESH_SECRET"
+              echo "JWT_ACCESS_EXPIRY=15m"
+              echo "JWT_REFRESH_EXPIRY=7d"
+              echo "ENCRYPTION_KEY=$DEPLOY_ENCRYPTION_KEY"
+              echo "SMTP_HOST=smtp.office365.com"
+              echo "SMTP_PORT=587"
+              echo "SMTP_FROM=noreply@aniston.in"
+              echo "SMTP_USER=$DEPLOY_SMTP_USER"
+              echo "SMTP_PASS=$DEPLOY_SMTP_PASS"
+              echo "STORAGE_BUCKET=aniston-hrms"
+              echo "STORAGE_ENDPOINT=$DEPLOY_STORAGE_ENDPOINT"
+              echo "STORAGE_ACCESS_KEY=$DEPLOY_STORAGE_ACCESS_KEY"
+              echo "STORAGE_SECRET_KEY=$DEPLOY_STORAGE_SECRET_KEY"
+              echo "AI_SERVICE_API_KEY=$DEPLOY_AI_SERVICE_API_KEY"
+              echo "OPENAI_API_KEY=$DEPLOY_OPENAI_KEY"
+              echo "DEEPSEEK_API_KEY=$DEPLOY_DEEPSEEK_API_KEY"
+              echo "DEEPSEEK_BASE_URL=https://api.deepseek.com"
+              echo "ANTHROPIC_API_KEY=$DEPLOY_ANTHROPIC_API_KEY"
+              echo "GEMINI_API_KEY=$DEPLOY_GEMINI_API_KEY"
+              echo "MAPBOX_ACCESS_TOKEN=$DEPLOY_MAPBOX_TOKEN"
+              echo "TEAMS_CLIENT_ID=$DEPLOY_TEAMS_CLIENT_ID"
+              echo "TEAMS_CLIENT_SECRET=$DEPLOY_TEAMS_CLIENT_SECRET"
+              echo "TEAMS_TENANT_ID=$DEPLOY_TEAMS_TENANT_ID"
+              echo "SENTRY_DSN=$DEPLOY_SENTRY_DSN"
+            } > .env
+            echo "✅ .env written ($(wc -l < .env) lines)"
 
             echo "=== [5/17] Installing Node.js dependencies ==="
             export SCARF_ANALYTICS=false
@@ -308,9 +339,9 @@ jobs:
             npx --no-install prisma db execute --schema prisma/schema.prisma --file /tmp/fix_location_visit_cols.sql && echo "✅ LocationVisit columns ensured" || echo "Note: LocationVisit table may not exist yet (safe to ignore)"
 
             echo "=== [6/17] Syncing database schema ==="
-            npx --no-install prisma db push --accept-data-loss || {
-              echo "WARNING: Schema push failed. Trying without flag..."
-              npx --no-install prisma db push 2>/dev/null || echo "Schema push skipped (schema may already be up to date)"
+            npx --no-install prisma db push || {
+              echo "WARNING: Schema push failed — schema may already be up to date"
+              echo "Schema push skipped"
             }
 
             echo "=== [7/17] Generating Prisma client (after schema sync) ==="
@@ -337,13 +368,18 @@ jobs:
 
             cd /home/ubuntu/Aniston-HRMS/docker
 
-            # Ensure docker/.env has empty AI_SERVICE_API_KEY so Python skips the API key check.
-            # docker-compose.yml uses "${AI_SERVICE_API_KEY-dev-ai-key}" (no colon) so empty
-            # string is passed through — Python's "if settings.api_key:" guard skips auth.
+            # Set AI service API key from GitHub secret so the Python auth guard is active.
+            # Falls back to a generated random key if the secret is not configured yet.
             touch /home/ubuntu/Aniston-HRMS/docker/.env
             sed -i '/^AI_SERVICE_API_KEY=/d' /home/ubuntu/Aniston-HRMS/docker/.env 2>/dev/null || true
-            echo 'AI_SERVICE_API_KEY=' >> /home/ubuntu/Aniston-HRMS/docker/.env
-            echo "✅ docker/.env: AI_SERVICE_API_KEY= (Python auth guard disabled)"
+            if [ -n "${{ secrets.AI_SERVICE_API_KEY }}" ]; then
+              echo "AI_SERVICE_API_KEY=${{ secrets.AI_SERVICE_API_KEY }}" >> /home/ubuntu/Aniston-HRMS/docker/.env
+              echo "✅ docker/.env: AI_SERVICE_API_KEY set from secret"
+            else
+              RAND_KEY=$(openssl rand -hex 32)
+              echo "AI_SERVICE_API_KEY=${RAND_KEY}" >> /home/ubuntu/Aniston-HRMS/docker/.env
+              echo "⚠️  AI_SERVICE_API_KEY secret not set — using generated key. Add AI_SERVICE_API_KEY to GitHub secrets."
+            fi
 
             echo "Building AI service Docker image (picks up any ai-service/ code changes)..."
             sudo docker compose build ai-service \
