@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, Home } from 'lucide-react';
+import { Clock, MapPin, Users, Plus, Trash2, Search, Pencil, X, Save, Loader2, Shield, Zap, Calendar, Sun, Home, Maximize2, Minimize2 } from 'lucide-react';
 import {
   useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation,
   useGetLocationsQuery, useCreateLocationMutation, useUpdateLocationMutation, useDeleteLocationMutation,
@@ -562,6 +562,7 @@ function LocationsPanel() {
   const [deleteLocation] = useDeleteLocationMutation();
   const [show, setShow] = useState(false);
   const [editLoc, setEditLoc] = useState<any>(null);
+  const [mapFullscreen, setMapFullscreen] = useState(false);
   const emptyForm = { name: '', address: '', city: '', latitude: '', longitude: '', radiusMeters: 200, strictMode: false };
   const [form, setForm] = useState(emptyForm);
 
@@ -693,17 +694,77 @@ function LocationsPanel() {
 
       {/* All locations map */}
       {locations.length > 0 && !showForm && (
-        <div className="layer-card overflow-hidden" style={{ height: 300 }}>
-          <MapContainer center={[(locations[0]?.geofence?.coordinates as any)?.lat || 28.6, (locations[0]?.geofence?.coordinates as any)?.lng || 77.2]} zoom={11} style={{ height: '100%', width: '100%' }}>
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
-            <FitBounds coords={locations.filter((l: any) => l.geofence?.coordinates?.lat).map((l: any) => [l.geofence.coordinates.lat, l.geofence.coordinates.lng] as [number, number])} />
-            {locations.map((l: any) => {
-              const c = l.geofence?.coordinates as any;
-              if (!c?.lat) return null;
-              return <span key={l.id}><Marker position={[c.lat, c.lng]} /><Circle center={[c.lat, c.lng]} radius={l.geofence?.radiusMeters || 200} pathOptions={{ color: '#4f46e5', fillOpacity: 0.15 }} /></span>;
-            })}
-          </MapContainer>
-        </div>
+        <>
+          <div className="layer-card overflow-hidden relative" style={{ height: 300 }}>
+            <MapContainer
+              center={[(locations[0]?.geofence?.coordinates as any)?.lat || 28.6, (locations[0]?.geofence?.coordinates as any)?.lng || 77.2]}
+              zoom={11}
+              style={{ height: '100%', width: '100%' }}
+            >
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap" />
+              <FitBounds coords={locations.filter((l: any) => l.geofence?.coordinates?.lat).map((l: any) => [l.geofence.coordinates.lat, l.geofence.coordinates.lng] as [number, number])} />
+              {locations.map((l: any) => {
+                const c = l.geofence?.coordinates as any;
+                if (!c?.lat) return null;
+                return <span key={l.id}><Marker position={[c.lat, c.lng]} /><Circle center={[c.lat, c.lng]} radius={l.geofence?.radiusMeters || 200} pathOptions={{ color: '#4f46e5', fillOpacity: 0.15 }} /></span>;
+              })}
+            </MapContainer>
+            {/* Fullscreen toggle button */}
+            <button
+              onClick={() => setMapFullscreen(true)}
+              className="absolute top-3 right-3 z-[500] bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg p-1.5 shadow-md hover:bg-white transition-colors"
+              title="View fullscreen"
+            >
+              <Maximize2 size={16} className="text-gray-600" />
+            </button>
+          </div>
+
+          {/* Fullscreen map modal */}
+          {mapFullscreen && (
+            <div className="fixed inset-0 z-[80] flex flex-col bg-black">
+              {/* Header bar */}
+              <div className="flex items-center justify-between px-4 py-2.5 bg-white/95 backdrop-blur-sm border-b border-gray-200 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <MapPin size={16} className="text-brand-600" />
+                  <span className="text-sm font-semibold text-gray-800">Office Locations — {locations.length} site{locations.length !== 1 ? 's' : ''}</span>
+                </div>
+                <button
+                  onClick={() => setMapFullscreen(false)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition-colors"
+                >
+                  <Minimize2 size={14} />
+                  Exit Fullscreen
+                </button>
+              </div>
+              {/* Full-window map */}
+              <div className="flex-1 relative">
+                <MapContainer
+                  center={[(locations[0]?.geofence?.coordinates as any)?.lat || 28.6, (locations[0]?.geofence?.coordinates as any)?.lng || 77.2]}
+                  zoom={12}
+                  style={{ height: '100%', width: '100%' }}
+                  zoomControl
+                >
+                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
+                  <FitBounds coords={locations.filter((l: any) => l.geofence?.coordinates?.lat).map((l: any) => [l.geofence.coordinates.lat, l.geofence.coordinates.lng] as [number, number])} />
+                  {locations.map((l: any) => {
+                    const c = l.geofence?.coordinates as any;
+                    if (!c?.lat) return null;
+                    return (
+                      <span key={l.id}>
+                        <Marker position={[c.lat, c.lng]} />
+                        <Circle
+                          center={[c.lat, c.lng]}
+                          radius={l.geofence?.radiusMeters || 200}
+                          pathOptions={{ color: '#4f46e5', fillColor: '#4f46e5', fillOpacity: 0.12, weight: 2 }}
+                        />
+                      </span>
+                    );
+                  })}
+                </MapContainer>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <div className="grid md:grid-cols-2 gap-4">
