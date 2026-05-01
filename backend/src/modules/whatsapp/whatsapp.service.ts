@@ -185,8 +185,8 @@ export class WhatsAppService {
       //   - Fresh connect (no session files): 90s — if no QR appears, Chrome failed to load WhatsApp Web
       //   - Auto-reconnect (session files exist): 180s — Chrome + session restore can take longer on cold start
       if (this._qrTimeoutTimer) clearTimeout(this._qrTimeoutTimer);
-      const sessionDir = path.join(WA_AUTH_DIR, `session-aniston-${organizationId}`);
-      const hasSessionFiles = fs.existsSync(path.join(sessionDir, 'Default'));
+      const authSessionDir = path.join(WA_AUTH_DIR, `session-aniston-${organizationId}`);
+      const hasSessionFiles = fs.existsSync(path.join(authSessionDir, 'Default'));
       const timeoutMs = hasSessionFiles ? 180000 : 90000;
       this._qrTimeoutTimer = setTimeout(async () => {
         if (!this._ready && !this._qrCode) {
