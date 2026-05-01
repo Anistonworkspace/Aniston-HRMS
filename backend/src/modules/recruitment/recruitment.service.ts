@@ -875,10 +875,10 @@ ${data.requirements ? `Additional Requirements/Notes: ${safe(data.requirements)}
             const invitation = await db.employeeInvitation.findFirst({
               where: { email: hireEmail, organizationId, status: 'PENDING' },
               orderBy: { createdAt: 'desc' },
-              select: { token: true },
+              select: { inviteToken: true },
             });
-            if (invitation?.token) {
-              const inviteLink = `https://hr.anistonav.com/onboarding/invite/${invitation.token}`;
+            if (invitation?.inviteToken) {
+              const inviteLink = `https://hr.anistonav.com/onboarding/invite/${invitation.inviteToken}`;
               const waMessage = [
                 `*Aniston Technologies LLP — Onboarding Invitation*`,
                 ``,

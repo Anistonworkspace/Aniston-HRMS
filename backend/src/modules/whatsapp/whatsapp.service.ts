@@ -1402,7 +1402,7 @@ export class WhatsAppService {
     try {
       const session = await prisma.whatsAppSession.findFirst({
         where: { isConnected: true },
-        orderBy: { updatedAt: 'desc' },
+        orderBy: { createdAt: 'desc' },
       });
 
       if (!session) {
@@ -1410,7 +1410,7 @@ export class WhatsAppService {
         return;
       }
 
-      const sessionAge = Date.now() - new Date(session.updatedAt).getTime();
+      const sessionAge = Date.now() - new Date(session.createdAt).getTime();
       if (sessionAge > SESSION_MAX_AGE_MS) {
         logger.info(`WhatsApp session expired (${Math.round(sessionAge / 86400000)} days old). Clearing session.`);
         await prisma.whatsAppSession.updateMany({
@@ -1760,7 +1760,7 @@ export class WhatsAppService {
           where: { organizationId, isConnected: true },
         });
         if (!session) return;
-        const age = Date.now() - new Date(session.updatedAt).getTime();
+        const age = Date.now() - new Date(session.createdAt).getTime();
         if (age > SESSION_MAX_AGE_MS) {
           logger.info('WhatsApp session expired via periodic check, disconnecting...');
           await this.logout(organizationId);

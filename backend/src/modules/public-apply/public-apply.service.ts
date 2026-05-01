@@ -591,7 +591,7 @@ export class PublicApplyService {
         if (allowed) {
           const trackUrl = `https://hr.anistonav.com/track/${application.uid}`;
           const msg = `Hi ${data.candidateName}! 🎯\n\nThank you for applying for *${job.title}* at Aniston Technologies.\n\nYour Application ID: *${application.uid}*\nTrack your application: ${trackUrl}\n\nWe'll review your application and get back to you soon.\n— HR Team, Aniston Technologies LLP`;
-          await whatsAppService.sendMessage({ to: data.mobileNumber, message: msg }, job.organizationId, undefined, 'JOB_LINK');
+          await whatsAppService.sendMessage({ to: data.mobileNumber, message: msg }, job.organizationId, undefined, 'JOB_LINK', { skipQuotaCheck: true });
         }
       } catch {
         // WhatsApp not connected or failed — silently continue
@@ -1163,7 +1163,10 @@ Return ONLY a JSON array:
           if (allowed) {
             await whatsAppService.sendMessage(
               { to: app.mobileNumber, message: whatsappMsg },
-              organizationId
+              organizationId,
+              undefined,
+              'INTERVIEW_SCHEDULE',
+              { skipQuotaCheck: true }
             );
             whatsappMessageSent = true;
           } else {

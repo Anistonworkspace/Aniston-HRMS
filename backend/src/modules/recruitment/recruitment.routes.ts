@@ -165,7 +165,7 @@ router.post('/jobs/:jobId/share-email', authenticate, authorize(Role.SUPER_ADMIN
 router.post('/jobs/:jobId/share-whatsapp', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR, Role.MANAGER), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { phone, customMessage } = z.object({
-      phone: z.string().min(10),
+      phone: z.string().regex(/^\+?[0-9]{10,15}$/, 'Invalid phone number'),
       customMessage: z.string().optional(),
     }).parse(req.body);
 

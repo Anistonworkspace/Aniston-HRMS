@@ -421,7 +421,7 @@ export const whatsappApi = api.injectEndpoints({
               )) return;
 
               draft.data.push({
-                id: data.messageId || `temp-${Date.now()}`,
+                id: data.messageId || `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 body: data.body || '',
                 fromMe: data.fromMe,
                 timestamp: data.timestamp,

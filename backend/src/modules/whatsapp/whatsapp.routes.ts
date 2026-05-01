@@ -29,6 +29,14 @@ const bulkSendLimiter = rateLimiter({
     return `rl:wa:bulk:${u?.organizationId || 'no-org'}:${u?.id || 'no-user'}`;
   },
 });
+const readLimiter = rateLimiter({
+  windowMs: 60 * 1000,
+  max: 120,
+  keyFn: (req) => {
+    const u = (req as any).user;
+    return `rl:wa:read:${u?.organizationId || 'no-org'}:${u?.id || 'no-user'}`;
+  },
+});
 
 const WA_ROLES = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR] as Role[];
 
@@ -65,33 +73,33 @@ router.post('/send-media', authorize(...WA_ROLES), sendLimiter, uploadDocument.s
   whatsAppController.sendMedia(req, res, next)
 );
 
-// Read-only chat endpoints
-router.get('/messages', authorize(...WA_ROLES), (req, res, next) =>
+// Read-only chat endpoints (rate limited to prevent hammering WhatsApp session)
+router.get('/messages', authorize(...WA_ROLES), readLimiter, (req, res, next) =>
   whatsAppController.getMessages(req, res, next)
 );
-router.get('/chats', authorize(...WA_ROLES), (req, res, next) =>
+router.get('/chats', authorize(...WA_ROLES), readLimiter, (req, res, next) =>
   whatsAppController.getChats(req, res, next)
 );
-router.get('/chats/:chatId/messages', authorize(...WA_ROLES), (req, res, next) =>
+router.get('/chats/:chatId/messages', authorize(...WA_ROLES), readLimiter, (req, res, next) =>
   whatsAppController.getChatMessages(req, res, next)
 );
 router.post('/chats/:chatId/read', authorize(...WA_ROLES), (req, res, next) =>
   whatsAppController.markAsRead(req, res, next)
 );
-router.get('/chats/:chatId/search', authorize(...WA_ROLES), (req, res, next) =>
+router.get('/chats/:chatId/search', authorize(...WA_ROLES), readLimiter, (req, res, next) =>
   whatsAppController.searchMessages(req, res, next)
 );
-router.get('/media/:messageId', authorize(...WA_ROLES), (req, res, next) =>
+router.get('/media/:messageId', authorize(...WA_ROLES), readLimiter, (req, res, next) =>
   whatsAppController.downloadMedia(req, res, next)
 );
 
 // Live WhatsApp session contacts (from WhatsApp device)
-router.get('/contacts', authorize(...WA_ROLES), (req, res, next) =>
+router.get('/contacts', authorize(...WA_ROLES), readLimiter, (req, res, next) =>
   whatsAppController.getContacts(req, res, next)
 );
 
 // Conversations (DB-backed)
-router.get('/conversations', authorize(...WA_ROLES), (req, res, next) =>
+router.get('/conversations', authorize(...WA_ROLES), readLimiter, (req, res, next) =>
   whatsAppController.getConversations(req, res, next)
 );
 router.get('/resolve/:phone', authorize(...WA_ROLES), (req, res, next) =>
