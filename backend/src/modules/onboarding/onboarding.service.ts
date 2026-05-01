@@ -454,9 +454,24 @@ export class OnboardingService {
       if (isNaN(parsedDob.getTime())) {
         throw new BadRequestError('Invalid date of birth. Please use YYYY-MM-DD format.');
       }
+      if (!stepData.phone || String(stepData.phone).replace(/\D/g, '') === '0000000000') {
+        throw new BadRequestError('Please enter your mobile phone number.');
+      }
       const phoneDigits = String(stepData.phone).replace(/\D/g, '');
       if (phoneDigits.length < 10 || phoneDigits.length > 12) {
         throw new BadRequestError('Phone number must be 10 to 12 digits.');
+      }
+      // Issue 9: validate personalEmail format if provided
+      if (stepData.personalEmail) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(String(stepData.personalEmail))) {
+          throw new BadRequestError('Personal email address is not valid. Please enter a correct email format.');
+        }
+      }
+      // Issue 11: validate qualification against allowed enum values
+      const VALID_QUALIFICATIONS = ['TENTH', 'TWELFTH', 'DIPLOMA', 'GRADUATION', 'POST_GRADUATION', 'PHD', 'OTHER'];
+      if (stepData.qualification && !VALID_QUALIFICATIONS.includes(stepData.qualification)) {
+        throw new BadRequestError(`Invalid qualification. Allowed values: ${VALID_QUALIFICATIONS.join(', ')}`);
       }
       await prisma.employee.update({
         where: { id: employeeId },
@@ -546,8 +561,11 @@ export class OnboardingService {
     const permAddr = (emp as any).permanentAddress as any;
     const ec = emp.emergencyContact as any;
     const qualification = (emp as any).qualification as string | null;
-    if (!emp.firstName || !emp.lastName || !emp.dateOfBirth || !emp.gender || !emp.phone || emp.phone === '0000000000') {
-      throw new BadRequestError('Personal details (name, date of birth, gender, phone) are required before completing onboarding');
+    if (!emp.firstName || !emp.lastName || !emp.dateOfBirth || !emp.gender) {
+      throw new BadRequestError('Personal details (name, date of birth, gender) are required before completing onboarding');
+    }
+    if (!emp.phone || emp.phone === '0000000000') {
+      throw new BadRequestError('Please enter your mobile phone number in Step 2 before completing onboarding');
     }
     if (emp.workMode !== 'PROJECT_SITE' && !qualification) {
       throw new BadRequestError('Highest qualification is required for office employees before completing onboarding');
@@ -603,7 +621,7 @@ export class OnboardingService {
       : [];
     const REQUIRED_NON_IDENTITY_DOCS = emp.workMode === 'PROJECT_SITE'
       ? ['PHOTO']
-      : [...requiredEduDocs, 'PAN', ...residenceDocs, 'PHOTO', ...experienceDocs];
+      : [...requiredEduDocs, 'PAN', ...residenceDocs, 'CANCELLED_CHEQUE', 'PHOTO', ...experienceDocs];
     const uploaded = (emp.documents as any[]).map((d: any) => d.type);
     const missing = REQUIRED_NON_IDENTITY_DOCS.filter(t => !uploaded.includes(t));
     const hasIdentityProof = uploaded.some((t: string) => IDENTITY_DOC_TYPES.includes(t));
@@ -621,10 +639,13 @@ export class OnboardingService {
       select: { id: true, status: true, organizationId: true },
     });
 
-    // GAP-002: Auto-promote from ONBOARDING → PROBATION (non-blocking)
+    // GAP-002: Auto-promote from ONBOARDING → PROBATION (non-blocking).
+    // _autoPromoteOnboardingComplete has its own try/catch + HR alert email.
+    // The outer .catch() here is a final safety net for unexpected throws — use error-level
+    // so it surfaces in monitoring rather than being lost in warn-level logs.
     setImmediate(() => {
       this._autoPromoteOnboardingComplete(employee.id, employee.organizationId, employee.status).catch(
-        (err) => logger.warn('[Onboarding] Auto-promote (auth flow) failed:', err),
+        (err) => logger.error('[Onboarding] Auto-promote (auth flow) unexpected failure:', err),
       );
     });
 

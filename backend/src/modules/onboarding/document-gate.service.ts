@@ -1193,11 +1193,11 @@ export class DocumentGateService {
    * Safe to call on every startup — only affects VERIFIED gates missing CANCELLED_CHEQUE.
    */
   async enforceCancelledChequeRequirement(organizationId?: string) {
-    // Enforce on all non-PENDING, non-REJECTED, non-PROCESSING gates — covers
-    // VERIFIED (already had access), SUBMITTED, and PENDING_HR_REVIEW (stuck waiting for HR).
+    // Enforce on all active gates — PENDING employees can be uploading docs and skipping CC.
+    // VERIFIED (already had access), SUBMITTED, PENDING_HR_REVIEW (stuck waiting for HR), and PENDING.
     const verifiedGates = await prisma.onboardingDocumentGate.findMany({
       where: {
-        kycStatus: { in: ['VERIFIED', 'SUBMITTED', 'PENDING_HR_REVIEW'] },
+        kycStatus: { in: ['VERIFIED', 'SUBMITTED', 'PENDING_HR_REVIEW', 'PENDING'] },
         ...(organizationId ? { employee: { organizationId } } : {}),
       },
       select: { employeeId: true },
@@ -1238,10 +1238,10 @@ export class DocumentGateService {
       try {
         const emp = await prisma.employee.findUnique({
           where: { id: employeeId },
-          select: { userId: true, organizationId: true },
+          select: { userId: true, organizationId: true, firstName: true, lastName: true, email: true },
         });
         if (emp?.userId) {
-          const { enqueueNotification } = await import('../../jobs/queues.js');
+          const { enqueueNotification, enqueueEmail } = await import('../../jobs/queues.js');
           await enqueueNotification({
             userId: emp.userId,
             organizationId: emp.organizationId,
@@ -1250,6 +1250,20 @@ export class DocumentGateService {
             type: 'DOCUMENT_FLAGGED',
             link: '/kyc-pending',
           });
+          // Also send email so the employee is notified even if they're not actively using the portal
+          if (emp.email) {
+            await enqueueEmail({
+              to: emp.email,
+              subject: 'Action Required — Upload Cancelled Cheque for Payroll',
+              template: 'document-reupload-required',
+              context: {
+                employeeName: `${emp.firstName} ${emp.lastName}`,
+                documentType: 'Cancelled Cheque',
+                reason: 'Cancelled Cheque is now mandatory for all employees to ensure accurate payroll disbursement.',
+                kycUrl: 'https://hr.anistonav.com/kyc-pending',
+              },
+            }).catch(() => { /* non-blocking — email failure must not block enforcement */ });
+          }
         }
       } catch { /* non-blocking */ }
 

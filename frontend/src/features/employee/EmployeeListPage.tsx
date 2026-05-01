@@ -624,11 +624,11 @@ export default function EmployeeListPage() {
                       </td>
                       <td className="px-4 py-3 hidden xl:table-cell">
                         {emp.kycStatus === 'VERIFIED' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700">
+                          <span title="KYC Verified" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700">
                             <ShieldCheck size={11} /> Granted
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-red-50 text-red-600">
+                          <span title={`KYC: ${emp.kycStatus ?? 'PENDING'}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-red-50 text-red-600">
                             <ShieldOff size={11} /> Blocked
                           </span>
                         )}
