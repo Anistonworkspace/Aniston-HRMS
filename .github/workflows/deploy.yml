@@ -185,29 +185,20 @@ jobs:
           DEPLOY_ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
           DEPLOY_REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
           DEPLOY_OPENAI_KEY: ${{ secrets.ANISTON_TEST }}
-          # ── Email ────────────────────────────────────────────────────────────
-          DEPLOY_SMTP_USER: ${{ secrets.SMTP_USER }}
-          DEPLOY_SMTP_PASS: ${{ secrets.SMTP_PASS }}
           # ── Storage (S3 / MinIO) ─────────────────────────────────────────────
           DEPLOY_STORAGE_ENDPOINT: ${{ secrets.STORAGE_ENDPOINT }}
           DEPLOY_STORAGE_ACCESS_KEY: ${{ secrets.STORAGE_ACCESS_KEY }}
           DEPLOY_STORAGE_SECRET_KEY: ${{ secrets.STORAGE_SECRET_KEY }}
-          # ── AI providers ─────────────────────────────────────────────────────
-          DEPLOY_AI_SERVICE_API_KEY: ${{ secrets.AI_SERVICE_API_KEY }}
-          DEPLOY_DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          DEPLOY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          DEPLOY_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # ── Integrations ─────────────────────────────────────────────────────
           DEPLOY_MAPBOX_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
           DEPLOY_TEAMS_CLIENT_ID: ${{ secrets.TEAMS_CLIENT_ID }}
           DEPLOY_TEAMS_CLIENT_SECRET: ${{ secrets.TEAMS_CLIENT_SECRET }}
           DEPLOY_TEAMS_TENANT_ID: ${{ secrets.TEAMS_TENANT_ID }}
-          DEPLOY_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: DEPLOY_DATABASE_URL,DEPLOY_JWT_SECRET,DEPLOY_JWT_REFRESH_SECRET,DEPLOY_ENCRYPTION_KEY,DEPLOY_REDIS_PASSWORD,DEPLOY_OPENAI_KEY,DEPLOY_SMTP_USER,DEPLOY_SMTP_PASS,DEPLOY_STORAGE_ENDPOINT,DEPLOY_STORAGE_ACCESS_KEY,DEPLOY_STORAGE_SECRET_KEY,DEPLOY_AI_SERVICE_API_KEY,DEPLOY_DEEPSEEK_API_KEY,DEPLOY_ANTHROPIC_API_KEY,DEPLOY_GEMINI_API_KEY,DEPLOY_MAPBOX_TOKEN,DEPLOY_TEAMS_CLIENT_ID,DEPLOY_TEAMS_CLIENT_SECRET,DEPLOY_TEAMS_TENANT_ID,DEPLOY_SENTRY_DSN
+          envs: DEPLOY_DATABASE_URL,DEPLOY_JWT_SECRET,DEPLOY_JWT_REFRESH_SECRET,DEPLOY_ENCRYPTION_KEY,DEPLOY_REDIS_PASSWORD,DEPLOY_OPENAI_KEY,DEPLOY_STORAGE_ENDPOINT,DEPLOY_STORAGE_ACCESS_KEY,DEPLOY_STORAGE_SECRET_KEY,DEPLOY_MAPBOX_TOKEN,DEPLOY_TEAMS_CLIENT_ID,DEPLOY_TEAMS_CLIENT_SECRET,DEPLOY_TEAMS_TENANT_ID
           script_stop: true
           timeout: 300s
           script: |
@@ -285,23 +276,15 @@ jobs:
               echo "SMTP_HOST=smtp.office365.com"
               echo "SMTP_PORT=587"
               echo "SMTP_FROM=noreply@aniston.in"
-              echo "SMTP_USER=$DEPLOY_SMTP_USER"
-              echo "SMTP_PASS=$DEPLOY_SMTP_PASS"
               echo "STORAGE_BUCKET=aniston-hrms"
               echo "STORAGE_ENDPOINT=$DEPLOY_STORAGE_ENDPOINT"
               echo "STORAGE_ACCESS_KEY=$DEPLOY_STORAGE_ACCESS_KEY"
               echo "STORAGE_SECRET_KEY=$DEPLOY_STORAGE_SECRET_KEY"
-              echo "AI_SERVICE_API_KEY=$DEPLOY_AI_SERVICE_API_KEY"
               echo "OPENAI_API_KEY=$DEPLOY_OPENAI_KEY"
-              echo "DEEPSEEK_API_KEY=$DEPLOY_DEEPSEEK_API_KEY"
-              echo "DEEPSEEK_BASE_URL=https://api.deepseek.com"
-              echo "ANTHROPIC_API_KEY=$DEPLOY_ANTHROPIC_API_KEY"
-              echo "GEMINI_API_KEY=$DEPLOY_GEMINI_API_KEY"
               echo "MAPBOX_ACCESS_TOKEN=$DEPLOY_MAPBOX_TOKEN"
               echo "TEAMS_CLIENT_ID=$DEPLOY_TEAMS_CLIENT_ID"
               echo "TEAMS_CLIENT_SECRET=$DEPLOY_TEAMS_CLIENT_SECRET"
               echo "TEAMS_TENANT_ID=$DEPLOY_TEAMS_TENANT_ID"
-              echo "SENTRY_DSN=$DEPLOY_SENTRY_DSN"
             } > .env
             echo "✅ .env written ($(wc -l < .env) lines)"
 
