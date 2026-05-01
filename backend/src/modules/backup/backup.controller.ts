@@ -55,10 +55,13 @@ export class BackupController {
       const isFilesBackup = record.category === 'FILES';
       res.setHeader('Content-Type', isFilesBackup ? 'application/x-tar' : 'application/gzip');
       res.setHeader('Content-Disposition', `attachment; filename="${record.filename}"`);
-      res.setHeader('Content-Length', record.sizeBytes?.toString() ?? '0');
       res.setHeader('Cache-Control', 'no-store');
 
       const fs = await import('fs');
+      // Re-stat the file for the real size — DB value could be stale or 0 if corrupted
+      const stat = fs.statSync(absolutePath);
+      res.setHeader('Content-Length', String(stat.size));
+
       const stream = fs.createReadStream(absolutePath);
 
       stream.on('error', (err) => {

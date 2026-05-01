@@ -4,9 +4,9 @@ import PDFDocument from 'pdfkit';
 import type { CreateInternProfileInput, UpdateInternProfileInput, CreateAchievementLetterInput } from './intern.validation.js';
 
 export class InternService {
-  async getProfile(employeeId: string) {
-    const profile = await prisma.internProfile.findUnique({
-      where: { employeeId },
+  async getProfile(employeeId: string, organizationId?: string) {
+    const profile = await prisma.internProfile.findFirst({
+      where: { employeeId, ...(organizationId ? { employee: { organizationId } } : {}) },
       include: {
         employee: {
           select: {
@@ -28,11 +28,13 @@ export class InternService {
     return profile;
   }
 
-  async createProfile(employeeId: string, data: CreateInternProfileInput) {
-    const existing = await prisma.internProfile.findUnique({ where: { employeeId } });
+  async createProfile(employeeId: string, data: CreateInternProfileInput, organizationId?: string) {
+    const existing = await prisma.internProfile.findFirst({
+      where: { employeeId, ...(organizationId ? { employee: { organizationId } } : {}) },
+    });
     if (existing) throw new ConflictError('Intern profile already exists for this employee');
 
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, ...(organizationId ? { organizationId } : {}), deletedAt: null } });
     if (!employee) throw new NotFoundError('Employee');
 
     return prisma.internProfile.create({
@@ -54,8 +56,10 @@ export class InternService {
     });
   }
 
-  async updateProfile(employeeId: string, data: UpdateInternProfileInput) {
-    const existing = await prisma.internProfile.findUnique({ where: { employeeId } });
+  async updateProfile(employeeId: string, data: UpdateInternProfileInput, organizationId?: string) {
+    const existing = await prisma.internProfile.findFirst({
+      where: { employeeId, ...(organizationId ? { employee: { organizationId } } : {}) },
+    });
     if (!existing) throw new NotFoundError('Intern profile');
 
     const updateData: any = { ...data };
@@ -72,8 +76,10 @@ export class InternService {
     });
   }
 
-  async getAchievementLetters(employeeId: string) {
-    const profile = await prisma.internProfile.findUnique({ where: { employeeId } });
+  async getAchievementLetters(employeeId: string, organizationId?: string) {
+    const profile = await prisma.internProfile.findFirst({
+      where: { employeeId, ...(organizationId ? { employee: { organizationId } } : {}) },
+    });
     if (!profile) return [];
 
     return prisma.internAchievementLetter.findMany({
@@ -82,9 +88,9 @@ export class InternService {
     });
   }
 
-  async issueAchievementLetter(employeeId: string, data: CreateAchievementLetterInput) {
-    const profile = await prisma.internProfile.findUnique({
-      where: { employeeId },
+  async issueAchievementLetter(employeeId: string, data: CreateAchievementLetterInput, organizationId?: string) {
+    const profile = await prisma.internProfile.findFirst({
+      where: { employeeId, ...(organizationId ? { employee: { organizationId } } : {}) },
       include: {
         employee: {
           select: { firstName: true, lastName: true, department: { select: { name: true } } },
@@ -103,9 +109,11 @@ export class InternService {
     });
   }
 
-  async generateAchievementLetterPdf(letterId: string): Promise<Buffer> {
-    const letter = await prisma.internAchievementLetter.findUnique({
-      where: { id: letterId },
+  async generateAchievementLetterPdf(letterId: string, organizationId?: string): Promise<Buffer> {
+    const letter = await prisma.internAchievementLetter.findFirst({
+      where: organizationId
+        ? { id: letterId, internProfile: { employee: { organizationId } } }
+        : { id: letterId },
       include: {
         internProfile: {
           include: {

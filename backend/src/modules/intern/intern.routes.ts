@@ -20,7 +20,7 @@ router.patch('/:employeeId/profile', requirePermission('employee', 'manage'), (r
 );
 
 // Achievement Letters
-router.get('/:employeeId/achievement-letters', (req, res, next) =>
+router.get('/:employeeId/achievement-letters', requirePermission('employee', 'read'), (req, res, next) =>
   internController.getAchievementLetters(req, res, next)
 );
 
@@ -28,7 +28,7 @@ router.post('/:employeeId/achievement-letters', requirePermission('employee', 'm
   internController.issueAchievementLetter(req, res, next)
 );
 
-router.get('/:employeeId/achievement-letters/:letterId/pdf', (req, res, next) =>
+router.get('/:employeeId/achievement-letters/:letterId/pdf', requirePermission('employee', 'read'), (req, res, next) =>
   internController.downloadAchievementLetterPdf(req, res, next)
 );
 

@@ -25,11 +25,11 @@ function makeTempUpload(maxSizeMb: number, ...allowedExts: string[]) {
   });
 }
 
-// DB restore: .sql.gz files (up to 500 MB)
-const dbRestoreUpload = makeTempUpload(500, '.gz', '.sql');
+// DB restore: .sql.gz files (up to 500 MB) — only .gz accepted; service validates magic bytes
+const dbRestoreUpload = makeTempUpload(500, '.gz');
 
-// Files restore: .tar.gz files (up to 2 GB)
-const filesRestoreUpload = makeTempUpload(2048, '.gz', '.tar');
+// Files restore: .tar.gz files (up to 2 GB) — only .gz accepted
+const filesRestoreUpload = makeTempUpload(2048, '.gz');
 
 // ── All backup routes require SUPER_ADMIN ────────────────────────────────────
 router.use(authenticate);

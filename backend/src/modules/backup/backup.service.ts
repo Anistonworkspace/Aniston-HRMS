@@ -1,6 +1,7 @@
 import { execSync } from 'child_process';
 import { spawn } from 'child_process';
 import path from 'path';
+import os from 'os';
 import fs from 'fs';
 import { createGzip, createGunzip } from 'zlib';
 import { prisma } from '../../lib/prisma.js';
@@ -141,7 +142,7 @@ export function resolvePsql(): PgToolSource | null {
 
 function parseDatabaseUrl(url: string) {
   const match = url.match(/^postgresql?:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/([^?]+)/);
-  if (!match) throw new Error('Could not parse DATABASE_URL');
+  if (!match) throw new BadRequestError('Could not parse DATABASE_URL — expected format: postgresql://user:password@host:port/database');
   const [, user, password, host, port, database] = match;
   return { user, password, host, port, database };
 }
@@ -346,12 +347,15 @@ export class BackupService {
     }
   }
 
-  private _runPgDump(
+  private async _runPgDump(
     src: PgToolSource,
     conn: ReturnType<typeof parseDatabaseUrl>,
     outputGzPath: string
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
+    // For docker exec: write PGPASSWORD to a temp file so it doesn't appear in `ps aux`
+    let envFilePath: string | null = null;
+
+    try {
       const env = { ...process.env, PGPASSWORD: conn.password };
 
       const pgDumpArgs = [
@@ -371,51 +375,59 @@ export class BackupService {
         cmd = src.path;
         args = pgDumpArgs;
       } else {
-        // docker exec -e PGPASSWORD=... <container> pg_dump <args>
+        // Write PGPASSWORD to a temp env file — avoids password appearing in `ps aux`
+        envFilePath = path.join(os.tmpdir(), `pgpass-dump-${process.pid}-${Date.now()}.env`);
+        fs.writeFileSync(envFilePath, `PGPASSWORD=${conn.password}\n`, { mode: 0o600 });
         cmd = src.dockerPath;
-        args = ['exec', '-e', `PGPASSWORD=${conn.password}`, src.container, 'pg_dump', ...pgDumpArgs];
+        args = ['exec', '--env-file', envFilePath, src.container, 'pg_dump', ...pgDumpArgs];
       }
 
-      let resolved = false;
-      const done = (err?: Error) => {
-        if (resolved) return;
-        resolved = true;
-        if (err) reject(err);
-        else resolve();
-      };
+      await new Promise<void>((resolve, reject) => {
+        let resolved = false;
+        const done = (err?: Error) => {
+          if (resolved) return;
+          resolved = true;
+          if (err) reject(err);
+          else resolve();
+        };
 
-      const pgDump = spawn(cmd, args, { env });
-      const gzip = createGzip({ level: 6 });
-      const output = fs.createWriteStream(outputGzPath);
-      pgDump.stdout.pipe(gzip).pipe(output);
+        const pgDump = spawn(cmd, args, { env });
+        const gzip = createGzip({ level: 6 });
+        const output = fs.createWriteStream(outputGzPath);
+        pgDump.stdout.pipe(gzip).pipe(output);
 
-      const stderrChunks: Buffer[] = [];
-      pgDump.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+        const stderrChunks: Buffer[] = [];
+        pgDump.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
-      // Resolve once the output file is fully written
-      output.on('finish', () => done());
-      output.on('error', (err) => done(err));
+        // Resolve once the output file is fully written
+        output.on('finish', () => done());
+        output.on('error', (err) => done(err));
 
-      pgDump.on('close', (code) => {
-        if (code !== 0) {
-          const errMsg = Buffer.concat(stderrChunks).toString().slice(0, 500);
-          done(new Error(`pg_dump exited with code ${code}: ${errMsg || 'No error details available'}`));
-        }
-        // If code=0, the stream finish event will resolve — don't resolve here to avoid races
+        pgDump.on('close', (code) => {
+          if (code !== 0) {
+            const errMsg = Buffer.concat(stderrChunks).toString().slice(0, 500);
+            done(new Error(`pg_dump exited with code ${code}: ${errMsg || 'No error details available'}`));
+          }
+          // If code=0, the stream finish event will resolve — don't resolve here to avoid races
+        });
+
+        pgDump.on('error', (err) => {
+          done(new Error(`pg_dump spawn failed: ${err.message}. Ensure ${src.method === 'docker' ? 'Docker is running and container "' + src.container + '" is up' : 'pg_dump is installed and accessible'}.`));
+        });
+
+        // Safety timeout: 15 minutes max for a backup
+        const timeout = setTimeout(() => {
+          done(new Error('pg_dump timed out after 15 minutes. The database may be too large or unreachable.'));
+          try { pgDump.kill(); } catch { /* ignore */ }
+        }, 15 * 60 * 1000);
+        output.on('finish', () => clearTimeout(timeout));
+        output.on('error', () => clearTimeout(timeout));
       });
-
-      pgDump.on('error', (err) => {
-        done(new Error(`pg_dump spawn failed: ${err.message}. Ensure ${src.method === 'docker' ? 'Docker is running and container "' + src.container + '" is up' : 'pg_dump is installed and accessible'}.`));
-      });
-
-      // Safety timeout: 15 minutes max for a backup
-      const timeout = setTimeout(() => {
-        done(new Error('pg_dump timed out after 15 minutes. The database may be too large or unreachable.'));
-        try { pgDump.kill(); } catch { /* ignore */ }
-      }, 15 * 60 * 1000);
-      output.on('finish', () => clearTimeout(timeout));
-      output.on('error', () => clearTimeout(timeout));
-    });
+    } finally {
+      if (envFilePath) {
+        try { fs.unlinkSync(envFilePath); } catch { /* ignore */ }
+      }
+    }
   }
 
   // ── Files Backup ──────────────────────────────────────────────────────────
@@ -585,19 +597,22 @@ export class BackupService {
     return { success: true, message: `Database restored from ${record.filename}` };
   }
 
-  private _runPsqlRestore(
+  private async _runPsqlRestore(
     src: PgToolSource,
     conn: ReturnType<typeof parseDatabaseUrl>,
     gzPath: string
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
+    // For docker exec: write PGPASSWORD to a temp file so it doesn't appear in `ps aux`
+    let envFilePath: string | null = null;
+
+    try {
       // Validate gzip magic bytes before attempting restore
       const buf = Buffer.alloc(2);
       const fd = fs.openSync(gzPath, 'r');
       fs.readSync(fd, buf, 0, 2, 0);
       fs.closeSync(fd);
       if (!(buf[0] === 0x1f && buf[1] === 0x8b)) {
-        return reject(new Error('Invalid backup file: not a gzip-compressed SQL dump'));
+        throw new BadRequestError('Invalid backup file: not a gzip-compressed SQL dump');
       }
 
       const env = { ...process.env, PGPASSWORD: conn.password };
@@ -614,79 +629,92 @@ export class BackupService {
         psqlCmd = src.path;
         psqlCmdArgs = psqlArgs;
       } else {
+        // Write PGPASSWORD to a temp env file — avoids password appearing in `ps aux`
+        envFilePath = path.join(os.tmpdir(), `pgpass-restore-${process.pid}-${Date.now()}.env`);
+        fs.writeFileSync(envFilePath, `PGPASSWORD=${conn.password}\n`, { mode: 0o600 });
         psqlCmd = src.dockerPath;
-        psqlCmdArgs = ['exec', '-i', '-e', `PGPASSWORD=${conn.password}`, src.container, 'psql', ...psqlArgs];
+        psqlCmdArgs = ['exec', '-i', '--env-file', envFilePath, src.container, 'psql', ...psqlArgs];
       }
 
       // Use Node.js built-in zlib.createGunzip() — works on all platforms (Windows/Linux/macOS)
       // without requiring the gzip binary to be installed.
-      const readStream = fs.createReadStream(gzPath);
-      const gunzip = createGunzip();
-      const psqlProc = spawn(psqlCmd, psqlCmdArgs, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+      await new Promise<void>((resolve, reject) => {
+        const readStream = fs.createReadStream(gzPath);
+        const gunzip = createGunzip();
+        const psqlProc = spawn(psqlCmd, psqlCmdArgs, { env, stdio: ['pipe', 'pipe', 'pipe'] });
 
-      readStream.pipe(gunzip).pipe(psqlProc.stdin!);
+        readStream.pipe(gunzip).pipe(psqlProc.stdin!);
 
-      const stderrChunks: Buffer[] = [];
-      psqlProc.stderr.on('data', (c) => stderrChunks.push(c));
+        const stderrChunks: Buffer[] = [];
+        psqlProc.stderr.on('data', (c) => stderrChunks.push(c));
 
-      const abort = (err: Error) => {
-        try { psqlProc.kill(); } catch { /* ignore */ }
-        reject(err);
-      };
-      readStream.on('error', abort);
-      gunzip.on('error', abort);
+        let aborted = false;
+        const abort = (err: Error) => {
+          if (aborted) return;
+          aborted = true;
+          try { readStream.destroy(); } catch { /* ignore */ }
+          try { gunzip.destroy(); } catch { /* ignore */ }
+          try { psqlProc.kill(); } catch { /* ignore */ }
+          reject(err);
+        };
+        readStream.on('error', abort);
+        gunzip.on('error', abort);
 
-      psqlProc.on('close', (code) => {
-        if (code === 0) resolve();
-        else {
-          const msg = Buffer.concat(stderrChunks).toString().slice(0, 500);
-          reject(new Error(`psql exited with code ${code}: ${msg}`));
-        }
+        psqlProc.on('close', (code) => {
+          if (code === 0) resolve();
+          else {
+            const msg = Buffer.concat(stderrChunks).toString().slice(0, 500);
+            reject(new Error(`psql exited with code ${code}: ${msg}`));
+          }
+        });
+        psqlProc.on('error', (err) => reject(new Error(`psql spawn failed: ${err.message}`)));
       });
-      psqlProc.on('error', (err) => reject(new Error(`psql spawn failed: ${err.message}`)));
-    });
+    } finally {
+      if (envFilePath) {
+        try { fs.unlinkSync(envFilePath); } catch { /* ignore */ }
+      }
+    }
   }
 
   // ── Restore Database from Upload ──────────────────────────────────────────
 
   async restoreFromUpload(uploadedFilePath: string, organizationId: string, restoredById: string) {
-    const buf = Buffer.alloc(2);
-    const fd = fs.openSync(uploadedFilePath, 'r');
-    fs.readSync(fd, buf, 0, 2, 0);
-    fs.closeSync(fd);
-
-    if (!(buf[0] === 0x1f && buf[1] === 0x8b)) {
-      try { fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
-      throw new BadRequestError('Invalid file: must be a gzip-compressed SQL backup (.sql.gz)');
-    }
-
-    const psqlSrc = resolvePsql();
-    if (!psqlSrc) {
-      try { fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
-      throw new BadRequestError('psql not found locally or via Docker. Install postgresql-client or set PSQL_PATH env var.');
-    }
-
-    const dbUrl = process.env.DATABASE_URL;
-    if (!dbUrl) throw new BadRequestError('DATABASE_URL is not configured');
-    const conn = parseDatabaseUrl(dbUrl);
-
-    logger.warn(`[Backup] ⚠️  DB restore from upload by ${restoredById}`);
-    await createAuditLog({
-      userId: restoredById, organizationId,
-      entity: 'DatabaseBackup', entityId: 'uploaded', action: 'RESTORE_UPLOAD',
-      newValue: { restoredAt: new Date().toISOString() },
-    });
-
     try {
-      await this._runPsqlRestore(psqlSrc, conn, uploadedFilePath);
-    } catch (err: any) {
-      try { fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
-      logger.error(`[Backup] ❌ DB restore from upload failed: ${err.message}`);
-      throw new AppError(`Database restore failed: ${err.message}`, 500, 'RESTORE_FAILED');
+      const buf = Buffer.alloc(2);
+      const fd = fs.openSync(uploadedFilePath, 'r');
+      fs.readSync(fd, buf, 0, 2, 0);
+      fs.closeSync(fd);
+      if (!(buf[0] === 0x1f && buf[1] === 0x8b)) {
+        throw new BadRequestError('Invalid file: must be a gzip-compressed SQL backup (.sql.gz)');
+      }
+
+      const psqlSrc = resolvePsql();
+      if (!psqlSrc) throw new BadRequestError('psql not found locally or via Docker. Install postgresql-client or set PSQL_PATH env var.');
+
+      const dbUrl = process.env.DATABASE_URL;
+      if (!dbUrl) throw new BadRequestError('DATABASE_URL is not configured');
+      const conn = parseDatabaseUrl(dbUrl);
+
+      logger.warn(`[Backup] ⚠️  DB restore from upload by ${restoredById}`);
+      await createAuditLog({
+        userId: restoredById, organizationId,
+        entity: 'DatabaseBackup', entityId: 'uploaded', action: 'RESTORE_UPLOAD',
+        newValue: { restoredAt: new Date().toISOString() },
+      });
+
+      try {
+        await this._runPsqlRestore(psqlSrc, conn, uploadedFilePath);
+      } catch (err: any) {
+        logger.error(`[Backup] ❌ DB restore from upload failed: ${err.message}`);
+        throw new AppError(`Database restore failed: ${err.message}`, 500, 'RESTORE_FAILED');
+      }
+
+      logger.info('[Backup] ✅ DB restore from upload completed');
+      return { success: true, message: 'Database restored from uploaded backup file' };
+    } finally {
+      // Always remove temp file — covers all code paths (validation error, DB error, network error, success)
+      try { if (fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
     }
-    try { fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
-    logger.info('[Backup] ✅ DB restore from upload completed');
-    return { success: true, message: 'Database restored from uploaded backup file' };
   }
 
   // ── Restore Files ─────────────────────────────────────────────────────────
@@ -718,34 +746,36 @@ export class BackupService {
   }
 
   async restoreFilesFromUpload(uploadedFilePath: string, organizationId: string, restoredById: string) {
-    // Validate gzip magic bytes (tar.gz starts with 0x1f 0x8b)
-    const buf = Buffer.alloc(2);
-    const fd = fs.openSync(uploadedFilePath, 'r');
-    fs.readSync(fd, buf, 0, 2, 0);
-    fs.closeSync(fd);
-
-    if (!(buf[0] === 0x1f && buf[1] === 0x8b)) {
-      try { fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
-      throw new BadRequestError('Invalid file: must be a gzip-compressed tar archive (.tar.gz)');
-    }
-
-    logger.warn(`[Backup] ⚠️  Files restore from upload by ${restoredById}`);
-    await createAuditLog({
-      userId: restoredById, organizationId,
-      entity: 'DatabaseBackup', entityId: 'uploaded', action: 'RESTORE_FILES_UPLOAD',
-      newValue: { restoredAt: new Date().toISOString() },
-    });
-
     try {
-      await this._runFilesExtract(uploadedFilePath);
-    } catch (err: any) {
-      try { fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
-      logger.error(`[Backup] ❌ Files restore from upload failed: ${err.message}`);
-      throw new AppError(`Files restore failed: ${err.message}`, 500, 'RESTORE_FAILED');
+      // Validate gzip magic bytes (tar.gz starts with 0x1f 0x8b)
+      const buf = Buffer.alloc(2);
+      const fd = fs.openSync(uploadedFilePath, 'r');
+      fs.readSync(fd, buf, 0, 2, 0);
+      fs.closeSync(fd);
+      if (!(buf[0] === 0x1f && buf[1] === 0x8b)) {
+        throw new BadRequestError('Invalid file: must be a gzip-compressed tar archive (.tar.gz)');
+      }
+
+      logger.warn(`[Backup] ⚠️  Files restore from upload by ${restoredById}`);
+      await createAuditLog({
+        userId: restoredById, organizationId,
+        entity: 'DatabaseBackup', entityId: 'uploaded', action: 'RESTORE_FILES_UPLOAD',
+        newValue: { restoredAt: new Date().toISOString() },
+      });
+
+      try {
+        await this._runFilesExtract(uploadedFilePath);
+      } catch (err: any) {
+        logger.error(`[Backup] ❌ Files restore from upload failed: ${err.message}`);
+        throw new AppError(`Files restore failed: ${err.message}`, 500, 'RESTORE_FAILED');
+      }
+
+      logger.info('[Backup] ✅ Files restore from upload completed');
+      return { success: true, message: 'Uploaded files restored from archive' };
+    } finally {
+      // Always remove temp file — covers all code paths (validation error, extract error, audit error, success)
+      try { if (fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
     }
-    try { fs.unlinkSync(uploadedFilePath); } catch { /* ignore */ }
-    logger.info('[Backup] ✅ Files restore from upload completed');
-    return { success: true, message: 'Uploaded files restored from archive' };
   }
 
   private async _runFilesExtract(tarPath: string): Promise<void> {
@@ -807,7 +837,7 @@ export class BackupService {
 
   // ── Stuck Backup Cleanup ──────────────────────────────────────────────────
   // Called on server/worker startup. Resets any IN_PROGRESS records older than
-  // 30 minutes to FAILED — they were interrupted by a crash or restart.
+  // 60 minutes to FAILED — they were interrupted by a crash or restart.
 
   async cleanupStuckBackups() {
     // pg_dump has a 15-min hard timeout; allow 60 min before declaring stuck
@@ -832,6 +862,7 @@ export class BackupService {
 
   async applyRetentionPolicy(organizationId: string, keepCount = 15) {
     for (const category of ['DATABASE', 'FILES'] as const) {
+      // Purge oldest COMPLETED records beyond keepCount (removes file + soft-deletes row)
       const completed = await prisma.databaseBackup.findMany({
         where: { organizationId, deletedAt: null, status: 'COMPLETED', category },
         orderBy: { createdAt: 'desc' },
@@ -850,6 +881,20 @@ export class BackupService {
         } catch (err: any) {
           logger.warn(`[Backup] Retention cleanup failed for ${record.filename}: ${err.message}`);
         }
+      }
+
+      // Purge FAILED records older than 7 days — no file on disk, just DB row cleanup
+      const failedCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const failedToDelete = await prisma.databaseBackup.findMany({
+        where: { organizationId, deletedAt: null, status: 'FAILED', category, createdAt: { lt: failedCutoff } },
+        select: { id: true, filename: true },
+      });
+      if (failedToDelete.length > 0) {
+        await prisma.databaseBackup.updateMany({
+          where: { id: { in: failedToDelete.map((b) => b.id) } },
+          data: { deletedAt: new Date() },
+        });
+        logger.info(`[Backup] 🗑️  Retention: soft-deleted ${failedToDelete.length} stale FAILED record(s)`);
       }
     }
   }

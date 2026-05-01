@@ -352,10 +352,10 @@ export class DocumentService {
     });
     if (!ocrData) return [];
 
-    const doc = await prisma.document.findUnique({ where: { id: documentId } });
+    const doc = await prisma.document.findFirst({ where: { id: documentId, ...(organizationId ? { employee: { organizationId } } : {}) } });
     if (!doc) return [];
 
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId } }) as any;
+    const employee = await prisma.employee.findFirst({ where: { id: employeeId, ...(organizationId ? { organizationId } : {}) } }) as any;
     if (!employee) return [];
 
     const updates: Record<string, any> = {};

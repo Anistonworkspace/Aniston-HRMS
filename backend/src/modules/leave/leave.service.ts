@@ -198,7 +198,7 @@ export class LeaveService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    const leaveType = await prisma.leaveType.findUnique({ where: { id: data.leaveTypeId } });
+    const leaveType = await prisma.leaveType.findFirst({ where: { id: data.leaveTypeId, organizationId: employee.organizationId } });
     if (!leaveType) throw new NotFoundError('Leave type');
     if (!leaveType.isActive) throw new BadRequestError('This leave type is currently inactive');
 
@@ -644,8 +644,8 @@ export class LeaveService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    const leaveType = await prisma.leaveType.findUnique({
-      where: { id: data.leaveTypeId },
+    const leaveType = await prisma.leaveType.findFirst({
+      where: { id: data.leaveTypeId, organizationId: employee.organizationId },
     });
     if (!leaveType) throw new NotFoundError('Leave type');
 
@@ -744,7 +744,7 @@ export class LeaveService {
       throw new BadRequestError(BLOCKED_STATUSES[employee.status]);
     }
 
-    const leaveType = await prisma.leaveType.findUnique({ where: { id: data.leaveTypeId } });
+    const leaveType = await prisma.leaveType.findFirst({ where: { id: data.leaveTypeId, organizationId: employee.organizationId } });
     if (!leaveType) throw new NotFoundError('Leave type');
     if (!leaveType.isActive) throw new BadRequestError('This leave type is currently inactive');
 
@@ -1252,9 +1252,9 @@ export class LeaveService {
 
     const employee = await prisma.employee.findUnique({ where: { id: employeeId }, select: { organizationId: true } });
 
-    // Validate backup employee only if one was provided
+    // Validate backup employee only if one was provided — must be in same org
     if (data.backupEmployeeId) {
-      const backup = await prisma.employee.findUnique({ where: { id: data.backupEmployeeId }, select: { id: true } });
+      const backup = await prisma.employee.findFirst({ where: { id: data.backupEmployeeId, organizationId: employee?.organizationId }, select: { id: true } });
       if (!backup) throw new NotFoundError('Backup employee');
       if (data.backupEmployeeId === employeeId) throw new BadRequestError('Cannot assign yourself as backup');
     }
@@ -1311,8 +1311,8 @@ export class LeaveService {
 
     // ── Re-check applicableTo at approval time (employee status may have changed since application) ──
     if (action === 'APPROVED' || action === 'APPROVED_WITH_CONDITION' || action === 'MANAGER_APPROVED') {
-      const leaveType = await prisma.leaveType.findUnique({
-        where: { id: request.leaveTypeId },
+      const leaveType = await prisma.leaveType.findFirst({
+        where: { id: request.leaveTypeId, organizationId },
         select: { name: true, applicableTo: true, applicableToRole: true, applicableToEmployeeIds: true },
       });
       if (leaveType) {
