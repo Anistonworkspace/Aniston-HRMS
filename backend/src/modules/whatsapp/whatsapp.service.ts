@@ -181,23 +181,27 @@ export class WhatsAppService {
 
       this._attachEventHandlers(organizationId, qrcode);
 
-      // QR appearance timeout — if no 'qr' or 'ready' event fires within 90 seconds,
-      // the browser likely failed to load WhatsApp Web. Destroy and notify.
+      // QR / ready timeout:
+      //   - Fresh connect (no session files): 90s — if no QR appears, Chrome failed to load WhatsApp Web
+      //   - Auto-reconnect (session files exist): 180s — Chrome + session restore can take longer on cold start
       if (this._qrTimeoutTimer) clearTimeout(this._qrTimeoutTimer);
+      const sessionDir = path.join(WA_AUTH_DIR, `session-aniston-${organizationId}`);
+      const hasSessionFiles = fs.existsSync(path.join(sessionDir, 'Default'));
+      const timeoutMs = hasSessionFiles ? 180000 : 90000;
       this._qrTimeoutTimer = setTimeout(async () => {
         if (!this._ready && !this._qrCode) {
-          logger.error('WhatsApp: QR code did not appear within 90s — possible Chrome/WhatsApp Web load failure');
+          logger.error(`WhatsApp: no QR or ready event within ${timeoutMs / 1000}s — Chrome/session failure`);
           this._initializing = false;
           await prisma.whatsAppSession.updateMany({
             where: { organizationId },
             data: { isConnected: false, qrCode: null },
           }).catch(() => {});
           emitToOrg(organizationId, 'whatsapp:init_timeout', {
-            message: 'WhatsApp failed to generate a QR code within 90 seconds. Chrome may have failed to load WhatsApp Web. Click "Try Again" to retry.',
+            message: `WhatsApp failed to connect within ${timeoutMs / 1000} seconds. ${hasSessionFiles ? 'Session may be corrupted — try disconnecting and scanning a new QR code.' : 'Chrome may have failed to load WhatsApp Web.'} Click "Try Again" to retry.`,
           });
           await this._destroyClient().catch(() => {});
         }
-      }, 90000);
+      }, timeoutMs);
 
       await this._client.initialize();
 

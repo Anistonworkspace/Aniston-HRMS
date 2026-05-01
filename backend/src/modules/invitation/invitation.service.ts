@@ -181,15 +181,16 @@ export class InvitationService {
             { to: invitation.mobileNumber, message: whatsAppMessage },
             organizationId,
             undefined,
-            'ONBOARDING_INVITE'
+            'ONBOARDING_INVITE',
+            { skipQuotaCheck: true } // quota already checked above — avoid double-counting
           );
           whatsappStatus = 'SENT';
         } else {
           logger.warn('[WhatsApp] Auto-send quota exceeded for org:', organizationId);
           whatsappStatus = 'FAILED';
         }
-      } catch (err) {
-        logger.error('Failed to send WhatsApp invite:', err);
+      } catch (err: any) {
+        logger.warn('[WhatsApp] Invite send failed (non-blocking):', err?.message || err);
         whatsappStatus = 'FAILED';
       }
     }
@@ -730,15 +731,16 @@ export class InvitationService {
             { to: invitation.mobileNumber, message: whatsAppMessage },
             organizationId,
             undefined,
-            'ONBOARDING_INVITE'
+            'ONBOARDING_INVITE',
+            { skipQuotaCheck: true } // quota already checked above — avoid double-counting
           );
           whatsappStatus = 'SENT';
         } else {
           logger.warn('[WhatsApp] Auto-send quota exceeded on resend for org:', organizationId);
           whatsappStatus = 'FAILED';
         }
-      } catch (err) {
-        logger.error('Failed to send WhatsApp invite on resend:', err);
+      } catch (err: any) {
+        logger.warn('[WhatsApp] Resend invite failed (non-blocking):', err?.message || err);
         whatsappStatus = 'FAILED';
       }
     }

@@ -1187,7 +1187,11 @@ function InviteEmployeeModal({ open, onClose, canCreateMasterData }: { open: boo
                   <div className="flex items-center gap-2 text-xs">
                     <MessageCircle size={14} className={result.whatsappStatus === 'SENT' ? 'text-green-600' : result.whatsappStatus === 'FAILED' ? 'text-amber-500' : 'text-gray-400'} />
                     <span className={result.whatsappStatus === 'SENT' ? 'text-green-700' : result.whatsappStatus === 'FAILED' ? 'text-amber-600' : 'text-gray-500'}>
-                      WhatsApp {result.whatsappStatus === 'SENT' ? 'sent' : result.whatsappStatus === 'FAILED' ? 'failed (WA may not be connected)' : 'pending'} to {result.mobileNumber}
+                      {result.whatsappStatus === 'SENT'
+                        ? `WhatsApp sent to ${result.mobileNumber}`
+                        : result.whatsappStatus === 'FAILED'
+                        ? <>WhatsApp not sent to {result.mobileNumber} — <a href="/settings?tab=whatsapp" className="underline font-medium">connect WhatsApp in Settings</a> to enable this</>
+                        : `WhatsApp pending to ${result.mobileNumber}`}
                     </span>
                   </div>
                 )}
