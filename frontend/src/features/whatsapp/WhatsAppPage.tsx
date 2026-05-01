@@ -1381,8 +1381,9 @@ function ChatView({
         refetch();
         toast.success('Media downloaded');
       }
-    } catch {
-      toast.error('Failed to download media');
+    } catch (err: any) {
+      const reason = err?.data?.error?.message || err?.message || 'Failed to download media';
+      toast.error(reason);
     } finally {
       setDownloadingIds(prev => { const s = new Set(prev); s.delete(msg.id); return s; });
     }
@@ -1639,6 +1640,15 @@ const MessageBubble = memo(function MessageBubble({
   onDownloadMedia: (msg: WhatsAppMessage) => void;
   isDownloading?: boolean;
 }) {
+  // Guard: if message data is corrupted, render a minimal fallback rather than crashing the chat view
+  if (!msg || typeof msg.fromMe !== 'boolean') {
+    return (
+      <div className="flex justify-start mb-1 px-2">
+        <div className="text-[10px] text-gray-400 italic px-2 py-1 bg-gray-50 rounded">[Message unavailable]</div>
+      </div>
+    );
+  }
+
   const renderMedia = () => {
     if (!msg.hasMedia) return null;
 

@@ -102,6 +102,7 @@ export class WhatsAppService {
   private _initializing = false;
   private _initPromise: Promise<{ isConnected: boolean; status: string; message: string }> | null = null;
   private _syncing = false; // True while preloading chats after connect
+  private _syncVersion = 0; // Incremented on each sync start; only the latest version clears _syncing
   private _qrCode: string | null = null;
   private _pingInterval: ReturnType<typeof setInterval> | null = null;
   private _sessionExpiryInterval: ReturnType<typeof setInterval> | null = null;
@@ -284,6 +285,7 @@ export class WhatsAppService {
       // Background chat preload — warms Redis cache so first /whatsapp/chats is fast
       // WhatsApp Web needs a few seconds to finish syncing after ready fires
       this._syncing = true;
+      const syncVersion = ++this._syncVersion;
       emitToOrg(organizationId, 'whatsapp:sync:start', {});
       setTimeout(async () => {
         try {
@@ -293,8 +295,11 @@ export class WhatsAppService {
         } catch (preloadErr: any) {
           logger.warn(`WhatsApp: chat preload failed — ${preloadErr.message}`);
         } finally {
-          this._syncing = false;
-          emitToOrg(organizationId, 'whatsapp:sync:complete', {});
+          // Only the latest sync generation clears the flag — prevents stale clears on rapid reconnects
+          if (syncVersion === this._syncVersion) {
+            this._syncing = false;
+            emitToOrg(organizationId, 'whatsapp:sync:complete', {});
+          }
         }
       }, 3000);
 

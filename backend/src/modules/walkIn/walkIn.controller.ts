@@ -381,7 +381,8 @@ HR Team | ${companyName}`;
           { to: phoneDigits, message },
           req.user!.organizationId,
           req.user!.userId,
-          'INTERVIEW_INVITE'
+          'INTERVIEW_INVITE',
+          { skipQuotaCheck: true }
         );
         res.json({ success: true, data: { message, phone: phoneDigits, messageSent: true } });
       } catch (waErr: any) {
