@@ -104,7 +104,11 @@ export function startTracking() {
   startInputTracking();
 
   trackingInterval = setInterval(async () => {
-    if (isPaused) return;
+    if (isPaused) {
+      // Drain counts accumulated during pause so they don't inflate the first entry on resume
+      getAndResetInputCounts();
+      return;
+    }
 
     try {
       const { app, title } = await getActiveWindowInfo();

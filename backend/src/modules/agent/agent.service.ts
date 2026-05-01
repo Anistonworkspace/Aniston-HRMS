@@ -55,7 +55,7 @@ export class AgentService {
     // Audit once per employee per day — SET NX is atomic; prevents duplicate logs on concurrent heartbeats
     const todayStr = today.toISOString().split('T')[0];
     const auditKey = `agent-heartbeat-audit:${organizationId}:${employeeId}:${todayStr}`;
-    const wasSet = await redis.set(auditKey, '1', 'NX', 'EX', 90000);
+    const wasSet = await redis.set(auditKey, '1', 'EX', 90000, 'NX');
     if (wasSet) {
       await createAuditLog({ userId, organizationId, entity: 'ActivityLog', entityId: employeeId, action: 'CREATE', newValue: { note: 'Activity monitoring started', date: todayStr } });
     }

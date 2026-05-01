@@ -56,8 +56,11 @@ async function handlePair() {
     updateTrayMenu(handlePair, handleLogout);
   } catch (err) {
     const msg = (err as Error).message;
-    console.error('[Pair] Error:', msg);
-    sendPairError(msg || 'Pairing failed. Try generating a new code.');
+    // 'cancelled' means the user closed the window intentionally — no error UI needed
+    if (msg !== 'cancelled') {
+      console.error('[Pair] Error:', msg);
+      sendPairError(msg || 'Pairing failed. Try generating a new code.');
+    }
   } finally {
     isRepairing = false;
   }

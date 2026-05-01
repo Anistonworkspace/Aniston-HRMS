@@ -91,6 +91,9 @@ export function showPairWindow(): Promise<string> {
         try { fs.unlinkSync(pairHtmlPath); } catch {}
         pairHtmlPath = null;
       }
+      // Reject so handlePair()'s finally block runs and isRepairing resets —
+      // without this the agent is permanently locked if the user closes the window
+      reject(new Error('cancelled'));
     });
   });
 }
