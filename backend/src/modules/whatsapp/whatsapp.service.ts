@@ -630,7 +630,7 @@ export class WhatsAppService {
 
       emitToOrg(organizationId, 'whatsapp:message:new', {
         chatId,
-        messageId: externalId || `sent-${Date.now()}`,
+        messageId: externalId || `sent-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         body: data.message,
         fromMe: true,
         timestamp: new Date().toISOString(),
@@ -724,7 +724,7 @@ export class WhatsAppService {
 
       emitToOrg(organizationId, 'whatsapp:message:new', {
         chatId,
-        messageId: externalId || `sent-${Date.now()}`,
+        messageId: externalId || `sent-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         body: message,
         fromMe: true,
         timestamp: new Date().toISOString(),
@@ -1154,6 +1154,15 @@ export class WhatsAppService {
   async downloadMedia(messageId: string, chatId: string, organizationId?: string) {
     this._ensureReady();
 
+    // Org isolation: verify the message belongs to this organization before serving
+    if (organizationId) {
+      const msg = await prisma.whatsAppMessage.findFirst({
+        where: { organizationId, externalMessageId: messageId },
+        select: { id: true },
+      }).catch(() => null);
+      if (!msg) throw new BadRequestError('Message not found');
+    }
+
     const uploadsDir = storageService.getAbsoluteDir('whatsapp');
 
     // Check disk cache first
@@ -1203,7 +1212,12 @@ export class WhatsAppService {
         mediaMimetype: media.mimetype,
       };
     } catch (err: any) {
-      throw new BadRequestError(`Failed to download media: ${err.message}`);
+      const msg = err?.message || String(err);
+      logger.warn('WhatsApp: media download failed:', msg);
+      if (err instanceof BadRequestError) throw err;
+      if (msg.includes('ENOENT') || msg.includes('no such file')) throw new BadRequestError('Media file not found or has been removed.');
+      if (msg.includes('timeout') || msg.includes('ETIMEDOUT')) throw new BadRequestError('Media download timed out. Please try again.');
+      throw new BadRequestError('Failed to download media. Please try again.');
     }
   }
 
@@ -1239,8 +1253,15 @@ export class WhatsAppService {
 
   // ===================== SEARCH MESSAGES =====================
 
-  async searchMessages(chatId: string, query: string, limit = 50) {
+  async searchMessages(chatId: string, query: string, organizationId: string, limit = 50) {
     this._ensureReady();
+
+    // Validate chatId belongs to this organization before searching
+    const conv = await prisma.whatsAppConversation.findFirst({
+      where: { organizationId, providerChatId: chatId },
+      select: { id: true },
+    }).catch(() => null);
+    if (!conv) throw new BadRequestError('Chat not found in your organization');
 
     const normalizedChatId = this._normalizeChatId(chatId);
 
@@ -1262,7 +1283,9 @@ export class WhatsAppService {
 
       return matched;
     } catch (err: any) {
-      throw new BadRequestError(`Search failed: ${err.message}`);
+      if (err instanceof BadRequestError) throw err;
+      logger.warn('WhatsApp: message search failed:', err?.message);
+      throw new BadRequestError('Search failed. Please try again.');
     }
   }
 
@@ -1747,7 +1770,13 @@ export class WhatsAppService {
       // Remove all listeners FIRST — prevents stale handlers from firing with old organizationId
       // after destroy() begins. Puppeteer teardown is async and events can still fire mid-destroy.
       try { this._client.removeAllListeners(); } catch { /* ignore */ }
-      try { await this._client.destroy(); } catch { /* ignore */ }
+      try {
+        // 5s timeout on destroy — prevents hanging shutdown if Puppeteer is unresponsive
+        await Promise.race([
+          this._client.destroy(),
+          new Promise<void>((_, reject) => setTimeout(() => reject(new Error('destroy timeout')), 5000)),
+        ]);
+      } catch { /* ignore — client reference is nulled below regardless */ }
       this._client = null;
     }
   }

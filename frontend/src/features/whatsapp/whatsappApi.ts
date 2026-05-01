@@ -359,7 +359,12 @@ export const whatsappApi = api.injectEndpoints({
         };
 
         // D2: alert HR when an incoming message was displayed but failed to persist to DB
+        // Debounced: max 1 toast per 5s — prevents toast-storm on bulk DB failures
+        let persistFailedLastShown = 0;
         const handlePersistFailed = (data: { chatId: string; warning: string }) => {
+          const now = Date.now();
+          if (now - persistFailedLastShown < 5000) return;
+          persistFailedLastShown = now;
           toast.error(`⚠️ WhatsApp: ${data.warning}`, {
             duration: 8000,
             style: { fontSize: '12px', maxWidth: '380px' },

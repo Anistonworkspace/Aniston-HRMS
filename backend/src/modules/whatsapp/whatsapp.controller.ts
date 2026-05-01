@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { Request, Response, NextFunction } from 'express';
 import { whatsAppService } from './whatsapp.service.js';
 import {
@@ -76,7 +77,13 @@ export class WhatsAppController {
         return;
       }
 
-      const result = await whatsAppService.sendMedia(chatId, req.file.path, caption, req.user!.organizationId, req.user!.userId);
+      let result: any;
+      try {
+        result = await whatsAppService.sendMedia(chatId, req.file.path, caption, req.user!.organizationId, req.user!.userId);
+      } finally {
+        // Always clean up the multer temp file regardless of send success/failure
+        fs.unlink(req.file.path, () => {});
+      }
       res.json({ success: true, data: result, message: 'Media sent' });
     } catch (err) { next(err); }
   }
@@ -133,7 +140,7 @@ export class WhatsAppController {
         return;
       }
       const limit = Math.min(Number(req.query.limit) || 50, 100);
-      const results = await whatsAppService.searchMessages(chatId, query, limit);
+      const results = await whatsAppService.searchMessages(chatId, query, req.user!.organizationId, limit);
       res.json({ success: true, data: results });
     } catch (err) { next(err); }
   }
