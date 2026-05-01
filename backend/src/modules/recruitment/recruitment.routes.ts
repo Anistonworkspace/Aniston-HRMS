@@ -191,7 +191,9 @@ Apply here: ${applyLink}
     const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
     const allowed = await whatsAppService.checkAutoSendQuota(req.user!.organizationId);
     if (!allowed) {
-      res.status(429).json({ success: false, error: { code: 'QUOTA_EXCEEDED', message: 'Auto-send quota exceeded (10/min). Please wait a moment and try again.' } });
+      res.status(429)
+        .set('Retry-After', '60')
+        .json({ success: false, error: { code: 'QUOTA_EXCEEDED', message: 'Auto-send quota exceeded (10/min). Please wait a moment and try again.', retryAfter: 60 } });
       return;
     }
     try {
@@ -199,7 +201,8 @@ Apply here: ${applyLink}
         { to: phone, message: customMessage || defaultMessage },
         req.user!.organizationId,
         req.user!.userId,
-        'JOB_LINK'
+        'JOB_LINK',
+        { skipQuotaCheck: true, referenceId: req.params.jobId, referenceType: 'JOB' }
       );
       res.json({ success: true, data: { phone, applyLink, message: customMessage || defaultMessage, messageSent: true } });
     } catch (waErr: any) {

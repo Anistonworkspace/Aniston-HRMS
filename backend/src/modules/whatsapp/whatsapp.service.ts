@@ -553,8 +553,20 @@ export class WhatsAppService {
 
   // ===================== SEND MESSAGES =====================
 
-  async sendMessage(data: SendMessageInput, organizationId: string, userId?: string, templateType: any = 'GENERAL') {
+  async sendMessage(
+    data: SendMessageInput,
+    organizationId: string,
+    userId?: string,
+    templateType: any = 'GENERAL',
+    opts?: { skipQuotaCheck?: boolean; referenceId?: string; referenceType?: string }
+  ) {
     this._ensureReady();
+
+    // Auto-send quota guard — applied to all non-manual sends unless caller already checked
+    if (templateType !== 'GENERAL' && !opts?.skipQuotaCheck) {
+      const allowed = await this.checkAutoSendQuota(organizationId);
+      if (!allowed) throw new BadRequestError('Auto-send quota exceeded (10/min). Please wait and try again.');
+    }
 
     const phone = normalizePhone(data.to);
     const rawChatId = phoneToChatId(data.to);
@@ -565,22 +577,25 @@ export class WhatsAppService {
       if (!numberId) throw new BadRequestError(`The number ${data.to} is not registered on WhatsApp`);
       const chatId = numberId._serialized;
 
-      // Upsert conversation record
-      await this._upsertConversation(phone, organizationId, chatId, {
-        lastMessagePreview: data.message.slice(0, 100),
-        lastMessageAt: new Date(),
-        templateSource: templateType,
-        lastMessageDirection: 'OUTBOUND',
-      });
-
       // Support reply/quote
       const options: any = {};
       if (data.quotedMessageId) {
         options.quotedMessageId = data.quotedMessageId;
       }
 
+      // Send FIRST — upsert conversation only after success to avoid stale preview on failure
       const sentMsg = await this._client.sendMessage(chatId, data.message, Object.keys(options).length > 0 ? options : undefined);
       const externalId = sentMsg?.id?._serialized || null;
+
+      // Upsert conversation record after successful send
+      await this._upsertConversation(phone, organizationId, chatId, {
+        lastMessagePreview: data.message.slice(0, 100),
+        lastMessageAt: new Date(),
+        templateSource: templateType,
+        lastMessageDirection: 'OUTBOUND',
+        referenceId: opts?.referenceId,
+        referenceType: opts?.referenceType,
+      });
 
       const session = await this._getSessionOrThrow(organizationId);
       const msg = await prisma.whatsAppMessage.create({
@@ -1818,6 +1833,8 @@ export class WhatsAppService {
           ...(updates?.lastMessageAt ? { lastMessageAt: updates.lastMessageAt } : {}),
           ...(updates?.lastMessagePreview !== undefined ? { lastMessagePreview: updates.lastMessagePreview.slice(0, 100) } : {}),
           ...(updates?.lastMessageDirection ? { lastMessageDirection: updates.lastMessageDirection } : {}),
+          ...(updates?.referenceId ? { referenceId: updates.referenceId } : {}),
+          ...(updates?.referenceType ? { referenceType: updates.referenceType } : {}),
           updatedAt: new Date(),
         },
       });

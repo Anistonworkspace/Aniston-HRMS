@@ -526,6 +526,13 @@ function WhatsAppChatApp({ sessionPhone, isSyncing }: { sessionPhone?: string | 
   const liveContacts: WhatsAppContact[] = liveContactsRes?.data || [];
   const groupChats: WhatsAppChat[] = chats.filter(c => c.isGroup);
 
+  // Refetch chats when sync completes so list populates immediately after first connect
+  useEffect(() => {
+    const handleSyncComplete = () => refetchChats();
+    onSocketEvent('whatsapp:sync:complete', handleSyncComplete);
+    return () => offSocketEvent('whatsapp:sync:complete', handleSyncComplete);
+  }, [refetchChats]);
+
   // Expose active chatId so API layer can suppress toast for active conversation
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('wa:active-chat', { detail: selectedChat }));

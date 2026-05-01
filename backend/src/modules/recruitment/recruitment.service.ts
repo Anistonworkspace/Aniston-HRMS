@@ -867,6 +867,36 @@ ${data.requirements ? `Additional Requirements/Notes: ${safe(data.requirements)}
         const { walkInService } = await import('../walkIn/walkIn.service.js');
         const hireEmail = candidate.email || `${candidate.tokenNumber.toLowerCase().replace(/-/g, '.')}@candidates.aniston.com`;
         await walkInService.hireCandidate(id, hireEmail, organizationId, hiredBy);
+
+        // WhatsApp onboarding invite (non-blocking — email already sent above)
+        if (candidate.phone) {
+          try {
+            const { prisma: db } = await import('../../lib/prisma.js');
+            const invitation = await db.employeeInvitation.findFirst({
+              where: { email: hireEmail, organizationId, status: 'PENDING' },
+              orderBy: { createdAt: 'desc' },
+              select: { token: true },
+            });
+            if (invitation?.token) {
+              const inviteLink = `https://hr.anistonav.com/onboarding/invite/${invitation.token}`;
+              const waMessage = `Hello ${candidate.fullName}! 🎉\n\nCongratulations! You have been selected to join Aniston Technologies LLP.\n\nPlease complete your onboarding using this link:\n${inviteLink}\n\nThis link expires in 72 hours.\n\n— HR Team, Aniston Technologies LLP`;
+              const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
+              const waAllowed = await whatsAppService.checkAutoSendQuota(organizationId);
+              if (waAllowed) {
+                await whatsAppService.sendMessage(
+                  { to: candidate.phone, message: waMessage },
+                  organizationId,
+                  hiredBy,
+                  'ONBOARDING_INVITE',
+                  { skipQuotaCheck: true }
+                );
+              }
+            }
+          } catch (waErr: any) {
+            logger.warn(`[BulkInvite] WhatsApp send skipped for ${candidate.fullName}: ${waErr.message}`);
+          }
+        }
+
         results.push({ id, name: candidate.fullName, status: 'sent' });
       } catch (err: any) {
         logger.error(`[BulkInvite] Failed to hire candidate ${id}:`, err);
