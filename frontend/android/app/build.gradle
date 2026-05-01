@@ -4,11 +4,11 @@ android {
     namespace "com.anistonav.hrms"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.anistonav.hrms"
+        applicationId "com.anistonav.hr.twa"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 3
+        versionName "1.0.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'

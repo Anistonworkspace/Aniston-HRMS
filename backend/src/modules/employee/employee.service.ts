@@ -572,6 +572,15 @@ export class EmployeeService {
     if (data.probationEndDate) updateData.probationEndDate = new Date(data.probationEndDate);
     else delete updateData.probationEndDate;
 
+    // Validate IFSC format when it's being updated (Issue 10)
+    if (updateData.ifscCode) {
+      const ifscNorm = String(updateData.ifscCode).toUpperCase().trim();
+      if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscNorm)) {
+        throw new BadRequestError('Invalid IFSC code. Format: 4 letters + 0 + 6 alphanumeric (e.g. SBIN0001234)');
+      }
+      updateData.ifscCode = ifscNorm;
+    }
+
     // Encrypt sensitive fields before writing to DB
     if (updateData.panNumber) updateData.panNumber = encrypt(updateData.panNumber);
     if (updateData.bankAccountNumber) updateData.bankAccountNumber = encrypt(updateData.bankAccountNumber);

@@ -143,10 +143,16 @@ export async function getCurrentPosition(): Promise<GPSPosition> {
  *
  * Returns an opaque watchId string used to stop tracking with clearWatch().
  */
+export interface GPSCredentials {
+  backendUrl: string;
+  authToken: string;
+}
+
 export async function watchPosition(
   onPosition: (pos: GPSPosition) => void,
   onError: (err: { code?: number; message: string }) => void,
   trackingIntervalMinutes = 60,
+  credentials?: GPSCredentials,
 ): Promise<string | number> {
 
   // ── Native Android: BackgroundGeolocation foreground service ────────────────
@@ -160,6 +166,9 @@ export async function watchPosition(
           requestPermissions: true,
           stale: false,
           distanceFilter: 0,
+          // Passed to Java service for direct HTTP posting when app is force-killed
+          backendUrl: credentials?.backendUrl ?? '',
+          authToken: credentials?.authToken ?? '',
         },
         (position: any, error: any) => {
           if (error) {

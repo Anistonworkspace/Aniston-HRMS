@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Play, Square, Clock, Navigation, Wifi, WifiOff, Upload, Smartphone, Battery, AlertTriangle, RefreshCw, Shield, CheckCircle, Tag, X, Flag } from 'lucide-react';
 import { useClockInMutation, useClockOutMutation, useStoreGPSTrailMutation, useRecordGPSConsentMutation, useGetGPSConsentStatusQuery } from './attendanceApi';
@@ -12,6 +13,7 @@ import {
   watchPosition,
   clearWatch,
 } from '../../lib/capacitorGPS';
+import type { RootState } from '../../app/store';
 import toast from 'react-hot-toast';
 
 /** Current consent version — bump this string to force re-consent after policy changes */
@@ -81,6 +83,8 @@ function clearPersistedBuffer() {
 }
 
 export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
+  const accessToken = useSelector((state: RootState) => state.auth.accessToken);
+
   // Refs declared first — state initializers below must not reference them before this point
   const watchIdRef = useRef<string | number | null>(_gpsWatcher.watchId);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -327,6 +331,10 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       // Web/PWA: navigator.geolocation.watchPosition (foreground only; screen
       //   must stay on via Wake Lock).
       const intervalMinsForPlugin = Math.round(trackingIntervalMs / 60_000);
+      const gpsCredentials = isNativeAndroid ? {
+        backendUrl: (import.meta.env.VITE_API_URL || 'https://hr.anistonav.com/api').replace(/\/api$/, ''),
+        authToken: accessToken || '',
+      } : undefined;
       const newWatchId = await watchPosition(
         (position) => {
           setGpsPaused(false);
@@ -369,7 +377,8 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
           }
           setGpsLostAt(prev => prev ?? Date.now());
         },
-        intervalMinsForPlugin
+        intervalMinsForPlugin,
+        gpsCredentials,
       );
       // Register with singleton so remounts don't spawn a second watcher
       _gpsWatcher.watchId = newWatchId;

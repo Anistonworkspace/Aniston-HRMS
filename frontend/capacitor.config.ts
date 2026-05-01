@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.anistonav.hrms',
+  appId: 'com.anistonav.hr.twa',
   appName: 'Aniston HRMS',
   webDir: 'dist',
 

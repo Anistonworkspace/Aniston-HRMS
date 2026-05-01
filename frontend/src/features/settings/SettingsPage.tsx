@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, Building2, Shield, Server, Save, Loader2, Plus, Pencil, Trash2, X, Mail, CheckCircle2, AlertTriangle, Send, Cloud, Eye, EyeOff, Users, Lock, DollarSign, MessageCircle, QrCode, Wifi, WifiOff, Cpu, Zap, ExternalLink, BookOpen, Monitor, Copy, Download, RefreshCw, Search, Database, UserMinus, Terminal, FileText } from 'lucide-react';
@@ -1097,17 +1097,38 @@ function WhatsAppConfig() {
   const [liveConnected, setLiveConnected] = useState(false); // instant connected state via socket
   const [livePhone, setLivePhone] = useState<string | null>(null);
   const [waError, setWaError] = useState<string | null>(null);
+  const connectingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const status = statusRes?.data;
   const isConnected = liveConnected || status?.isConnected || false;
   const serverInitializing = status?.isInitializing || false;
   const qrCode = liveQr || qrRes?.data?.qrCode;
 
-  // Sync connecting state with server's isInitializing
+  // Sync connecting state with server's isInitializing.
+  // Also reset when server goes idle (isInitializing: false) without connecting — prevents stuck spinner.
+  const prevServerInitializing = useRef(false);
   useEffect(() => {
     if (serverInitializing && !connecting) setConnecting(true);
     if (isConnected) { setConnecting(false); setLinking(false); }
-  }, [serverInitializing, isConnected]);
+    // Server finished initializing without connecting — clear stuck state
+    if (prevServerInitializing.current && !serverInitializing && !isConnected && !qrCode) {
+      setConnecting(false);
+    }
+    prevServerInitializing.current = serverInitializing;
+  }, [serverInitializing, isConnected, qrCode]);
+
+  // 95-second client-side timeout: if connecting for too long without QR, show actionable error
+  useEffect(() => {
+    if (connecting && !qrCode && !isConnected) {
+      connectingTimerRef.current = setTimeout(() => {
+        setConnecting(false);
+        setWaError('WhatsApp took too long to generate a QR code. Chrome may have failed to load WhatsApp Web. Click "Try Again" to retry.');
+      }, 95000);
+    } else {
+      if (connectingTimerRef.current) { clearTimeout(connectingTimerRef.current); connectingTimerRef.current = null; }
+    }
+    return () => { if (connectingTimerRef.current) { clearTimeout(connectingTimerRef.current); connectingTimerRef.current = null; } };
+  }, [connecting, qrCode, isConnected]);
 
   // Listen for real-time socket events for instant QR + connection updates
   useEffect(() => {
@@ -1115,6 +1136,7 @@ function WhatsAppConfig() {
       setLiveQr(data.qrCode);
       setConnecting(false);
       setLinking(false);
+      setWaError(null);
     };
     const handleAuthenticated = () => {
       // QR was scanned — immediately hide QR and show linking spinner
@@ -1128,7 +1150,8 @@ function WhatsAppConfig() {
       setConnecting(false);
       setLiveConnected(true);
       setLivePhone(data.phoneNumber || null);
-      setLiveSyncing(true); // Chats will start preloading now
+      setLiveSyncing(true);
+      setWaError(null);
       toast.success(`WhatsApp connected${data.phoneNumber ? ` (+${data.phoneNumber})` : ''}! Syncing chats...`);
       refetchStatus();
     };
@@ -1153,6 +1176,14 @@ function WhatsAppConfig() {
       setLivePhone(null);
       refetchStatus();
     };
+    const handleInitTimeout = (data: any) => {
+      setConnecting(false);
+      setLinking(false);
+      setLiveQr(null);
+      setWaError(data?.message || 'WhatsApp failed to generate a QR code. Please click "Try Again".');
+      toast.error('WhatsApp initialization timed out');
+      refetchStatus();
+    };
 
     onSocketEvent('whatsapp:qr', handleQr);
     onSocketEvent('whatsapp:authenticated', handleAuthenticated);
@@ -1161,6 +1192,7 @@ function WhatsAppConfig() {
     onSocketEvent('whatsapp:disconnected', handleDisconnected);
     onSocketEvent('whatsapp:sync:start', handleSyncStart);
     onSocketEvent('whatsapp:sync:complete', handleSyncComplete);
+    onSocketEvent('whatsapp:init_timeout', handleInitTimeout);
 
     return () => {
       offSocketEvent('whatsapp:qr', handleQr);
@@ -1170,6 +1202,7 @@ function WhatsAppConfig() {
       offSocketEvent('whatsapp:disconnected', handleDisconnected);
       offSocketEvent('whatsapp:sync:start', handleSyncStart);
       offSocketEvent('whatsapp:sync:complete', handleSyncComplete);
+      offSocketEvent('whatsapp:init_timeout', handleInitTimeout);
     };
   }, [refetchStatus]);
 
@@ -1314,10 +1347,34 @@ function WhatsAppConfig() {
               </div>
             </div>
           ) : connecting ? (
-            <div className="text-center py-12">
+            <div className="text-center py-10">
               <Loader2 size={48} className="mx-auto text-indigo-400 animate-spin mb-4" />
               <p className="text-sm font-medium text-gray-700">Initializing WhatsApp...</p>
               <p className="text-xs text-gray-400 mt-1">QR code will appear automatically in a few seconds</p>
+              <p className="text-xs text-gray-400 mt-0.5">This can take up to 30–60 seconds on first launch</p>
+              <div className="flex items-center justify-center gap-3 mt-6">
+                <button
+                  onClick={async () => {
+                    setConnecting(false);
+                    setWaError(null);
+                    try { await logoutWA().unwrap(); } catch { /* ignore */ }
+                    setTimeout(() => handleInitialize(), 500);
+                  }}
+                  className="btn-secondary text-xs flex items-center gap-1.5"
+                >
+                  <Loader2 size={12} /> Try Again
+                </button>
+                <button
+                  onClick={async () => {
+                    setConnecting(false);
+                    setWaError(null);
+                    try { await logoutWA().unwrap(); } catch { /* ignore */ }
+                  }}
+                  className="text-xs text-gray-500 hover:text-red-600 transition-colors underline"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           ) : (
             <div className="text-center py-8">

@@ -1,12 +1,20 @@
+import crypto from 'crypto';
+import os from 'os';
+
+function deriveMachineKey(): string {
+  const seed = `aniston-agent-v1-${os.hostname()}-${os.userInfo().username}`;
+  return crypto.createHash('sha256').update(seed).digest('hex');
+}
+
 export const CONFIG = {
-  API_URL: 'https://hr.anistonav.com/api',
+  API_URL: process.env.ANISTON_API_URL || 'https://hr.anistonav.com/api',
   TRACKING_INTERVAL_MS: 30_000,         // 30 seconds — check active window
   SCREENSHOT_INTERVAL_MS: 600_000,      // 10 minutes — take screenshot (overridden by live mode)
   SYNC_INTERVAL_MS: 60_000,             // 1 minute — sync heartbeat batch to server
-  CONFIG_POLL_INTERVAL_MS: 30_000,      // 30 seconds — poll server config (fallback for live mode)
+  CONFIG_POLL_INTERVAL_MS: 300_000,     // 5 minutes — poll server config (was 30s = 120 req/hr)
   IDLE_THRESHOLD_S: 300,                // 5 minutes idle = inactive
   APP_NAME: 'Aniston Agent',
-  STORE_ENCRYPTION_KEY: 'aniston-agent-v1',
+  STORE_ENCRYPTION_KEY: deriveMachineKey(),
   // TURN server for WebRTC NAT traversal in enterprise networks.
   // Set ANISTON_TURN_URL (e.g. "turn:turn.example.com:3478") via env var or electron-builder config.
   TURN_URL: process.env.ANISTON_TURN_URL || '',

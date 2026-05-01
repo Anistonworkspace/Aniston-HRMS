@@ -1,4 +1,4 @@
-import { useState, useMemo, lazy, Suspense } from 'react';
+import { useState, useMemo, lazy, Suspense, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getUploadUrl } from '../../lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -16,6 +16,7 @@ import {
 } from './attendanceApi';
 import { useGetEmployeeShiftQuery } from '../workforce/workforceApi';
 import { cn, formatDate, getInitials, getStatusColor } from '../../lib/utils';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 
 // Lazy load map component
 const MapSection = lazy(() => import('./components/MapSection'));
@@ -105,14 +106,29 @@ export default function EmployeeAttendanceDetailPage() {
   );
   const detail = detailRes?.data;
 
-  // GPS trail for FIELD — polls every 30 s so HR sees near-real-time updates
+  // GPS trail for FIELD — polls every 30 s fallback + instant socket-driven refetch
   const isToday = selectedDate === new Date().toISOString().split('T')[0];
-  const { data: gpsRes } = useGetEmployeeGPSTrailQuery(
+  const { data: gpsRes, refetch: refetchGps } = useGetEmployeeGPSTrailQuery(
     { employeeId: employeeId || '', date: selectedDate },
     { skip: shiftType !== 'FIELD', pollingInterval: isToday ? 30000 : 0 }
   );
   const gpsTrail: any[] = gpsRes?.data?.points || [];
   const gpsVisits: any[] = gpsRes?.data?.visits || [];
+
+  // Socket: when GPS batch arrives for this employee+today, refetch immediately
+  // so HR sees new points on the live map without waiting for the 30s poll
+  const refetchGpsRef = useRef(refetchGps);
+  refetchGpsRef.current = refetchGps;
+  useEffect(() => {
+    if (!isToday || shiftType !== 'FIELD') return;
+    const handler = (data: any) => {
+      if (data?.employeeId === employeeId && data?.date === selectedDate) {
+        refetchGpsRef.current();
+      }
+    };
+    onSocketEvent('gps:trail-updated', handler);
+    return () => offSocketEvent('gps:trail-updated', handler);
+  }, [isToday, shiftType, employeeId, selectedDate]);
 
   // C3 — detect tracking gap for HR: compare last GPS point to now
   const trackingIntervalMs = (shift?.trackingIntervalMinutes || 60) * 60_000;

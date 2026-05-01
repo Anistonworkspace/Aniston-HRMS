@@ -105,6 +105,7 @@ export class WhatsAppService {
   private _qrCode: string | null = null;
   private _pingInterval: ReturnType<typeof setInterval> | null = null;
   private _sessionExpiryInterval: ReturnType<typeof setInterval> | null = null;
+  private _qrTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ===================== CONNECTION & INITIALIZATION =====================
 
@@ -165,18 +166,38 @@ export class WhatsAppService {
           args: [
             '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
             '--disable-gpu', '--disable-extensions', '--disable-default-apps', '--no-first-run',
+            '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
           ],
-          headless: 'new' as any,
+          headless: true as any,
           timeout: 120000,
+          handleSIGINT: false,
+          handleSIGTERM: false,
         },
-        webVersionCache: {
-          type: 'remote',
-          remotePath: 'https://raw.githubusercontent.com/nicehero/nicehero.github.io/main/nicehero-whatsapp-web-version-cache/',
-        },
-        authTimeoutMs: 120000,
+        // Use local version cache only — the remote community GitHub URL is unreliable
+        // and causes Chrome to hang waiting for a response, which makes QR generation fail.
+        webVersionCache: { type: 'local' },
+        authTimeoutMs: 60000,
       });
 
       this._attachEventHandlers(organizationId, qrcode);
+
+      // QR appearance timeout — if no 'qr' or 'ready' event fires within 90 seconds,
+      // the browser likely failed to load WhatsApp Web. Destroy and notify.
+      if (this._qrTimeoutTimer) clearTimeout(this._qrTimeoutTimer);
+      this._qrTimeoutTimer = setTimeout(async () => {
+        if (!this._ready && !this._qrCode) {
+          logger.error('WhatsApp: QR code did not appear within 90s — possible Chrome/WhatsApp Web load failure');
+          this._initializing = false;
+          await prisma.whatsAppSession.updateMany({
+            where: { organizationId },
+            data: { isConnected: false, qrCode: null },
+          }).catch(() => {});
+          emitToOrg(organizationId, 'whatsapp:init_timeout', {
+            message: 'WhatsApp failed to generate a QR code within 90 seconds. Chrome may have failed to load WhatsApp Web. Click "Try Again" to retry.',
+          });
+          await this._destroyClient().catch(() => {});
+        }
+      }, 90000);
 
       await this._client.initialize();
 
@@ -186,6 +207,7 @@ export class WhatsAppService {
       return { isConnected: false, status: 'initializing', message: 'Initializing... Scan QR code' };
     } catch (error: any) {
       this._initializing = false;
+      if (this._qrTimeoutTimer) { clearTimeout(this._qrTimeoutTimer); this._qrTimeoutTimer = null; }
       const msg = error.message || String(error);
       logger.error('WhatsApp init failed:', msg);
       if (msg.includes('shared libraries') || msg.includes('Failed to launch the browser') || msg.includes('ENOENT')) {
@@ -204,6 +226,8 @@ export class WhatsAppService {
     const client = this._client;
 
     client.on('qr', async (qr: string) => {
+      // QR appeared — cancel the timeout
+      if (this._qrTimeoutTimer) { clearTimeout(this._qrTimeoutTimer); this._qrTimeoutTimer = null; }
       try {
         const toDataURL = qrcode.toDataURL || (qrcode as any).default?.toDataURL;
         this._qrCode = toDataURL ? await toDataURL(qr) : null;
@@ -226,6 +250,7 @@ export class WhatsAppService {
     });
 
     client.on('auth_failure', async (msg: string) => {
+      if (this._qrTimeoutTimer) { clearTimeout(this._qrTimeoutTimer); this._qrTimeoutTimer = null; }
       this._ready = false;
       this._initializing = false;
       this._qrCode = null;
@@ -238,6 +263,8 @@ export class WhatsAppService {
     });
 
     client.on('ready', async () => {
+      // Cancel QR timeout — we're connected now
+      if (this._qrTimeoutTimer) { clearTimeout(this._qrTimeoutTimer); this._qrTimeoutTimer = null; }
       this._ready = true;
       this._initializing = false;
       this._qrCode = null;
@@ -495,12 +522,23 @@ export class WhatsAppService {
       where: { organizationId },
       orderBy: { updatedAt: 'desc' },
     });
+
+    // DB says connected but in-memory client is gone (e.g., server restarted).
+    // Silently kick off auto-reconnect so the next poll returns ready.
+    if (session?.isConnected && !this._ready && !this._initializing && !this._initPromise) {
+      logger.info('WhatsApp: DB shows connected but client not ready — triggering auto-reconnect');
+      this.autoReconnect().catch((err) =>
+        logger.warn('WhatsApp: background auto-reconnect failed:', err?.message)
+      );
+    }
+
     return {
       isConnected: this._ready,
       isInitializing: this._initializing,
       isSyncing: this._syncing,
       phoneNumber: session?.phoneNumber || null,
       lastPing: session?.lastPing || null,
+      dbConnected: session?.isConnected || false,
     };
   }
 
@@ -1659,6 +1697,10 @@ export class WhatsAppService {
   }
 
   private async _destroyClient() {
+    if (this._qrTimeoutTimer) {
+      clearTimeout(this._qrTimeoutTimer);
+      this._qrTimeoutTimer = null;
+    }
     if (this._pingInterval) {
       clearInterval(this._pingInterval);
       this._pingInterval = null;

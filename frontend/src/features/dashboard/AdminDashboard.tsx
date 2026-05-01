@@ -1,4 +1,4 @@
-import { memo, useMemo, lazy, Suspense } from 'react';
+import { memo, useMemo, lazy, Suspense, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   Users, UserPlus,
@@ -8,7 +8,9 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useAppSelector } from '../../app/store';
+import { useAppSelector, useAppDispatch } from '../../app/store';
+import { api } from '../../app/api';
+import { onSocketEvent, offSocketEvent } from '../../lib/socket';
 import { useGetSuperAdminStatsQuery, useGetHRStatsQuery } from './dashboardApi';
 import { useGetHolidaysQuery } from '../leaves/leaveApi';
 import { useGetProfileEditRequestsForOrgQuery } from '../profile/profileEditRequestApi';
@@ -38,6 +40,7 @@ const attentionIconMap: Record<string, typeof Clock> = {
 function AdminDashboard() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
+  const dispatch = useAppDispatch();
   const user = useAppSelector((s) => s.auth.user);
   const role = user?.role || '';
   const isHR = role === 'HR';
@@ -51,6 +54,26 @@ function AdminDashboard() {
   const { data: hrResponse, isLoading: hrLoading, isError: hrError } = useGetHRStatsQuery(undefined, {
     pollingInterval: 60000,
   });
+
+  // Real-time dashboard updates via socket — no manual refresh needed
+  const handleDashboardRefresh = useCallback(() => {
+    dispatch(api.util.invalidateTags(['Dashboard'] as any));
+  }, [dispatch]);
+
+  useEffect(() => {
+    // dashboard:refresh  — emitted by backend after any leave/attendance/payroll change
+    // leave:actioned     — emitted directly to HR when a leave is approved/rejected
+    onSocketEvent('dashboard:refresh', handleDashboardRefresh);
+    onSocketEvent('leave:actioned', handleDashboardRefresh);
+    onSocketEvent('leave:applied', handleDashboardRefresh);
+
+    return () => {
+      offSocketEvent('dashboard:refresh', handleDashboardRefresh);
+      offSocketEvent('leave:actioned', handleDashboardRefresh);
+      offSocketEvent('leave:applied', handleDashboardRefresh);
+    };
+  }, [handleDashboardRefresh]);
+
   const { data: holidaysRes } = useGetHolidaysQuery({});
   const { data: pendingProfileRes } = useGetProfileEditRequestsForOrgQuery(
     { status: 'PENDING', limit: 100 },

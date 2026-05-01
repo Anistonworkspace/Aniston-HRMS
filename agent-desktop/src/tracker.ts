@@ -18,8 +18,9 @@ function isBrowserApp(appName: string): boolean {
 const UNPRODUCTIVE_DOMAINS = [
   'youtube.com', 'netflix.com', 'primevideo.com', 'hotstar.com', 'disneyplus.com',
   'hulu.com', 'twitch.tv', 'tiktok.com', 'instagram.com', 'facebook.com',
-  'twitter.com', 'x.com', 'reddit.com', 'pinterest.com', 'snapchat.com',
-  'discord.com', 'whatsapp.com', 'telegram.org', 'steam', 'epicgames.com',
+  'twitter.com', 'x.com/', 'reddit.com', 'pinterest.com', 'snapchat.com',
+  'discord.com', 'whatsapp.com', 'telegram.org',
+  'store.steampowered.com', 'steamcommunity.com', 'epicgames.com',
 ];
 
 /** Domains/keywords that indicate productive browsing */
@@ -56,6 +57,8 @@ export interface ActivityEntry {
   mouseDistance: number;
   timestamp: string;
 }
+
+const BUFFER_MAX = 1000;
 
 let activityBuffer: ActivityEntry[] = [];
 let trackingInterval: NodeJS.Timeout | null = null;
@@ -126,6 +129,7 @@ export function startTracking() {
         timestamp: new Date().toISOString(),
       };
 
+      if (activityBuffer.length >= BUFFER_MAX) activityBuffer.shift();
       activityBuffer.push(entry);
       console.log(`[Tracker] ${app} — ${title.substring(0, 50)} (idle: ${idleTime}s)`);
     } catch (err) {

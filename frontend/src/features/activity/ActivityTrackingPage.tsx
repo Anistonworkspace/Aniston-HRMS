@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Monitor, Search, Calendar, Eye, Activity, Clock, Mouse, Keyboard,
@@ -34,7 +35,7 @@ export default function ActivityTrackingPage() {
   const employees = empRes?.data || [];
 
   // Bug #9: Single query for all employees' activity summaries — replaces per-row N+1 API calls
-  const { data: bulkSummaryRes } = useGetActivityBulkSummaryQuery({ date: selectedDate }, { pollingInterval: 60_000 });
+  const { data: bulkSummaryRes } = useGetActivityBulkSummaryQuery({ date: selectedDate }, { pollingInterval: 120_000 });
   const bulkSummary = bulkSummaryRes?.data;
 
   // All employees are trackable (enterprise agent setup)
@@ -200,11 +201,11 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
   const employeeUserId: string | undefined = employee?.user?.id;
   const { data: activityRes, isLoading: loadingActivity, isError: activityError } = useGetEmployeeActivityLogsQuery(
     { employeeId: employee.id, date },
-    { pollingInterval: viewMode === 'live' ? 10000 : 30000 } // faster poll in live mode
+    { pollingInterval: viewMode === 'live' ? 15000 : 60000 }
   );
   const { data: screenshotRes, isLoading: loadingScreenshots } = useGetEmployeeScreenshotsQuery(
     { employeeId: employee.id, date },
-    { pollingInterval: viewMode === 'live' ? 10000 : 30000 }
+    { pollingInterval: viewMode === 'live' ? 15000 : 60000 }
   );
   const [triggerExport] = useLazyDownloadActivityExcelQuery();
 
@@ -216,6 +217,10 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
     setExporting(true);
     try {
       const result = await triggerExport({ employeeId: employee.id, date });
+      if (result.error) {
+        toast.error('Failed to export activity data. Please try again.');
+        return;
+      }
       if (result.data) {
         const url = URL.createObjectURL(result.data);
         const a = document.createElement('a');
@@ -227,7 +232,7 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
         URL.revokeObjectURL(url);
       }
     } catch {
-      // non-critical — user sees no data
+      toast.error('Failed to export activity data. Please try again.');
     } finally {
       setExporting(false);
     }

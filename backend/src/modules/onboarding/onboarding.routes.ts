@@ -72,13 +72,58 @@ router.get('/invites', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Rol
 );
 
 // PUBLIC: Get onboarding status (token-based, no auth)
+// NOTE: This is the legacy pre-account-creation flow. After the employee accepts the
+// invitation and an account is created, all onboarding must go through the authenticated
+// /my-status + /my-step/:step + /my-complete endpoints. The guard below rejects token-based
+// requests for invitations that have already been accepted to prevent data-loss when
+// both flows are used simultaneously for the same employee.
 router.get('/status/:token', (req, res, next) => onboardingController.getStatus(req, res, next));
 
-// PUBLIC: Save step data
-router.patch('/step/:token/:step', (req, res, next) => onboardingController.saveStep(req, res, next));
+// PUBLIC: Save step data (token-based)
+// Rejects requests for already-accepted invitations — use /my-step/:step instead.
+router.patch('/step/:token/:step', async (req, res, next) => {
+  try {
+    const { prisma } = await import('../../lib/prisma.js');
+    const invitation = await prisma.employeeInvitation.findFirst({
+      where: { inviteToken: req.params.token },
+      select: { status: true },
+    });
+    if (invitation?.status === 'ACCEPTED') {
+      res.status(409).json({
+        success: false,
+        error: {
+          code: 'USE_AUTHENTICATED_FLOW',
+          message: 'Your account is already created. Please log in and continue onboarding from your dashboard.',
+        },
+      });
+      return;
+    }
+    onboardingController.saveStep(req, res, next);
+  } catch (err) { next(err); }
+});
 
-// PUBLIC: Complete onboarding
-router.post('/complete/:token', (req, res, next) => onboardingController.complete(req, res, next));
+// PUBLIC: Complete onboarding (token-based)
+// Rejects if already accepted — prevents double-completion.
+router.post('/complete/:token', async (req, res, next) => {
+  try {
+    const { prisma } = await import('../../lib/prisma.js');
+    const invitation = await prisma.employeeInvitation.findFirst({
+      where: { inviteToken: req.params.token },
+      select: { status: true },
+    });
+    if (invitation?.status === 'ACCEPTED') {
+      res.status(409).json({
+        success: false,
+        error: {
+          code: 'USE_AUTHENTICATED_FLOW',
+          message: 'Your account is already created. Please log in and continue onboarding from your dashboard.',
+        },
+      });
+      return;
+    }
+    onboardingController.complete(req, res, next);
+  } catch (err) { next(err); }
+});
 
 // ==================
 // AUTHENTICATED ONBOARDING (post-login flow — employee fills profile after accepting invite)
@@ -516,6 +561,9 @@ router.post('/kyc/expiry-check', authenticate, authorize(Role.SUPER_ADMIN, Role.
         select: { employeeId: true },
       });
 
+      const { emitToUser } = await import('../../sockets/index.js');
+      const { enqueueNotification, enqueueEmail } = await import('../../jobs/queues.js');
+
       for (const gate of expired) {
         await prisma.onboardingDocumentGate.update({
           where: { employeeId: gate.employeeId },
@@ -525,12 +573,21 @@ router.post('/kyc/expiry-check', authenticate, authorize(Role.SUPER_ADMIN, Role.
             employeeVisibleReasons: ['Your KYC documents have expired. Please re-upload to regain portal access.'] as any,
           },
         });
+
         const emp = await prisma.employee.findUnique({
           where: { id: gate.employeeId },
-          select: { userId: true, organizationId: true },
+          select: { userId: true, organizationId: true, firstName: true, lastName: true, email: true },
         });
+
         if (emp?.userId) {
-          const { enqueueNotification } = await import('../../jobs/queues.js');
+          // Real-time UI lockout — same payload shape AppShell expects
+          emitToUser(emp.userId, 'kyc:status-changed', {
+            status: 'REUPLOAD_REQUIRED',
+            kycCompleted: false,
+            trigger: 'expiry',
+          });
+
+          // In-app notification
           await enqueueNotification({
             userId: emp.userId,
             organizationId: emp.organizationId,
@@ -538,10 +595,26 @@ router.post('/kyc/expiry-check', authenticate, authorize(Role.SUPER_ADMIN, Role.
             message: 'Your KYC verification has expired. Please re-upload your documents to maintain access.',
             type: 'DOCUMENT_FLAGGED',
             link: '/kyc-pending',
-          });
+          }).catch(() => { /* non-blocking */ });
+
+          // Email notification so the employee is alerted even if offline
+          if (emp.email) {
+            await enqueueEmail({
+              to: emp.email,
+              subject: 'Action Required — Your KYC Documents Have Expired',
+              template: 'document-reupload-required',
+              context: {
+                employeeName: `${emp.firstName} ${emp.lastName}`,
+                documentType: 'KYC Documents',
+                reason: 'Your KYC verification has expired (valid for 1 year). Please re-upload your documents to regain full portal access.',
+                kycUrl: 'https://hr.anistonav.com/kyc-pending',
+              },
+            }).catch(() => { /* non-blocking */ });
+          }
         }
       }
 
+      logger.info(`[KYC Expiry] Processed ${expired.length} expired gate(s) for org ${orgId}`);
       res.json({ success: true, data: { expired: expired.length } });
     } catch (err) { next(err); }
   }
@@ -771,9 +844,11 @@ router.post('/kyc/:employeeId/revoke-kyc', authenticate, authorize(Role.SUPER_AD
         return;
       }
 
+      // Revocation sets REUPLOAD_REQUIRED so the employee's gate is properly locked and
+      // AppShell's kyc:status-changed handler can trigger the UI lock immediately.
       await prisma.onboardingDocumentGate.update({
         where: { employeeId },
-        data: { kycStatus: 'PENDING_HR_REVIEW' as any },
+        data: { kycStatus: 'REUPLOAD_REQUIRED' as any, reuploadRequested: true },
       });
 
       // Audit log
@@ -787,14 +862,19 @@ router.post('/kyc/:employeeId/revoke-kyc', authenticate, authorize(Role.SUPER_AD
         newValue: { reason: req.body.reason || 'HR revoked KYC access', revokedBy: req.user!.userId },
       });
 
-      // Emit real-time revocation — AppShell listener will immediately lock the employee out
-      const { getIO } = await import('../../sockets/index.js');
-      const io = getIO();
-      if (io) {
-        io.to(`employee:${employeeId}`).emit('kyc:status-changed', { kycStatus: 'PENDING_HR_REVIEW', kycCompleted: false });
-      }
+      // Look up the employee's userId so we can emit to the correct socket room.
+      // Sockets join user:{userId} and org:{organizationId} — there is no employee:{id} room.
+      const employee = await prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { userId: true, organizationId: true },
+      });
 
-      res.json({ success: true, data: { kycStatus: 'PENDING_HR_REVIEW', message: 'KYC access revoked. Employee will be locked out on next page load.' } });
+      const { emitToUser, emitToOrg } = await import('../../sockets/index.js');
+      const payload = { status: 'REUPLOAD_REQUIRED', kycCompleted: false, trigger: 'revocation' };
+      if (employee?.userId) emitToUser(employee.userId, 'kyc:status-changed', payload);
+      if (employee?.organizationId) emitToOrg(employee.organizationId, 'kyc:status-changed', payload);
+
+      res.json({ success: true, data: { kycStatus: 'REUPLOAD_REQUIRED', message: 'KYC access revoked. Employee will be locked out immediately.' } });
     } catch (err) {
       next(err);
     }

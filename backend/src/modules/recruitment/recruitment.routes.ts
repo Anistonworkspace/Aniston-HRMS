@@ -89,6 +89,17 @@ router.patch('/applications/:id/stage', authenticate, authorize(Role.SUPER_ADMIN
   } catch (err) { next(err); }
 });
 
+router.post('/applications/bulk-stage', authenticate, authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { ids, status } = z.object({
+      ids: z.array(z.string().uuid()).min(1).max(100),
+      status: moveStageSchema.shape.status,
+    }).parse(req.body);
+    const result = await recruitmentService.bulkMoveStage(ids, status, req.user!.organizationId);
+    res.json({ success: true, data: result, message: `Moved ${result.moved} of ${result.total} applications to ${status}` });
+  } catch (err) { next(err); }
+});
+
 // =====================
 // INTERVIEW SCORES
 // =====================

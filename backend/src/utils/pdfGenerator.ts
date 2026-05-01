@@ -246,3 +246,115 @@ export function generateSalarySlipPDF(record: PayrollRecordForPDF, organizationN
     doc.end();
   });
 }
+
+interface OfferLetterData {
+  candidateName: string;
+  jobTitle: string;
+  department?: string;
+  ctc: number;
+  basicSalary: number;
+  joiningDate?: Date | null;
+  companyName: string;
+  offerDate?: Date;
+}
+
+export function generateOfferLetterPDF(data: OfferLetterData): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 60 });
+    const buffers: Buffer[] = [];
+
+    doc.on('data', (chunk: Buffer) => buffers.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    const pageWidth = doc.page.width - 120;
+    const left = 60;
+    const offerDate = data.offerDate || new Date();
+    const joiningDate = data.joiningDate
+      ? data.joiningDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
+      : 'To be confirmed';
+
+    // Header
+    doc.fontSize(20).font('Helvetica-Bold').fillColor('#4F46E5')
+      .text(data.companyName, left, 60, { align: 'center', width: pageWidth });
+    doc.fontSize(9).font('Helvetica').fillColor('#6b7280')
+      .text('Enterprise Human Resource Management', left, 84, { align: 'center', width: pageWidth });
+    doc.moveTo(left, 102).lineTo(left + pageWidth, 102).strokeColor('#4F46E5').lineWidth(2).stroke();
+
+    // Title
+    doc.fontSize(16).font('Helvetica-Bold').fillColor('#1a1a1a')
+      .text('OFFER OF EMPLOYMENT', left, 120, { align: 'center', width: pageWidth });
+
+    // Date
+    doc.fontSize(10).font('Helvetica').fillColor('#374151')
+      .text(`Date: ${offerDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}`, left, 155);
+
+    // Greeting
+    let y = 185;
+    doc.fontSize(10).font('Helvetica').fillColor('#374151')
+      .text(`Dear ${data.candidateName},`, left, y);
+    y += 20;
+    doc.text(
+      `We are pleased to extend this offer of employment to you for the position of ${data.jobTitle}${data.department ? ` in the ${data.department} department` : ''} at ${data.companyName}.`,
+      left, y, { width: pageWidth }
+    );
+    y += 40;
+
+    // Terms box
+    doc.rect(left, y, pageWidth, 8).fill('#4F46E5');
+    y += 8;
+    doc.rect(left, y, pageWidth, 130).fill('#f9fafb');
+    const termsLeft = left + 20;
+    y += 18;
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#4F46E5').text('TERMS OF EMPLOYMENT', termsLeft, y);
+    y += 22;
+
+    const drawRow = (label: string, value: string) => {
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151').text(label, termsLeft, y);
+      doc.fontSize(9).font('Helvetica').fillColor('#1a1a1a').text(value, termsLeft + 160, y);
+      y += 18;
+    };
+
+    drawRow('Position:', data.jobTitle);
+    if (data.department) drawRow('Department:', data.department);
+    drawRow('Annual CTC:', formatINR(data.ctc));
+    drawRow('Basic Salary (Monthly):', formatINR(data.basicSalary));
+    drawRow('Date of Joining:', joiningDate);
+
+    y += 20;
+
+    // Body paragraphs
+    doc.fontSize(10).font('Helvetica').fillColor('#374151')
+      .text(
+        'This offer is contingent upon successful completion of the onboarding process, including document verification and background checks as required by company policy.',
+        left, y, { width: pageWidth }
+      );
+    y += 45;
+
+    doc.text(
+      'Please confirm your acceptance of this offer by completing the onboarding portal. If you have any questions, please contact the HR department.',
+      left, y, { width: pageWidth }
+    );
+    y += 45;
+
+    // Signature block
+    doc.fontSize(10).font('Helvetica').fillColor('#374151').text('Yours sincerely,', left, y);
+    y += 30;
+    doc.moveTo(left, y).lineTo(left + 160, y).strokeColor('#374151').lineWidth(0.5).stroke();
+    y += 8;
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151').text('Authorised Signatory', left, y);
+    doc.fontSize(9).font('Helvetica').text(data.companyName, left, y + 14);
+
+    // Footer
+    const footerY = doc.page.height - 60;
+    doc.moveTo(left, footerY).lineTo(left + pageWidth, footerY).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+    doc.fontSize(7).font('Helvetica').fillColor('#9ca3af')
+      .text(
+        'This is a computer-generated offer letter. For queries, contact HR.',
+        left, footerY + 8, { align: 'center', width: pageWidth }
+      );
+    doc.text(`Generated on ${offerDate.toLocaleDateString('en-IN')} by Aniston HRMS`, left, footerY + 20, { align: 'center', width: pageWidth });
+
+    doc.end();
+  });
+}

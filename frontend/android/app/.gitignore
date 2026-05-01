@@ -1,2 +1,6 @@
 /build/*
 !/build/.npmkeep
+
+# Signing keystores — must never be committed
+*.keystore
+*.jks

@@ -7,8 +7,6 @@ import { execSync } from 'child_process';
  * with a fallback heuristic based on idle time changes.
  */
 
-let lastKeystrokes = 0;
-let lastClicks = 0;
 let lastMouseX = 0;
 let lastMouseY = 0;
 let totalKeystrokes = 0;
@@ -25,36 +23,37 @@ const INPUT_POLL_MS = 5000;
  * Get current mouse position and detect keyboard/mouse activity
  * Uses PowerShell with Win32 API — lightweight, no native modules needed
  */
+// Pre-encoded once at module load — avoids shell escaping risks entirely
+const PS_SCRIPT = `
+Add-Type @"
+  using System;
+  using System.Runtime.InteropServices;
+  public class InputHelper {
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT lpPoint);
+    [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int X; public int Y; }
+  }
+"@
+$p = New-Object InputHelper+POINT
+[InputHelper]::GetCursorPos([ref]$p) | Out-Null
+$keys = 0
+$clicks = 0
+foreach ($k in @(8,9,13,32) + (48..57) + (65..90) + (186..192) + (219..222)) {
+  if (([InputHelper]::GetAsyncKeyState($k) -band 1) -ne 0) { $keys++ }
+}
+if (([InputHelper]::GetAsyncKeyState(1) -band 1) -ne 0) { $clicks++ }
+if (([InputHelper]::GetAsyncKeyState(2) -band 1) -ne 0) { $clicks++ }
+"$($p.X)|$($p.Y)|$keys|$clicks"
+`;
+
+const PS_ENCODED = Buffer.from(PS_SCRIPT, 'utf16le').toString('base64');
+
 function pollInputState(): void {
   try {
-    const script = `
-      Add-Type @"
-        using System;
-        using System.Runtime.InteropServices;
-        public class InputHelper {
-          [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT lpPoint);
-          [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
-          [StructLayout(LayoutKind.Sequential)]
-          public struct POINT { public int X; public int Y; }
-        }
-"@
-      $p = New-Object InputHelper+POINT
-      [InputHelper]::GetCursorPos([ref]$p) | Out-Null
-      $keys = 0
-      $clicks = 0
-      # Check common key ranges: A-Z (65-90), 0-9 (48-57), Space(32), Enter(13), Backspace(8), Tab(9)
-      foreach ($k in @(8,9,13,32) + (48..57) + (65..90) + (186..192) + (219..222)) {
-        if (([InputHelper]::GetAsyncKeyState($k) -band 1) -ne 0) { $keys++ }
-      }
-      # Check mouse buttons: Left(1), Right(2), Middle(4)
-      if (([InputHelper]::GetAsyncKeyState(1) -band 1) -ne 0) { $clicks++ }
-      if (([InputHelper]::GetAsyncKeyState(2) -band 1) -ne 0) { $clicks++ }
-      "$($p.X)|$($p.Y)|$keys|$clicks"
-    `;
-
     const result = execSync(
-      `powershell -NoProfile -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`,
-      { timeout: 3000, encoding: 'utf-8', windowsHide: true }
+      `powershell -NoProfile -NonInteractive -EncodedCommand ${PS_ENCODED}`,
+      { timeout: 5000, encoding: 'utf-8', windowsHide: true }
     ).trim();
 
     const [xStr, yStr, keysStr, clicksStr] = result.split('|');

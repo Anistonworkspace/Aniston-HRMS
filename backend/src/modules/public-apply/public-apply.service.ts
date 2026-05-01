@@ -239,7 +239,25 @@ const FALLBACK_MCQ_BANK = {
 };
 
 /**
- * Draw n questions from a pool, shuffle them.
+ * Deterministic shuffle seeded by a string. Same seed always produces the same order.
+ * Uses a LCG (linear congruential generator) seeded from the input string's djb2 hash.
+ */
+function seededShuffle<T>(arr: T[], seed: string): T[] {
+  let h = 5381;
+  for (let i = 0; i < seed.length; i++) {
+    h = (Math.imul(h, 33) ^ seed.charCodeAt(i)) >>> 0;
+  }
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    h = (Math.imul(h, 1664525) + 1013904223) >>> 0;
+    const j = h % (i + 1);
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+/**
+ * Draw n questions from a pool, shuffle them (random — used only in non-job contexts).
  */
 function shuffleAndPick<T>(arr: T[], n: number): T[] {
   const copy = [...arr];
@@ -266,16 +284,29 @@ function stableQuestionId(questionText: string): string {
 }
 
 /**
- * Build a randomised set of fallback questions (2 per category = 6 total).
- * Returns them without correctOption so they are safe to expose to candidates.
- * IDs are derived from question text (stable) — NOT from shuffle position —
- * so the same question always has the same ID regardless of call order.
+ * Build a set of fallback questions (2 per category = 6 total).
+ * When jobId is provided, selection is deterministic — same jobId always yields
+ * the same 6 questions, so re-opening the form shows consistent questions.
+ * Without jobId (e.g. walk-in psychometric), falls back to Math.random().
+ * IDs are derived from question text (stable) — NOT from shuffle position.
  */
-function buildFallbackQuestions(withIds: boolean): any[] {
-  const intQ = shuffleAndPick(FALLBACK_MCQ_BANK.INTELLIGENCE, 2);
-  const intgQ = shuffleAndPick(FALLBACK_MCQ_BANK.INTEGRITY, 2);
-  const enQ = shuffleAndPick(FALLBACK_MCQ_BANK.ENERGY, 2);
-  const all = shuffleAndPick([...intQ, ...intgQ, ...enQ], 6); // also shuffle order between categories
+function buildFallbackQuestions(withIds: boolean, jobId?: string): any[] {
+  let intQ: typeof FALLBACK_MCQ_BANK.INTELLIGENCE;
+  let intgQ: typeof FALLBACK_MCQ_BANK.INTEGRITY;
+  let enQ: typeof FALLBACK_MCQ_BANK.ENERGY;
+  let all: any[];
+
+  if (jobId) {
+    intQ = seededShuffle(FALLBACK_MCQ_BANK.INTELLIGENCE, jobId + ':INT').slice(0, 2);
+    intgQ = seededShuffle(FALLBACK_MCQ_BANK.INTEGRITY, jobId + ':INTG').slice(0, 2);
+    enQ = seededShuffle(FALLBACK_MCQ_BANK.ENERGY, jobId + ':EN').slice(0, 2);
+    all = seededShuffle([...intQ, ...intgQ, ...enQ], jobId + ':ALL');
+  } else {
+    intQ = shuffleAndPick(FALLBACK_MCQ_BANK.INTELLIGENCE, 2);
+    intgQ = shuffleAndPick(FALLBACK_MCQ_BANK.INTEGRITY, 2);
+    enQ = shuffleAndPick(FALLBACK_MCQ_BANK.ENERGY, 2);
+    all = shuffleAndPick([...intQ, ...intgQ, ...enQ], 6);
+  }
 
   return all.map((q) => ({
     ...(withIds ? { id: stableQuestionId(q.questionText) } : {}),
@@ -338,13 +369,17 @@ function computeAtsScore(
 
   // ── Contact info ─────────────────────────────────────────────────────────
   const hasEmail = /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/i.test(resumeText);
-  const hasPhone = /(\+91[\s\-]?)?[6-9]\d{9}|(\+\d{1,3}[\s\-]?)?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{4}/.test(resumeText);
+  // Indian mobile (must start 6-9) OR international with + prefix — avoids date-range false-positives
+  const hasPhone = /(\+91[\s\-]?)?[6-9]\d{9}/.test(resumeText) ||
+    /\+\d{1,3}[\s\-]?\(?\d{3,}\)?[\s\-]?\d{3,}[\s\-]?\d{4}/.test(resumeText);
   const contactScore = (hasEmail ? 7.5 : 0) + (hasPhone ? 7.5 : 0);
 
   // ── Quantification ───────────────────────────────────────────────────────
-  // Look for numbers, %, INR, LPA, etc. — signs of achievement-oriented resume
-  const quantMatches = resumeText.match(/\d+[\s%]|\d+\s*(years?|months?|lpa|crore|lakh|%|percent|projects?|clients?|teams?)/gi) || [];
-  const quantScore = Math.min(15, quantMatches.length * 2);
+  // Single unified pattern with Set dedup — avoids double-counting "80 LPA"
+  // as both the bare number and the "number + unit" form.
+  const quantRegex = /\b\d+(?:\.\d+)?\s*(?:%|years?|months?|lpa|crore|lakh|percent|projects?|clients?|teams?|employees?|users?)\b/gi;
+  const quantSet = new Set((resumeText.match(quantRegex) || []).map(m => m.toLowerCase()));
+  const quantScore = Math.min(15, quantSet.size * 2);
 
   // ── Parse quality ────────────────────────────────────────────────────────
   // We only reach this function if resumeText is non-empty, so base score 5
@@ -393,8 +428,14 @@ async function resolveResumeBuffer(resumeUrl: string): Promise<{ buffer: Buffer;
     }
   }
 
-  // Local path
-  const filePath = path.join(process.cwd(), resumeUrl.startsWith('/') ? resumeUrl.slice(1) : resumeUrl);
+  // Local path — must stay within uploads/ to prevent path traversal
+  const uploadsDir = path.resolve(process.cwd(), 'uploads');
+  const relativePath = resumeUrl.startsWith('/') ? resumeUrl.slice(1) : resumeUrl;
+  const filePath = path.resolve(process.cwd(), relativePath);
+  if (!filePath.startsWith(uploadsDir + path.sep) && !filePath.startsWith(uploadsDir + '/')) {
+    logger.warn('[ResumeParser] Path traversal attempt blocked:', resumeUrl);
+    return null;
+  }
   if (!fs.existsSync(filePath)) return null;
   try {
     const buffer = fs.readFileSync(filePath);
@@ -942,8 +983,8 @@ Return ONLY a JSON array:
     }
 
     if (questions.length === 0) {
-      logger.info(`AI returned no parseable questions for job ${jobId}, using randomised fallback MCQ bank`);
-      questions = buildFallbackQuestions(false);
+      logger.info(`AI returned no parseable questions for job ${jobId}, using seeded fallback MCQ bank`);
+      questions = buildFallbackQuestions(false, jobId);
       usedFallback = true;
     }
 

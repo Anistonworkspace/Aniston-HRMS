@@ -1580,6 +1580,22 @@ export class AttendanceService {
     // skipDuplicates prevents DB constraint errors from offline re-sync of the same batch
     const result = await prisma.gPSTrailPoint.createMany({ data: dbPoints, skipDuplicates: true });
 
+    // Real-time: notify HR dashboard so live map updates instantly without waiting for the 30s poll
+    if (result.count > 0) {
+      const lastPoint = dbPoints[dbPoints.length - 1];
+      emitToOrg(orgId, 'gps:trail-updated', {
+        employeeId,
+        date: today.toISOString().split('T')[0],
+        pointsAdded: result.count,
+        lastPoint: {
+          lat: lastPoint.lat,
+          lng: lastPoint.lng,
+          timestamp: lastPoint.timestamp.toISOString(),
+          accuracy: lastPoint.accuracy,
+        },
+      });
+    }
+
     try {
       await createAuditLog({
         userId: employeeId,

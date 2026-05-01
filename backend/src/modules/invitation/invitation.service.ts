@@ -69,6 +69,20 @@ export class InvitationService {
     // HR can promote to MANAGER/HR/etc. after the employee accepts the invite via Change Role
     const derivedRole = employmentType === 'INTERN' ? 'INTERN' : 'EMPLOYEE';
 
+    // Validate and sanitize experienceDocFields before storing
+    let sanitizedExpDocFields: Array<{ key: string; label: string; required: boolean }> | undefined;
+    if (experienceDocFields && Array.isArray(experienceDocFields)) {
+      sanitizedExpDocFields = experienceDocFields.map((field, idx) => {
+        if (!field || typeof field.key !== 'string' || !field.key.trim()) {
+          throw new BadRequestError(`experienceDocFields[${idx}].key must be a non-empty string`);
+        }
+        if (typeof field.label !== 'string' || !field.label.trim()) {
+          throw new BadRequestError(`experienceDocFields[${idx}].label must be a non-empty string`);
+        }
+        return { key: field.key.trim(), label: field.label.trim(), required: field.required !== false };
+      });
+    }
+
     const invitation = await prisma.employeeInvitation.create({
       data: {
         organizationId,
@@ -83,7 +97,7 @@ export class InvitationService {
         employmentType: employmentType || null,
         proposedJoiningDate: proposedJoiningDate ? new Date(proposedJoiningDate) : null,
         experienceLevel: experienceLevel || null,
-        experienceDocFields: experienceDocFields ? JSON.parse(JSON.stringify(experienceDocFields)) : undefined,
+        experienceDocFields: sanitizedExpDocFields ?? undefined,
         notes: notes || null,
         sendWelcomeEmail: sendWelcomeEmail ?? true,
         invitedBy,

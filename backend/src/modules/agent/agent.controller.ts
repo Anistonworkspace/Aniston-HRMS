@@ -20,7 +20,8 @@ export class AgentController {
       const result = await agentService.submitHeartbeat(
         req.user!.employeeId!,
         req.user!.organizationId,
-        activities
+        activities,
+        req.user!.userId
       );
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
@@ -40,7 +41,8 @@ export class AgentController {
         req.user!.employeeId!,
         req.user!.organizationId,
         imageUrl,
-        metadata
+        metadata,
+        req.user!.userId
       );
       res.status(201).json({ success: true, data: screenshot });
     } catch (err) { next(err); }
@@ -61,6 +63,7 @@ export class AgentController {
         res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'date query param required (YYYY-MM-DD)' } });
         return;
       }
+      dateParamSchema.parse(date);
       const result = await agentService.getActivityBulkSummary(req.user!.organizationId, date);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
@@ -136,7 +139,7 @@ export class AgentController {
   async setLiveMode(req: Request, res: Response, next: NextFunction) {
     try {
       const { employeeId, enabled, intervalSeconds } = setLiveModeSchema.parse(req.body);
-      const result = await agentService.setLiveMode(employeeId, enabled, intervalSeconds);
+      const result = await agentService.setLiveMode(employeeId, req.user!.organizationId, enabled, intervalSeconds, req.user!.userId);
       res.json({ success: true, data: result });
     } catch (err) { next(err); }
   }
@@ -193,7 +196,7 @@ export class AgentController {
     try {
       const { employeeId, date } = req.params;
       dateParamSchema.parse(date);
-      const buffer = await agentService.exportActivityExcel(employeeId, date, req.user!.organizationId);
+      const buffer = await agentService.exportActivityExcel(employeeId, req.user!.organizationId, date, req.user!.userId);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="activity-${employeeId}-${date}.xlsx"`);
       res.send(buffer);

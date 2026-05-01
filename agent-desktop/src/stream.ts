@@ -7,45 +7,71 @@
  * 2. Agent receives event → starts capturing screen → creates WebRTC offer
  * 3. Offer/answer/ICE candidates exchanged via Socket.io signaling
  * 4. Admin browser receives video stream → shows in <video> element
- *
- * Bug #2 fix: renderer reports getUserMedia/WebRTC errors back via IPC so admin
- * sees a clear error message instead of a silent 15-second timeout.
- *
- * Bug #3 fix: TURN server credentials passed from config → renderer so the agent
- * works behind enterprise NAT where STUN-only fails.
  */
 
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, ipcMain, desktopCapturer } from 'electron';
+import path from 'path';
+import os from 'os';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { getAccessToken } from './api';
 import { CONFIG } from './config';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 let streamWindow: BrowserWindow | null = null;
 let isStreaming = false;
+let streamHtmlPath: string | null = null;
+
+// Serve desktopCapturer from main process — guard prevents duplicate handler on hot reload
+ipcMain.removeHandler('get-screen-sources');
+ipcMain.handle('get-screen-sources', async () => {
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: { width: 0, height: 0 },
+  });
+  return sources.map(s => ({ id: s.id, name: s.name, thumbnailDataUrl: s.thumbnail.toDataURL() }));
+});
+
+function writeStreamHtml(): string {
+  const tmpDir = path.join(os.tmpdir(), 'aniston-agent');
+  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
+  const htmlPath = path.join(tmpDir, 'stream.html');
+  fs.writeFileSync(htmlPath, getStreamHTML(), 'utf-8');
+  return htmlPath;
+}
 
 /**
  * Create a hidden renderer window that handles WebRTC.
- * WebRTC requires a renderer process (browser context).
+ * contextIsolation: true + preload exposes only the streamAPI surface.
  */
 export function initStreamWindow() {
   if (streamWindow) return;
+
+  streamHtmlPath = writeStreamHtml();
 
   streamWindow = new BrowserWindow({
     show: false,
     width: 1,
     height: 1,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      preload: path.join(__dirname, 'stream-preload.js'),
     },
   });
 
-  // Load the WebRTC streaming page
-  const html = getStreamHTML();
-  streamWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  streamWindow.loadFile(streamHtmlPath);
 
   streamWindow.on('closed', () => {
     streamWindow = null;
     isStreaming = false;
+    if (streamHtmlPath) {
+      try { fs.unlinkSync(streamHtmlPath); } catch {}
+      streamHtmlPath = null;
+    }
   });
 }
 
@@ -58,7 +84,6 @@ export function startStream(adminSocketId: string, signalingUrl: string) {
     adminSocketId,
     signalingUrl,
     token: getAccessToken(),
-    // Bug #3: pass TURN credentials so the renderer can build a full ICE config
     turnUrl: CONFIG.TURN_URL,
     turnUsername: CONFIG.TURN_USERNAME,
     turnCredential: CONFIG.TURN_CREDENTIAL,
@@ -72,7 +97,7 @@ export function stopStream() {
   isStreaming = false;
 }
 
-export function handleSignalingMessage(data: any) {
+export function handleSignalingMessage(data: unknown) {
   if (streamWindow) {
     streamWindow.webContents.send('signaling-message', data);
   }
@@ -84,27 +109,16 @@ function getStreamHTML(): string {
   return `<!DOCTYPE html>
 <html><head><title>Stream</title></head><body>
 <script>
-  const { ipcRenderer } = require('electron');
-  const { desktopCapturer } = require('electron');
-
   let peerConnection = null;
   let mediaStream = null;
 
-  ipcRenderer.on('start-stream', async (_, config) => {
+  window.streamAPI.onStartStream(async (config) => {
     try {
-      // Get screen sources
-      const sources = await desktopCapturer.getSources({
-        types: ['screen'],
-        thumbnailSize: { width: 0, height: 0 }
-      });
-
+      const sources = await window.streamAPI.getSources();
       if (sources.length === 0) {
-        throw new Error('No screen sources found — desktopCapturer returned empty list');
+        throw new Error('No screen sources found');
       }
 
-      // Get screen stream using getUserMedia with chromeMediaSource.
-      // Note: Electron 28+ removed the legacy chromeMediaSource constraint in some builds.
-      // If getUserMedia fails here, the error is caught and reported to the admin.
       mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
@@ -118,7 +132,6 @@ function getStreamHTML(): string {
         }
       });
 
-      // Build ICE server list — STUN always included; TURN added if configured (Bug #3)
       const iceServers = [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
@@ -131,18 +144,15 @@ function getStreamHTML(): string {
         });
       }
 
-      // Create RTCPeerConnection
       peerConnection = new RTCPeerConnection({ iceServers });
 
-      // Add screen tracks to peer connection
       mediaStream.getTracks().forEach(track => {
         peerConnection.addTrack(track, mediaStream);
       });
 
-      // Handle ICE candidates
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
-          ipcRenderer.send('webrtc-signal', {
+          window.streamAPI.sendSignal({
             type: 'ice-candidate',
             candidate: event.candidate,
             targetSocketId: config.adminSocketId,
@@ -150,44 +160,37 @@ function getStreamHTML(): string {
         }
       };
 
-      // Create and send offer
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
 
-      ipcRenderer.send('webrtc-signal', {
+      window.streamAPI.sendSignal({
         type: 'offer',
-        sdp: offer,
+        sdp: peerConnection.localDescription,
         targetSocketId: config.adminSocketId,
       });
-
-      console.log('[Stream] Offer sent, waiting for answer...');
     } catch (err) {
-      // Bug #2: Report error to main process so it can relay to the admin socket
       const message = err && err.message ? err.message : String(err);
-      console.error('[Stream] Error:', message);
-      ipcRenderer.send('webrtc-error', {
+      window.streamAPI.sendError({
         message: 'Screen capture failed on agent: ' + message,
         adminSocketId: config.adminSocketId,
       });
     }
   });
 
-  ipcRenderer.on('signaling-message', async (_, data) => {
+  window.streamAPI.onSignalingMessage(async (data) => {
     if (!peerConnection) return;
-
     try {
       if (data.type === 'answer') {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
-        console.log('[Stream] Answer received, connection establishing...');
+        await peerConnection.setRemoteDescription(data.sdp);
       } else if (data.type === 'ice-candidate' && data.candidate) {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        await peerConnection.addIceCandidate(data.candidate);
       }
     } catch (err) {
       console.error('[Stream] Signaling error:', err);
     }
   });
 
-  ipcRenderer.on('stop-stream', () => {
+  window.streamAPI.onStopStream(() => {
     if (mediaStream) {
       mediaStream.getTracks().forEach(track => track.stop());
       mediaStream = null;
@@ -196,7 +199,6 @@ function getStreamHTML(): string {
       peerConnection.close();
       peerConnection = null;
     }
-    console.log('[Stream] Stopped');
   });
 </script>
 </body></html>`;

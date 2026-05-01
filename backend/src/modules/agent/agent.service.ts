@@ -30,9 +30,9 @@ function getOrgToday(timezone: string = 'Asia/Kolkata'): Date {
 }
 
 export class AgentService {
-  async submitHeartbeat(employeeId: string, organizationId: string, activities: ActivityEntry[]) {
+  async submitHeartbeat(employeeId: string, organizationId: string, activities: ActivityEntry[], userId: string) {
     const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } });
-    const today = getOrgToday(org?.timezone);
+    const today = getOrgToday(org?.timezone ?? 'Asia/Kolkata');
 
     const records = activities.map(a => ({
       employeeId,
@@ -51,6 +51,15 @@ export class AgentService {
     }));
 
     await prisma.activityLog.createMany({ data: records });
+
+    // Audit once per employee per day — avoids noisy per-heartbeat log entries
+    const todayStr = today.toISOString().split('T')[0];
+    const auditKey = `agent-heartbeat-audit:${organizationId}:${employeeId}:${todayStr}`;
+    const alreadyAudited = await redis.exists(auditKey);
+    if (!alreadyAudited) {
+      await redis.set(auditKey, '1', 'EX', 90000);
+      await createAuditLog({ userId, organizationId, entity: 'ActivityLog', entityId: employeeId, action: 'CREATE', newValue: { note: 'Activity monitoring started', date: todayStr } });
+    }
 
     // Also update attendance record active minutes.
     // Use Math.ceil so that any sub-minute active period (e.g. 30s = 0.5min) counts as 1min
@@ -92,11 +101,11 @@ export class AgentService {
     return { recorded: activities.length, activeMinutesAdded: activeMinutesIncrement };
   }
 
-  async saveScreenshot(employeeId: string, organizationId: string, imageUrl: string, metadata: ScreenshotMetadata) {
+  async saveScreenshot(employeeId: string, organizationId: string, imageUrl: string, metadata: ScreenshotMetadata, userId: string) {
     const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } });
-    const today = getOrgToday(org?.timezone);
+    const today = getOrgToday(org?.timezone ?? 'Asia/Kolkata');
 
-    return prisma.agentScreenshot.create({
+    const screenshot = await prisma.agentScreenshot.create({
       data: {
         employeeId,
         organizationId,
@@ -107,6 +116,9 @@ export class AgentService {
         activeWindow: metadata.activeWindow || null,
       },
     });
+
+    await createAuditLog({ userId, organizationId, entity: 'AgentScreenshot', entityId: screenshot.id, action: 'CREATE', newValue: { imageUrl, activeApp: metadata.activeApp } });
+    return screenshot;
   }
 
   async getConfig(employeeId: string, organizationId?: string) {
@@ -114,7 +126,7 @@ export class AgentService {
     const org = organizationId
       ? await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } })
       : null;
-    const today = getOrgToday(org?.timezone);
+    const today = getOrgToday(org?.timezone ?? 'Asia/Kolkata');
 
     const assignment = await prisma.shiftAssignment.findFirst({
       where: {
@@ -142,7 +154,14 @@ export class AgentService {
     };
   }
 
-  async setLiveMode(employeeId: string, enabled: boolean, intervalSeconds: number = 30) {
+  async setLiveMode(employeeId: string, organizationId: string, enabled: boolean, intervalSeconds: number = 30, userId: string) {
+    // C2: verify employee belongs to this org before writing to Redis
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
     if (enabled) {
       // 8-hour TTL — covers a full work shift without cutting off mid-session.
       // Old 1hr TTL caused live streams to silently die for long monitoring sessions.
@@ -160,6 +179,8 @@ export class AgentService {
     if (user) {
       emitToUser(user.id, 'agent:config-update', { liveMode: enabled, intervalSeconds });
     }
+
+    await createAuditLog({ userId, organizationId, entity: 'Employee', entityId: employeeId, action: enabled ? 'LIVE_MODE_ENABLED' : 'LIVE_MODE_DISABLED', newValue: { enabled, intervalSeconds } });
 
     return { enabled, intervalSeconds };
   }
@@ -437,7 +458,7 @@ export class AgentService {
    * Export activity logs for a single employee + date as an Excel workbook.
    * Returns a Buffer suitable for streaming directly as a download response.
    */
-  async exportActivityExcel(employeeId: string, organizationId: string, date: string): Promise<Buffer> {
+  async exportActivityExcel(employeeId: string, organizationId: string, date: string, userId: string): Promise<Buffer> {
     const queryDate = new Date(date);
     if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
     queryDate.setHours(0, 0, 0, 0);
@@ -553,7 +574,9 @@ export class AgentService {
       appSheet.addRow({ app, minutes: Math.round(data.seconds / 60), cat: data.category });
     });
 
-    return wb.xlsx.writeBuffer() as unknown as Promise<Buffer>;
+    await createAuditLog({ userId, organizationId, entity: 'ActivityLog', entityId: employeeId, action: 'EXPORT', newValue: { date, format: 'xlsx' } });
+    const raw = await wb.xlsx.writeBuffer();
+    return Buffer.from(raw);
   }
 
   // ===================== LEGACY PAIRING (backward compat) =====================

@@ -34,6 +34,10 @@ export const recruitmentApi = api.injectEndpoints({
       query: ({ id, status }) => ({ url: `/recruitment/applications/${id}/stage`, method: 'PATCH', body: { status } }),
       invalidatesTags: ['Recruitment'],
     }),
+    bulkMoveApplicationStage: builder.mutation<any, { ids: string[]; status: string }>({
+      query: ({ ids, status }) => ({ url: '/recruitment/applications/bulk-stage', method: 'POST', body: { ids, status } }),
+      invalidatesTags: ['Recruitment'],
+    }),
     addInterviewScore: builder.mutation<any, any>({
       query: (body) => ({ url: '/recruitment/scores', method: 'POST', body }),
       invalidatesTags: ['Recruitment'],
@@ -116,6 +120,7 @@ export const {
   useGetApplicationsQuery,
   useGetApplicationByIdQuery,
   useMoveApplicationStageMutation,
+  useBulkMoveApplicationStageMutation,
   useAddInterviewScoreMutation,
   useTriggerAIScoringMutation,
   useCreateOfferMutation,

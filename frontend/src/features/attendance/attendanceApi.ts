@@ -210,7 +210,13 @@ export const attendanceApi = api.injectEndpoints({
     downloadActivityExcel: builder.query<Blob, { employeeId: string; date: string }>({
       query: ({ employeeId, date }) => ({
         url: `/agent/activity/export/${employeeId}/${date}`,
-        responseHandler: (response: Response) => response.blob(),
+        responseHandler: async (response: Response) => {
+          if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || 'Export failed');
+          }
+          return response.blob();
+        },
         cache: 'no-cache',
       }),
     }),
@@ -247,12 +253,18 @@ export const attendanceApi = api.injectEndpoints({
 
     setAgentLiveMode: builder.mutation<{ success: boolean; data: AgentLiveModeResponse }, { employeeId: string; enabled: boolean; intervalSeconds?: number }>({
       query: (body) => ({ url: '/agent/live-mode', method: 'POST', body }),
-      invalidatesTags: ['Attendance'],
+      invalidatesTags: (_, __, { employeeId }) => [
+        'Attendance',
+        { type: 'Attendance' as const, id: `LiveMode-${employeeId}` },
+      ],
     }),
 
     getAgentLiveMode: builder.query<{ success: boolean; data: AgentLiveModeResponse }, string>({
       query: (employeeId) => `/agent/live-mode/${employeeId}`,
-      providesTags: ['Attendance'],
+      providesTags: (_, __, employeeId) => [
+        'Attendance',
+        { type: 'Attendance' as const, id: `LiveMode-${employeeId}` },
+      ],
     }),
 
     // Pending regularizations (HR view)

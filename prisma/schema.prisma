@@ -2604,6 +2604,7 @@ model ActivityLog {
   @@index([employeeId, date])
   @@index([organizationId, date])
   @@index([organizationId, employeeId, date])
+  @@index([organizationId, timestamp])
 }
 
 model AgentScreenshot {

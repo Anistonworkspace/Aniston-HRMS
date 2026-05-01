@@ -1,11 +1,18 @@
-import { Tray, Menu, nativeImage, BrowserWindow, app } from 'electron';
+import { Tray, Menu, nativeImage, BrowserWindow, app, ipcMain } from 'electron';
 import path from 'path';
+import os from 'os';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { isTracking, pauseTracking, resumeTracking, stopTracking } from './tracker';
 import { stopScreenshots } from './screenshot';
 import { isLoggedIn } from './api';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 let tray: Tray | null = null;
 let pairWindow: BrowserWindow | null = null;
+let pairHtmlPath: string | null = null;
 
 export function createTray(onPair: () => void, onLogout: () => void) {
   const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
@@ -51,18 +58,60 @@ export function updateTrayMenu(onPair: () => void, onLogout: () => void) {
   tray.setToolTip(loggedIn ? `Aniston Agent — ${tracking ? 'Tracking' : 'Paused'}` : 'Aniston Agent — Not Connected');
 }
 
+function writePairHtml(): string {
+  const tmpDir = path.join(os.tmpdir(), 'aniston-agent');
+  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
+  const htmlPath = path.join(tmpDir, 'pair.html');
+  fs.writeFileSync(htmlPath, getPairHTML(), 'utf-8');
+  return htmlPath;
+}
+
 export function showPairWindow(): Promise<string> {
   return new Promise((resolve, reject) => {
     if (pairWindow) { pairWindow.focus(); reject(new Error('Already open')); return; }
 
+    pairHtmlPath = writePairHtml();
+
     pairWindow = new BrowserWindow({
-      width: 360, height: 260, resizable: false, minimizable: false, maximizable: false,
+      width: 360, height: 280, resizable: false, minimizable: false, maximizable: false,
       title: 'Aniston Agent — Pair',
-      webPreferences: { nodeIntegration: true, contextIsolation: false },
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        preload: path.join(__dirname, 'pair-preload.js'),
+      },
     });
     pairWindow.setMenuBarVisibility(false);
+    pairWindow.loadFile(pairHtmlPath);
 
-    const html = `<!DOCTYPE html>
+    const handler = (_: Electron.IpcMainEvent, code: string) => { resolve(code); };
+    ipcMain.once('agent-pair', handler);
+
+    pairWindow.on('closed', () => {
+      pairWindow = null;
+      ipcMain.removeListener('agent-pair', handler);
+      if (pairHtmlPath) {
+        try { fs.unlinkSync(pairHtmlPath); } catch {}
+        pairHtmlPath = null;
+      }
+    });
+  });
+}
+
+export function closePairWindow() {
+  if (pairWindow) {
+    pairWindow.webContents.send('pair-success');
+    setTimeout(() => pairWindow?.close(), 300);
+  }
+}
+
+export function sendPairError(msg: string) {
+  if (pairWindow) pairWindow.webContents.send('pair-error', msg);
+}
+
+function getPairHTML(): string {
+  return `<!DOCTYPE html>
 <html><head><style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; padding: 24px; text-align: center; }
@@ -75,54 +124,41 @@ export function showPairWindow(): Promise<string> {
   button:hover { background: #4338ca; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   .error { color: #ef4444; font-size: 12px; margin-top: 8px; display: none; }
-  .logo { font-size: 24px; margin-bottom: 8px; }
+  .logo { margin-bottom: 10px; }
 </style></head><body>
-  <div class="logo">🖥️</div>
+  <div class="logo">
+    <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="4" width="36" height="24" rx="3" fill="#4f46e5"/>
+      <rect x="6" y="8" width="28" height="16" rx="1" fill="#e0e7ff"/>
+      <rect x="14" y="28" width="12" height="4" fill="#4f46e5"/>
+      <rect x="10" y="32" width="20" height="3" rx="1.5" fill="#4f46e5"/>
+    </svg>
+  </div>
   <h2>Aniston Agent</h2>
   <p>Enter the pairing code from your HRMS portal</p>
   <form id="form">
     <input type="text" id="code" placeholder="ANST-XXXX" maxlength="9" required autofocus />
-    <p class="hint">Go to <b>hr.anistonav.com</b> → Click "Link Agent" to get your code</p>
+    <p class="hint">Go to <b>hr.anistonav.com</b> &rarr; Click &ldquo;Link Agent&rdquo; to get your code</p>
     <p class="hint" style="margin-top:4px;font-size:9px;color:#94a3b8;">By connecting, you consent to activity tracking including screen capture, app usage monitoring, and periodic screenshots during work hours.</p>
     <div class="error" id="error"></div>
     <button type="submit" id="btn">Connect</button>
   </form>
   <script>
-    const { ipcRenderer } = require('electron');
     document.getElementById('form').addEventListener('submit', (e) => {
       e.preventDefault();
       const code = document.getElementById('code').value.trim().toUpperCase();
       if (!code) return;
       document.getElementById('btn').disabled = true;
       document.getElementById('btn').textContent = 'Connecting...';
-      ipcRenderer.send('agent-pair', code);
+      window.pairAPI.sendCode(code);
     });
-    ipcRenderer.on('pair-error', (_, msg) => {
+    window.pairAPI.onError((msg) => {
       document.getElementById('error').style.display = 'block';
       document.getElementById('error').textContent = msg;
       document.getElementById('btn').disabled = false;
       document.getElementById('btn').textContent = 'Connect';
     });
-    ipcRenderer.on('pair-success', () => { window.close(); });
+    window.pairAPI.onSuccess(() => { window.close(); });
   </script>
 </body></html>`;
-
-    pairWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-
-    const { ipcMain } = require('electron');
-    const handler = (_: any, code: string) => { resolve(code); };
-    ipcMain.once('agent-pair', handler);
-    pairWindow.on('closed', () => {
-      pairWindow = null;
-      ipcMain.removeListener('agent-pair', handler);
-    });
-  });
-}
-
-export function closePairWindow() {
-  if (pairWindow) { pairWindow.webContents.send('pair-success'); setTimeout(() => pairWindow?.close(), 300); }
-}
-
-export function sendPairError(msg: string) {
-  if (pairWindow) pairWindow.webContents.send('pair-error', msg);
 }

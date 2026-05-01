@@ -1,8 +1,5 @@
-// Preload script — currently minimal, can be expanded for secure IPC
-import { contextBridge, ipcRenderer } from 'electron';
+// Main preload — reserved for future agentAPI surface extensions.
+// Pair and stream windows use their own dedicated preloads (pair-preload.ts / stream-preload.ts).
+import { contextBridge } from 'electron';
 
-contextBridge.exposeInMainWorld('agentAPI', {
-  login: (email: string, password: string) => ipcRenderer.send('agent-login', { email, password }),
-  onLoginError: (callback: (msg: string) => void) => ipcRenderer.on('login-error', (_, msg) => callback(msg)),
-  onLoginSuccess: (callback: () => void) => ipcRenderer.on('login-success', () => callback()),
-});
+contextBridge.exposeInMainWorld('agentAPI', {});

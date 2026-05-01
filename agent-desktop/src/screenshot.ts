@@ -3,6 +3,7 @@ import os from 'os';
 import fs from 'fs';
 import Store from 'electron-store';
 import { uploadScreenshot, isLoggedIn } from './api';
+import { CONFIG } from './config';
 
 let screenshotInterval: NodeJS.Timeout | null = null;
 let currentIntervalMs = 600_000; // 10 minutes default
@@ -15,13 +16,13 @@ let lastActiveWindow = '';
 
 interface QueuedScreenshot {
   filePath: string;
-  metadata: { activeApp: string; activeWindow: string };
+  metadata: { activeApp: string; activeWindow: string; timestamp: string };
   queuedAt: number; // ms epoch — used to drop stale items
 }
 
 const queueStore = new Store<{ screenshotQueue: QueuedScreenshot[] }>({
   name: 'screenshot-queue',
-  encryptionKey: 'aniston-agent-v1',
+  encryptionKey: CONFIG.STORE_ENCRYPTION_KEY,
   defaults: { screenshotQueue: [] },
 });
 const QUEUE_KEY = 'screenshotQueue';
@@ -71,6 +72,8 @@ async function retryQueue() {
     } catch {
       remaining.push(item); // Keep for next retry cycle
     }
+    // Delay between retries to avoid hammering server when queue is large
+    await new Promise(r => setTimeout(r, 1_000));
   }
 
   saveQueue(remaining);
@@ -96,35 +99,36 @@ export function startScreenshots(intervalMs?: number) {
     try {
       const screenshot = await import('screenshot-desktop');
       const tmpDir = path.join(os.tmpdir(), 'aniston-agent');
-      if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+      if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
 
+      const ts = new Date().toISOString();
       const filename = `screenshot-${Date.now()}.png`;
       const filePath = path.join(tmpDir, filename);
 
       await screenshot.default({ filename: filePath, format: 'png' });
 
-      const metadata = { activeApp: lastActiveApp, activeWindow: lastActiveWindow };
+      const metadata = { activeApp: lastActiveApp, activeWindow: lastActiveWindow, timestamp: ts };
+
+      let uploadPath = filePath;
+      let jpgPath: string | null = null;
 
       try {
         const sharp = await import('sharp');
-        const jpgPath = filePath.replace('.png', '.jpg');
+        jpgPath = filePath.replace('.png', '.jpg');
         await sharp.default(filePath).resize(1280, 720, { fit: 'inside' }).jpeg({ quality: 70 }).toFile(jpgPath);
-
-        try {
-          await uploadScreenshot(jpgPath, metadata);
-          fs.unlinkSync(filePath);
-          fs.unlinkSync(jpgPath);
-        } catch (uploadErr) {
-          // Upload failed — queue the jpg for retry; clean up the raw png
-          console.warn('[Screenshot] Upload failed, queuing for retry:', (uploadErr as Error).message);
-          try { fs.unlinkSync(filePath); } catch {}
-          enqueue({ filePath: jpgPath, metadata, queuedAt: Date.now() });
-        }
-      } catch {
-        // sharp compression failed — skip upload rather than sending a raw uncompressed PNG
-        // (raw PNG is 5-10x larger than JPEG; uploading it wastes bandwidth and may exceed server limits)
-        console.warn('[Screenshot] sharp compression failed — skipping upload to avoid oversized raw PNG');
+        uploadPath = jpgPath;
         try { fs.unlinkSync(filePath); } catch {}
+      } catch {
+        // sharp compression unavailable — fall back to raw PNG (larger but better than dropping)
+        console.warn('[Screenshot] sharp compression failed — falling back to raw PNG');
+      }
+
+      try {
+        await uploadScreenshot(uploadPath, metadata);
+        try { fs.unlinkSync(uploadPath); } catch {}
+      } catch (uploadErr) {
+        console.warn('[Screenshot] Upload failed, queuing for retry:', (uploadErr as Error).message);
+        enqueue({ filePath: uploadPath, metadata, queuedAt: Date.now() });
       }
     } catch (err) {
       console.error('[Screenshot] Capture error:', (err as Error).message);

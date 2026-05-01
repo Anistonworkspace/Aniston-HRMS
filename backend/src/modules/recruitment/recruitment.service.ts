@@ -9,6 +9,7 @@ import type { CreateJobInput, UpdateJobInput, CreateApplicationInput, InterviewS
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { generateOfferLetterPDF } from '../../utils/pdfGenerator.js';
 
 export class RecruitmentService {
   // ==================
@@ -100,8 +101,18 @@ export class RecruitmentService {
       include: { _count: { select: { applications: true } } },
     });
     if (!job) throw new NotFoundError('Job opening');
-    if (job._count.applications > 0) {
-      throw new BadRequestError('Cannot delete job with existing applications. Close it instead.');
+
+    // Count candidates across all three recruitment pipelines
+    const [publicAppCount, walkInCount] = await Promise.all([
+      prisma.publicApplication.count({ where: { jobOpeningId: id, deletedAt: null } }),
+      prisma.walkInCandidate.count({ where: { jobOpeningId: id } }),
+    ]);
+    const totalCandidates = job._count.applications + publicAppCount + walkInCount;
+
+    if (totalCandidates > 0) {
+      throw new BadRequestError(
+        `Cannot delete job with ${totalCandidates} existing candidate(s) (${job._count.applications} pipeline, ${publicAppCount} public, ${walkInCount} walk-in). Close it instead.`
+      );
     }
     await prisma.jobOpening.update({ where: { id, organizationId }, data: { status: 'CLOSED', closedAt: new Date() } });
     return { message: 'Job closed successfully' };
@@ -260,8 +271,14 @@ export class RecruitmentService {
 
   async createOffer(data: CreateOfferInput, organizationId?: string) {
     const app = organizationId
-      ? await prisma.application.findFirst({ where: { id: data.applicationId, jobOpening: { organizationId } } })
-      : await prisma.application.findUnique({ where: { id: data.applicationId } });
+      ? await prisma.application.findFirst({
+          where: { id: data.applicationId, jobOpening: { organizationId } },
+          include: { jobOpening: { select: { title: true, department: true, organizationId: true } } },
+        })
+      : await prisma.application.findUnique({
+          where: { id: data.applicationId },
+          include: { jobOpening: { select: { title: true, department: true, organizationId: true } } },
+        });
     if (!app) throw new NotFoundError('Application');
 
     // app already validated as belonging to this org above — scoping via application join is sufficient
@@ -288,6 +305,37 @@ export class RecruitmentService {
       });
 
       return created;
+    });
+
+    // Generate offer letter PDF (non-blocking — failure must not roll back the offer)
+    setImmediate(async () => {
+      try {
+        const org = await prisma.organization.findUnique({
+          where: { id: app.jobOpening?.organizationId || organizationId || '' },
+          select: { name: true },
+        });
+        const pdfBuffer = await generateOfferLetterPDF({
+          candidateName: (app as any).candidateName || data.candidateEmail.split('@')[0],
+          jobTitle: app.jobOpening?.title || 'Position',
+          department: app.jobOpening?.department || undefined,
+          ctc: data.ctc,
+          basicSalary: data.basicSalary,
+          joiningDate: data.joiningDate ? new Date(data.joiningDate) : null,
+          companyName: org?.name || 'Aniston Technologies LLP',
+        });
+
+        const offersDir = path.resolve(process.cwd(), 'uploads', 'offers');
+        if (!fs.existsSync(offersDir)) fs.mkdirSync(offersDir, { recursive: true });
+        const fileName = `offer-${offer.id}-${Date.now()}.pdf`;
+        const filePath = path.join(offersDir, fileName);
+        fs.writeFileSync(filePath, pdfBuffer);
+        const pdfUrl = `uploads/offers/${fileName}`;
+
+        await prisma.offerLetter.update({ where: { id: offer.id }, data: { pdfUrl } });
+        logger.info(`[Recruitment] Offer PDF generated: ${pdfUrl}`);
+      } catch (pdfErr) {
+        logger.error('[Recruitment] Offer PDF generation failed (non-blocking):', pdfErr);
+      }
     });
 
     return offer;
@@ -377,17 +425,6 @@ export class RecruitmentService {
             logger.warn(`[Recruitment] Employee already exists for ${candidateEmail} — skipping auto-creation`);
           } else {
             try {
-              // Determine next employee code
-              const lastEmployee = await prisma.employee.findFirst({
-                where: { organizationId: job.organizationId },
-                orderBy: { employeeCode: 'desc' },
-                select: { employeeCode: true },
-              });
-              const lastNum = lastEmployee?.employeeCode
-                ? parseInt(lastEmployee.employeeCode.replace('EMP-', ''), 10)
-                : 0;
-              const employeeCode = `EMP-${String(lastNum + 1).padStart(3, '0')}`;
-
               const nameParts = (candidateName || candidateEmail.split('@')[0]).split(' ');
               const firstName = nameParts[0] || candidateEmail.split('@')[0];
               const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : 'Pending';
@@ -395,6 +432,18 @@ export class RecruitmentService {
               const newEmployee = await prisma.$transaction(async (tx) => {
                 // Check again inside transaction to guard against race conditions
                 const existingUser = await tx.user.findUnique({ where: { email: candidateEmail } });
+
+                // Employee code determined inside transaction to avoid race condition
+                // on concurrent offer acceptances generating duplicate codes
+                const lastEmployee = await tx.employee.findFirst({
+                  where: { organizationId: job.organizationId },
+                  orderBy: { employeeCode: 'desc' },
+                  select: { employeeCode: true },
+                });
+                const lastNum = lastEmployee?.employeeCode
+                  ? parseInt(lastEmployee.employeeCode.replace('EMP-', ''), 10)
+                  : 0;
+                const employeeCode = `EMP-${String(lastNum + 1).padStart(3, '0')}`;
 
                 const user = existingUser || await tx.user.create({
                   data: {
@@ -612,6 +661,15 @@ ${data.requirements ? `Additional Requirements/Notes: ${safe(data.requirements)}
     const questions = app.jobOpening.questions;
     if (questions.length === 0) throw new BadRequestError('No MCQ questions configured for this job');
 
+    // Validate that every question has an answer before scoring
+    const answeredIds = new Set(answers.map(a => a.questionId));
+    const unanswered = questions.filter(q => !answeredIds.has(q.id));
+    if (unanswered.length > 0) {
+      throw new BadRequestError(
+        `Please answer all ${questions.length} questions. Missing answers for ${unanswered.length} question(s).`
+      );
+    }
+
     let totalCorrect = 0, intCorrect = 0, intTotal = 0, intgCorrect = 0, intgTotal = 0, enCorrect = 0, enTotal = 0;
 
     for (const question of questions) {
@@ -820,6 +878,68 @@ ${data.requirements ? `Additional Requirements/Notes: ${safe(data.requirements)}
       total: walkInIds.length,
       sent: results.filter(r => r.status === 'sent').length,
       failed: results.filter(r => r.status === 'failed').length,
+      results,
+    };
+  }
+
+  // ==================
+  // BULK STAGE MOVE
+  // ==================
+
+  /**
+   * Move multiple applications to a target stage atomically.
+   * Each application is validated against the state machine before any update.
+   * Returns per-application success/failure summary.
+   */
+  async bulkMoveStage(ids: string[], targetStatus: string, organizationId: string) {
+    const VALID_TRANSITIONS: Record<string, string[]> = {
+      APPLIED: ['SCREENING', 'REJECTED', 'WITHDRAWN'],
+      SCREENING: ['ASSESSMENT', 'INTERVIEW_1', 'REJECTED', 'WITHDRAWN'],
+      ASSESSMENT: ['INTERVIEW_1', 'REJECTED', 'WITHDRAWN'],
+      INTERVIEW_1: ['INTERVIEW_2', 'HR_ROUND', 'FINAL_ROUND', 'REJECTED', 'WITHDRAWN'],
+      INTERVIEW_2: ['HR_ROUND', 'FINAL_ROUND', 'REJECTED', 'WITHDRAWN'],
+      HR_ROUND: ['FINAL_ROUND', 'OFFER', 'REJECTED', 'WITHDRAWN'],
+      FINAL_ROUND: ['OFFER', 'REJECTED', 'WITHDRAWN'],
+      OFFER: ['OFFER_ACCEPTED', 'OFFER_REJECTED', 'NEGOTIATING', 'WITHDRAWN'],
+      OFFER_ACCEPTED: ['JOINED'],
+      OFFER_REJECTED: [],
+      NEGOTIATING: ['OFFER', 'REJECTED', 'WITHDRAWN'],
+      JOINED: [],
+      REJECTED: ['APPLIED'],
+      WITHDRAWN: [],
+    };
+
+    const apps = await prisma.application.findMany({
+      where: { id: { in: ids }, jobOpening: { organizationId } },
+      select: { id: true, status: true, candidateName: true },
+    });
+
+    const results: Array<{ id: string; name: string; success: boolean; error?: string }> = [];
+    const toUpdate: string[] = [];
+
+    for (const id of ids) {
+      const app = apps.find(a => a.id === id);
+      if (!app) { results.push({ id, name: '', success: false, error: 'Not found' }); continue; }
+      const allowed = VALID_TRANSITIONS[app.status] || [];
+      if (!allowed.includes(targetStatus)) {
+        results.push({ id, name: app.candidateName, success: false, error: `Cannot move from ${app.status} to ${targetStatus}` });
+        continue;
+      }
+      toUpdate.push(id);
+      results.push({ id, name: app.candidateName, success: true });
+    }
+
+    if (toUpdate.length > 0) {
+      await prisma.application.updateMany({
+        where: { id: { in: toUpdate } },
+        data: { status: targetStatus as any },
+      });
+    }
+
+    return {
+      total: ids.length,
+      moved: toUpdate.length,
+      failed: ids.length - toUpdate.length,
       results,
     };
   }
@@ -1049,6 +1169,14 @@ ${data.requirements ? `Additional Requirements/Notes: ${safe(data.requirements)}
       if (!item) throw new NotFoundError('Bulk resume item not found');
       if (item.status !== 'SCORED') throw new BadRequestError('Item must be fully scored before adding to pipeline');
       if (item.applicationId) throw new BadRequestError('This resume has already been added to the pipeline');
+
+      // Reject duplicate email within the same job pipeline
+      if (item.email) {
+        const dup = await tx.application.findFirst({
+          where: { jobOpeningId, email: item.email.toLowerCase() },
+        });
+        if (dup) throw new BadRequestError(`An application for ${item.email} already exists in this job's pipeline`);
+      }
 
       const details: any = item.aiScoreDetails || {};
 

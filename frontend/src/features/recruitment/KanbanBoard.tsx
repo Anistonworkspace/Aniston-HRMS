@@ -4,7 +4,7 @@ import {
   User, Mail, Star, ChevronDown, ExternalLink, CheckSquare, Square,
   Trash2, ArrowRight, XCircle, Loader2,
 } from 'lucide-react';
-import { useMoveApplicationStageMutation } from './recruitmentApi';
+import { useMoveApplicationStageMutation, useBulkMoveApplicationStageMutation } from './recruitmentApi';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
@@ -62,6 +62,7 @@ interface KanbanBoardProps {
 
 export default function KanbanBoard({ applications, jobId }: KanbanBoardProps) {
   const [moveStage, { isLoading: isMoving }] = useMoveApplicationStageMutation();
+  const [bulkMoveStage] = useBulkMoveApplicationStageMutation();
   const navigate = useNavigate();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkMoving, setBulkMoving] = useState(false);
@@ -89,16 +90,20 @@ export default function KanbanBoard({ applications, jobId }: KanbanBoardProps) {
     if (selectedIds.size === 0) return;
     setBulkMoving(true);
     const ids = Array.from(selectedIds);
-    let successCount = 0;
-    for (const id of ids) {
-      try {
-        await moveStage({ id, status: newStatus }).unwrap();
-        successCount++;
-      } catch { /* individual failures logged server-side */ }
+    try {
+      const result = await bulkMoveStage({ ids, status: newStatus }).unwrap();
+      setSelectedIds(new Set());
+      const label = [...STAGES, ...TERMINAL_STAGES].find(s => s.key === newStatus)?.label || newStatus;
+      if (result.data.failed > 0) {
+        toast.success(`Moved ${result.data.moved}/${result.data.total} to ${label} (${result.data.failed} skipped — invalid transitions)`);
+      } else {
+        toast.success(`Moved ${result.data.moved} candidates to ${label}`);
+      }
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Bulk move failed');
+    } finally {
+      setBulkMoving(false);
     }
-    setBulkMoving(false);
-    setSelectedIds(new Set());
-    toast.success(`Moved ${successCount}/${ids.length} candidates to ${[...STAGES, ...TERMINAL_STAGES].find(s => s.key === newStatus)?.label}`);
   };
 
   const toggleSelect = (id: string) => {

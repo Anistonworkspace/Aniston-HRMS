@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { agentController } from './agent.controller.js';
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
 import { uploadAgent } from '../../middleware/upload.middleware.js';
+import { rateLimiter } from '../../middleware/rateLimiter.js';
 import { Role } from '@aniston/shared';
 
 const router = Router();
@@ -14,9 +15,17 @@ router.use(authenticate);
 // Authenticated: generate pairing code
 router.post('/pair/generate', (req, res, next) => agentController.generatePairCode(req, res, next));
 
+// Per-employee rate limiter for agent data ingestion (keyed by JWT userId, not IP — agents may share NAT)
+const agentDataLimiter = rateLimiter({
+  windowMs: 60_000,
+  max: 60,
+  keyPrefix: 'agent-data',
+  keyFn: (req) => `agent-data:${req.user?.userId || req.ip}`,
+});
+
 // Agent endpoints (employee sends data from desktop agent)
-router.post('/heartbeat', (req, res, next) => agentController.submitHeartbeat(req, res, next));
-router.post('/screenshot', uploadAgent.single('screenshot'), (req, res, next) => agentController.uploadScreenshot(req, res, next));
+router.post('/heartbeat', agentDataLimiter, (req, res, next) => agentController.submitHeartbeat(req, res, next));
+router.post('/screenshot', agentDataLimiter, uploadAgent.single('screenshot'), (req, res, next) => agentController.uploadScreenshot(req, res, next));
 router.get('/config', (req, res, next) => agentController.getConfig(req, res, next));
 router.get('/status', (req, res, next) => agentController.getStatus(req, res, next));
 

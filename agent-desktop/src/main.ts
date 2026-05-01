@@ -3,7 +3,7 @@ import Store from 'electron-store';
 import AutoLaunch from 'auto-launch';
 import { CONFIG } from './config';
 import { ipcMain } from 'electron';
-import { pairWithCode, setTokens, sendHeartbeat, isLoggedIn, getAgentConfig, UnauthorizedError } from './api';
+import { pairWithCode, setTokens, sendHeartbeat, isLoggedIn, getAgentConfig, UnauthorizedError, setTokenRefreshCallback } from './api';
 import { startTracking, stopTracking, getBuffer } from './tracker';
 import { startScreenshots, stopScreenshots, updateActiveWindow, updateInterval } from './screenshot';
 import { createTray, updateTrayMenu, showPairWindow, closePairWindow, sendPairError } from './tray';
@@ -11,6 +11,12 @@ import { initStreamWindow, startStream, stopStream, handleSignalingMessage } fro
 import io from 'socket.io-client';
 
 const store = new Store({ encryptionKey: CONFIG.STORE_ENCRYPTION_KEY });
+
+// Persist refreshed tokens to disk so the agent doesn't re-pair on every restart
+setTokenRefreshCallback((access, refresh) => {
+  store.set('accessToken', access);
+  if (refresh !== null) store.set('refreshToken', refresh);
+});
 
 // Prevent multiple instances
 const gotSingleLock = app.requestSingleInstanceLock();
@@ -36,7 +42,10 @@ async function handlePair() {
 
     // Persist both tokens — refresh token enables silent renewal (30-day window)
     store.set('accessToken', result.accessToken);
-    store.set('refreshToken', result.refreshToken || ''); // Bug #8: persist refresh token
+    if (!result.refreshToken) {
+      console.warn('[Pair] Server did not return a refreshToken — token renewal will require re-pairing');
+    }
+    store.set('refreshToken', result.refreshToken || '');
     store.set('userEmail', result.user?.email || '');
     store.set('paired', true);
     closePairWindow();
@@ -57,10 +66,12 @@ function handleLogout() {
   stopTracking();
   stopScreenshots();
   stopSyncLoop();
+  stopConfigPoll();
+  agentSocket?.disconnect();
+  agentSocket = null;
   setTokens('', '');
   store.clear();
   updateTrayMenu(handlePair, handleLogout);
-  // Re-show pairing window
   handlePair();
 }
 
@@ -91,9 +102,17 @@ function connectAgentSocket() {
     reconnection: true,
   });
 
+  const registerAgent = () => agentSocket.emit('agent:register');
+
   agentSocket.on('connect', () => {
     console.log('[Socket] Agent connected to server');
-    agentSocket.emit('agent:register');
+    registerAgent();
+  });
+
+  // Re-register after reconnect so the server re-adds this socket to the agent room
+  agentSocket.on('reconnect', () => {
+    console.log('[Socket] Agent reconnected — re-registering');
+    registerAgent();
   });
 
   // Admin requests live stream
@@ -180,7 +199,9 @@ function startSyncLoop() {
         store.delete('refreshToken');
         setTokens('', '');
         stopSyncLoop();
+        stopConfigPoll();
         agentSocket?.disconnect();
+        agentSocket = null;
         handlePair();
         return;
       }
@@ -193,6 +214,13 @@ function stopSyncLoop() {
   if (syncInterval) {
     clearInterval(syncInterval);
     syncInterval = null;
+  }
+}
+
+function stopConfigPoll() {
+  if (configPollInterval) {
+    clearInterval(configPollInterval);
+    configPollInterval = null;
   }
 }
 
@@ -253,4 +281,13 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', (e: Event) => {
   e.preventDefault();
+});
+
+// Global crash handlers — log and keep the agent alive instead of silently dying
+process.on('uncaughtException', (err) => {
+  console.error('[Agent] Uncaught exception:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Agent] Unhandled rejection:', reason);
 });

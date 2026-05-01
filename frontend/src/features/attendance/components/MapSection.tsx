@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Circle, Polyline, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Activity, Clock, Flag, MapPin, Navigation, Edit2, Check, X } from 'lucide-react';
+import { Activity, Clock, Flag, MapPin, Maximize2, Minimize2, Navigation, Edit2, Check, X } from 'lucide-react';
 import { cn, formatDate } from '../../../lib/utils';
 import { useUpdateLocationVisitNameMutation } from '../attendanceApi';
 
@@ -79,6 +79,8 @@ export default function MapSection({
 }: MapSectionProps) {
   const [labelEdit, setLabelEdit] = useState<LabelEditState>({ visitId: null, index: null, value: '' });
   const [updateVisitName, { isLoading: isSavingLabel }] = useUpdateLocationVisitNameMutation();
+  const [trailFullscreen, setTrailFullscreen] = useState(false);
+  const [officeFullscreen, setOfficeFullscreen] = useState(false);
 
   const saveLabel = async () => {
     if (!labelEdit.visitId || !labelEdit.value.trim()) { setLabelEdit({ visitId: null, index: null, value: '' }); return; }
@@ -149,7 +151,7 @@ export default function MapSection({
         </div>
 
         {/* Map */}
-        <div style={{ height: 320 }}>
+        <div style={{ height: 320 }} className="relative">
           <MapContainer
             center={positions[0]}
             zoom={13}
@@ -256,7 +258,90 @@ export default function MapSection({
               );
             })}
           </MapContainer>
+
+          {/* Fullscreen button */}
+          <button
+            onClick={() => setTrailFullscreen(true)}
+            className="absolute top-3 right-3 z-[500] bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg p-1.5 shadow-md hover:bg-white transition-colors"
+            title="View fullscreen"
+          >
+            <Maximize2 size={15} className="text-gray-600" />
+          </button>
         </div>
+
+        {/* GPS Trail Fullscreen Modal */}
+        {trailFullscreen && (
+          <div className="fixed inset-0 z-[80] flex flex-col bg-gray-900">
+            <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <Activity size={15} className="text-green-400" />
+                <span className="text-sm font-semibold text-white">GPS Trail — {formatDate(selectedDate, 'long')}</span>
+                <span className="text-xs text-gray-400 ml-1">{gpsTrail.length} points</span>
+              </div>
+              <button
+                onClick={() => setTrailFullscreen(false)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-xs transition-colors"
+              >
+                <Minimize2 size={14} />
+                Exit Fullscreen
+              </button>
+            </div>
+            <div className="flex-1">
+              <MapContainer
+                center={positions[0]}
+                zoom={13}
+                style={{ height: '100%', width: '100%' }}
+              >
+                <TileLayer
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution="&copy; OSM"
+                />
+                <FitTrail positions={positions} />
+                <Polyline positions={positions} pathOptions={{ color: '#6366f1', weight: 3, opacity: 0.65 }} />
+                {gpsTrail.map((p: any, i: number) => {
+                  const lat = p.lat ?? p.latitude;
+                  const lng = p.lng ?? p.longitude;
+                  const ts = p.timestamp ?? p.time ?? p.recordedAt;
+                  const isFirst = i === 0;
+                  const isLast = i === gpsTrail.length - 1;
+                  const color = isFirst ? '#10b981' : isLast ? '#ef4444' : '#6366f1';
+                  const speedKmh = p.speed != null ? (p.speed * 3.6).toFixed(1) : null;
+                  return (
+                    <CircleMarker key={i} center={[lat, lng]} radius={isFirst || isLast ? 9 : 5}
+                      pathOptions={{ fillColor: color, color: '#fff', weight: 1.5, fillOpacity: 0.9 }}>
+                      <Popup>
+                        <div style={{ fontSize: 11, minWidth: 165, lineHeight: 1.6 }}>
+                          <strong>{isFirst ? '🟢 Start' : isLast ? '🔴 End' : `📍 Point ${i + 1}`}</strong>
+                          <br />🕐 {fmtTime(ts)}
+                          <br />{lat?.toFixed(5)}, {lng?.toFixed(5)}
+                          <br />🎯 Accuracy: ±{p.accuracy != null ? Math.round(p.accuracy) : '--'}m
+                          {speedKmh != null && <><br />🚀 Speed: {speedKmh} km/h</>}
+                        </div>
+                      </Popup>
+                    </CircleMarker>
+                  );
+                })}
+                {gpsVisits.map((v: any, i: number) => {
+                  if (v.lat == null || v.lng == null) return null;
+                  const dwellMs = v.durationMinutes != null ? v.durationMinutes * 60 * 1000 : 0;
+                  return (
+                    <CircleMarker key={`vf-${i}`} center={[v.lat, v.lng]} radius={16}
+                      pathOptions={{ fillColor: '#f97316', color: '#ea580c', weight: 2, fillOpacity: 0.25 }}>
+                      <Popup>
+                        <div style={{ fontSize: 11, minWidth: 150, lineHeight: 1.6 }}>
+                          <strong>🟠 Visit Stop {i + 1}</strong>
+                          {v.startTime && <><br />In: {fmtTime(v.startTime)}</>}
+                          {v.endTime && <><br />Out: {fmtTime(v.endTime)}</>}
+                          {dwellMs > 0 && <><br />⏱ Dwell: {fmtDuration(dwellMs)}</>}
+                        </div>
+                      </Popup>
+                    </CircleMarker>
+                  );
+                })}
+              </MapContainer>
+            </div>
+          </div>
+        )}
 
         {/* Journey Timeline */}
         <div className="px-4 py-3 border-t border-gray-100">
@@ -407,7 +492,7 @@ export default function MapSection({
             ) : null}
           </div>
         </div>
-        <div style={{ height: 200 }}>
+        <div style={{ height: 200 }} className="relative">
           <MapContainer
             center={[checkInLoc.lat, checkInLoc.lng]}
             zoom={15}
@@ -439,7 +524,71 @@ export default function MapSection({
               />
             )}
           </MapContainer>
+
+          {/* Fullscreen button */}
+          <button
+            onClick={() => setOfficeFullscreen(true)}
+            className="absolute top-3 right-3 z-[500] bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg p-1.5 shadow-md hover:bg-white transition-colors"
+            title="View fullscreen"
+          >
+            <Maximize2 size={15} className="text-gray-600" />
+          </button>
         </div>
+
+        {/* Office Check-in Fullscreen Modal */}
+        {officeFullscreen && (
+          <div className="fixed inset-0 z-[80] flex flex-col bg-gray-900">
+            <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <MapPin size={15} className="text-brand-400" />
+                <span className="text-sm font-semibold text-white">Check-in Location</span>
+                {geofenceViolation ? (
+                  <span className="text-xs px-2 py-0.5 bg-red-900/60 text-red-300 rounded-full border border-red-700">Outside Geofence</span>
+                ) : geofenceCoords ? (
+                  <span className="text-xs px-2 py-0.5 bg-emerald-900/60 text-emerald-300 rounded-full border border-emerald-700">Inside Approved Zone</span>
+                ) : null}
+              </div>
+              <button
+                onClick={() => setOfficeFullscreen(false)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-xs transition-colors"
+              >
+                <Minimize2 size={14} />
+                Exit Fullscreen
+              </button>
+            </div>
+            <div className="flex-1">
+              <MapContainer
+                center={[checkInLoc.lat, checkInLoc.lng]}
+                zoom={16}
+                style={{ height: '100%', width: '100%' }}
+              >
+                <TileLayer
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution="&copy; OSM"
+                />
+                <CircleMarker
+                  center={[checkInLoc.lat, checkInLoc.lng]}
+                  radius={10}
+                  pathOptions={{ fillColor: '#4f46e5', color: '#fff', weight: 2, fillOpacity: 0.9 }}
+                >
+                  <Popup>
+                    <div style={{ fontSize: 11, lineHeight: 1.6 }}>
+                      <strong>📍 Check-in Point</strong>
+                      <br />{checkInLoc.lat?.toFixed(5)}, {checkInLoc.lng?.toFixed(5)}
+                    </div>
+                  </Popup>
+                </CircleMarker>
+                {geofenceCoords?.lat && (
+                  <Circle
+                    center={[geofenceCoords.lat, geofenceCoords.lng]}
+                    radius={geofence?.radiusMeters || 200}
+                    pathOptions={{ color: geofenceViolation ? '#ef4444' : '#4f46e5', fillOpacity: 0.1 }}
+                  />
+                )}
+              </MapContainer>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
