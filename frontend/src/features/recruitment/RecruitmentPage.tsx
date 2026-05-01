@@ -110,6 +110,7 @@ const JOB_STATUS_CLASSES: Record<string, string> = {
 
 function JobOpeningsTab() {
   const { t } = useTranslation();
+  const accessToken = useAppSelector(s => s.auth.accessToken);
   const JOB_STATUS_MAP: Record<string, { label: string; class: string }> = {
     DRAFT: { label: t('recruitment.draft'), class: 'badge-neutral' },
     OPEN: { label: t('recruitment.open'), class: 'badge-success' },
@@ -150,7 +151,7 @@ function JobOpeningsTab() {
       try {
         setGeneratingJobId(job.id);
         const detail = await fetch(`/api/recruitment/jobs/${job.id}`, {
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken') || ''}` },
+          headers: { 'Authorization': `Bearer ${accessToken || ''}` },
         });
         const json = await detail.json();
         if (json.success && json.data?.questions?.length > 0) {
@@ -1128,6 +1129,7 @@ function WalkInDetailSlideOver({ candidateId, onClose, onStatusChange }: { candi
   const [assignManagerId, setAssignManagerId] = useState('');
 
   const user = useAppSelector(s => s.auth.user);
+  const accessToken = useAppSelector(s => s.auth.accessToken);
   const isHR = user?.role ? ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user.role) : false;
 
   const candidate = res?.data;

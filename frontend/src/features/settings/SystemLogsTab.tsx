@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
+import { useAppSelector } from '../../app/store';
 import {
   useGetSystemLogSummaryQuery,
   useGetSystemLogsQuery,
@@ -302,6 +303,7 @@ function AiServiceLogsPanel() {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function SystemLogsTab() {
+  const accessToken = useAppSelector(s => s.auth.accessToken);
   const [filters, setFilters]         = useState<Filters>(EMPTY_FILTERS);
   const [applied, setApplied]         = useState<Filters>(EMPTY_FILTERS);
   const [page, setPage]               = useState(1);
@@ -375,8 +377,7 @@ export default function SystemLogsTab() {
     if (applied.dateTo)   params.set('dateTo',   applied.dateTo);
     params.set('format', fmt);
     params.set('sort', 'desc');
-    // Use the token from localStorage for auth
-    const token = localStorage.getItem('accessToken');
+    const token = accessToken;
     const url   = `/api/settings/system-logs/download?${params.toString()}`;
     const a     = document.createElement('a');
     a.href = url;

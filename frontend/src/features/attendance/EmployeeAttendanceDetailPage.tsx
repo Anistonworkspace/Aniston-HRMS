@@ -1,6 +1,7 @@
 import { useState, useMemo, lazy, Suspense, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getUploadUrl } from '../../lib/utils';
+import { useAppSelector } from '../../app/store';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowLeft, Clock, MapPin, Calendar, ChevronLeft, ChevronRight, Activity,
@@ -71,6 +72,7 @@ const SHIFT_BADGE: Record<string, string> = {
 export default function EmployeeAttendanceDetailPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
   const navigate = useNavigate();
+  const accessToken = useAppSelector(s => s.auth.accessToken);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
@@ -308,7 +310,7 @@ export default function EmployeeAttendanceDetailPage() {
             <button
               onClick={async () => {
                 try {
-                  const token = localStorage.getItem('accessToken');
+                  const token = accessToken;
                   const apiUrl = import.meta.env.VITE_API_URL || '/api';
                   const res = await fetch(
                     `${apiUrl}/attendance/export?employeeId=${employeeId}&month=${currentMonth.getMonth() + 1}&year=${currentMonth.getFullYear()}`,

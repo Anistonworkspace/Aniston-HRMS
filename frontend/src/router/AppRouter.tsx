@@ -5,6 +5,7 @@ import AppShell from '../components/layout/AppShell';
 import ProtectedRoute from './ProtectedRoute';
 import ErrorBoundary from '../components/ErrorBoundary';
 import RouteErrorBoundary from '../components/layout/RouteErrorBoundary';
+import AuthHydrator from '../features/auth/AuthHydrator';
 
 // Lazy-loaded pages
 const LoginPage = lazy(() => import('../features/auth/LoginPage'));
@@ -144,6 +145,7 @@ function PageLoader() {
 export default function AppRouter() {
   return (
     <BrowserRouter>
+      <AuthHydrator>
       <AppUpdateGuard>
       <ErrorBoundary>
       <Suspense fallback={<PageLoader />}>
@@ -238,6 +240,7 @@ export default function AppRouter() {
       </Suspense>
       </ErrorBoundary>
       </AppUpdateGuard>
+      </AuthHydrator>
     </BrowserRouter>
   );
 }

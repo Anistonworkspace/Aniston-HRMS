@@ -13,11 +13,14 @@ interface ProtectedRouteProps {
 const GATE_EXEMPT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
 
 export default function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { isAuthenticated, user, accessToken } = useAppSelector((state) => state.auth);
+  const { isAuthenticated, user, accessToken, hydrating } = useAppSelector((state) => state.auth);
   const location = useLocation();
   const dispatch = useAppDispatch();
 
-  // Fetch user info when we have a token but no user (e.g., after page refresh)
+  // While AuthHydrator is restoring session from refresh token cookie, show skeleton
+  if (hydrating) return <AppLoadingSkeleton />;
+
+  // Fetch user info when we have a token but no user (e.g., after hydration succeeds)
   const shouldFetchUser = isAuthenticated && !user && !!accessToken;
   const { data: meData, isLoading, isError } = useGetMeQuery(undefined, {
     skip: !shouldFetchUser,

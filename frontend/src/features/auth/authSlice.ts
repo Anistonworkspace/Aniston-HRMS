@@ -5,15 +5,15 @@ interface AuthState {
   user: AuthUser | null;
   accessToken: string | null;
   isAuthenticated: boolean;
+  /** True while the app silently attempts to restore session via refresh token cookie on startup */
+  hydrating: boolean;
 }
-
-// Restore token from localStorage so session survives page refresh
-const persistedToken = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
 
 const initialState: AuthState = {
   user: null,
-  accessToken: persistedToken,
-  isAuthenticated: !!persistedToken,
+  accessToken: null,
+  isAuthenticated: false,
+  hydrating: true,
 };
 
 const authSlice = createSlice({
@@ -24,27 +24,27 @@ const authSlice = createSlice({
       state.user = action.payload.user;
       state.accessToken = action.payload.accessToken;
       state.isAuthenticated = true;
-      // Persist to localStorage
-      try { localStorage.setItem('accessToken', action.payload.accessToken); } catch {}
+      state.hydrating = false;
     },
     setAccessToken(state, action: PayloadAction<string>) {
       state.accessToken = action.payload;
-      try { localStorage.setItem('accessToken', action.payload); } catch {}
+      state.isAuthenticated = true;
     },
     setUser(state, action: PayloadAction<AuthUser>) {
       state.user = action.payload;
+    },
+    setHydrated(state) {
+      state.hydrating = false;
     },
     logout(state) {
       state.user = null;
       state.accessToken = null;
       state.isAuthenticated = false;
-      try {
-        localStorage.removeItem('accessToken');
-        new BroadcastChannel('auth').postMessage('logout');
-      } catch {}
+      state.hydrating = false;
+      try { new BroadcastChannel('auth').postMessage('logout'); } catch {}
     },
   },
 });
 
-export const { setCredentials, setAccessToken, setUser, logout } = authSlice.actions;
+export const { setCredentials, setAccessToken, setUser, setHydrated, logout } = authSlice.actions;
 export default authSlice.reducer;

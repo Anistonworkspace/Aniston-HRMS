@@ -11,7 +11,7 @@ name: Build & Deploy to EC2
 # See docs/BUILD_NATIVE_AAB.md for Android and docs/IOS_APP_STORE_RELEASE.md for iOS.
 #
 # Required GitHub Secrets:
-#   EC2_HOST / EC2_USER / EC2_SSH_KEY
+#   EC2_HOST / EC2_USER / EC2_SSH_KEY / ENCRYPTION_KEY / REDIS_PASSWORD
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -179,11 +179,13 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           DEPLOY_OPENAI_KEY: ${{ secrets.ANISTON_TEST }}
+          DEPLOY_ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          DEPLOY_REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: DEPLOY_OPENAI_KEY
+          envs: DEPLOY_OPENAI_KEY,DEPLOY_ENCRYPTION_KEY,DEPLOY_REDIS_PASSWORD
           script_stop: true
           timeout: 300s
           script: |
@@ -238,7 +240,7 @@ jobs:
             done
             cd /home/ubuntu/Aniston-HRMS
 
-            echo "=== [4/17] Setting production domain + encryption key ==="
+            echo "=== [4/17] Setting production domain + secrets ==="
             # Anchor to start-of-line so partial matches (e.g. VITE_API_URL) are not touched.
             # Also strips any trailing quotes/spaces that manual edits may have left behind.
             sed -i '/^FRONTEND_URL/d' .env 2>/dev/null || true
@@ -246,7 +248,24 @@ jobs:
             sed -i -e '$a\' .env 2>/dev/null || true
             echo 'FRONTEND_URL=https://hr.anistonav.com' >> .env
             echo 'API_URL=https://hr.anistonav.com' >> .env
-            grep -q 'ENCRYPTION_KEY=' .env || echo 'ENCRYPTION_KEY=30f3a3cf6ce04631c122256f5656c70c69429d380ae91c8de9d5f8e05c4a0cf2' >> .env
+            # ENCRYPTION_KEY — injected from GitHub Secret ENCRYPTION_KEY (never hardcoded).
+            # Rotate the key and re-encrypt sensitive DB fields if this secret is ever compromised.
+            if [ -z "$DEPLOY_ENCRYPTION_KEY" ]; then
+              echo "❌ ENCRYPTION_KEY secret is not set — aborting deploy to prevent data corruption"
+              exit 1
+            fi
+            sed -i '/^ENCRYPTION_KEY=/d' .env 2>/dev/null || true
+            echo "ENCRYPTION_KEY=$DEPLOY_ENCRYPTION_KEY" >> .env
+            # REDIS_PASSWORD — injected from GitHub Secret REDIS_PASSWORD.
+            if [ -z "$DEPLOY_REDIS_PASSWORD" ]; then
+              echo "❌ REDIS_PASSWORD secret is not set — aborting deploy"
+              exit 1
+            fi
+            sed -i '/^REDIS_PASSWORD=/d' .env 2>/dev/null || true
+            echo "REDIS_PASSWORD=$DEPLOY_REDIS_PASSWORD" >> .env
+            # REDIS_URL — include password so Node.js can authenticate.
+            sed -i '/^REDIS_URL=/d' .env 2>/dev/null || true
+            echo "REDIS_URL=redis://:$DEPLOY_REDIS_PASSWORD@127.0.0.1:6379" >> .env
             # Ensure AI_SERVICE_URL has no surrounding quotes — quoted value causes Node.js fetch failed
             sed -i '/^AI_SERVICE_URL=/d' .env 2>/dev/null || true
             echo 'AI_SERVICE_URL=http://localhost:8000' >> .env

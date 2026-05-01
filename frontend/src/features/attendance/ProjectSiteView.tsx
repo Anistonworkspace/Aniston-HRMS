@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { MapPin, Camera, Check, Loader2, FileText, Clock, X } from 'lucide-react';
 import { useProjectSiteCheckInMutation, useGetProjectSiteCheckInsQuery } from './attendanceApi';
 import { useGetLocationsQuery } from '../workforce/workforceApi';
+import { useAppSelector } from '../../app/store';
 import toast from 'react-hot-toast';
 
 export default function ProjectSiteView() {
@@ -11,6 +12,7 @@ export default function ProjectSiteView() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const accessToken = useAppSelector(s => s.auth.accessToken);
 
   const [checkIn, { isLoading }] = useProjectSiteCheckInMutation();
   const { data: checkInsData } = useGetProjectSiteCheckInsQuery({});
@@ -104,7 +106,7 @@ export default function ProjectSiteView() {
           const uploadRes = await fetch(`${apiBase}/uploads/image`, {
             method: 'POST',
             body: formData,
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken') || ''}` },
+            headers: { 'Authorization': `Bearer ${accessToken || ''}` },
           });
           if (uploadRes.ok) {
             const uploadData = await uploadRes.json();
