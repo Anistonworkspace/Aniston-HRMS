@@ -28,6 +28,7 @@ const queueStore = new Store<{ screenshotQueue: QueuedScreenshot[] }>({
 const QUEUE_KEY = 'screenshotQueue';
 const MAX_QUEUE_SIZE = 20;           // Don't grow unbounded
 const MAX_AGE_MS = 24 * 60 * 60 * 1000; // Drop items older than 24h
+let retrying = false; // prevents concurrent retryQueue() executions (critical in live mode at 10-30s intervals)
 
 function getQueue(): QueuedScreenshot[] {
   return queueStore.get(QUEUE_KEY) || [];
@@ -46,7 +47,9 @@ function enqueue(item: QueuedScreenshot) {
 }
 
 async function retryQueue() {
-  if (!isLoggedIn()) return;
+  if (retrying || !isLoggedIn()) return;
+  retrying = true;
+  try {
   const queue = getQueue();
   if (queue.length === 0) return;
 
@@ -77,6 +80,9 @@ async function retryQueue() {
   }
 
   saveQueue(remaining);
+  } finally {
+    retrying = false;
+  }
 }
 
 // ── Screenshot capture ────────────────────────────────────────────────────────

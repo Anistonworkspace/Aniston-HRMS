@@ -64,10 +64,14 @@ let activityBuffer: ActivityEntry[] = [];
 let trackingInterval: NodeJS.Timeout | null = null;
 let isPaused = false;
 
+/** Returns a snapshot of the buffer without clearing it. */
 export function getBuffer(): ActivityEntry[] {
-  const entries = [...activityBuffer];
-  activityBuffer = [];
-  return entries;
+  return [...activityBuffer];
+}
+
+/** Remove the first `count` entries from the buffer (called only after successful send). */
+export function drainBuffer(count: number): void {
+  activityBuffer.splice(0, count);
 }
 
 export function pauseTracking() { isPaused = true; }

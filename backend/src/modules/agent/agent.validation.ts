@@ -12,7 +12,7 @@ export const activityEntrySchema = z.object({
   keystrokes: z.number().int().min(0).default(0),
   mouseClicks: z.number().int().min(0).default(0),
   mouseDistance: z.number().int().min(0).default(0),
-  timestamp: z.string(),
+  timestamp: z.string().datetime({ offset: true }),
 });
 
 export const heartbeatSchema = z.object({

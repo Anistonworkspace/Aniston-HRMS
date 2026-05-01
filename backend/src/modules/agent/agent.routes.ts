@@ -8,7 +8,11 @@ import { Role } from '@aniston/shared';
 const router = Router();
 
 // Public: agent pairing verification (no auth — agent uses pairing code)
-router.post('/pair/verify', (req, res, next) => agentController.verifyPairCode(req, res, next));
+// Strict rate limit: 10 attempts per 15 min per IP — 32^4 = 1M codes, this caps brute-force at ~960/day
+router.post('/pair/verify',
+  rateLimiter({ windowMs: 15 * 60_000, max: 10, keyPrefix: 'pair-verify', keyFn: (req) => req.ip || 'unknown' }),
+  (req, res, next) => agentController.verifyPairCode(req, res, next)
+);
 
 router.use(authenticate);
 

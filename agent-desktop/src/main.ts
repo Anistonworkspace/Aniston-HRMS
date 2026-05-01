@@ -4,7 +4,7 @@ import AutoLaunch from 'auto-launch';
 import { CONFIG } from './config';
 import { ipcMain } from 'electron';
 import { pairWithCode, setTokens, sendHeartbeat, isLoggedIn, getAgentConfig, UnauthorizedError, setTokenRefreshCallback } from './api';
-import { startTracking, stopTracking, getBuffer } from './tracker';
+import { startTracking, stopTracking, getBuffer, drainBuffer } from './tracker';
 import { startScreenshots, stopScreenshots, updateActiveWindow, updateInterval } from './screenshot';
 import { createTray, updateTrayMenu, showPairWindow, closePairWindow, sendPairError } from './tray';
 import { initStreamWindow, startStream, stopStream, handleSignalingMessage } from './stream';
@@ -42,10 +42,11 @@ async function handlePair() {
 
     // Persist both tokens — refresh token enables silent renewal (30-day window)
     store.set('accessToken', result.accessToken);
-    if (!result.refreshToken) {
+    if (result.refreshToken) {
+      store.set('refreshToken', result.refreshToken);
+    } else {
       console.warn('[Pair] Server did not return a refreshToken — token renewal will require re-pairing');
     }
-    store.set('refreshToken', result.refreshToken || '');
     store.set('userEmail', result.user?.email || '');
     store.set('paired', true);
     closePairWindow();
@@ -189,12 +190,15 @@ function startSyncLoop() {
 
     try {
       await sendHeartbeat(activities);
+      // Drain only the entries we just sent — new entries added during the async call are preserved
+      drainBuffer(activities.length);
       const last = activities[activities.length - 1];
       if (last) updateActiveWindow(last.activeApp, last.activeWindow);
     } catch (err) {
-      // Bug #8: Token truly expired (access + refresh both failed) — clear and re-pair
+      // Token truly expired (access + refresh both failed) — discard buffer and re-pair
       if (err instanceof UnauthorizedError) {
         console.warn('[Sync] Token expired — clearing credentials and prompting re-pair');
+        drainBuffer(activities.length);
         store.delete('accessToken');
         store.delete('refreshToken');
         setTokens('', '');
@@ -205,7 +209,8 @@ function startSyncLoop() {
         handlePair();
         return;
       }
-      console.error('[Sync] Failed:', (err as Error).message);
+      // Network/server error — keep buffer intact so next sync cycle retries these entries
+      console.error('[Sync] Failed (will retry next cycle):', (err as Error).message);
     }
   }, CONFIG.SYNC_INTERVAL_MS);
 }

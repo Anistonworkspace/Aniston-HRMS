@@ -201,11 +201,11 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
   const employeeUserId: string | undefined = employee?.user?.id;
   const { data: activityRes, isLoading: loadingActivity, isError: activityError } = useGetEmployeeActivityLogsQuery(
     { employeeId: employee.id, date },
-    { pollingInterval: viewMode === 'live' ? 15000 : 60000 }
+    { pollingInterval: viewMode === 'screenshots' ? 0 : viewMode === 'live' ? 15000 : 60000 }
   );
   const { data: screenshotRes, isLoading: loadingScreenshots } = useGetEmployeeScreenshotsQuery(
     { employeeId: employee.id, date },
-    { pollingInterval: viewMode === 'live' ? 15000 : 60000 }
+    { pollingInterval: viewMode === 'activity' ? 0 : viewMode === 'live' ? 15000 : 60000 }
   );
   const [triggerExport] = useLazyDownloadActivityExcelQuery();
 
@@ -296,7 +296,7 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
 
       {/* Screenshots Tab */}
       {viewMode === 'screenshots' && (
-        <ScreenshotsGallery screenshots={screenshots} loading={loadingScreenshots} onScreenshotClick={onScreenshotClick} />
+        <ScreenshotsGallery screenshots={screenshots} loading={loadingScreenshots} onScreenshotClick={onScreenshotClick} resetKey={`${employee.id}-${date}`} />
       )}
 
       {/* Live Feed Mode */}
@@ -371,7 +371,7 @@ function ActivityDetail({ employee, date, onScreenshotClick }: {
           )}
 
           {/* Screenshots Gallery with pagination */}
-          <ScreenshotsGallery screenshots={screenshots} loading={loadingScreenshots} onScreenshotClick={onScreenshotClick} />
+          <ScreenshotsGallery screenshots={screenshots} loading={loadingScreenshots} onScreenshotClick={onScreenshotClick} resetKey={`${employee.id}-${date}`} />
         </>
       ))}
     </div>
@@ -683,7 +683,7 @@ function LiveVideoStream({ employeeId, employeeUserId }: { employeeId: string; e
     const handleSignal = (data: any) => {
       if (data.type === 'offer' && data.sdp) {
         agentSocketIdRef.current = data.fromSocketId;
-        pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+        pc.setRemoteDescription(data.sdp)
           .then(() => pc.createAnswer())
           .then((answer) => pc.setLocalDescription(answer))
           .then(() => {
@@ -695,7 +695,7 @@ function LiveVideoStream({ employeeId, employeeUserId }: { employeeId: string; e
           })
           .catch(() => { setError('WebRTC negotiation failed'); setConnecting(false); });
       } else if (data.type === 'ice-candidate' && data.candidate) {
-        pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {});
+        pc.addIceCandidate(data.candidate).catch(() => {});
       }
     };
     signalHandlerRef.current = handleSignal;
@@ -927,13 +927,13 @@ function ProductivityScoreCard({ score, productiveMinutes, unproductiveMinutes }
 // ---------- Screenshots Gallery with pagination ----------
 const SCREENSHOTS_PER_PAGE = 48;
 
-function ScreenshotsGallery({ screenshots, loading, onScreenshotClick }: {
-  screenshots: any[]; loading: boolean; onScreenshotClick: (url: string) => void;
+function ScreenshotsGallery({ screenshots, loading, onScreenshotClick, resetKey }: {
+  screenshots: any[]; loading: boolean; onScreenshotClick: (url: string) => void; resetKey?: string;
 }) {
   const [visible, setVisible] = useState(SCREENSHOTS_PER_PAGE);
 
-  // Reset pagination when screenshots change (date/employee switch)
-  useEffect(() => { setVisible(SCREENSHOTS_PER_PAGE); }, [screenshots.length]);
+  // Reset pagination when employee or date changes — screenshots.length alone is not unique across switches
+  useEffect(() => { setVisible(SCREENSHOTS_PER_PAGE); }, [resetKey]);
 
   const shown = screenshots.slice(0, visible);
   const hasMore = screenshots.length > visible;

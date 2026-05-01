@@ -52,12 +52,11 @@ export class AgentService {
 
     await prisma.activityLog.createMany({ data: records });
 
-    // Audit once per employee per day — avoids noisy per-heartbeat log entries
+    // Audit once per employee per day — SET NX is atomic; prevents duplicate logs on concurrent heartbeats
     const todayStr = today.toISOString().split('T')[0];
     const auditKey = `agent-heartbeat-audit:${organizationId}:${employeeId}:${todayStr}`;
-    const alreadyAudited = await redis.exists(auditKey);
-    if (!alreadyAudited) {
-      await redis.set(auditKey, '1', 'EX', 90000);
+    const wasSet = await redis.set(auditKey, '1', 'NX', 'EX', 90000);
+    if (wasSet) {
       await createAuditLog({ userId, organizationId, entity: 'ActivityLog', entityId: employeeId, action: 'CREATE', newValue: { note: 'Activity monitoring started', date: todayStr } });
     }
 
@@ -68,7 +67,7 @@ export class AgentService {
     const activeMinutesIncrement = Math.ceil(totalActiveSeconds / 60);
     if (totalActiveSeconds > 0) {
       await prisma.attendanceRecord.updateMany({
-        where: { employeeId, date: today, checkOut: null },
+        where: { employeeId, organizationId, date: today, checkOut: null },
         data: {
           activeMinutes: { increment: activeMinutesIncrement },
           activityPulses: { increment: 1 },
@@ -94,9 +93,8 @@ export class AgentService {
       durationSeconds: lastActivity?.durationSeconds || 0,
       timestamp: new Date().toISOString(),
     });
-    // Emit to the employee's own session (so their browser widget updates)
-    const user = await prisma.user.findFirst({ where: { employee: { id: employeeId } }, select: { id: true } });
-    if (user) emitToUser(user.id, 'agent:connected', { isActive: true });
+    // Emit to the employee's own session (userId is already in scope from the JWT context)
+    emitToUser(userId, 'agent:connected', { isActive: true });
 
     return { recorded: activities.length, activeMinutesAdded: activeMinutesIncrement };
   }
@@ -185,7 +183,13 @@ export class AgentService {
     return { enabled, intervalSeconds };
   }
 
-  async getLiveMode(employeeId: string) {
+  async getLiveMode(employeeId: string, organizationId: string) {
+    const employee = await prisma.employee.findFirst({
+      where: { id: employeeId, organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+
     const data = await redis.get(`${LIVE_VIEW_PREFIX}${employeeId}`);
     return safeJsonParse(data) || { enabled: false, intervalSeconds: 600 };
   }
@@ -198,9 +202,8 @@ export class AgentService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    const queryDate = new Date(date);
+    const queryDate = new Date(date + 'T00:00:00.000Z');
     if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
-    queryDate.setHours(0, 0, 0, 0);
 
     const logs = await prisma.activityLog.findMany({
       where: { employeeId, date: queryDate, organizationId },
@@ -260,9 +263,8 @@ export class AgentService {
     });
     if (!employee) throw new NotFoundError('Employee');
 
-    const queryDate = new Date(date);
+    const queryDate = new Date(date + 'T00:00:00.000Z');
     if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
-    queryDate.setHours(0, 0, 0, 0);
 
     return prisma.agentScreenshot.findMany({
       where: { employeeId, date: queryDate, organizationId },
@@ -294,23 +296,34 @@ export class AgentService {
    * Returns a map of employeeId → { logCount, totalActiveMinutes, totalIdleMinutes }.
    */
   async getActivityBulkSummary(organizationId: string, date: string) {
-    const queryDate = new Date(date);
+    const queryDate = new Date(date + 'T00:00:00.000Z');
     if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
-    queryDate.setHours(0, 0, 0, 0);
 
-    const results = await prisma.activityLog.groupBy({
-      by: ['employeeId'],
-      where: { organizationId, date: queryDate },
-      _count: { id: true },
-      _sum: { durationSeconds: true, idleSeconds: true },
-    });
+    const [results, productiveResults] = await Promise.all([
+      prisma.activityLog.groupBy({
+        by: ['employeeId'],
+        where: { organizationId, date: queryDate },
+        _count: { id: true },
+        _sum: { durationSeconds: true, idleSeconds: true },
+      }),
+      prisma.activityLog.groupBy({
+        by: ['employeeId'],
+        where: { organizationId, date: queryDate, category: 'PRODUCTIVE' },
+        _sum: { durationSeconds: true },
+      }),
+    ]);
 
-    const summaryMap: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number }> = {};
+    const productiveMap = new Map(productiveResults.map(r => [r.employeeId, r._sum.durationSeconds || 0]));
+
+    const summaryMap: Record<string, { logCount: number; totalActiveMinutes: number; totalIdleMinutes: number; productivityScore: number | null }> = {};
     for (const r of results) {
+      const totalSeconds = r._sum.durationSeconds || 0;
+      const productiveSeconds = productiveMap.get(r.employeeId) || 0;
       summaryMap[r.employeeId] = {
         logCount: r._count.id,
-        totalActiveMinutes: Math.round((r._sum.durationSeconds || 0) / 60),
+        totalActiveMinutes: Math.round(totalSeconds / 60),
         totalIdleMinutes: Math.round((r._sum.idleSeconds || 0) / 60),
+        productivityScore: totalSeconds > 0 ? Math.round((productiveSeconds / totalSeconds) * 100) : null,
       };
     }
     return summaryMap;
@@ -443,10 +456,12 @@ export class AgentService {
       select: { id: true },
     });
 
+    const BATCH_SIZE = 10;
     let generated = 0;
-    for (const emp of employees) {
-      await this.generatePermanentCode(emp.id, organizationId, userId);
-      generated++;
+    for (let i = 0; i < employees.length; i += BATCH_SIZE) {
+      const batch = employees.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(emp => this.generatePermanentCode(emp.id, organizationId, userId)));
+      generated += batch.length;
     }
 
     return { generated, total: employees.length };
@@ -459,9 +474,8 @@ export class AgentService {
    * Returns a Buffer suitable for streaming directly as a download response.
    */
   async exportActivityExcel(employeeId: string, organizationId: string, date: string, userId: string): Promise<Buffer> {
-    const queryDate = new Date(date);
+    const queryDate = new Date(date + 'T00:00:00.000Z');
     if (isNaN(queryDate.getTime())) throw new BadRequestError('Invalid date format');
-    queryDate.setHours(0, 0, 0, 0);
 
     const employee = await prisma.employee.findFirst({
       where: { id: employeeId, organizationId, deletedAt: null },
@@ -617,8 +631,15 @@ export class AgentService {
         { expiresIn: '30d' }
       );
 
+      const refreshToken = jwt.sign(
+        { userId: employee.user.id, organizationId: employee.organizationId, employeeId: employee.id, type: 'agent-refresh' },
+        env.JWT_SECRET,
+        { expiresIn: '90d' }
+      );
+
       return {
         accessToken,
+        refreshToken,
         user: { email: employee.user.email, firstName: employee.firstName, lastName: employee.lastName },
       };
     }
