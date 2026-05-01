@@ -879,7 +879,24 @@ ${data.requirements ? `Additional Requirements/Notes: ${safe(data.requirements)}
             });
             if (invitation?.token) {
               const inviteLink = `https://hr.anistonav.com/onboarding/invite/${invitation.token}`;
-              const waMessage = `Hello ${candidate.fullName}! 🎉\n\nCongratulations! You have been selected to join Aniston Technologies LLP.\n\nPlease complete your onboarding using this link:\n${inviteLink}\n\nThis link expires in 72 hours.\n\n— HR Team, Aniston Technologies LLP`;
+              const waMessage = [
+                `*Aniston Technologies LLP — Onboarding Invitation*`,
+                ``,
+                `Hello ${candidate.fullName}! 🎉`,
+                ``,
+                `Congratulations! You have been selected to join *Aniston Technologies LLP*.`,
+                ``,
+                `✅ *Step 1 — Accept your invitation:*`,
+                `${inviteLink}`,
+                ``,
+                `📱 *Step 2 — Install the Aniston HRMS app:*`,
+                `🤖 Android: https://hr.anistonav.com/download/android`,
+                `🍎 iPhone/iPad: https://hr.anistonav.com/download/ios`,
+                ``,
+                `_This link expires in 72 hours._`,
+                ``,
+                `— HR Team, Aniston Technologies LLP`,
+              ].join('\n');
               const { whatsAppService } = await import('../whatsapp/whatsapp.service.js');
               const waAllowed = await whatsAppService.checkAutoSendQuota(organizationId);
               if (waAllowed) {

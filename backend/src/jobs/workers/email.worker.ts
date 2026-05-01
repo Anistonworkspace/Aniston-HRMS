@@ -133,9 +133,31 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
             </td>
             <td style="padding-left:12px;">
               <p style="color:#1E40AF;font-weight:700;margin:0 0 4px;font-size:14px;">Get the Aniston HRMS App</p>
-              <p style="color:#1E3A5F;font-size:12px;margin:0 0 14px;line-height:1.5;">Install the app on your phone to mark attendance, apply for leaves, view payslips and more. Available on Google Play Store and Apple App Store.</p>
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:4px;">
-                <tr><td style="padding:3px 0;color:#3B82F6;font-size:11px;">&#8226; Search "Aniston HRMS" on Google Play Store or Apple App Store</td></tr>
+              <p style="color:#1E3A5F;font-size:12px;margin:0 0 14px;line-height:1.5;">Install the app on your phone to mark attendance, apply for leaves, view payslips and more. Tap your platform below for step-by-step install instructions.</p>
+              <!-- Download buttons — side by side on desktop, stacked on mobile -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="padding-right:8px;padding-bottom:8px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="background:#16A34A;padding:10px 20px;text-align:center;">
+                          <a href="https://hr.anistonav.com/download/android" style="color:#ffffff;font-size:13px;font-weight:600;text-decoration:none;font-family:'DM Sans',Arial,sans-serif;display:inline-block;">&#129504; Install on Android</a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td style="padding-bottom:8px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="background:#1F2937;padding:10px 20px;text-align:center;">
+                          <a href="https://hr.anistonav.com/download/ios" style="color:#ffffff;font-size:13px;font-weight:600;text-decoration:none;font-family:'DM Sans',Arial,sans-serif;display:inline-block;">&#63743; Install on iPhone / iPad</a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:8px;">
                 <tr><td style="padding:3px 0;color:#3B82F6;font-size:11px;">&#8226; Allow Location &amp; Notification permissions after install (required for attendance)</td></tr>
                 <tr><td style="padding:3px 0;color:#3B82F6;font-size:11px;">&#8226; App updates automatically when a new version is available</td></tr>
               </table>
