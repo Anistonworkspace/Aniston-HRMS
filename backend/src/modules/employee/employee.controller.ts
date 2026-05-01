@@ -4,6 +4,7 @@ import { employeeService } from './employee.service.js';
 import { createEmployeeSchema, updateEmployeeSchema, employeeQuerySchema, submitResignationSchema, approveExitSchema, initiateTerminationSchema, exitQuerySchema } from './employee.validation.js';
 import { BadRequestError } from '../../middleware/errorHandler.js';
 import { storageService, StorageFolder } from '../../services/storage.service.js';
+import { logger } from '../../lib/logger.js';
 
 export class EmployeeController {
   async list(req: Request, res: Response, next: NextFunction) {
@@ -160,7 +161,7 @@ export class EmployeeController {
             template: 'generic',
             context: { title: subject, message: body, employeeName: `${emp.firstName} ${emp.lastName}`, orgName },
           }).catch((err: any) => {
-            console.error(`[BulkEmail] Failed to queue for ${emp.email}:`, err?.message);
+            logger.error(`[BulkEmail] Failed to queue for ${emp.email}:`, { error: err?.message });
           })
         )
       );
@@ -320,7 +321,7 @@ export class EmployeeController {
 
           return job.catch((err: any) => {
             // Log per-employee failure but don't abort the batch
-            console.error(`[BulkEmail] Failed to queue for ${emp.email}:`, err?.message);
+            logger.error(`[BulkEmail] Failed to queue for ${emp.email}:`, { error: err?.message });
           });
         })
       );
@@ -481,7 +482,7 @@ export class EmployeeController {
             }
             queued++;
           } catch (e: any) {
-            console.error(`[UnifiedBulkEmail] Failed for ${email}:`, e?.message);
+            logger.error(`[UnifiedBulkEmail] Failed for ${email}:`, { error: e?.message });
           }
         }));
         res.json({ success: true, data: { queued, totalMatched: data.manualEmails.length }, message: `${queued} emails queued successfully` });
@@ -550,7 +551,7 @@ export class EmployeeController {
           }
           queued++;
         } catch (e: any) {
-          console.error(`[UnifiedBulkEmail] Failed for ${emp.email}:`, e?.message);
+          logger.error(`[UnifiedBulkEmail] Failed for ${emp.email}:`, { error: e?.message });
         }
       }));
 

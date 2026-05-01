@@ -323,14 +323,35 @@ export function createWalkInUpload(sessionId: string) {
 
 /**
  * Email attachment uploads for bulk email sends.
- * Any file type accepted (HR controls content). 10 MB per file, up to 5 files.
- * Lands in email-attachments/
+ * Allowed: PDF, Word, Excel, PowerPoint, plain text, CSV, images (JPEG/PNG/WebP).
+ * 10 MB per file, up to 5 files. Lands in email-attachments/
  */
-const anyFileFilter = (_req: any, _file: Express.Multer.File, cb: multer.FileFilterCallback) => cb(null, true);
+const EMAIL_ATTACHMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/csv',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+
+const emailAttachmentFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  if (EMAIL_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname));
+  }
+};
 
 export const uploadEmailAttachment = multer({
   storage: diskStorageFor(StorageFolder.EMAIL_ATTACHMENTS),
-  fileFilter: anyFileFilter,
+  fileFilter: emailAttachmentFilter,
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 

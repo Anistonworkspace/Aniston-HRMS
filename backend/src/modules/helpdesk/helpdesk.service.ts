@@ -311,7 +311,7 @@ export class HelpdeskService {
   }
 
   async analyzeTicket(ticketId: string, organizationId: string) {
-    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    const ticket = await prisma.ticket.findFirst({ where: { id: ticketId, organizationId } });
     if (!ticket) throw new NotFoundError('Ticket');
 
     const systemPrompt = 'You are an IT helpdesk expert for an Indian technology company. Analyze this support ticket and provide: category classification, priority assessment, suggested resolution steps, and department routing. Return JSON: { category: string, priority: "LOW"|"MEDIUM"|"HIGH"|"CRITICAL", suggestedResolution: string, suggestedDepartment: string, tags: string[] }';
@@ -328,8 +328,8 @@ export class HelpdeskService {
   }
 
   async suggestResponse(ticketId: string, organizationId: string) {
-    const ticket = await prisma.ticket.findUnique({
-      where: { id: ticketId },
+    const ticket = await prisma.ticket.findFirst({
+      where: { id: ticketId, organizationId },
       include: { comments: { orderBy: { createdAt: 'asc' } } },
     });
     if (!ticket) throw new NotFoundError('Ticket');

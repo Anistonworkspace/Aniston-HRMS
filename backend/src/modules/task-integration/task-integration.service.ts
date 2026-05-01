@@ -8,6 +8,36 @@ import { logger } from '../../lib/logger.js';
 const CONFIG_CACHE_KEY = 'task-config';
 const CACHE_TTL = 3600;
 
+// Prevent SSRF: only allow https:// URLs pointing to non-private hosts
+function assertSafeBaseUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new BadRequestError('Invalid base URL');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new BadRequestError('Base URL must use HTTPS');
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  // Block loopback, link-local, private ranges, and metadata endpoints
+  const blocked = [
+    /^localhost$/,
+    /^127\./,
+    /^0\.0\.0\.0$/,
+    /^::1$/,
+    /^10\./,
+    /^172\.(1[6-9]|2\d|3[01])\./,
+    /^192\.168\./,
+    /^169\.254\./,
+    /^metadata\.google\.internal$/,
+    /^169\.254\.169\.254$/,
+  ];
+  if (blocked.some((re) => re.test(hostname))) {
+    throw new BadRequestError('Base URL points to a private or reserved address');
+  }
+}
+
 export interface TaskItem {
   externalTaskId: string;
   taskTitle: string;
@@ -46,6 +76,9 @@ export class TaskIntegrationService {
     data: { provider: string; apiKey: string; baseUrl?: string; workspaceId?: string },
     updatedBy: string
   ) {
+    // Validate baseUrl before storing to prevent SSRF at rest
+    if (data.baseUrl) assertSafeBaseUrl(data.baseUrl);
+
     // Only encrypt + overwrite the key if a new one was actually provided
     const shouldUpdateKey = !!data.apiKey;
     const apiKeyEncrypted = shouldUpdateKey ? encrypt(data.apiKey) : undefined;
@@ -312,6 +345,7 @@ export class TaskIntegrationService {
   private async callProviderHealth(provider: string, apiKey: string, baseUrl?: string | null): Promise<boolean> {
     switch (provider) {
       case 'JIRA':
+        assertSafeBaseUrl(baseUrl!);
         return this.jiraHealth(apiKey, baseUrl!);
       case 'ASANA':
         return this.asanaHealth(apiKey);
@@ -319,9 +353,10 @@ export class TaskIntegrationService {
         return this.clickupHealth(apiKey);
       case 'CUSTOM':
       case 'MONDAY_COM':
+        assertSafeBaseUrl(baseUrl!);
         return this.customHealth(apiKey, baseUrl!);
       default:
-        throw new Error(`Unsupported provider: ${provider}`);
+        throw new BadRequestError(`Unsupported provider: ${provider}`);
     }
   }
 
@@ -334,6 +369,7 @@ export class TaskIntegrationService {
 
     switch (provider) {
       case 'JIRA':
+        assertSafeBaseUrl(baseUrl!);
         return this.jiraFetchTasks(apiKey, baseUrl!, externalUserId);
       case 'ASANA':
         return this.asanaFetchTasks(apiKey, externalUserId);
@@ -341,7 +377,7 @@ export class TaskIntegrationService {
         return this.clickupFetchTasks(apiKey, externalUserId);
       case 'CUSTOM':
       case 'MONDAY_COM':
-        // Custom provider: resolve external userId via mapping → email → error
+        assertSafeBaseUrl(baseUrl!);
         return this.customFetchTasks(apiKey, baseUrl!, employeeId, employeeMapping, employeeEmail);
       default:
         return [];

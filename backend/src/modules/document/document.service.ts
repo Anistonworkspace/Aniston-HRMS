@@ -45,14 +45,17 @@ export class DocumentService {
     };
   }
 
-  async getById(id: string) {
+  async getById(id: string, organizationId?: string) {
     const doc = await prisma.document.findUnique({
       where: { id },
       include: {
-        employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true } },
+        employee: { select: { id: true, firstName: true, lastName: true, employeeCode: true, organizationId: true } },
       },
     });
     if (!doc) throw new NotFoundError('Document');
+    if (organizationId && doc.employee?.organizationId !== organizationId) {
+      throw new NotFoundError('Document');
+    }
     return doc;
   }
 

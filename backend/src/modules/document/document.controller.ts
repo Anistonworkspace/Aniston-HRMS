@@ -18,7 +18,7 @@ export class DocumentController {
 
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      const doc = await documentService.getById(req.params.id);
+      const doc = await documentService.getById(req.params.id, req.user!.organizationId);
       res.json({ success: true, data: doc });
     } catch (err) { next(err); }
   }
@@ -195,7 +195,7 @@ export class DocumentController {
       const reason: string | undefined = typeof req.body?.reason === 'string' ? req.body.reason.trim() : undefined;
 
       // Fetch doc before deletion so we have employeeId, type, name for KYC reset + email
-      const docToDelete = await documentService.getById(req.params.id as string);
+      const docToDelete = await documentService.getById(req.params.id as string, req.user!.organizationId);
       await documentService.remove(req.params.id, req.user!.userId, req.user!.organizationId);
 
       // Reset KYC gate if this doc was part of an employee's KYC submission

@@ -402,7 +402,7 @@ export class AiConfigService {
       case 'DEEPSEEK':
       case 'CUSTOM': {
         if (provider === 'CUSTOM' && !baseUrl) {
-          throw new Error('Base URL is required for Custom provider. Please set a Base URL in the AI config settings.');
+          throw new BadRequestError('Base URL is required for Custom provider. Please set a Base URL in the AI config settings.');
         }
         // OpenAI-compatible API
         const normalizedBase = baseUrl ? baseUrl.replace(/\/+$/, '') : ''; // trim trailing slashes
@@ -434,7 +434,7 @@ export class AiConfigService {
 
         if (!res.ok) {
           const errBody = await res.text();
-          throw new Error(`${provider} API error ${res.status}: ${errBody.slice(0, 200)}`);
+          throw new ServiceUnavailableError(`${provider} API error ${res.status}: ${errBody.slice(0, 200)}`);
         }
 
         const data = await res.json();
@@ -464,7 +464,7 @@ export class AiConfigService {
 
         if (!res.ok) {
           const errBody = await res.text();
-          throw new Error(`Anthropic API error ${res.status}: ${errBody.slice(0, 200)}`);
+          throw new ServiceUnavailableError(`Anthropic API error ${res.status}: ${errBody.slice(0, 200)}`);
         }
 
         const data = await res.json();
@@ -489,7 +489,7 @@ export class AiConfigService {
 
         if (!res.ok) {
           const errBody = await res.text();
-          throw new Error(`Gemini API error ${res.status}: ${errBody.slice(0, 200)}`);
+          throw new ServiceUnavailableError(`Gemini API error ${res.status}: ${errBody.slice(0, 200)}`);
         }
 
         const data = await res.json();
@@ -497,7 +497,7 @@ export class AiConfigService {
       }
 
       default:
-        throw new Error(`Unsupported provider: ${provider}`);
+        throw new BadRequestError(`Unsupported provider: ${provider}`);
     }
   }
 }

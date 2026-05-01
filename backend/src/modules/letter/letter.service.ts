@@ -7,6 +7,7 @@ import { createAuditLog } from '../../utils/auditLogger.js';
 import { generateLetterPDF, TEMPLATE_SCHEMES } from './letterPdfEngine.js';
 import { storageService } from '../../services/storage.service.js';
 import type { CreateLetterInput, AssignLetterInput } from './letter.validation.js';
+import { logger } from '../../lib/logger.js';
 
 export class LetterService {
   // List all letters (HR view)
@@ -306,7 +307,7 @@ export class LetterService {
 
     const fullPath = storageService.resolvePath(letter.filePath);
     if (!fs.existsSync(fullPath)) {
-      console.error(`[Letter] File not found on disk. id=${letterId} filePath=${letter.filePath} resolved=${fullPath}`);
+      logger.error(`[Letter] File not found on disk. id=${letterId} filePath=${letter.filePath} resolved=${fullPath}`);
       throw new NotFoundError('Letter file not found on server. Please re-generate the letter.');
     }
 

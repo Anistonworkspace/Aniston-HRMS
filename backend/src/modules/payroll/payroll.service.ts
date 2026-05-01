@@ -687,7 +687,7 @@ export class PayrollService {
    * Now uses dynamic components when available, falls back to legacy columns
    */
   async processPayroll(runId: string, organizationId: string) {
-    const run = await prisma.payrollRun.findUnique({ where: { id: runId } });
+    const run = await prisma.payrollRun.findFirst({ where: { id: runId, organizationId } });
     if (!run) throw new NotFoundError('Payroll run');
     if (run.status !== 'DRAFT') throw new BadRequestError('Payroll can only be processed from DRAFT status');
 
@@ -1130,7 +1130,7 @@ export class PayrollService {
 
           // ── Bank details check ────────────────────────────────────────────────
           if (netSalary > 0 && !((emp as any).bankAccountNumber && (emp as any).ifscCode)) {
-            console.warn(`[Payroll] Employee ${(emp as any).employeeCode} has no bank details — salary of ₹${netSalary} cannot be transferred.`);
+            logger.warn(`[Payroll] Employee ${(emp as any).employeeCode} has no bank details — salary of ₹${netSalary} cannot be transferred.`);
           }
 
           // ── Earnings / deductions breakdown ───────────────────────────────────
@@ -1324,8 +1324,10 @@ export class PayrollService {
   /**
    * Get a payroll run by ID
    */
-  async getPayrollRunById(runId: string) {
-    const run = await prisma.payrollRun.findUnique({ where: { id: runId } });
+  async getPayrollRunById(runId: string, organizationId?: string) {
+    const run = organizationId
+      ? await prisma.payrollRun.findFirst({ where: { id: runId, organizationId } })
+      : await prisma.payrollRun.findUnique({ where: { id: runId } });
     if (!run) throw new NotFoundError('Payroll run');
     return run;
   }
@@ -1682,7 +1684,7 @@ export class PayrollService {
   }
 
   async detectAnomalies(runId: string, organizationId: string) {
-    const run = await prisma.payrollRun.findUnique({ where: { id: runId } });
+    const run = await prisma.payrollRun.findFirst({ where: { id: runId, organizationId } });
     if (!run) throw new NotFoundError('Payroll run');
 
     const records = await prisma.payrollRecord.findMany({

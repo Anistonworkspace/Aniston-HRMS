@@ -3,6 +3,7 @@ import { letterService } from './letter.service.js';
 import { createLetterSchema, assignLetterSchema, updateAssignmentSchema } from './letter.validation.js';
 import { BadRequestError } from '../../middleware/errorHandler.js';
 import { Role } from '@aniston/shared';
+import { logger } from '../../lib/logger.js';
 
 const ADMIN_ROLES: string[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR];
 
@@ -151,7 +152,7 @@ export class LetterController {
 
       res.sendFile(fullPath, (err) => {
         if (err && !res.headersSent) {
-          console.error(`[Letter:stream] sendFile error for ${fullPath}:`, err.message);
+          logger.error(`[Letter:stream] sendFile error for ${fullPath}:`, { error: err.message });
           next(err);
         }
       });
@@ -191,7 +192,7 @@ export class LetterController {
 
       res.sendFile(fullPath, (err) => {
         if (err && !res.headersSent) {
-          console.error(`[Letter:download] sendFile error for ${fullPath}:`, err.message);
+          logger.error(`[Letter:download] sendFile error for ${fullPath}:`, { error: err.message });
           next(err);
         }
       });

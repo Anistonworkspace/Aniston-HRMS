@@ -177,14 +177,14 @@ app.use('/api/jobs/form', rateLimiter({ windowMs: 60 * 1000, max: 10, keyPrefix:
 app.use('/api/invitations/complete', rateLimiter({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'rl:invite-complete' }));
 app.use('/api/invitations/validate', rateLimiter({ windowMs: 15 * 60 * 1000, max: 20, keyPrefix: 'rl:invite-validate' }));
 app.use('/api/auth/activate', rateLimiter({ windowMs: 15 * 60 * 1000, max: 20, keyPrefix: 'rl:activation' }));
-// Dedicated stricter limits for credential endpoints — must come before the general /api/auth limit
-app.use('/api/auth/login', rateLimiter({ windowMs: 15 * 60 * 1000, max: 30, keyPrefix: 'rl:login' }));
-app.use('/api/auth/forgot-password', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:forgot-pwd' }));
-app.use('/api/auth/reset-password', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:reset-pwd' }));
-// MFA endpoints: strict limits to prevent TOTP/backup-code brute-force
-app.use('/api/auth/mfa/verify', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:mfa-verify' }));
-app.use('/api/auth/mfa/verify-setup', rateLimiter({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'rl:mfa-setup' }));
-app.use('/api/auth/mfa/disable', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:mfa-disable' }));
+// Dedicated stricter limits for credential endpoints — failClosed so Redis outage cannot bypass limits
+app.use('/api/auth/login', rateLimiter({ windowMs: 15 * 60 * 1000, max: 30, keyPrefix: 'rl:login', failClosed: true }));
+app.use('/api/auth/forgot-password', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:forgot-pwd', failClosed: true }));
+app.use('/api/auth/reset-password', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:reset-pwd', failClosed: true }));
+// MFA endpoints: failClosed to prevent TOTP/backup-code brute-force bypass on Redis outage
+app.use('/api/auth/mfa/verify', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:mfa-verify', failClosed: true }));
+app.use('/api/auth/mfa/verify-setup', rateLimiter({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'rl:mfa-setup', failClosed: true }));
+app.use('/api/auth/mfa/disable', rateLimiter({ windowMs: 15 * 60 * 1000, max: 5, keyPrefix: 'rl:mfa-disable', failClosed: true }));
 app.use('/api/auth', rateLimiter({ windowMs: 15 * 60 * 1000, max: 200, keyPrefix: 'rl:auth' }));
 app.use('/api/onboarding/kyc', rateLimiter({ windowMs: 60 * 1000, max: 30, keyPrefix: 'rl:kyc-ops' }));
 // Attendance clock-in/out: max 5 attempts per 30 seconds — prevents tap-spam and replay attacks

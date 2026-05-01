@@ -4,6 +4,7 @@ import { BadRequestError, NotFoundError } from '../../middleware/errorHandler.js
 import { createAuditLog } from '../../utils/auditLogger.js';
 import { storageService, StorageFolder } from '../../services/storage.service.js';
 import type { CreatePolicyInput, UpdatePolicyInput } from './policy.validation.js';
+import { logger } from '../../lib/logger.js';
 
 export class PolicyService {
   async list(organizationId: string, employeeId?: string) {
@@ -139,7 +140,7 @@ export class PolicyService {
     const fullPath = storageService.resolvePath(policy.filePath);
     if (!fs.existsSync(fullPath)) {
       // Log for server-side diagnosis
-      console.error(`[Policy] File not found on disk. id=${id} filePath=${policy.filePath} resolved=${fullPath}`);
+      logger.error(`[Policy] File not found on disk. id=${id} filePath=${policy.filePath} resolved=${fullPath}`);
       throw new NotFoundError('Policy file not found on server. Please re-upload the document.');
     }
 

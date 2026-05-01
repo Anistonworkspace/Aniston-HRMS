@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 import { storageService } from '../../services/storage.service.js';
+import { logger } from '../../lib/logger.js';
 
 // Template color schemes
 export const TEMPLATE_SCHEMES: Record<string, {
@@ -178,7 +179,7 @@ export function generateLetterPDF(
         doc.image(logoPath, leftCol, y, { height: 50 });
         y += 55;
       } catch (err) {
-        console.error(`[LetterPDF] Failed to load logo: ${logoPath}`, err);
+        logger.error(`[LetterPDF] Failed to load logo: ${logoPath}`, { error: err });
         y += 5;
       }
     }
@@ -291,7 +292,7 @@ export function generateLetterPDF(
         doc.image(sigPath, leftCol, y, { height: 40 });
         y += 45;
       } catch (err) {
-        console.error(`[LetterPDF] Failed to load signature: ${sigPath}`, err);
+        logger.error(`[LetterPDF] Failed to load signature: ${sigPath}`, { error: err });
         y += 50;
       }
     } else {
@@ -304,7 +305,7 @@ export function generateLetterPDF(
       try {
         doc.image(stampPath, leftCol + 250, y - 55, { height: 50 });
       } catch (err) {
-        console.error(`[LetterPDF] Failed to load stamp: ${stampPath}`, err);
+        logger.error(`[LetterPDF] Failed to load stamp: ${stampPath}`, { error: err });
       }
     }
 

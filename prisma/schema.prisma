@@ -1666,6 +1666,8 @@ model CandidateProfile {
   organizationId String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  @@index([organizationId])
 }
 
 // =====================
@@ -2064,6 +2066,8 @@ model InternAchievementLetter {
   pdfUrl          String?
 
   internProfile   InternProfile @relation(fields: [internProfileId], references: [id])
+
+  @@index([internProfileId])
 }
 
 // =====================

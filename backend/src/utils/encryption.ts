@@ -66,7 +66,8 @@ export function decrypt(ciphertext: string): string {
     [, ivHex, authTagHex, encryptedHex] = parts;
     salt = Buffer.from(parts[0], 'hex');
   } else if (parts.length === 3) {
-    // Legacy format with hardcoded salt
+    // Legacy format: decrypt-only support for records encrypted before random-salt was introduced.
+    // The hardcoded salt value must never be used for new encryptions — encrypt() always uses random salt.
     [ivHex, authTagHex, encryptedHex] = parts;
     salt = Buffer.from('aniston-hrms-salt');
   } else {

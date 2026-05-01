@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { policyService } from './policy.service.js';
 import { createPolicySchema, updatePolicySchema } from './policy.validation.js';
 import { Role } from '@aniston/shared';
+import { logger } from '../../lib/logger.js';
 
 const ADMIN_ROLES: string[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.HR];
 
@@ -96,7 +97,7 @@ export class PolicyController {
 
       res.sendFile(fullPath, (err) => {
         if (err && !res.headersSent) {
-          console.error(`[Policy:stream] sendFile error for ${fullPath}:`, err.message);
+          logger.error(`[Policy:stream] sendFile error for ${fullPath}:`, { error: err.message });
           next(err);
         }
       });
@@ -129,7 +130,7 @@ export class PolicyController {
 
       res.sendFile(fullPath, (err) => {
         if (err && !res.headersSent) {
-          console.error(`[Policy:download] sendFile error for ${fullPath}:`, err.message);
+          logger.error(`[Policy:download] sendFile error for ${fullPath}:`, { error: err.message });
           next(err);
         }
       });

@@ -40,7 +40,7 @@ export class AssetController {
         ...req.body,
         assetId: req.params.id,
       });
-      const assignment = await assetService.assign(data, req.user!.userId);
+      const assignment = await assetService.assign(data, req.user!.userId, req.user!.organizationId);
       res.status(201).json({ success: true, data: assignment, message: 'Asset assigned' });
     } catch (err) { next(err); }
   }
@@ -48,7 +48,7 @@ export class AssetController {
   async returnAsset(req: Request, res: Response, next: NextFunction) {
     try {
       const returnData = returnAssetSchema.parse(req.body || {});
-      const assignment = await assetService.returnAsset(req.params.id, returnData);
+      const assignment = await assetService.returnAsset(req.params.id, returnData, req.user!.organizationId);
       res.json({ success: true, data: assignment, message: 'Asset returned' });
     } catch (err) { next(err); }
   }

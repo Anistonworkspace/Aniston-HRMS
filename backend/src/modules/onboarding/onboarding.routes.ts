@@ -302,7 +302,7 @@ router.post('/kyc/:employeeId/photo', authenticate,
           const gate = await documentGateService.saveKycPhoto(employeeId, photoUrl);
           res.json({ success: true, data: gate, message: 'Photo uploaded' });
         } catch (innerErr) {
-          console.error('[KYC Photo] Upload error:', innerErr);
+          logger.error('[KYC Photo] Upload error:', { error: innerErr });
           next(innerErr);
         }
       });
@@ -353,7 +353,7 @@ router.post('/kyc/:employeeId/photo-upload', authenticate,
           const gate = await documentGateService.saveKycPhoto(employeeId, photoUrl);
           res.json({ success: true, data: gate, message: 'Photo uploaded' });
         } catch (innerErr) {
-          console.error('[KYC Photo Upload] Error:', innerErr);
+          logger.error('[KYC Photo Upload] Error:', { error: innerErr });
           next(innerErr);
         }
       });
@@ -384,8 +384,14 @@ router.post('/kyc/:employeeId/config', authenticate,
 router.post('/kyc/:employeeId/submit', authenticate,
   async (req, res, next) => {
     try {
+      const employeeId = req.params.employeeId;
+      const isManagement = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(req.user!.role);
+      if (!isManagement && req.user!.employeeId !== employeeId) {
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not authorized to submit KYC for this employee' } });
+        return;
+      }
       const { documentGateService } = await import('./document-gate.service.js');
-      const gate = await documentGateService.submitKyc(req.params.employeeId);
+      const gate = await documentGateService.submitKyc(employeeId);
       res.json({ success: true, data: gate, message: 'KYC submitted for review' });
     } catch (err) { next(err); }
   }

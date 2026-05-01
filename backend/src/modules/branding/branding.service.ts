@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import { prisma } from '../../lib/prisma.js';
+import { logger } from '../../lib/logger.js';
 
 function resolveUploadPath(fileUrl: string): string | null {
   if (!fileUrl) return null;
@@ -19,7 +20,7 @@ function deleteFile(fileUrl: string | null | undefined) {
     try {
       fs.unlinkSync(fullPath);
     } catch (err) {
-      console.error(`[Branding] Failed to delete old file: ${fullPath}`, err);
+      logger.error(`[Branding] Failed to delete old file: ${fullPath}`, { error: err });
     }
   }
 }

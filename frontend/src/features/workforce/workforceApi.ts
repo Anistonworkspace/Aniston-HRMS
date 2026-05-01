@@ -1,55 +1,158 @@
 import { api } from '../../app/api';
+import type { ApiResponse } from '@aniston/shared';
+
+// ---- Shift types ----
+
+export interface Shift {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  shiftType: string;
+  gracePeriodMinutes: number;
+  isDefault: boolean;
+  organizationId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateShiftRequest {
+  name: string;
+  startTime: string;
+  endTime: string;
+  shiftType?: string;
+  gracePeriodMinutes?: number;
+  isDefault?: boolean;
+}
+
+export interface UpdateShiftRequest {
+  name?: string;
+  startTime?: string;
+  endTime?: string;
+  shiftType?: string;
+  gracePeriodMinutes?: number;
+  isDefault?: boolean;
+}
+
+export interface AssignShiftRequest {
+  employeeId: string;
+  shiftId: string;
+  effectiveFrom: string;
+  effectiveTo?: string;
+}
+
+export interface ShiftAssignment {
+  id: string;
+  employeeId: string;
+  shiftId: string;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  shift: Shift;
+  employee?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    employeeCode: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---- Office Location types ----
+
+export interface OfficeLocation {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  country: string;
+  pincode?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  geofenceRadius?: number | null;
+  isHeadOffice: boolean;
+  organizationId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateLocationRequest {
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  country: string;
+  pincode?: string;
+  latitude?: number;
+  longitude?: number;
+  geofenceRadius?: number;
+  isHeadOffice?: boolean;
+}
+
+export interface UpdateLocationRequest {
+  name?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  pincode?: string;
+  latitude?: number;
+  longitude?: number;
+  geofenceRadius?: number;
+  isHeadOffice?: boolean;
+}
 
 export const workforceApi = api.injectEndpoints({
   endpoints: (builder) => ({
     // Shifts
-    getShifts: builder.query<any, void>({
+    getShifts: builder.query<ApiResponse<Shift[]>, void>({
       query: () => '/workforce/shifts',
       providesTags: ['Attendance'],
     }),
-    createShift: builder.mutation<any, any>({
+    createShift: builder.mutation<ApiResponse<Shift>, CreateShiftRequest>({
       query: (body) => ({ url: '/workforce/shifts', method: 'POST', body }),
       invalidatesTags: ['Attendance'],
     }),
-    updateShift: builder.mutation<any, { id: string; data: any }>({
+    updateShift: builder.mutation<ApiResponse<Shift>, { id: string; data: UpdateShiftRequest }>({
       query: ({ id, data }) => ({ url: `/workforce/shifts/${id}`, method: 'PATCH', body: data }),
       invalidatesTags: ['Attendance'],
     }),
-    deleteShift: builder.mutation<any, string>({
+    deleteShift: builder.mutation<ApiResponse<null>, string>({
       query: (id) => ({ url: `/workforce/shifts/${id}`, method: 'DELETE' }),
       invalidatesTags: ['Attendance'],
     }),
-    assignShift: builder.mutation<any, any>({
+    assignShift: builder.mutation<ApiResponse<ShiftAssignment>, AssignShiftRequest>({
       query: (body) => ({ url: '/workforce/shifts/assign', method: 'POST', body }),
       invalidatesTags: ['Attendance'],
     }),
-    autoAssignDefault: builder.mutation<any, void>({
+    autoAssignDefault: builder.mutation<ApiResponse<{ assigned: number }>, void>({
       query: () => ({ url: '/workforce/shifts/auto-assign', method: 'POST' }),
       invalidatesTags: ['Attendance'],
     }),
-    getEmployeeShift: builder.query<any, string>({
+    getEmployeeShift: builder.query<ApiResponse<ShiftAssignment | null>, string>({
       query: (employeeId) => `/workforce/shifts/employee/${employeeId}`,
       providesTags: ['Attendance'],
     }),
-    getAllAssignments: builder.query<any, void>({
+    getAllAssignments: builder.query<ApiResponse<ShiftAssignment[]>, void>({
       query: () => '/workforce/shifts/assignments',
       providesTags: ['Attendance'],
     }),
 
     // Office Locations
-    getLocations: builder.query<any, void>({
+    getLocations: builder.query<ApiResponse<OfficeLocation[]>, void>({
       query: () => '/workforce/locations',
       providesTags: ['Attendance'],
     }),
-    createLocation: builder.mutation<any, any>({
+    createLocation: builder.mutation<ApiResponse<OfficeLocation>, CreateLocationRequest>({
       query: (body) => ({ url: '/workforce/locations', method: 'POST', body }),
       invalidatesTags: ['Attendance'],
     }),
-    updateLocation: builder.mutation<any, { id: string; data: any }>({
+    updateLocation: builder.mutation<ApiResponse<OfficeLocation>, { id: string; data: UpdateLocationRequest }>({
       query: ({ id, data }) => ({ url: `/workforce/locations/${id}`, method: 'PATCH', body: data }),
       invalidatesTags: ['Attendance'],
     }),
-    deleteLocation: builder.mutation<any, string>({
+    deleteLocation: builder.mutation<ApiResponse<null>, string>({
       query: (id) => ({ url: `/workforce/locations/${id}`, method: 'DELETE' }),
       invalidatesTags: ['Attendance'],
     }),

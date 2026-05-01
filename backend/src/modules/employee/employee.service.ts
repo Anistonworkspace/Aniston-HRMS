@@ -1199,7 +1199,7 @@ export class EmployeeService {
       await assetService.createExitChecklist(employeeId);
     } catch (e) {
       // Non-blocking: checklist creation failure shouldn't block exit approval
-      console.error('Failed to create exit checklist:', e);
+      logger.error('Failed to create exit checklist:', { error: e });
     }
 
     // GAP-006: Trigger Full & Final settlement on exit approval (non-blocking)
@@ -1323,7 +1323,7 @@ export class EmployeeService {
     if (employee.userId) {
       if (exitAccessConfig?.isActive) {
         // Keep user active — they have limited access configured by HR
-        console.log(`[Exit] Employee ${employeeId} has exit access config — keeping user active with limited access`);
+        logger.info(`[Exit] Employee ${employeeId} has exit access config — keeping user active with limited access`);
       } else {
         // No exit access config — fully deactivate
         await prisma.user.update({ where: { id: employee.userId }, data: { status: 'INACTIVE' } });

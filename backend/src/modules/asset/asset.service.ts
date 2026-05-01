@@ -124,8 +124,10 @@ export class AssetService {
     return updated;
   }
 
-  async assign(data: AssignAssetInput, assignedBy: string) {
-    const asset = await prisma.asset.findUnique({ where: { id: data.assetId } });
+  async assign(data: AssignAssetInput, assignedBy: string, organizationId?: string) {
+    const asset = await prisma.asset.findFirst({
+      where: organizationId ? { id: data.assetId, organizationId } : { id: data.assetId },
+    });
     if (!asset) throw new NotFoundError('Asset');
     if (asset.status === 'ASSIGNED') throw new BadRequestError('Asset is already assigned. Return it first before reassigning.');
     if (asset.status === 'RETIRED') throw new BadRequestError('Cannot assign a retired asset.');
@@ -194,9 +196,11 @@ export class AssetService {
     }
   }
 
-  async returnAsset(assignmentId: string, returnData?: ReturnAssetInput) {
-    const assignment = await prisma.assetAssignment.findUnique({
-      where: { id: assignmentId },
+  async returnAsset(assignmentId: string, returnData?: ReturnAssetInput, organizationId?: string) {
+    const assignment = await prisma.assetAssignment.findFirst({
+      where: organizationId
+        ? { id: assignmentId, asset: { organizationId } }
+        : { id: assignmentId },
       include: { asset: true },
     });
 

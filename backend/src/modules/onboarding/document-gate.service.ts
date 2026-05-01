@@ -528,7 +528,11 @@ export class DocumentGateService {
   }
 
   async verifyKyc(employeeId: string, verifiedBy: string, organizationId?: string) {
-    const gate = await prisma.onboardingDocumentGate.findUnique({ where: { employeeId } });
+    const gate = await prisma.onboardingDocumentGate.findFirst({
+      where: organizationId
+        ? { employeeId, employee: { organizationId } }
+        : { employeeId },
+    });
     if (!gate) throw new NotFoundError('Document gate');
 
     // === DOCUMENT COMPLETENESS GUARD ===

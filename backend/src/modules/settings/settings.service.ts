@@ -409,7 +409,7 @@ export class SettingsService {
     const teams = settings.microsoftTeams;
 
     if (!teams?.tenantId || !teams?.clientId || !teams?.clientSecret) {
-      throw new Error('Microsoft Teams not configured. Please save your Azure AD credentials first.');
+      throw new BadRequestError('Microsoft Teams not configured. Please save your Azure AD credentials first.');
     }
 
     const clientSecret = decrypt(teams.clientSecret);
@@ -555,7 +555,7 @@ export class SettingsService {
 
   async deleteDocumentTemplate(id: string, organizationId: string) {
     const tpl = await prisma.orgDocumentTemplate.findFirst({ where: { id, organizationId } });
-    if (!tpl) throw new Error('Template not found');
+    if (!tpl) throw new NotFoundError('Template');
     await prisma.orgDocumentTemplate.delete({ where: { id } });
     return { success: true };
   }
