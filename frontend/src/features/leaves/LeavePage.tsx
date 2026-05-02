@@ -678,109 +678,50 @@ function LeaveManagementView() {
                     {t('leaves.createLeaveType')}
                   </motion.button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="space-y-2">
                   {displayTypes.map((lt: any, idx: number) => (
-              <motion.div
-                key={lt.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.04 }}
-                className="layer-card p-5"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">{LEAVE_ICONS[lt.code] || '📅'}</span>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-800">{lt.name}</p>
-                      <p className="text-xs text-gray-400">{lt.code}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleEditLeaveType(lt)}
-                      className="p-1.5 hover:bg-surface-2 rounded-lg transition-colors text-gray-400 hover:text-brand-600"
-                      title="Edit"
+                    <motion.div
+                      key={lt.id}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.03 }}
+                      className="layer-card px-4 py-3 flex items-center gap-3"
                     >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteLeaveType(lt.id, lt.name)}
-                      className="p-1.5 hover:bg-red-50 rounded-lg transition-colors text-gray-400 hover:text-red-600"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-center">
-                  <div className="bg-surface-2 rounded-lg py-2 px-3">
-                    <p className="text-lg font-bold font-mono text-gray-400" data-mono>
-                      {Number(lt.defaultBalance) || 0}
-                    </p>
-                    <p className="text-xs text-gray-400">Fallback Days</p>
-                    <p className="text-[9px] text-gray-300 leading-tight">policy overrides this</p>
-                  </div>
-                  <div className="bg-surface-2 rounded-lg py-2 px-3">
-                    <p className="text-lg font-bold font-mono text-gray-600" data-mono>
-                      {lt.maxDays ?? '—'}
-                    </p>
-                    <p className="text-xs text-gray-400">Max Days</p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1.5 mt-3">
-                  {lt.isPaid && <span className="badge badge-success text-xs">Paid</span>}
-                  {!lt.isPaid && <span className="badge badge-neutral text-xs">Unpaid</span>}
-                  {lt.carryForward && <span className="badge badge-info text-xs">Carry Forward</span>}
-                  {lt.requiresApproval !== false && <span className="badge badge-warning text-xs">Needs Approval</span>}
-                  {lt.allowSameDay && <span className="badge badge-neutral text-xs">Same-day OK</span>}
-                  {lt.gender && <span className="badge badge-neutral text-xs">{lt.gender} only</span>}
-                </div>
-                {/* Policy details */}
-                <div className="mt-2.5 pt-2.5 border-t border-gray-100">
-                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-gray-400">
-                    {lt.noticeDays != null && lt.noticeDays > 0 && (
-                      <span>Notice: <span className="text-gray-600 font-medium">{lt.noticeDays}d</span></span>
-                    )}
-                    {lt.maxPerMonth != null && lt.maxPerMonth > 0 && (
-                      <span>Max/month: <span className="text-gray-600 font-medium">{lt.maxPerMonth}</span></span>
-                    )}
-                    {lt.minDays != null && lt.minDays > 0 && (
-                      <span>Min: <span className="text-gray-600 font-medium">{lt.minDays}d</span></span>
-                    )}
-                    {lt.carryForward && lt.maxCarryForward != null && (
-                      <span>Carry max: <span className="text-gray-600 font-medium">{lt.maxCarryForward}d</span></span>
-                    )}
-                    {lt.probationMonths != null && lt.probationMonths > 0 && (
-                      <span>Probation: <span className="text-gray-600 font-medium">{lt.probationMonths}mo</span></span>
-                    )}
-                    <span>Same-day: <span className="text-gray-600 font-medium">{lt.allowSameDay ? 'Yes' : 'No'}</span></span>
-                    <span>Wknd adj: <span className="text-gray-600 font-medium">{lt.allowWeekendAdjacent ? 'Yes' : 'No'}</span></span>
-                    {lt.allowPastDates && <span>Past dates: <span className="text-gray-600 font-medium">Allowed</span></span>}
-                    {lt.maxAdvanceDays != null && lt.maxAdvanceDays > 0 && (
-                      <span>Max advance: <span className="text-gray-600 font-medium">{lt.maxAdvanceDays}d</span></span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Policy allocation rules */}
-                {policyRulesByType[lt.id]?.length > 0 && (
-                  <div className="mt-2.5 pt-2.5 border-t border-indigo-100">
-                    <p className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide mb-1.5">Policy Allocation</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {policyRulesByType[lt.id].map((r: any) => (
-                        <div key={r.id || r.employeeCategory} className="bg-indigo-50 rounded-lg px-2 py-1 text-[10px]">
-                          <span className="font-semibold text-indigo-600">{r.employeeCategory}</span>
-                          <span className="text-indigo-400 mx-1">·</span>
-                          {r.accrualType === 'MONTHLY'
-                            ? <span className="text-indigo-700">{r.monthlyDays}/mo</span>
-                            : <span className="text-indigo-700">{r.yearlyDays}/yr{r.isProrata ? ' (pro-rata)' : ''}</span>
-                          }
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </motion.div>
+                      <span className="text-xl flex-shrink-0">{LEAVE_ICONS[lt.code] || '📅'}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-800">{lt.name}</p>
+                        <p className="text-xs text-gray-400 font-mono">{lt.code}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {lt.isPaid ? <span className="badge badge-success text-xs">Paid</span> : <span className="badge badge-neutral text-xs">Unpaid</span>}
+                        {!lt.isActive && <span className="badge badge-neutral text-xs">Inactive</span>}
+                        {lt.carryForward && <span className="badge badge-info text-xs">Carry Forward</span>}
+                        {lt.requiresApproval !== false && <span className="badge badge-warning text-xs">Approval</span>}
+                      </div>
+                      <div className="flex items-center gap-1 ml-1 flex-shrink-0">
+                        <button
+                          onClick={() => setActiveTab('policy')}
+                          className="px-2 py-1 text-xs text-brand-600 hover:bg-brand-50 rounded-lg transition-colors font-medium whitespace-nowrap"
+                          title="Configure allocation & behaviour in Policy Settings"
+                        >
+                          Configure →
+                        </button>
+                        <button
+                          onClick={() => handleEditLeaveType(lt)}
+                          className="p-1.5 hover:bg-surface-2 rounded-lg transition-colors text-gray-400 hover:text-brand-600"
+                          title="Rename"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteLeaveType(lt.id, lt.name)}
+                          className="p-1.5 hover:bg-red-50 rounded-lg transition-colors text-gray-400 hover:text-red-600"
+                          title="Delete"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </motion.div>
                   ))}
                 </div>
               </>
@@ -2055,27 +1996,10 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
     e.preventDefault();
     if (!formData.name.trim()) { toast.error('Leave type name is required'); return; }
     if (!formData.code.trim()) { toast.error('Leave type code is required'); return; }
-    if (Number(formData.minDays) < 0.5) { toast.error('Minimum days must be at least 0.5'); return; }
 
     const payload: any = {
       name: formData.name.trim(),
       code: formData.code.trim().toUpperCase(),
-      defaultBalance: Number(formData.defaultDays),
-      maxDays: Number(formData.maxDays) || undefined,
-      minDays: Number(formData.minDays),
-      isPaid: formData.isPaid,
-      carryForward: formData.isCarryForward,
-      maxCarryForward: Number(formData.maxCarryForward) || undefined,
-      isActive: formData.isActive,
-      applicableTo: formData.applicableTo,
-      noticeDays: Number(formData.noticeDays),
-      maxPerMonth: Number(formData.maxPerMonth) || undefined,
-      probationMonths: Number(formData.probationMonths),
-      allowSameDay: formData.allowSameDay,
-      allowWeekendAdjacent: formData.allowWeekendAdjacent,
-      requiresApproval: formData.requiresApproval,
-      allowPastDates: formData.allowPastDates,
-      maxAdvanceDays: Number(formData.maxAdvanceDays) || undefined,
       gender: formData.genderRestriction || undefined,
     };
     try {
@@ -2113,7 +2037,7 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
             <h2 className="text-lg font-display font-semibold text-gray-800">
               {isEditing ? 'Edit Leave Type' : 'Create Leave Type'}
             </h2>
-            <p className="text-xs text-gray-400 mt-0.5">Configure all leave settings in one place</p>
+            <p className="text-xs text-gray-400 mt-0.5">Configure behaviour & allocation in Policy Settings after creation</p>
           </div>
           <button aria-label="Close" onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
             <X size={18} className="text-gray-400" />
@@ -2125,208 +2049,41 @@ function LeaveTypeModal({ leaveType, onClose }: { leaveType: any | null; onClose
         {/* Scrollable form body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
-          {/* Policy notice — shown when this leave type has active policy rules */}
-          {hasPolicyRules && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
-              <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-amber-800">Allocation managed by Policy Settings</p>
-                <p className="text-xs text-amber-600 mt-0.5">
-                  Leave allocation, accrual type, and per-category rules are configured in the{' '}
-                  <strong>Policy Settings tab</strong>. The Default Balance below is a legacy fallback
-                  only used when no policy rule exists for an employee.
-                </p>
-              </div>
-            </div>
-          )}
+          <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 flex items-start gap-3">
+            <Info size={14} className="text-blue-500 mt-0.5 shrink-0" />
+            <p className="text-xs text-blue-700 leading-relaxed">
+              Allocation rules and behaviour settings are managed in the{' '}
+              <strong>Policy Settings tab</strong> after creating the leave type.
+            </p>
+          </div>
 
-          {/* ── BASIC INFO ── */}
+          {/* ── IDENTITY ── */}
           <section>
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Basic Info</h3>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Identity</h3>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">
-                  Name *<Tip text="The display name employees see when applying (e.g. 'Casual Leave', 'Sick Leave')." />
-                </label>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Name *</label>
                 <input type="text" value={formData.name} onChange={(e) => set('name', e.target.value)}
                   className="input-glass w-full" placeholder="e.g. Casual Leave" required />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Code *
-                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(short, e.g. CL)</span>
-                  <Tip text="Short unique identifier used in reports and payslips (e.g. CL, SL, EL). Max 10 characters, auto-uppercased." />
+                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(e.g. CL)</span>
                 </label>
                 <input type="text" value={formData.code}
                   onChange={(e) => set('code', e.target.value.toUpperCase())}
                   className="input-glass w-full font-mono" placeholder="CL" required maxLength={10} />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3 mt-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Default Balance
-                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(days/year)</span>
-                  <Tip text="Number of leave days credited to each eligible employee at the start of the year (or on joining)." />
-                </label>
-                <input type="number" value={formData.defaultDays} onChange={(e) => set('defaultDays', e.target.value)}
-                  className="input-glass w-full" min={0} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Min Days
-                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(per request)</span>
-                  <Tip text="Minimum leave duration per request. Use 0.5 to allow half-day applications." />
-                </label>
-                <input type="number" value={formData.minDays} onChange={(e) => set('minDays', e.target.value)}
-                  className="input-glass w-full" min={0.5} step={0.5} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Max Days
-                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(0 = unlimited)</span>
-                  <Tip text="Maximum leave duration per single request. Leave 0 for no upper limit." />
-                </label>
-                <input type="number" value={formData.maxDays} onChange={(e) => set('maxDays', e.target.value)}
-                  className="input-glass w-full" min={0} />
-              </div>
+            <div className="mt-3">
+              <label className="block text-sm font-medium text-gray-600 mb-1">Gender Restriction</label>
+              <select value={formData.genderRestriction} onChange={(e) => set('genderRestriction', e.target.value)}
+                className="input-glass w-full">
+                <option value="">No restriction (all genders)</option>
+                <option value="MALE">Male only</option>
+                <option value="FEMALE">Female only</option>
+              </select>
             </div>
-          </section>
-
-          {/* ── TOGGLES ── */}
-          <section>
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Leave Behaviour</h3>
-            <div className="grid grid-cols-2 gap-2">
-              {([
-                { field: 'isPaid',              label: 'Paid Leave',          hint: 'Counts toward salary (uncheck = LWP/unpaid)' },
-                { field: 'isCarryForward',       label: 'Carry Forward',       hint: 'Unused balance rolls over to next year' },
-                { field: 'allowSameDay',         label: 'Same-Day Apply',      hint: 'Employee can apply on the day leave starts (e.g. Sick)' },
-                { field: 'allowWeekendAdjacent', label: 'Weekend Adjacent',    hint: 'Allow leave adjacent to non-working days (uncheck = sandwich rule)' },
-                { field: 'requiresApproval',     label: 'Requires Approval',   hint: 'Manager/HR must approve before leave is granted' },
-                { field: 'allowPastDates',       label: 'Allow Past Dates',    hint: 'Allow filing leave retroactively (e.g. sick leave filed next day)' },
-                { field: 'isActive',             label: 'Active',              hint: 'Inactive types are hidden from all employees' },
-              ] as { field: string; label: string; hint: string }[]).map(({ field, label, hint }) => (
-                <div key={field} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2.5 gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-700">{label}</p>
-                    <p className="text-[10px] text-gray-400 leading-tight mt-0.5">{hint}</p>
-                  </div>
-                  <Toggle checked={!!(formData as any)[field]} onChange={(v) => set(field, v)} />
-                </div>
-              ))}
-            </div>
-            {/* Max Carry Forward — shown when carry forward is on */}
-            {formData.isCarryForward && (
-              <div className="mt-2 max-w-xs">
-                <label className="block text-xs font-medium text-gray-600 mb-1">Max Carry Forward Days
-                  <span className="ml-1 text-[10px] text-gray-400 font-normal">(0 = unlimited)</span>
-                </label>
-                <input type="number" value={formData.maxCarryForward} onChange={(e) => set('maxCarryForward', e.target.value)}
-                  className="input-glass w-full" min={0} />
-              </div>
-            )}
-          </section>
-
-          {/* ── LIMITS ── */}
-          <section>
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Application Limits</h3>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Notice Days
-                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(0 = same-day OK)</span>
-                  <Tip text="How many calendar days in advance the employee must apply. 0 means they can apply on the same day the leave starts." />
-                </label>
-                <input type="number" value={formData.noticeDays} onChange={(e) => set('noticeDays', e.target.value)}
-                  className="input-glass w-full" min={0} placeholder="0" />
-                <p className="text-[10px] text-gray-400 mt-1">
-                  {Number(formData.noticeDays) === 0 ? 'Can apply same-day' : `Must apply ${formData.noticeDays}d ahead`}
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Max / Month
-                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(0 = unlimited)</span>
-                  <Tip text="Caps how many days of this leave type an employee can take within a single calendar month." />
-                </label>
-                <input type="number" value={formData.maxPerMonth} onChange={(e) => set('maxPerMonth', e.target.value)}
-                  className="input-glass w-full" min={0} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Max Advance
-                  <span className="ml-1 text-[11px] text-gray-400 font-normal">(days, 0 = unlimited)</span>
-                  <Tip text="Furthest future date an employee can book. E.g. 90 means leave can only be planned up to 90 days from today." />
-                </label>
-                <input type="number" value={formData.maxAdvanceDays} onChange={(e) => set('maxAdvanceDays', e.target.value)}
-                  className="input-glass w-full" min={0} placeholder="0 = no limit" />
-                <p className="text-[10px] text-gray-400 mt-1">How far ahead employees can book</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">
-                  Min Service Months
-                  <Tip text="Only applies when 'By Status' is set to All Employees. Employees must complete this many months of service before seeing this leave. Has no effect when a specific status (Active, Probation, etc.) is selected — status is the gate in that case. Set to 0 to allow from day 1." />
-                </label>
-                <input type="number" value={formData.probationMonths} onChange={(e) => set('probationMonths', e.target.value)}
-                  className="input-glass w-full" min={0} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">
-                  Gender Restriction
-                  <Tip text="Restrict this leave to a specific gender — useful for maternity/paternity leave. Leave blank to allow all genders." />
-                </label>
-                <select value={formData.genderRestriction} onChange={(e) => set('genderRestriction', e.target.value)}
-                  className="input-glass w-full">
-                  <option value="">No restriction</option>
-                  <option value="MALE">Male only</option>
-                  <option value="FEMALE">Female only</option>
-                </select>
-              </div>
-            </div>
-          </section>
-
-          {/* ── WHO CAN APPLY ── */}
-          <section>
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Who Can Apply</h3>
-            <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 mb-3 flex items-start gap-2">
-              <Info size={13} className="text-blue-500 mt-0.5 flex-shrink-0" />
-              <p className="text-[11px] text-blue-700 leading-relaxed">
-                Leave visibility is controlled entirely by the <strong>By Status</strong> setting below. Employees only see leaves where their current employment status matches the selected option.
-              </p>
-            </div>
-
-            <label className="block text-sm font-medium text-gray-600 mb-1">By Status
-              <span className="ml-1 text-[11px] text-gray-400 font-normal">(employment status)</span>
-              <Tip text="Filter by the employee's current employment status. Employees in Onboarding status never see any leaves regardless of this setting." />
-            </label>
-            <select value={formData.applicableTo} onChange={(e) => set('applicableTo', e.target.value)}
-              className="input-glass w-full">
-              <optgroup label="General">
-                <option value="ALL">All Employees (except Onboarding)</option>
-              </optgroup>
-              <optgroup label="Active States">
-                <option value="ONBOARDING">Onboarding Only</option>
-                <option value="PROBATION">Probation Only</option>
-                <option value="INTERN">Intern Only</option>
-                <option value="ACTIVE">Active / Full-time Only</option>
-              </optgroup>
-              <optgroup label="Current States">
-                <option value="NOTICE_PERIOD">Notice Period Only</option>
-                <option value="SUSPENDED">Suspended Only</option>
-              </optgroup>
-              <optgroup label="Terminal States">
-                <option value="INACTIVE">Inactive Only</option>
-                <option value="TERMINATED">Terminated Only</option>
-                <option value="ABSCONDED">Absconded Only</option>
-              </optgroup>
-            </select>
-            <p className="text-[10px] text-gray-400 mt-1">
-              {formData.applicableTo === 'ALL' && 'Visible to all employees except those in Onboarding'}
-              {formData.applicableTo === 'ONBOARDING' && 'Only employees currently in Onboarding status can see this leave'}
-              {formData.applicableTo === 'PROBATION' && 'Only employees with Probation status can apply'}
-              {formData.applicableTo === 'INTERN' && 'Only Intern-status employees can apply'}
-              {formData.applicableTo === 'ACTIVE' && 'Only Active / Full-time employees can apply'}
-              {formData.applicableTo === 'NOTICE_PERIOD' && 'Only employees serving Notice Period can apply'}
-              {formData.applicableTo === 'SUSPENDED' && 'Only Suspended employees can apply'}
-              {formData.applicableTo === 'INACTIVE' && 'Only Inactive employees can apply'}
-              {formData.applicableTo === 'TERMINATED' && 'Only Terminated employees can apply'}
-              {formData.applicableTo === 'ABSCONDED' && 'Only Absconded employees can apply'}
-            </p>
           </section>
 
         </div>{/* end scrollable body */}
@@ -2866,8 +2623,9 @@ const ACCRUAL_LABELS: Record<string, string> = {
 function PolicySettingsTab() {
   const { data: policiesData, isLoading, refetch } = useGetLeavePoliciesQuery();
   const [updatePolicy] = useUpdateLeavePolicyMutation();
+  const [updateLeaveType] = useUpdateLeaveTypeMutation();
   const [recalculate] = useRecalculatePolicyAllocationsMutation();
-  const { data: leaveTypesData } = useGetLeaveTypesQuery();
+  const { data: leaveTypesData, refetch: refetchTypes } = useGetLeaveTypesQuery();
 
   const policies: any[] = policiesData?.data ?? [];
   const leaveTypes: any[] = leaveTypesData?.data ?? [];
@@ -2879,6 +2637,46 @@ function PolicySettingsTab() {
   const [durationMonths, setDurationMonths] = useState({ probation: 3, intern: 3 });
   const [rules, setRules] = useState<any[]>([]);
   const [expandedType, setExpandedType] = useState<string | null>(null);
+
+  // Per-type behavioural settings editing
+  const [typeSettingEdit, setTypeSettingEdit] = useState<string | null>(null);
+  const [typeSettingDraft, setTypeSettingDraft] = useState<Record<string, any>>({});
+  const [savingType, setSavingType] = useState(false);
+
+  const initTypeDraft = (lt: any) => ({
+    defaultBalance: Number(lt.defaultBalance) || 0,
+    minDays: lt.minDays ?? 0.5,
+    maxDays: lt.maxDays ?? 0,
+    isPaid: lt.isPaid ?? true,
+    carryForward: lt.carryForward ?? false,
+    maxCarryForward: lt.maxCarryForward ?? 0,
+    isActive: lt.isActive ?? true,
+    noticeDays: lt.noticeDays ?? 0,
+    maxPerMonth: lt.maxPerMonth ?? 0,
+    maxAdvanceDays: lt.maxAdvanceDays ?? 0,
+    allowSameDay: lt.allowSameDay ?? false,
+    allowWeekendAdjacent: lt.allowWeekendAdjacent ?? true,
+    requiresApproval: lt.requiresApproval ?? true,
+    allowPastDates: lt.allowPastDates ?? false,
+    gender: lt.gender || '',
+    probationMonths: lt.probationMonths ?? 0,
+  });
+
+  const handleSaveTypeSetting = async (lt: any) => {
+    const draft = typeSettingDraft[lt.id];
+    if (!draft) return;
+    setSavingType(true);
+    try {
+      await updateLeaveType({ id: lt.id, data: draft }).unwrap();
+      toast.success(`${lt.name} settings saved`);
+      setTypeSettingEdit(null);
+      refetchTypes();
+    } catch (err: any) {
+      toast.error(err?.data?.error?.message || 'Failed to save settings');
+    } finally {
+      setSavingType(false);
+    }
+  };
 
   useEffect(() => {
     if (policy) {
@@ -3042,14 +2840,21 @@ function PolicySettingsTab() {
 
       {/* Per leave type rules */}
       <div className="space-y-3">
-        <p className="text-sm font-semibold text-gray-700">Allocation Rules by Leave Type</p>
-        {leaveTypes.filter((lt: any) => lt.isActive).map((lt: any) => {
+        <p className="text-sm font-semibold text-gray-700">Leave Types — Allocation & Behaviour</p>
+        <p className="text-xs text-gray-400 -mt-1">
+          Expand any leave type to configure allocation per employee category and behaviour settings.
+          {!editing && <span className="ml-1 text-brand-500">Click <strong>Edit Policy</strong> above to change allocation rules.</span>}
+        </p>
+        {leaveTypes
+          .filter((lt: any) => !lt.name.toLowerCase().includes('probation'))
+          .map((lt: any) => {
           const group = groupedRules[lt.id] ?? { leaveType: lt, rules: [] };
           const isExpanded = expandedType === lt.id;
-          const hasRules = group.rules.length > 0;
+          const isEditingThisType = typeSettingEdit === lt.id;
 
           return (
             <div key={lt.id} className="layer-card overflow-hidden">
+              {/* Accordion header */}
               <button
                 className="w-full flex items-center justify-between p-4 text-left hover:bg-surface-2/50 transition-colors"
                 onClick={() => setExpandedType(isExpanded ? null : lt.id)}
@@ -3057,17 +2862,25 @@ function PolicySettingsTab() {
                 <div className="flex items-center gap-3">
                   <span className="text-xl">{LEAVE_ICONS[lt.code] || '📅'}</span>
                   <div>
-                    <p className="text-sm font-semibold text-gray-800">{lt.name} <span className="text-gray-400 font-normal text-xs">({lt.code})</span></p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-gray-800">
+                        {lt.name} <span className="text-gray-400 font-normal text-xs">({lt.code})</span>
+                      </p>
+                      {!lt.isActive && <span className="badge badge-neutral text-[10px]">Inactive</span>}
+                      {lt.isPaid ? <span className="badge badge-success text-[10px]">Paid</span> : <span className="badge badge-neutral text-[10px]">Unpaid</span>}
+                      {lt.carryForward && <span className="badge badge-info text-[10px]">Carry Forward</span>}
+                    </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-                      {(['ACTIVE', 'PROBATION', 'INTERN'] as const).map((cat) => {
+                      {(['ACTIVE', 'PROBATION', 'INTERN', 'NOTICE_PERIOD'] as const).map((cat) => {
                         const yr = getRuleValue(lt.id, cat, 'yearlyDays', 0);
                         const mo = getRuleValue(lt.id, cat, 'monthlyDays', 0);
                         const accrual = getRuleValue(lt.id, cat, 'accrualType', 'UPFRONT');
                         const prorata = getRuleValue(lt.id, cat, 'isProrata', false);
-                        if (!yr && !mo) return null;
+                        const allowed = getRuleValue(lt.id, cat, 'isAllowed', true);
+                        if (!allowed || (!yr && !mo)) return null;
                         return (
                           <span key={cat} className="text-[11px] text-gray-500">
-                            <span className="font-medium text-gray-700">{cat}:</span>{' '}
+                            <span className="font-medium text-gray-700">{CATEGORY_LABELS[cat]}:</span>{' '}
                             {accrual === 'MONTHLY' ? `${mo}/mo` : `${yr}/yr`}
                             {prorata ? ' (pro-rata)' : ''}
                           </span>
@@ -3087,69 +2900,210 @@ function PolicySettingsTab() {
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden border-t border-gray-100"
                   >
-                    <div className="p-4 space-y-3">
-                      {(['ACTIVE', 'PROBATION', 'INTERN', 'NOTICE_PERIOD'] as const).map((category) => (
-                        <div key={category} className="bg-surface-2 rounded-xl p-3">
-                          <p className="text-xs font-semibold text-gray-600 mb-2">{CATEGORY_LABELS[category]}</p>
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div>
-                              <label className="block text-[11px] text-gray-400 mb-1">Yearly Days</label>
-                              <input
-                                type="number" min={0} step={0.5}
-                                value={getRuleValue(lt.id, category, 'yearlyDays', 0)}
-                                disabled={!editing}
-                                onChange={(e) => updateRule(lt.id, category, 'yearlyDays', parseFloat(e.target.value) || 0)}
-                                className="input-glass w-full text-sm disabled:opacity-60"
-                              />
+                    <div className="p-4 space-y-5">
+
+                      {/* ── ALLOCATION RULES PER CATEGORY ── */}
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Allocation by Employee Category</p>
+                        <div className="space-y-2">
+                          {(['ACTIVE', 'PROBATION', 'INTERN', 'NOTICE_PERIOD'] as const).map((category) => (
+                            <div key={category} className="bg-surface-2 rounded-xl p-3">
+                              <p className="text-xs font-semibold text-gray-600 mb-2">{CATEGORY_LABELS[category]}</p>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div>
+                                  <label className="block text-[11px] text-gray-400 mb-1">Yearly Days</label>
+                                  <input
+                                    type="number" min={0} step={0.5}
+                                    value={getRuleValue(lt.id, category, 'yearlyDays', 0)}
+                                    disabled={!editing}
+                                    onChange={(e) => updateRule(lt.id, category, 'yearlyDays', parseFloat(e.target.value) || 0)}
+                                    className="input-glass w-full text-sm disabled:opacity-60"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[11px] text-gray-400 mb-1">Monthly Days</label>
+                                  <input
+                                    type="number" min={0} step={0.5}
+                                    value={getRuleValue(lt.id, category, 'monthlyDays', 0)}
+                                    disabled={!editing}
+                                    onChange={(e) => updateRule(lt.id, category, 'monthlyDays', parseFloat(e.target.value) || 0)}
+                                    className="input-glass w-full text-sm disabled:opacity-60"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[11px] text-gray-400 mb-1">Accrual Type</label>
+                                  <select
+                                    value={getRuleValue(lt.id, category, 'accrualType', 'UPFRONT')}
+                                    disabled={!editing}
+                                    onChange={(e) => updateRule(lt.id, category, 'accrualType', e.target.value)}
+                                    className="input-glass w-full text-sm disabled:opacity-60"
+                                  >
+                                    <option value="UPFRONT">Upfront</option>
+                                    <option value="MONTHLY">Monthly</option>
+                                  </select>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                  <label className="block text-[11px] text-gray-400">Options</label>
+                                  <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={getRuleValue(lt.id, category, 'isProrata', false)}
+                                      disabled={!editing}
+                                      onChange={(e) => updateRule(lt.id, category, 'isProrata', e.target.checked)}
+                                      className="rounded"
+                                    />
+                                    Pro-rata
+                                  </label>
+                                  <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={getRuleValue(lt.id, category, 'isAllowed', true)}
+                                      disabled={!editing}
+                                      onChange={(e) => updateRule(lt.id, category, 'isAllowed', e.target.checked)}
+                                      className="rounded"
+                                    />
+                                    Allowed
+                                  </label>
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                              <label className="block text-[11px] text-gray-400 mb-1">Monthly Days</label>
-                              <input
-                                type="number" min={0} step={0.5}
-                                value={getRuleValue(lt.id, category, 'monthlyDays', 0)}
-                                disabled={!editing}
-                                onChange={(e) => updateRule(lt.id, category, 'monthlyDays', parseFloat(e.target.value) || 0)}
-                                className="input-glass w-full text-sm disabled:opacity-60"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] text-gray-400 mb-1">Accrual Type</label>
-                              <select
-                                value={getRuleValue(lt.id, category, 'accrualType', 'UPFRONT')}
-                                disabled={!editing}
-                                onChange={(e) => updateRule(lt.id, category, 'accrualType', e.target.value)}
-                                className="input-glass w-full text-sm disabled:opacity-60"
-                              >
-                                <option value="UPFRONT">Upfront</option>
-                                <option value="MONTHLY">Monthly</option>
-                              </select>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                              <label className="block text-[11px] text-gray-400">Options</label>
-                              <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={getRuleValue(lt.id, category, 'isProrata', false)}
-                                  disabled={!editing}
-                                  onChange={(e) => updateRule(lt.id, category, 'isProrata', e.target.checked)}
-                                  className="rounded"
-                                />
-                                Pro-rata
-                              </label>
-                              <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={getRuleValue(lt.id, category, 'isAllowed', true)}
-                                  disabled={!editing}
-                                  onChange={(e) => updateRule(lt.id, category, 'isAllowed', e.target.checked)}
-                                  className="rounded"
-                                />
-                                Allowed
-                              </label>
-                            </div>
-                          </div>
+                          ))}
                         </div>
-                      ))}
+                        {!editing && (
+                          <p className="text-[11px] text-gray-400 mt-2 flex items-center gap-1">
+                            <Info size={11} className="shrink-0" />
+                            Click <strong>Edit Policy</strong> at the top to modify allocation rules.
+                          </p>
+                        )}
+                      </div>
+
+                      {/* ── BEHAVIOUR SETTINGS ── */}
+                      <div className="pt-4 border-t border-gray-100">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Behaviour Settings</p>
+                          {!isEditingThisType ? (
+                            <button
+                              onClick={() => {
+                                setTypeSettingDraft((d) => ({ ...d, [lt.id]: initTypeDraft(lt) }));
+                                setTypeSettingEdit(lt.id);
+                              }}
+                              className="px-3 py-1.5 text-xs text-brand-600 hover:bg-brand-50 rounded-lg transition-colors flex items-center gap-1.5 font-medium border border-brand-200"
+                            >
+                              <Pencil size={11} /> Edit Settings
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setTypeSettingEdit(null)}
+                                className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => handleSaveTypeSetting(lt)}
+                                disabled={savingType}
+                                className="px-3 py-1.5 text-xs btn-primary flex items-center gap-1.5"
+                              >
+                                {savingType ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />}
+                                Save
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {(() => {
+                          const draft = isEditingThisType
+                            ? (typeSettingDraft[lt.id] ?? initTypeDraft(lt))
+                            : initTypeDraft(lt);
+                          const setDraftField = (field: string, value: any) =>
+                            setTypeSettingDraft((d) => ({ ...d, [lt.id]: { ...(d[lt.id] ?? initTypeDraft(lt)), [field]: value } }));
+
+                          return (
+                            <div className="space-y-4">
+                              {/* Toggle settings */}
+                              <div className="grid grid-cols-2 gap-2">
+                                {([
+                                  { field: 'isPaid',              label: 'Paid Leave',          hint: 'Counts toward salary (off = LWP/unpaid)' },
+                                  { field: 'carryForward',         label: 'Carry Forward',       hint: 'Unused balance rolls over to next year' },
+                                  { field: 'allowSameDay',         label: 'Same-Day Apply',      hint: 'Apply on the day leave starts (e.g. Sick)' },
+                                  { field: 'allowWeekendAdjacent', label: 'Weekend Adjacent',    hint: 'Allow leave adjacent to weekends/holidays' },
+                                  { field: 'requiresApproval',     label: 'Requires Approval',   hint: 'Manager/HR must approve the request' },
+                                  { field: 'allowPastDates',       label: 'Allow Past Dates',    hint: 'Employee can file leave retroactively' },
+                                  { field: 'isActive',             label: 'Active',              hint: 'Inactive types are hidden from employees' },
+                                ] as { field: string; label: string; hint: string }[]).map(({ field, label, hint }) => (
+                                  <div key={field} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2 gap-2">
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-medium text-gray-700">{label}</p>
+                                      <p className="text-[10px] text-gray-400 leading-tight">{hint}</p>
+                                    </div>
+                                    <Toggle
+                                      checked={!!(draft as any)[field]}
+                                      onChange={(v) => isEditingThisType && setDraftField(field, v)}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Max Carry Forward — visible when carry forward is on */}
+                              {draft.carryForward && (
+                                <div className="max-w-xs">
+                                  <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                                    Max Carry Forward Days <span className="text-gray-400">(0 = unlimited)</span>
+                                  </label>
+                                  <input
+                                    type="number" min={0}
+                                    value={draft.maxCarryForward ?? 0}
+                                    disabled={!isEditingThisType}
+                                    onChange={(e) => setDraftField('maxCarryForward', Number(e.target.value))}
+                                    className="input-glass w-full text-sm disabled:opacity-60"
+                                  />
+                                </div>
+                              )}
+
+                              {/* Numeric limits */}
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                {([
+                                  { field: 'defaultBalance', label: 'Fallback Days',   hint: 'days/yr (used if no policy rule exists)' },
+                                  { field: 'minDays',        label: 'Min Days',         hint: 'per request (0.5 = half-day OK)' },
+                                  { field: 'maxDays',        label: 'Max Days',         hint: 'per request (0 = no limit)' },
+                                  { field: 'noticeDays',     label: 'Notice Days',      hint: 'advance notice required (0 = same-day OK)' },
+                                  { field: 'maxPerMonth',    label: 'Max / Month',      hint: '0 = no monthly cap' },
+                                  { field: 'maxAdvanceDays', label: 'Max Advance',      hint: 'days ahead (0 = no limit)' },
+                                ] as { field: string; label: string; hint: string }[]).map(({ field, label, hint }) => (
+                                  <div key={field}>
+                                    <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                                      {label} <span className="text-gray-400 font-normal">({hint})</span>
+                                    </label>
+                                    <input
+                                      type="number" min={0} step={field === 'minDays' ? 0.5 : 1}
+                                      value={(draft as any)[field] ?? 0}
+                                      disabled={!isEditingThisType}
+                                      onChange={(e) => setDraftField(field, parseFloat(e.target.value) || 0)}
+                                      className="input-glass w-full text-sm disabled:opacity-60"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Gender restriction */}
+                              <div className="max-w-xs">
+                                <label className="block text-[11px] font-medium text-gray-500 mb-1">Gender Restriction</label>
+                                <select
+                                  value={draft.gender || ''}
+                                  disabled={!isEditingThisType}
+                                  onChange={(e) => setDraftField('gender', e.target.value)}
+                                  className="input-glass w-full text-sm disabled:opacity-60"
+                                >
+                                  <option value="">No restriction (all genders)</option>
+                                  <option value="MALE">Male only</option>
+                                  <option value="FEMALE">Female only</option>
+                                </select>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
                     </div>
                   </motion.div>
                 )}
