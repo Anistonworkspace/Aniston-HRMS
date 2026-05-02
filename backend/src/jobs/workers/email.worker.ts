@@ -1434,6 +1434,46 @@ const templates: Record<string, (ctx: Record<string, any>) => string> = {
     standardFooter(ctx.orgName || 'Aniston Technologies', ctx.hrmsUrl)
   ),
 
+  'gps-alert': (ctx) => emailLayout(
+    ctx.isRevoked ? '#D97706' : '#DC2626',
+    ctx.isRevoked ? '&#128204;' : '&#128681;',
+    ctx.alertType,
+    `${esc(ctx.empName)} — ${esc(ctx.orgName)}`,
+    `<p style="color:#111827;font-size:15px;line-height:1.6;margin:0 0 16px;">Dear HR Team,</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">${esc(ctx.alertDesc)}</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F9FAFB;border:1px solid #E5E7EB;margin:16px 0;">
+      <tr><td style="padding:16px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:14px;width:140px;">Employee</td>
+            <td style="padding:6px 0;font-weight:600;font-size:14px;color:#111827;">${esc(ctx.empName)} (${esc(ctx.empCode)})</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:14px;">Department</td>
+            <td style="padding:6px 0;font-size:14px;color:#111827;">${esc(ctx.dept)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:14px;">Time</td>
+            <td style="padding:6px 0;font-size:14px;color:#111827;">${esc(ctx.timestamp)}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#6B7280;font-size:14px;">Alert Type</td>
+            <td style="padding:6px 0;font-size:14px;">
+              <span style="background:${ctx.isRevoked ? '#FEF3C7' : '#FEE2E2'};color:${ctx.isRevoked ? '#92400E' : '#991B1B'};padding:2px 10px;font-size:13px;font-weight:600;">${esc(ctx.alertType)}</span>
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+    <p style="color:#374151;font-size:14px;line-height:1.6;margin:16px 0;">
+      ${ctx.isRevoked
+        ? 'Please follow up with the employee to ensure location permission is re-enabled for accurate field attendance tracking.'
+        : 'The employee\'s GPS trail may be incomplete. Please review their attendance record and contact the employee if required.'}
+    </p>
+    ${ctaButton(ctx.dashboardUrl || 'https://hr.anistonav.com/attendance', 'View Attendance Dashboard')}`,
+    standardFooter(ctx.orgName || 'Aniston Technologies')
+  ),
+
 };
 
 /**

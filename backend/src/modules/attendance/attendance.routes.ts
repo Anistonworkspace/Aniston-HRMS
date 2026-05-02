@@ -6,7 +6,7 @@ import { uploadAttendancePhoto } from '../../middleware/upload.middleware.js';
 import { storageService, StorageFolder } from '../../services/storage.service.js';
 import { BadRequestError } from '../../middleware/errorHandler.js';
 import { compOffService } from './compoff.service.js';
-import { enqueueNotification } from '../../jobs/queues.js';
+import { enqueueNotification, enqueueEmail } from '../../jobs/queues.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
@@ -672,6 +672,114 @@ router.post('/comp-off/redeem', authenticate, async (req, res, next) => {
     }
     const credit = await compOffService.redeemCredit(employeeId, req.user!.organizationId, leaveRequestId);
     res.json({ success: true, data: credit });
+  } catch (err) { next(err); }
+});
+
+// =====================================================================
+// NATIVE GPS SERVICE SUPPORT
+// =====================================================================
+
+// Called by native Android service every 5 min — resets 16-min Redis TTL
+// Backend detects force-stop when key expires without being refreshed
+router.post('/gps-heartbeat', requireEmpPerm('canMarkAttendance'), async (req, res, next) => {
+  try {
+    const { redis } = await import('../../lib/redis.js');
+    const employeeId = req.user!.employeeId;
+    if (!employeeId) { res.status(400).json({ success: false }); return; }
+
+    // Mark employee as actively tracked (no TTL — persists until stopped)
+    const orgId = req.user!.organizationId;
+    const emp = await (await import('../../lib/prisma.js')).prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { firstName: true, lastName: true, employeeCode: true },
+    });
+    const payload = JSON.stringify({
+      orgId,
+      employeeId,
+      name: emp ? `${emp.firstName} ${emp.lastName}` : employeeId,
+      employeeCode: emp?.employeeCode || '',
+      alertSent: false,
+    });
+    // gps:active key has NO TTL — only removed on explicit stop or after alert fires
+    await redis.set(`gps:active:${employeeId}`, payload, 'NX'); // set only if not already set
+    // Heartbeat key: 16-min TTL (3 missed × 5-min interval + 1-min buffer)
+    await redis.setex(`gps:hb:${employeeId}`, 960, '1');
+
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// Called by frontend/native service when tracking stops normally (clock-out)
+router.post('/gps-tracking-stop', requireEmpPerm('canMarkAttendance'), async (req, res, next) => {
+  try {
+    const { redis } = await import('../../lib/redis.js');
+    const employeeId = req.user!.employeeId;
+    if (!employeeId) { res.status(400).json({ success: false }); return; }
+    await redis.del(`gps:active:${employeeId}`, `gps:hb:${employeeId}`);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// Called by frontend when employee revokes GPS permission during active tracking
+router.post('/gps-alert', requireEmpPerm('canMarkAttendance'), async (req, res, next) => {
+  try {
+    const { prisma } = await import('../../lib/prisma.js');
+    const { redis } = await import('../../lib/redis.js');
+    const employeeId = req.user!.employeeId;
+    const orgId = req.user!.organizationId;
+    const alertType: string = req.body?.alertType || 'PERMISSION_REVOKED';
+
+    if (!employeeId) { res.status(400).json({ success: false, error: { message: 'No employee profile' } }); return; }
+
+    const [emp, org, hrUsers] = await Promise.all([
+      prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { firstName: true, lastName: true, employeeCode: true, department: { select: { name: true } } },
+      }),
+      prisma.organization.findUnique({ where: { id: orgId }, select: { name: true, adminNotificationEmail: true } }),
+      prisma.user.findMany({
+        where: { organizationId: orgId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' },
+        select: { email: true },
+      }),
+    ]);
+
+    if (!emp) { res.status(404).json({ success: false, error: { message: 'Employee not found' } }); return; }
+
+    const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
+    const empName = `${emp.firstName} ${emp.lastName}`;
+    const dept = emp.department?.name || '—';
+    const isRevoked = alertType === 'PERMISSION_REVOKED';
+
+    const subject = isRevoked
+      ? `⚠️ GPS Permission Revoked — ${empName} (${emp.employeeCode})`
+      : `🚨 App Force-Stopped During GPS Tracking — ${empName} (${emp.employeeCode})`;
+
+    const recipientSet = new Set<string>(hrUsers.map(u => u.email).filter(Boolean));
+    if (org?.adminNotificationEmail) recipientSet.add(org.adminNotificationEmail);
+
+    for (const to of recipientSet) {
+      await enqueueEmail({
+        to,
+        subject,
+        template: 'gps-alert',
+        context: {
+          empName, empCode: emp.employeeCode, dept,
+          orgName: org?.name || 'Aniston Technologies',
+          alertType: isRevoked ? 'GPS Permission Revoked' : 'App Force-Stopped',
+          alertDesc: isRevoked
+            ? `${empName} revoked location permission while GPS tracking was active.`
+            : `${empName} force-stopped the Aniston HRMS app while GPS tracking was active (no heartbeat for >15 minutes).`,
+          isRevoked,
+          timestamp: now,
+          dashboardUrl: 'https://hr.anistonav.com/attendance',
+        },
+      }).catch(() => {});
+    }
+
+    // Remove from active tracking state in Redis
+    await redis.del(`gps:active:${employeeId}`, `gps:hb:${employeeId}`);
+
+    res.json({ success: true, message: 'Alert sent to HR' });
   } catch (err) { next(err); }
 });
 

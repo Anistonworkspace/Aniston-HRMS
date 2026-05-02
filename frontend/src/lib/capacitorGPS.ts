@@ -1,41 +1,42 @@
 /**
  * capacitorGPS.ts — Unified GPS layer for Aniston HRMS
  *
- * Native Android (Capacitor APK / Play Store):
- *   - Uses @capacitor-community/background-geolocation which starts a foreground
- *     service with a persistent notification. This keeps the Android process alive
- *     when the screen is off or the app is minimised, providing true background GPS.
- *   - Falls back to @capacitor/geolocation for non-watch calls (getCurrentPosition).
+ * Native Android (Capacitor APK):
+ *   - GpsTrackingPlugin starts the native GpsTrackingService (Java ForegroundService).
+ *   - The service survives swipe-from-recents (android:stopWithTask="false").
+ *   - Only Force Stop (Settings → Apps → Force Stop) truly kills it.
+ *   - The service posts GPS points + heartbeats directly to the backend via
+ *     HttpURLConnection — no WebView dependency.
+ *   - A persistent notification shows live lat/lng/speed in the notification center.
+ *   - For foreground UI updates, Geolocation.watchPosition runs in parallel.
  *
  * Native iOS (Capacitor):
- *   - Uses @capacitor/geolocation watchPosition (same as before).
- *   - iOS allows location updates in background if the "Location Updates" background
- *     mode is enabled in the Info.plist (handled by the Geolocation plugin).
+ *   - Uses @capacitor/geolocation watchPosition.
  *
- * Browser / PWA / TWA:
- *   - Falls back to navigator.geolocation.
- *   - Background tracking is NOT possible — Wake Lock keeps the screen on as a
- *     best-effort workaround. FieldSalesView shows a "keep screen on" warning.
+ * Browser / PWA:
+ *   - Falls back to navigator.geolocation (foreground only).
  */
 
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Geolocation, type Position } from '@capacitor/geolocation';
 
-// Lazily imported so the web bundle doesn't fail to load when the plugin
-// is not present (browser builds don't include native modules).
-// The plugin exports a default — we unwrap it here.
-let _bgGeoPromise: Promise<any> | null = null;
-function getBgGeo(): Promise<any> {
-  if (!_bgGeoPromise) {
-    _bgGeoPromise = import('@capacitor-community/background-geolocation')
-      .then((mod) => mod.default ?? mod)
-      .catch((err) => {
-        _bgGeoPromise = null;
-        throw err;
-      });
-  }
-  return _bgGeoPromise;
+// Register our custom native plugin (GpsTrackingPlugin.java in MainActivity)
+interface GpsTrackingPluginDef {
+  start(opts: { backendUrl: string; authToken: string; employeeId: string; orgId: string }): Promise<void>;
+  stop(): Promise<void>;
+  updateToken(opts: { token: string }): Promise<void>;
+  isRunning(): Promise<{ running: boolean }>;
 }
+
+// On web/iOS, all methods are no-ops (plugin is Android-only)
+const GpsTrackingPlugin = registerPlugin<GpsTrackingPluginDef>('GpsTracking', {
+  web: {
+    start: async () => {},
+    stop: async () => {},
+    updateToken: async () => {},
+    isRunning: async () => ({ running: false }),
+  },
+});
 
 export const isNativeAndroid =
   Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
@@ -146,58 +147,67 @@ export async function getCurrentPosition(): Promise<GPSPosition> {
 export interface GPSCredentials {
   backendUrl: string;
   authToken: string;
+  employeeId: string;
+  orgId: string;
 }
 
+/**
+ * Start the native Android GPS foreground service.
+ * Survives swipe-from-recents — only Force Stop truly kills it.
+ * No-op on iOS/web (those platforms use watchPosition directly).
+ */
+export async function startNativeGpsService(credentials: GPSCredentials): Promise<void> {
+  if (!isNativeAndroid) return;
+  await GpsTrackingPlugin.start({
+    backendUrl: credentials.backendUrl,
+    authToken: credentials.authToken,
+    employeeId: credentials.employeeId,
+    orgId: credentials.orgId,
+  });
+}
+
+/** Stop the native Android GPS foreground service. No-op on iOS/web. */
+export async function stopNativeGpsService(): Promise<void> {
+  if (!isNativeAndroid) return;
+  await GpsTrackingPlugin.stop();
+}
+
+/** Update the auth token inside the running native GPS service. No-op on iOS/web. */
+export async function updateNativeGpsToken(token: string): Promise<void> {
+  if (!isNativeAndroid) return;
+  await GpsTrackingPlugin.updateToken({ token });
+}
+
+/** Returns true if the native GPS service is currently running. */
+export async function isNativeGpsRunning(): Promise<boolean> {
+  if (!isNativeAndroid) return false;
+  const { running } = await GpsTrackingPlugin.isRunning();
+  return running;
+}
+
+/**
+ * Start watching position for UI updates.
+ *
+ * On Android: uses Geolocation.watchPosition for foreground UI updates.
+ *   The native GpsTrackingService (started separately) handles background posting.
+ *
+ * On iOS: uses Geolocation.watchPosition.
+ *
+ * On web/PWA: uses navigator.geolocation.watchPosition.
+ */
 export async function watchPosition(
   onPosition: (pos: GPSPosition) => void,
   onError: (err: { code?: number; message: string }) => void,
-  trackingIntervalMinutes = 60,
-  credentials?: GPSCredentials,
+  _trackingIntervalMinutes = 60,
+  _credentials?: GPSCredentials,
 ): Promise<string | number> {
 
-  // ── Native Android: BackgroundGeolocation foreground service ────────────────
-  if (isNativeAndroid) {
-    try {
-      const BackgroundGeolocation = await getBgGeo();
-      const watchId = await BackgroundGeolocation.addWatcher(
-        {
-          backgroundMessage: `Location recorded every ${trackingIntervalMinutes >= 60 ? `${trackingIntervalMinutes / 60}h` : `${trackingIntervalMinutes} min`}`,
-          backgroundTitle: 'Aniston HRMS — Field GPS Active',
-          requestPermissions: true,
-          stale: false,
-          distanceFilter: 0,
-          // Passed to Java service for direct HTTP posting when app is force-killed
-          backendUrl: credentials?.backendUrl ?? '',
-          authToken: credentials?.authToken ?? '',
-        },
-        (position: any, error: any) => {
-          if (error) {
-            onError({ code: error.code, message: error.message ?? 'GPS error' });
-            return;
-          }
-          if (position) {
-            onPosition({
-              lat: position.latitude,
-              lng: position.longitude,
-              accuracy: position.accuracy,
-              speed: position.speed ?? null,
-              timestamp: position.time,
-            });
-          }
-        }
-      );
-      return watchId;
-    } catch (err: any) {
-      console.warn('BackgroundGeolocation unavailable, falling back to standard GPS:', err?.message);
-    }
-  }
-
-  // ── Native iOS: standard Capacitor geolocation ──────────────────────────────
-  if (isNativeIOS) {
+  // ── Native Android / iOS: Capacitor Geolocation for foreground UI ────────────
+  if (isNative) {
     const watchId = await Geolocation.watchPosition(
       { enableHighAccuracy: true, timeout: 30000 },
       (pos, err) => {
-        if (err) { onError({ message: err.message ?? 'GPS error' }); return; }
+        if (err) { onError({ code: (err as any).code, message: err.message ?? 'GPS error' }); return; }
         if (pos) onPosition(toGPSPosition(pos));
       }
     );
@@ -223,16 +233,6 @@ export async function watchPosition(
  * Must be called with the id returned by watchPosition().
  */
 export async function clearWatch(watchId: string | number): Promise<void> {
-  if (isNativeAndroid) {
-    try {
-      const BackgroundGeolocation = await getBgGeo();
-      await BackgroundGeolocation.removeWatcher({ id: watchId as string });
-      return;
-    } catch {
-      // Plugin not available — fall through to standard Capacitor
-    }
-  }
-
   if (isNative) {
     await Geolocation.clearWatch({ id: watchId as string });
   } else {

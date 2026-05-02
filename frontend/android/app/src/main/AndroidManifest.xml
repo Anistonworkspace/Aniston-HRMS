@@ -45,6 +45,17 @@
 
         </activity>
 
+        <!--
+          Native GPS foreground service.
+          android:stopWithTask="false"  — survives swipe-from-recents (only Force Stop kills it).
+          android:foregroundServiceType="location" — required on Android 10+ for background GPS.
+        -->
+        <service
+            android:name=".GpsTrackingService"
+            android:exported="false"
+            android:foregroundServiceType="location"
+            android:stopWithTask="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

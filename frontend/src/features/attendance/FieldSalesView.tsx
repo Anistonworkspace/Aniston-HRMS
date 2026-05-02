@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Play, Square, Clock, Navigation, Wifi, WifiOff, Upload, Smartphone, Battery, AlertTriangle, RefreshCw, Shield, CheckCircle, Tag, X, Flag } from 'lucide-react';
-import { useClockInMutation, useClockOutMutation, useStoreGPSTrailMutation, useRecordGPSConsentMutation, useGetGPSConsentStatusQuery } from './attendanceApi';
+import { useClockInMutation, useClockOutMutation, useStoreGPSTrailMutation, useRecordGPSConsentMutation, useGetGPSConsentStatusQuery, useGpsAlertMutation, useGpsHeartbeatMutation, useGpsTrackingStopMutation } from './attendanceApi';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import {
   isNative,
@@ -12,6 +12,9 @@ import {
   getCurrentPosition,
   watchPosition,
   clearWatch,
+  startNativeGpsService,
+  stopNativeGpsService,
+  updateNativeGpsToken,
 } from '../../lib/capacitorGPS';
 import type { RootState } from '../../app/store';
 import toast from 'react-hot-toast';
@@ -84,6 +87,10 @@ function clearPersistedBuffer() {
 
 export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const accessToken = useSelector((state: RootState) => state.auth.accessToken);
+  const user = useSelector((state: RootState) => state.auth.user);
+
+  // Heartbeat interval ref — cleared on stop/unmount
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Refs declared first — state initializers below must not reference them before this point
   const watchIdRef = useRef<string | number | null>(_gpsWatcher.watchId);
@@ -123,6 +130,9 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
   const [recordConsent, { isLoading: isConsenting }] = useRecordGPSConsentMutation();
   const { data: consentRes } = useGetGPSConsentStatusQuery();
   const consentData = consentRes?.data;
+  const [sendGpsAlert] = useGpsAlertMutation();
+  const [sendGpsHeartbeat] = useGpsHeartbeatMutation();
+  const [sendGpsTrackingStop] = useGpsTrackingStopMutation();
   const hasConsented = consentData?.consented && consentData?.consentVersion === GPS_CONSENT_VERSION;
 
   const isCheckedIn = todayStatus?.isCheckedIn && !todayStatus?.isCheckedOut;
@@ -138,6 +148,13 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
     const mins = Math.round(ms / 60_000);
     return mins >= 60 ? `${mins / 60}h` : `${mins} min`;
   }, [trackingIntervalMs]);
+
+  // Sync rotated auth token into the native GPS service (token refreshes every ~15 min)
+  useEffect(() => {
+    if (isNativeAndroid && accessToken && _gpsWatcher.isActive) {
+      updateNativeGpsToken(accessToken).catch(() => {});
+    }
+  }, [accessToken]);
 
   // H1: On mount, load any persisted buffer and flush immediately if online.
   // This handles the case where the employee reopens the app while already connected
@@ -322,19 +339,24 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       persistBuffer(bufferRef.current);
       if (isOnline) syncPoints();
 
-      // ── watchPosition ────────────────────────────────────────────────────────
-      // Native Android: BackgroundGeolocation foreground service — fires even
-      //   when screen is off / app is minimised. User sees a persistent
-      //   notification: "Aniston HRMS — Field GPS Active".
-      // Native iOS: Geolocation.watchPosition (continues while in background
-      //   if Location background mode is enabled in Info.plist).
-      // Web/PWA: navigator.geolocation.watchPosition (foreground only; screen
-      //   must stay on via Wake Lock).
+      // ── Native Android: start the Java ForegroundService ────────────────────
+      // The service survives swipe-from-recents (android:stopWithTask="false").
+      // It handles GPS posting, persistent notification, and heartbeats natively.
+      // Geolocation.watchPosition below handles UI-only foreground updates.
+      if (isNativeAndroid) {
+        const backendBase = (import.meta.env.VITE_API_URL || 'https://hr.anistonav.com/api').replace(/\/api$/, '');
+        await startNativeGpsService({
+          backendUrl: backendBase,
+          authToken: accessToken || '',
+          employeeId: user?.employeeId || '',
+          orgId: user?.organizationId || '',
+        }).catch((e: any) => console.warn('Native GPS service start failed:', e?.message));
+      }
+
+      // ── watchPosition (foreground UI updates) ────────────────────────────────
+      // All platforms: fires when app is in foreground to keep the map/trail live.
+      // Background GPS is handled by the native service on Android.
       const intervalMinsForPlugin = Math.round(trackingIntervalMs / 60_000);
-      const gpsCredentials = isNativeAndroid ? {
-        backendUrl: (import.meta.env.VITE_API_URL || 'https://hr.anistonav.com/api').replace(/\/api$/, ''),
-        authToken: accessToken || '',
-      } : undefined;
       const newWatchId = await watchPosition(
         (position) => {
           setGpsPaused(false);
@@ -371,25 +393,31 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
         },
         (err) => {
           if (err.code === 1) {
-            toast.error('Location permission was revoked. Please re-enable GPS.', { duration: 6000 });
+            // GPS permission revoked mid-tracking — alert HR immediately
+            toast.error('Location permission was revoked. HR has been notified.', { duration: 8000 });
+            sendGpsAlert({ alertType: 'PERMISSION_REVOKED' }).catch(() => {});
           } else if (err.code === 2) {
             toast.error('GPS signal lost. Will resume automatically.', { duration: 4000 });
           }
           setGpsLostAt(prev => prev ?? Date.now());
         },
         intervalMinsForPlugin,
-        gpsCredentials,
       );
       // Register with singleton so remounts don't spawn a second watcher
       _gpsWatcher.watchId = newWatchId;
       _gpsWatcher.isActive = true;
       watchIdRef.current = newWatchId;
 
+      // ── Heartbeat (web/PWA only — native service handles its own heartbeat) ──
+      // Pings backend every 5 min so the force-stop monitor can detect gaps.
+      if (!isNativeAndroid) {
+        sendGpsHeartbeat().catch(() => {}); // immediate first ping
+        heartbeatIntervalRef.current = setInterval(() => {
+          sendGpsHeartbeat().catch(() => {});
+        }, 5 * 60 * 1000);
+      }
+
       // ── setInterval fallback (PWA/web only) ──────────────────────────────────
-      // On native Android, the BackgroundGeolocation plugin fires natively in
-      // the foreground service — JS timers are frozen in background anyway, so
-      // setInterval is useless on native. Only run on web/PWA where watchPosition
-      // may gap out (screen briefly locks, flaky signal, etc.).
       if (!isNativeAndroid) {
         intervalRef.current = setInterval(async () => {
           const now = Date.now();
@@ -424,6 +452,16 @@ export default function FieldSalesView({ todayStatus }: { todayStatus: any }) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    if (heartbeatIntervalRef.current !== null) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+
+    // Stop native GPS service (Android) and inform backend tracking ended
+    if (isNativeAndroid) {
+      stopNativeGpsService().catch(() => {});
+    }
+    sendGpsTrackingStop().catch(() => {}); // remove from Redis active-tracking set
 
     wakeLock.release();
 

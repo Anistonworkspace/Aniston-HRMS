@@ -418,6 +418,19 @@ export const attendanceApi = api.injectEndpoints({
       query: () => '/shifts/my-history',
       providesTags: ['Attendance'],
     }),
+
+    // ===== NATIVE GPS SERVICE SUPPORT =====
+    gpsHeartbeat: builder.mutation<any, void>({
+      query: () => ({ url: '/attendance/gps-heartbeat', method: 'POST' }),
+    }),
+
+    gpsTrackingStop: builder.mutation<any, void>({
+      query: () => ({ url: '/attendance/gps-tracking-stop', method: 'POST' }),
+    }),
+
+    gpsAlert: builder.mutation<any, { alertType: 'PERMISSION_REVOKED' | 'FORCE_STOPPED' }>({
+      query: (body) => ({ url: '/attendance/gps-alert', method: 'POST', body }),
+    }),
   }),
 });
 
@@ -488,4 +501,8 @@ export const {
   useGetGPSConsentStatusQuery,
   // Shift history (employee self-service)
   useGetMyShiftHistoryQuery,
+  // Native GPS service support
+  useGpsHeartbeatMutation,
+  useGpsTrackingStopMutation,
+  useGpsAlertMutation,
 } = attendanceApi;

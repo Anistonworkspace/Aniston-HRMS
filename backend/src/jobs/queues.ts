@@ -74,6 +74,10 @@ logger.info('✅ BullMQ queues initialized');
     await attendanceCronQueue.add('auto-detect-anomalies', {}, {
       repeat: { pattern: '45 18 * * *' }, // 18:45 UTC = 00:15 IST
     });
+    // GPS heartbeat monitor — every 10 min, detects force-stopped apps
+    await attendanceCronQueue.add('gps-heartbeat-monitor', {}, {
+      repeat: { every: 10 * 60 * 1000 }, // every 10 minutes
+    });
     logger.info('✅ Attendance cron jobs scheduled');
   } catch (err) {
     logger.warn('Failed to schedule attendance cron jobs:', err);

@@ -1,8 +1,9 @@
 import { Worker, Job } from 'bullmq';
-import { bullmqConnection, enqueueNotification } from '../queues.js';
+import { bullmqConnection, enqueueNotification, enqueueEmail } from '../queues.js';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 import { attendanceService } from '../../modules/attendance/attendance.service.js';
+import { redis } from '../../lib/redis.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
@@ -350,6 +351,88 @@ async function autoDetectAnomalies() {
   return { detected: totalDetected, date: dateStr };
 }
 
+/**
+ * Checks all employees with active GPS tracking (gps:active:* in Redis).
+ * If their heartbeat key (gps:hb:*) has expired, they likely force-stopped the app.
+ * Emails HR and removes the stale active-tracking key.
+ */
+async function gpsHeartbeatMonitor() {
+  logger.info('[GPS Monitor] Running heartbeat check…');
+  let alerted = 0;
+
+  // Scan all active tracking keys
+  let cursor = '0';
+  do {
+    const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', 'gps:active:*', 'COUNT', 50);
+    cursor = nextCursor;
+
+    for (const key of keys) {
+      const raw = await redis.get(key);
+      if (!raw) continue;
+
+      let data: { orgId: string; employeeId: string; name: string; employeeCode: string; alertSent: boolean };
+      try { data = JSON.parse(raw); } catch { continue; }
+
+      if (data.alertSent) continue; // already alerted for this session
+
+      const hbKey = `gps:hb:${data.employeeId}`;
+      const heartbeatAlive = await redis.exists(hbKey);
+      if (heartbeatAlive) continue; // heartbeat still valid — all good
+
+      // Heartbeat expired → app was likely force-stopped
+      logger.info(`[GPS Monitor] Heartbeat expired for ${data.name} (${data.employeeCode}) — sending force-stop alert`);
+
+      try {
+        const [org, hrUsers] = await Promise.all([
+          prisma.organization.findUnique({ where: { id: data.orgId }, select: { name: true, adminNotificationEmail: true } }),
+          prisma.user.findMany({
+            where: { organizationId: data.orgId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'HR'] }, status: 'ACTIVE' },
+            select: { email: true },
+          }),
+        ]);
+
+        const emp = await prisma.employee.findUnique({
+          where: { id: data.employeeId },
+          select: { department: { select: { name: true } } },
+        });
+
+        const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
+        const recipientSet = new Set<string>(hrUsers.map(u => u.email).filter(Boolean));
+        if (org?.adminNotificationEmail) recipientSet.add(org.adminNotificationEmail);
+
+        for (const to of recipientSet) {
+          await enqueueEmail({
+            to,
+            subject: `🚨 App Force-Stopped During GPS Tracking — ${data.name} (${data.employeeCode})`,
+            template: 'gps-alert',
+            context: {
+              empName: data.name,
+              empCode: data.employeeCode,
+              dept: emp?.department?.name || '—',
+              orgName: org?.name || 'Aniston Technologies',
+              alertType: 'App Force-Stopped',
+              alertDesc: `${data.name} force-stopped the Aniston HRMS app while GPS tracking was active (no heartbeat received for >15 minutes).`,
+              isRevoked: false,
+              timestamp: now,
+              dashboardUrl: 'https://hr.anistonav.com/attendance',
+            },
+          }).catch(() => {});
+        }
+
+        // Mark alert sent and update key so we don't spam on next run
+        data.alertSent = true;
+        await redis.set(key, JSON.stringify(data), 'EX', 3600); // expire in 1 hour
+        alerted++;
+      } catch (err) {
+        logger.error(`[GPS Monitor] Failed to send alert for ${data.employeeId}:`, err);
+      }
+    }
+  } while (cursor !== '0');
+
+  logger.info(`[GPS Monitor] Done — alerted for ${alerted} employee(s).`);
+  return { alerted };
+}
+
 export function startAttendanceCronWorker() {
   const worker = new Worker(
     'attendance-cron',
@@ -361,6 +444,8 @@ export function startAttendanceCronWorker() {
           return autoMarkAbsent();
         case 'auto-detect-anomalies':
           return autoDetectAnomalies();
+        case 'gps-heartbeat-monitor':
+          return gpsHeartbeatMonitor();
         default:
           logger.warn(`[Attendance Cron] Unknown job name: ${job.name}`);
       }
