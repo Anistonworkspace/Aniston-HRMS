@@ -346,6 +346,21 @@ router.get(
         orderBy: { createdAt: 'desc' },
       });
 
+      // Resolve changedBy UUIDs → human-readable names in one batch query
+      const adjChangedByIds = [...new Set(adjustments.map((a) => a.changedBy).filter(Boolean) as string[])];
+      const adjChangedByUsers = adjChangedByIds.length > 0
+        ? await db.user.findMany({
+            where: { id: { in: adjChangedByIds } },
+            select: { id: true, email: true, employee: { select: { firstName: true, lastName: true } } },
+          })
+        : [];
+      const adjChangedByMap = new Map<string, string>(
+        (adjChangedByUsers as any[]).map((u) => [
+          u.id,
+          u.employee ? `${u.employee.firstName} ${u.employee.lastName}`.trim() : (u.email || 'Unknown'),
+        ])
+      );
+
       const balances = employee.leaveBalances.map((b) => ({
         leaveTypeId: b.leaveTypeId,
         leaveTypeName: b.leaveType.name,
@@ -419,6 +434,7 @@ router.get(
             previousDays: a.previousDays,
             reason: a.reason,
             changedBy: a.changedBy,
+            changedByName: adjChangedByMap.get(a.changedBy ?? '') || 'System',
             calculationBasis: a.calculationBasis,
             createdAt: a.createdAt,
           })),
@@ -611,7 +627,9 @@ router.post('/policies/:id/acknowledge', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// HR: Manually adjust an employee's leave balance allocation for a given leave type + year
+// DEPRECATED — Direct balance set. Use POST /leaves/adjustments/:employeeId instead.
+// This route remains for backward compatibility (policy recalculate + internal HR tools).
+// New code must not call this route. It will be removed in a future release.
 router.patch(
   '/balance/:employeeId/:leaveTypeId',
   authorize(Role.SUPER_ADMIN, Role.ADMIN, Role.HR),
@@ -620,6 +638,9 @@ router.patch(
       const { prisma: db } = await import('../../lib/prisma.js');
       const { enqueueNotification, enqueueEmail } = await import('../../jobs/queues.js');
       const { employeeId, leaveTypeId } = req.params;
+      // Signal deprecation to any API clients that inspect headers
+      res.setHeader('Deprecation', 'true');
+      res.setHeader('X-Deprecated-Use', 'POST /leaves/adjustments/:employeeId');
       const { allocated, reason } = req.body;
       const year = Number(req.body.year) || new Date().getFullYear();
 
@@ -742,7 +763,28 @@ router.get(
         orderBy: { createdAt: 'desc' },
       });
 
-      res.json({ success: true, data: logs });
+      // Resolve changedBy UUIDs → human-readable names in one batch query
+      const changedByIds = [...new Set(logs.map((l) => l.changedBy).filter(Boolean) as string[])];
+      const changedByUsers = changedByIds.length > 0
+        ? await db.user.findMany({
+            where: { id: { in: changedByIds } },
+            select: { id: true, email: true, employee: { select: { firstName: true, lastName: true } } },
+          })
+        : [];
+      const changedByMap = new Map<string, string>(
+        (changedByUsers as any[]).map((u) => [
+          u.id,
+          u.employee ? `${u.employee.firstName} ${u.employee.lastName}`.trim() : (u.email || 'Unknown'),
+        ])
+      );
+
+      res.json({
+        success: true,
+        data: logs.map((l) => ({
+          ...l,
+          changedByName: changedByMap.get(l.changedBy ?? '') || 'System',
+        })),
+      });
     } catch (err) { next(err); }
   }
 );
@@ -793,6 +835,46 @@ router.post(
       const existing = await db.leaveBalance.findUnique({
         where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
       });
+
+      // ── Negative balance guard ───────────────────────────────────────────────
+      // Pre-validate that the adjustment won't make remaining < 0.
+      // Backend is the single source of truth — frontend shows a warning but this
+      // is the definitive gate.
+      const _policyAlloc = existing ? Number((existing as any).policyAllocated ?? existing.allocated) : 0;
+      const _manualAdj   = existing ? Number((existing as any).manualAdjustment ?? 0) : 0;
+      const _effectiveAlloc = _policyAlloc + _manualAdj;
+      const _cf      = existing ? Number(existing.carriedForward) : 0;
+      const _used    = existing ? Number(existing.used) : 0;
+      const _pending = existing ? Number(existing.pending) : 0;
+      const _remaining = _effectiveAlloc + _cf - _used - _pending;
+
+      if (adjustmentType === 'PREVIOUS_USED') {
+        const remainingAfter = _remaining - days;
+        if (remainingAfter < 0) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'INSUFFICIENT_BALANCE',
+              message: `Previous used (${days}d) exceeds available balance. Current remaining: ${_remaining}d, would become ${remainingAfter}d. Add a Balance Correction first, or use Leave Without Pay.`,
+            },
+          });
+        }
+      }
+
+      if (adjustmentType === 'BALANCE_CORRECTION' && days < 0) {
+        const newEffectiveAlloc = Math.max(0, _policyAlloc + _manualAdj + days);
+        const remainingAfter = newEffectiveAlloc + _cf - _used - _pending;
+        if (remainingAfter < 0) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'INSUFFICIENT_BALANCE',
+              message: `Balance correction of ${days}d would result in negative remaining balance (${remainingAfter}d). Reduce the correction amount, or first record used leaves via Previous Used.`,
+            },
+          });
+        }
+      }
+      // ── End negative balance guard ────────────────────────────────────────────
 
       let balance;
       if (adjustmentType === 'PREVIOUS_USED') {

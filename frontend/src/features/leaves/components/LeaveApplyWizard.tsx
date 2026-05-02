@@ -255,6 +255,7 @@ export default function LeaveApplyWizard({ leaveTypes, balances, onClose }: Leav
                   >
                     <option value="">Select leave type...</option>
                     {leaveTypes
+                      .filter((lt: any) => !lt.name.toLowerCase().includes('probation'))
                       .filter((lt: any) => balances.some((b: any) => b.leaveType?.id === lt.id))
                       .map((lt: any) => {
                         const bal = balances.find((b: any) => b.leaveType?.id === lt.id);

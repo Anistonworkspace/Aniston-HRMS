@@ -714,14 +714,15 @@ function LeaveManagementView() {
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-center">
                   <div className="bg-surface-2 rounded-lg py-2 px-3">
-                    <p className="text-lg font-bold font-mono text-brand-600" data-mono>
+                    <p className="text-lg font-bold font-mono text-gray-400" data-mono>
                       {Number(lt.defaultBalance) || 0}
                     </p>
-                    <p className="text-xs text-gray-400">Default Days</p>
+                    <p className="text-xs text-gray-400">Fallback Days</p>
+                    <p className="text-[9px] text-gray-300 leading-tight">policy overrides this</p>
                   </div>
                   <div className="bg-surface-2 rounded-lg py-2 px-3">
                     <p className="text-lg font-bold font-mono text-gray-600" data-mono>
-                      {lt.maxDays ?? 0}
+                      {lt.maxDays ?? '—'}
                     </p>
                     <p className="text-xs text-gray-400">Max Days</p>
                   </div>
@@ -1288,6 +1289,34 @@ function EmployeeLeaveDetailModal({
     if (!days || days === 0) return toast.error('Days must be non-zero');
     if (adjForm.adjustmentType === 'PREVIOUS_USED' && days < 0) return toast.error('Days must be positive for Previous Used');
     if (!adjForm.reason.trim() || adjForm.reason.trim().length < 3) return toast.error('Reason required (min 3 chars)');
+
+    // Client-side negative balance guard — mirrors backend validation for instant feedback
+    const selectedBal = overview?.balances?.find((b: any) => b.leaveTypeId === adjForm.leaveTypeId);
+    if (selectedBal) {
+      const effectiveAlloc = (selectedBal.policyAllocated ?? selectedBal.allocated) + (selectedBal.manualAdjustment ?? 0);
+      const cf = Number(selectedBal.carriedForward ?? 0);
+      const used = Number(selectedBal.used ?? 0);
+      const pending = Number(selectedBal.pending ?? 0);
+      const remaining = effectiveAlloc + cf - used - pending;
+
+      if (adjForm.adjustmentType === 'PREVIOUS_USED' && remaining - days < 0) {
+        return toast.error(
+          `Previous used (${days}d) exceeds available balance (${remaining}d remaining). Add a Balance Correction first.`,
+          { duration: 6000 }
+        );
+      }
+      if (adjForm.adjustmentType === 'BALANCE_CORRECTION' && days < 0) {
+        const newEffectiveAlloc = Math.max(0, effectiveAlloc + days);
+        const remainingAfter = newEffectiveAlloc + cf - used - pending;
+        if (remainingAfter < 0) {
+          return toast.error(
+            `Correction of ${days}d would make remaining balance negative (${remainingAfter}d). Reduce the amount.`,
+            { duration: 6000 }
+          );
+        }
+      }
+    }
+
     try {
       await createAdjustment({
         employeeId,
@@ -1672,7 +1701,7 @@ function EmployeeLeaveDetailModal({
                         </div>
                       </div>
 
-                      {/* Contextual help */}
+                      {/* Contextual help + live remaining preview */}
                       <div className={cn(
                         'rounded-lg px-3 py-2 text-[11px]',
                         adjForm.adjustmentType === 'PREVIOUS_USED'
@@ -1682,6 +1711,31 @@ function EmployeeLeaveDetailModal({
                         {adjForm.adjustmentType === 'PREVIOUS_USED'
                           ? '📋 Previous Used: Adds to the employee\'s used count. Reduces remaining balance. Survives Recalculate All. No fake leave request is created.'
                           : '⚖️ Balance Correction: Adjusts the effective allocated days (+ adds more, − reduces). Stored separately from policy allocation and survives Recalculate All.'}
+                        {/* Live remaining-after preview */}
+                        {(() => {
+                          const daysNum = Number(adjForm.days);
+                          const bal = overview?.balances?.find((b: any) => b.leaveTypeId === adjForm.leaveTypeId);
+                          if (!bal || !adjForm.leaveTypeId || !daysNum) return null;
+                          const effectiveAlloc = (bal.policyAllocated ?? bal.allocated) + (bal.manualAdjustment ?? 0);
+                          const cf = Number(bal.carriedForward ?? 0);
+                          const used = Number(bal.used ?? 0);
+                          const pending = Number(bal.pending ?? 0);
+                          const currentRemaining = effectiveAlloc + cf - used - pending;
+                          let remainingAfter: number;
+                          if (adjForm.adjustmentType === 'PREVIOUS_USED') {
+                            remainingAfter = currentRemaining - daysNum;
+                          } else {
+                            const newEffective = Math.max(0, effectiveAlloc + daysNum);
+                            remainingAfter = newEffective + cf - used - pending;
+                          }
+                          const isNeg = remainingAfter < 0;
+                          return (
+                            <p className={cn('mt-1.5 font-medium', isNeg ? 'text-red-600' : 'text-current')}>
+                              {isNeg ? '⚠ ' : '→ '}Remaining after: <strong>{remainingAfter}d</strong>
+                              {isNeg ? ' — will be rejected by server' : ''}
+                            </p>
+                          );
+                        })()}
                       </div>
 
                       <div className="flex gap-2 justify-end">
@@ -1768,8 +1822,10 @@ function EmployeeLeaveDetailModal({
                                 <td className="px-3 py-2 text-gray-500 max-w-[120px]">
                                   <span className="line-clamp-1 italic">{adj.reason || '—'}</span>
                                 </td>
-                                <td className="px-3 py-2 text-gray-400 font-mono text-[10px]" data-mono>
-                                  {adj.changedBy ? adj.changedBy.slice(0, 8) + '…' : 'System'}
+                                <td className="px-3 py-2 text-gray-500 text-[10px] max-w-[90px]">
+                                  <span className="line-clamp-1" title={adj.changedByName || adj.changedBy || 'System'}>
+                                    {adj.changedByName || (adj.changedBy ? adj.changedBy.slice(0, 8) + '…' : 'System')}
+                                  </span>
                                 </td>
                               </tr>
                             );
